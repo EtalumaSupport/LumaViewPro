@@ -1,0 +1,29 @@
+<MainDisplay>:
+    tab_pos: 'top_mid'
+    size_hint: 1,1
+    pos_hint: {'center_x': .5, 'center_y': .5}
+    do_default_tab: False
+
+    TabbedPanelItem:
+        text: 'Configuration'
+        Label:
+            text: 'Configure microscope settings'
+    TabbedPanelItem:
+        text: 'Live Image'
+        BoxLayout:
+            Label:
+                text: 'Display live image'
+            Image:
+                source: 'sample.tif'
+    TabbedPanelItem:
+        text: 'Motion'
+        Label:
+            text: 'Control microscope motion'
+    TabbedPanelItem:
+        text: 'Protocol'
+        Label:
+            text: 'Define capture protocol'
+    TabbedPanelItem:
+        text: 'Analysis'
+        Label:
+            text: 'Perform image stack analysis'
