@@ -4,9 +4,17 @@
     pos_hint: {'center_x': .5, 'center_y': .5}
     do_default_tab: False
 
+
+
     TabbedPanelItem:
         text: 'Configuration'
         BoxLayout:
+            canvas.before:
+                Color:
+                    rgba: 0.5,0.5,0.5,1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
             orientation: 'vertical'
             GridLayout:
                 cols: 4
