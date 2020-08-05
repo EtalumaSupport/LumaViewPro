@@ -3,18 +3,18 @@
     size_hint: 1,1
     pos_hint: {'center_x': .5, 'center_y': .5}
     do_default_tab: False
+    canvas.before:
+        Color:
+            rgba: 0,0.51,0.59,1
+        Rectangle:
+            pos: self.pos
+            size: self.size
 
 
 
     TabbedPanelItem:
         text: 'Configuration'
         BoxLayout:
-            canvas.before:
-                Color:
-                    rgba: 0.5,0.5,0.5,1
-                Rectangle:
-                    pos: self.pos
-                    size: self.size
             orientation: 'vertical'
             GridLayout:
                 cols: 4
