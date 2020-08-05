@@ -84,7 +84,7 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 class ShaderEditor(FloatLayout):
 
-    source = StringProperty('data/logo/kivy-icon-512.png')
+    source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
 void main (void){
@@ -138,7 +138,7 @@ class LumaViewPlusApp(App):
         if len(sys.argv) > 1:
             kwargs['source'] = sys.argv[1]
         else:
-            kwargs['source'] = 'sample.tif'
+            kwargs['source'] = 'data/sample.tif'
         #return ShaderEditor(**kwargs)
         return MainDisplay()
 
