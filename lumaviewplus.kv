@@ -1,19 +1,19 @@
 <MainDisplay>:
     tab_pos: 'top_mid'
-    size_hint: 1,1
-    pos_hint: {'center_x': .5, 'center_y': .5}
+    tab_width: (self.size[0] / 5) - 1
     do_default_tab: False
-    canvas.before:
+    canvas:
         Color:
-            rgba: 0,0.51,0.59,1
+            rgba: (.188, .188, .188, 1)
+            #rgba: (0   , 0.5 , 0.6 , 1)
         Rectangle:
-            pos: self.pos
             size: self.size
-
-
+            pos: self.pos
 
     TabbedPanelItem:
         text: 'Configuration'
+        id: tabs
+
         BoxLayout:
             orientation: 'vertical'
             GridLayout:
