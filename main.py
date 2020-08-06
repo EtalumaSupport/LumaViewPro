@@ -137,10 +137,10 @@ class LumaViewPlusApp(App):
         kwargs = {}
         if len(sys.argv) > 1:
             kwargs['source'] = sys.argv[1]
-        else:
-            kwargs['source'] = 'data/sample.tif'
-        #return ShaderEditor(**kwargs)
-        return MainDisplay()
+        #else:
+        #    kwargs['source'] = 'data/sample.tif'
+        return ShaderEditor(**kwargs)
+        #return MainDisplay()
 
 if __name__ == '__main__':
     LumaViewPlusApp().run()
