@@ -4,6 +4,7 @@ kivy.require('1.0.6')
 
 from kivy.app import App
 from kivy.uix.tabbedpanel import TabbedPanel
+from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.core.window import Window
 from kivy.factory import Factory
@@ -14,7 +15,7 @@ from kivy.compat import PY2
 
 '''
 Based on code from the kivy example Live Shader Editor found at:
-    
+
  kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
 
 '''
@@ -56,7 +57,7 @@ uniform vec4       color;
 '''
 
 
-class ShaderViewer(FloatLayout):
+class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
     vs = StringProperty(None)
 
@@ -82,7 +83,7 @@ class ShaderViewer(FloatLayout):
 Factory.register('ShaderViewer', cls=ShaderViewer)
 
 
-class ShaderEditor(FloatLayout):
+class ShaderEditor(BoxLayout):
 
     source = StringProperty('data/sample.tif')
 
@@ -139,8 +140,8 @@ class LumaViewPlusApp(App):
             kwargs['source'] = sys.argv[1]
         #else:
         #    kwargs['source'] = 'data/sample.tif'
-        return ShaderEditor(**kwargs)
-        #return MainDisplay()
+        #return ShaderEditor(**kwargs)
+        return MainDisplay()
 
 if __name__ == '__main__':
     LumaViewPlusApp().run()
