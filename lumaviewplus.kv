@@ -89,6 +89,9 @@
         text: 'Live Image'
         BoxLayout:
             orientation: 'horizontal'
+            ShaderEditor:
+			    id: shader
+
             BoxLayout:
                 size_hint: 0.25, 1
                 orientation: 'vertical'
@@ -243,9 +246,6 @@
                     id: rd_exp
                     min: 100
                     max: 200
-
-            ShaderEditor:
-			    id: shader
 
     TabbedPanelItem:
         text: 'Motion'
