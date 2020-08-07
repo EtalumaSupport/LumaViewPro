@@ -44,6 +44,11 @@ varying vec2 tex_coord0;
 /* uniform texture samplers */
 uniform sampler2D texture0;
 
+/* fragment attributes */
+attribute float red_gain;
+attribute float green_gain;
+attribute float blue_gain;
+
 /* custom one */
 uniform vec2 resolution;
 uniform float time;
@@ -100,17 +105,17 @@ class ShaderEditor(BoxLayout):
     #source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
-void main (void){
-    gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
-}
-''')
+		void main (void){
+			gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
+		}
+		''')
     vs = StringProperty('''
-void main (void) {
-  frag_color = color;
-  tex_coord0 = vTexCoords0;
-  gl_Position = projection_mat * modelview_mat * vec4(vPosition.xy, 0.0, 1.0);
-}
-''')
+		void main (void) {
+		  frag_color = color;
+		  tex_coord0 = vTexCoords0;
+		  gl_Position = projection_mat * modelview_mat * vec4(vPosition.xy, 0.0, 1.0);
+		}
+		''')
 
     viewer = ObjectProperty(None)
 
@@ -127,12 +132,8 @@ void main (void) {
             return
 
         # we don't use str() here because it will crash with non-ascii char
-        if PY2:
-            fs = fs_header + self.fs.encode('utf-8')
-            vs = vs_header + self.vs.encode('utf-8')
-        else:
-            fs = fs_header + self.fs
-            vs = vs_header + self.vs
+        fs = fs_header + self.fs
+        vs = vs_header + self.vs
 
         print('-->', fs)
         self.viewer.fs = fs
