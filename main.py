@@ -32,6 +32,11 @@ varying vec2 tex_coord0;
 /* uniform texture samplers */
 uniform sampler2D texture0;
 
+/* fragment attributes */
+attribute float red_gain;
+attribute float green_gain;
+attribute float blue_gain;
+
 /* custom one */
 uniform vec2 resolution;
 uniform float time;
