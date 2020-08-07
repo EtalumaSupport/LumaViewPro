@@ -225,7 +225,7 @@
         orientation: 'vertical'
 
         Camera:
-            id: camera
+            id: scope
             play: True
             index: 0
             resolution: (1280, 720)
@@ -233,7 +233,7 @@
         ToggleButton:
             text: 'Play'
             state: 'down'
-            on_press: camera.play = not camera.play
+            on_press: scope.play = not scope.play
             size_hint_y: None
             height: '48dp'
         Button:

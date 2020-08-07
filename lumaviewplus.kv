@@ -38,7 +38,6 @@
                     pos: self.pos
                     source: root.source
 
-
 <MainDisplay>:
     tab_pos: 'top_mid'
     tab_width: (self.size[0] / 5) - 1
@@ -46,215 +45,266 @@
     canvas:
         Color:
             rgba: (.188, .188, .188, 1)
-            #rgba: (0   , 0.5 , 0.6 , 1)
         Rectangle:
             size: self.size
             pos: self.pos
 
     TabbedPanelItem:
         text: 'Configuration'
-        id: tabs
+        ConfigTab:
 
-        BoxLayout:
-            orientation: 'vertical'
-            GridLayout:
-                cols: 4
-                CheckBox:
-                    active: False
-                CheckBox:
-                    active: False
-                CheckBox:
-                    active: False
-                CheckBox:
-                    active: False
-                Label:
-                    text: 'LS460'
-                Label:
-                    text: 'LS560'
-                Label:
-                    text: 'LS620'
-                Label:
-                    text: 'LS720'
-                Image:
-                    source: './scopes/460.png'
-                Image:
-                    source: './scopes/560.png'
-                Image:
-                    source: './scopes/620.png'
-                Image:
-                    source: './scopes/720.png'
-            Label:
-                text: 'something here'
     TabbedPanelItem:
         text: 'Live Image'
-        BoxLayout:
-            orientation: 'horizontal'
-            BoxLayout:
-                size_hint: 0.25, 1
-                orientation: 'vertical'
-                Label:
-                    text: 'Bright Field'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    outline_color: 0.5, 0.5, 0.5
-                    outline_width: 2
-                Label:
-                    text: 'Illumination'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                Slider:
-                    id: bf_ill
-                    min: 0
-                    max: 100
-                    value: 0
-                Label:
-                    text: 'Gain'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                Slider:
-                    id: bf_gain
-                    min: 0
-                    max: 100
-                    value: 0
-                Label:
-                    text: 'Exposure'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                Slider:
-                    id: bf_exp
-                    min: 100
-                    max: 200
-                    value: 100
-
-                Label:
-                    text: 'Blue'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    outline_color: 0.2, 0.5, 1
-                    outline_width: 1
-                Label:
-                    text: 'Illumination'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    color: 0.2,0.5,1,1
-                Slider:
-                    id: bl_ill
-                    min: 0
-                    max: 100
-                Label:
-                    text: 'Gain'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    color: 0.2,0.5,1,1
-                Slider:
-                    id: bl_gain
-                    min: 0
-                    max: 100
-                Label:
-                    text: 'Exposure'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    color: 0.2,0.5,1,1
-                Slider:
-                    id: bf_exp
-                    min: 100
-                    max: 200
-
-                Label:
-                    text: 'Green'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    outline_color: 0,0.8,0
-                    outline_width: 1
-                Label:
-                    text: 'Illumination'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    color: 0.2,1, 0.2, 1
-                Slider:
-                    id: gr_ill
-                    min: 0
-                    max: 100
-                Label:
-                    text: 'Gain'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    color: 0.2,1, 0.2, 1
-                Slider:
-                    id: gr_gain
-                    min: 0
-                    max: 100
-                Label:
-                    text: 'Exposure'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    color: 0.2,1, 0.2, 1
-                Slider:
-                    id: gr_exp
-                    min: 100
-                    max: 200
-
-                Label:
-                    text: 'Red'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    outline_color: 0.8,0,0
-                    outline_width: 1
-                Label:
-                    text: 'Illumination'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    color: 1, 0.2, 0, 1
-                Slider:
-                    id: rd_ill
-                    min: 0
-                    max: 100
-                Label:
-                    text: 'Gain'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    color: 1, 0.2, 0, 1
-                Slider:
-                    id: rd_gain
-                    min: 0
-                    max: 100
-                Label:
-                    text: 'Exposure'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    color: 1, 0.2, 0, 1
-                Slider:
-                    id: rd_exp
-                    min: 100
-                    max: 200
-
-            ShaderEditor:
+        ImageTab:
 
     TabbedPanelItem:
         text: 'Motion'
-        Label:
-            text: 'Control microscope motion'
+        MotionTab:
+
     TabbedPanelItem:
         text: 'Protocol'
-        Label:
-            text: 'Define capture protocol'
+        ProtocolTab:
+
     TabbedPanelItem:
         text: 'Analysis'
+        AnalysisTab:
+
+# --------------------------------------------
+# Microscope Configuration Layout
+# --------------------------------------------
+<ConfigTab>:
+    orientation: 'vertical'
+    GridLayout:
+        cols: 4
+        CheckBox:
+            active: False
+        CheckBox:
+            active: False
+        CheckBox:
+            active: False
+        CheckBox:
+            active: False
         Label:
-            text: 'Perform image stack analysis'
+            text: 'LS460'
+        Label:
+            text: 'LS560'
+        Label:
+            text: 'LS620'
+        Label:
+            text: 'LS720'
+        Image:
+            source: './scopes/460.png'
+        Image:
+            source: './scopes/560.png'
+        Image:
+            source: './scopes/620.png'
+        Image:
+            source: './scopes/720.png'
+
+# --------------------------------------------
+# Image Settings and Adjustment Layout
+# --------------------------------------------
+<ImageTab>:
+    orientation: 'horizontal'
+    BoxLayout:
+        size_hint: 0.25, 1
+        orientation: 'vertical'
+        Label:
+            text: 'Bright Field'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            outline_color: 0.5, 0.5, 0.5
+            outline_width: 2
+        Label:
+            text: 'Illumination'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+        Slider:
+            id: bf_ill
+            min: 0
+            max: 100
+            value: 0
+        Label:
+            text: 'Gain'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+        Slider:
+            id: bf_gain
+            min: 0
+            max: 100
+            value: 0
+        Label:
+            text: 'Exposure'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+        Slider:
+            id: bf_exp
+            min: 100
+            max: 200
+            value: 100
+
+        Label:
+            text: 'Blue'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            outline_color: 0.2, 0.5, 1
+            outline_width: 1
+        Label:
+            text: 'Illumination'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            color: 0.2,0.5,1,1
+        Slider:
+            id: bl_ill
+            min: 0
+            max: 100
+        Label:
+            text: 'Gain'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            color: 0.2,0.5,1,1
+        Slider:
+            id: bl_gain
+            min: 0
+            max: 100
+        Label:
+            text: 'Exposure'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            color: 0.2,0.5,1,1
+        Slider:
+            id: bf_exp
+            min: 100
+            max: 200
+
+        Label:
+            text: 'Green'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            outline_color: 0,0.8,0
+            outline_width: 1
+        Label:
+            text: 'Illumination'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            color: 0.2,1, 0.2, 1
+        Slider:
+            id: gr_ill
+            min: 0
+            max: 100
+        Label:
+            text: 'Gain'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            color: 0.2,1, 0.2, 1
+        Slider:
+            id: gr_gain
+            min: 0
+            max: 100
+        Label:
+            text: 'Exposure'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            color: 0.2,1, 0.2, 1
+        Slider:
+            id: gr_exp
+            min: 100
+            max: 200
+
+        Label:
+            text: 'Red'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            outline_color: 0.8,0,0
+            outline_width: 1
+        Label:
+            text: 'Illumination'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            color: 1, 0.2, 0, 1
+        Slider:
+            id: rd_ill
+            min: 0
+            max: 100
+        Label:
+            text: 'Gain'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            color: 1, 0.2, 0, 1
+        Slider:
+            id: rd_gain
+            min: 0
+            max: 100
+        Label:
+            text: 'Exposure'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            color: 1, 0.2, 0, 1
+        Slider:
+            id: rd_exp
+            min: 100
+            max: 200
+
+#    GridLayout:
+#        cols: 2
+
+    BoxLayout:
+        orientation: 'vertical'
+
+        #ShaderEditor:
+
+        Camera:
+            id: scope
+            play: True
+            index: 0
+            resolution: (1280, 720)
+
+        ToggleButton:
+            text: 'Play'
+            state: 'down'
+            on_press: scope.play = not scope.play
+            size_hint_y: None
+            height: '48dp'
+        Button:
+            text: 'Capture'
+            size_hint_y: None
+            height: '48dp'
+            on_press: root.capture()
+
+
+# --------------------------------------------
+# Microscope Motion Layout
+# --------------------------------------------
+<MotionTab>:
+    Label:
+        text: 'Control microscope motion'
+
+# --------------------------------------------
+# Protocol Layout
+# --------------------------------------------
+<ProtocolTab>:
+    Label:
+        text: 'Define capture protocol'
+
+# --------------------------------------------
+# Analysis Layout
+# --------------------------------------------
+<AnalysisTab>:
+    Label:
+        text: 'Perform image stack analysis'

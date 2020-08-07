@@ -5,6 +5,7 @@ kivy.require('1.0.6')
 from kivy.app import App
 from kivy.uix.tabbedpanel import TabbedPanel
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.core.window import Window
 from kivy.factory import Factory
@@ -12,6 +13,17 @@ from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty
 from kivy.clock import Clock
 from kivy.compat import PY2
+
+# mew...
+from kivy.uix.widget import Widget
+from kivy.uix.togglebutton import ToggleButton
+
+from kivy.uix.image import Image
+from kivy.graphics.texture import Texture
+from kivy.uix.camera import Camera
+from kivy.core.camera import Camera
+
+import time
 
 '''
 Based on code from the kivy example Live Shader Editor found at:
@@ -133,15 +145,30 @@ void main (void) {
 class MainDisplay(TabbedPanel):
     pass
 
+class ConfigTab(BoxLayout):
+    pass
+
+class ImageTab(BoxLayout):
+    def capture(self):
+        camera = self.ids['scope']
+        timestr = time.strftime("%Y%m%d_%H%M%S")
+        camera.export_to_png("IMG_{}.png".format(timestr))
+
+class MotionTab(BoxLayout):
+    pass
+
+class ProtocolTab(BoxLayout):
+    pass
+
+class AnalysisTab(BoxLayout):
+    pass
+
 class LumaViewPlusApp(App):
     def build(self):
-        kwargs = {}
-        if len(sys.argv) > 1:
-            kwargs['source'] = sys.argv[1]
-        #else:
-        #    kwargs['source'] = 'data/sample.tif'
-        #return ShaderEditor(**kwargs)
         return MainDisplay()
 
-if __name__ == '__main__':
-    LumaViewPlusApp().run()
+    def on_stop(self):
+        #without this, app will not exit even if the window is closed
+        self.capture.release()
+
+LumaViewPlusApp().run()

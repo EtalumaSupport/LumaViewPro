@@ -2,6 +2,7 @@ from kivy.app import App
 from kivy.uix.widget import Widget
 from kivy.uix.tabbedpanel import TabbedPanel
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.togglebutton import ToggleButton
 
 from kivy.uix.image import Image
@@ -19,7 +20,7 @@ class ConfigTab(BoxLayout):
 
 class ImageTab(BoxLayout):
     def capture(self):
-        camera = self.ids['camera']
+        camera = self.ids['scope']
         timestr = time.strftime("%Y%m%d_%H%M%S")
         camera.export_to_png("IMG_{}.png".format(timestr))
 
