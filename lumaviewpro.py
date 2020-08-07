@@ -43,10 +43,10 @@ varying vec2 tex_coord0;
 /* uniform texture samplers */
 uniform sampler2D texture0;
 
-/* fragment attributes */
+/* fragment attributes
 attribute float red_gain;
 attribute float green_gain;
-attribute float blue_gain;
+attribute float blue_gain; */
 
 /* custom one */
 uniform vec2 resolution;
@@ -168,6 +168,12 @@ class AnalysisTab(BoxLayout):
 
 class LumaViewProApp(App):
     def build(self):
+        kwargs = {}
+        if len(sys.argv) > 1:
+            kwargs['source'] = sys.argv[1]
+        #else:
+        #    kwargs['source'] = 'data/sample.tif'
+        #return ShaderEditor(**kwargs)
         return MainDisplay()
 
     def on_stop(self):

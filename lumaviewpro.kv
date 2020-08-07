@@ -28,13 +28,15 @@
                 lexer: GLShaderLexer()
                 on_text: root.vs = args[1]
 
-        ShaderViewer:
+        BoxLayout:
             orientation: 'vertical'
-            Camera:
-                id: scope
-                play: True
-                index: 0
-                resolution: (1920, 1080)
+
+            ShaderViewer:
+                Camera:
+                    id: scope
+                    play: True
+                    index: 0
+                    resolution: (1920, 1080)
             ToggleButton:
                 text: 'Play'
                 state: 'down'
