@@ -3,6 +3,8 @@
 
 <ShaderEditor>:
     BoxLayout:
+        orientation: 'horizontal'
+
         BoxLayout:
             orientation: 'vertical'
             size_hint_x: None
@@ -27,7 +29,6 @@
                 on_text: root.vs = args[1]
 
         ShaderViewer:
-            id: viewer
             Camera:
                 id: scope
                 play: True
@@ -40,6 +41,7 @@
                 #    size: self.size
                 #    pos: self.pos
                 #    source: root.source
+
 
 
 <MainDisplay>:
@@ -112,9 +114,7 @@
     orientation: 'horizontal'
     BoxLayout:
         orientation: 'vertical'
-
         ShaderEditor:
-            id:video
 
         ToggleButton:
             text: 'Play'
@@ -127,8 +127,6 @@
             size_hint_y: None
             height: '48dp'
             on_press: root.video.capture()
-
-
 
     BoxLayout:
         size_hint: 0.25, 1
