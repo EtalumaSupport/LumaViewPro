@@ -120,12 +120,8 @@ void main (void) {
             return
 
         # we don't use str() here because it will crash with non-ascii char
-        if PY2:
-            fs = fs_header + self.fs.encode('utf-8')
-            vs = vs_header + self.vs.encode('utf-8')
-        else:
-            fs = fs_header + self.fs
-            vs = vs_header + self.vs
+        fs = fs_header + self.fs
+        vs = vs_header + self.vs
 
         print('-->', fs)
         self.viewer.fs = fs
