@@ -163,7 +163,7 @@ class ProtocolTab(BoxLayout):
 class AnalysisTab(BoxLayout):
     pass
 
-class LumaViewPlusApp(App):
+class LumaViewProApp(App):
     def build(self):
         return MainDisplay()
 
@@ -171,4 +171,4 @@ class LumaViewPlusApp(App):
         #without this, app will not exit even if the window is closed
         self.capture.release()
 
-LumaViewPlusApp().run()
+LumaViewProApp().run()
