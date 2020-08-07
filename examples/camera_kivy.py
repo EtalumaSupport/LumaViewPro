@@ -10,7 +10,10 @@ Builder.load_string('''
     orientation: 'vertical'
     Camera:
         id: camera
-        play: False
+        play: True
+        index: 0
+        resolution: (1280, 720)
+
     ToggleButton:
         text: 'Play'
         on_press: camera.play = not camera.play

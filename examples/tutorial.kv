@@ -221,9 +221,26 @@
             min: 100
             max: 200
 
-    Image:
-        source: root.camera_src
+    BoxLayout:
+        orientation: 'vertical'
 
+        Camera:
+            id: camera
+            play: True
+            index: 0
+            resolution: (1280, 720)
+
+        ToggleButton:
+            text: 'Play'
+            state: 'down'
+            on_press: camera.play = not camera.play
+            size_hint_y: None
+            height: '48dp'
+        Button:
+            text: 'Capture'
+            size_hint_y: None
+            height: '48dp'
+            on_press: root.capture()
 
 
 # --------------------------------------------
