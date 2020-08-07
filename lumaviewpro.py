@@ -128,6 +128,7 @@ void main (void) {
     def compile_shaders(self, *largs):
         print('try compile')
         if not self.viewer:
+            print('compile fail')
             return
 
         # we don't use str() here because it will crash with non-ascii char

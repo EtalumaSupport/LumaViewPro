@@ -34,15 +34,14 @@
                 play: True
                 index: 0
                 resolution: (1920, 1080)
-            #canvas:
-            #    Color:
-            #        rgb: 1, 1, 1
-                #Rectangle:
-                #    size: self.size
-                #    pos: self.pos
-                #    source: root.source
-
-
+#            id: viewer
+#            canvas:
+#                Color:
+#                    rgb: 1, 1, 1
+#                Rectangle:
+#                    size: self.size
+#                    pos: self.pos
+#                    source: root.source
 
 <MainDisplay>:
     tab_pos: 'top_mid'
@@ -115,6 +114,11 @@
     BoxLayout:
         orientation: 'vertical'
         ShaderEditor:
+#        Camera:
+#            id: scope
+#            play: True
+#            index: 0
+#            resolution: (1920, 1080)
 
         ToggleButton:
             text: 'Play'
