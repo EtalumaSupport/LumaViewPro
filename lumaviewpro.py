@@ -101,7 +101,7 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 class ShaderEditor(BoxLayout):
 
-    #source = StringProperty('data/sample.tif')
+    source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
 void main (void){
@@ -140,6 +140,11 @@ void main (void) {
         print('-->', vs)
         self.viewer.vs = vs
 
+    def capture(self):
+        camera = self.ids['scope']
+        timestr = time.strftime("%Y%m%d_%H%M%S")
+        camera.export_to_png("IMG_{}.png".format(timestr))
+
 
 
 # MainDisplay is organized in lumaviewplus.kv
@@ -150,10 +155,7 @@ class ConfigTab(BoxLayout):
     pass
 
 class ImageTab(BoxLayout):
-    def capture(self):
-        camera = self.ids['scope']
-        timestr = time.strftime("%Y%m%d_%H%M%S")
-        camera.export_to_png("IMG_{}.png".format(timestr))
+    pass
 
 class MotionTab(BoxLayout):
     pass
