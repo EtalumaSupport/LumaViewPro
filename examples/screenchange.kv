@@ -1,0 +1,55 @@
+#: import os os
+<CustomButton@Button>:
+    font_size: 12
+    size_hint: .2,.1
+
+<Picture@Image>:
+    id: image
+
+<ScreenOne>: #define The First Screen
+    BoxLayout: #Use box layout
+        Button: #create button
+            text: "Connect to the Raspberry Pi"
+            on_press:
+                root.login()
+                root.gpioSet()
+                root.manager.transition.direction= "left"
+                root.manager.transition.duration = 1
+                root.manager.current = "screen_two"
+
+<ScreenTwo>:
+    BoxLayout:
+        spacing: 10
+        padding: 10
+        orientation: "vertical"
+        CustomButton:
+            text: "Send an ls command"
+            on_press:
+                root.command("ls")
+
+        CustomButton:
+            text: "Take picture"
+            on_press:
+                root.command("python cameradaemon.py &") #'&' runs script in background
+                root.command("sleep .1")
+                root.command("echo '1' > /sys/class/gpio/gpio18/value") #set pin high to take pic
+                root.command("echo '0' > /sys/class/gpio/gpio18/value") #take it off to prevent another photo
+
+                root.command("scp TEST.jpg Jason@192.168.1.10:C:/Users/Jason/Desktop/RaspberryPiTransferred")
+                root.command("kill %1")
+
+        CustomButton:
+            text: "Create Histogram"
+            on_press:
+                os.system("cd C:/Users/Jason/Desktop/KivyFiles/Histogram & python histogram.py")
+
+
+    AnchorLayout:
+        anchor_x: 'right'
+        anchor_y: 'top'
+        padding: 10
+
+        BoxLayout
+            size_hint: .3, .3
+            Image:
+                source: '../data/sample.tif'
