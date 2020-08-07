@@ -2,9 +2,9 @@
 #: import GLShaderLexer pygments.lexers.GLShaderLexer
 
 <ShaderEditor>:
-    viewer: viewer
-
     BoxLayout:
+        orientation: 'horizontal'
+
         BoxLayout:
             orientation: 'vertical'
             size_hint_x: None
@@ -29,7 +29,6 @@
                 on_text: root.vs = args[1]
 
         ShaderViewer:
-            id: viewer
             canvas:
                 Color:
                     rgb: 1, 1, 1
@@ -37,6 +36,7 @@
                     size: self.size
                     pos: self.pos
                     source: root.source
+
 
 <MainDisplay>:
     tab_pos: 'top_mid'
@@ -93,13 +93,13 @@
         Label:
             text: 'LS720'
         Image:
-            source: './scopes/460.png'
+            source: './data/460.png'
         Image:
-            source: './scopes/560.png'
+            source: './data/560.png'
         Image:
-            source: './scopes/620.png'
+            source: './data/620.png'
         Image:
-            source: './scopes/720.png'
+            source: './data/720.png'
 
 # --------------------------------------------
 # Image Settings and Adjustment Layout
@@ -108,22 +108,17 @@
     orientation: 'horizontal'
     BoxLayout:
         orientation: 'vertical'
-
         ShaderEditor:
-        #Image:
-        #    source: 'data/sample.tif'
-
-        #Camera:
-        #    id: scope
-        #    play: True
-        #    index: 0
-        #    #resolution: (1280, 720)
-        #    resolution: (1920, 1080)
+        #            Camera:
+        #                id: scope
+        #                play: True
+        #                index: 0
+        #                resolution: (1920, 1080)
 
         ToggleButton:
             text: 'Play'
             state: 'down'
-            on_press: scope.play = not scope.play
+            on_press: scope.play = not scope.play # currently not working becuase 'scope' id was moved into <ShaderEditor? instead of <ImageTab>
             size_hint_y: None
             height: '48dp'
         Button:
@@ -131,8 +126,6 @@
             size_hint_y: None
             height: '48dp'
             on_press: root.capture()
-
-
 
     BoxLayout:
         size_hint: 0.25, 1
