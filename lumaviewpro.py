@@ -104,17 +104,17 @@ class ShaderEditor(BoxLayout):
     #source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
-		void main (void){
-			gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
-		}
-		''')
+void main (void){
+	gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
+}
+''')
     vs = StringProperty('''
-		void main (void) {
-		  frag_color = color;
-		  tex_coord0 = vTexCoords0;
-		  gl_Position = projection_mat * modelview_mat * vec4(vPosition.xy, 0.0, 1.0);
-		}
-		''')
+void main (void) {
+  frag_color = color;
+  tex_coord0 = vTexCoords0;
+  gl_Position = projection_mat * modelview_mat * vec4(vPosition.xy, 0.0, 1.0);
+}
+''')
 
     viewer = ObjectProperty(None)
 
