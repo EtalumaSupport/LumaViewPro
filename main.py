@@ -97,7 +97,7 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 class ShaderEditor(BoxLayout):
 
-    source = StringProperty('data/sample.tif')
+    #source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
 void main (void){
