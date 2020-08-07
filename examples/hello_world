@@ -1,2 +1,0 @@
-# comment
-print("Hello World")
