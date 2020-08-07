@@ -12,9 +12,8 @@ from kivy.factory import Factory
 from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty
 from kivy.clock import Clock
-from kivy.compat import PY2
 
-# mew...
+# new...
 from kivy.uix.widget import Widget
 from kivy.uix.togglebutton import ToggleButton
 
