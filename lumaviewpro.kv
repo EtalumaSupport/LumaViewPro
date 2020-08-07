@@ -2,6 +2,7 @@
 #: import GLShaderLexer pygments.lexers.GLShaderLexer
 
 <ShaderEditor>:
+    viewer: viewer
     BoxLayout:
         orientation: 'horizontal'
 
@@ -32,6 +33,7 @@
             orientation: 'vertical'
 
             ShaderViewer:
+                id: viewer
                 Camera:
                     id: scope
                     play: True
