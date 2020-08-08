@@ -43,16 +43,11 @@ varying vec2 tex_coord0;
 /* uniform texture samplers */
 uniform sampler2D texture0;
 
-/* fragment attributes
-attribute float red_gain;
-attribute float green_gain;
-attribute float blue_gain; */
-
 /* custom one */
 uniform vec2 resolution;
 uniform float time;
-uniform vec4 color;
 '''
+#uniform vec4 black_point;
 
 vs_header = '''
 #ifdef GL_ES
@@ -84,12 +79,11 @@ class ShaderViewer(BoxLayout):
         Clock.schedule_interval(self.update_shader, 0)
 
     def update_shader(self, *args):
-        canvas = self.canvas
-        canvas['projection_mat'] = Window.render_context['projection_mat']
-        canvas['time'] = Clock.get_boottime()
-        canvas['resolution'] = list(map(float, self.size))
-        canvas['color'] = (0.8,0.1,0.1,0.1)
-        canvas.ask_update()
+        self.canvas['projection_mat'] = Window.render_context['projection_mat']
+        self.canvas['time'] = Clock.get_boottime()
+        self.canvas['resolution'] = list(map(float, self.size))
+        #self.canvas['black_point'] = (1., )*4 #list(map(float,(0.8,0.1,0.1,0.1)))
+        self.canvas.ask_update()
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -107,8 +101,7 @@ class ShaderEditor(BoxLayout):
 
     fs = StringProperty('''
 void main (void){
-	vec4 
-	gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
+	vec4 gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
 }
 ''')
     vs = StringProperty('''
