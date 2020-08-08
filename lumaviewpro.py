@@ -22,7 +22,7 @@ from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
 from kivy.core.camera import Camera
 
-import time
+#import time
 
 comment = '''
 Based on code from the kivy example Live Shader Editor found at:
@@ -82,11 +82,12 @@ class ShaderViewer(BoxLayout):
         Clock.schedule_interval(self.update_shader, 0)
 
     def update_shader(self, *args):
-        self.canvas['projection_mat'] = Window.render_context['projection_mat']
-        self.canvas['time'] = Clock.get_boottime()
-        self.canvas['resolution'] = list(map(float, self.size))
-        #self.canvas['black_point'] = (1., )*4 #list(map(float,(0.8,0.1,0.1,0.1)))
-        self.canvas.ask_update()
+        c = self.canvas
+        c['projection_mat'] = Window.render_context['projection_mat']
+        c['time'] = Clock.get_boottime()
+        c['resolution'] = list(map(float, self.size))
+        c.ask_update()
+        #c['black_point'] = (1., )*4 #list(map(float,(0.8,0.1,0.1,0.1)))
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -104,7 +105,7 @@ class ShaderEditor(BoxLayout):
 
     fs = StringProperty('''
 void main (void){
-	vec4 gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
+	gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
 }
 ''')
     vs = StringProperty('''
