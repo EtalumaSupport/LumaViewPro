@@ -12,9 +12,8 @@ from kivy.factory import Factory
 from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty
 from kivy.clock import Clock
-from kivy.compat import PY2
 
-# mew...
+# new...
 from kivy.uix.widget import Widget
 from kivy.uix.togglebutton import ToggleButton
 
@@ -44,14 +43,15 @@ varying vec2 tex_coord0;
 /* uniform texture samplers */
 uniform sampler2D texture0;
 
-/* fragment attributes */
+/* fragment attributes
 attribute float red_gain;
 attribute float green_gain;
-attribute float blue_gain;
+attribute float blue_gain; */
 
 /* custom one */
 uniform vec2 resolution;
 uniform float time;
+uniform vec4 color;
 '''
 
 vs_header = '''
@@ -84,11 +84,12 @@ class ShaderViewer(BoxLayout):
         Clock.schedule_interval(self.update_shader, 0)
 
     def update_shader(self, *args):
-        s = self.canvas
-        s['projection_mat'] = Window.render_context['projection_mat']
-        s['time'] = Clock.get_boottime()
-        s['resolution'] = list(map(float, self.size))
-        s.ask_update()
+        canvas = self.canvas
+        canvas['projection_mat'] = Window.render_context['projection_mat']
+        canvas['time'] = Clock.get_boottime()
+        canvas['resolution'] = list(map(float, self.size))
+        canvas['color'] = (0.8,0.1,0.1,0.1)
+        canvas.ask_update()
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -102,20 +103,21 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 class ShaderEditor(BoxLayout):
 
-    #source = StringProperty('data/sample.tif')
+    source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
-		void main (void){
-			gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
-		}
-		''')
+void main (void){
+	vec4 
+	gl_FragColor = frag_color * texture2D(texture0, tex_coord0);
+}
+''')
     vs = StringProperty('''
-		void main (void) {
-		  frag_color = color;
-		  tex_coord0 = vTexCoords0;
-		  gl_Position = projection_mat * modelview_mat * vec4(vPosition.xy, 0.0, 1.0);
-		}
-		''')
+void main (void) {
+  frag_color = color;
+  tex_coord0 = vTexCoords0;
+  gl_Position = projection_mat * modelview_mat * vec4(vPosition.xy, 0.0, 1.0);
+}
+''')
 
     viewer = ObjectProperty(None)
 
@@ -129,6 +131,7 @@ class ShaderEditor(BoxLayout):
     def compile_shaders(self, *largs):
         print('try compile')
         if not self.viewer:
+            print('compile fail')
             return
 
         # we don't use str() here because it will crash with non-ascii char
@@ -140,6 +143,11 @@ class ShaderEditor(BoxLayout):
         print('-->', vs)
         self.viewer.vs = vs
 
+    def capture(self):
+        camera = self.ids['scope']
+        timestr = time.strftime("%Y%m%d_%H%M%S")
+        camera.export_to_png("IMG_{}.png".format(timestr))
+
 
 
 # MainDisplay is organized in lumaviewplus.kv
@@ -150,10 +158,7 @@ class ConfigTab(BoxLayout):
     pass
 
 class ImageTab(BoxLayout):
-    def capture(self):
-        camera = self.ids['scope']
-        timestr = time.strftime("%Y%m%d_%H%M%S")
-        camera.export_to_png("IMG_{}.png".format(timestr))
+    pass
 
 class MotionTab(BoxLayout):
     pass
@@ -166,6 +171,12 @@ class AnalysisTab(BoxLayout):
 
 class LumaViewProApp(App):
     def build(self):
+        kwargs = {}
+        if len(sys.argv) > 1:
+            kwargs['source'] = sys.argv[1]
+        #else:
+        #    kwargs['source'] = 'data/sample.tif'
+        #return ShaderEditor(**kwargs)
         return MainDisplay()
 
     def on_stop(self):
