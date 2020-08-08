@@ -155,7 +155,28 @@ class ConfigTab(BoxLayout):
     pass
 
 class ImageTab(BoxLayout):
-    pass
+    def get_sliders(self):
+        bf_ill = self.ids['bf_ill']
+        bf_gain = self.ids['bf_gain']
+        bf_exp = self.ids['bf_exp']
+
+        bl_ill = self.ids['bl_ill']
+        bl_gain = self.ids['bl_gain']
+        bl_exp = self.ids['bl_exp']
+
+        gr_ill = self.ids['gr_ill']
+        gr_gain = self.ids['gr_gain']
+        gr_exp = self.ids['gr_exp']
+
+        rd_ill = self.ids['rd_ill']
+        rd_gain = self.ids['rd_gain']
+        rd_exp = self.ids['rd_exp']
+
+        sliders = np.array([[bf_ill.value, bf_gain.value, bf_exp.value],
+                            [bl_ill.value, bl_gain.value, bl_exp.value],
+                            [gr_ill.value, gr_gain.value, gr_exp.value],
+                            [rd_ill.value, rd_gain.value, rd_exp.value]])
+        print(sliders)
 
 class MotionTab(BoxLayout):
     pass
