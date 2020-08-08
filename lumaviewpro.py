@@ -1,6 +1,6 @@
 import sys
 import kivy
-kivy.require('1.0.6')
+#kivy.require('1.0.6')
 
 from kivy.app import App
 from kivy.uix.tabbedpanel import TabbedPanel
@@ -24,11 +24,9 @@ from kivy.core.camera import Camera
 
 import time
 
-'''
+comment = '''
 Based on code from the kivy example Live Shader Editor found at:
-
- kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
-
+kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
 '''
 
 fs_header = '''
@@ -43,10 +41,10 @@ varying vec2 tex_coord0;
 /* uniform texture samplers */
 uniform sampler2D texture0;
 
-/* fragment attributes
+/* fragment attributes */
 attribute float red_gain;
 attribute float green_gain;
-attribute float blue_gain; */
+attribute float blue_gain;
 
 /* custom one */
 uniform vec2 resolution;
@@ -101,7 +99,7 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 class ShaderEditor(BoxLayout):
 
-    source = StringProperty('data/sample.tif')
+    #source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
 void main (void){
@@ -143,7 +141,7 @@ void main (void) {
     def capture(self):
         camera = self.ids['scope']
         timestr = time.strftime("%Y%m%d_%H%M%S")
-        camera.export_to_png("IMG_{}.png".format(timestr))
+        camera.export_to_png("capture/IMG_{}.png".format(timestr))
 
 
 
