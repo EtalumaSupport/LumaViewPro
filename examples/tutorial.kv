@@ -65,6 +65,7 @@
 # Image Settings and Adjustment Layout
 # --------------------------------------------
 <ImageTab>:
+    id: image_tab
     orientation: 'horizontal'
     BoxLayout:
         size_hint: 0.25, 1
@@ -141,7 +142,7 @@
             valign: 'middle'
             color: 0.2,0.5,1,1
         Slider:
-            id: bf_exp
+            id: bl_exp
             min: 100
             max: 200
 
@@ -241,6 +242,11 @@
             size_hint_y: None
             height: '48dp'
             on_press: root.capture()
+        Button:
+            text: 'Sliders'
+            size_hint_y: None
+            height: '48dp'
+            on_press: root.get_sliders()
 
 
 # --------------------------------------------
