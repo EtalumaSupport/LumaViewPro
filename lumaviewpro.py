@@ -100,7 +100,7 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 
 class ShaderEditor(BoxLayout):
-
+    #bf_ill = 0
     #source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
@@ -145,7 +145,7 @@ void main (void) {
         timestr = time.strftime("%Y%m%d_%H%M%S")
         camera.export_to_png("capture/IMG_{}.png".format(timestr))
 
-
+    # https://stackoverflow.com/questions/25971650/how-to-pass-properties-from-one-class-to-another-in-kivy
 
 # MainDisplay is organized in lumaviewplus.kv
 class MainDisplay(TabbedPanel):
@@ -156,7 +156,7 @@ class ConfigTab(BoxLayout):
 
 class ImageTab(BoxLayout):
     def get_sliders(self):
-        bf_ill = self.ids['bf_ill']
+        bf_ill = self.ids['bf_ill_id']
         bf_gain = self.ids['bf_gain']
         bf_exp = self.ids['bf_exp']
 
