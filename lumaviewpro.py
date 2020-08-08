@@ -173,11 +173,12 @@ class ImageTab(BoxLayout):
         rd_gain = self.ids['rd_gain']
         rd_exp = self.ids['rd_exp']
 
-        sliders = np.array([[bf_ill.value, bf_gain.value, bf_exp.value],
+        slider_vals = np.array([[bf_ill.value, bf_gain.value, bf_exp.value],
                             [bl_ill.value, bl_gain.value, bl_exp.value],
                             [gr_ill.value, gr_gain.value, gr_exp.value],
                             [rd_ill.value, rd_gain.value, rd_exp.value]])
-        print(sliders)
+        print(slider_vals)
+        return slider_vals
 
 class MotionTab(BoxLayout):
     pass
