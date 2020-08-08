@@ -21,8 +21,8 @@ from kivy.uix.image import Image
 from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
 from kivy.core.camera import Camera
-
-#import time
+import numpy as np
+import time
 
 comment = '''
 Based on code from the kivy example Live Shader Editor found at:
