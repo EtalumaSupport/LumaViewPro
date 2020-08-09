@@ -45,15 +45,20 @@
 
         ToggleButton:
             size_hint: 1, 0.1
-            pos_hint: {"x":0, "y":0.1}
+            pos_hint: {"x":0, "y":0.2}
             text: 'Play'
             state: 'down'
             on_press: scope.play = not scope.play
         Button:
             size_hint: 1, 0.1
-            pos_hint: {"x":0, "y":0}
+            pos_hint: {"x":0, "y":0.1}
             text: 'Capture'
             on_press: root.capture()
+        Button:
+            size_hint: 1, 0.1
+            pos_hint: {"x":0, "y":0}
+            text: 'Get sliders'
+            on_press: root.get_sliders()
 
         # sliders section
         BoxLayout:
