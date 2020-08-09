@@ -71,14 +71,15 @@
             pos: self.pos
 
     TabbedPanelItem:
-        id: config_tab
-        text: 'Configuration'
-        ConfigTab:
-
-    TabbedPanelItem:
         id: image_tab
         text: 'Live Image'
         ImageTab:
+
+# moved to make ImageTab on startup....
+    TabbedPanelItem:
+        id: config_tab
+        text: 'Configuration'
+        ConfigTab:
 
     TabbedPanelItem:
         id: motion_tab
