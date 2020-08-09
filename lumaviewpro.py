@@ -149,7 +149,8 @@ void main (void) {
         timestr = time.strftime("%Y%m%d_%H%M%S")
         camera.export_to_png("capture/IMG_{}.png".format(timestr))
 
-    # print slider values .... this will be removed
+
+    # get slider values and update global variables where needed
     def get_sliders(self):
         global black_point
 
@@ -173,13 +174,9 @@ void main (void) {
                             [bl_ill.value, bl_gain.value, bl_exp.value],
                             [gr_ill.value, gr_gain.value, gr_exp.value],
                             [rd_ill.value, rd_gain.value, rd_exp.value]])
-    #
         black_point = (bf_ill.value, bl_ill.value, gr_ill.value, rd_ill.value)
-        print('Black Point:\n', black_point)
-        print('Slider Values:\n', slider_vals)
-    #     return slider_vals
-
-    # https://stackoverflow.com/questions/25971650/how-to-pass-properties-from-one-class-to-another-in-kivy
+    #    print('Black Point:\n', black_point)
+    #    print('Slider Values:\n', slider_vals)
 
 # MainDisplay is organized in lumaviewplus.kv
 class MainDisplay(TabbedPanel):
