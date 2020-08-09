@@ -210,6 +210,7 @@ class LumaViewProApp(App):
         #without this, app will not exit even if the window is closed
         self.capture.release()
 
+    # temporary function to see if Anna can get it to be called elsewhere
     def testfunction(self):
         print("test function in LumaviewProApp successfully called!")
 
