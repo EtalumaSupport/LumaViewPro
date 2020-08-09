@@ -65,6 +65,10 @@
             size_hint: 0.2, 1
             pos_hint: {"x":0.8, "y":0}
             orientation: 'vertical'
+
+            # -----------------------
+            # BRIGHTFIELD Settings
+            # -----------------------
             Label:
                 text: 'Bright Field'
                 text_size: self.size
@@ -78,9 +82,9 @@
                 halign: 'center'
                 valign: 'middle'
             Slider:
-                id: bf_ill_id
+                id: bf_ill
                 min: 0
-                max: 100
+                max: 1.
                 value: 0
             Label:
                 text: 'Gain'
@@ -90,7 +94,7 @@
             Slider:
                 id: bf_gain
                 min: 0
-                max: 100
+                max: 1.
                 value: 0
             Label:
                 text: 'Exposure'
@@ -101,8 +105,11 @@
                 id: bf_exp
                 min: 100
                 max: 200
-                value: 100
+                value: 150
 
+            # -----------------------
+            # BLUE lED Settings
+            # -----------------------
             Label:
                 text: 'Blue'
                 text_size: self.size
@@ -120,6 +127,7 @@
                 id: bl_ill
                 min: 0
                 max: 1.
+                value: 0
             Label:
                 text: 'Gain'
                 text_size: self.size
@@ -129,7 +137,8 @@
             Slider:
                 id: bl_gain
                 min: 0
-                max: 100
+                max: 1.
+                value: 0
             Label:
                 text: 'Exposure'
                 text_size: self.size
@@ -140,7 +149,11 @@
                 id: bl_exp
                 min: 100
                 max: 200
+                value: 150
 
+            # -----------------------
+            # GREEN lED Settings
+            # -----------------------
             Label:
                 text: 'Green'
                 text_size: self.size
@@ -158,6 +171,7 @@
                 id: gr_ill
                 min: 0
                 max: 1.
+                value: 0
             Label:
                 text: 'Gain'
                 text_size: self.size
@@ -168,6 +182,7 @@
                 id: gr_gain
                 min: 0
                 max: 1.
+                value: 0
             Label:
                 text: 'Exposure'
                 text_size: self.size
@@ -178,7 +193,11 @@
                 id: gr_exp
                 min: 100
                 max: 200
+                value:150
 
+            # -----------------------
+            # RED lED Settings
+            # -----------------------
             Label:
                 text: 'Red'
                 text_size: self.size
@@ -196,6 +215,7 @@
                 id: rd_ill
                 min: 0
                 max: 1.
+                value: 0
             Label:
                 text: 'Gain'
                 text_size: self.size
@@ -205,7 +225,8 @@
             Slider:
                 id: rd_gain
                 min: 0
-                max: 100
+                max: 1.
+                value: 0
             Label:
                 text: 'Exposure'
                 text_size: self.size
@@ -216,19 +237,11 @@
                 id: rd_exp
                 min: 100
                 max: 200
-        # Button:
-        #     text: 'Callback ex: Print Sliders'
-        #     on_press: root.get_sliders()
-        #     on_release: print('app.root.id: ', app.root.id)
-#            canvas:
-#                Color:
-#                    rgb: 1, 1, 1
-#                Rectangle:
-#                    size: self.size
-#                    pos: self.pos
-#                    source: root.source
+                value: 150
 
-
+# -----------------------
+# MAIN DISPLAY
+# -----------------------
 <MainDisplay>:
     id: main_display
     tab_pos: 'top_mid'

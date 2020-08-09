@@ -72,7 +72,9 @@ uniform vec4       color;
 '''
 
 
-black_point = (1. )*4
+global black_point
+black_point = (0., )*4
+#black_point = (1. ,)*4
 
 class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
@@ -147,8 +149,11 @@ void main (void) {
         timestr = time.strftime("%Y%m%d_%H%M%S")
         camera.export_to_png("capture/IMG_{}.png".format(timestr))
 
+    # print slider values .... this will be removed
     def get_sliders(self):
-        bf_ill = self.ids['bf_ill_id']
+        global black_point
+
+        bf_ill = self.ids['bf_ill']
         bf_gain = self.ids['bf_gain']
         bf_exp = self.ids['bf_exp']
 
@@ -169,9 +174,9 @@ void main (void) {
                             [gr_ill.value, gr_gain.value, gr_exp.value],
                             [rd_ill.value, rd_gain.value, rd_exp.value]])
     #
-    #     black_point = (bf_ill.value, bl_ill.value, gr_ill.value, rd_ill.value)
-    #     print(black_point)
-        print(slider_vals)
+        black_point = (bf_ill.value, bl_ill.value, gr_ill.value, rd_ill.value)
+        print('Black Point:\n', black_point)
+        print('Slider Values:\n', slider_vals)
     #     return slider_vals
 
     # https://stackoverflow.com/questions/25971650/how-to-pass-properties-from-one-class-to-another-in-kivy
@@ -209,8 +214,6 @@ class LumaViewProApp(App):
     def on_stop(self):
         #without this, app will not exit even if the window is closed
         self.capture.release()
-
-black_point = (0, )*4
 
 def update_filter_callback():
     pass
