@@ -72,11 +72,11 @@ uniform vec4       color;
 '''
 
 
-black_point = (1. )*4
 
 class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
     vs = StringProperty(None)
+    black_point = (1. )*4
 
     def __init__(self, **kwargs):
         self.canvas = RenderContext()
@@ -103,6 +103,8 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 
 class ShaderEditor(BoxLayout):
+
+    #source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
 void main (void){
@@ -147,7 +149,7 @@ void main (void) {
         timestr = time.strftime("%Y%m%d_%H%M%S")
         camera.export_to_png("capture/IMG_{}.png".format(timestr))
 
-    # https://stackoverflow.com/questions/25971650/how-to-pass-properties-from-one-class-to-another-in-kivy
+
 
 # MainDisplay is organized in lumaviewplus.kv
 class MainDisplay(TabbedPanel):
@@ -157,33 +159,32 @@ class ConfigTab(BoxLayout):
     pass
 
 class ImageTab(BoxLayout):
-    # def get_sliders(self):
-    #     bf_ill = self.ids['bf_ill_id']
-    #     bf_gain = self.ids['bf_gain']
-    #     bf_exp = self.ids['bf_exp']
-    #
-    #     bl_ill = self.ids['bl_ill']
-    #     bl_gain = self.ids['bl_gain']
-    #     bl_exp = self.ids['bl_exp']
-    #
-    #     gr_ill = self.ids['gr_ill']
-    #     gr_gain = self.ids['gr_gain']
-    #     gr_exp = self.ids['gr_exp']
-    #
-    #     rd_ill = self.ids['rd_ill']
-    #     rd_gain = self.ids['rd_gain']
-    #     rd_exp = self.ids['rd_exp']
-    #
-    #     slider_vals = np.array([[bf_ill.value, bf_gain.value, bf_exp.value],
-    #                         [bl_ill.value, bl_gain.value, bl_exp.value],
-    #                         [gr_ill.value, gr_gain.value, gr_exp.value],
-    #                         [rd_ill.value, rd_gain.value, rd_exp.value]])
-    #
-    #     black_point = (bf_ill.value, bl_ill.value, gr_ill.value, rd_ill.value)
-    #     print(black_point)
-    #     print(slider_vals)
-    #     return slider_vals
-    pass
+    def get_sliders(self):
+        bf_ill = self.ids['bf_ill']
+        bf_gain = self.ids['bf_gain']
+        bf_exp = self.ids['bf_exp']
+
+        bl_ill = self.ids['bl_ill']
+        bl_gain = self.ids['bl_gain']
+        bl_exp = self.ids['bl_exp']
+
+        gr_ill = self.ids['gr_ill']
+        gr_gain = self.ids['gr_gain']
+        gr_exp = self.ids['gr_exp']
+
+        rd_ill = self.ids['rd_ill']
+        rd_gain = self.ids['rd_gain']
+        rd_exp = self.ids['rd_exp']
+
+        slider_vals = np.array([[bf_ill.value, bf_gain.value, bf_exp.value],
+                            [bl_ill.value, bl_gain.value, bl_exp.value],
+                            [gr_ill.value, gr_gain.value, gr_exp.value],
+                            [rd_ill.value, rd_gain.value, rd_exp.value]])
+
+        black_point = (bf_ill.value, bl_ill.value, gr_ill.value, rd_ill.value)
+        print(black_point)
+        print(slider_vals)
+        return slider_vals
 
 class MotionTab(BoxLayout):
     pass
@@ -202,16 +203,11 @@ class LumaViewProApp(App):
         #else:
         #    kwargs['source'] = 'data/sample.tif'
         #return ShaderEditor(**kwargs)
-        lumaviewproapp = MainDisplay()
-        return lumaviewproapp
+        return MainDisplay()
 
     def on_stop(self):
         #without this, app will not exit even if the window is closed
         self.capture.release()
-
-    # temporary function to see if Anna can get it to be called elsewhere
-    def testfunction(self):
-        print("test function in LumaviewProApp successfully called!")
 
 black_point = (0, )*4
 
