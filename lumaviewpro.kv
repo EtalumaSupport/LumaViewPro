@@ -49,6 +49,7 @@
                 text: 'Capture'
                 size_hint_y: None
                 height: '48dp'
+                on_press: root.capture()
 
 #            canvas:
 #                Color:
@@ -75,7 +76,7 @@
         text: 'Live Image'
         ImageTab:
 
-# moved to make ImageTab on startup....
+    # moved to make ImageTab on startup
     TabbedPanelItem:
         id: config_tab
         text: 'Configuration'

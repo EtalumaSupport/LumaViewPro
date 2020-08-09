@@ -204,4 +204,7 @@ class LumaViewProApp(App):
         #without this, app will not exit even if the window is closed
         self.capture.release()
 
+    def testfunction(self):
+        print("test function in LumaviewProApp successfully called!")
+
 LumaViewProApp().run()
