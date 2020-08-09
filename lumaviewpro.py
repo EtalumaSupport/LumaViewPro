@@ -71,9 +71,12 @@ uniform mat4       projection_mat;
 uniform vec4       color;
 '''
 
-
 global black_point
 black_point = (0., )*4
+
+global white_point
+white_point = (1., )*4
+
 
 class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
@@ -154,6 +157,7 @@ void main (void) {
     # get slider values and update global variables where needed
     def get_sliders(self):
         global black_point
+        global white_point
 
         bf_ill = self.ids['bf_ill']
         bf_gain = self.ids['bf_gain']
@@ -176,6 +180,7 @@ void main (void) {
                             [gr_ill.value, gr_gain.value, gr_exp.value],
                             [rd_ill.value, rd_gain.value, rd_exp.value]])
         black_point = (rd_ill.value_normalized, gr_ill.value_normalized, bl_ill.value_normalized, bf_ill.value_normalized)
+        white_point = (rd_gain.value_normalized, gr_gain.value_normalized, bl_gain.value_normalized, bf_gain.value_normalized)
     #    print('Black Point:\n', black_point)
     #    print('Slider Values:\n', slider_vals)
 

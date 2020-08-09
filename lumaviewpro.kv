@@ -65,6 +65,8 @@
             size_hint: 0.2, 1
             pos_hint: {"x":0.8, "y":0}
             orientation: 'vertical'
+            #canvas:
+
 
             # -----------------------
             # BRIGHTFIELD Settings
@@ -97,6 +99,7 @@
                 min: 0
                 max: 100
                 value: 0
+                on_value: root.get_sliders()
             Label:
                 text: 'Exposure'
                 text_size: self.size
@@ -107,6 +110,7 @@
                 min: 100
                 max: 200
                 value: 150
+                on_value: root.get_sliders()
 
             # -----------------------
             # BLUE lED Settings
@@ -141,6 +145,7 @@
                 min: 0
                 max: 100
                 value: 0
+                on_value: root.get_sliders()
             Label:
                 text: 'Exposure'
                 text_size: self.size
@@ -152,6 +157,7 @@
                 min: 100
                 max: 200
                 value: 150
+                on_value: root.get_sliders()
 
             # -----------------------
             # GREEN lED Settings
@@ -186,6 +192,7 @@
                 min: 0
                 max: 100
                 value: 0
+                on_value: root.get_sliders()
             Label:
                 text: 'Exposure'
                 text_size: self.size
@@ -197,6 +204,7 @@
                 min: 100
                 max: 200
                 value:150
+                on_value: root.get_sliders()
 
             # -----------------------
             # RED lED Settings
@@ -231,6 +239,7 @@
                 min: 0
                 max: 100
                 value: 0
+                on_value: root.get_sliders()
             Label:
                 text: 'Exposure'
                 text_size: self.size
@@ -242,6 +251,7 @@
                 min: 100
                 max: 200
                 value: 150
+                on_value: root.get_sliders()
 
 # -----------------------
 # MAIN DISPLAY
