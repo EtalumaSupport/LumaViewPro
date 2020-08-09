@@ -79,7 +79,7 @@ black_point = (0., )*4
 class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
     vs = StringProperty(None)
-    black_point = (1. )*4
+    #black_point = (1. )*4
 
     def __init__(self, **kwargs):
         self.canvas = RenderContext()
@@ -87,13 +87,13 @@ class ShaderViewer(BoxLayout):
         Clock.schedule_interval(self.update_shader, 1)
 
     def update_shader(self, *args):
+        print(black_point)
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
         c['black_point'] = black_point
         c.ask_update()
-        print(black_point)
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
