@@ -197,7 +197,8 @@ class LumaViewProApp(App):
         #else:
         #    kwargs['source'] = 'data/sample.tif'
         #return ShaderEditor(**kwargs)
-        return MainDisplay()
+        lumaviewproapp = MainDisplay()
+        return lumaviewproapp
 
     def on_stop(self):
         #without this, app will not exit even if the window is closed
