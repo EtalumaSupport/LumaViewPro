@@ -207,9 +207,9 @@ class LumaViewProApp(App):
         #return ShaderEditor(**kwargs)
         return MainDisplay()
 
-    def on_stop(self):
-        #without this, app will not exit even if the window is closed
-        self.capture.release()
+    # def on_stop(self):
+    #     #without this, app will not exit even if the window is closed
+    #     self.capture.release()
 
 def update_filter_callback():
     pass
