@@ -49,7 +49,7 @@
                 text: 'Capture'
                 size_hint_y: None
                 height: '48dp'
-                on_press: root.capture()
+
 #            canvas:
 #                Color:
 #                    rgb: 1, 1, 1
@@ -74,6 +74,12 @@
         id: image_tab
         text: 'Live Image'
         ImageTab:
+
+# moved to make ImageTab on startup....
+    TabbedPanelItem:
+        id: config_tab
+        text: 'Configuration'
+        ConfigTab:
 
     TabbedPanelItem:
         id: config_tab
@@ -133,6 +139,7 @@
 <ImageTab>:
     orientation: 'horizontal'
     ShaderEditor:
+    #    bf_ill: root.ids['bf_ill_id'].value
 
     BoxLayout:
         size_hint: 0.25, 1
@@ -150,7 +157,7 @@
             halign: 'center'
             valign: 'middle'
         Slider:
-            id: bf_ill
+            id: bf_ill_id
             min: 0
             max: 100
             value: 0
@@ -289,13 +296,9 @@
             min: 100
             max: 200
         Button:
-            text: 'Sliders'
-            size_hint_y: None
-            height: '48dp'
+            text: 'Callback ex: Print Sliders'
             on_press: root.get_sliders()
             on_release: print(app.root.id)
-
-
 
 # --------------------------------------------
 # Microscope Motion Layout
