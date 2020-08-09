@@ -8,8 +8,8 @@
     # code editing section
     BoxLayout:
         orientation: 'vertical'
-        size_hint_x: None
-        width: 350
+        size_hint_x: .2
+        #width: 350
 
         Label:
             text: 'Fragment Shader'
@@ -30,196 +30,218 @@
             on_text: root.vs = args[1]
 
     # viewer and camera control buttons section
-    BoxLayout:
-        orientation: 'vertical'
+    FloatLayout:
+        size_hint: 0.8, 1
 
         ShaderViewer:
             id: viewer_id
+            size_hint: 1, 1
+            pos_hint: {"x":0, "y":0}
             Camera:
                 id: scope
                 play: True
                 index: 0
                 resolution: (1920, 1080)
+
         ToggleButton:
+            size_hint: 1, 0.1
+            pos_hint: {"x":0, "y":0.2}
             text: 'Play'
             state: 'down'
-            on_press: scope.play = not scope.play # currently not working becuase 'scope' id was moved into <ShaderEditor? instead of <ImageTab>
-            size_hint_y: None
-            height: '48dp'
+            on_press: scope.play = not scope.play
         Button:
+            size_hint: 1, 0.1
+            pos_hint: {"x":0, "y":0.1}
             text: 'Capture'
-            size_hint_y: None
-            height: '48dp'
             on_press: root.capture()
+        Button:
+            size_hint: 1, 0.1
+            pos_hint: {"x":0, "y":0}
+            text: 'Get sliders'
+            on_press: root.get_sliders()
 
-    # sliders section
-    BoxLayout:
-        size_hint: 0.25, 1
-        orientation: 'vertical'
-        Label:
-            text: 'Bright Field'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            outline_color: 0.5, 0.5, 0.5
-            outline_width: 2
-        Label:
-            text: 'Illumination'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-        Slider:
-            id: bf_ill_id
-            min: 0
-            max: 100
-            value: 0
-        Label:
-            text: 'Gain'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-        Slider:
-            id: bf_gain
-            min: 0
-            max: 100
-            value: 0
-        Label:
-            text: 'Exposure'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-        Slider:
-            id: bf_exp
-            min: 100
-            max: 200
-            value: 100
+        # sliders section
+        BoxLayout:
+            size_hint: 0.2, 1
+            pos_hint: {"x":0.8, "y":0}
+            orientation: 'vertical'
 
-        Label:
-            text: 'Blue'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            outline_color: 0.2, 0.5, 1
-            outline_width: 1
-        Label:
-            text: 'Illumination'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            color: 0.2,0.5,1,1
-        Slider:
-            id: bl_ill
-            min: 0
-            max: 1.
-        Label:
-            text: 'Gain'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            color: 0.2,0.5,1,1
-        Slider:
-            id: bl_gain
-            min: 0
-            max: 100
-        Label:
-            text: 'Exposure'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            color: 0.2,0.5,1,1
-        Slider:
-            id: bl_exp
-            min: 100
-            max: 200
+            # -----------------------
+            # BRIGHTFIELD Settings
+            # -----------------------
+            Label:
+                text: 'Bright Field'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                outline_color: 0.5, 0.5, 0.5
+                outline_width: 2
+            Label:
+                text: 'Illumination'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+            Slider:
+                id: bf_ill
+                min: 0
+                max: 1.
+                value: 0
+            Label:
+                text: 'Gain'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+            Slider:
+                id: bf_gain
+                min: 0
+                max: 1.
+                value: 0
+            Label:
+                text: 'Exposure'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+            Slider:
+                id: bf_exp
+                min: 100
+                max: 200
+                value: 150
 
-        Label:
-            text: 'Green'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            outline_color: 0,0.8,0
-            outline_width: 1
-        Label:
-            text: 'Illumination'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            color: 0.2,1, 0.2, 1
-        Slider:
-            id: gr_ill
-            min: 0
-            max: 1.
-        Label:
-            text: 'Gain'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            color: 0.2,1, 0.2, 1
-        Slider:
-            id: gr_gain
-            min: 0
-            max: 1.
-        Label:
-            text: 'Exposure'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            color: 0.2,1, 0.2, 1
-        Slider:
-            id: gr_exp
-            min: 100
-            max: 200
+            # -----------------------
+            # BLUE lED Settings
+            # -----------------------
+            Label:
+                text: 'Blue'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                outline_color: 0.2, 0.5, 1
+                outline_width: 1
+            Label:
+                text: 'Illumination'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                color: 0.2,0.5,1,1
+            Slider:
+                id: bl_ill
+                min: 0
+                max: 1.
+                value: 0
+            Label:
+                text: 'Gain'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                color: 0.2,0.5,1,1
+            Slider:
+                id: bl_gain
+                min: 0
+                max: 1.
+                value: 0
+            Label:
+                text: 'Exposure'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                color: 0.2,0.5,1,1
+            Slider:
+                id: bl_exp
+                min: 100
+                max: 200
+                value: 150
 
-        Label:
-            text: 'Red'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            outline_color: 0.8,0,0
-            outline_width: 1
-        Label:
-            text: 'Illumination'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            color: 1, 0.2, 0, 1
-        Slider:
-            id: rd_ill
-            min: 0
-            max: 1.
-        Label:
-            text: 'Gain'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            color: 1, 0.2, 0, 1
-        Slider:
-            id: rd_gain
-            min: 0
-            max: 100
-        Label:
-            text: 'Exposure'
-            text_size: self.size
-            halign: 'center'
-            valign: 'middle'
-            color: 1, 0.2, 0, 1
-        Slider:
-            id: rd_exp
-            min: 100
-            max: 200
-        # Button:
-        #     text: 'Callback ex: Print Sliders'
-        #     on_press: root.get_sliders()
-        #     on_release: print('app.root.id: ', app.root.id)
-#            canvas:
-#                Color:
-#                    rgb: 1, 1, 1
-#                Rectangle:
-#                    size: self.size
-#                    pos: self.pos
-#                    source: root.source
+            # -----------------------
+            # GREEN lED Settings
+            # -----------------------
+            Label:
+                text: 'Green'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                outline_color: 0,0.8,0
+                outline_width: 1
+            Label:
+                text: 'Illumination'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                color: 0.2,1, 0.2, 1
+            Slider:
+                id: gr_ill
+                min: 0
+                max: 1.
+                value: 0
+            Label:
+                text: 'Gain'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                color: 0.2,1, 0.2, 1
+            Slider:
+                id: gr_gain
+                min: 0
+                max: 1.
+                value: 0
+            Label:
+                text: 'Exposure'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                color: 0.2,1, 0.2, 1
+            Slider:
+                id: gr_exp
+                min: 100
+                max: 200
+                value:150
 
+            # -----------------------
+            # RED lED Settings
+            # -----------------------
+            Label:
+                text: 'Red'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                outline_color: 0.8,0,0
+                outline_width: 1
+            Label:
+                text: 'Illumination'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                color: 1, 0.2, 0, 1
+            Slider:
+                id: rd_ill
+                min: 0
+                max: 1.
+                value: 0
+            Label:
+                text: 'Gain'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                color: 1, 0.2, 0, 1
+            Slider:
+                id: rd_gain
+                min: 0
+                max: 1.
+                value: 0
+            Label:
+                text: 'Exposure'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                color: 1, 0.2, 0, 1
+            Slider:
+                id: rd_exp
+                min: 100
+                max: 200
+                value: 150
 
+# -----------------------
+# MAIN DISPLAY
+# -----------------------
 <MainDisplay>:
     id: main_display
     tab_pos: 'top_mid'
