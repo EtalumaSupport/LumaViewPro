@@ -79,6 +79,7 @@ black_point = (0., )*4
 class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
     vs = StringProperty(None)
+    black_point = (1. )*4
 
     def __init__(self, **kwargs):
         self.canvas = RenderContext()
@@ -105,6 +106,8 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 
 class ShaderEditor(BoxLayout):
+
+    #source = StringProperty('data/sample.tif')
 
     fs = StringProperty('''
 void main (void){
@@ -205,8 +208,7 @@ class LumaViewProApp(App):
         #else:
         #    kwargs['source'] = 'data/sample.tif'
         #return ShaderEditor(**kwargs)
-        lumaviewproapp = MainDisplay()
-        return lumaviewproapp
+        return MainDisplay()
 
     def on_stop(self):
         #without this, app will not exit even if the window is closed
