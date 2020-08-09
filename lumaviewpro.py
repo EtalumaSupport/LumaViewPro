@@ -74,17 +74,15 @@ uniform vec4       color;
 
 global black_point
 black_point = (0., )*4
-#black_point = (1. ,)*4
 
 class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
     vs = StringProperty(None)
-    #black_point = (1. )*4
 
     def __init__(self, **kwargs):
         self.canvas = RenderContext()
         super(ShaderViewer, self).__init__(**kwargs)
-        Clock.schedule_interval(self.update_shader, 1)
+        Clock.schedule_interval(self.update_shader, 0)
 
     def update_shader(self, *args):
         print(black_point)
@@ -177,7 +175,7 @@ void main (void) {
                             [bl_ill.value, bl_gain.value, bl_exp.value],
                             [gr_ill.value, gr_gain.value, gr_exp.value],
                             [rd_ill.value, rd_gain.value, rd_exp.value]])
-        black_point = (bf_ill.value_normalized, bl_ill.value_normalized, gr_ill.value_normalized, rd_ill.value_normalized)
+        black_point = (rd_ill.value_normalized, gr_ill.value_normalized, bl_ill.value_normalized, bf_ill.value_normalized)
     #    print('Black Point:\n', black_point)
     #    print('Slider Values:\n', slider_vals)
 
