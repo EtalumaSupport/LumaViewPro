@@ -85,7 +85,6 @@ class ShaderViewer(BoxLayout):
         Clock.schedule_interval(self.update_shader, 0)
 
     def update_shader(self, *args):
-        print(black_point)
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
