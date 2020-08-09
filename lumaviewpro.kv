@@ -83,6 +83,11 @@
         ConfigTab:
 
     TabbedPanelItem:
+        id: config_tab
+        text: 'Configuration'
+        ConfigTab:
+
+    TabbedPanelItem:
         id: motion_tab
         text: 'Motion'
         MotionTab:
@@ -194,7 +199,7 @@
         Slider:
             id: bl_ill
             min: 0
-            max: 100
+            max: 1.
         Label:
             text: 'Gain'
             text_size: self.size
@@ -232,7 +237,7 @@
         Slider:
             id: gr_ill
             min: 0
-            max: 100
+            max: 1.
         Label:
             text: 'Gain'
             text_size: self.size
@@ -242,7 +247,7 @@
         Slider:
             id: gr_gain
             min: 0
-            max: 100
+            max: 1.
         Label:
             text: 'Exposure'
             text_size: self.size
@@ -270,7 +275,7 @@
         Slider:
             id: rd_ill
             min: 0
-            max: 100
+            max: 1.
         Label:
             text: 'Gain'
             text_size: self.size
@@ -294,6 +299,7 @@
         Button:
             text: 'Callback ex: Print Sliders'
             on_press: root.get_sliders()
+            on_release: print(app.root.id)
 
 # --------------------------------------------
 # Microscope Motion Layout

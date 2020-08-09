@@ -72,6 +72,8 @@ uniform vec4       color;
 '''
 
 
+black_point = (1. )*4
+
 class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
     vs = StringProperty(None)
@@ -79,15 +81,16 @@ class ShaderViewer(BoxLayout):
     def __init__(self, **kwargs):
         self.canvas = RenderContext()
         super(ShaderViewer, self).__init__(**kwargs)
-        Clock.schedule_interval(self.update_shader, 0)
+        Clock.schedule_interval(self.update_shader, 1)
 
     def update_shader(self, *args):
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
-        c['black_point'] = (1., )*4 #list(map(float,(0.8,0.1,0.1,0.1)))
+        c['black_point'] = black_point
         c.ask_update()
+        print(black_point)
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -177,6 +180,9 @@ class ImageTab(BoxLayout):
                             [bl_ill.value, bl_gain.value, bl_exp.value],
                             [gr_ill.value, gr_gain.value, gr_exp.value],
                             [rd_ill.value, rd_gain.value, rd_exp.value]])
+
+        black_point = (bf_ill.value, bl_ill.value, gr_ill.value, rd_ill.value)
+        print(black_point)
         print(slider_vals)
         return slider_vals
 
@@ -204,7 +210,14 @@ class LumaViewProApp(App):
         #without this, app will not exit even if the window is closed
         self.capture.release()
 
+<<<<<<< HEAD
     def testfunction(self):
         print("test function in LumaviewProApp successfully called!")
+=======
+black_point = (0, )*4
+
+def update_filter_callback():
+    pass
+>>>>>>> 4b158443b41bb79511a3b461ec71fcf57ee9db1a
 
 LumaViewProApp().run()
