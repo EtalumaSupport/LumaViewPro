@@ -54,18 +54,17 @@
             pos_hint: {"x":0, "y":0.0}
             text: 'Capture'
             on_press: root.capture()
-        # Button:
-        #     size_hint: 1, 0.1
-        #     pos_hint: {"x":0, "y":0}
-        #     text: 'Get sliders'
-        #     on_press: root.get_sliders()
 
         # sliders section
         BoxLayout:
             size_hint: 0.2, 1
             pos_hint: {"x":0.8, "y":0}
             orientation: 'vertical'
-            #canvas:
+            canvas:
+                color: 1, 1, 1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
 
 
             # -----------------------
