@@ -50,6 +50,7 @@ attribute float blue_gain; */
 uniform vec2 resolution;
 uniform float time;
 uniform vec4 black_point;
+uniform vec4 white_point;
 '''
 
 vs_header = '''
@@ -94,6 +95,7 @@ class ShaderViewer(BoxLayout):
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
         c['black_point'] = black_point
+        c['white_point'] = white_point
         c.ask_update()
 
     def on_fs(self, instance, value):
@@ -112,8 +114,8 @@ class ShaderEditor(BoxLayout):
 
     fs = StringProperty('''
 void main (void){
-	gl_FragColor = frag_color * texture2D(texture0, tex_coord0)
-	+ black_point;
+	gl_FragColor = white_point * frag_color * texture2D(texture0, tex_coord0)
+	- black_point;
 }
 ''')
     vs = StringProperty('''
