@@ -32,11 +32,11 @@
     # viewer and camera control buttons section
     FloatLayout:
         size_hint: 0.8, 1
-
         ShaderViewer:
             id: viewer_id
             size_hint: 1, 1
             pos_hint: {"x":0, "y":0}
+            on_load: root.compile_shaders()
             Camera:
                 id: scope
                 play: True
@@ -44,27 +44,31 @@
                 resolution: (1920, 1080)
 
         ToggleButton:
-            size_hint: 1, 0.1
-            pos_hint: {"x":0, "y":0.1}
+            size_hint: 0.5, 0.1
+            pos_hint: {"x":0, "y":0.0}
             text: 'Play'
             state: 'down'
             on_press: scope.play = not scope.play
         Button:
-            size_hint: 1, 0.1
-            pos_hint: {"x":0, "y":0.0}
+            size_hint: 0.5, 0.1
+            pos_hint: {"x":0.5, "y":0.0}
             text: 'Capture'
             on_press: root.capture()
+
 
         # sliders section
         BoxLayout:
             size_hint: 0.2, 1
             pos_hint: {"x":0.8, "y":0}
             orientation: 'vertical'
-            canvas:
-                color: 1, 1, 1
-                Rectangle:
-                    pos: self.pos
-                    size: self.size
+            #padding: 10
+            # canvas:
+            #     Rectangle:
+            #         size: self.size
+            #         pos: self.pos
+            #     Color:
+            #         rgba: 0, 1, 0, .5
+            #         #source: './'
 
 
             # -----------------------
@@ -97,7 +101,7 @@
                 id: bf_gain
                 min: 0
                 max: 100
-                value: 0
+                value: 100
                 on_value: root.get_sliders()
             Label:
                 text: 'Exposure'
@@ -143,7 +147,7 @@
                 id: bl_gain
                 min: 0
                 max: 100
-                value: 0
+                value: 100
                 on_value: root.get_sliders()
             Label:
                 text: 'Exposure'
@@ -190,7 +194,7 @@
                 id: gr_gain
                 min: 0
                 max: 100
-                value: 0
+                value: 100
                 on_value: root.get_sliders()
             Label:
                 text: 'Exposure'
@@ -237,7 +241,7 @@
                 id: rd_gain
                 min: 0
                 max: 100
-                value: 0
+                value: 100
                 on_value: root.get_sliders()
             Label:
                 text: 'Exposure'
@@ -271,11 +275,6 @@
         id: image_tab
         text: 'Live Image'
         ImageTab:
-
-    TabbedPanelItem:
-        id: config_tab
-        text: 'Configuration'
-        ConfigTab:
 
     TabbedPanelItem:
         id: config_tab
