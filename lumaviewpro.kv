@@ -32,6 +32,13 @@
     # viewer and camera control buttons section
     FloatLayout:
         size_hint: 0.8, 1
+        # canvas.before:
+        #     Rectangle:
+        #         size: self.size
+        #         pos: self.pos
+        #     Color:
+        #         rgba: 0, 1, 0, .5
+        #         #source: './'
         ShaderViewer:
             id: viewer_id
             size_hint: 1, 1
@@ -43,31 +50,24 @@
                 resolution: (1920, 1080)
 
         ToggleButton:
-            size_hint: 0.5, 0.1
+            size_hint: 0.375, 0.1
             pos_hint: {"x":0, "y":0.0}
             text: 'Play'
             state: 'down'
             on_press: scope.play = not scope.play
         Button:
-            size_hint: 0.5, 0.1
-            pos_hint: {"x":0.5, "y":0.0}
+            size_hint: 0.375, 0.1
+            pos_hint: {"x":0.375, "y":0.0}
             text: 'Capture'
             on_press: root.capture()
 
 
         # sliders section
         BoxLayout:
-            size_hint: 0.2, 1
-            pos_hint: {"x":0.8, "y":0}
+            size_hint: 0.25, 1
+            pos_hint: {"x":0.75, "y":0}
             orientation: 'vertical'
-            #padding: 10
-            # canvas:
-            #     Rectangle:
-            #         size: self.size
-            #         pos: self.pos
-            #     Color:
-            #         rgba: 0, 1, 0, .5
-            #         #source: './'
+            padding: 10
 
 
             # -----------------------
