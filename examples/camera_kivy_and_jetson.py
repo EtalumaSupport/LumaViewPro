@@ -1,9 +1,19 @@
 from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
-#from kivy.uix.image import Image
-# import numpy as np
-# import cv2
+from kivy.uix.image import Image
 
+import cv2
+from PIL import Image as PImg
+import numpy as np
+
+
+
+capture = cv2.VideoCapture(0)
+ret, frame = capture.read()
+frame = PImg.fromarray(frame)
+frame.save('jetson.jpg')
+capture.release()
 # cap = cv2.VideoCapture(0)
 #
 # while True:
@@ -17,13 +27,13 @@ from kivy.uix.button import Button
 
 class JetsonApp(App):
     def build(self):
-        # img_source  = 'jetson.jpg'
-        # kivy_image  = Image(source=img_source)
-        # return Image(source=kivy_image)
+        box     = BoxLayout(orientation='vertical')
+        image   = Image(source='jetson.jpg')
+        button  = Button(text="Update", size_hint_y=.1)
 
-        # jetsoncam = cv2.VideoCapture(0)
-        # ret, frame = jetsoncam.read()
+        box.add_widget(image)
+        box.add_widget(button)
 
-        return Button(text="Jetson App")
+        return box
 
 JetsonApp().run()
