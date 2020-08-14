@@ -32,22 +32,18 @@
     # viewer and camera control buttons section
     FloatLayout:
         size_hint: 0.8, 1
-        # canvas.before:
-        #     Rectangle:
-        #         size: self.size
-        #         pos: self.pos
-        #     Color:
-        #         rgba: 0, 1, 0, .5
-        #         #source: './'
         ShaderViewer:
             id: viewer_id
             size_hint: 1, 1
             pos_hint: {"x":0, "y":0}
-            Camera:
+            # Camera:
+            #     id: scope
+            #     play: True
+            #     index: 0
+            #     resolution: (1920, 1080)
+            Image:
                 id: scope
-                play: True
-                index: 0
-                resolution: (1920, 1080)
+                source: './data/composite.tif'
 
         ToggleButton:
             size_hint: 0.375, 0.1
@@ -67,193 +63,256 @@
             size_hint: 0.25, 1
             pos_hint: {"x":0.75, "y":0}
             orientation: 'vertical'
-            padding: 10
-
+            padding: 0
+            # canvas:
+            #     Color:
+            #         rgba: 1, 1, 1, .2
+            #     Rectangle:
+            #         size: self.size
+            #         pos: self.pos
 
             # -----------------------
             # BRIGHTFIELD Settings
             # -----------------------
-            Label:
-                text: 'Bright Field'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                outline_color: 0.5, 0.5, 0.5
-                outline_width: 2
-            Label:
-                text: 'Illumination'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-            Slider:
-                id: bf_ill
-                min: 0
-                max: 100
-                value: 0
-                on_value: root.get_sliders()
-            Label:
-                text: 'Gain'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-            Slider:
-                id: bf_gain
-                min: 0
-                max: 100
-                value: 100
-                on_value: root.get_sliders()
-            Label:
-                text: 'Exposure'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-            Slider:
-                id: bf_exp
-                min: 100
-                max: 200
-                value: 150
-                on_value: root.get_sliders()
+            BoxLayout:
+                size_hint: 1, 0.25
+                orientation: 'vertical'
+                padding: 5,5
+                canvas:
+                    Color:
+                        rgba: 1, 1, 1, .3
+                    Rectangle:
+                        size: self.size
+                        pos: self.pos
+                # Label:
+                #     text: 'Bright Field'
+                #     text_size: self.size
+                #     halign: 'center'
+                #     valign: 'middle'
+                #     outline_color: 0.5, 0.5, 0.5
+                #     outline_width: 2
+                Label:
+                    text: 'Illumination'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                BoxLayout:
+                    orientation: 'horizontal'
+                    padding: 5, 5
+                    Slider:
+                        id: bf_ill
+                        min: 0
+                        max: 100
+                        value: 0
+                        on_value: root.get_sliders()
+                    TextInput:
+                        text: '0'
+                        size_hint_x: 0.2
+                Label:
+                    text: 'Gain'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                BoxLayout:
+                    orientation: 'horizontal'
+                    padding: 5, 5
+                    Slider:
+                        id: bf_gain
+                        min: 0
+                        max: 100
+                        value: 100
+                        on_value: root.get_sliders()
+                    TextInput:
+                        text: '100'
+                        size_hint_x: 0.2
+                Label:
+                    text: 'Exposure'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                BoxLayout:
+                    orientation: 'horizontal'
+                    padding: 5, 5
+                    Slider:
+                        id: bf_exp
+                        min: 100
+                        max: 200
+                        value: 150
+                        on_value: root.get_sliders()
+                    TextInput:
+                        text: '150'
+                        size_hint_x: 0.2
 
             # -----------------------
             # BLUE lED Settings
             # -----------------------
-            Label:
-                text: 'Blue'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                outline_color: 0.2, 0.5, 1
-                outline_width: 1
-            Label:
-                text: 'Illumination'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                color: 0.2,0.5,1,1
-            Slider:
-                id: bl_ill
-                min: 0
-                max: 100
-                value: 0
-                on_value: root.get_sliders()
-            Label:
-                text: 'Gain'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                color: 0.2,0.5,1,1
-            Slider:
-                id: bl_gain
-                min: 0
-                max: 100
-                value: 100
-                on_value: root.get_sliders()
-            Label:
-                text: 'Exposure'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                color: 0.2,0.5,1,1
-            Slider:
-                id: bl_exp
-                min: 100
-                max: 200
-                value: 150
-                on_value: root.get_sliders()
+            BoxLayout:
+                size_hint: 1, 0.25
+                orientation: 'vertical'
+                padding: 10
+                canvas:
+                    Color:
+                        rgba: 0, .5, 1, .3
+                    Rectangle:
+                        size: self.size
+                        pos: self.pos
+                # Label:
+                #     text: 'Blue'
+                #     text_size: self.size
+                #     halign: 'center'
+                #     valign: 'middle'
+                #     outline_color: 0.2, 0.5, 1
+                #     outline_width: 1
+                Label:
+                    text: 'Illumination'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                    # color: 0.2,0.5,1,1
+                Slider:
+                    id: bl_ill
+                    min: 0
+                    max: 100
+                    value: 0
+                    on_value: root.get_sliders()
+                Label:
+                    text: 'Gain'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                    # color: 0.2,0.5,1,1
+                Slider:
+                    id: bl_gain
+                    min: 0
+                    max: 100
+                    value: 100
+                    on_value: root.get_sliders()
+                Label:
+                    text: 'Exposure'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                    # color: 0.2,0.5,1,1
+                Slider:
+                    id: bl_exp
+                    min: 100
+                    max: 200
+                    value: 150
+                    on_value: root.get_sliders()
 
             # -----------------------
             # GREEN lED Settings
             # -----------------------
-            Label:
-                text: 'Green'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                outline_color: 0,0.8,0
-                outline_width: 1
-            Label:
-                text: 'Illumination'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                color: 0.2,1, 0.2, 1
-            Slider:
-                id: gr_ill
-                min: 0
-                max: 100
-                value: 0
-                on_value: root.get_sliders()
-            Label:
-                text: 'Gain'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                color: 0.2,1, 0.2, 1
-            Slider:
-                id: gr_gain
-                min: 0
-                max: 100
-                value: 100
-                on_value: root.get_sliders()
-            Label:
-                text: 'Exposure'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                color: 0.2,1, 0.2, 1
-            Slider:
-                id: gr_exp
-                min: 100
-                max: 200
-                value:150
-                on_value: root.get_sliders()
+            BoxLayout:
+                size_hint: 1, 0.25
+                orientation: 'vertical'
+                padding: 10
+                canvas:
+                    Color:
+                        rgba: .2, 1, 0.2, .3
+                    Rectangle:
+                        size: self.size
+                        pos: self.pos
+                # Label:
+                #     text: 'Green'
+                #     text_size: self.size
+                #     halign: 'center'
+                #     valign: 'middle'
+                #     outline_color: 0,0.8,0
+                #     outline_width: 1
+                Label:
+                    text: 'Illumination'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                    # color: 0.2,1, 0.2, 1
+                Slider:
+                    id: gr_ill
+                    min: 0
+                    max: 100
+                    value: 0
+                    on_value: root.get_sliders()
+                Label:
+                    text: 'Gain'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                    # color: 0.2,1, 0.2, 1
+                Slider:
+                    id: gr_gain
+                    min: 0
+                    max: 100
+                    value: 100
+                    on_value: root.get_sliders()
+                Label:
+                    text: 'Exposure'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                    # color: 0.2,1, 0.2, 1
+                Slider:
+                    id: gr_exp
+                    min: 100
+                    max: 200
+                    value:150
+                    on_value: root.get_sliders()
 
             # -----------------------
             # RED lED Settings
             # -----------------------
-            Label:
-                text: 'Red'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                outline_color: 0.8,0,0
-                outline_width: 1
-            Label:
-                text: 'Illumination'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                color: 1, 0.2, 0, 1
-            Slider:
-                id: rd_ill
-                min: 0
-                max: 100
-                value: 0
-                on_value: root.get_sliders()
-            Label:
-                text: 'Gain'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                color: 1, 0.2, 0, 1
-            Slider:
-                id: rd_gain
-                min: 0
-                max: 100
-                value: 100
-                on_value: root.get_sliders()
-            Label:
-                text: 'Exposure'
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
-                color: 1, 0.2, 0, 1
-            Slider:
-                id: rd_exp
-                min: 100
-                max: 200
-                value: 150
-                on_value: root.get_sliders()
+            BoxLayout:
+                size_hint: 1, 0.25
+                orientation: 'vertical'
+                padding: 10
+                canvas:
+                    Color:
+                        rgba: 1, .2, .2, .3
+                    Rectangle:
+                        size: self.size
+                        pos: self.pos
+                # Label:
+                #     text: 'Red'
+                #     text_size: self.size
+                #     halign: 'center'
+                #     valign: 'middle'
+                #     outline_color: 0.8,0,0
+                #     outline_width: 1
+                Label:
+                    text: 'Illumination'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                    # color: 1, 0.2, 0, 1
+                Slider:
+                    id: rd_ill
+                    min: 0
+                    max: 100
+                    value: 0
+                    on_value: root.get_sliders()
+                Label:
+                    text: 'Gain'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                    # color: 1, 0.2, 0, 1
+                Slider:
+                    id: rd_gain
+                    min: 0
+                    max: 100
+                    value: 100
+                    on_value: root.get_sliders()
+                Label:
+                    text: 'Exposure'
+                    text_size: self.size
+                    halign: 'center'
+                    valign: 'middle'
+                    # color: 1, 0.2, 0, 1
+                Slider:
+                    id: rd_exp
+                    min: 100
+                    max: 200
+                    value: 150
+                    on_value: root.get_sliders()
 
 # -----------------------
 # MAIN DISPLAY
@@ -271,14 +330,14 @@
             pos: self.pos
 
     TabbedPanelItem:
-        id: image_tab
-        text: 'Live Image'
-        ImageTab:
-
-    TabbedPanelItem:
         id: config_tab
         text: 'Configuration'
         ConfigTab:
+
+    TabbedPanelItem:
+        id: image_tab
+        text: 'Live Image'
+        ImageTab:
 
     TabbedPanelItem:
         id: motion_tab
@@ -344,8 +403,264 @@
 # Protocol Layout
 # --------------------------------------------
 <ProtocolTab>:
-    Label:
-        text: 'Define capture protocol'
+    GridLayout:
+        cols: 7
+        padding: 10
+        spacing: 10
+        row_default_height: 40
+
+        # PROTOCOL - LABELS
+        Label:
+            text: ''
+        Label:
+            text: 'Folder'
+        # Widget:
+        #     Scatter:
+        #         center: self.parent.center
+        #         size: text.size
+        #         do_rotation: False
+        #         do_translation: False
+        #         do_scale: False
+        #         rotation: 90
+        #         Label:
+        #             id: text
+        #             size: self.texture_size
+        #             text: "Folder"
+        Label:
+            text: 'Filename Root'
+        # Widget:
+        #     Scatter:
+        #         center: self.parent.center
+        #         size: text.size
+        #         do_rotation: False
+        #         do_translation: False
+        #         do_scale: False
+        #         rotation: 90
+        #         Label:
+        #             id: text
+        #             size: self.texture_size
+        #             text: "Filename Root"
+        Widget:
+            size_hint_x: None
+            width: 40
+            Scatter:
+                center: self.parent.center
+                size: text.size
+                do_rotation: False
+                do_translation: False
+                do_scale: False
+                rotation: 90
+                Label:
+                    id: text
+                    size: self.texture_size
+                    text: "Illumination"
+        Widget:
+            size_hint_x: None
+            width: 40
+            Scatter:
+                center: self.parent.center
+                size: text.size
+                do_rotation: False
+                do_translation: False
+                do_scale: False
+                rotation: 90
+                Label:
+                    id: text
+                    size: self.texture_size
+                    text: "Gain"
+        Widget:
+            size_hint_x: None
+            width: 40
+            Scatter:
+                center: self.parent.center
+                size: text.size
+                do_rotation: False
+                do_translation: False
+                do_scale: False
+                rotation: 90
+                Label:
+                    id: text
+                    size: self.texture_size
+                    text: "Exposure"
+        Widget:
+            size_hint_x: None
+            width: 40
+            Scatter:
+                center: self.parent.center
+                size: text.size
+                do_rotation: False
+                do_translation: False
+                do_scale: False
+                rotation: 90
+                Label:
+                    id: text
+                    size: self.texture_size
+                    text: "Acquire"
+
+        # PROTOCOL - BRIGHTFIELD
+        Label:
+            canvas:
+                Color:
+                    rgba: 1, 1, 1, .3
+                Rectangle:
+                    size: self.size
+                    pos: self.pos
+            text: 'Brightfield'
+        TextInput:
+            suggestion_text: 'folder'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: 'filename root'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '150'
+            size_hint_x: None
+            width: 40
+        CheckBox:
+            size_hint_x: None
+            width: 40
+
+        # PROTOCOL - BLUE
+        Label:
+            canvas:
+                Color:
+                    rgba: 0, .5, 1, .3
+                Rectangle:
+                    size: self.size
+                    pos: self.pos
+            text: 'Blue Channel'
+        TextInput:
+            suggestion_text: 'folder'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: 'filename root'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '150'
+            size_hint_x: None
+            width: 40
+        CheckBox:
+            size_hint_x: None
+            width: 40
+
+        # PROTOCOL - GREEN
+        Label:
+            canvas:
+                Color:
+                    rgba: .2, 1, 0.2, .3
+                Rectangle:
+                    size: self.size
+                    pos: self.pos
+            text: 'Green Channel'
+        TextInput:
+            suggestion_text: 'folder'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: 'filename root'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '150'
+            size_hint_x: None
+            width: 40
+        CheckBox:
+            size_hint_x: None
+            width: 40
+
+        # PROTOCOL - RED
+        Label:
+            canvas:
+                Color:
+                    rgba: 1, .2, .2, .3
+                Rectangle:
+                    size: self.size
+                    pos: self.pos
+            text: 'Red Channel'
+        TextInput:
+            suggestion_text: 'folder'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: 'filename root'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '150'
+            size_hint_x: None
+            width: 40
+        CheckBox:
+            size_hint_x: None
+            width: 40
+
+        # PROTOCOL - COMPOSITE
+        Label:
+            canvas:
+                Color:
+                    rgba: 1, 1, 1, .3
+                Rectangle:
+                    size: self.size
+                    pos: self.pos
+            text: 'Composite Image'
+        TextInput:
+            suggestion_text: 'folder'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: 'filename root'
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '100'
+            size_hint_x: None
+            width: 40
+        TextInput:
+            suggestion_text: '150'
+            size_hint_x: None
+            width: 40
+        CheckBox:
+            size_hint_x: None
+            width: 40
 
 # --------------------------------------------
 # Analysis Layout

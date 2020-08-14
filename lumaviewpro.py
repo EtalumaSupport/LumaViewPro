@@ -111,8 +111,6 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 class ShaderEditor(BoxLayout):
 
-    #source = StringProperty('data/sample.tif')
-
     fs = StringProperty('''
 void main (void){
 	gl_FragColor = white_point * frag_color * texture2D(texture0, tex_coord0)
@@ -155,8 +153,6 @@ void main (void) {
         camera = self.ids['scope']
         timestr = time.strftime("%Y%m%d_%H%M%S")
         img = camera.export_as_image()
-        #img.save("capture/IMG_{}.jpg".format(timestr))
-        #img.save("capture/IMG_{}.png".format(timestr))
         img.save("capture/IMG_{}.tiff".format(timestr))
 
     # get slider values and update global variables where needed
@@ -186,8 +182,6 @@ void main (void) {
                             [rd_ill.value, rd_gain.value, rd_exp.value]])
         black_point = (rd_ill.value_normalized, gr_ill.value_normalized, bl_ill.value_normalized, bf_ill.value_normalized)
         white_point = (rd_gain.value_normalized, gr_gain.value_normalized, bl_gain.value_normalized, bf_gain.value_normalized)
-    #    print('Black Point:\n', black_point)
-    #    print('Slider Values:\n', slider_vals)
 
 # MainDisplay is organized in lumaviewplus.kv
 class MainDisplay(TabbedPanel):
@@ -217,10 +211,6 @@ class LumaViewProApp(App):
         #    kwargs['source'] = 'data/sample.tif'
         #return ShaderEditor(**kwargs)
         return MainDisplay()
-
-    # def on_stop(self):
-    #     #without this, app will not exit even if the window is closed
-    #     self.capture.release()
 
 def update_filter_callback():
     pass
