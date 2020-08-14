@@ -23,6 +23,7 @@ from kivy.uix.camera import Camera
 from kivy.core.camera import Camera
 import numpy as np
 import time
+from PIL import Image
 
 comment = '''
 Based on code from the kivy example Live Shader Editor found at:
@@ -153,8 +154,10 @@ void main (void) {
     def capture(self):
         camera = self.ids['scope']
         timestr = time.strftime("%Y%m%d_%H%M%S")
-        camera.export_to_png("capture/IMG_{}.png".format(timestr))
-
+        img = camera.export_as_image()
+        #img.save("capture/IMG_{}.jpg".format(timestr))
+        #img.save("capture/IMG_{}.png".format(timestr))
+        img.save("capture/IMG_{}.tiff".format(timestr))
 
     # get slider values and update global variables where needed
     def get_sliders(self):
