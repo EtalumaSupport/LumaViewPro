@@ -19,6 +19,7 @@ class JetsonApp(App):
     def build(self):
         # img_source  = 'jetson.jpg'
         # kivy_image  = Image(source=img_source)
+        # return Image(source=kivy_image)
 
         # jetsoncam = cv2.VideoCapture(0)
         # ret, frame = jetsoncam.read()
