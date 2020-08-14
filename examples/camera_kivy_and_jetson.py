@@ -1,8 +1,8 @@
-import numpy as np
-import cv2
-
 from kivy.app import App
-from kivy.uix.image import Image
+from kivy.uix.button import Button
+#from kivy.uix.image import Image
+# import numpy as np
+# import cv2
 
 # cap = cv2.VideoCapture(0)
 #
@@ -17,8 +17,12 @@ from kivy.uix.image import Image
 
 class JetsonApp(App):
     def build(self):
-        img_source  = 'jetson.jpg'
-        kivy_image  = Image(source=img_source)
-        return kivy_image
+        # img_source  = 'jetson.jpg'
+        # kivy_image  = Image(source=img_source)
+
+        # jetsoncam = cv2.VideoCapture(0)
+        # ret, frame = jetsoncam.read()
+
+        return Button(text="Jetson App")
 
 JetsonApp().run()
