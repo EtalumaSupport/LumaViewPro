@@ -1,318 +1,4 @@
-#:kivy 1.0
 #: import GLShaderLexer pygments.lexers.GLShaderLexer
-
-<ShaderEditor>:
-    viewer: viewer_id
-    orientation: 'horizontal'
-
-    # code editing section
-    BoxLayout:
-        orientation: 'vertical'
-        size_hint_x: .2
-        #width: 350
-
-        Label:
-            text: 'Fragment Shader'
-            size_hint_y: None
-            height: self.texture_size[1] + 10
-        CodeInput:
-            text: root.fs
-            lexer: GLShaderLexer()
-            on_text: root.fs = args[1]
-
-        Label:
-            text: 'Vertex Shader'
-            size_hint_y: None
-            height: self.texture_size[1] + 10
-        CodeInput:
-            text: root.vs
-            lexer: GLShaderLexer()
-            on_text: root.vs = args[1]
-
-    # viewer and camera control buttons section
-    FloatLayout:
-        size_hint: 0.8, 1
-        ShaderViewer:
-            id: viewer_id
-            size_hint: 1, 1
-            pos_hint: {"x":0, "y":0}
-            # Camera:
-            #     id: scope
-            #     play: True
-            #     index: 0
-            #     resolution: (1920, 1080)
-            Image:
-                id: scope
-                source: './data/composite.tif'
-
-        ToggleButton:
-            size_hint: 0.375, 0.1
-            pos_hint: {"x":0, "y":0.0}
-            text: 'Play'
-            state: 'down'
-            on_press: scope.play = not scope.play
-        Button:
-            size_hint: 0.375, 0.1
-            pos_hint: {"x":0.375, "y":0.0}
-            text: 'Capture'
-            on_press: root.capture()
-
-
-        # sliders section
-        BoxLayout:
-            size_hint: 0.25, 1
-            pos_hint: {"x":0.75, "y":0}
-            orientation: 'vertical'
-            padding: 0
-            # canvas:
-            #     Color:
-            #         rgba: 1, 1, 1, .2
-            #     Rectangle:
-            #         size: self.size
-            #         pos: self.pos
-
-            # -----------------------
-            # BRIGHTFIELD Settings
-            # -----------------------
-            BoxLayout:
-                size_hint: 1, 0.25
-                orientation: 'vertical'
-                padding: 5,5
-                canvas:
-                    Color:
-                        rgba: 1, 1, 1, .3
-                    Rectangle:
-                        size: self.size
-                        pos: self.pos
-                # Label:
-                #     text: 'Bright Field'
-                #     text_size: self.size
-                #     halign: 'center'
-                #     valign: 'middle'
-                #     outline_color: 0.5, 0.5, 0.5
-                #     outline_width: 2
-                Label:
-                    text: 'Illumination'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                BoxLayout:
-                    orientation: 'horizontal'
-                    padding: 5, 5
-                    Slider:
-                        id: bf_ill
-                        min: 0
-                        max: 100
-                        value: 0
-                        on_value: root.get_sliders()
-                    TextInput:
-                        text: '0'
-                        size_hint_x: 0.2
-                Label:
-                    text: 'Gain'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                BoxLayout:
-                    orientation: 'horizontal'
-                    padding: 5, 5
-                    Slider:
-                        id: bf_gain
-                        min: 0
-                        max: 100
-                        value: 100
-                        on_value: root.get_sliders()
-                    TextInput:
-                        text: '100'
-                        size_hint_x: 0.2
-                Label:
-                    text: 'Exposure'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                BoxLayout:
-                    orientation: 'horizontal'
-                    padding: 5, 5
-                    Slider:
-                        id: bf_exp
-                        min: 100
-                        max: 200
-                        value: 150
-                        on_value: root.get_sliders()
-                    TextInput:
-                        text: '150'
-                        size_hint_x: 0.2
-
-            # -----------------------
-            # BLUE lED Settings
-            # -----------------------
-            BoxLayout:
-                size_hint: 1, 0.25
-                orientation: 'vertical'
-                padding: 10
-                canvas:
-                    Color:
-                        rgba: 0, .5, 1, .3
-                    Rectangle:
-                        size: self.size
-                        pos: self.pos
-                # Label:
-                #     text: 'Blue'
-                #     text_size: self.size
-                #     halign: 'center'
-                #     valign: 'middle'
-                #     outline_color: 0.2, 0.5, 1
-                #     outline_width: 1
-                Label:
-                    text: 'Illumination'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    # color: 0.2,0.5,1,1
-                Slider:
-                    id: bl_ill
-                    min: 0
-                    max: 100
-                    value: 0
-                    on_value: root.get_sliders()
-                Label:
-                    text: 'Gain'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    # color: 0.2,0.5,1,1
-                Slider:
-                    id: bl_gain
-                    min: 0
-                    max: 100
-                    value: 100
-                    on_value: root.get_sliders()
-                Label:
-                    text: 'Exposure'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    # color: 0.2,0.5,1,1
-                Slider:
-                    id: bl_exp
-                    min: 100
-                    max: 200
-                    value: 150
-                    on_value: root.get_sliders()
-
-            # -----------------------
-            # GREEN lED Settings
-            # -----------------------
-            BoxLayout:
-                size_hint: 1, 0.25
-                orientation: 'vertical'
-                padding: 10
-                canvas:
-                    Color:
-                        rgba: .2, 1, 0.2, .3
-                    Rectangle:
-                        size: self.size
-                        pos: self.pos
-                # Label:
-                #     text: 'Green'
-                #     text_size: self.size
-                #     halign: 'center'
-                #     valign: 'middle'
-                #     outline_color: 0,0.8,0
-                #     outline_width: 1
-                Label:
-                    text: 'Illumination'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    # color: 0.2,1, 0.2, 1
-                Slider:
-                    id: gr_ill
-                    min: 0
-                    max: 100
-                    value: 0
-                    on_value: root.get_sliders()
-                Label:
-                    text: 'Gain'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    # color: 0.2,1, 0.2, 1
-                Slider:
-                    id: gr_gain
-                    min: 0
-                    max: 100
-                    value: 100
-                    on_value: root.get_sliders()
-                Label:
-                    text: 'Exposure'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    # color: 0.2,1, 0.2, 1
-                Slider:
-                    id: gr_exp
-                    min: 100
-                    max: 200
-                    value:150
-                    on_value: root.get_sliders()
-
-            # -----------------------
-            # RED lED Settings
-            # -----------------------
-            BoxLayout:
-                size_hint: 1, 0.25
-                orientation: 'vertical'
-                padding: 10
-                canvas:
-                    Color:
-                        rgba: 1, .2, .2, .3
-                    Rectangle:
-                        size: self.size
-                        pos: self.pos
-                # Label:
-                #     text: 'Red'
-                #     text_size: self.size
-                #     halign: 'center'
-                #     valign: 'middle'
-                #     outline_color: 0.8,0,0
-                #     outline_width: 1
-                Label:
-                    text: 'Illumination'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    # color: 1, 0.2, 0, 1
-                Slider:
-                    id: rd_ill
-                    min: 0
-                    max: 100
-                    value: 0
-                    on_value: root.get_sliders()
-                Label:
-                    text: 'Gain'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    # color: 1, 0.2, 0, 1
-                Slider:
-                    id: rd_gain
-                    min: 0
-                    max: 100
-                    value: 100
-                    on_value: root.get_sliders()
-                Label:
-                    text: 'Exposure'
-                    text_size: self.size
-                    halign: 'center'
-                    valign: 'middle'
-                    # color: 1, 0.2, 0, 1
-                Slider:
-                    id: rd_exp
-                    min: 100
-                    max: 200
-                    value: 150
-                    on_value: root.get_sliders()
 
 # -----------------------
 # MAIN DISPLAY
@@ -359,38 +45,331 @@
 # --------------------------------------------
 <ConfigTab>:
     orientation: 'vertical'
-    GridLayout:
-        cols: 4
-        CheckBox:
-            active: False
-        CheckBox:
-            active: False
-        CheckBox:
-            active: False
-        CheckBox:
-            active: False
-        Label:
-            text: 'LS460'
-        Label:
-            text: 'LS560'
-        Label:
-            text: 'LS620'
-        Label:
-            text: 'LS720'
-        Image:
-            source: './data/460.png'
-        Image:
-            source: './data/560.png'
-        Image:
-            source: './data/620.png'
-        Image:
-            source: './data/720.png'
+    Label:
+        text: 'Microscope Configfuration'
 
 # --------------------------------------------
 # Image Settings and Adjustment Layout
 # --------------------------------------------
 <ImageTab>:
-    ShaderEditor:
+
+    Splitter:
+        size_hint_x: 0.2
+        sizable_from: 'right'
+        ShaderEditor:
+            viewer: viewer_id
+    ShaderViewer:
+        id: viewer_id
+        size_hint_x: 0.6
+    Splitter:
+        size_hint_x: 0.2
+        sizable_from: 'left'
+        ShaderSettings:
+            id: shadersettings_id
+
+# ShaderEditor - view and edit shader code
+# ------------------------------------------
+<ShaderEditor>:
+    orientation: 'vertical'
+    # Fragment Shader Editor
+    Label:
+        text: 'Fragment Shader'
+        size_hint_y: None
+        height: self.texture_size[1] + 10
+    CodeInput:
+        text: root.fs
+        lexer: GLShaderLexer()
+        on_text: root.fs = args[1]
+
+    # Vertex Shader Editor
+    Label:
+        text: 'Vertex Shader'
+        size_hint_y: None
+        height: self.texture_size[1] + 10
+    CodeInput:
+        text: root.vs
+        lexer: GLShaderLexer()
+        on_text: root.vs = args[1]
+
+# ShaderViewer - Shaded Live Camera view
+# ------------------------------------------
+<ShaderViewer>:
+    orientation: 'vertical'
+    # ShaderViewer Camera
+    # Camera:
+    #     id: microscope_camera
+    #     play: True
+    #     index: 0
+    #     resolution: (1920, 1080)
+    Image:
+        id: microscope_camera
+        source: './data/composite.tif'
+
+    # ShaderViewer Buttons
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: 0.1
+        ToggleButton:
+            text: 'Play'
+            state: 'down'
+            on_press: microscope_camera.play = not microscope_camera.play
+        Button:
+            text: 'Capture'
+            on_press: root.capture()
+
+# ShaderSettings - Widgets to control Shader Settings
+<ShaderSettings>:
+    orientation: 'vertical'
+    padding: 0
+    # canvas:
+    #     Color:
+    #         rgba: 1, 1, 1, .2
+    #     Rectangle:
+    #         size: self.size
+    #         pos: self.pos
+
+    # -----------------------
+    # BRIGHTFIELD Settings
+    # -----------------------
+    BoxLayout:
+        size_hint: 1, 0.25
+        orientation: 'vertical'
+        padding: 5,5
+        canvas:
+            Color:
+                rgba: 1, 1, 1, .3
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        # Label:
+        #     text: 'Bright Field'
+        #     text_size: self.size
+        #     halign: 'center'
+        #     valign: 'middle'
+        #     outline_color: 0.5, 0.5, 0.5
+        #     outline_width: 2
+        Label:
+            text: 'Illumination'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+        BoxLayout:
+            orientation: 'horizontal'
+            padding: 5, 5
+            Slider:
+                id: bf_ill
+                min: 0
+                max: 100
+                value: 0
+                on_value: root.get_sliders()
+            TextInput:
+                text: '0'
+                size_hint_x: 0.2
+        Label:
+            text: 'Gain'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+        BoxLayout:
+            orientation: 'horizontal'
+            padding: 5, 5
+            Slider:
+                id: bf_gain
+                min: 0
+                max: 100
+                value: 100
+                on_value: root.get_sliders()
+            TextInput:
+                text: '100'
+                size_hint_x: 0.2
+        Label:
+            text: 'Exposure'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+        BoxLayout:
+            orientation: 'horizontal'
+            padding: 5, 5
+            Slider:
+                id: bf_exp
+                min: 100
+                max: 200
+                value: 150
+                on_value: root.get_sliders()
+            TextInput:
+                text: '150'
+                size_hint_x: 0.2
+
+    # -----------------------
+    # BLUE lED Settings
+    # -----------------------
+    BoxLayout:
+        size_hint: 1, 0.25
+        orientation: 'vertical'
+        padding: 10
+        canvas:
+            Color:
+                rgba: 0, .5, 1, .3
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        # Label:
+        #     text: 'Blue'
+        #     text_size: self.size
+        #     halign: 'center'
+        #     valign: 'middle'
+        #     outline_color: 0.2, 0.5, 1
+        #     outline_width: 1
+        Label:
+            text: 'Illumination'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            # color: 0.2,0.5,1,1
+        Slider:
+            id: bl_ill
+            min: 0
+            max: 100
+            value: 0
+            on_value: root.get_sliders()
+        Label:
+            text: 'Gain'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            # color: 0.2,0.5,1,1
+        Slider:
+            id: bl_gain
+            min: 0
+            max: 100
+            value: 100
+            on_value: root.get_sliders()
+        Label:
+            text: 'Exposure'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            # color: 0.2,0.5,1,1
+        Slider:
+            id: bl_exp
+            min: 100
+            max: 200
+            value: 150
+            on_value: root.get_sliders()
+
+    # -----------------------
+    # GREEN lED Settings
+    # -----------------------
+    BoxLayout:
+        size_hint: 1, 0.25
+        orientation: 'vertical'
+        padding: 10
+        canvas:
+            Color:
+                rgba: .2, 1, 0.2, .3
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        # Label:
+        #     text: 'Green'
+        #     text_size: self.size
+        #     halign: 'center'
+        #     valign: 'middle'
+        #     outline_color: 0,0.8,0
+        #     outline_width: 1
+        Label:
+            text: 'Illumination'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            # color: 0.2,1, 0.2, 1
+        Slider:
+            id: gr_ill
+            min: 0
+            max: 100
+            value: 0
+            on_value: root.get_sliders()
+        Label:
+            text: 'Gain'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            # color: 0.2,1, 0.2, 1
+        Slider:
+            id: gr_gain
+            min: 0
+            max: 100
+            value: 100
+            on_value: root.get_sliders()
+        Label:
+            text: 'Exposure'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            # color: 0.2,1, 0.2, 1
+        Slider:
+            id: gr_exp
+            min: 100
+            max: 200
+            value:150
+            on_value: root.get_sliders()
+
+    # -----------------------
+    # RED lED Settings
+    # -----------------------
+    BoxLayout:
+        size_hint: 1, 0.25
+        orientation: 'vertical'
+        padding: 10
+        canvas:
+            Color:
+                rgba: 1, .2, .2, .3
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        # Label:
+        #     text: 'Red'
+        #     text_size: self.size
+        #     halign: 'center'
+        #     valign: 'middle'
+        #     outline_color: 0.8,0,0
+        #     outline_width: 1
+        Label:
+            text: 'Illumination'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            # color: 1, 0.2, 0, 1
+        Slider:
+            id: rd_ill
+            min: 0
+            max: 100
+            value: 0
+            on_value: root.get_sliders()
+        Label:
+            text: 'Gain'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            # color: 1, 0.2, 0, 1
+        Slider:
+            id: rd_gain
+            min: 0
+            max: 100
+            value: 100
+            on_value: root.get_sliders()
+        Label:
+            text: 'Exposure'
+            text_size: self.size
+            halign: 'center'
+            valign: 'middle'
+            # color: 1, 0.2, 0, 1
+        Slider:
+            id: rd_exp
+            min: 100
+            max: 200
+            value: 150
+            on_value: root.get_sliders()
 
 # --------------------------------------------
 # Microscope Motion Layout

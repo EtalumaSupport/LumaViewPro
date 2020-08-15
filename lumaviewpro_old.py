@@ -79,6 +79,36 @@ black_point = (0., )*4
 global white_point
 white_point = (1., )*4
 
+
+class ShaderViewer(BoxLayout):
+    fs = StringProperty(None)
+    vs = StringProperty(None)
+
+    def __init__(self, **kwargs):
+        self.canvas = RenderContext()
+        super(ShaderViewer, self).__init__(**kwargs)
+        Clock.schedule_interval(self.update_shader, 0)
+
+    def update_shader(self, *args):
+        #print(black_point)
+        c = self.canvas
+        c['projection_mat'] = Window.render_context['projection_mat']
+        c['time'] = Clock.get_boottime()
+        c['resolution'] = list(map(float, self.size))
+        c['black_point'] = black_point
+        c['white_point'] = white_point
+        c.ask_update()
+
+    def on_fs(self, instance, value):
+        self.canvas.shader.fs = value
+
+    def on_vs(self, instance, value):
+        self.canvas.shader.vs = value
+
+
+Factory.register('ShaderViewer', cls=ShaderViewer)
+
+
 class ShaderEditor(BoxLayout):
 
     fs = StringProperty('''
@@ -119,63 +149,39 @@ void main (void) {
         print('-->', vs)
         self.viewer.vs = vs
 
-class ShaderViewer(BoxLayout):
-    fs = StringProperty(None)
-    vs = StringProperty(None)
-
-    def __init__(self, **kwargs):
-        self.canvas = RenderContext()
-        super(ShaderViewer, self).__init__(**kwargs)
-        Clock.schedule_interval(self.update_shader, 0)
-
-    def update_shader(self, *args):
-        #print(black_point)
-        c = self.canvas
-        c['projection_mat'] = Window.render_context['projection_mat']
-        c['time'] = Clock.get_boottime()
-        c['resolution'] = list(map(float, self.size))
-        c['black_point'] = black_point
-        c['white_point'] = white_point
-        c.ask_update()
-
-    def on_fs(self, instance, value):
-        self.canvas.shader.fs = value
-
-    def on_vs(self, instance, value):
-        self.canvas.shader.vs = value
-
     def capture(self):
-        camera = self.ids['microscope_camera']
+        camera = self.ids['scope']
         timestr = time.strftime("%Y%m%d_%H%M%S")
         img = camera.export_as_image()
         img.save("capture/IMG_{}.tiff".format(timestr))
 
-Factory.register('ShaderViewer', cls=ShaderViewer)
-
-class ShaderSettings(BoxLayout):
     # get slider values and update global variables where needed
     def get_sliders(self):
         global black_point
         global white_point
 
-        bf_ill = self.ids['bf_ill'].value_normalized
-        bf_gain = self.ids['bf_gain'].value_normalized
-        bf_exp = self.ids['bf_exp'].value
+        bf_ill = self.ids['bf_ill']
+        bf_gain = self.ids['bf_gain']
+        bf_exp = self.ids['bf_exp']
 
-        bl_ill = self.ids['bl_ill'].value_normalized
-        bl_gain = self.ids['bl_gain'].value_normalized
-        bl_exp = self.ids['bl_exp'].value
+        bl_ill = self.ids['bl_ill']
+        bl_gain = self.ids['bl_gain']
+        bl_exp = self.ids['bl_exp']
 
-        gr_ill = self.ids['gr_ill'].value_normalized
-        gr_gain = self.ids['gr_gain'].value_normalized
-        gr_exp = self.ids['gr_exp'].value
+        gr_ill = self.ids['gr_ill']
+        gr_gain = self.ids['gr_gain']
+        gr_exp = self.ids['gr_exp']
 
-        rd_ill = self.ids['rd_ill'].value_normalized
-        rd_gain = self.ids['rd_gain'].value_normalized
-        rd_exp = self.ids['rd_exp'].value
+        rd_ill = self.ids['rd_ill']
+        rd_gain = self.ids['rd_gain']
+        rd_exp = self.ids['rd_exp']
 
-        black_point = (rd_ill, gr_ill, bl_ill, bf_ill)
-        white_point = (rd_gain, gr_gain, bl_gain, bf_gain)
+        slider_vals = np.array([[bf_ill.value, bf_gain.value, bf_exp.value],
+                            [bl_ill.value, bl_gain.value, bl_exp.value],
+                            [gr_ill.value, gr_gain.value, gr_exp.value],
+                            [rd_ill.value, rd_gain.value, rd_exp.value]])
+        black_point = (rd_ill.value_normalized, gr_ill.value_normalized, bl_ill.value_normalized, bf_ill.value_normalized)
+        white_point = (rd_gain.value_normalized, gr_gain.value_normalized, bl_gain.value_normalized, bf_gain.value_normalized)
 
 # MainDisplay is organized in lumaviewplus.kv
 class MainDisplay(TabbedPanel):
