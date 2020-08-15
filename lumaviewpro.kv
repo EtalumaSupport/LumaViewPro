@@ -8,6 +8,7 @@
     tab_pos: 'top_mid'
     tab_width: (self.size[0] / 5) - 1
     do_default_tab: False
+
     canvas:
         Color:
             rgba: (.188, .188, .188, 1)
@@ -121,9 +122,11 @@
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: 0.1
+        spacing: 5
+        padding: 5
         ToggleButton:
             text: 'Play'
-            state: 'down'
+            state: 'normal'
             on_press: microscope_camera.play = not microscope_camera.play
         Button:
             text: 'Capture'
@@ -132,10 +135,11 @@
 # ShaderSettings - Widgets to control Shader Settings
 <ShaderSettings>:
     orientation: 'vertical'
-    padding: 0
+    spacing: 5
+    padding: 5
     # canvas:
     #     Color:
-    #         rgba: 1, 1, 1, .2
+    #         rgba: 0,0,0,1
     #     Rectangle:
     #         size: self.size
     #         pos: self.pos
