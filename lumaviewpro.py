@@ -146,6 +146,7 @@ class ShaderViewer(BoxLayout):
 
     def capture(self):
         camera = self.ids['microscope_camera']
+        #camera = self
         timestr = time.strftime("%Y%m%d_%H%M%S")
         img = camera.export_as_image()
         img.save("capture/IMG_{}.tiff".format(timestr))
