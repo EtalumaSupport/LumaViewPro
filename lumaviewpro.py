@@ -177,7 +177,16 @@ class ShaderSettings(BoxLayout):
         black_point = (rd_ill, gr_ill, bl_ill, bf_ill)
         white_point = (rd_gain, gr_gain, bl_gain, bf_gain)
 
-# MainDisplay is organized in lumaviewplus.kv
+class LED_Control(BoxLayout):
+    bg_color = ObjectProperty(None)
+
+    def __init__(self, **kwargs):
+        super(LED_Control, self).__init__(**kwargs)
+        if self.bg_color is None:
+            self.bg_color = (0.5, 0.5, 0.5, 0.5)
+
+
+# # MainDisplay is organized in lumaviewplus.kv
 class MainDisplay(TabbedPanel):
     pass
 
