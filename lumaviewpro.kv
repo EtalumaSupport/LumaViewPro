@@ -154,19 +154,19 @@
 
     # BLUE lED Settings
     LED_Control:
-        id: blue_led_id
+        id: bl_led_id
         size_hint: 1, 0.25
         bg_color: 0, .5, 1, .3
 
     # GREEN lED Settings
     LED_Control:
-        id: green_led_id
+        id: gr_led_id
         size_hint: 1, 0.25
         bg_color: .2, 1, 0.2, .3
 
     # RED lED Settings
     LED_Control:
-        id: RED_control
+        id: rd_led_id
         size_hint: 1, 0.25
         bg_color: 1, 0.2, 0, 1
 
@@ -192,7 +192,7 @@
             min: 0
             max: 100
             value: 0
-            on_value: root.get_sliders()
+            on_value: root.parent.get_sliders()
         TextInput:
             text: '0'
             size_hint_x: 0.2
@@ -209,7 +209,7 @@
             min: 0
             max: 100
             value: 100
-            on_value: root.get_sliders()
+            on_value: root.parent.get_sliders()
         TextInput:
             text: '0'
             size_hint_x: 0.2
@@ -227,7 +227,7 @@
             min: 100
             max: 200
             value: 150
-            on_value: root.get_sliders()
+            on_value: root.parent.get_sliders()
         TextInput:
             text: '0'
             size_hint_x: 0.2

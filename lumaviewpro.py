@@ -158,21 +158,22 @@ class ShaderSettings(BoxLayout):
         global black_point
         global white_point
 
-        bf_ill = self.ids['bf_ill'].value_normalized
-        bf_gain = self.ids['bf_gain'].value_normalized
-        bf_exp = self.ids['bf_exp'].value
+        bf_ill = self.ids['bf_led_id'].ids['illumination_id'].value_normalized
+        bf_gain = self.ids['bf_led_id'].ids['gain_id'].value_normalized
+        bf_exp = self.ids['bf_led_id'].ids['exposure_id'].value
 
-        bl_ill = self.ids['bl_ill'].value_normalized
-        bl_gain = self.ids['bl_gain'].value_normalized
-        bl_exp = self.ids['bl_exp'].value
+        bl_ill = self.ids['bl_led_id'].ids['illumination_id'].value_normalized
+        bl_gain = self.ids['bl_led_id'].ids['gain_id'].value_normalized
+        bl_exp = self.ids['bl_led_id'].ids['exposure_id'].value
 
-        gr_ill = self.ids['gr_ill'].value_normalized
-        gr_gain = self.ids['gr_gain'].value_normalized
-        gr_exp = self.ids['gr_exp'].value
+        gr_ill = self.ids['gr_led_id'].ids['illumination_id'].value_normalized
+        gr_gain = self.ids['gr_led_id'].ids['gain_id'].value_normalized
+        gr_exp = self.ids['gr_led_id'].ids['exposure_id'].value
 
-        rd_ill = self.ids['rd_ill'].value_normalized
-        rd_gain = self.ids['rd_gain'].value_normalized
-        rd_exp = self.ids['rd_exp'].value
+        rd_ill = self.ids['rd_led_id'].ids['illumination_id'].value_normalized
+        rd_gain = self.ids['rd_led_id'].ids['gain_id'].value_normalized
+        rd_exp = self.ids['rd_led_id'].ids['exposure_id'].value
+
 
         black_point = (rd_ill, gr_ill, bl_ill, bf_ill)
         white_point = (rd_gain, gr_gain, bl_gain, bf_gain)
