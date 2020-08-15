@@ -56,14 +56,16 @@
     Splitter:
         size_hint_x: 0.2
         sizable_from: 'right'
+        strip_size: 8
         ShaderEditor:
             viewer: viewer_id
     ShaderViewer:
         id: viewer_id
         size_hint_x: 0.6
     Splitter:
-        size_hint_x: 0.2
         sizable_from: 'left'
+        size_hint_x: 0.2
+        strip_size: 8
         ShaderSettings:
             id: shadersettings_id
 
@@ -76,10 +78,14 @@
         text: 'Fragment Shader'
         size_hint_y: None
         height: self.texture_size[1] + 10
-    CodeInput:
-        text: root.fs
-        lexer: GLShaderLexer()
-        on_text: root.fs = args[1]
+    Splitter:
+        sizable_from: 'bottom'
+        size_hint_y: 0.5
+        strip_size: 8
+        CodeInput:
+            text: root.fs
+            lexer: GLShaderLexer()
+            on_text: root.fs = args[1]
 
     # Vertex Shader Editor
     Label:
