@@ -139,7 +139,7 @@
     padding: 5
     canvas:
         Color:
-            rgba: 1, 1, 1, 0.1
+            rgba: 0, 0, 0, 0.5
         Rectangle:
             size: self.size
             pos: self.pos
@@ -180,7 +180,7 @@
     orientation: 'vertical'
     canvas:
         Color:
-            rgba: 1, 1, 1, 0.1
+            rgba: 0, 0, 0, 0.5
         Rectangle:
             size: self.size
             pos: self.pos
@@ -203,6 +203,7 @@
             font_size: self.height/2
             padding: [10, (self.height-self.line_height)/2]
             halign: 'right'
+            background_color: 0.6, 0.6, 0.6, 1
             input_filter: 'float'
             text:  str(int(illumination_id.value))
 
@@ -232,6 +233,7 @@
             font_size: self.height/2
             padding: [10, (self.height-self.line_height)/2]
             halign: 'right'
+            background_color: 0.6, 0.6, 0.6, 1
             input_filter: 'float'
             text:  str(int(gain_id.value))
         BoxLayout:
@@ -261,6 +263,7 @@
             font_size: self.height/2
             padding: [10, (self.height-self.line_height)/2]
             halign: 'right'
+            background_color: 0.6, 0.6, 0.6, 1
             input_filter: 'float'
             text:  str(int(exposure_id.value))
         BoxLayout:
