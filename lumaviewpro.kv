@@ -223,7 +223,6 @@
                 value_track_color: root.bg_color
                 on_value: root.parent.get_sliders()
 
-
     # Gain
     BoxLayout:
         orientation: 'horizontal'
@@ -293,264 +292,158 @@
 # Protocol Layout
 # --------------------------------------------
 <ProtocolTab>:
-    GridLayout:
-        cols: 7
-        padding: 10
-        spacing: 10
-        row_default_height: 40
+    orientation: 'vertical'
+    padding: 5
+    spacing: 5
+    # row_default_height: 40
 
+    BoxLayout:
+
+    GridLayout:
+        cols: 3
+        spacing: 5
+        size_hint_y: None
+        height: 80
+        Label:
+            text: 'Capture Rate'
+        TextInput:
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+            halign: 'right'
+            input_filter: 'int'
+            # text:  str(int(illumination_id.value))
+            text: '5'
+        Label:
+            text: 'minutes'
+
+        Label:
+            text: 'Capture Duration'
+        TextInput:
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+            halign: 'right'
+            input_filter: 'int'
+            # text:  str(int(illumination_id.value))
+            text: '48'
+        Label:
+            text: 'hours'
+
+    BoxLayout:
+        spacing: 5
+        size_hint_y: None
+        height: 20
+
+    BoxLayout:
+        spacing: 5
+        size_hint_y: None
+        height: 40
+        orientation: 'horizontal'
         # PROTOCOL - LABELS
         Label:
             text: ''
+            size_hint_x: None
+            width: 100
         Label:
             text: 'Folder'
-        # Widget:
-        #     Scatter:
-        #         center: self.parent.center
-        #         size: text.size
-        #         do_rotation: False
-        #         do_translation: False
-        #         do_scale: False
-        #         rotation: 90
-        #         Label:
-        #             id: text
-        #             size: self.texture_size
-        #             text: "Folder"
         Label:
             text: 'Filename Root'
-        # Widget:
-        #     Scatter:
-        #         center: self.parent.center
-        #         size: text.size
-        #         do_rotation: False
-        #         do_translation: False
-        #         do_scale: False
-        #         rotation: 90
-        #         Label:
-        #             id: text
-        #             size: self.texture_size
-        #             text: "Filename Root"
-        Widget:
-            size_hint_x: None
-            width: 40
-            Scatter:
-                center: self.parent.center
-                size: text.size
-                do_rotation: False
-                do_translation: False
-                do_scale: False
-                rotation: 90
-                Label:
-                    id: text
-                    size: self.texture_size
-                    text: "Illumination"
-        Widget:
-            size_hint_x: None
-            width: 40
-            Scatter:
-                center: self.parent.center
-                size: text.size
-                do_rotation: False
-                do_translation: False
-                do_scale: False
-                rotation: 90
-                Label:
-                    id: text
-                    size: self.texture_size
-                    text: "Gain"
-        Widget:
-            size_hint_x: None
-            width: 40
-            Scatter:
-                center: self.parent.center
-                size: text.size
-                do_rotation: False
-                do_translation: False
-                do_scale: False
-                rotation: 90
-                Label:
-                    id: text
-                    size: self.texture_size
-                    text: "Exposure"
-        Widget:
-            size_hint_x: None
-            width: 40
-            Scatter:
-                center: self.parent.center
-                size: text.size
-                do_rotation: False
-                do_translation: False
-                do_scale: False
-                rotation: 90
-                Label:
-                    id: text
-                    size: self.texture_size
-                    text: "Acquire"
-
-        # PROTOCOL - BRIGHTFIELD
         Label:
-            canvas:
-                Color:
-                    rgba: 1, 1, 1, .3
-                Rectangle:
-                    size: self.size
-                    pos: self.pos
-            text: 'Brightfield'
-        TextInput:
-            suggestion_text: 'folder'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: 'filename root'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: '100'
+            text: 'Ill.'
             size_hint_x: None
             width: 40
-        TextInput:
-            suggestion_text: '100'
+        Label:
+            text: 'Gain'
             size_hint_x: None
             width: 40
-        TextInput:
-            suggestion_text: '150'
+        Label:
+            text: 'Exp.'
             size_hint_x: None
             width: 40
-        CheckBox:
+        Label:
+            text: 'Acq.'
             size_hint_x: None
             width: 40
 
-        # PROTOCOL - BLUE
-        Label:
-            canvas:
-                Color:
-                    rgba: 0, .5, 1, .3
-                Rectangle:
-                    size: self.size
-                    pos: self.pos
-            text: 'Blue Channel'
-        TextInput:
-            suggestion_text: 'folder'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: 'filename root'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: '100'
-            size_hint_x: None
-            width: 40
-        TextInput:
-            suggestion_text: '100'
-            size_hint_x: None
-            width: 40
-        TextInput:
-            suggestion_text: '150'
-            size_hint_x: None
-            width: 40
-        CheckBox:
-            size_hint_x: None
-            width: 40
+    Protocol_Control:
+        id: bf_protocol
+        protocol_label: 'Brightfield'
+        bg_color: 1, 1, 1, 0.2
+    Protocol_Control:
+        id: bf_protocol
+        protocol_label: 'Blue'
+        bg_color: 0, 0.2, 1, 0.2
+    Protocol_Control:
+        id: bf_protocol
+        protocol_label: 'Green'
+        bg_color: 0.2, 1, 0.2, 0.2
+    Protocol_Control:
+        id: bf_protocol
+        protocol_label: 'Red'
+        bg_color: 1, 0.2, 0, 0.2
+    Protocol_Control:
+        id: bf_protocol
+        protocol_label: 'Composite'
+        bg_color: 1, 1, 1, 0.2
 
-        # PROTOCOL - GREEN
-        Label:
-            canvas:
-                Color:
-                    rgba: .2, 1, 0.2, .3
-                Rectangle:
-                    size: self.size
-                    pos: self.pos
-            text: 'Green Channel'
-        TextInput:
-            suggestion_text: 'folder'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: 'filename root'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: '100'
-            size_hint_x: None
-            width: 40
-        TextInput:
-            suggestion_text: '100'
-            size_hint_x: None
-            width: 40
-        TextInput:
-            suggestion_text: '150'
-            size_hint_x: None
-            width: 40
-        CheckBox:
-            size_hint_x: None
-            width: 40
+    BoxLayout:
 
-        # PROTOCOL - RED
-        Label:
-            canvas:
-                Color:
-                    rgba: 1, .2, .2, .3
-                Rectangle:
-                    size: self.size
-                    pos: self.pos
-            text: 'Red Channel'
-        TextInput:
-            suggestion_text: 'folder'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: 'filename root'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: '100'
-            size_hint_x: None
-            width: 40
-        TextInput:
-            suggestion_text: '100'
-            size_hint_x: None
-            width: 40
-        TextInput:
-            suggestion_text: '150'
-            size_hint_x: None
-            width: 40
-        CheckBox:
-            size_hint_x: None
-            width: 40
+    BoxLayout:
+        spacing: 5
+        size_hint_y: None
+        height: 40
+        orientation: 'horizontal'
+        # PROTOCOL - LABELS
+        Button:
+            text: 'Import from Live Image'
+        Button:
+            text: 'Load Protocol'
+        Button:
+            text: 'Save Protocol'
 
-        # PROTOCOL - COMPOSITE
-        Label:
-            canvas:
-                Color:
-                    rgba: 1, 1, 1, .3
-                Rectangle:
-                    size: self.size
-                    pos: self.pos
-            text: 'Composite Image'
-        TextInput:
-            suggestion_text: 'folder'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: 'filename root'
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-        TextInput:
-            suggestion_text: '100'
-            size_hint_x: None
-            width: 40
-        TextInput:
-            suggestion_text: '100'
-            size_hint_x: None
-            width: 40
-        TextInput:
-            suggestion_text: '150'
-            size_hint_x: None
-            width: 40
-        CheckBox:
-            size_hint_x: None
-            width: 40
+
+<Protocol_Control>:
+    spacing: 5
+    size_hint_y: None
+    height: 40
+    Label:
+        size_hint_x: None
+        width: 100
+        canvas:
+            Color:
+                rgba: root.bg_color
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        text: root.protocol_label
+    TextInput:
+        suggestion_text: 'folder'
+        multiline: False
+        padding: [10, (self.height-self.line_height)/2]
+    TextInput:
+        suggestion_text: 'filename root'
+        multiline: False
+        padding: [10, (self.height-self.line_height)/2]
+    TextInput:
+        suggestion_text: '100'
+        size_hint_x: None
+        width: 40
+        multiline: False
+        padding: [10, (self.height-self.line_height)/2]
+    TextInput:
+        suggestion_text: '100'
+        size_hint_x: None
+        width: 40
+        multiline: False
+        padding: [10, (self.height-self.line_height)/2]
+    TextInput:
+        suggestion_text: '150'
+        size_hint_x: None
+        width: 40
+        multiline: False
+        padding: [10, (self.height-self.line_height)/2]
+    CheckBox:
+        size_hint_x: None
+        width: 40
 
 # --------------------------------------------
 # Analysis Layout

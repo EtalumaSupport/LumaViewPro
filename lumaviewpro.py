@@ -3,22 +3,24 @@ import kivy
 #kivy.require('1.0.6')
 
 from kivy.app import App
-from kivy.uix.tabbedpanel import TabbedPanel
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.floatlayout import FloatLayout
 from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty
 from kivy.clock import Clock
 
-# new...
+# User Interface
+from kivy.uix.tabbedpanel import TabbedPanel
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.switch import Switch
-
+from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
+
+# Video Related
 from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
 from kivy.core.camera import Camera
@@ -191,13 +193,23 @@ class LED_Control(BoxLayout):
         if self.ctrl_label is None:
             self.ctrl_label = 'Ctrl Label'
 
+class Protocol_Control(BoxLayout):
+    bg_color = ObjectProperty(None)
+    protocol_label = StringProperty(None)
+
+    def __init__(self, **kwargs):
+        super(Protocol_Control, self).__init__(**kwargs)
+        if self.bg_color is None:
+            self.bg_color = (0.5, 0.5, 0.5, 0.5)
+        if self.protocol_label is None:
+            self.protocol_label = 'Protocol Label'
 
 # # MainDisplay is organized in lumaviewplus.kv
 class MainDisplay(TabbedPanel):
     pass
 
 class ConfigTab(BoxLayout):
-    pass    # Illumination
+    pass
 
 class ImageTab(BoxLayout):
     pass
@@ -213,12 +225,10 @@ class AnalysisTab(BoxLayout):
 
 class LumaViewProApp(App):
     def build(self):
-        kwargs = {}
-        if len(sys.argv) > 1:
-            kwargs['source'] = sys.argv[1]
-        #else:
-        #    kwargs['source'] = 'data/sample.tif'
-        #return ShaderEditor(**kwargs)
+        # kwargs = {}
+        # if len(sys.argv) > 1:
+        #     kwargs['source'] = sys.argv[1]
+
         return MainDisplay()
 
 def update_filter_callback():
