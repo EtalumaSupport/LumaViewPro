@@ -16,6 +16,7 @@ from kivy.clock import Clock
 # new...
 from kivy.uix.widget import Widget
 from kivy.uix.togglebutton import ToggleButton
+from kivy.uix.switch import Switch
 
 from kivy.uix.image import Image
 from kivy.graphics.texture import Texture
@@ -181,11 +182,14 @@ class ShaderSettings(BoxLayout):
 
 class LED_Control(BoxLayout):
     bg_color = ObjectProperty(None)
+    ctrl_label = StringProperty(None)
 
     def __init__(self, **kwargs):
         super(LED_Control, self).__init__(**kwargs)
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
+        if self.ctrl_label is None:
+            self.ctrl_label = 'Ctrl Label'
 
 
 # # MainDisplay is organized in lumaviewplus.kv
@@ -193,7 +197,7 @@ class MainDisplay(TabbedPanel):
     pass
 
 class ConfigTab(BoxLayout):
-    pass
+    pass    # Illumination
 
 class ImageTab(BoxLayout):
     pass

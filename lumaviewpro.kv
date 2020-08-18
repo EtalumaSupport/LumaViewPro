@@ -137,100 +137,143 @@
     orientation: 'vertical'
     spacing: 5
     padding: 5
-    # canvas:
-    #     Color:
-    #         rgba: 0,0,0,1
-    #     Rectangle:
-    #         size: self.size
-    #         pos: self.pos
+    canvas:
+        Color:
+            rgba: 1, 1, 1, 0.1
+        Rectangle:
+            size: self.size
+            pos: self.pos
 
     # -----------------------
     # BRIGHTFIELD Settings
     # -----------------------
     LED_Control:
         id: bf_led_id
+        ctrl_label: 'Brightfield'
         size_hint: 1, 0.25
-        bg_color: 1, 1, 1, .3
+        bg_color: 0.5, 0.5, 0.5, 1
 
     # BLUE lED Settings
     LED_Control:
         id: bl_led_id
+        ctrl_label: 'Blue LED'
         size_hint: 1, 0.25
-        bg_color: 0, .5, 1, .3
+        bg_color: 0, .5, 1, 1
 
     # GREEN lED Settings
     LED_Control:
         id: gr_led_id
+        ctrl_label: 'Green LED'
         size_hint: 1, 0.25
-        bg_color: .2, 1, 0.2, .3
+        bg_color: .2, 0.8, 0.2, 1
 
     # RED lED Settings
     LED_Control:
         id: rd_led_id
+        ctrl_label: 'Red LED'
         size_hint: 1, 0.25
         bg_color: 1, 0.2, 0, 1
 
 <LED_Control>:
-    # bg_color: self.bg_color
+    padding: 5
+    spacing: 5
     orientation: 'vertical'
     canvas:
         Color:
-            rgba: self.bg_color
+            rgba: 1, 1, 1, 0.1
         Rectangle:
             size: self.size
             pos: self.pos
-    Label:
-        text: 'Illumination'
-        text_size: self.size
-        halign: 'center'
-        valign: 'middle'
+
+    # BoxLayout:
+    #     Label:
+    #         text: root.ctrl_label
+    #         text_size: self.size
+    #         halign: 'center'
+    #         valign: 'middle'
+    #     Switch:
+    #         active: True
+
+    # Illumination
     BoxLayout:
         orientation: 'horizontal'
-        padding: 5, 5
-        Slider:
-            id: illumination_id
-            min: 0
-            max: 100
-            value: 0
-            on_value: root.parent.get_sliders()
+        BoxLayout:
+            orientation: 'vertical'
+            Label:
+                text: 'Illumination'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                padding: 5, 5
+            Slider:
+                id: illumination_id
+                min: 0
+                max: 100
+                value: 0
+                cursor_size: 20,20
+                value_track: True
+                value_track_color: root.bg_color
+                on_value: root.parent.get_sliders()
         TextInput:
+            size_hint_x: 0.3
+            multiline: False
+            font_size: self.height/2
+            padding: [10, (self.height-self.line_height)/2]
             text: '0'
-            size_hint_x: 0.2
-    Label:
-        text: 'Gain'
-        text_size: self.size
-        halign: 'center'
-        valign: 'middle'
+
+    # Gain
     BoxLayout:
         orientation: 'horizontal'
-        padding: 5, 5
-        Slider:
-            id: gain_id
-            min: 0
-            max: 100
-            value: 100
-            on_value: root.parent.get_sliders()
+        BoxLayout:
+            orientation: 'vertical'
+            Label:
+                text: 'Gain'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                padding: 5, 5
+            Slider:
+                id: gain_id
+                min: 0
+                max: 100
+                value: 100
+                cursor_size: 20,20
+                value_track: True
+                value_track_color: root.bg_color
+                on_value: root.parent.get_sliders()
         TextInput:
+            size_hint_x: 0.3
+            multiline: False
+            font_size: self.height/2
+            padding: [10, (self.height-self.line_height)/2]
             text: '0'
-            size_hint_x: 0.2
-    Label:
-        text: 'Exposure'
-        text_size: self.size
-        halign: 'center'
-        valign: 'middle'
-        # color: 1, 0.2, 0, 1
+
+    # Exposure
     BoxLayout:
         orientation: 'horizontal'
-        padding: 5, 5
-        Slider:
-            id: exposure_id
-            min: 100
-            max: 200
-            value: 150
-            on_value: root.parent.get_sliders()
+        BoxLayout:
+            orientation: 'vertical'
+            Label:
+                text: 'Exposure'
+                text_size: self.size
+                halign: 'center'
+                valign: 'middle'
+                padding: 5, 5
+            Slider:
+                id: exposure_id
+                min: 100
+                max: 200
+                value: 150
+                cursor_size: 20,20
+                value_track: True
+                value_track_color: root.bg_color
+                on_value: root.parent.get_sliders()
         TextInput:
+            size_hint_x: 0.3
+            multiline: False
+            font_size: self.height/2
+            padding: [10, (self.height-self.line_height)/2]
             text: '0'
-            size_hint_x: 0.2
 
 # --------------------------------------------
 # Microscope Motion Layout
