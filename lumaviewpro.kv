@@ -196,24 +196,23 @@
 
     # Illumination
     BoxLayout:
-        orientation: 'horizontal'
-        TextInput:
-            size_hint_x: 0.3
-            multiline: False
-            font_size: self.height/4
-            padding: [10, (self.height-self.line_height)/2]
-            halign: 'right'
-            background_color: 0.6, 0.6, 0.6, 1
-            input_filter: 'float'
-            text:  str(int(illumination_id.value))
-
         BoxLayout:
-            orientation: 'vertical'
+            orientation: 'horizontal'
             Label:
                 text: 'Illumination'
-                # font_size: self.height/2
                 halign: 'center'
                 valign: 'middle'
+
+            TextInput:
+                size_hint_x: 0.3
+                multiline: False
+                font_size: self.height/2
+                padding: [10, (self.height-self.line_height)/2]
+                halign: 'center'
+                background_color: 0.6, 0.6, 0.6, 1
+                input_filter: 'float'
+                text:  str(int(illumination_id.value))
+
             Slider:
                 id: illumination_id
                 min: 0
@@ -224,26 +223,23 @@
                 value_track_color: root.bg_color
                 on_value: root.parent.get_sliders()
 
-    # Gain
-    BoxLayout:
-        orientation: 'horizontal'
-        TextInput:
-            size_hint_x: 0.3
-            multiline: False
-            font_size: self.height/2
-            padding: [10, (self.height-self.line_height)/2]
-            halign: 'right'
-            background_color: 0.6, 0.6, 0.6, 1
-            input_filter: 'float'
-            text:  str(int(gain_id.value))
+        # Gain
         BoxLayout:
-            orientation: 'vertical'
+            orientation: 'horizontal'
             Label:
                 text: 'Gain'
-                # font_size: self.height/2
                 halign: 'center'
                 valign: 'middle'
                 padding: 5, 5
+            TextInput:
+                size_hint_x: 0.3
+                multiline: False
+                font_size: self.height/2
+                padding: [10, (self.height-self.line_height)/2]
+                halign: 'center'
+                background_color: 0.6, 0.6, 0.6, 1
+                input_filter: 'float'
+                text:  str(int(gain_id.value))
             Slider:
                 id: gain_id
                 min: 0
@@ -254,26 +250,23 @@
                 value_track_color: root.bg_color
                 on_value: root.parent.get_sliders()
 
-    # Exposure
-    BoxLayout:
-        orientation: 'horizontal'
-        TextInput:
-            size_hint_x: 0.3
-            multiline: False
-            font_size: self.height/2
-            padding: [10, (self.height-self.line_height)/2]
-            halign: 'right'
-            background_color: 0.6, 0.6, 0.6, 1
-            input_filter: 'float'
-            text:  str(int(exposure_id.value))
+        # Exposure
         BoxLayout:
-            orientation: 'vertical'
+            orientation: 'horizontal'
             Label:
                 text: 'Exposure'
-                # font_size: self.height/2
                 halign: 'center'
                 valign: 'middle'
                 padding: 5, 5
+            TextInput:
+                size_hint_x: 0.3
+                multiline: False
+                font_size: self.height/2
+                padding: [10, (self.height-self.line_height)/2]
+                halign: 'center'
+                background_color: 0.6, 0.6, 0.6, 1
+                input_filter: 'float'
+                text:  str(int(exposure_id.value))
             Slider:
                 id: exposure_id
                 min: 100
