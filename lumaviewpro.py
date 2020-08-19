@@ -24,9 +24,13 @@ from kivy.uix.image import Image
 from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
 from kivy.core.camera import Camera
+
+# Besler Camera files
+#import pypylon
+
 import numpy as np
 import time
-from PIL import Image
+#from PIL import Image
 
 comment = '''
 Based on code from the kivy example Live Shader Editor found at:
