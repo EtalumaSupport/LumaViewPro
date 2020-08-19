@@ -196,6 +196,13 @@
 
     # Illumination
     BoxLayout:
+
+        orientation: 'vertical'
+        Label:
+            text: root.ctrl_label
+            halign: 'center'
+            valign: 'middle'
+
         BoxLayout:
             orientation: 'horizontal'
             Label:
@@ -206,7 +213,7 @@
             TextInput:
                 size_hint_x: 0.3
                 multiline: False
-                font_size: self.height/2
+                font_size: self.height/4
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'center'
                 background_color: 0.6, 0.6, 0.6, 1
@@ -234,7 +241,7 @@
             TextInput:
                 size_hint_x: 0.3
                 multiline: False
-                font_size: self.height/2
+                font_size: self.height/4
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'center'
                 background_color: 0.6, 0.6, 0.6, 1
@@ -261,7 +268,7 @@
             TextInput:
                 size_hint_x: 0.3
                 multiline: False
-                font_size: self.height/2
+                font_size: self.height/4
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'center'
                 background_color: 0.6, 0.6, 0.6, 1
