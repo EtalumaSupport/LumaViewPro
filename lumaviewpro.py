@@ -1,4 +1,7 @@
+# General
 import sys
+import numpy as np
+import time
 import kivy
 #kivy.require('1.0.6')
 
@@ -25,21 +28,74 @@ from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
 from kivy.core.camera import Camera
 
-# Besler Camera files
-#import pypylon
+# Besler Camera Support
+import pypylon
+from pypylon import pylon
+from pypylon import genicam
 
-import numpy as np
-import time
-#from PIL import Image
 
-comment = '''
-Based on code from the kivy example Live Shader Editor found at:
-kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
-'''
+# Number of images to be grabbed.
+countOfImagesToGrab = 100
+
+# The exit code of the sample application.
+exitCode = 0
+
+try:
+    # Create an instant camera object with the camera device found first.
+    camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+    camera.Open()
+
+    # Print the model name of the camera.
+    print("Using device ", camera.GetDeviceInfo().GetModelName())
+
+    # demonstrate some feature access
+    new_width = camera.Width.GetValue() - camera.Width.GetInc()
+    if new_width >= camera.Width.GetMin():
+        camera.Width.SetValue(new_width)
+
+    # The parameter MaxNumBuffer can be used to control the count of buffers
+    # allocated for grabbing. The default value of this parameter is 10.
+    camera.MaxNumBuffer = 5
+
+    # Start the grabbing of c_countOfImagesToGrab images.
+    # The camera device is parameterized with a default configuration which
+    # sets up free-running continuous acquisition.
+    camera.StartGrabbingMax(countOfImagesToGrab)
+
+    # Camera.StopGrabbing() is called automatically by the RetrieveResult() method
+    # when c_countOfImagesToGrab images have been retrieved.
+    while camera.IsGrabbing():
+        # Wait for an image and then retrieve it. A timeout of 5000 ms is used.
+        grabResult = camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
+
+        # Image grabbed successfully?
+        if grabResult.GrabSucceeded():
+            # Access the image data.
+            print("SizeX: ", grabResult.Width)
+            print("SizeY: ", grabResult.Height)
+            img = grabResult.Array
+            print("Gray value of first pixel: ", img[0, 0])
+        else:
+            print("Error: ", grabResult.ErrorCode, grabResult.ErrorDescription)
+        grabResult.Release()
+    camera.Close()
+
+except genicam.GenericException as e:
+    # Error handling.
+    print("An exception occurred.")
+    print(e.GetDescription())
+    exitCode = 1
+
+sys.exit(exitCode)
+
+# Shader code
+# Based on code from the kivy example Live Shader Editor found at:
+# kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
+
 
 fs_header = '''
 #ifdef GL_ES
-    precision highp float;
+precision highp float;
 #endif
 
 /* Outputs from the vertex shader */
@@ -63,7 +119,7 @@ uniform vec4 white_point;
 
 vs_header = '''
 #ifdef GL_ES
-    precision highp float;
+precision highp float;
 #endif
 
 /* Outputs to the fragment shader */
@@ -80,6 +136,8 @@ uniform mat4       projection_mat;
 uniform vec4       color;
 '''
 
+
+
 global black_point
 black_point = (0., )*4
 
@@ -87,7 +145,6 @@ global white_point
 white_point = (1., )*4
 
 class ShaderEditor(BoxLayout):
-
     fs = StringProperty('''
 void main (void){
 	gl_FragColor = white_point * frag_color * texture2D(texture0, tex_coord0)
