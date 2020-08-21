@@ -1,10 +1,13 @@
-# imports
+# Kivy Interface
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.image import Image
 from kivy.graphics.texture import Texture
+
+# Camera functionality
 from pypylon import pylon
 import numpy as np
+from kivy.clock import Clock
 
 class PylonCam(Image):
 
@@ -13,20 +16,16 @@ class PylonCam(Image):
 
         self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+        Clock.schedule_interval(self.update, 0.1)
 
-    def play(self):
-        # while self.camera.IsGrabbing():
-            # Wait for an image and then retrieve it. A timeout of 500 ms is used.
+    def update(self, dt):
+
         img = self.camera.RetrieveResult(500, pylon.TimeoutHandling_ThrowException)
         if img.GrabSucceeded():
             # returns a numpy array in the shape of the image
             img_array = img.GetArray()
              # creates a 1D array of type uint8
-            # img_string = img_array.tostring() # equivalent
-            img_string = img_array.reshape(-1,)
             img_string = img_array.flatten()
-            print(img_string[0])
-            # Works up to here...
 
             # create a texture that has the shape of the image
             texture = Texture.create(size=(img_array.shape[1], img_array.shape[0]), colorfmt='luminance')
