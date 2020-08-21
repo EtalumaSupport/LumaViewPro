@@ -3,6 +3,7 @@ import sys
 import numpy as np
 import time
 import kivy
+import numpy as np
 #kivy.require('1.0.6')
 
 from kivy.app import App
@@ -28,65 +29,6 @@ from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
 from kivy.core.camera import Camera
 
-# Besler Camera Support
-import pypylon
-from pypylon import pylon
-from pypylon import genicam
-
-
-# Number of images to be grabbed.
-countOfImagesToGrab = 100
-
-# The exit code of the sample application.
-exitCode = 0
-
-try:
-    # Create an instant camera object with the camera device found first.
-    camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
-    camera.Open()
-
-    # Print the model name of the camera.
-    print("Using device ", camera.GetDeviceInfo().GetModelName())
-
-    # demonstrate some feature access
-    new_width = camera.Width.GetValue() - camera.Width.GetInc()
-    if new_width >= camera.Width.GetMin():
-        camera.Width.SetValue(new_width)
-
-    # The parameter MaxNumBuffer can be used to control the count of buffers
-    # allocated for grabbing. The default value of this parameter is 10.
-    camera.MaxNumBuffer = 5
-
-    # Start the grabbing of c_countOfImagesToGrab images.
-    # The camera device is parameterized with a default configuration which
-    # sets up free-running continuous acquisition.
-    camera.StartGrabbingMax(countOfImagesToGrab)
-
-    # Camera.StopGrabbing() is called automatically by the RetrieveResult() method
-    # when c_countOfImagesToGrab images have been retrieved.
-    while camera.IsGrabbing():
-        # Wait for an image and then retrieve it. A timeout of 5000 ms is used.
-        grabResult = camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
-
-        # Image grabbed successfully?
-        if grabResult.GrabSucceeded():
-            # Access the image data.
-            print("SizeX: ", grabResult.Width)
-            print("SizeY: ", grabResult.Height)
-            img = grabResult.Array
-            print("Gray value of first pixel: ", img[0, 0])
-        else:
-            print("Error: ", grabResult.ErrorCode, grabResult.ErrorDescription)
-        grabResult.Release()
-    camera.Close()
-
-except genicam.GenericException as e:
-    # Error handling.
-    print("An exception occurred.")
-    print(e.GetDescription())
-    exitCode = 1
-
-sys.exit(exitCode)
 
 # Shader code
 # Based on code from the kivy example Live Shader Editor found at:
@@ -136,13 +78,14 @@ uniform mat4       projection_mat;
 uniform vec4       color;
 '''
 
+global illumination_vals
+illumination_vals = (0., )*4
 
+global gain_vals
+gain_vals = (1., )*4
 
-global black_point
-black_point = (0., )*4
-
-global white_point
-white_point = (1., )*4
+global exposure_vals
+exposure_vals = (150, )*4
 
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
@@ -193,13 +136,16 @@ class ShaderViewer(BoxLayout):
         Clock.schedule_interval(self.update_shader, 0)
 
     def update_shader(self, *args):
+        global illumination_vals
+        global gain_vals
+
         #print(black_point)
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
-        c['black_point'] = black_point
-        c['white_point'] = white_point
+        c['black_point'] = illumination_vals
+        c['white_point'] = gain_vals
         c.ask_update()
 
     def on_fs(self, instance, value):
@@ -220,28 +166,29 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 class ShaderSettings(BoxLayout):
     # get slider values and update global variables where needed
     def get_sliders(self):
-        global black_point
-        global white_point
+        global illumination_vals
+        global gain_vals
+        global exposure_vals
 
-        bf_ill = self.ids['bf_led_id'].ids['illumination_id'].value_normalized
-        bf_gain = self.ids['bf_led_id'].ids['gain_id'].value_normalized
+        bf_ill = self.ids['bf_led_id'].ids['illumination_id'].value
+        bf_gain = self.ids['bf_led_id'].ids['gain_id'].value
         bf_exp = self.ids['bf_led_id'].ids['exposure_id'].value
 
-        bl_ill = self.ids['bl_led_id'].ids['illumination_id'].value_normalized
-        bl_gain = self.ids['bl_led_id'].ids['gain_id'].value_normalized
+        bl_ill = self.ids['bl_led_id'].ids['illumination_id'].value
+        bl_gain = self.ids['bl_led_id'].ids['gain_id'].value
         bl_exp = self.ids['bl_led_id'].ids['exposure_id'].value
 
-        gr_ill = self.ids['gr_led_id'].ids['illumination_id'].value_normalized
-        gr_gain = self.ids['gr_led_id'].ids['gain_id'].value_normalized
+        gr_ill = self.ids['gr_led_id'].ids['illumination_id'].value
+        gr_gain = self.ids['gr_led_id'].ids['gain_id'].value
         gr_exp = self.ids['gr_led_id'].ids['exposure_id'].value
 
-        rd_ill = self.ids['rd_led_id'].ids['illumination_id'].value_normalized
-        rd_gain = self.ids['rd_led_id'].ids['gain_id'].value_normalized
+        rd_ill = self.ids['rd_led_id'].ids['illumination_id'].value
+        rd_gain = self.ids['rd_led_id'].ids['gain_id'].value
         rd_exp = self.ids['rd_led_id'].ids['exposure_id'].value
 
-
-        black_point = (rd_ill, gr_ill, bl_ill, bf_ill)
-        white_point = (rd_gain, gr_gain, bl_gain, bf_gain)
+        illumination_vals = (rd_ill, gr_ill, bl_ill, bf_ill)
+        gain_vals = (rd_gain, gr_gain, bl_gain, bf_gain)
+        exposure_vals = (rd_exp, gr_exp, bl_exp, bf_exp)
 
 class LED_Control(BoxLayout):
     bg_color = ObjectProperty(None)
@@ -279,7 +226,32 @@ class MotionTab(BoxLayout):
     pass
 
 class ProtocolTab(BoxLayout):
-    pass
+    def import_vals(self):
+        global illumination_vals
+        global gain_vals
+        global exposure_vals
+
+        self.ids['bf_protocol'].ids['ill_val'].text = str(illumination_vals[3])
+        self.ids['bf_protocol'].ids['gain_val'].text = str(gain_vals[3])
+        self.ids['bf_protocol'].ids['exp_val'].text = str(exposure_vals[3])
+
+        self.ids['bl_protocol'].ids['ill_val'].text = str(illumination_vals[2])
+        self.ids['bl_protocol'].ids['gain_val'].text = str(gain_vals[2])
+        self.ids['bl_protocol'].ids['exp_val'].text = str(exposure_vals[2])
+
+        self.ids['gr_protocol'].ids['ill_val'].text = str(illumination_vals[1])
+        self.ids['gr_protocol'].ids['gain_val'].text = str(gain_vals[1])
+        self.ids['gr_protocol'].ids['exp_val'].text = str(exposure_vals[1])
+
+        self.ids['rd_protocol'].ids['ill_val'].text = str(illumination_vals[0])
+        self.ids['rd_protocol'].ids['gain_val'].text = str(gain_vals[0])
+        self.ids['rd_protocol'].ids['exp_val'].text = str(exposure_vals[0])
+
+    def load_protocol(self):
+        print('Load protocol not yet written.')
+
+    def save_protocol(self):
+        print('Save protocol not yet written')
 
 class AnalysisTab(BoxLayout):
     pass

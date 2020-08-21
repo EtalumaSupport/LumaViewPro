@@ -216,15 +216,15 @@
                 multiline: False
                 font_size: self.height/4
                 padding: [10, (self.height-self.line_height)/2]
-                halign: 'center'
+                halign: 'left'
                 background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
-                text:  str(int(illumination_id.value))
+                text:"%.2f" % illumination_id.value
 
             Slider:
                 id: illumination_id
                 min: 0
-                max: 100
+                max: 1.
                 value: 0
                 cursor_size: 20,20
                 value_track: True
@@ -244,16 +244,16 @@
                 multiline: False
                 font_size: self.height/4
                 padding: [10, (self.height-self.line_height)/2]
-                halign: 'center'
+                halign: 'left'
                 background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
-                text:  str(int(gain_id.value))
+                text:"%.2f" % gain_id.value
                 spacing: 15, 15
             Slider:
                 id: gain_id
                 min: 0
-                max: 100
-                value: 100
+                max: 2.
+                value: 1.
                 cursor_size: 20,20
                 value_track: True
                 value_track_color: root.bg_color
@@ -272,10 +272,10 @@
                 multiline: False
                 font_size: self.height/4
                 padding: [10, (self.height-self.line_height)/2]
-                halign: 'center'
+                halign: 'left'
                 background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
-                text:  str(int(exposure_id.value))
+                text: str(int(exposure_id.value))
             Slider:
                 id: exposure_id
                 min: 100
@@ -374,19 +374,19 @@
         protocol_label: 'Brightfield'
         bg_color: 1, 1, 1, 0.2
     Protocol_Control:
-        id: bf_protocol
+        id: bl_protocol
         protocol_label: 'Blue'
         bg_color: 0, 0.2, 1, 0.2
     Protocol_Control:
-        id: bf_protocol
+        id: gr_protocol
         protocol_label: 'Green'
         bg_color: 0.2, 1, 0.2, 0.2
     Protocol_Control:
-        id: bf_protocol
+        id: rd_protocol
         protocol_label: 'Red'
         bg_color: 1, 0.2, 0, 0.2
     Protocol_Control:
-        id: bf_protocol
+        id: composite_protocol
         protocol_label: 'Composite'
         bg_color: 1, 1, 1, 0.2
 
@@ -400,10 +400,13 @@
         # PROTOCOL - LABELS
         Button:
             text: 'Import from Live Image'
+            on_press: root.import_vals()
         Button:
             text: 'Load Protocol'
+            on_press: root.load_protocol()
         Button:
             text: 'Save Protocol'
+            on_press: root.save_protocol()
 
 
 <Protocol_Control>:
@@ -429,18 +432,21 @@
         multiline: False
         padding: [10, (self.height-self.line_height)/2]
     TextInput:
+        id: ill_val
         suggestion_text: '100'
         size_hint_x: None
         width: 40
         multiline: False
         padding: [10, (self.height-self.line_height)/2]
     TextInput:
+        id: gain_val
         suggestion_text: '100'
         size_hint_x: None
         width: 40
         multiline: False
         padding: [10, (self.height-self.line_height)/2]
     TextInput:
+        id: exp_val
         suggestion_text: '150'
         size_hint_x: None
         width: 40
