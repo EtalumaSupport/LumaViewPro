@@ -24,13 +24,11 @@ class PylonCam(Image):
         if img.GrabSucceeded():
             # returns a numpy array in the shape of the image
             img_array = img.GetArray()
-             # creates a 1D array of type uint8
-            img_string = img_array.flatten()
 
             # create a texture that has the shape of the image
             texture = Texture.create(size=(img_array.shape[1], img_array.shape[0]), colorfmt='luminance')
             # buffer the 1D array into the texture
-            texture.blit_buffer(img_string, colorfmt="luminance", bufferfmt='ubyte')
+            texture.blit_buffer(img_array.flatten(), colorfmt="luminance", bufferfmt='ubyte')
             self.texture = texture
 
 # BoxLayout containing Camera and Button
