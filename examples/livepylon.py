@@ -24,7 +24,6 @@ class PylonCam(Image):
         if img.GrabSucceeded():
             # returns a numpy array in the shape of the image
             img_array = img.GetArray()
-
             # create a texture that has the shape of the image
             texture = Texture.create(size=(img_array.shape[1], img_array.shape[0]), colorfmt='luminance')
             # buffer the 1D array into the texture
