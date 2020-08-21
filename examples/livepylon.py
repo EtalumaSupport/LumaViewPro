@@ -16,7 +16,7 @@ class PylonCam(Image):
 
         self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-        Clock.schedule_interval(self.update, 1./14)
+        Clock.schedule_interval(self.update, 0.1)
 
     def update(self, dt):
 
