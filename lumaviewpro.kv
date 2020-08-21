@@ -104,19 +104,20 @@
 # ------------------------------------------
 <ShaderViewer>:
     orientation: 'vertical'
-    # # ShaderViewer Camera
-    # Camera:
-    #     id: microscope_camera
-    #     play: True
-    #     index: 0
-    #     resolution: (1920, 1080)
-    #     allow_stretch: True
-    #     keep_ratio: True
-    Image:
+
+    # ShaderViewer Camera
+    Camera:
         id: microscope_camera
-        source: './data/composite.tif'
+        play: True
+        index: 0
+        resolution: (1920, 1080)
         allow_stretch: True
         keep_ratio: True
+    #Image:
+    #    id: microscope_camera
+    #    source: './data/composite.tif'
+    #    allow_stretch: True
+    #    keep_ratio: True
 
     # ShaderViewer Buttons
     BoxLayout:
@@ -135,8 +136,8 @@
 # ShaderSettings - Widgets to control Shader Settings
 <ShaderSettings>:
     orientation: 'vertical'
-    spacing: 5
-    padding: 5
+    spacing: 15
+    padding: 15
     canvas:
         Color:
             rgba: 0, 0, 0, 0.5
@@ -175,8 +176,8 @@
         bg_color: 1, 0.2, 0, 1
 
 <LED_Control>:
-    padding: 5
-    spacing: 5
+    padding: 15
+    spacing: 15
     orientation: 'vertical'
     canvas:
         Color:
@@ -247,6 +248,7 @@
                 background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
                 text:  str(int(gain_id.value))
+                spacing: 15, 15
             Slider:
                 id: gain_id
                 min: 0
