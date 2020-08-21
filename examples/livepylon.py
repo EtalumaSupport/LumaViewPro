@@ -29,7 +29,7 @@ class PylonCam(Image):
             # Works up to here...
 
             # create a texture that has the shape of the image
-            texture = Texture.create(size=img_array.shape, colorfmt='luminance')
+            texture = Texture.create(size=(img_array.shape[1], img_array.shape[0]), colorfmt='luminance')
             # buffer the 1D array into the texture
             texture.blit_buffer(img_string, colorfmt="luminance", bufferfmt='ubyte')
             self.texture = texture
