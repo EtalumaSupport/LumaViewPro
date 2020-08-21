@@ -1,2 +1,9 @@
 <MainBox>:
+    orientation: 'vertical'
     PylonCam:
+        id: cam
+    Button:
+        size_hint_y: None
+        height: 40
+        text: 'play'
+        on_press: cam.play()

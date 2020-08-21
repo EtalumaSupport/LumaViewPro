@@ -1,30 +1,30 @@
 # imports
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.camera import Camera
+from kivy.uix.image import Image
 from kivy.graphics.texture import Texture
 from pypylon import pylon
 import numpy as np
-import cv2
 
+class PylonCam(Image):
 
-class PylonCam(Camera):
-
-    def __init__(self, **kwargs):
+    def __init__(self,  **kwargs):
         super(PylonCam, self).__init__(**kwargs)
 
         self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
+    def play(self):
         while self.camera.IsGrabbing():
             # Wait for an image and then retrieve it. A timeout of 500 ms is used.
             img = self.camera.RetrieveResult(500, pylon.TimeoutHandling_ThrowException)
-
             if img.GrabSucceeded():
                 # returns a numpy array in the shape of the image
                 img_array = img.GetArray()
-                 # creates a 1D string in uint8 format
-                img_string = img_array.tostring()
+                 # creates a 1D array of type uint8
+                # img_string = img_array.tostring() # equivalent
+                img_string = img_array.reshape(-1,)
+                img_string = img_array.flatten()
                 print(img_string[0])
                 # Works up to here...
 
@@ -42,6 +42,8 @@ class MainBox(BoxLayout):
 class LivePylonApp(App):
    def build(self):
        return MainBox()
+
+   # def on_stop(self):
 
 
 # Instantiate and run the kivy app
