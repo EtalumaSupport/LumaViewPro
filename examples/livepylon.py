@@ -1,14 +1,14 @@
 # imports
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.image import Image
+from kivy.uix.camera import Camera
 from kivy.graphics.texture import Texture
 from pypylon import pylon
 import numpy as np
 import cv2
 
 
-class PylonCam(Image):
+class PylonCam(Camera):
 
     def __init__(self, **kwargs):
         super(PylonCam, self).__init__(**kwargs)
