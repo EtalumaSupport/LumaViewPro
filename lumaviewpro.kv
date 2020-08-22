@@ -105,7 +105,9 @@
 <ShaderViewer>:
     orientation: 'vertical'
 
-    # # ShaderViewer Camera
+    # ShaderViewer Camera
+    PylonCamera:
+        id: microscope_camera
     # Camera:
     #     id: microscope_camera
     #     play: True
@@ -113,11 +115,11 @@
     #     resolution: (1920, 1080)
     #     allow_stretch: True
     #     keep_ratio: True
-    Image:
-        id: microscope_camera
-        source: './data/composite.tif'
-        allow_stretch: True
-        keep_ratio: True
+    # Image:
+    #     id: microscope_camera
+    #     source: './data/composite.tif'
+    #     allow_stretch: True
+    #     keep_ratio: True
 
     # ShaderViewer Buttons
     BoxLayout:
