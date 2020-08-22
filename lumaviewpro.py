@@ -84,6 +84,16 @@ class PylonCamera(Camera):
         if self.frame_event:
             Clock.unschedule(self.frame_event)
 
+    def capture(self):
+        if self.camera.IsGrabbing():
+            grabResult = self.camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
+
+            if grabResult.GrabSucceeded():
+                timestr = time.strftime("%Y%m%d_%H%M%S")
+                filename = 'capture/live_' + timestr + '.tiff'
+                img = pylon.PylonImage()
+                img.AttachGrabResultBuffer(grabResult)
+                img.Save(pylon.ImageFileFormat_Tiff, filename)
 
 # Shader code
 # Based on code from the kivy example Live Shader Editor found at:
@@ -209,12 +219,6 @@ class ShaderViewer(BoxLayout):
     def on_vs(self, instance, value):
         self.canvas.shader.vs = value
 
-    def capture(self):
-        camera = self.ids['microscope_camera']
-        #camera = self
-        timestr = time.strftime("%Y%m%d_%H%M%S")
-        img = camera.export_as_image()
-        img.save("capture/IMG_{}.tiff".format(timestr))
 
 Factory.register('ShaderViewer', cls=ShaderViewer)
 
