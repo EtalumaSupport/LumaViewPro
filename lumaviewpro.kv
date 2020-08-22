@@ -60,10 +60,30 @@
         strip_size: 8
         ShaderEditor:
             viewer: viewer_id
-    ShaderViewer:
-        id: viewer_id
+    BoxLayout:
+        orientation: 'vertical'
         size_hint_x: 0.6
-        # full / fit / zoom
+        ShaderViewer:
+            id: viewer_id
+
+        # ShaderViewer Buttons
+        # ------------------------------
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: 0.1
+            spacing: 5
+            padding: 5
+            ToggleButton:
+                id: play_btn
+                text: 'Pause'
+                state: 'down'
+                # on_press: viewer_id.ids['microscope_camera'].cam_toggle()
+                on_press: root.cam_toggle()
+            Button:
+                text: 'Capture'
+                # on_press: viewer_id.ids['microscope_camera'].capture()
+                on_press: root.capture()
+
     Splitter:
         sizable_from: 'left'
         size_hint_x: 0.2
@@ -103,11 +123,9 @@
 # ShaderViewer - Shaded Live Camera view
 # ------------------------------------------
 <ShaderViewer>:
-    orientation: 'vertical'
-
-    # ShaderViewer Camera
     PylonCamera:
         id: microscope_camera
+
     # Camera:
     #     id: microscope_camera
     #     play: True
@@ -115,25 +133,13 @@
     #     resolution: (1920, 1080)
     #     allow_stretch: True
     #     keep_ratio: True
+
     # Image:
     #     id: microscope_camera
     #     source: './data/composite.tif'
     #     allow_stretch: True
     #     keep_ratio: True
 
-    # ShaderViewer Buttons
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: 0.1
-        spacing: 5
-        padding: 5
-        ToggleButton:
-            text: 'Play'
-            state: 'down'
-            on_press: microscope_camera.cam_toggle()
-        Button:
-            text: 'Capture'
-            on_press: microscope_camera.capture()
 
 # ShaderSettings - Widgets to control Shader Settings
 <ShaderSettings>:

@@ -68,14 +68,6 @@ class PylonCamera(Camera):
             print("An exception occurred.")
             print(e.GetDescription())
 
-    def cam_toggle(self):
-        if self.play == True:
-            self.play = False
-            self.stop()
-        else:
-            self.start()
-            self.play = True
-
     def start(self):
         self.fps = 5
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
@@ -219,7 +211,6 @@ class ShaderViewer(BoxLayout):
     def on_vs(self, instance, value):
         self.canvas.shader.vs = value
 
-
 Factory.register('ShaderViewer', cls=ShaderViewer)
 
 class ShaderSettings(BoxLayout):
@@ -279,7 +270,18 @@ class ConfigTab(BoxLayout):
     pass
 
 class ImageTab(BoxLayout):
-    pass
+
+    def cam_toggle(self):
+        if self.ids['viewer_id'].ids['microscope_camera'].play == True:
+            self.ids['viewer_id'].ids['microscope_camera'].play = False
+            self.ids['play_btn'].text = 'Play'
+            self.ids['viewer_id'].ids['microscope_camera'].stop()
+        else:
+            self.ids['viewer_id'].ids['microscope_camera'].play = True
+            self.ids['play_btn'].text = 'Pause'
+            self.ids['viewer_id'].ids['microscope_camera'].start()
+    def capture(self):
+        self.ids['viewer_id'].ids['microscope_camera'].capture()
 
 class MotionTab(BoxLayout):
     pass
