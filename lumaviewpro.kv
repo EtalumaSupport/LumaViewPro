@@ -129,8 +129,8 @@
         padding: 5
         ToggleButton:
             text: 'Play'
-            state: 'normal'
-            on_press: microscope_camera.play = not microscope_camera.play
+            state: 'down'
+            on_press: microscope_camera.cam_toggle()
         Button:
             text: 'Capture'
             on_press: root.capture()

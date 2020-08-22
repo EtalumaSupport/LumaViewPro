@@ -36,25 +36,53 @@ import numpy as np
 from kivy.clock import Clock
 
 class PylonCamera(Camera):
+    def __init__(self, **kwargs):
+        super(PylonCamera,self).__init__(**kwargs)
+        try:
+            # Create an instant camera object with the camera device found first.
+            self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+            self.camera.Open()
+            # Grabbing Continusely (video) with minimal delay
+            self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
-    def __init__(self,  **kwargs):
-        super(PylonCamera, self).__init__(**kwargs)
+        except genicam.GenericException as e:
+            print("An exception occurred.")
+            print(e.GetDescription())
 
-        self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
-        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-        Clock.schedule_interval(self.update, 0.1)
+        self.start()
 
     def update(self, dt):
+        try:
+            if self.camera.IsGrabbing():
+                grabResult = self.camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
 
-        img = self.camera.RetrieveResult(500, pylon.TimeoutHandling_ThrowException)
-        if img.GrabSucceeded():
-            # returns a numpy array in the shape of the image
-            img_array = img.GetArray()
-            # create a texture that has the shape of the image
-            texture = Texture.create(size=(img_array.shape[1], img_array.shape[0]), colorfmt='luminance')
-            # buffer the 1D array into the texture
-            texture.blit_buffer(img_array.flatten(), colorfmt="luminance", bufferfmt='ubyte')
-            self.texture = texture
+                if grabResult.GrabSucceeded():
+                    image = grabResult.GetArray()
+                    image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
+                    image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
+                    self.texture = image_texture
+
+                grabResult.Release()
+
+        except genicam.GenericException as e:
+            print("An exception occurred.")
+            print(e.GetDescription())
+
+    def cam_toggle(self):
+        if self.play == True:
+            self.play = False
+            self.stop()
+        else:
+            self.start()
+            self.play = True
+
+    def start(self):
+        self.fps = 5
+        self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
+
+    def stop(self):
+        if self.frame_event:
+            Clock.unschedule(self.frame_event)
 
 
 # Shader code
