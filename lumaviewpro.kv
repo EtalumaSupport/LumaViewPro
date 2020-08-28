@@ -50,47 +50,47 @@
         text: 'Microscope Configfuration'
 
 # --------------------------------------------
-# IImage Settings and Adjustment Layout
+# Image Settings and Adjustment Layout
 # --------------------------------------------
 <ImageTab>:
-
-    Splitter:
-        size_hint_x: 0.2
-        sizable_from: 'right'
-        strip_size: 8
-        ShaderEditor:
-            viewer: viewer_id
     BoxLayout:
-        orientation: 'vertical'
-        size_hint_x: 0.6
+        orientation: 'horizontal'
+        # ShaderEditor:
+        #     viewer: viewer_id
+        #     size_hint_x: 0.2
+
         ShaderViewer:
             id: viewer_id
+            size_hint_x: 0.8
 
-        # ShaderViewer Buttons
-        # ------------------------------
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_y: 0.1
-            spacing: 5
-            padding: 5
-            ToggleButton:
-                id: play_btn
-                text: 'Pause'
-                state: 'down'
-                # on_press: viewer_id.ids['microscope_camera'].cam_toggle()
-                on_press: root.cam_toggle()
-            Button:
-                text: 'Capture'
-                # on_press: viewer_id.ids['microscope_camera'].capture()
-                on_press: root.capture()
-
-    Splitter:
-        sizable_from: 'left'
-        size_hint_x: 0.2
-        strip_size: 8
-        min_size: 0
-        ShaderSettings:
-            id: shadersettings_id
+    ShaderSettings:
+        id: shadersettings_id
+        size_hint: None, None
+        size: 300, root.height
+        pos: root.width-300, 0
+    # Camera Controls
+    # ------------------------------
+    BoxLayout:
+        orientation: 'horizontal'
+        padding: 5
+        spacing: 5
+        size_hint: None, None
+        size: 200, 40
+        pos: root.width/2-100, 0
+        ToggleButton:
+            id: play_btn
+            width: 100
+            text: 'Pause'
+            state: 'down'
+            on_press: root.cam_toggle()
+        Button:
+            id: capture_btn
+            width: 100
+            text: 'Capture'
+            on_press: root.capture()
+        # Slider:
+        #     id: zoom_slider
+        #     width: 100
 
 # ShaderEditor - view and edit shader code
 # ------------------------------------------
@@ -101,14 +101,10 @@
         text: 'Fragment Shader'
         size_hint_y: None
         height: self.texture_size[1] + 10
-    Splitter:
-        sizable_from: 'bottom'
-        size_hint_y: 0.5
-        strip_size: 8
-        CodeInput:
-            text: root.fs
-            lexer: GLShaderLexer()
-            on_text: root.fs = args[1]
+    CodeInput:
+        text: root.fs
+        lexer: GLShaderLexer()
+        on_text: root.fs = args[1]
 
     # Vertex Shader Editor
     Label:
@@ -133,7 +129,7 @@
     #     resolution: (1920, 1080)
     #     allow_stretch: True
     #     keep_ratio: True
-
+    #
     # Image:
     #     id: microscope_camera
     #     source: './data/composite.tif'
@@ -144,11 +140,11 @@
 # ShaderSettings - Widgets to control Shader Settings
 <ShaderSettings>:
     orientation: 'vertical'
-    spacing: 15
-    padding: 15
+    spacing: 5
+    padding: 5
     canvas:
         Color:
-            rgba: 0, 0, 0, 0.5
+            rgba: 0, 0, 0, 0.2
         Rectangle:
             size: self.size
             pos: self.pos
@@ -184,8 +180,8 @@
         bg_color: 1, 0.2, 0, 1
 
 <LED_Control>:
-    padding: 15
-    spacing: 15
+    padding: 5
+    spacing: 5
     orientation: 'vertical'
     canvas:
         Color:
@@ -207,6 +203,8 @@
     BoxLayout:
 
         orientation: 'vertical'
+        spacing: 10
+
         Label:
             text: root.ctrl_label
             halign: 'center'
@@ -220,9 +218,10 @@
                 valign: 'middle'
 
             TextInput:
-                size_hint_x: 0.3
+                size_hint_x: None
+                width: 50
                 multiline: False
-                font_size: self.height/4
+                font_size: 14
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'left'
                 background_color: 0.6, 0.6, 0.6, 1
@@ -235,6 +234,7 @@
                 max: 1.
                 value: 0
                 cursor_size: 20,20
+                cursor_image: './data/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
                 on_value: root.parent.get_sliders()
@@ -248,9 +248,10 @@
                 valign: 'middle'
                 padding: 5, 5
             TextInput:
-                size_hint_x: 0.3
+                size_hint_x: None
+                width: 50
                 multiline: False
-                font_size: self.height/4
+                font_size: 14
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'left'
                 background_color: 0.6, 0.6, 0.6, 1
@@ -263,6 +264,7 @@
                 max: 2.
                 value: 1.
                 cursor_size: 20,20
+                cursor_image: './data/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
                 on_value: root.parent.get_sliders()
@@ -276,9 +278,10 @@
                 valign: 'middle'
                 padding: 5, 5
             TextInput:
-                size_hint_x: 0.3
+                size_hint_x: None
+                width: 50
                 multiline: False
-                font_size: self.height/4
+                font_size: 14
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'left'
                 background_color: 0.6, 0.6, 0.6, 1
@@ -290,6 +293,7 @@
                 max: 200
                 value: 150
                 cursor_size: 20,20
+                cursor_image: './data/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
                 on_value: root.parent.get_sliders()
@@ -371,7 +375,7 @@
         Label:
             text: 'Exp.'
             size_hint_x: None
-            width: 40
+            width: 50
         Label:
             text: 'Acq.'
             size_hint_x: None
@@ -380,22 +384,32 @@
     Protocol_Control:
         id: bf_protocol
         protocol_label: 'Brightfield'
+        save_folder: '.\\'
+        file_root: 'bright_'
         bg_color: 1, 1, 1, 0.2
     Protocol_Control:
         id: bl_protocol
         protocol_label: 'Blue'
+        save_folder: '.\\'
+        file_root: 'blue_'
         bg_color: 0, 0.2, 1, 0.2
     Protocol_Control:
         id: gr_protocol
         protocol_label: 'Green'
+        save_folder: '.\\'
+        file_root: 'green_'
         bg_color: 0.2, 1, 0.2, 0.2
     Protocol_Control:
         id: rd_protocol
         protocol_label: 'Red'
+        save_folder: '.\\'
+        file_root: 'red_'
         bg_color: 1, 0.2, 0, 0.2
     Protocol_Control:
         id: composite_protocol
         protocol_label: 'Composite'
+        save_folder: '.\\'
+        file_root: 'composite_'
         bg_color: 1, 1, 1, 0.2
 
     BoxLayout:
@@ -415,6 +429,11 @@
         Button:
             text: 'Save Protocol'
             on_press: root.save_protocol()
+        ToggleButton:
+            id: run_btn
+            text: 'Run Protocol'
+            state: 'normal'
+            on_press: root.run_protocol()
 
 
 <Protocol_Control>:
@@ -431,12 +450,11 @@
                 size: self.size
                 pos: self.pos
         text: root.protocol_label
+    Button:
+        text: str(root.save_folder)
+        on_press: root.choose_folder()
     TextInput:
-        suggestion_text: 'folder'
-        multiline: False
-        padding: [10, (self.height-self.line_height)/2]
-    TextInput:
-        suggestion_text: 'filename root'
+        text: str(root.file_root)
         multiline: False
         padding: [10, (self.height-self.line_height)/2]
     TextInput:
@@ -457,12 +475,30 @@
         id: exp_val
         suggestion_text: '150'
         size_hint_x: None
-        width: 40
+        width: 50
         multiline: False
         padding: [10, (self.height-self.line_height)/2]
     CheckBox:
         size_hint_x: None
         width: 40
+
+<LoadDialog>:
+    BoxLayout:
+        size: root.size
+        pos: root.pos
+        orientation: "vertical"
+        FileChooserListView:
+            id: filechooser
+            path: '.\\'
+        BoxLayout:
+            size_hint_y: None
+            height: 40
+            Button:
+                text: "Cancel"
+                on_release: root.cancel()
+            Button:
+                text: "Select"
+                on_release: root.load(filechooser.path)
 
 # --------------------------------------------
 # Analysis Layout
@@ -470,3 +506,8 @@
 <AnalysisTab>:
     Label:
         text: 'Perform image stack analysis'
+
+
+# --------------------------------------------
+# Analysis Layout
+# --------------------------------------------

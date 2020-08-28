@@ -18,12 +18,14 @@ from kivy.uix.tabbedpanel import TabbedPanel
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.widget import Widget
 from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.switch import Switch
 from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
-
+from kivy.uix.popup import Popup
+import os
 # Video Related
 from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
@@ -251,17 +253,6 @@ class LED_Control(BoxLayout):
         if self.ctrl_label is None:
             self.ctrl_label = 'Ctrl Label'
 
-class Protocol_Control(BoxLayout):
-    bg_color = ObjectProperty(None)
-    protocol_label = StringProperty(None)
-
-    def __init__(self, **kwargs):
-        super(Protocol_Control, self).__init__(**kwargs)
-        if self.bg_color is None:
-            self.bg_color = (0.5, 0.5, 0.5, 0.5)
-        if self.protocol_label is None:
-            self.protocol_label = 'Protocol Label'
-
 # # MainDisplay is organized in lumaviewplus.kv
 class MainDisplay(TabbedPanel):
     pass
@@ -269,7 +260,7 @@ class MainDisplay(TabbedPanel):
 class ConfigTab(BoxLayout):
     pass
 
-class ImageTab(BoxLayout):
+class ImageTab(FloatLayout):
 
     def cam_toggle(self):
         if self.ids['viewer_id'].ids['microscope_camera'].play == True:
@@ -287,6 +278,9 @@ class MotionTab(BoxLayout):
     pass
 
 class ProtocolTab(BoxLayout):
+    acquiring = ObjectProperty(None)
+    acquiring = False
+
     def import_vals(self):
         global illumination_vals
         global gain_vals
@@ -313,6 +307,48 @@ class ProtocolTab(BoxLayout):
 
     def save_protocol(self):
         print('Save protocol not yet written')
+
+    def run_protocol(self):
+        if self.acquiring == False:
+            self.acquiring = True
+            self.ids['run_btn'].text = 'Stop Protocol'
+        else:
+            self.acquiring = False
+            self.ids['run_btn'].text = 'Run Protocol'
+
+        print('Run protocol not yet written')
+
+class Protocol_Control(BoxLayout):
+    bg_color = ObjectProperty(None)
+    protocol_label = StringProperty(None)
+    save_folder = StringProperty(None)
+    file_root = StringProperty(None)
+
+    def __init__(self, **kwargs):
+        super(Protocol_Control, self).__init__(**kwargs)
+        if self.bg_color is None:
+            self.bg_color = (0.5, 0.5, 0.5, 0.5)
+        if self.protocol_label is None:
+            self.protocol_label = 'Protocol Label'
+
+    def choose_folder(self):
+        content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
+        self._popup = Popup(title="Select Save Folder", content=content,
+                            size_hint=(0.9, 0.9))
+        self._popup.open()
+        # create a folder selection pop-up
+        print(self.save_folder)
+
+    def load(self, path):
+        self.save_folder = path
+        self.dismiss_popup()
+
+    def dismiss_popup(self):
+        self._popup.dismiss()
+
+class LoadDialog(FloatLayout):
+    load = ObjectProperty(None)
+    cancel = ObjectProperty(None)
 
 class AnalysisTab(BoxLayout):
     pass
