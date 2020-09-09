@@ -7,7 +7,8 @@
     id: main_display
     tab_pos: 'top_mid'
     tab_width: (self.size[0] / 5) - 1
-    do_default_tab: False
+    # do_default_tab: False
+    default_tab: image_tab
 
     canvas:
         Color:
@@ -322,12 +323,13 @@
         size_hint_y: None
         height: 80
         Label:
-            text: 'Capture Rate'
+            text: 'Capture Period'
         TextInput:
+            id: capture_period_id
             multiline: False
             padding: [10, (self.height-self.line_height)/2]
             halign: 'right'
-            input_filter: 'int'
+            input_filter: 'float'
             # text:  str(int(illumination_id.value))
             text: '5'
         Label:
@@ -336,10 +338,11 @@
         Label:
             text: 'Capture Duration'
         TextInput:
+            id: capture_dur_id
             multiline: False
             padding: [10, (self.height-self.line_height)/2]
             halign: 'right'
-            input_filter: 'int'
+            input_filter: 'float'
             # text:  str(int(illumination_id.value))
             text: '48'
         Label:
@@ -506,8 +509,3 @@
 <AnalysisTab>:
     Label:
         text: 'Perform image stack analysis'
-
-
-# --------------------------------------------
-# Analysis Layout
-# --------------------------------------------

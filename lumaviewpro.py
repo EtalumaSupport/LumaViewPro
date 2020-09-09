@@ -71,24 +71,26 @@ class PylonCamera(Camera):
             print(e.GetDescription())
 
     def start(self):
-        self.fps = 5
+        self.fps = 14
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
 
     def stop(self):
         if self.frame_event:
             Clock.unschedule(self.frame_event)
 
-    def capture(self):
+    def capture(self, save_folder = 'capture/', file_root = 'live_'):
         if self.camera.IsGrabbing():
             grabResult = self.camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
 
             if grabResult.GrabSucceeded():
                 timestr = time.strftime("%Y%m%d_%H%M%S")
-                filename = 'capture/live_' + timestr + '.tiff'
+                filename = save_folder + file_root + timestr + '.tiff'
                 img = pylon.PylonImage()
                 img.AttachGrabResultBuffer(grabResult)
                 img.Save(pylon.ImageFileFormat_Tiff, filename)
 
+
+# -----------------------------------------------------------------------------
 # Shader code
 # Based on code from the kivy example Live Shader Editor found at:
 # kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
@@ -261,7 +263,6 @@ class ConfigTab(BoxLayout):
     pass
 
 class ImageTab(FloatLayout):
-
     def cam_toggle(self):
         if self.ids['viewer_id'].ids['microscope_camera'].play == True:
             self.ids['viewer_id'].ids['microscope_camera'].play = False
@@ -312,10 +313,17 @@ class ProtocolTab(BoxLayout):
         if self.acquiring == False:
             self.acquiring = True
             self.ids['run_btn'].text = 'Stop Protocol'
+
+
+            self.dt = float(self.ids['capture_period_id'].text)
+            self.frame_event = Clock.schedule_interval(self.capture_event, self.dt*60.)
         else:
             self.acquiring = False
+            if self.frame_event:
+                Clock.unschedule(self.frame_event)
             self.ids['run_btn'].text = 'Run Protocol'
 
+    def capture_event(self, dt):
         print('Run protocol not yet written')
 
 class Protocol_Control(BoxLayout):
@@ -358,10 +366,9 @@ class LumaViewProApp(App):
         # kwargs = {}
         # if len(sys.argv) > 1:
         #     kwargs['source'] = sys.argv[1]
-
         return MainDisplay()
 
-def update_filter_callback():
-    pass
+# def update_filter_callback():
+#     pass
 
 LumaViewProApp().run()
