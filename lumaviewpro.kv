@@ -325,12 +325,11 @@
         Label:
             text: 'Capture Period'
         TextInput:
-            id: capture_period_id
+            id: capture_period
             multiline: False
             padding: [10, (self.height-self.line_height)/2]
             halign: 'right'
             input_filter: 'float'
-            # text:  str(int(illumination_id.value))
             text: '5'
         Label:
             text: 'minutes'
@@ -338,12 +337,11 @@
         Label:
             text: 'Capture Duration'
         TextInput:
-            id: capture_dur_id
+            id: capture_dur
             multiline: False
             padding: [10, (self.height-self.line_height)/2]
             halign: 'right'
             input_filter: 'float'
-            # text:  str(int(illumination_id.value))
             text: '48'
         Label:
             text: 'hours'
@@ -454,36 +452,37 @@
                 pos: self.pos
         text: root.protocol_label
     Button:
+        id: save_folder_id
         text: str(root.save_folder)
         on_press: root.choose_folder()
     TextInput:
+        id: file_root_id
         text: str(root.file_root)
         multiline: False
         padding: [10, (self.height-self.line_height)/2]
     TextInput:
         id: ill_val
-        suggestion_text: '100'
         size_hint_x: None
         width: 40
         multiline: False
         padding: [10, (self.height-self.line_height)/2]
     TextInput:
         id: gain_val
-        suggestion_text: '100'
         size_hint_x: None
         width: 40
         multiline: False
         padding: [10, (self.height-self.line_height)/2]
     TextInput:
         id: exp_val
-        suggestion_text: '150'
         size_hint_x: None
         width: 50
         multiline: False
         padding: [10, (self.height-self.line_height)/2]
     CheckBox:
+        id: acquire
         size_hint_x: None
         width: 40
+        active: False
 
 <LoadDialog>:
     BoxLayout:

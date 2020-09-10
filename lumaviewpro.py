@@ -2,10 +2,10 @@
 import sys
 import numpy as np
 import time
-import kivy
-import numpy as np
-#kivy.require('1.0.6')
+import os
+import json
 
+import kivy
 from kivy.app import App
 from kivy.core.window import Window
 from kivy.factory import Factory
@@ -25,17 +25,46 @@ from kivy.uix.switch import Switch
 from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
 from kivy.uix.popup import Popup
-import os
+
 # Video Related
 from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
+from kivy.clock import Clock
 # from kivy.core.camera import Camera
 
 # Pylon Camera Related
 from pypylon import pylon
 from pypylon import genicam
-import numpy as np
-from kivy.clock import Clock
+
+# Custom Imports
+
+# -------------------------------------------------------------------------
+# MAIN DISPLAY opf LumaViewPro App
+# -------------------------------------------------------------------------
+class MainDisplay(TabbedPanel):
+    pass
+
+# -------------------------------------------------------------------------
+# CONFIGURATION TAB and children
+# -------------------------------------------------------------------------
+class ConfigTab(BoxLayout):
+    pass
+
+# -------------------------------------------------------------------------
+# LIVE IMAGE TAB and children
+# -------------------------------------------------------------------------
+class ImageTab(FloatLayout):
+    def cam_toggle(self):
+        if self.ids['viewer_id'].ids['microscope_camera'].play == True:
+            self.ids['viewer_id'].ids['microscope_camera'].play = False
+            self.ids['play_btn'].text = 'Play'
+            self.ids['viewer_id'].ids['microscope_camera'].stop()
+        else:
+            self.ids['viewer_id'].ids['microscope_camera'].play = True
+            self.ids['play_btn'].text = 'Pause'
+            self.ids['viewer_id'].ids['microscope_camera'].start()
+    def capture(self):
+        self.ids['viewer_id'].ids['microscope_camera'].capture()
 
 class PylonCamera(Camera):
     def __init__(self, **kwargs):
@@ -254,34 +283,20 @@ class LED_Control(BoxLayout):
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
         if self.ctrl_label is None:
             self.ctrl_label = 'Ctrl Label'
-
-# # MainDisplay is organized in lumaviewplus.kv
-class MainDisplay(TabbedPanel):
-    pass
-
-class ConfigTab(BoxLayout):
-    pass
-
-class ImageTab(FloatLayout):
-    def cam_toggle(self):
-        if self.ids['viewer_id'].ids['microscope_camera'].play == True:
-            self.ids['viewer_id'].ids['microscope_camera'].play = False
-            self.ids['play_btn'].text = 'Play'
-            self.ids['viewer_id'].ids['microscope_camera'].stop()
-        else:
-            self.ids['viewer_id'].ids['microscope_camera'].play = True
-            self.ids['play_btn'].text = 'Pause'
-            self.ids['viewer_id'].ids['microscope_camera'].start()
-    def capture(self):
-        self.ids['viewer_id'].ids['microscope_camera'].capture()
-
+# -------------------------------------------------------------------------
+# MOTION TAB and children
+# -------------------------------------------------------------------------
 class MotionTab(BoxLayout):
     pass
 
+# -------------------------------------------------------------------------
+# PROTOCOL TAB and children
+# -------------------------------------------------------------------------
 class ProtocolTab(BoxLayout):
     acquiring = ObjectProperty(None)
     acquiring = False
 
+    # transfer values from live image tab to protocol tab
     def import_vals(self):
         global illumination_vals
         global gain_vals
@@ -303,28 +318,119 @@ class ProtocolTab(BoxLayout):
         self.ids['rd_protocol'].ids['gain_val'].text = str(gain_vals[0])
         self.ids['rd_protocol'].ids['exp_val'].text = str(exposure_vals[0])
 
+    # load protocol from JSON file
     def load_protocol(self):
-        print('Load protocol not yet written.')
+        # load protocol JSON file
+        with open(".\data\protocol.json", "r") as read_file:
+            protocol = json.load(read_file)
+            # update GUI values from JSON data
+            self.ids['capture_period'].text = str(protocol['period'])
+            self.ids['capture_dur'].text = str(protocol['duration'])
 
+            self.ids['bf_protocol'].ids['save_folder_id'].text = str(protocol['BF']['save_folder'])
+            self.ids['bf_protocol'].ids['file_root_id'].text = str(protocol['BF']['file_root'])
+            self.ids['bf_protocol'].ids['ill_val'].text = str(protocol['BF']['ill'])
+            self.ids['bf_protocol'].ids['gain_val'].text = str(protocol['BF']['gain'])
+            self.ids['bf_protocol'].ids['exp_val'].text = str(protocol['BF']['exp'])
+            self.ids['bf_protocol'].ids['acquire'].active = protocol['BF']['acquire']
+
+            self.ids['bl_protocol'].ids['save_folder_id'].text = str(protocol['Blue']['save_folder'])
+            self.ids['bl_protocol'].ids['file_root_id'].text = str(protocol['Blue']['file_root'])
+            self.ids['bl_protocol'].ids['ill_val'].text = str(protocol['Blue']['ill'])
+            self.ids['bl_protocol'].ids['gain_val'].text = str(protocol['Blue']['gain'])
+            self.ids['bl_protocol'].ids['exp_val'].text = str(protocol['Blue']['exp'])
+            self.ids['bl_protocol'].ids['acquire'].active = protocol['Blue']['acquire']
+
+            self.ids['gr_protocol'].ids['save_folder_id'].text = str(protocol['Green']['save_folder'])
+            self.ids['gr_protocol'].ids['file_root_id'].text = str(protocol['Green']['file_root'])
+            self.ids['gr_protocol'].ids['ill_val'].text = str(protocol['Green']['ill'])
+            self.ids['gr_protocol'].ids['gain_val'].text = str(protocol['Green']['gain'])
+            self.ids['gr_protocol'].ids['exp_val'].text = str(protocol['Green']['exp'])
+            self.ids['gr_protocol'].ids['acquire'].active = protocol['Green']['acquire']
+
+            self.ids['rd_protocol'].ids['save_folder_id'].text = str(protocol['Red']['save_folder'])
+            self.ids['rd_protocol'].ids['file_root_id'].text = str(protocol['Red']['file_root'])
+            self.ids['rd_protocol'].ids['ill_val'].text = str(protocol['Red']['ill'])
+            self.ids['rd_protocol'].ids['gain_val'].text = str(protocol['Red']['gain'])
+            self.ids['rd_protocol'].ids['exp_val'].text = str(protocol['Red']['exp'])
+            self.ids['rd_protocol'].ids['acquire'].active = protocol['Red']['acquire']
+
+            self.ids['composite_protocol'].ids['save_folder_id'].text = str(protocol['Composite']['save_folder'])
+            self.ids['composite_protocol'].ids['file_root_id'].text = str(protocol['Composite']['file_root'])
+            self.ids['composite_protocol'].ids['ill_val'].text = ''
+            self.ids['composite_protocol'].ids['gain_val'].text = ''
+            self.ids['composite_protocol'].ids['exp_val'].text = ''
+            self.ids['composite_protocol'].ids['acquire'].active = protocol['Composite']['acquire']
+
+    # Save protocol to JSON file
     def save_protocol(self):
+        # update protocol
+        with open(".\data\protocol.json", "r") as read_file:
+            protocol = json.load(read_file)
+
+        protocol['period'] = float(self.ids['capture_period'].text)
+        protocol['duration'] = float(self.ids['capture_dur'].text)
+
+        protocol['BF']['save_folder'] = self.ids['bf_protocol'].ids['save_folder_id'].text
+        protocol['BF']['file_root'] = self.ids['bf_protocol'].ids['file_root_id'].text
+        protocol['BF']['ill'] = float(self.ids['bf_protocol'].ids['ill_val'].text)
+        protocol['BF']['gain'] = float(self.ids['bf_protocol'].ids['gain_val'].text)
+        protocol['BF']['exp'] = float(self.ids['bf_protocol'].ids['exp_val'].text)
+        protocol['BF']['acquire'] = self.ids['bf_protocol'].ids['acquire'].active
+
+        protocol['Blue']['save_folder'] = self.ids['bl_protocol'].ids['save_folder_id'].text
+        protocol['Blue']['file_root'] = self.ids['bl_protocol'].ids['file_root_id'].text
+        protocol['Blue']['ill'] = float(self.ids['bl_protocol'].ids['ill_val'].text)
+        protocol['Blue']['gain'] = float(self.ids['bl_protocol'].ids['gain_val'].text)
+        protocol['Blue']['exp'] = float(self.ids['bl_protocol'].ids['exp_val'].text)
+        protocol['Blue']['acquire'] = self.ids['bl_protocol'].ids['acquire'].active
+
+        protocol['Green']['save_folder'] = self.ids['gr_protocol'].ids['save_folder_id'].text
+        protocol['Green']['file_root'] = self.ids['gr_protocol'].ids['file_root_id'].text
+        protocol['Green']['ill'] = float(self.ids['gr_protocol'].ids['ill_val'].text)
+        protocol['Green']['gain'] = float(self.ids['gr_protocol'].ids['gain_val'].text)
+        protocol['Green']['exp'] = float(self.ids['gr_protocol'].ids['exp_val'].text)
+        protocol['Green']['acquire'] = self.ids['gr_protocol'].ids['acquire'].active
+
+        protocol['Red']['save_folder'] = self.ids['rd_protocol'].ids['save_folder_id'].text
+        protocol['Red']['file_root'] = self.ids['rd_protocol'].ids['file_root_id'].text
+        protocol['Red']['ill'] = float(self.ids['rd_protocol'].ids['ill_val'].text)
+        protocol['Red']['gain'] = float(self.ids['rd_protocol'].ids['gain_val'].text)
+        protocol['Red']['exp'] = float(self.ids['rd_protocol'].ids['exp_val'].text)
+        protocol['Red']['acquire'] = self.ids['rd_protocol'].ids['acquire'].active
+
+        protocol['Composite']['save_folder'] = self.ids['composite_protocol'].ids['save_folder_id'].text
+        protocol['Composite']['file_root'] = self.ids['composite_protocol'].ids['file_root_id'].text
+        protocol['Composite']['ill'] = ''
+        protocol['Composite']['gain'] = ''
+        protocol['Composite']['exp'] = ''
+        protocol['Composite']['acquire'] = self.ids['composite_protocol'].ids['acquire'].active
+
+        with open("./data/protocol_save.json", "w") as write_file:
+            json.dump(protocol, write_file)
         print('Save protocol not yet written')
 
+    # Run the protocol for acquiring image stacks
     def run_protocol(self):
+        # update protocol
         if self.acquiring == False:
             self.acquiring = True
             self.ids['run_btn'].text = 'Stop Protocol'
 
 
-            self.dt = float(self.ids['capture_period_id'].text)
+            self.dt = float(self.ids['capture_period'].text)
             self.frame_event = Clock.schedule_interval(self.capture_event, self.dt*60.)
         else:
             self.acquiring = False
-            if self.frame_event:
-                Clock.unschedule(self.frame_event)
             self.ids['run_btn'].text = 'Run Protocol'
 
+            if self.frame_event:
+                Clock.unschedule(self.frame_event)
+
+    # Run the process of capturing one protocol event
     def capture_event(self, dt):
-        print('Run protocol not yet written')
+        print('capture event')
+
 
 class Protocol_Control(BoxLayout):
     bg_color = ObjectProperty(None)
@@ -358,9 +464,15 @@ class LoadDialog(FloatLayout):
     load = ObjectProperty(None)
     cancel = ObjectProperty(None)
 
+# -------------------------------------------------------------------------
+# ANALYSIS TAB and children
+# -------------------------------------------------------------------------
 class AnalysisTab(BoxLayout):
     pass
 
+# -------------------------------------------------------------------------
+# RUN LUMAVIEWPRO APP
+# -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def build(self):
         # kwargs = {}
