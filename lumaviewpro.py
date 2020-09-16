@@ -123,6 +123,16 @@ class PylonCamera(Camera):
 # Shader code
 # Based on code from the kivy example Live Shader Editor found at:
 # kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
+# -----------------------------------------------------------------------------
+
+global illumination_vals
+illumination_vals = (0., )*4
+
+global gain_vals
+gain_vals = (1., )*4
+
+global exposure_vals
+exposure_vals = (150, )*4
 
 
 fs_header = '''
@@ -167,15 +177,6 @@ uniform mat4       modelview_mat;
 uniform mat4       projection_mat;
 uniform vec4       color;
 '''
-
-global illumination_vals
-illumination_vals = (0., )*4
-
-global gain_vals
-gain_vals = (1., )*4
-
-global exposure_vals
-exposure_vals = (150, )*4
 
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
@@ -292,6 +293,9 @@ class MotionTab(BoxLayout):
 # -------------------------------------------------------------------------
 # PROTOCOL TAB and children
 # -------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+# PROTOCOL TAB and children
+# -------------------------------------------------------------------------
 class ProtocolTab(BoxLayout):
     acquiring = ObjectProperty(None)
     acquiring = False
@@ -320,8 +324,12 @@ class ProtocolTab(BoxLayout):
 
     # load protocol from JSON file
     def load_protocol(self):
+
+        # determine file to read
+        protocol_file = ".\data\protocol.json"
+
         # load protocol JSON file
-        with open(".\data\protocol.json", "r") as read_file:
+        with open(protocol_file, "r") as read_file:
             protocol = json.load(read_file)
             # update GUI values from JSON data
             self.ids['capture_period'].text = str(protocol['period'])
@@ -368,43 +376,43 @@ class ProtocolTab(BoxLayout):
         with open(".\data\protocol.json", "r") as read_file:
             protocol = json.load(read_file)
 
-        protocol['period'] = float(self.ids['capture_period'].text)
-        protocol['duration'] = float(self.ids['capture_dur'].text)
+            protocol['period'] = float(self.ids['capture_period'].text)
+            protocol['duration'] = float(self.ids['capture_dur'].text)
 
-        protocol['BF']['save_folder'] = self.ids['bf_protocol'].ids['save_folder_id'].text
-        protocol['BF']['file_root'] = self.ids['bf_protocol'].ids['file_root_id'].text
-        protocol['BF']['ill'] = float(self.ids['bf_protocol'].ids['ill_val'].text)
-        protocol['BF']['gain'] = float(self.ids['bf_protocol'].ids['gain_val'].text)
-        protocol['BF']['exp'] = float(self.ids['bf_protocol'].ids['exp_val'].text)
-        protocol['BF']['acquire'] = self.ids['bf_protocol'].ids['acquire'].active
+            protocol['BF']['save_folder'] = self.ids['bf_protocol'].ids['save_folder_id'].text
+            protocol['BF']['file_root'] = self.ids['bf_protocol'].ids['file_root_id'].text
+            protocol['BF']['ill'] = float(self.ids['bf_protocol'].ids['ill_val'].text)
+            protocol['BF']['gain'] = float(self.ids['bf_protocol'].ids['gain_val'].text)
+            protocol['BF']['exp'] = float(self.ids['bf_protocol'].ids['exp_val'].text)
+            protocol['BF']['acquire'] = self.ids['bf_protocol'].ids['acquire'].active
 
-        protocol['Blue']['save_folder'] = self.ids['bl_protocol'].ids['save_folder_id'].text
-        protocol['Blue']['file_root'] = self.ids['bl_protocol'].ids['file_root_id'].text
-        protocol['Blue']['ill'] = float(self.ids['bl_protocol'].ids['ill_val'].text)
-        protocol['Blue']['gain'] = float(self.ids['bl_protocol'].ids['gain_val'].text)
-        protocol['Blue']['exp'] = float(self.ids['bl_protocol'].ids['exp_val'].text)
-        protocol['Blue']['acquire'] = self.ids['bl_protocol'].ids['acquire'].active
+            protocol['Blue']['save_folder'] = self.ids['bl_protocol'].ids['save_folder_id'].text
+            protocol['Blue']['file_root'] = self.ids['bl_protocol'].ids['file_root_id'].text
+            protocol['Blue']['ill'] = float(self.ids['bl_protocol'].ids['ill_val'].text)
+            protocol['Blue']['gain'] = float(self.ids['bl_protocol'].ids['gain_val'].text)
+            protocol['Blue']['exp'] = float(self.ids['bl_protocol'].ids['exp_val'].text)
+            protocol['Blue']['acquire'] = self.ids['bl_protocol'].ids['acquire'].active
 
-        protocol['Green']['save_folder'] = self.ids['gr_protocol'].ids['save_folder_id'].text
-        protocol['Green']['file_root'] = self.ids['gr_protocol'].ids['file_root_id'].text
-        protocol['Green']['ill'] = float(self.ids['gr_protocol'].ids['ill_val'].text)
-        protocol['Green']['gain'] = float(self.ids['gr_protocol'].ids['gain_val'].text)
-        protocol['Green']['exp'] = float(self.ids['gr_protocol'].ids['exp_val'].text)
-        protocol['Green']['acquire'] = self.ids['gr_protocol'].ids['acquire'].active
+            protocol['Green']['save_folder'] = self.ids['gr_protocol'].ids['save_folder_id'].text
+            protocol['Green']['file_root'] = self.ids['gr_protocol'].ids['file_root_id'].text
+            protocol['Green']['ill'] = float(self.ids['gr_protocol'].ids['ill_val'].text)
+            protocol['Green']['gain'] = float(self.ids['gr_protocol'].ids['gain_val'].text)
+            protocol['Green']['exp'] = float(self.ids['gr_protocol'].ids['exp_val'].text)
+            protocol['Green']['acquire'] = self.ids['gr_protocol'].ids['acquire'].active
 
-        protocol['Red']['save_folder'] = self.ids['rd_protocol'].ids['save_folder_id'].text
-        protocol['Red']['file_root'] = self.ids['rd_protocol'].ids['file_root_id'].text
-        protocol['Red']['ill'] = float(self.ids['rd_protocol'].ids['ill_val'].text)
-        protocol['Red']['gain'] = float(self.ids['rd_protocol'].ids['gain_val'].text)
-        protocol['Red']['exp'] = float(self.ids['rd_protocol'].ids['exp_val'].text)
-        protocol['Red']['acquire'] = self.ids['rd_protocol'].ids['acquire'].active
+            protocol['Red']['save_folder'] = self.ids['rd_protocol'].ids['save_folder_id'].text
+            protocol['Red']['file_root'] = self.ids['rd_protocol'].ids['file_root_id'].text
+            protocol['Red']['ill'] = float(self.ids['rd_protocol'].ids['ill_val'].text)
+            protocol['Red']['gain'] = float(self.ids['rd_protocol'].ids['gain_val'].text)
+            protocol['Red']['exp'] = float(self.ids['rd_protocol'].ids['exp_val'].text)
+            protocol['Red']['acquire'] = self.ids['rd_protocol'].ids['acquire'].active
 
-        protocol['Composite']['save_folder'] = self.ids['composite_protocol'].ids['save_folder_id'].text
-        protocol['Composite']['file_root'] = self.ids['composite_protocol'].ids['file_root_id'].text
-        protocol['Composite']['ill'] = ''
-        protocol['Composite']['gain'] = ''
-        protocol['Composite']['exp'] = ''
-        protocol['Composite']['acquire'] = self.ids['composite_protocol'].ids['acquire'].active
+            protocol['Composite']['save_folder'] = self.ids['composite_protocol'].ids['save_folder_id'].text
+            protocol['Composite']['file_root'] = self.ids['composite_protocol'].ids['file_root_id'].text
+            protocol['Composite']['ill'] = ''
+            protocol['Composite']['gain'] = ''
+            protocol['Composite']['exp'] = ''
+            protocol['Composite']['acquire'] = self.ids['composite_protocol'].ids['acquire'].active
 
         with open("./data/protocol_save.json", "w") as write_file:
             json.dump(protocol, write_file)

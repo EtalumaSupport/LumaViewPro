@@ -304,7 +304,7 @@
 # --------------------------------------------
 <MotionTab>:
     Label:
-        text: 'Control microscope motion'
+        text: 'This function is not available for your microscope model'
 
 # --------------------------------------------
 # Protocol Layout
@@ -318,12 +318,15 @@
     BoxLayout:
 
     GridLayout:
-        cols: 3
+        cols: 5
         spacing: 5
         size_hint_y: None
         height: 80
         Label:
+            text: ''
+        Label:
             text: 'Capture Period'
+            width: 150
         TextInput:
             id: capture_period
             multiline: False
@@ -333,9 +336,15 @@
             text: '5'
         Label:
             text: 'minutes'
+            width: 100
+        Label:
+            text: ''
 
         Label:
+            text: ''
+        Label:
             text: 'Capture Duration'
+            width: 150
         TextInput:
             id: capture_dur
             multiline: False
@@ -345,6 +354,9 @@
             text: '48'
         Label:
             text: 'hours'
+            width: 100
+        Label:
+            text: ''
 
     BoxLayout:
         spacing: 5
