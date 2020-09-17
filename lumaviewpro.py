@@ -63,8 +63,16 @@ class ImageTab(FloatLayout):
             self.ids['viewer_id'].ids['microscope_camera'].play = True
             self.ids['play_btn'].text = 'Pause'
             self.ids['viewer_id'].ids['microscope_camera'].start()
+
     def capture(self):
         self.ids['viewer_id'].ids['microscope_camera'].capture()
+
+    def one2one_image(self):
+        self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = True
+
+    def fit_image(self):
+        self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = False
+
 
 class PylonCamera(Camera):
     def __init__(self, **kwargs):
@@ -93,6 +101,8 @@ class PylonCamera(Camera):
                     image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
                     self.texture = image_texture
 
+                self.lastGrab = pylon.PylonImage()
+                self.lastGrab.AttachGrabResultBuffer(grabResult)
                 grabResult.Release()
 
         except genicam.GenericException as e:
@@ -100,7 +110,7 @@ class PylonCamera(Camera):
             print(e.GetDescription())
 
     def start(self):
-        self.fps = 14
+        self.fps = 10
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
 
     def stop(self):
@@ -108,16 +118,9 @@ class PylonCamera(Camera):
             Clock.unschedule(self.frame_event)
 
     def capture(self, save_folder = 'capture/', file_root = 'live_'):
-        if self.camera.IsGrabbing():
-            grabResult = self.camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
-
-            if grabResult.GrabSucceeded():
-                timestr = time.strftime("%Y%m%d_%H%M%S")
-                filename = save_folder + file_root + timestr + '.tiff'
-                img = pylon.PylonImage()
-                img.AttachGrabResultBuffer(grabResult)
-                img.Save(pylon.ImageFileFormat_Tiff, filename)
-
+        timestr = time.strftime("%Y%m%d_%H%M%S")
+        filename = save_folder + file_root + timestr + '.tiff'
+        self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
 
 # -----------------------------------------------------------------------------
 # Shader code
@@ -476,6 +479,12 @@ class LoadDialog(FloatLayout):
 # ANALYSIS TAB and children
 # -------------------------------------------------------------------------
 class AnalysisTab(BoxLayout):
+    pass
+
+# -------------------------------------------------------------------------
+# ABOUT TAB and children
+# -------------------------------------------------------------------------
+class AboutTab(BoxLayout):
     pass
 
 # -------------------------------------------------------------------------

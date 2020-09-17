@@ -27,11 +27,11 @@
         text: 'Live Image'
         ImageTab:
 
-    TabbedPanelItem:
-        id: motion_tab
-        text: 'Motion'
-        MotionTab:
-
+    # TabbedPanelItem:
+    #     id: motion_tab
+    #     text: 'Motion'
+    #     MotionTab:
+    #
     TabbedPanelItem:
         id: protocol_tab
         text: 'Protocol'
@@ -42,13 +42,58 @@
         text: 'Analysis'
         AnalysisTab:
 
+    TabbedPanelItem:
+        id: about_tab
+        text: 'About'
+        AboutTab:
+
 # --------------------------------------------
 # Microscope Configuration Layout
 # --------------------------------------------
 <ConfigTab>:
-    orientation: 'vertical'
+    orientation: 'horizontal'
+    GridLayout:
+        cols: 2
+        padding: 5
+        spacing: 5
+        Label:
+            text: 'Lumascope Model'
+        TextInput:
+            text: 'drop down here'
+        Label:
+            text: 'Frame Size'
+        TextInput:
+            text: '???'
+        Label:
+            text: 'Objective'
+        TextInput:
+            text: 'drop down here'
+        Label:
+            text: 'Save Folder'
+        Button:
+            text: 'folder select pop-up'
+        Label:
+            text: 'Filename Root'
+        TextInput:
+            text: 'text input'
+        Label:
+            text: 'LED Ramp'
+        TextInput:
+            text: 'text input'
+        Label:
+            text: 'Shutter Sound'
+        TextInput:
+            text: 'drop down of sounds?'
+        Button:
+            size_hint_y: None
+            height: 40
+            text: 'Load Configuration'
+        Button:
+            size_hint_y: None
+            height: 40
+            text: 'Save Configuration'
     Label:
-        text: 'Microscope Configfuration'
+        text: 'Microscope Configuration'
 
 # --------------------------------------------
 # Image Settings and Adjustment Layout
@@ -56,9 +101,9 @@
 <ImageTab>:
     BoxLayout:
         orientation: 'horizontal'
-        # ShaderEditor:
-        #     viewer: viewer_id
-        #     size_hint_x: 0.2
+        ShaderEditor:
+            viewer: viewer_id
+            size_hint_x: 0.2
 
         ShaderViewer:
             id: viewer_id
@@ -76,19 +121,33 @@
         padding: 5
         spacing: 5
         size_hint: None, None
-        size: 200, 40
-        pos: root.width/2-100, 0
+        size: 300, 40
+        pos: root.width/2-150, 0
         ToggleButton:
             id: play_btn
+            size_hint_x: None
             width: 100
             text: 'Pause'
             state: 'down'
             on_press: root.cam_toggle()
         Button:
             id: capture_btn
+            size_hint_x: None
             width: 100
             text: 'Capture'
             on_press: root.capture()
+        Button:
+            id: one2one_btn
+            size_hint_x: None
+            width: 50
+            text: '1:1'
+            on_press: root.one2one_image()
+        Button:
+            id: fit_btn
+            size_hint_x: None
+            width: 50
+            text: 'Fit'
+            on_press: root.fit_image()
         # Slider:
         #     id: zoom_slider
         #     width: 100
@@ -122,6 +181,9 @@
 <ShaderViewer>:
     PylonCamera:
         id: microscope_camera
+        resolution: (2592, 1944)
+        allow_stretch: True
+        keep_ratio: True
 
     # Camera:
     #     id: microscope_camera
@@ -190,15 +252,6 @@
         Rectangle:
             size: self.size
             pos: self.pos
-
-    # BoxLayout:
-    #     Label:
-    #         text: root.ctrl_label
-    #         text_size: self.size
-    #         halign: 'center'
-    #         valign: 'middle'
-    #     Switch:
-    #         active: True
 
     # Illumination
     BoxLayout:
@@ -520,3 +573,10 @@
 <AnalysisTab>:
     Label:
         text: 'Perform image stack analysis'
+
+# --------------------------------------------
+# About Layout
+# --------------------------------------------
+<AboutTab>:
+    Label:
+        text: 'About Etaluma, and LumaviewPro software'
