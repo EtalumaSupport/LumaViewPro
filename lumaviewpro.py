@@ -41,6 +41,8 @@ from pypylon import genicam
 # -------------------------------------------------------------------------
 # MAIN DISPLAY opf LumaViewPro App
 # -------------------------------------------------------------------------
+global app
+
 class MainDisplay(TabbedPanel):
     pass
 
@@ -72,7 +74,6 @@ class ImageTab(FloatLayout):
 
     def fit_image(self):
         self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = False
-
 
 class PylonCamera(Camera):
     def __init__(self, **kwargs):
@@ -197,6 +198,9 @@ void main (void) {
 ''')
 
     viewer = ObjectProperty(None)
+    hide_editor = ObjectProperty(None)
+    hide_editor = True
+
 
     def __init__(self, **kwargs):
         super(ShaderEditor, self).__init__(**kwargs)
@@ -219,6 +223,18 @@ void main (void) {
         self.viewer.fs = fs
         print('-->', vs)
         self.viewer.vs = vs
+
+    # Hide (and unhide) Shader settings
+    def toggle_editor(self):
+        # update protocol
+        if self.hide_editor == False:
+            self.hide_editor = True
+            self.ids['toggle_editor'].text = 'Show'
+            self.pos = -270, 0
+        else:
+            self.hide_editor = False
+            self.ids['toggle_editor'].text = 'Hide'
+            self.pos = 0, 0
 
 class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
@@ -251,6 +267,9 @@ class ShaderViewer(BoxLayout):
 Factory.register('ShaderViewer', cls=ShaderViewer)
 
 class ShaderSettings(BoxLayout):
+    hide_shader = ObjectProperty(None)
+    hide_shader = True
+
     # get slider values and update global variables where needed
     def get_sliders(self):
         global illumination_vals
@@ -276,6 +295,19 @@ class ShaderSettings(BoxLayout):
         illumination_vals = (rd_ill, gr_ill, bl_ill, bf_ill)
         gain_vals = (rd_gain, gr_gain, bl_gain, bf_gain)
         exposure_vals = (rd_exp, gr_exp, bl_exp, bf_exp)
+
+    # Hide (and unhide) Shader settings
+    def toggle_settings(self):
+        global app
+        # update protocol
+        if self.hide_shader == False:
+            self.hide_shader = True
+            self.ids['toggle_shader'].text = 'Show'
+            self.pos = app.width-30, 0
+        else:
+            self.hide_shader = False
+            self.ids['toggle_shader'].text = 'Hide'
+            self.pos = app.width-300, 0
 
 class LED_Control(BoxLayout):
     bg_color = ObjectProperty(None)
@@ -492,10 +524,12 @@ class AboutTab(BoxLayout):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def build(self):
+        global app
         # kwargs = {}
         # if len(sys.argv) > 1:
         #     kwargs['source'] = sys.argv[1]
-        return MainDisplay()
+        app = MainDisplay()
+        return app
 
 # def update_filter_callback():
 #     pass

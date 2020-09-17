@@ -99,21 +99,23 @@
 # Image Settings and Adjustment Layout
 # --------------------------------------------
 <ImageTab>:
-    BoxLayout:
-        orientation: 'horizontal'
-        ShaderEditor:
-            viewer: viewer_id
-            size_hint_x: 0.2
+    ShaderViewer:
+        id: viewer_id
+        size_hint: None, None
+        size: root.width, root.height
+        pos: 0, 0
 
-        ShaderViewer:
-            id: viewer_id
-            size_hint_x: 0.8
+    ShaderEditor:
+        viewer: viewer_id
+        size_hint: None, None
+        size: 300, root.height
+        pos: -270, 0
 
     ShaderSettings:
         id: shadersettings_id
         size_hint: None, None
         size: 300, root.height
-        pos: root.width-300, 0
+        pos: root.width-30, 0
     # Camera Controls
     # ------------------------------
     BoxLayout:
@@ -155,26 +157,35 @@
 # ShaderEditor - view and edit shader code
 # ------------------------------------------
 <ShaderEditor>:
-    orientation: 'vertical'
-    # Fragment Shader Editor
-    Label:
-        text: 'Fragment Shader'
-        size_hint_y: None
-        height: self.texture_size[1] + 10
-    CodeInput:
-        text: root.fs
-        lexer: GLShaderLexer()
-        on_text: root.fs = args[1]
+    orientation: 'horizontal'
+    BoxLayout:
+        orientation: 'vertical'
+        # Fragment Shader Editor
+        Label:
+            text: 'Fragment Shader'
+            size_hint_y: None
+            height: self.texture_size[1] + 10
+        CodeInput:
+            text: root.fs
+            lexer: GLShaderLexer()
+            on_text: root.fs = args[1]
 
-    # Vertex Shader Editor
-    Label:
-        text: 'Vertex Shader'
-        size_hint_y: None
-        height: self.texture_size[1] + 10
-    CodeInput:
-        text: root.vs
-        lexer: GLShaderLexer()
-        on_text: root.vs = args[1]
+        # Vertex Shader Editor
+        Label:
+            text: 'Vertex Shader'
+            size_hint_y: None
+            height: self.texture_size[1] + 10
+        CodeInput:
+            text: root.vs
+            lexer: GLShaderLexer()
+            on_text: root.vs = args[1]
+    ToggleButton:
+        id: toggle_editor
+        size_hint_x: None
+        width: 30
+        text: 'show'
+        on_press: root.toggle_editor()
+
 
 # ShaderViewer - Shaded Live Camera view
 # ------------------------------------------
@@ -202,45 +213,52 @@
 
 # ShaderSettings - Widgets to control Shader Settings
 <ShaderSettings>:
-    orientation: 'vertical'
-    spacing: 5
-    padding: 5
-    canvas:
-        Color:
-            rgba: 0, 0, 0, 0.2
-        Rectangle:
-            size: self.size
-            pos: self.pos
+    orientation: 'horizontal'
+    ToggleButton:
+        id: toggle_shader
+        size_hint_x: None
+        width: 30
+        text: 'show'
+        on_press: root.toggle_settings()
 
-    # -----------------------
-    # BRIGHTFIELD Settings
-    # -----------------------
-    LED_Control:
-        id: bf_led_id
-        ctrl_label: 'Brightfield'
-        size_hint: 1, 0.25
-        bg_color: 0.5, 0.5, 0.5, 1
+    BoxLayout:
+        orientation: 'vertical'
+        spacing: 5
+        padding: 5
+        canvas:
+            Color:
+                rgba: 0, 0, 0, 0.2
+            Rectangle:
+                size: self.size
+                pos: self.pos
 
-    # BLUE lED Settings
-    LED_Control:
-        id: bl_led_id
-        ctrl_label: 'Blue LED'
-        size_hint: 1, 0.25
-        bg_color: 0, .5, 1, 1
+        # BRIGHTFIELD Settings
+        LED_Control:
+            id: bf_led_id
+            ctrl_label: 'Brightfield'
+            size_hint: 1, 0.25
+            bg_color: 0.5, 0.5, 0.5, 1
 
-    # GREEN lED Settings
-    LED_Control:
-        id: gr_led_id
-        ctrl_label: 'Green LED'
-        size_hint: 1, 0.25
-        bg_color: .2, 0.8, 0.2, 1
+        # BLUE lED Settings
+        LED_Control:
+            id: bl_led_id
+            ctrl_label: 'Blue LED'
+            size_hint: 1, 0.2
+            bg_color: 0, .5, 1, 1
 
-    # RED lED Settings
-    LED_Control:
-        id: rd_led_id
-        ctrl_label: 'Red LED'
-        size_hint: 1, 0.25
-        bg_color: 1, 0.2, 0, 1
+        # GREEN lED Settings
+        LED_Control:
+            id: gr_led_id
+            ctrl_label: 'Green LED'
+            size_hint: 1, 0.25
+            bg_color: .2, 0.8, 0.2, 1
+
+        # RED lED Settings
+        LED_Control:
+            id: rd_led_id
+            ctrl_label: 'Red LED'
+            size_hint: 1, 0.25
+            bg_color: 1, 0.2, 0, 1
 
 <LED_Control>:
     padding: 5
@@ -291,7 +309,7 @@
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
-                on_value: root.parent.get_sliders()
+                on_value: root.parent.parent.get_sliders()
 
         # Gain
         BoxLayout:
@@ -321,7 +339,7 @@
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
-                on_value: root.parent.get_sliders()
+                on_value: root.parent.parent.get_sliders()
 
         # Exposure
         BoxLayout:
@@ -350,7 +368,7 @@
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
-                on_value: root.parent.get_sliders()
+                on_value: root.parent.parent.get_sliders()
 
 # --------------------------------------------
 # Microscope Motion Layout
