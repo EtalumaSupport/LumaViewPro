@@ -229,11 +229,9 @@ void main (void) {
         # update protocol
         if self.hide_editor == False:
             self.hide_editor = True
-            self.ids['toggle_editor'].text = 'Show'
             self.pos = -270, 0
         else:
             self.hide_editor = False
-            self.ids['toggle_editor'].text = 'Hide'
             self.pos = 0, 0
 
 class ShaderViewer(BoxLayout):
@@ -302,11 +300,11 @@ class ShaderSettings(BoxLayout):
         # update protocol
         if self.hide_shader == False:
             self.hide_shader = True
-            self.ids['toggle_shader'].text = 'Show'
+            # self.ids['toggle_shader'].text = 'Show'
             self.pos = app.width-30, 0
         else:
             self.hide_shader = False
-            self.ids['toggle_shader'].text = 'Hide'
+            # self.ids['toggle_shader'].text = 'Hide'
             self.pos = app.width-300, 0
 
 class LED_Control(BoxLayout):

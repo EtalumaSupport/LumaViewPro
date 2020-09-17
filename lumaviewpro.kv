@@ -181,9 +181,11 @@
             on_text: root.vs = args[1]
     ToggleButton:
         id: toggle_editor
-        size_hint_x: None
-        width: 30
-        text: 'show'
+        size_hint: None, None
+        size: 30, 30
+        pos_hint: {"x":0, "y":0.5}
+        background_normal: './data/right_arrow.png'
+        background_down: './data/left_arrow.png'
         on_press: root.toggle_editor()
 
 
@@ -216,9 +218,11 @@
     orientation: 'horizontal'
     ToggleButton:
         id: toggle_shader
-        size_hint_x: None
-        width: 30
-        text: 'show'
+        size_hint: None, None
+        size: 30, 30
+        pos_hint: {"x":0, "y":0.5}
+        background_normal: './data/left_arrow.png'
+        background_down: './data/right_arrow.png'
         on_press: root.toggle_settings()
 
     BoxLayout:
@@ -596,5 +600,5 @@
 # About Layout
 # --------------------------------------------
 <AboutTab>:
-    Label:
-        text: 'About Etaluma, and LumaviewPro software'
+    Image:
+        source: './data/Etaluma-Logo-no-tag.png'
