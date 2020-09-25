@@ -4,6 +4,7 @@ import numpy as np
 import time
 import os
 import json
+import glob
 
 import kivy
 from kivy.app import App
@@ -30,6 +31,8 @@ from kivy.uix.popup import Popup
 from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
 from kivy.clock import Clock
+import cv2
+
 # from kivy.core.camera import Camera
 
 # Pylon Camera Related
@@ -56,23 +59,55 @@ class ConfigTab(BoxLayout):
 # LIVE IMAGE TAB and children
 # -------------------------------------------------------------------------
 class ImageTab(FloatLayout):
+    record = ObjectProperty(None)
+    record = False
+
     def cam_toggle(self):
         if self.ids['viewer_id'].ids['microscope_camera'].play == True:
             self.ids['viewer_id'].ids['microscope_camera'].play = False
-            self.ids['play_btn'].text = 'Play'
+            self.ids['live_btn'].text = 'Live'
             self.ids['viewer_id'].ids['microscope_camera'].stop()
         else:
             self.ids['viewer_id'].ids['microscope_camera'].play = True
-            self.ids['play_btn'].text = 'Pause'
+            self.ids['live_btn'].text = 'Freeze'
             self.ids['viewer_id'].ids['microscope_camera'].start()
 
-    def capture(self):
+    def record_toggle(self):
+        # update protocol
+        if self.record == False:
+            self.record = True
+            self.ids['record_btn'].text = 'Pause Rec'
+
+            self.dt = 1
+            self.frame_event = Clock.schedule_interval(self.capture, self.dt)
+        else:
+            self.record = False
+            self.ids['record_btn'].text = 'Record'
+
+            if self.frame_event:
+                Clock.unschedule(self.frame_event)
+
+    def movie(self):
+        img_array = []
+        for filename in glob.glob('./capture/*.tiff'):
+            img = cv2.imread(filename)
+            height, width, layers = img.shape
+            size = (width,height)
+            img_array.append(img)
+
+        out = cv2.VideoWriter('./capture/movie.avi',cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+
+        for i in range(len(img_array)):
+            out.write(img_array[i])
+        out.release()
+
+    def capture(self, dt):
         self.ids['viewer_id'].ids['microscope_camera'].capture()
 
-    def one2one_image(self):
+    def fit_image(self):
         self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = True
 
-    def fit_image(self):
+    def one2one_image(self):
         self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = False
 
 class PylonCamera(Camera):
@@ -229,7 +264,7 @@ void main (void) {
         # update protocol
         if self.hide_editor == False:
             self.hide_editor = True
-            self.pos = -270, 0
+            self.pos = -285, 0
         else:
             self.hide_editor = False
             self.pos = 0, 0
@@ -301,7 +336,7 @@ class ShaderSettings(BoxLayout):
         if self.hide_shader == False:
             self.hide_shader = True
             # self.ids['toggle_shader'].text = 'Show'
-            self.pos = app.width-30, 0
+            self.pos = app.width-15, 0
         else:
             self.hide_shader = False
             # self.ids['toggle_shader'].text = 'Hide'
@@ -330,6 +365,8 @@ class MotionTab(BoxLayout):
 # PROTOCOL TAB and children
 # -------------------------------------------------------------------------
 class ProtocolTab(BoxLayout):
+    protocol_folder = StringProperty(None)
+    protocol_file = StringProperty(None)
     acquiring = ObjectProperty(None)
     acquiring = False
 
@@ -354,6 +391,21 @@ class ProtocolTab(BoxLayout):
         self.ids['rd_protocol'].ids['ill_val'].text = str(illumination_vals[0])
         self.ids['rd_protocol'].ids['gain_val'].text = str(gain_vals[0])
         self.ids['rd_protocol'].ids['exp_val'].text = str(exposure_vals[0])
+
+    # # create popup to select protocol JSON file
+    # def choose_protocol(self):
+    #     content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
+    #     self._popup = Popup(title="Select Protocol", content=content,
+    #                         size_hint=(0.9, 0.9))
+    #     self._popup.open()
+    #
+    # def load(self, path, filename):
+    #     self.protocol_folder = path
+    #     self.protocol_file = filename
+    #     self.dismiss_popup()
+    #
+    # def dismiss_popup(self):
+    #     self._popup.dismiss()
 
     # load protocol from JSON file
     def load_protocol(self):
@@ -449,7 +501,6 @@ class ProtocolTab(BoxLayout):
 
         with open("./data/protocol_save.json", "w") as write_file:
             json.dump(protocol, write_file)
-        print('Save protocol not yet written')
 
     # Run the protocol for acquiring image stacks
     def run_protocol(self):
@@ -491,8 +542,6 @@ class Protocol_Control(BoxLayout):
         self._popup = Popup(title="Select Save Folder", content=content,
                             size_hint=(0.9, 0.9))
         self._popup.open()
-        # create a folder selection pop-up
-        print(self.save_folder)
 
     def load(self, path):
         self.save_folder = path
@@ -523,13 +572,7 @@ class AboutTab(BoxLayout):
 class LumaViewProApp(App):
     def build(self):
         global app
-        # kwargs = {}
-        # if len(sys.argv) > 1:
-        #     kwargs['source'] = sys.argv[1]
         app = MainDisplay()
         return app
-
-# def update_filter_callback():
-#     pass
 
 LumaViewProApp().run()
