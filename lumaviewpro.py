@@ -6,6 +6,7 @@ import os
 import json
 import glob
 
+# Kivy
 import kivy
 from kivy.app import App
 from kivy.core.window import Window
@@ -15,7 +16,7 @@ from kivy.properties import StringProperty, ObjectProperty
 from kivy.clock import Clock
 
 # User Interface
-from kivy.uix.tabbedpanel import TabbedPanel
+from kivy.uix.accordion import Accordion, AccordionItem
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.floatlayout import FloatLayout
@@ -32,74 +33,28 @@ from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
 from kivy.clock import Clock
 import cv2
-
 # from kivy.core.camera import Camera
 
 # Pylon Camera Related
 from pypylon import pylon
 from pypylon import genicam
 
-# Custom Imports
+global lumaview
+global protocol
 
 # -------------------------------------------------------------------------
-# MAIN DISPLAY opf LumaViewPro App
+# MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
-global app
-
-class MainDisplay(TabbedPanel):
-    pass
-
-# -------------------------------------------------------------------------
-# CONFIGURATION TAB and children
-# -------------------------------------------------------------------------
-class ConfigTab(BoxLayout):
-    pass
-
-# -------------------------------------------------------------------------
-# LIVE IMAGE TAB and children
-# -------------------------------------------------------------------------
-class ImageTab(FloatLayout):
-    record = ObjectProperty(None)
-    record = False
-
+class MainDisplay(FloatLayout):
     def cam_toggle(self):
         if self.ids['viewer_id'].ids['microscope_camera'].play == True:
             self.ids['viewer_id'].ids['microscope_camera'].play = False
-            self.ids['live_btn'].text = 'Live'
+            self.ids['live_btn'].text = 'Play Live'
             self.ids['viewer_id'].ids['microscope_camera'].stop()
         else:
             self.ids['viewer_id'].ids['microscope_camera'].play = True
             self.ids['live_btn'].text = 'Freeze'
             self.ids['viewer_id'].ids['microscope_camera'].start()
-
-    def record_toggle(self):
-        # update protocol
-        if self.record == False:
-            self.record = True
-            self.ids['record_btn'].text = 'Pause Rec'
-
-            self.dt = 1
-            self.frame_event = Clock.schedule_interval(self.capture, self.dt)
-        else:
-            self.record = False
-            self.ids['record_btn'].text = 'Record'
-
-            if self.frame_event:
-                Clock.unschedule(self.frame_event)
-
-    def movie(self):
-        img_array = []
-        for filename in glob.glob('./capture/*.tiff'):
-            img = cv2.imread(filename)
-            height, width, layers = img.shape
-            size = (width,height)
-            img_array.append(img)
-
-        out = cv2.VideoWriter('./capture/movie.avi',cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-
-        for i in range(len(img_array)):
-            out.write(img_array[i])
-        out.release()
 
     def capture(self, dt):
         self.ids['viewer_id'].ids['microscope_camera'].capture()
@@ -217,6 +172,36 @@ uniform mat4       projection_mat;
 uniform vec4       color;
 '''
 
+class ShaderViewer(BoxLayout):
+    fs = StringProperty(None)
+    vs = StringProperty(None)
+
+    def __init__(self, **kwargs):
+        self.canvas = RenderContext()
+        super(ShaderViewer, self).__init__(**kwargs)
+        Clock.schedule_interval(self.update_shader, 0)
+
+    def update_shader(self, *args):
+        global illumination_vals
+        global gain_vals
+
+        #print(black_point)
+        c = self.canvas
+        c['projection_mat'] = Window.render_context['projection_mat']
+        c['time'] = Clock.get_boottime()
+        c['resolution'] = list(map(float, self.size))
+        c['black_point'] = illumination_vals
+        c['white_point'] = gain_vals
+        c.ask_update()
+
+    def on_fs(self, instance, value):
+        self.canvas.shader.fs = value
+
+    def on_vs(self, instance, value):
+        self.canvas.shader.vs = value
+
+Factory.register('ShaderViewer', cls=ShaderViewer)
+
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
 void main (void){
@@ -269,143 +254,81 @@ void main (void) {
             self.hide_editor = False
             self.pos = 0, 0
 
-class ShaderViewer(BoxLayout):
-    fs = StringProperty(None)
-    vs = StringProperty(None)
+class MainSettings(BoxLayout):
+    hide_settings = ObjectProperty(None)
+    hide_settings = True
 
-    def __init__(self, **kwargs):
-        self.canvas = RenderContext()
-        super(ShaderViewer, self).__init__(**kwargs)
-        Clock.schedule_interval(self.update_shader, 0)
-
-    def update_shader(self, *args):
-        global illumination_vals
-        global gain_vals
-
-        #print(black_point)
-        c = self.canvas
-        c['projection_mat'] = Window.render_context['projection_mat']
-        c['time'] = Clock.get_boottime()
-        c['resolution'] = list(map(float, self.size))
-        c['black_point'] = illumination_vals
-        c['white_point'] = gain_vals
-        c.ask_update()
-
-    def on_fs(self, instance, value):
-        self.canvas.shader.fs = value
-
-    def on_vs(self, instance, value):
-        self.canvas.shader.vs = value
-
-Factory.register('ShaderViewer', cls=ShaderViewer)
-
-class ShaderSettings(BoxLayout):
-    hide_shader = ObjectProperty(None)
-    hide_shader = True
-
-    # get slider values and update global variables where needed
-    def get_sliders(self):
-        global illumination_vals
-        global gain_vals
-        global exposure_vals
-
-        bf_ill = self.ids['bf_led_id'].ids['illumination_id'].value
-        bf_gain = self.ids['bf_led_id'].ids['gain_id'].value
-        bf_exp = self.ids['bf_led_id'].ids['exposure_id'].value
-
-        bl_ill = self.ids['bl_led_id'].ids['illumination_id'].value
-        bl_gain = self.ids['bl_led_id'].ids['gain_id'].value
-        bl_exp = self.ids['bl_led_id'].ids['exposure_id'].value
-
-        gr_ill = self.ids['gr_led_id'].ids['illumination_id'].value
-        gr_gain = self.ids['gr_led_id'].ids['gain_id'].value
-        gr_exp = self.ids['gr_led_id'].ids['exposure_id'].value
-
-        rd_ill = self.ids['rd_led_id'].ids['illumination_id'].value
-        rd_gain = self.ids['rd_led_id'].ids['gain_id'].value
-        rd_exp = self.ids['rd_led_id'].ids['exposure_id'].value
-
-        illumination_vals = (rd_ill, gr_ill, bl_ill, bf_ill)
-        gain_vals = (rd_gain, gr_gain, bl_gain, bf_gain)
-        exposure_vals = (rd_exp, gr_exp, bl_exp, bf_exp)
-
-    # Hide (and unhide) Shader settings
+    # Hide (and unhide) main settings
     def toggle_settings(self):
-        global app
+        global lumaview
         # update protocol
-        if self.hide_shader == False:
-            self.hide_shader = True
-            # self.ids['toggle_shader'].text = 'Show'
-            self.pos = app.width-15, 0
+        if self.hide_settings == False:
+            self.hide_settings = True
+            self.pos = lumaview.width-15, 0
         else:
-            self.hide_shader = False
-            # self.ids['toggle_shader'].text = 'Hide'
-            self.pos = app.width-300, 0
+            self.hide_settings = False
+            self.pos = lumaview.width-300, 0
 
-class LED_Control(BoxLayout):
-    bg_color = ObjectProperty(None)
-    ctrl_label = StringProperty(None)
-
-    def __init__(self, **kwargs):
-        super(LED_Control, self).__init__(**kwargs)
-        if self.bg_color is None:
-            self.bg_color = (0.5, 0.5, 0.5, 0.5)
-        if self.ctrl_label is None:
-            self.ctrl_label = 'Ctrl Label'
-# -------------------------------------------------------------------------
-# MOTION TAB and children
-# -------------------------------------------------------------------------
-class MotionTab(BoxLayout):
+class MicroscopeSettings(BoxLayout):
     pass
 
-# -------------------------------------------------------------------------
-# PROTOCOL TAB and children
-# -------------------------------------------------------------------------
-# -------------------------------------------------------------------------
-# PROTOCOL TAB and children
-# -------------------------------------------------------------------------
-class ProtocolTab(BoxLayout):
+class LayerControl(BoxLayout):
+    layer = StringProperty(None)
+    bg_color = ObjectProperty(None)
+    global protocol
+
+    def __init__(self, **kwargs):
+        super(LayerControl, self).__init__(**kwargs)
+        if self.bg_color is None:
+            self.bg_color = (0.5, 0.5, 0.5, 0.5)
+
+    def ill_slider(self):
+        protocol[self.layer]['ill'] = self.ids['ill_slider'].value
+
+    def ill_text(self):
+        protocol[self.layer]['ill'] = float(self.ids['ill_text'].text)
+        self.ids['ill_slider'].value = float(self.ids['ill_text'].text)
+
+    def gain_slider(self):
+        protocol[self.layer]['gain'] = self.ids['gain_slider'].value
+
+    def gain_text(self):
+        protocol[self.layer]['gain'] = float(self.ids['gain_text'].text)
+        self.ids['gain_slider'].value = float(self.ids['gain_text'].text)
+
+    def exp_slider(self):
+        protocol[self.layer]['exp'] = self.ids['exp_slider'].value
+
+    def exp_text(self):
+        protocol[self.layer]['exp'] = int(self.ids['exp_text'].text)
+        self.ids['exp_slider'].value = int(self.ids['exp_text'].text)
+
+    def led_slider(self):
+        protocol[self.layer]['led'] = self.ids['led_slider'].value
+
+    def led_text(self):
+        protocol[self.layer]['led'] = int(self.ids['led_text'].text)
+        self.ids['led_slider'].value = int(self.ids['led_text'].text)
+
+    def choose_folder(self):
+        content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
+        self._popup = Popup(title="Select Save Folder", content=content,
+                            size_hint=(0.9, 0.9))
+        self._popup.open()
+
+    def load(self, path):
+        protocol[self.layer]['save_folder'] = path
+        self.ids['folder_btn'].text = path[:-10]
+        self.dismiss_popup()
+
+    def dismiss_popup(self):
+        self._popup.dismiss()
+
+class TimeLapseSettings(BoxLayout):
     protocol_folder = StringProperty(None)
     protocol_file = StringProperty(None)
-    acquiring = ObjectProperty(None)
-    acquiring = False
-
-    # transfer values from live image tab to protocol tab
-    def import_vals(self):
-        global illumination_vals
-        global gain_vals
-        global exposure_vals
-
-        self.ids['bf_protocol'].ids['ill_val'].text = str(illumination_vals[3])
-        self.ids['bf_protocol'].ids['gain_val'].text = str(gain_vals[3])
-        self.ids['bf_protocol'].ids['exp_val'].text = str(exposure_vals[3])
-
-        self.ids['bl_protocol'].ids['ill_val'].text = str(illumination_vals[2])
-        self.ids['bl_protocol'].ids['gain_val'].text = str(gain_vals[2])
-        self.ids['bl_protocol'].ids['exp_val'].text = str(exposure_vals[2])
-
-        self.ids['gr_protocol'].ids['ill_val'].text = str(illumination_vals[1])
-        self.ids['gr_protocol'].ids['gain_val'].text = str(gain_vals[1])
-        self.ids['gr_protocol'].ids['exp_val'].text = str(exposure_vals[1])
-
-        self.ids['rd_protocol'].ids['ill_val'].text = str(illumination_vals[0])
-        self.ids['rd_protocol'].ids['gain_val'].text = str(gain_vals[0])
-        self.ids['rd_protocol'].ids['exp_val'].text = str(exposure_vals[0])
-
-    # # create popup to select protocol JSON file
-    # def choose_protocol(self):
-    #     content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
-    #     self._popup = Popup(title="Select Protocol", content=content,
-    #                         size_hint=(0.9, 0.9))
-    #     self._popup.open()
-    #
-    # def load(self, path, filename):
-    #     self.protocol_folder = path
-    #     self.protocol_file = filename
-    #     self.dismiss_popup()
-    #
-    # def dismiss_popup(self):
-    #     self._popup.dismiss()
+    record = ObjectProperty(None)
+    record = False
 
     # load protocol from JSON file
     def load_protocol(self):
@@ -420,159 +343,101 @@ class ProtocolTab(BoxLayout):
             self.ids['capture_period'].text = str(protocol['period'])
             self.ids['capture_dur'].text = str(protocol['duration'])
 
-            self.ids['bf_protocol'].ids['save_folder_id'].text = str(protocol['BF']['save_folder'])
-            self.ids['bf_protocol'].ids['file_root_id'].text = str(protocol['BF']['file_root'])
-            self.ids['bf_protocol'].ids['ill_val'].text = str(protocol['BF']['ill'])
-            self.ids['bf_protocol'].ids['gain_val'].text = str(protocol['BF']['gain'])
-            self.ids['bf_protocol'].ids['exp_val'].text = str(protocol['BF']['exp'])
-            self.ids['bf_protocol'].ids['acquire'].active = protocol['BF']['acquire']
-
-            self.ids['bl_protocol'].ids['save_folder_id'].text = str(protocol['Blue']['save_folder'])
-            self.ids['bl_protocol'].ids['file_root_id'].text = str(protocol['Blue']['file_root'])
-            self.ids['bl_protocol'].ids['ill_val'].text = str(protocol['Blue']['ill'])
-            self.ids['bl_protocol'].ids['gain_val'].text = str(protocol['Blue']['gain'])
-            self.ids['bl_protocol'].ids['exp_val'].text = str(protocol['Blue']['exp'])
-            self.ids['bl_protocol'].ids['acquire'].active = protocol['Blue']['acquire']
-
-            self.ids['gr_protocol'].ids['save_folder_id'].text = str(protocol['Green']['save_folder'])
-            self.ids['gr_protocol'].ids['file_root_id'].text = str(protocol['Green']['file_root'])
-            self.ids['gr_protocol'].ids['ill_val'].text = str(protocol['Green']['ill'])
-            self.ids['gr_protocol'].ids['gain_val'].text = str(protocol['Green']['gain'])
-            self.ids['gr_protocol'].ids['exp_val'].text = str(protocol['Green']['exp'])
-            self.ids['gr_protocol'].ids['acquire'].active = protocol['Green']['acquire']
-
-            self.ids['rd_protocol'].ids['save_folder_id'].text = str(protocol['Red']['save_folder'])
-            self.ids['rd_protocol'].ids['file_root_id'].text = str(protocol['Red']['file_root'])
-            self.ids['rd_protocol'].ids['ill_val'].text = str(protocol['Red']['ill'])
-            self.ids['rd_protocol'].ids['gain_val'].text = str(protocol['Red']['gain'])
-            self.ids['rd_protocol'].ids['exp_val'].text = str(protocol['Red']['exp'])
-            self.ids['rd_protocol'].ids['acquire'].active = protocol['Red']['acquire']
-
-            self.ids['composite_protocol'].ids['save_folder_id'].text = str(protocol['Composite']['save_folder'])
-            self.ids['composite_protocol'].ids['file_root_id'].text = str(protocol['Composite']['file_root'])
-            self.ids['composite_protocol'].ids['ill_val'].text = ''
-            self.ids['composite_protocol'].ids['gain_val'].text = ''
-            self.ids['composite_protocol'].ids['exp_val'].text = ''
-            self.ids['composite_protocol'].ids['acquire'].active = protocol['Composite']['acquire']
+            # self.ids['bf_protocol'].ids['save_folder_id'].text = str(protocol['BF']['save_folder'])
+            # self.ids['bf_protocol'].ids['file_root_id'].text = str(protocol['BF']['file_root'])
+            # self.ids['bf_protocol'].ids['ill_val'].text = str(protocol['BF']['ill'])
+            # self.ids['bf_protocol'].ids['gain_val'].text = str(protocol['BF']['gain'])
+            # self.ids['bf_protocol'].ids['exp_val'].text = str(protocol['BF']['exp'])
+            # self.ids['bf_protocol'].ids['acquire'].active = protocol['BF']['acquire']
+            #
+            # self.ids['bl_protocol'].ids['save_folder_id'].text = str(protocol['Blue']['save_folder'])
+            # self.ids['bl_protocol'].ids['file_root_id'].text = str(protocol['Blue']['file_root'])
+            # self.ids['bl_protocol'].ids['ill_val'].text = str(protocol['Blue']['ill'])
+            # self.ids['bl_protocol'].ids['gain_val'].text = str(protocol['Blue']['gain'])
+            # self.ids['bl_protocol'].ids['exp_val'].text = str(protocol['Blue']['exp'])
+            # self.ids['bl_protocol'].ids['acquire'].active = protocol['Blue']['acquire']
+            #
+            # self.ids['gr_protocol'].ids['save_folder_id'].text = str(protocol['Green']['save_folder'])
+            # self.ids['gr_protocol'].ids['file_root_id'].text = str(protocol['Green']['file_root'])
+            # self.ids['gr_protocol'].ids['ill_val'].text = str(protocol['Green']['ill'])
+            # self.ids['gr_protocol'].ids['gain_val'].text = str(protocol['Green']['gain'])
+            # self.ids['gr_protocol'].ids['exp_val'].text = str(protocol['Green']['exp'])
+            # self.ids['gr_protocol'].ids['acquire'].active = protocol['Green']['acquire']
+            #
+            # self.ids['rd_protocol'].ids['save_folder_id'].text = str(protocol['Red']['save_folder'])
+            # self.ids['rd_protocol'].ids['file_root_id'].text = str(protocol['Red']['file_root'])
+            # self.ids['rd_protocol'].ids['ill_val'].text = str(protocol['Red']['ill'])
+            # self.ids['rd_protocol'].ids['gain_val'].text = str(protocol['Red']['gain'])
+            # self.ids['rd_protocol'].ids['exp_val'].text = str(protocol['Red']['exp'])
+            # self.ids['rd_protocol'].ids['acquire'].active = protocol['Red']['acquire']
+            #
+            # self.ids['composite_protocol'].ids['save_folder_id'].text = str(protocol['Composite']['save_folder'])
+            # self.ids['composite_protocol'].ids['file_root_id'].text = str(protocol['Composite']['file_root'])
+            # self.ids['composite_protocol'].ids['ill_val'].text = ''
+            # self.ids['composite_protocol'].ids['gain_val'].text = ''
+            # self.ids['composite_protocol'].ids['exp_val'].text = ''
+            # self.ids['composite_protocol'].ids['acquire'].active = protocol['Composite']['acquire']
 
     # Save protocol to JSON file
     def save_protocol(self):
-        # update protocol
-        with open(".\data\protocol.json", "r") as read_file:
-            protocol = json.load(read_file)
 
-            protocol['period'] = float(self.ids['capture_period'].text)
-            protocol['duration'] = float(self.ids['capture_dur'].text)
-
-            protocol['BF']['save_folder'] = self.ids['bf_protocol'].ids['save_folder_id'].text
-            protocol['BF']['file_root'] = self.ids['bf_protocol'].ids['file_root_id'].text
-            protocol['BF']['ill'] = float(self.ids['bf_protocol'].ids['ill_val'].text)
-            protocol['BF']['gain'] = float(self.ids['bf_protocol'].ids['gain_val'].text)
-            protocol['BF']['exp'] = float(self.ids['bf_protocol'].ids['exp_val'].text)
-            protocol['BF']['acquire'] = self.ids['bf_protocol'].ids['acquire'].active
-
-            protocol['Blue']['save_folder'] = self.ids['bl_protocol'].ids['save_folder_id'].text
-            protocol['Blue']['file_root'] = self.ids['bl_protocol'].ids['file_root_id'].text
-            protocol['Blue']['ill'] = float(self.ids['bl_protocol'].ids['ill_val'].text)
-            protocol['Blue']['gain'] = float(self.ids['bl_protocol'].ids['gain_val'].text)
-            protocol['Blue']['exp'] = float(self.ids['bl_protocol'].ids['exp_val'].text)
-            protocol['Blue']['acquire'] = self.ids['bl_protocol'].ids['acquire'].active
-
-            protocol['Green']['save_folder'] = self.ids['gr_protocol'].ids['save_folder_id'].text
-            protocol['Green']['file_root'] = self.ids['gr_protocol'].ids['file_root_id'].text
-            protocol['Green']['ill'] = float(self.ids['gr_protocol'].ids['ill_val'].text)
-            protocol['Green']['gain'] = float(self.ids['gr_protocol'].ids['gain_val'].text)
-            protocol['Green']['exp'] = float(self.ids['gr_protocol'].ids['exp_val'].text)
-            protocol['Green']['acquire'] = self.ids['gr_protocol'].ids['acquire'].active
-
-            protocol['Red']['save_folder'] = self.ids['rd_protocol'].ids['save_folder_id'].text
-            protocol['Red']['file_root'] = self.ids['rd_protocol'].ids['file_root_id'].text
-            protocol['Red']['ill'] = float(self.ids['rd_protocol'].ids['ill_val'].text)
-            protocol['Red']['gain'] = float(self.ids['rd_protocol'].ids['gain_val'].text)
-            protocol['Red']['exp'] = float(self.ids['rd_protocol'].ids['exp_val'].text)
-            protocol['Red']['acquire'] = self.ids['rd_protocol'].ids['acquire'].active
-
-            protocol['Composite']['save_folder'] = self.ids['composite_protocol'].ids['save_folder_id'].text
-            protocol['Composite']['file_root'] = self.ids['composite_protocol'].ids['file_root_id'].text
-            protocol['Composite']['ill'] = ''
-            protocol['Composite']['gain'] = ''
-            protocol['Composite']['exp'] = ''
-            protocol['Composite']['acquire'] = self.ids['composite_protocol'].ids['acquire'].active
-
-        with open("./data/protocol_save.json", "w") as write_file:
+        # determine file to write
+        protocol_file = ".\data\protocol_save.json"
+        with open(protocol_file, "w") as write_file:
             json.dump(protocol, write_file)
 
-    # Run the protocol for acquiring image stacks
+    # Run the process of capturing one protocol event
     def run_protocol(self):
+        global protocol
+
         # update protocol
-        if self.acquiring == False:
-            self.acquiring = True
-            self.ids['run_btn'].text = 'Stop Protocol'
+        if self.record == False:
+            self.record = True
+            self.ids['record_btn'].text = 'Stop Rec'
 
-
-            self.dt = float(self.ids['capture_period'].text)
-            self.frame_event = Clock.schedule_interval(self.capture_event, self.dt*60.)
+            self.dt = protocol['period']
+            self.frame_event = Clock.schedule_interval(self.capture, self.dt)
         else:
-            self.acquiring = False
-            self.ids['run_btn'].text = 'Run Protocol'
+            self.record = False
+            self.ids['record_btn'].text = 'Record'
 
             if self.frame_event:
                 Clock.unschedule(self.frame_event)
 
-    # Run the process of capturing one protocol event
-    def capture_event(self, dt):
-        print('capture event')
+    def capture(self, dt):
+        global lumaview
+        lumaview.ids['viewer_id'].ids['microscope_camera'].capture()
 
+    def movie(self):
+        img_array = []
+        for filename in glob.glob('./capture/*.tiff'):
+            img = cv2.imread(filename)
+            height, width, layers = img.shape
+            size = (width,height)
+            img_array.append(img)
 
-class Protocol_Control(BoxLayout):
-    bg_color = ObjectProperty(None)
-    protocol_label = StringProperty(None)
-    save_folder = StringProperty(None)
-    file_root = StringProperty(None)
+        out = cv2.VideoWriter('./capture/movie.avi',cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
 
-    def __init__(self, **kwargs):
-        super(Protocol_Control, self).__init__(**kwargs)
-        if self.bg_color is None:
-            self.bg_color = (0.5, 0.5, 0.5, 0.5)
-        if self.protocol_label is None:
-            self.protocol_label = 'Protocol Label'
-
-    def choose_folder(self):
-        content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
-        self._popup = Popup(title="Select Save Folder", content=content,
-                            size_hint=(0.9, 0.9))
-        self._popup.open()
-
-    def load(self, path):
-        self.save_folder = path
-        self.dismiss_popup()
-
-    def dismiss_popup(self):
-        self._popup.dismiss()
+        for i in range(len(img_array)):
+            out.write(img_array[i])
+        out.release()
 
 class LoadDialog(FloatLayout):
     load = ObjectProperty(None)
     cancel = ObjectProperty(None)
 
 # -------------------------------------------------------------------------
-# ANALYSIS TAB and children
-# -------------------------------------------------------------------------
-class AnalysisTab(BoxLayout):
-    pass
-
-# -------------------------------------------------------------------------
-# ABOUT TAB and children
-# -------------------------------------------------------------------------
-class AboutTab(BoxLayout):
-    pass
-
-# -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def build(self):
-        global app
-        app = MainDisplay()
-        return app
+        global lumaview
+        global protocol
+
+        with open(".\data\protocol.json", "r") as read_file:
+            protocol = json.load(read_file)
+
+        lumaview = MainDisplay()
+        return lumaview
 
 LumaViewProApp().run()

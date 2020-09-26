@@ -2,15 +2,16 @@
 
 # Protocol Layout
 protocol = {
-    "period": 5.,
-    "duration": 48.,
+    "period": 0.01,
+    "duration": 0.1.,
     "BF": {
         "save_folder": ".\\",
         "file_root": "bright_",
         "ill": 1.,
         "gain": 1.,
         "exp": 150.,
-        "acquire": True
+        "led": 20.,
+        "acquire": False
     },
     "Blue": {
         "save_folder": ".\\",
@@ -18,7 +19,8 @@ protocol = {
         "ill": 1.,
         "gain": 1.,
         "exp": 150.,
-        "acquire": True
+        "led": 20.,
+        "acquire": False
     },
     "Green": {
         "save_folder": ".\\",
@@ -26,7 +28,8 @@ protocol = {
         "ill": 1.,
         "gain": 1.,
         "exp": 150.,
-        "acquire": True
+        "led": 20.,
+        "acquire": False
     },
     "Red": {
         "save_folder": ".\\",
@@ -34,15 +37,11 @@ protocol = {
         "ill": 1.,
         "gain": 1.,
         "exp": 150.,
-        "acquire": True
+        "led": 20.,
+        "acquire": False
     },
     "Composite": {
-        "save_folder": ".\\",
-        "file_root": "composite_",
-        "ill": '',
-        "gain": '',
-        "exp": '',
-        "acquire": True
+        "acquire": False
     }
 }
 

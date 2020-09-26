@@ -1,0 +1,616 @@
+#: import GLShaderLexer pygments.lexers.GLShaderLexer
+
+# -----------------------
+# MAIN DISPLAY
+# -----------------------
+<MainDisplay>:
+    id: main_display
+    tab_pos: 'top_mid'
+    tab_width: (self.size[0] / 5) - 1
+    # do_default_tab: False
+    default_tab: image_tab
+
+    canvas:
+        Color:
+            rgba: (.188, .188, .188, 1)
+        Rectangle:
+            size: self.size
+            pos: self.pos
+
+    TabbedPanelItem:
+        id: config_tab
+        text: 'Configuration'
+        ConfigTab:
+
+    TabbedPanelItem:
+        id: image_tab
+        text: 'Live Image'
+        ImageTab:
+
+    # TabbedPanelItem:
+    #     id: motion_tab
+    #     text: 'Motion'
+    #     MotionTab:
+    #
+    TabbedPanelItem:
+        id: protocol_tab
+        text: 'Protocol'
+        ProtocolTab:
+
+    TabbedPanelItem:
+        id: analysis_tab
+        text: 'Analysis'
+        AnalysisTab:
+
+    TabbedPanelItem:
+        id: about_tab
+        text: 'About'
+        AboutTab:
+
+# --------------------------------------------
+# Microscope Configuration Layout
+# --------------------------------------------
+<ConfigTab>:
+    orientation: 'horizontal'
+    GridLayout:
+        cols: 2
+        padding: 5
+        spacing: 5
+        Label:
+            text: 'Lumascope Model'
+        TextInput:
+            text: 'drop down here'
+        Label:
+            text: 'Frame Size'
+        TextInput:
+            text: '???'
+        Label:
+            text: 'Objective'
+        TextInput:
+            text: 'drop down here'
+        Label:
+            text: 'Save Folder'
+        Button:
+            text: 'folder select pop-up'
+        Label:
+            text: 'Filename Root'
+        TextInput:
+            text: 'text input'
+        Label:
+            text: 'LED Ramp'
+        TextInput:
+            text: 'text input'
+        Label:
+            text: 'Shutter Sound'
+        TextInput:
+            text: 'drop down of sounds?'
+        Button:
+            size_hint_y: None
+            height: 40
+            text: 'Load Configuration'
+        Button:
+            size_hint_y: None
+            height: 40
+            text: 'Save Configuration'
+    Label:
+        text: 'Microscope Configuration'
+
+# --------------------------------------------
+# Image Settings and Adjustment Layout
+# --------------------------------------------
+<ImageTab>:
+    ShaderViewer:
+        id: viewer_id
+        size_hint: None, None
+        size: root.width, root.height
+        pos: 0, 0
+
+    # ShaderEditor:
+    #     viewer: viewer_id
+    #     size_hint: None, None
+    #     size: 300, root.height
+    #     pos: -285, 0
+    #
+    ShaderSettings:
+        id: shadersettings_id
+        size_hint: None, None
+        size: 300, root.height
+        pos: root.width-15, 0
+    # Camera Controls
+    # ------------------------------
+    BoxLayout:
+        orientation: 'horizontal'
+        padding: 5
+        spacing: 5
+        size_hint: None, None
+        size: 300, 40
+        pos: root.width/2-250, 0
+        ToggleButton:
+            id: live_btn
+            size_hint_x: None
+            width: 100
+            text: 'Freeze'
+            state: 'down'
+            on_press: root.cam_toggle()
+        Button:
+            id: capture_btn
+            size_hint_x: None
+            width: 100
+            text: 'Capture'
+            on_press: root.capture(0)
+        ToggleButton:
+            id: record_btn
+            size_hint_x: None
+            width: 100
+            text: 'Record'
+            on_press: root.record_toggle()
+        Button:
+            id: movie_btn
+            size_hint_x: None
+            width: 100
+            text: 'Movie'
+            on_press: root.movie()
+        Button:
+            id: fit_btn
+            size_hint_x: None
+            width: 50
+            text: 'Fit'
+            on_press: root.fit_image()
+        Button:
+            id: one2one_btn
+            size_hint_x: None
+            width: 50
+            text: '1:1'
+            on_press: root.one2one_image()
+        # Slider:
+        #     id: zoom_slider
+        #     width: 100
+
+# ShaderEditor - view and edit shader code
+# ------------------------------------------
+<ShaderEditor>:
+    orientation: 'horizontal'
+    BoxLayout:
+        orientation: 'vertical'
+        # Fragment Shader Editor
+        Label:
+            text: 'Fragment Shader'
+            size_hint_y: None
+            height: self.texture_size[1] + 10
+        CodeInput:
+            text: root.fs
+            lexer: GLShaderLexer()
+            on_text: root.fs = args[1]
+
+        # Vertex Shader Editor
+        Label:
+            text: 'Vertex Shader'
+            size_hint_y: None
+            height: self.texture_size[1] + 10
+        CodeInput:
+            text: root.vs
+            lexer: GLShaderLexer()
+            on_text: root.vs = args[1]
+    ToggleButton:
+        id: toggle_editor
+        size_hint: None, None
+        size: 15, 50
+        pos_hint: {"x":0, "y":0.5}
+        background_normal: './data/right_arrow.png'
+        background_down: './data/left_arrow.png'
+        on_press: root.toggle_editor()
+
+
+# ShaderViewer - Shaded Live Camera view
+# ------------------------------------------
+<ShaderViewer>:
+    PylonCamera:
+        id: microscope_camera
+        resolution: (2592, 1944)
+        allow_stretch: True
+        keep_ratio: True
+
+    # Camera:
+    #     id: microscope_camera
+    #     play: True
+    #     index: 0
+    #     resolution: (1920, 1080)
+    #     allow_stretch: True
+    #     keep_ratio: True
+    #
+    # Image:
+    #     id: microscope_camera
+    #     source: './data/composite.tif'
+    #     allow_stretch: True
+    #     keep_ratio: True
+
+
+# ShaderSettings - Widgets to control Shader Settings
+<ShaderSettings>:
+    orientation: 'horizontal'
+    ToggleButton:
+        id: toggle_shader
+        size_hint: None, None
+        size: 15, 50
+        pos_hint: {"x":0, "y":0.5}
+        background_normal: './data/left_arrow.png'
+        background_down: './data/right_arrow.png'
+        on_press: root.toggle_settings()
+
+    BoxLayout:
+        orientation: 'vertical'
+        spacing: 5
+        padding: 5
+        canvas:
+            Color:
+                rgba: 0, 0, 0, 0.2
+            Rectangle:
+                size: self.size
+                pos: self.pos
+
+        # BRIGHTFIELD Settings
+        LED_Control:
+            id: bf_led_id
+            ctrl_label: 'Brightfield'
+            size_hint: 1, 0.25
+            bg_color: 0.5, 0.5, 0.5, 1
+
+        # BLUE lED Settings
+        LED_Control:
+            id: bl_led_id
+            ctrl_label: 'Blue LED'
+            size_hint: 1, 0.2
+            bg_color: 0, .5, 1, 1
+
+        # GREEN lED Settings
+        LED_Control:
+            id: gr_led_id
+            ctrl_label: 'Green LED'
+            size_hint: 1, 0.25
+            bg_color: .2, 0.8, 0.2, 1
+
+        # RED lED Settings
+        LED_Control:
+            id: rd_led_id
+            ctrl_label: 'Red LED'
+            size_hint: 1, 0.25
+            bg_color: 1, 0.2, 0, 1
+
+<LED_Control>:
+    padding: 5
+    spacing: 5
+    orientation: 'vertical'
+    canvas:
+        Color:
+            rgba: 0, 0, 0, 0.5
+        Rectangle:
+            size: self.size
+            pos: self.pos
+
+    # Illumination
+    BoxLayout:
+
+        orientation: 'vertical'
+        spacing: 10
+
+        Label:
+            text: root.ctrl_label
+            halign: 'center'
+            valign: 'middle'
+
+        BoxLayout:
+            orientation: 'horizontal'
+            Label:
+                text: 'Illumination'
+                halign: 'center'
+                valign: 'middle'
+
+            TextInput:
+                size_hint_x: None
+                width: 50
+                multiline: False
+                font_size: 14
+                padding: [10, (self.height-self.line_height)/2]
+                halign: 'left'
+                background_color: 0.6, 0.6, 0.6, 1
+                input_filter: 'float'
+                text:"%.2f" % illumination_id.value
+
+            Slider:
+                id: illumination_id
+                min: 0
+                max: 1.
+                value: 0
+                cursor_size: 20,20
+                cursor_image: './data/slider_cursor.png'
+                value_track: True
+                value_track_color: root.bg_color
+                on_value: root.parent.parent.get_sliders()
+
+        # Gain
+        BoxLayout:
+            orientation: 'horizontal'
+            Label:
+                text: 'Gain'
+                halign: 'center'
+                valign: 'middle'
+                padding: 5, 5
+            TextInput:
+                size_hint_x: None
+                width: 50
+                multiline: False
+                font_size: 14
+                padding: [10, (self.height-self.line_height)/2]
+                halign: 'left'
+                background_color: 0.6, 0.6, 0.6, 1
+                input_filter: 'float'
+                text:"%.2f" % gain_id.value
+                spacing: 15, 15
+            Slider:
+                id: gain_id
+                min: 0
+                max: 2.
+                value: 1.
+                cursor_size: 20,20
+                cursor_image: './data/slider_cursor.png'
+                value_track: True
+                value_track_color: root.bg_color
+                on_value: root.parent.parent.get_sliders()
+
+        # Exposure
+        BoxLayout:
+            orientation: 'horizontal'
+            Label:
+                text: 'Exposure'
+                halign: 'center'
+                valign: 'middle'
+                padding: 5, 5
+            TextInput:
+                size_hint_x: None
+                width: 50
+                multiline: False
+                font_size: 14
+                padding: [10, (self.height-self.line_height)/2]
+                halign: 'left'
+                background_color: 0.6, 0.6, 0.6, 1
+                input_filter: 'float'
+                text: str(int(exposure_id.value))
+            Slider:
+                id: exposure_id
+                min: 100
+                max: 200
+                value: 150
+                cursor_size: 20,20
+                cursor_image: './data/slider_cursor.png'
+                value_track: True
+                value_track_color: root.bg_color
+                on_value: root.parent.parent.get_sliders()
+
+# --------------------------------------------
+# Microscope Motion Layout
+# --------------------------------------------
+<MotionTab>:
+    Label:
+        text: 'This function is not available for your microscope model'
+
+# --------------------------------------------
+# Protocol Layout
+# --------------------------------------------
+<ProtocolTab>:
+    orientation: 'vertical'
+    padding: 5
+    spacing: 5
+    # row_default_height: 40
+
+    BoxLayout:
+
+    GridLayout:
+        cols: 5
+        spacing: 5
+        size_hint_y: None
+        height: 80
+        Label:
+            text: ''
+        Label:
+            text: 'Capture Period'
+            width: 150
+        TextInput:
+            id: capture_period
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+            halign: 'right'
+            input_filter: 'float'
+            text: '5'
+        Label:
+            text: 'minutes'
+            width: 100
+        Label:
+            text: ''
+
+        Label:
+            text: ''
+        Label:
+            text: 'Capture Duration'
+            width: 150
+        TextInput:
+            id: capture_dur
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+            halign: 'right'
+            input_filter: 'float'
+            text: '48'
+        Label:
+            text: 'hours'
+            width: 100
+        Label:
+            text: ''
+
+    BoxLayout:
+        spacing: 5
+        size_hint_y: None
+        height: 20
+
+    BoxLayout:
+        spacing: 5
+        size_hint_y: None
+        height: 40
+        orientation: 'horizontal'
+        # PROTOCOL - LABELS
+        Label:
+            text: ''
+            size_hint_x: None
+            width: 100
+        Label:
+            text: 'Folder'
+        Label:
+            text: 'Filename Root'
+        Label:
+            text: 'Ill.'
+            size_hint_x: None
+            width: 40
+        Label:
+            text: 'Gain'
+            size_hint_x: None
+            width: 40
+        Label:
+            text: 'Exp.'
+            size_hint_x: None
+            width: 50
+        Label:
+            text: 'Acq.'
+            size_hint_x: None
+            width: 40
+
+    Protocol_Control:
+        id: bf_protocol
+        protocol_label: 'Brightfield'
+        save_folder: '.\\'
+        file_root: 'bright_'
+        bg_color: 1, 1, 1, 0.2
+    Protocol_Control:
+        id: bl_protocol
+        protocol_label: 'Blue'
+        save_folder: '.\\'
+        file_root: 'blue_'
+        bg_color: 0, 0.2, 1, 0.2
+    Protocol_Control:
+        id: gr_protocol
+        protocol_label: 'Green'
+        save_folder: '.\\'
+        file_root: 'green_'
+        bg_color: 0.2, 1, 0.2, 0.2
+    Protocol_Control:
+        id: rd_protocol
+        protocol_label: 'Red'
+        save_folder: '.\\'
+        file_root: 'red_'
+        bg_color: 1, 0.2, 0, 0.2
+    Protocol_Control:
+        id: composite_protocol
+        protocol_label: 'Composite'
+        save_folder: '.\\'
+        file_root: 'composite_'
+        bg_color: 1, 1, 1, 0.2
+
+    BoxLayout:
+
+    BoxLayout:
+        spacing: 5
+        size_hint_y: None
+        height: 40
+        orientation: 'horizontal'
+        # PROTOCOL - LABELS
+        Button:
+            text: 'Import from Live Image'
+            on_press: root.import_vals()
+        Button:
+            text: 'Load Protocol'
+            on_press: root.load_protocol()
+        Button:
+            text: 'Save Protocol'
+            on_press: root.save_protocol()
+        ToggleButton:
+            id: run_btn
+            text: 'Run Protocol'
+            state: 'normal'
+            on_press: root.run_protocol()
+
+
+<Protocol_Control>:
+    spacing: 5
+    size_hint_y: None
+    height: 40
+    Label:
+        size_hint_x: None
+        width: 100
+        canvas:
+            Color:
+                rgba: root.bg_color
+            Rectangle:
+                size: self.size
+                pos: self.pos
+        text: root.protocol_label
+    Button:
+        id: save_folder_id
+        text: '... '+str(root.save_folder)[-25:]
+        on_press: root.choose_folder()
+    TextInput:
+        id: file_root_id
+        text: str(root.file_root)
+        multiline: False
+        padding: [10, (self.height-self.line_height)/2]
+    TextInput:
+        id: ill_val
+        size_hint_x: None
+        width: 40
+        multiline: False
+        padding: [10, (self.height-self.line_height)/2]
+    TextInput:
+        id: gain_val
+        size_hint_x: None
+        width: 40
+        multiline: False
+        padding: [10, (self.height-self.line_height)/2]
+    TextInput:
+        id: exp_val
+        size_hint_x: None
+        width: 50
+        multiline: False
+        padding: [10, (self.height-self.line_height)/2]
+    CheckBox:
+        id: acquire
+        size_hint_x: None
+        width: 40
+        active: False
+
+<LoadDialog>:
+    BoxLayout:
+        size: root.size
+        pos: root.pos
+        orientation: "vertical"
+        FileChooserListView:
+            id: filechooser
+            path: '.\\'
+        BoxLayout:
+            size_hint_y: None
+            height: 40
+            Button:
+                text: "Cancel"
+                on_release: root.cancel()
+            Button:
+                text: "Select"
+                on_release: root.load(filechooser.path)
+
+# --------------------------------------------
+# Analysis Layout
+# --------------------------------------------
+<AnalysisTab>:
+    Label:
+        text: 'Perform image stack analysis'
+
+# --------------------------------------------
+# About Layout
+# --------------------------------------------
+<AboutTab>:
+    Image:
+        source: './data/Etaluma-Logo-no-tag.png'
