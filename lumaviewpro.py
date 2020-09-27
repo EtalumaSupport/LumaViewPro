@@ -318,21 +318,22 @@ class LayerControl(BoxLayout):
 
     def load(self, path):
         protocol[self.layer]['save_folder'] = path
-        self.ids['folder_btn'].text = path[:-10]
+        self.ids['folder_btn'].text = '...'+path[-30:]
         self.dismiss_popup()
 
     def dismiss_popup(self):
         self._popup.dismiss()
 
+    def root_text(self):
+        protocol[self.layer]['file_root'] = self.ids['root_text'].text
+
 class TimeLapseSettings(BoxLayout):
-    protocol_folder = StringProperty(None)
-    protocol_file = StringProperty(None)
     record = ObjectProperty(None)
     record = False
 
     # load protocol from JSON file
     def load_protocol(self):
-
+        global lumaview
         # determine file to read
         protocol_file = ".\data\protocol.json"
 
@@ -343,44 +344,19 @@ class TimeLapseSettings(BoxLayout):
             self.ids['capture_period'].text = str(protocol['period'])
             self.ids['capture_dur'].text = str(protocol['duration'])
 
-            # self.ids['bf_protocol'].ids['save_folder_id'].text = str(protocol['BF']['save_folder'])
-            # self.ids['bf_protocol'].ids['file_root_id'].text = str(protocol['BF']['file_root'])
-            # self.ids['bf_protocol'].ids['ill_val'].text = str(protocol['BF']['ill'])
-            # self.ids['bf_protocol'].ids['gain_val'].text = str(protocol['BF']['gain'])
-            # self.ids['bf_protocol'].ids['exp_val'].text = str(protocol['BF']['exp'])
-            # self.ids['bf_protocol'].ids['acquire'].active = protocol['BF']['acquire']
-            #
-            # self.ids['bl_protocol'].ids['save_folder_id'].text = str(protocol['Blue']['save_folder'])
-            # self.ids['bl_protocol'].ids['file_root_id'].text = str(protocol['Blue']['file_root'])
-            # self.ids['bl_protocol'].ids['ill_val'].text = str(protocol['Blue']['ill'])
-            # self.ids['bl_protocol'].ids['gain_val'].text = str(protocol['Blue']['gain'])
-            # self.ids['bl_protocol'].ids['exp_val'].text = str(protocol['Blue']['exp'])
-            # self.ids['bl_protocol'].ids['acquire'].active = protocol['Blue']['acquire']
-            #
-            # self.ids['gr_protocol'].ids['save_folder_id'].text = str(protocol['Green']['save_folder'])
-            # self.ids['gr_protocol'].ids['file_root_id'].text = str(protocol['Green']['file_root'])
-            # self.ids['gr_protocol'].ids['ill_val'].text = str(protocol['Green']['ill'])
-            # self.ids['gr_protocol'].ids['gain_val'].text = str(protocol['Green']['gain'])
-            # self.ids['gr_protocol'].ids['exp_val'].text = str(protocol['Green']['exp'])
-            # self.ids['gr_protocol'].ids['acquire'].active = protocol['Green']['acquire']
-            #
-            # self.ids['rd_protocol'].ids['save_folder_id'].text = str(protocol['Red']['save_folder'])
-            # self.ids['rd_protocol'].ids['file_root_id'].text = str(protocol['Red']['file_root'])
-            # self.ids['rd_protocol'].ids['ill_val'].text = str(protocol['Red']['ill'])
-            # self.ids['rd_protocol'].ids['gain_val'].text = str(protocol['Red']['gain'])
-            # self.ids['rd_protocol'].ids['exp_val'].text = str(protocol['Red']['exp'])
-            # self.ids['rd_protocol'].ids['acquire'].active = protocol['Red']['acquire']
-            #
-            # self.ids['composite_protocol'].ids['save_folder_id'].text = str(protocol['Composite']['save_folder'])
-            # self.ids['composite_protocol'].ids['file_root_id'].text = str(protocol['Composite']['file_root'])
-            # self.ids['composite_protocol'].ids['ill_val'].text = ''
-            # self.ids['composite_protocol'].ids['gain_val'].text = ''
-            # self.ids['composite_protocol'].ids['exp_val'].text = ''
-            # self.ids['composite_protocol'].ids['acquire'].active = protocol['Composite']['acquire']
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['led_slider'].value = protocol[layer]['led']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '...' + protocol[layer]['save_folder'][-30:]
+                lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
 
     # Save protocol to JSON file
     def save_protocol(self):
-
+        global protocol
         # determine file to write
         protocol_file = ".\data\protocol_save.json"
         with open(protocol_file, "w") as write_file:
