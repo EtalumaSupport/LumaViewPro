@@ -3,11 +3,11 @@
 # Protocol Layout
 protocol = {
     "period": 0.01,
-    "duration": 0.1.,
+    "duration": 0.1,
     "BF": {
         "save_folder": ".\\",
         "file_root": "bright_",
-        "ill": 1.,
+        "ill": 0.,
         "gain": 1.,
         "exp": 150.,
         "led": 20.,
@@ -16,7 +16,7 @@ protocol = {
     "Blue": {
         "save_folder": ".\\",
         "file_root": "blue_",
-        "ill": 1.,
+        "ill": 0.,
         "gain": 1.,
         "exp": 150.,
         "led": 20.,
@@ -25,7 +25,7 @@ protocol = {
     "Green": {
         "save_folder": ".\\",
         "file_root": "green_",
-        "ill": 1.,
+        "ill": 0.,
         "gain": 1.,
         "exp": 150.,
         "led": 20.,
@@ -34,7 +34,7 @@ protocol = {
     "Red": {
         "save_folder": ".\\",
         "file_root": "red_",
-        "ill": 1.,
+        "ill": 0.,
         "gain": 1.,
         "exp": 150.,
         "led": 20.,

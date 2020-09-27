@@ -569,10 +569,10 @@ class AboutTab(BoxLayout):
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
 # -------------------------------------------------------------------------
-class LumaViewProApp(App):
+class LumaViewPro_originalApp(App):
     def build(self):
         global app
         app = MainDisplay()
         return app
 
-LumaViewProApp().run()
+LumaViewPro_originalApp().run()

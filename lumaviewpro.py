@@ -41,6 +41,8 @@ from pypylon import genicam
 
 global lumaview
 global protocol
+with open('./data/protocol.json', "r") as read_file:
+    protocol = json.load(read_file)
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -118,17 +120,6 @@ class PylonCamera(Camera):
 # Based on code from the kivy example Live Shader Editor found at:
 # kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
 # -----------------------------------------------------------------------------
-
-global illumination_vals
-illumination_vals = (0., )*4
-
-global gain_vals
-gain_vals = (1., )*4
-
-global exposure_vals
-exposure_vals = (150, )*4
-
-
 fs_header = '''
 #ifdef GL_ES
 precision highp float;
@@ -172,6 +163,12 @@ uniform mat4       projection_mat;
 uniform vec4       color;
 '''
 
+global illumination_vals
+illumination_vals = (0., )*4
+
+global gain_vals
+gain_vals = (1., )*4
+
 class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
     vs = StringProperty(None)
@@ -184,15 +181,12 @@ class ShaderViewer(BoxLayout):
     def update_shader(self, *args):
         global illumination_vals
         global gain_vals
-
-        #print(black_point)
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
         c['black_point'] = illumination_vals
         c['white_point'] = gain_vals
-        c.ask_update()
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -205,7 +199,10 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
 void main (void){
-	gl_FragColor = white_point * frag_color * texture2D(texture0, tex_coord0)
+	gl_FragColor =
+    white_point *
+    frag_color *
+    texture2D(texture0, tex_coord0)
 	- black_point;
 }
 ''')
@@ -213,7 +210,10 @@ void main (void){
 void main (void) {
   frag_color = color;
   tex_coord0 = vTexCoords0;
-  gl_Position = projection_mat * modelview_mat * vec4(vPosition.xy, 0.0, 1.0);
+  gl_Position =
+  projection_mat *
+  modelview_mat *
+  vec4(vPosition.xy, 0.0, 1.0);
 # }
 ''')
 
@@ -369,7 +369,7 @@ class TimeLapseSettings(BoxLayout):
         # update protocol
         if self.record == False:
             self.record = True
-            self.ids['record_btn'].text = 'Stop Rec'
+            self.ids['record_btn'].text = 'Stop Recording'
 
             self.dt = protocol['period']
             self.frame_event = Clock.schedule_interval(self.capture, self.dt)
@@ -385,7 +385,7 @@ class TimeLapseSettings(BoxLayout):
         lumaview.ids['viewer_id'].ids['microscope_camera'].capture()
 
     def movie(self):
-        img_array = []
+        img_array = [] 
         for filename in glob.glob('./capture/*.tiff'):
             img = cv2.imread(filename)
             height, width, layers = img.shape
@@ -408,11 +408,6 @@ class LoadDialog(FloatLayout):
 class LumaViewProApp(App):
     def build(self):
         global lumaview
-        global protocol
-
-        with open(".\data\protocol.json", "r") as read_file:
-            protocol = json.load(read_file)
-
         lumaview = MainDisplay()
         return lumaview
 
