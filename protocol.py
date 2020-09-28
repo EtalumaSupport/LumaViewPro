@@ -2,43 +2,47 @@
 
 # Protocol Layout
 protocol = {
+    "microscope": 'LS620',
+    "frame_width": 2592,
+    "frame_height": 1944,
+    "objective": '???',
     "period": 0.01,
     "duration": 0.1,
     "BF": {
-        "save_folder": ".\\",
+        "save_folder": ".\\capture\\",
         "file_root": "bright_",
         "ill": 0.,
         "gain": 1.,
         "exp": 150.,
         "led": 20.,
-        "acquire": False
+        "acquire": True
     },
     "Blue": {
-        "save_folder": ".\\",
+        "save_folder": ".\\capture\\",
         "file_root": "blue_",
         "ill": 0.,
         "gain": 1.,
         "exp": 150.,
         "led": 20.,
-        "acquire": False
+        "acquire": True
     },
     "Green": {
-        "save_folder": ".\\",
+        "save_folder": ".\\capture\\",
         "file_root": "green_",
         "ill": 0.,
         "gain": 1.,
         "exp": 150.,
         "led": 20.,
-        "acquire": False
+        "acquire": True
     },
     "Red": {
-        "save_folder": ".\\",
+        "save_folder": ".\\capture\\",
         "file_root": "red_",
         "ill": 0.,
         "gain": 1.,
         "exp": 150.,
         "led": 20.,
-        "acquire": False
+        "acquire": True
     },
     "Composite": {
         "acquire": False

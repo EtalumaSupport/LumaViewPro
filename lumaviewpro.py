@@ -330,17 +330,32 @@ class LayerControl(BoxLayout):
 class TimeLapseSettings(BoxLayout):
     record = ObjectProperty(None)
     record = False
+    save_folder = StringProperty(None)
+    n_captures = ObjectProperty(None)
+
+    def update_period(self):
+        protocol['period'] = float(self.ids['capture_period'].text)
+
+    def update_duration(self):
+        protocol['duration'] = float(self.ids['capture_dur'].text)
 
     # load protocol from JSON file
     def load_protocol(self):
         global lumaview
+
         # determine file to read
         protocol_file = ".\data\protocol.json"
 
         # load protocol JSON file
         with open(protocol_file, "r") as read_file:
+            global protocol
             protocol = json.load(read_file)
             # update GUI values from JSON data
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['lumascope_model'] = protocol['microscope']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'] = protocol['frame_width']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'] = protocol['frame_height']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective'] = protocol['objective']
+
             self.ids['capture_period'].text = str(protocol['period'])
             self.ids['capture_dur'].text = str(protocol['duration'])
 
@@ -362,14 +377,22 @@ class TimeLapseSettings(BoxLayout):
         with open(protocol_file, "w") as write_file:
             json.dump(protocol, write_file)
 
-    # Run the process of capturing one protocol event
+    # Run the timed process of capture event
     def run_protocol(self):
         global protocol
+
+        # # number of capture events remaining
+        # self.n_captures = int(float(protocol['duration'])*60 / float(protocol['period']))
 
         # update protocol
         if self.record == False:
             self.record = True
-            self.ids['record_btn'].text = 'Stop Recording'
+
+            # hrs = np.floor(self.n_captures*protocol['period']/60)
+            # minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
+            # hrs = '%02d' % hrs
+            # minutes = '%02d' % minutes
+            # self.ids['record_btn'].text = hrs+':'+minutes+' remaining'
 
             self.dt = protocol['period']
             self.frame_event = Clock.schedule_interval(self.capture, self.dt)
@@ -380,23 +403,56 @@ class TimeLapseSettings(BoxLayout):
             if self.frame_event:
                 Clock.unschedule(self.frame_event)
 
+    # One procotol capture event
     def capture(self, dt):
         global lumaview
-        lumaview.ids['viewer_id'].ids['microscope_camera'].capture()
+        # self.n_captures = self.n_captures-1
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            if protocol[layer]['acquire'] == True:
+                # turn on the LED
 
-    def movie(self):
-        img_array = [] 
+                # Wait the delay
+                time.sleep(float(protocol[layer]['led'])/1000)
+
+                # capture the image
+                save_folder = protocol[layer]['save_folder']
+                file_root = protocol[layer]['file_root']
+                lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
+
+                # turn off the LED
+
+
+    def convert_to_avi(self):
+        # Need to add file save location pop-up
+        # save_location = './capture/movie.avi'
+        self.choose_folder()
+
+        img_array = []
         for filename in glob.glob('./capture/*.tiff'):
             img = cv2.imread(filename)
             height, width, layers = img.shape
             size = (width,height)
             img_array.append(img)
 
-        out = cv2.VideoWriter('./capture/movie.avi',cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+        out = cv2.VideoWriter(str(self.save_folder)+'/movie.avi',cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
 
         for i in range(len(img_array)):
             out.write(img_array[i])
         out.release()
+
+    def choose_folder(self):
+        content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
+        self._popup = Popup(title="Select Image Folder", content=content,
+                            size_hint=(0.9, 0.9))
+        self._popup.open()
+
+    def load(self, path):
+        self.save_folder = path
+        self.dismiss_popup()
+
+    def dismiss_popup(self):
+        self._popup.dismiss()
 
 class LoadDialog(FloatLayout):
     load = ObjectProperty(None)
