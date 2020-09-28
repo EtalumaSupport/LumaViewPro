@@ -194,6 +194,20 @@
         size_hint_y: None
         height: 40
         Label:
+            text: 'Objective'
+            size_hint_x: None
+            width: 140
+        TextInput:
+            id: objective
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+            halign: 'left'
+            text: '???'
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: 40
+        Label:
             text: 'Frame Size'
             size_hint_x: None
             width: 140
@@ -215,20 +229,6 @@
             halign: 'left'
             input_filter: 'int'
             text: '1944'
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: 40
-        Label:
-            text: 'Objective'
-            size_hint_x: None
-            width: 140
-        TextInput:
-            id: objective
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-            halign: 'left'
-            text: '???'
     Image:
         id: image_of_microscope
         source: './data/620.png'
@@ -281,7 +281,7 @@
                 # background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
                 text:"%.2f" % ill_slider.value
-                on_text_validate: root.ill_text()
+                on_text: root.ill_text()
         # Gain
         BoxLayout:
             orientation: 'horizontal'
@@ -312,7 +312,7 @@
                 # background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
                 text:"%.2f" % gain_slider.value
-                on_text_validate: root.gain_text()
+                on_text: root.gain_text()
         # Exposure
         BoxLayout:
             orientation: 'horizontal'
@@ -342,7 +342,7 @@
                 # background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
                 text: str(int(exp_slider.value))
-                on_text_validate: root.exp_text()
+                on_text: root.exp_text()
         # LED Warmup Settongs
         BoxLayout:
             orientation: 'horizontal'
@@ -372,7 +372,7 @@
                 # background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
                 text: str(int(led_slider.value))
-                on_text_validate: root.led_text()
+                on_text: root.led_text()
         # File Save Settings
         Button:
             id: folder_btn
@@ -383,7 +383,7 @@
             multiline: False
             text: 'File Root'
             padding: [10, (self.height-self.line_height)/2]
-            on_text_validate: root.root_text()
+            on_text: root.root_text()
         # LED Include settings
         BoxLayout:
             orientation: 'horizontal'
@@ -433,7 +433,7 @@
             halign: 'right'
             input_filter: 'float'
             text: '5'
-            on_text_validate: root.update_period()
+            on_text: root.update_period()
         Label:
             text: 'min'
             size_hint_x: None
@@ -454,7 +454,7 @@
             halign: 'right'
             input_filter: 'float'
             text: '48'
-            on_text_validate: root.update_duration()
+            on_text: root.update_duration()
         Label:
             text: 'hrs'
             size_hint_x: None

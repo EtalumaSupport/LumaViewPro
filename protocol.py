@@ -6,11 +6,11 @@ protocol = {
     "frame_width": 2592,
     "frame_height": 1944,
     "objective": '???',
-    "period": 0.01,
-    "duration": 0.1,
+    "period": 0.017,
+    "duration": 0.17,
     "BF": {
         "save_folder": ".\\capture\\",
-        "file_root": "bright_",
+        "file_root": "W_",
         "ill": 0.,
         "gain": 1.,
         "exp": 150.,
@@ -19,7 +19,7 @@ protocol = {
     },
     "Blue": {
         "save_folder": ".\\capture\\",
-        "file_root": "blue_",
+        "file_root": "B_",
         "ill": 0.,
         "gain": 1.,
         "exp": 150.,
@@ -28,7 +28,7 @@ protocol = {
     },
     "Green": {
         "save_folder": ".\\capture\\",
-        "file_root": "green_",
+        "file_root": "G_",
         "ill": 0.,
         "gain": 1.,
         "exp": 150.,
@@ -37,7 +37,7 @@ protocol = {
     },
     "Red": {
         "save_folder": ".\\capture\\",
-        "file_root": "red_",
+        "file_root": "R_",
         "ill": 0.,
         "gain": 1.,
         "exp": 150.,

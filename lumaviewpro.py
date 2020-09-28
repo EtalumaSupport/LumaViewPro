@@ -330,7 +330,7 @@ class LayerControl(BoxLayout):
 class TimeLapseSettings(BoxLayout):
     record = ObjectProperty(None)
     record = False
-    save_folder = StringProperty(None)
+    movie_folder = StringProperty(None)
     n_captures = ObjectProperty(None)
 
     def update_period(self):
@@ -340,14 +340,13 @@ class TimeLapseSettings(BoxLayout):
         protocol['duration'] = float(self.ids['capture_dur'].text)
 
     # load protocol from JSON file
-    def load_protocol(self):
+    def load_protocol(self, file=".\data\protocol.json"):
         global lumaview
 
         # determine file to read
-        protocol_file = ".\data\protocol.json"
 
         # load protocol JSON file
-        with open(protocol_file, "r") as read_file:
+        with open(file, "r") as read_file:
             global protocol
             protocol = json.load(read_file)
             # update GUI values from JSON data
@@ -394,7 +393,7 @@ class TimeLapseSettings(BoxLayout):
             minutes = '%02d' % minutes
             self.ids['record_btn'].text = hrs+':'+minutes+' remaining'
 
-            self.dt = protocol['period']
+            self.dt = protocol['period']*60
             self.frame_event = Clock.schedule_interval(self.capture, self.dt)
         else:
             self.record = False
@@ -424,9 +423,9 @@ class TimeLapseSettings(BoxLayout):
 
 
     def convert_to_avi(self):
-        # Need to add file save location pop-up
-        # save_location = './capture/movie.avi'
-        self.choose_folder()
+
+        # self.choose_folder()
+        save_location = './capture/movie.avi'
 
         img_array = []
         for filename in glob.glob('./capture/*.tiff'):
@@ -435,7 +434,7 @@ class TimeLapseSettings(BoxLayout):
             size = (width,height)
             img_array.append(img)
 
-        out = cv2.VideoWriter(str(self.save_folder)+'/movie.avi',cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+        out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
 
         for i in range(len(img_array)):
             out.write(img_array[i])
@@ -448,7 +447,8 @@ class TimeLapseSettings(BoxLayout):
         self._popup.open()
 
     def load(self, path):
-        self.save_folder = path
+        self.movie_folder = path
+        print(self.movie_folder)
         self.dismiss_popup()
 
     def dismiss_popup(self):

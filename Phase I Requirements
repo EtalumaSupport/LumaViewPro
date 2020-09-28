@@ -1,20 +1,30 @@
 Equivalent to current functions in LumaView.
 
-Done
-  Live Display
-  Configure a Protocol for time lapse, and time lapse video
+Live Display
+Set Illumination, Gain, and Exposure for all channels
+Acquire an image from the live display
+Record all frames from live display in a Record function with start/stop
+Configure the instrument, image format, and storage destination
+Configure a Protocol for time lapse, and time lapse video
+A composite can be acquired and assembled into a multi-channel image with a single click after setup
+Composite can be assembled post acquisition
+Full screen/fit to screen - need clarification here.
+Scale bar - Need clarification
 
-Todo
-  Set Illumination, Gain, and Exposure for all channels
-    needs real integration to camera
-  Acquire an image from the live display
-    add folder / file selection
-  Record all frames from live display in a Record function with start/stop
-->    integrate folder / file
-  Configure the instrument, image format, and storage destination
 
-  A composite can be acquired and assembled into a multi-channel image with a single click after setup
-  Composite can be assembled post acquisition
 
-  Full screen/fit to screen
-  Scale bar
+
+TASKS:
+
+-> Need folder select in CONVERT_TO_AVI
+-> Need folder select in LIVE CAPTURE
+-> one click COMPOSITE
+-> Attach CAMERA FUNCTION to layers
+-> LED functionality overall
+  -> On/Off
+  -> Illumination
+-> SCOPE
+-> OBJECTIVE
+-> FRAME SIZE
+
+-> ZOOM
