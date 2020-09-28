@@ -381,18 +381,18 @@ class TimeLapseSettings(BoxLayout):
     def run_protocol(self):
         global protocol
 
-        # # number of capture events remaining
-        # self.n_captures = int(float(protocol['duration'])*60 / float(protocol['period']))
+        # number of capture events remaining
+        self.n_captures = int(float(protocol['duration'])*60 / float(protocol['period']))
 
         # update protocol
         if self.record == False:
             self.record = True
 
-            # hrs = np.floor(self.n_captures*protocol['period']/60)
-            # minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
-            # hrs = '%02d' % hrs
-            # minutes = '%02d' % minutes
-            # self.ids['record_btn'].text = hrs+':'+minutes+' remaining'
+            hrs = np.floor(self.n_captures*protocol['period']/60)
+            minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
+            hrs = '%02d' % hrs
+            minutes = '%02d' % minutes
+            self.ids['record_btn'].text = hrs+':'+minutes+' remaining'
 
             self.dt = protocol['period']
             self.frame_event = Clock.schedule_interval(self.capture, self.dt)
@@ -406,7 +406,7 @@ class TimeLapseSettings(BoxLayout):
     # One procotol capture event
     def capture(self, dt):
         global lumaview
-        # self.n_captures = self.n_captures-1
+        self.n_captures = self.n_captures-1
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             if protocol[layer]['acquire'] == True:
