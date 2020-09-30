@@ -183,12 +183,40 @@
             text: 'Lumascope Model'
             size_hint_x: None
             width: 140
-        TextInput:
-            id: lumascope_model
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-            halign: 'left'
-            text: 'LS620'
+        Button:
+            id: select_btn
+            text: 'Select Scope'
+            on_release: microscope_select.open(self)
+        DropDown:
+            id: microscope_select
+            # on_select: select_btn.text = args[1]
+            on_select: root.microscope_select(args[1])
+            Button:
+                id: LS460_btn
+                text: 'LS460'
+                size_hint_y: None
+                height: 40
+                on_release: microscope_select.select('LS460')
+            Button:
+                id: LS560_btn
+                text: 'LS560'
+                size_hint_y: None
+                height: 40
+                on_release: microscope_select.select('LS560')
+            Button:
+                id: LS620_btn
+                text: 'LS620'
+                size_hint_y: None
+                height: 40
+                on_release: microscope_select.select('LS620')
+            Button:
+                id: LS720_btn
+                text: 'LS720'
+                size_hint_y: None
+                height: 40
+                on_release: microscope_select.select('LS720')
+
+
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
@@ -231,7 +259,7 @@
             text: '1944'
     Image:
         id: image_of_microscope
-        source: './data/620.png'
+        source: './data/LS620.png'
 
 # LayerControl - Settings for Layers within MainSettings
 # ------------------------------------------

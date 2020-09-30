@@ -270,7 +270,12 @@ class MainSettings(BoxLayout):
             self.pos = lumaview.width-300, 0
 
 class MicroscopeSettings(BoxLayout):
-    pass
+    def microscope_select(self, scope):
+        global protocl
+        self.ids['select_btn'].text = scope
+        self.ids['image_of_microscope'].source = './data/'+scope+'.png'
+        protocol['microscope'] = scope
+
 
 class LayerControl(BoxLayout):
     layer = StringProperty(None)
