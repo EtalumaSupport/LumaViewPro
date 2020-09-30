@@ -119,6 +119,8 @@ class PylonCamera(Camera):
 
     def frame_size(self, w, h):
         global lumaview
+        global protocol
+
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
         camera.StopGrabbing()
 
@@ -126,6 +128,9 @@ class PylonCamera(Camera):
         camera.Height = min(int(h), camera.Height.Max)
 
         camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
+        protocol['frame_width'] = w
+        protocol['frame_height'] = h
 
 # -----------------------------------------------------------------------------
 # Shader code
@@ -374,10 +379,10 @@ class TimeLapseSettings(BoxLayout):
             global protocol
             protocol = json.load(read_file)
             # update GUI values from JSON data
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['lumascope_model'] = protocol['microscope']
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'] = protocol['frame_width']
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'] = protocol['frame_height']
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective'] = protocol['objective']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_btn'].text = protocol['microscope']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective'].text = str(protocol['objective'])
 
             self.ids['capture_period'].text = str(protocol['period'])
             self.ids['capture_dur'].text = str(protocol['duration'])
@@ -391,6 +396,8 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '...' + protocol[layer]['save_folder'][-30:]
                 lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
+
+            lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(protocol['frame_width'], protocol['frame_height'])
 
     # Save protocol to JSON file
     def save_protocol(self):
