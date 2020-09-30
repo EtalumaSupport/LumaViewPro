@@ -86,7 +86,7 @@ class PylonCamera(Camera):
     def update(self, dt):
         try:
             if self.camera.IsGrabbing():
-                grabResult = self.camera.RetrieveResult(5000, pylon.TimeoutHandling_ThrowException)
+                grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
 
                 if grabResult.GrabSucceeded():
                     image = grabResult.GetArray()
