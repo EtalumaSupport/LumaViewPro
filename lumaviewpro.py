@@ -74,6 +74,8 @@ class PylonCamera(Camera):
             # Create an instant camera object with the camera device found first.
             self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
             self.camera.Open()
+            self.camera.Width = self.camera.Width.Max
+            self.camera.Height = self.camera.Height.Max
             # Grabbing Continusely (video) with minimal delay
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
@@ -114,6 +116,16 @@ class PylonCamera(Camera):
         timestr = time.strftime("%Y%m%d_%H%M%S")
         filename = save_folder + file_root + timestr + '.tiff'
         self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
+
+    def frame_size(self, w, h):
+        global lumaview
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        camera.StopGrabbing()
+
+        camera.Width = min(int(w), camera.Width.Max)
+        camera.Height = min(int(h), camera.Height.Max)
+
+        camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
 # -----------------------------------------------------------------------------
 # Shader code
@@ -276,6 +288,13 @@ class MicroscopeSettings(BoxLayout):
         self.ids['image_of_microscope'].source = './data/'+scope+'.png'
         protocol['microscope'] = scope
 
+    def frame_size(self):
+        global lumaview
+
+        w = int(self.ids['frame_width'].text)
+        h = int(self.ids['frame_height'].text)
+
+        lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(w, h)
 
 class LayerControl(BoxLayout):
     layer = StringProperty(None)

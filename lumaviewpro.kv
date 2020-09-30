@@ -246,6 +246,7 @@
             halign: 'left'
             input_filter: 'int'
             text: '2592'
+            on_text_validate: root.frame_size()
         Label:
             text: 'x'
             size_hint_x: None
@@ -257,6 +258,7 @@
             halign: 'left'
             input_filter: 'int'
             text: '1944'
+            on_text_validate: root.frame_size()
     Image:
         id: image_of_microscope
         source: './data/LS620.png'
