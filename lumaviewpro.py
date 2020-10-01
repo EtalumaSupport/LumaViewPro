@@ -288,10 +288,15 @@ class MainSettings(BoxLayout):
 
 class MicroscopeSettings(BoxLayout):
     def microscope_select(self, scope):
-        global protocl
-        self.ids['select_btn'].text = scope
+        global protocol
+        self.ids['select_scope_btn'].text = scope
         self.ids['image_of_microscope'].source = './data/'+scope+'.png'
         protocol['microscope'] = scope
+
+    def objective_select(self, objective):
+        global protocol
+        self.ids['select_obj_btn'].text = 'Objective '+objective
+        protocol['objective'] = objective
 
     def frame_size(self):
         global lumaview
@@ -379,10 +384,10 @@ class TimeLapseSettings(BoxLayout):
             global protocol
             protocol = json.load(read_file)
             # update GUI values from JSON data
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_btn'].text = protocol['microscope']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_btn'].text = protocol['microscope']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective'].text = str(protocol['objective'])
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_btn'].text = str(protocol['objective'])
 
             self.ids['capture_period'].text = str(protocol['period'])
             self.ids['capture_dur'].text = str(protocol['duration'])

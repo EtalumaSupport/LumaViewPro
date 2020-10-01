@@ -184,12 +184,11 @@
             size_hint_x: None
             width: 140
         Button:
-            id: select_btn
+            id: select_scope_btn
             text: 'Select Scope'
             on_release: microscope_select.open(self)
         DropDown:
             id: microscope_select
-            # on_select: select_btn.text = args[1]
             on_select: root.microscope_select(args[1])
             Button:
                 id: LS460_btn
@@ -225,12 +224,41 @@
             text: 'Objective'
             size_hint_x: None
             width: 140
-        TextInput:
-            id: objective
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-            halign: 'left'
-            text: '???'
+        Button:
+            id: select_obj_btn
+            text: 'Select Objective'
+            on_release: objective_select.open(self)
+        DropDown:
+            id: objective_select
+            on_select: root.objective_select(args[1])
+            Button:
+                id: LS460_btn
+                text: 'Objective A'
+                size_hint_y: None
+                height: 40
+                on_release: objective_select.select('A')
+            Button:
+                id: LS560_btn
+                text: 'Objective B'
+                size_hint_y: None
+                height: 40
+                on_release: objective_select.select('B')
+            Button:
+                id: LS620_btn
+                text: 'Objective C'
+                size_hint_y: None
+                height: 40
+                on_release: objective_select.select('C')
+            Button:
+                id: LS720_btn
+                text: 'Objective D'
+                size_hint_y: None
+                height: 40
+                on_release: objective_select.select('D')
+
+
+
+
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None

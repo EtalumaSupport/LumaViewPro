@@ -26,4 +26,5 @@ TASKS:
 -> OBJECTIVE
 
 -> ZOOM
+  -> stencil view ShaderViewer 
 -> COMPILE
