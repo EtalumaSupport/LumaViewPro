@@ -5,6 +5,7 @@ import time
 import os
 import json
 import glob
+import serial
 
 # Kivy
 import kivy
@@ -306,6 +307,16 @@ class MicroscopeSettings(BoxLayout):
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(w, h)
 
+class LED():
+    wavelength  = ObjectProperty(None)
+    map_color  = ObjectProperty(None)
+    max_current = ObjectProperty(None)
+    current = ObjectProperty(None)
+    # def on(self):
+    # def off(self):
+    # def pulse(self, t = 100, i = 20):
+    pass
+
 class LayerControl(BoxLayout):
     layer = StringProperty(None)
     bg_color = ObjectProperty(None)
@@ -360,6 +371,42 @@ class LayerControl(BoxLayout):
 
     def root_text(self):
         protocol[self.layer]['file_root'] = self.ids['root_text'].text
+
+    def led_switch(self):
+        ser = serial.Serial('COM5', 9600)  # open serial port
+        time.sleep(0.5) # wait for initialization
+        print(self.ids['led_switch'].active)
+
+        if self.ids['led_switch'].active == False:
+            if self.layer == 'Red':
+                ser.write(b'r')
+                time.sleep(0.1)
+                ser.write(b'r')
+
+            if self.layer == 'Green':
+                ser.write(b'g')
+                time.sleep(0.1)
+                ser.write(b'g')
+
+            if self.layer == 'Blue':
+                ser.write(b'b')
+                time.sleep(0.1)
+                ser.write(b'b')
+
+            if self.layer == 'BF':
+                ser.write(b'w')
+                time.sleep(0.1)
+                ser.write(b'w')
+
+        else:
+            ser.write(b'o')
+            time.sleep(0.1)
+            ser.write(b'o')
+
+        ser.close()
+
+    def update_acquire(self):
+        protocol[self.layer]['acquire'] = self.ids['acquire'].active
 
 class TimeLapseSettings(BoxLayout):
     record = ObjectProperty(None)

@@ -295,7 +295,6 @@
 # ------------------------------------------
 <LayerControl>:
     padding: 5
-    spacing: 5
     orientation: 'vertical'
     canvas:
         Color:
@@ -450,6 +449,9 @@
                 width: 50
                 text: 'LED'
             Switch:
+                id: led_switch
+                on_touch_down: root.led_switch()
+                active: False
             Label:
                 size_hint_x: None
                 width: 80
@@ -460,6 +462,8 @@
                 id: acquire
                 size_hint_x:None
                 width: 30
+                active: True
+                on_press: root.update_acquire()
     BoxLayout:
         orientation: 'vertical'
 
