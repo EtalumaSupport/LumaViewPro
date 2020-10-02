@@ -33,7 +33,7 @@
         spacing: 5
         size_hint: None, None
         size: 300, 40
-        pos: root.width/2-150, 0
+        pos: root.width/2-200, 0
         ToggleButton:
             id: live_btn
             size_hint_x: None
@@ -47,6 +47,12 @@
             width: 100
             text: 'Capture'
             on_press: root.capture(0)
+        Button:
+            id: composite_btn
+            size_hint_x: None
+            width: 100
+            text: 'Composite'
+            on_press: root.composite(0)
         Button:
             id: fit_btn
             size_hint_x: None

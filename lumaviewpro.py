@@ -62,6 +62,9 @@ class MainDisplay(FloatLayout):
     def capture(self, dt):
         self.ids['viewer_id'].ids['microscope_camera'].capture()
 
+    def composite(self, dt):
+        self.ids['mainsettings_id'].ids['time_lapse_id'].capture(dt)
+
     def fit_image(self):
         self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = True
 
@@ -488,7 +491,10 @@ class TimeLapseSettings(BoxLayout):
     # One procotol capture event
     def capture(self, dt):
         global lumaview
-        self.n_captures = self.n_captures-1
+        try:
+            self.n_captures = self.n_captures-1
+        except:
+            print('n_captures DNE')
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             if protocol[layer]['acquire'] == True:
