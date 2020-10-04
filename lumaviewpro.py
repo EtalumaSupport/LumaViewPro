@@ -78,8 +78,10 @@ class PylonCamera(Camera):
             # Create an instant camera object with the camera device found first.
             self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
             self.camera.Open()
-            self.camera.Width = self.camera.Width.Max
-            self.camera.Height = self.camera.Height.Max
+            self.camera.Width.SetValue(self.camera.Width.Max)
+            self.camera.Height.SetValue(self.camera.Height.Max)
+            self.camera.GainAuto.SetValue('Off')
+            self.camera.ExposureAuto.SetValue('Off')
             # Grabbing Continusely (video) with minimal delay
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
@@ -109,7 +111,7 @@ class PylonCamera(Camera):
             print(e.GetDescription())
 
     def start(self):
-        self.fps = 10
+        self.fps = 14
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
 
     def stop(self):
@@ -123,25 +125,27 @@ class PylonCamera(Camera):
 
     def frame_size(self, w, h):
         global lumaview
-
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+
         camera.StopGrabbing()
+        camera.Width.SetValue(min(int(w), camera.Width.Max))
+        camera.Height.SetValue(min(int(h), camera.Height.Max))
+        camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
-        camera.Width = min(int(w), camera.Width.Max)
-        camera.Height = min(int(h), camera.Height.Max)
+    def gain(self, gain):
+        global lumaview
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
 
+        camera.StopGrabbing()
+        camera.Gain.SetValue(gain)
         camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
     def exposure_t(self, t):
         global lumaview
-
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+
         camera.StopGrabbing()
-
-        camera.ExposureMode.SetValue('Timed')
-        camera.ExposureAuto.SetValue('Off')
         camera.ExposureTime.SetValue(t*1000) # in microseconds
-
         camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
 # -----------------------------------------------------------------------------
@@ -350,11 +354,16 @@ class LayerControl(BoxLayout):
         self.ids['ill_slider'].value = float(self.ids['ill_text'].text)
 
     def gain_slider(self):
-        protocol[self.layer]['gain'] = self.ids['gain_slider'].value
+        gain = self.ids['gain_slider'].value
+        protocol[self.layer]['gain'] = gain
+        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
 
     def gain_text(self):
-        protocol[self.layer]['gain'] = float(self.ids['gain_text'].text)
-        self.ids['gain_slider'].value = float(self.ids['gain_text'].text)
+        gain = float(self.ids['gain_text'].text)
+        protocol[self.layer]['gain'] = gain
+        self.ids['gain_slider'].value = gain
+        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
+
 
     def exp_slider(self):
         exposure = self.ids['exp_slider'].value

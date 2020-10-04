@@ -12,8 +12,8 @@ protocol = {
         "save_folder": ".\\capture\\",
         "file_root": "W_",
         "ill": 0.,
-        "gain": 1.,
-        "exp": 150.,
+        "gain": 0.,
+        "exp": 20.,
         "led": 20.,
         "acquire": True
     },
@@ -21,8 +21,8 @@ protocol = {
         "save_folder": ".\\capture\\",
         "file_root": "B_",
         "ill": 0.,
-        "gain": 1.,
-        "exp": 150.,
+        "gain": 0.,
+        "exp": 20.,
         "led": 20.,
         "acquire": True
     },
@@ -30,8 +30,8 @@ protocol = {
         "save_folder": ".\\capture\\",
         "file_root": "G_",
         "ill": 0.,
-        "gain": 1.,
-        "exp": 150.,
+        "gain": 0.,
+        "exp": 20.,
         "led": 20.,
         "acquire": True
     },
@@ -39,8 +39,8 @@ protocol = {
         "save_folder": ".\\capture\\",
         "file_root": "R_",
         "ill": 0.,
-        "gain": 1.,
-        "exp": 150.,
+        "gain": 0.,
+        "exp": 20.,
         "led": 20.,
         "acquire": True
     },
