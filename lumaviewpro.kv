@@ -386,9 +386,9 @@
                 width: 100
             Slider:
                 id: exp_slider
-                min: 100
-                max: 200
-                value: 150
+                min: 1
+                max: 10
+                value: 5
                 cursor_size: 20,20
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
@@ -456,7 +456,7 @@
                 text: 'LED'
             Switch:
                 id: led_switch
-                on_touch_down: root.led_switch()
+                # on_press: root.led_switch()
                 active: False
             Label:
                 size_hint_x: None

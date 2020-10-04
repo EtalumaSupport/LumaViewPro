@@ -123,7 +123,6 @@ class PylonCamera(Camera):
 
     def frame_size(self, w, h):
         global lumaview
-        global protocol
 
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
         camera.StopGrabbing()
@@ -133,8 +132,17 @@ class PylonCamera(Camera):
 
         camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
-        protocol['frame_width'] = w
-        protocol['frame_height'] = h
+    def exposure_t(self, t):
+        global lumaview
+
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        camera.StopGrabbing()
+
+        camera.ExposureMode.SetValue('Timed')
+        camera.ExposureAuto.SetValue('Off')
+        camera.ExposureTime.SetValue(t*1000) # in microseconds
+
+        camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
 # -----------------------------------------------------------------------------
 # Shader code
@@ -304,9 +312,13 @@ class MicroscopeSettings(BoxLayout):
 
     def frame_size(self):
         global lumaview
+        global protocol
 
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
+
+        protocol['frame_width'] = w
+        protocol['frame_height'] = h
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(w, h)
 
@@ -345,11 +357,15 @@ class LayerControl(BoxLayout):
         self.ids['gain_slider'].value = float(self.ids['gain_text'].text)
 
     def exp_slider(self):
-        protocol[self.layer]['exp'] = self.ids['exp_slider'].value
+        exposure = self.ids['exp_slider'].value
+        protocol[self.layer]['exp'] = exposure
+        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
     def exp_text(self):
-        protocol[self.layer]['exp'] = int(self.ids['exp_text'].text)
-        self.ids['exp_slider'].value = int(self.ids['exp_text'].text)
+        exposure = int(self.ids['exp_text'].text)
+        protocol[self.layer]['exp'] = exposure
+        self.ids['exp_slider'].value = exposure
+        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
     def led_slider(self):
         protocol[self.layer]['led'] = self.ids['led_slider'].value
