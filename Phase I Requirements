@@ -19,11 +19,12 @@ TASKS:
 -> Need folder select in CONVERT_TO_AVI
 -> Need folder select in LIVE CAPTURE
 -> one click COMPOSITE
--> Attach CAMERA FUNCTION to layers
--> LED functionality overall
-  -> On/Off
+-> LED function
   -> Illumination
--> OBJECTIVE - just for scale?
+  -> On/Off
+-> ANNOTATIONS
+  -> Scale
+  -> frame or time
 
 -> ZOOM
   -> stencil view ShaderViewer
