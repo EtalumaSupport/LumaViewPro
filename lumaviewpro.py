@@ -60,38 +60,39 @@ class MainDisplay(FloatLayout):
             self.ids['viewer_id'].ids['microscope_camera'].start()
 
     def capture(self, dt):
-        self.ids['mainsettings_id'].ids['time_lapse_id'].capture()
+        self.ids['viewer_id'].ids['microscope_camera'].capture()
 
     def composite(self, dt):
         global lumaview
-        global protocol
-
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
 
-        # layers = ['BF', 'Blue', 'Green', 'Red']
-        layers = ['Blue', 'Green', 'Red']
+        img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
+
+        layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             # multicolor image stack
-            img = np.zeros((protocol['frame_width'], protocol['frame_height'], 3))
 
             if protocol[layer]['acquire'] == True:
-                # turn on the LED
-                # wait the delay
                 # set the gain and expusure
                 gain = protocol[layer]['gain']
                 camera.gain(gain)
                 exposure = protocol[layer]['exp']
                 camera.exposure_t(exposure)
+                camera.update(0)
+
+                # turn on the LED
+
+                # wait for LED time
 
                 # buffer the images
                 if layer == 'Blue':
-                    img[:,:,2] = camera.texture
+                    img[:,:,0] = camera.array
                 elif layer == 'Green':
-                    img[:,:,1] = camera.texture
+                    img[:,:,1] = camera.array
                 elif layer == 'Red':
-                    img[:,:,0] = camera.texture
-        cv2.imwrite('composite.png', img)
+                    img[:,:,2] = camera.array
 
+        cv2.imwrite('./capture/composite.png', img)
 
     def fit_image(self):
         self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = True
@@ -126,6 +127,7 @@ class PylonCamera(Camera):
 
                 if grabResult.GrabSucceeded():
                     image = grabResult.GetArray()
+                    self.array = image
                     image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
                     image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
                     self.texture = image_texture
@@ -554,13 +556,15 @@ class TimeLapseSettings(BoxLayout):
             if protocol[layer]['acquire'] == True:
                 global lumaview
                 camera = lumaview.ids['viewer_id'].ids['microscope_camera']
-                # turn on the LED
 
                 # set the gain and exposure
                 gain = protocol[layer]['gain']
                 camera.gain(gain)
                 exposure = protocol[layer]['exp']
                 camera.exposure_t(exposure)
+                camera.update(0)
+
+                # turn on the LED
 
                 # Wait the delay
                 time.sleep(float(protocol[layer]['led'])/1000)
