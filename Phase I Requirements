@@ -16,18 +16,19 @@ Scale bar - annotation on image
 
 TASKS:
 
--> Need to update ill / gain / exposure when selecting different channel
+
 -> Need folder select in CONVERT_TO_AVI
 -> Need folder select in LIVE CAPTURE
--> one click COMPOSITE
+-> Need folder select in COMPOSITE
 -> ZOOM
   -> stencil view ShaderViewer
+  -> Scale
+-> ANNOTATIONS
+  -> frame or time
+-> COMPILE
+
+** WAITING ON INFO ABOUT LED FUNCTION **
 -> LED function
   -> Illumination
   -> On/Off
--> ANNOTATIONS
-  -> Scale
-  -> frame or time
-
-
--> COMPILE
+  -> Need to update ill / gain / exposure when enabling LED
