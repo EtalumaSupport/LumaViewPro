@@ -45,61 +45,6 @@ global protocol
 with open('./data/protocol.json', "r") as read_file:
     protocol = json.load(read_file)
 
-# -------------------------------------------------------------------------
-# MAIN DISPLAY of LumaViewPro App
-# -------------------------------------------------------------------------
-class MainDisplay(FloatLayout):
-    def cam_toggle(self):
-        if self.ids['viewer_id'].ids['microscope_camera'].play == True:
-            self.ids['viewer_id'].ids['microscope_camera'].play = False
-            self.ids['live_btn'].text = 'Play Live'
-            self.ids['viewer_id'].ids['microscope_camera'].stop()
-        else:
-            self.ids['viewer_id'].ids['microscope_camera'].play = True
-            self.ids['live_btn'].text = 'Freeze'
-            self.ids['viewer_id'].ids['microscope_camera'].start()
-
-    def capture(self, dt):
-        self.ids['viewer_id'].ids['microscope_camera'].capture()
-
-    def composite(self, dt):
-        global lumaview
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
-
-        img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
-
-        layers = ['BF', 'Blue', 'Green', 'Red']
-        for layer in layers:
-            # multicolor image stack
-
-            if protocol[layer]['acquire'] == True:
-                # set the gain and expusure
-                gain = protocol[layer]['gain']
-                camera.gain(gain)
-                exposure = protocol[layer]['exp']
-                camera.exposure_t(exposure)
-                camera.update(0)
-
-                # turn on the LED
-
-                # wait for LED time
-
-                # buffer the images
-                if layer == 'Blue':
-                    img[:,:,0] = camera.array
-                elif layer == 'Green':
-                    img[:,:,1] = camera.array
-                elif layer == 'Red':
-                    img[:,:,2] = camera.array
-
-        cv2.imwrite('./capture/composite.png', img)
-
-    def fit_image(self):
-        self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = True
-
-    def one2one_image(self):
-        self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = False
-
 class PylonCamera(Camera):
     def __init__(self, **kwargs):
         super(PylonCamera,self).__init__(**kwargs)
@@ -177,6 +122,75 @@ class PylonCamera(Camera):
         camera.StopGrabbing()
         camera.ExposureTime.SetValue(t*1000) # in microseconds
         camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
+class LED:
+    # def __init__(self, layer):
+    #     self.layer = layer
+
+    def set_layer(self, layer):
+        self.layer = layer
+
+    def on(self, current):
+        print(self.layer, 'turned ON at i =', current, 'mA')
+
+    def off(self):
+        print(self.layer, 'turned OFF')
+
+
+# -------------------------------------------------------------------------
+# MAIN DISPLAY of LumaViewPro App
+# -------------------------------------------------------------------------
+class MainDisplay(FloatLayout):
+    def cam_toggle(self):
+        if self.ids['viewer_id'].ids['microscope_camera'].play == True:
+            self.ids['viewer_id'].ids['microscope_camera'].play = False
+            self.ids['live_btn'].text = 'Play Live'
+            self.ids['viewer_id'].ids['microscope_camera'].stop()
+        else:
+            self.ids['viewer_id'].ids['microscope_camera'].play = True
+            self.ids['live_btn'].text = 'Freeze'
+            self.ids['viewer_id'].ids['microscope_camera'].start()
+
+    def capture(self, dt):
+        self.ids['viewer_id'].ids['microscope_camera'].capture()
+
+    def composite(self, dt):
+        global lumaview
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
+
+        img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
+
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            # multicolor image stack
+
+            if protocol[layer]['acquire'] == True:
+                # set the gain and expusure
+                gain = protocol[layer]['gain']
+                camera.gain(gain)
+                exposure = protocol[layer]['exp']
+                camera.exposure_t(exposure)
+                camera.update(0)
+
+                # turn on the LED
+
+                # wait for LED time
+
+                # buffer the images
+                if layer == 'Blue':
+                    img[:,:,0] = camera.array
+                elif layer == 'Green':
+                    img[:,:,1] = camera.array
+                elif layer == 'Red':
+                    img[:,:,2] = camera.array
+
+        cv2.imwrite('./capture/composite.png', img)
+
+    def fit_image(self):
+        self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = True
+
+    def one2one_image(self):
+        self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = False
 
 # -----------------------------------------------------------------------------
 # Shader code
@@ -356,16 +370,6 @@ class MicroscopeSettings(BoxLayout):
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(w, h)
 
-class LED():
-    wavelength  = ObjectProperty(None)
-    map_color  = ObjectProperty(None)
-    max_current = ObjectProperty(None)
-    current = ObjectProperty(None)
-    # def on(self):
-    # def off(self):
-    # def pulse(self, t = 100, i = 20):
-    pass
-
 class LayerControl(BoxLayout):
     layer = StringProperty(None)
     bg_color = ObjectProperty(None)
@@ -375,6 +379,7 @@ class LayerControl(BoxLayout):
         super(LayerControl, self).__init__(**kwargs)
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
+        self.led = LED()
 
     def ill_slider(self):
         protocol[self.layer]['ill'] = self.ids['ill_slider'].value
@@ -393,7 +398,6 @@ class LayerControl(BoxLayout):
         protocol[self.layer]['gain'] = gain
         self.ids['gain_slider'].value = gain
         lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
-
 
     def exp_slider(self):
         exposure = self.ids['exp_slider'].value
@@ -430,38 +434,15 @@ class LayerControl(BoxLayout):
     def root_text(self):
         protocol[self.layer]['file_root'] = self.ids['root_text'].text
 
-    def led_switch(self):
-        ser = serial.Serial('COM5', 9600)  # open serial port
-        time.sleep(0.5) # wait for initialization
-        print(self.ids['led_switch'].active)
-
-        if self.ids['led_switch'].active == False:
-            if self.layer == 'Red':
-                ser.write(b'r')
-                time.sleep(0.1)
-                ser.write(b'r')
-
-            if self.layer == 'Green':
-                ser.write(b'g')
-                time.sleep(0.1)
-                ser.write(b'g')
-
-            if self.layer == 'Blue':
-                ser.write(b'b')
-                time.sleep(0.1)
-                ser.write(b'b')
-
-            if self.layer == 'BF':
-                ser.write(b'w')
-                time.sleep(0.1)
-                ser.write(b'w')
-
+    def led_button(self):
+        self.led.set_layer(self.layer)
+        if self.ids['led_btn'].state == 'normal':
+            self.led.off() # turn LED off
+            self.ids['led_btn'].text = 'is off'
         else:
-            ser.write(b'o')
-            time.sleep(0.1)
-            ser.write(b'o')
+            self.led.on(50) # turn LED on
+            self.ids['led_btn'].text = 'is on'
 
-        ser.close()
 
     def update_acquire(self):
         protocol[self.layer]['acquire'] = self.ids['acquire'].active

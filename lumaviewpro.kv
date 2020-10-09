@@ -452,12 +452,13 @@
             orientation: 'horizontal'
             Label:
                 size_hint_x: None
-                width: 50
+                width: 80
                 text: 'LED'
-            Switch:
-                id: led_switch
-                # on_press: root.led_switch()
-                active: False
+            ToggleButton:
+                id: led_btn
+                text: 'is off'
+                on_press: root.led_button()
+                state: 'normal'
             Label:
                 size_hint_x: None
                 width: 80
