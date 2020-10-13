@@ -14,7 +14,7 @@ protocol = {
         "ill": 0.,
         "gain": 0.,
         "exp": 10.,
-        "led": 20.,
+        "false_color": False,
         "acquire": True
     },
     "Blue": {
@@ -23,7 +23,7 @@ protocol = {
         "ill": 0.,
         "gain": 0.,
         "exp": 20.,
-        "led": 20.,
+        "false_color": True,
         "acquire": True
     },
     "Green": {
@@ -32,7 +32,7 @@ protocol = {
         "ill": 0.,
         "gain": 0.,
         "exp": 30.,
-        "led": 20.,
+        "false_color": True,
         "acquire": True
     },
     "Red": {
@@ -41,7 +41,7 @@ protocol = {
         "ill": 0.,
         "gain": 0.,
         "exp": 40.,
-        "led": 20.,
+        "false_color": True,
         "acquire": True
     },
     "Composite": {

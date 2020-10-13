@@ -26,9 +26,11 @@ TASKS:
 -> ANNOTATIONS
   -> frame or time
 -> COMPILE
+-> RECORD live Button
+-> change settings on change layer
 
 ** WAITING ON INFO ABOUT LED FUNCTION **
 -> LED function
   -> Illumination
   -> On/Off
-  -> Need to update ill / gain / exposure when enabling LED
+  -> Need to update ill / gain / exposure when changing channels

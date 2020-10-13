@@ -46,6 +46,9 @@ with open('./data/protocol.json', "r") as read_file:
     protocol = json.load(read_file)
 
 class PylonCamera(Camera):
+    record = ObjectProperty(None)
+    record = False
+
     def __init__(self, **kwargs):
         super(PylonCamera,self).__init__(**kwargs)
         try:
@@ -65,6 +68,14 @@ class PylonCamera(Camera):
 
         self.start()
 
+    def start(self):
+        self.fps = 14
+        self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
+
+    def stop(self):
+        if self.frame_event:
+            Clock.unschedule(self.frame_event)
+
     def update(self, dt):
         try:
             if self.camera.IsGrabbing():
@@ -79,19 +90,15 @@ class PylonCamera(Camera):
 
                 self.lastGrab = pylon.PylonImage()
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
+
+                if self.record == True:
+                    self.capture()
+
                 grabResult.Release()
 
         except genicam.GenericException as e:
             print("An exception occurred.")
             print(e.GetDescription())
-
-    def start(self):
-        self.fps = 14
-        self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
-
-    def stop(self):
-        if self.frame_event:
-            Clock.unschedule(self.frame_event)
 
     def capture(self, save_folder = 'capture/', file_root = 'live_'):
         timestr = time.strftime("%Y%m%d_%H%M%S")
@@ -105,6 +112,10 @@ class PylonCamera(Camera):
         camera.StopGrabbing()
         camera.Width.SetValue(min(int(w), camera.Width.Max))
         camera.Height.SetValue(min(int(h), camera.Height.Max))
+        camera.OffsetX.SetValue(0)
+        camera.OffsetY.SetValue(0)
+        # camera.CenterX.SetValue(True)
+        # camera.CenterY.SetValue(True)
         camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
     def gain(self, gain):
@@ -153,6 +164,15 @@ class MainDisplay(FloatLayout):
 
     def capture(self, dt):
         self.ids['viewer_id'].ids['microscope_camera'].capture()
+
+    def record(self):
+        print(self.ids['viewer_id'].ids['microscope_camera'].record)
+        if self.ids['viewer_id'].ids['microscope_camera'].record == True:
+            self.ids['viewer_id'].ids['microscope_camera'].record = False
+            self.ids['record_btn'].text = 'Record'
+        else:
+            self.ids['viewer_id'].ids['microscope_camera'].record = True
+            self.ids['record_btn'].text = 'Stop Recording'
 
     def composite(self, dt):
         global lumaview
@@ -346,6 +366,12 @@ class MainSettings(BoxLayout):
             self.hide_settings = False
             self.pos = lumaview.width-300, 0
 
+    def accordion_select(self):
+        print('ACCORDION SELECT')
+
+    def item_select(self, item):
+        print('ITEM SELECT', item)
+
 class MicroscopeSettings(BoxLayout):
     def microscope_select(self, scope):
         global protocol
@@ -410,13 +436,13 @@ class LayerControl(BoxLayout):
         self.ids['exp_slider'].value = exposure
         lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
-    def led_slider(self):
-        protocol[self.layer]['led'] = self.ids['led_slider'].value
-
-    def led_text(self):
-        protocol[self.layer]['led'] = int(self.ids['led_text'].text)
-        self.ids['led_slider'].value = int(self.ids['led_text'].text)
-
+    # def led_slider(self):
+    #     protocol[self.layer]['led'] = self.ids['led_slider'].value
+    #
+    # def led_text(self):
+    #     protocol[self.layer]['led'] = int(self.ids['led_text'].text)
+    #     self.ids['led_slider'].value = int(self.ids['led_text'].text)
+    #
     def choose_folder(self):
         content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
         self._popup = Popup(title="Select Save Folder", content=content,
@@ -434,15 +460,18 @@ class LayerControl(BoxLayout):
     def root_text(self):
         protocol[self.layer]['file_root'] = self.ids['root_text'].text
 
-    def led_button(self):
-        self.led.set_layer(self.layer)
-        if self.ids['led_btn'].state == 'normal':
-            self.led.off() # turn LED off
-            self.ids['led_btn'].text = 'is off'
-        else:
-            self.led.on(50) # turn LED on
-            self.ids['led_btn'].text = 'is on'
+    # def led_button(self):
+    #     self.led.set_layer(self.layer)
+    #     if self.ids['led_btn'].state == 'normal':
+    #         self.led.off() # turn LED off
+    #         self.ids['led_btn'].text = 'is off'
+    #     else:
+    #         self.led.on(50) # turn LED on
+    #         self.ids['led_btn'].text = 'is on'
 
+    def false_color(self):
+        protocol[self.layer]['false_color'] = self.ids['acquire'].active
+        # apply false color using Shader Editor
 
     def update_acquire(self):
         protocol[self.layer]['acquire'] = self.ids['acquire'].active
@@ -483,9 +512,10 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['led_slider'].value = protocol[layer]['led']
+                # lumaview.ids['mainsettings_id'].ids[layer].ids['led_slider'].value = protocol[layer]['led']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '...' + protocol[layer]['save_folder'][-30:]
                 lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
 
             lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(protocol['frame_width'], protocol['frame_height'])
@@ -513,13 +543,13 @@ class TimeLapseSettings(BoxLayout):
             minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
             hrs = '%02d' % hrs
             minutes = '%02d' % minutes
-            self.ids['record_btn'].text = hrs+':'+minutes+' remaining'
+            self.ids['protocol_btn'].text = hrs+':'+minutes+' remaining'
 
             self.dt = protocol['period']*60
             self.frame_event = Clock.schedule_interval(self.capture, self.dt)
         else:
             self.record = False
-            self.ids['record_btn'].text = 'Record'
+            self.ids['protocol_btn'].text = 'Record'
 
             if self.frame_event:
                 Clock.unschedule(self.frame_event)
@@ -548,7 +578,7 @@ class TimeLapseSettings(BoxLayout):
                 # turn on the LED
 
                 # Wait the delay
-                time.sleep(float(protocol[layer]['led'])/1000)
+                # time.sleep(float(protocol[layer]['led'])/1000)
 
                 # capture the image
                 save_folder = protocol[layer]['save_folder']

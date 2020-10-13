@@ -13,11 +13,11 @@
         size: root.width, root.height
         pos: 0, 0
 
-    ShaderEditor:
-        viewer: viewer_id
-        size_hint: None, None
-        size: 300, root.height
-        pos: -285, 0
+    # ShaderEditor:
+    #     viewer: viewer_id
+    #     size_hint: None, None
+    #     size: 300, root.height
+    #     pos: -285, 0
 
     MainSettings:
         id: mainsettings_id
@@ -28,43 +28,41 @@
     # Camera Controls
     # ------------------------------
     BoxLayout:
-        orientation: 'horizontal'
+        orientation: 'vertical'
         padding: 5
         spacing: 5
         size_hint: None, None
-        size: 300, 40
-        pos: root.width/2-200, 0
+        size: 150, 200
+        # pos: root.width/2-200, 0
+        pos: 0, 0
         ToggleButton:
             id: live_btn
-            size_hint_x: None
-            width: 100
             text: 'Freeze'
             state: 'normal'
             on_press: root.cam_toggle()
         Button:
             id: capture_btn
-            size_hint_x: None
-            width: 100
-            text: 'Capture'
+            text: 'Capture Image'
             on_press: root.capture(0)
         Button:
             id: composite_btn
-            size_hint_x: None
-            width: 100
             text: 'Composite'
             on_press: root.composite(0)
-        Button:
-            id: fit_btn
-            size_hint_x: None
-            width: 50
-            text: 'Fit'
-            on_press: root.fit_image()
-        Button:
-            id: one2one_btn
-            size_hint_x: None
-            width: 50
-            text: '1:1'
-            on_press: root.one2one_image()
+        ToggleButton:
+            id: record_btn
+            text: 'Record Video'
+            on_press: root.record()
+        BoxLayout:
+            orientation: 'horizontal'
+            spacing: 5
+            Button:
+                id: fit_btn
+                text: 'Fit'
+                on_press: root.fit_image()
+            Button:
+                id: one2one_btn
+                text: '1:1'
+                on_press: root.one2one_image()
 
 # ShaderViewer - Shaded Live Camera view
 # ------------------------------------------
@@ -124,16 +122,19 @@
 
     Accordion:
         orientation: 'vertical'
+        id: accordion_id
+        on_touch_down: root.accordion_select()
         # MICROSCOPE SETTINGS
         AccordionItem:
             title: 'Microscope Settings'
+            id: microscope_settings_accordion
             MicroscopeSettings:
                 id: microscope_settings_id
 
         # BRIGHTFIELD SETTINGS
         AccordionItem:
             title: 'Brightfield Control'
-            valign: 'top'
+            on_touch_down: root.item_select('BF')
             LayerControl:
                 id: BF
                 layer: 'BF'
@@ -142,6 +143,7 @@
         # BLUE SETTINGS
         AccordionItem:
             title: 'Blue Layer Control'
+            on_touch_down: root.item_select('Blue')
             LayerControl:
                 id: Blue
                 layer: 'Blue'
@@ -150,6 +152,7 @@
         # GREEN SETTINGS
         AccordionItem:
             title: 'Green Layer Control'
+            on_touch_down: root.item_select('Green')
             LayerControl:
                 id: Green
                 layer: 'Green'
@@ -165,9 +168,10 @@
 
         # TIME LAPSE SETTINGS
         AccordionItem:
-            title: 'Time Lapse Settings'
+            title: 'Time Lapse Protocol Settings'
             TimeLapseSettings:
                 id: time_lapse_id
+
 
 # MicroscopeSettings - Settings for  Microscope within MainSettings
 # ------------------------------------------
@@ -406,36 +410,36 @@
                 input_filter: 'float'
                 text: str(int(exp_slider.value))
                 on_text: root.exp_text()
-        # LED Warmup Settongs
-        BoxLayout:
-            orientation: 'horizontal'
-            Label:
-                text: 'LED Warmup'
-                halign: 'center'
-                size_hint_x: None
-                width: 100
-            Slider:
-                id: led_slider
-                min: 0
-                max: 50
-                value: 50
-                cursor_size: 20,20
-                cursor_image: './data/slider_cursor.png'
-                value_track: True
-                value_track_color: root.bg_color
-                on_value: root.led_slider()
-            TextInput:
-                id: led_text
-                size_hint_x: None
-                width: 50
-                multiline: False
-                font_size: 14
-                padding: [10, (self.height-self.line_height)/2]
-                halign: 'left'
-                # background_color: 0.6, 0.6, 0.6, 1
-                input_filter: 'float'
-                text: str(int(led_slider.value))
-                on_text: root.led_text()
+        # # LED Warmup Settongs
+        # BoxLayout:
+        #     orientation: 'horizontal'
+        #     Label:
+        #         text: 'LED Warmup'
+        #         halign: 'center'
+        #         size_hint_x: None
+        #         width: 100
+        #     Slider:
+        #         id: led_slider
+        #         min: 0
+        #         max: 50
+        #         value: 50
+        #         cursor_size: 20,20
+        #         cursor_image: './data/slider_cursor.png'
+        #         value_track: True
+        #         value_track_color: root.bg_color
+        #         on_value: root.led_slider()
+        #     TextInput:
+        #         id: led_text
+        #         size_hint_x: None
+        #         width: 50
+        #         multiline: False
+        #         font_size: 14
+        #         padding: [10, (self.height-self.line_height)/2]
+        #         halign: 'left'
+        #         # background_color: 0.6, 0.6, 0.6, 1
+        #         input_filter: 'float'
+        #         text: str(int(led_slider.value))
+        #         on_text: root.led_text()
         # File Save Settings
         Button:
             id: folder_btn
@@ -450,24 +454,36 @@
         # LED Include settings
         BoxLayout:
             orientation: 'horizontal'
+            # Label:
+            #     size_hint_x: None
+            #     width: 80
+            #     text: 'LED'
+            # ToggleButton:
+            #     id: led_btn
+            #     text: 'is off'
+            #     on_press: root.led_button()
+            #     state: 'normal'
             Label:
+                # size_hint_x: None
+                # width: 80
+                text: 'False Color'
+                halign: 'center'
+                valign: 'middle'
+            CheckBox:
+                id: false_color
                 size_hint_x: None
-                width: 80
-                text: 'LED'
-            ToggleButton:
-                id: led_btn
-                text: 'is off'
-                on_press: root.led_button()
-                state: 'normal'
+                width: 30
+                active: True
+                on_press: root.false_color()
             Label:
-                size_hint_x: None
-                width: 80
+                # size_hint_x: None
+                # width: 80
                 text: 'Acquire'
                 halign: 'center'
                 valign: 'middle'
             CheckBox:
                 id: acquire
-                size_hint_x:None
+                size_hint_x: None
                 width: 30
                 active: True
                 on_press: root.update_acquire()
@@ -539,17 +555,17 @@
         height: 40
         on_press: root.save_protocol()
     ToggleButton:
-        id: record_btn
-        text: 'Record'
+        id: protocol_btn
+        text: 'Run Protocol'
         size_hint_y: None
         height: 40
         on_press: root.run_protocol()
-    Button:
-        id: movie_btn
-        size_hint_y: None
-        height: 40
-        text: 'Convert to AVI'
-        on_release: root.convert_to_avi()
+    # Button:
+    #     id: movie_btn
+    #     size_hint_y: None
+    #     height: 40
+    #     text: 'Convert to AVI'
+    #     on_release: root.convert_to_avi()
     BoxLayout:
 
 <LoadDialog>:
