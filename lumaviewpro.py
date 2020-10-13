@@ -109,13 +109,16 @@ class PylonCamera(Camera):
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
 
+        width = int(min(int(w), camera.Width.Max)/2)*2
+        height = int(min(int(h), camera.Height.Max)/2)*2
+        offset_x = int((camera.Width.Max-width)/2)
+        offset_y = int((camera.Height.Max-height)/2)
+
         camera.StopGrabbing()
-        camera.Width.SetValue(min(int(w), camera.Width.Max))
-        camera.Height.SetValue(min(int(h), camera.Height.Max))
-        camera.OffsetX.SetValue(0)
-        camera.OffsetY.SetValue(0)
-        # camera.CenterX.SetValue(True)
-        # camera.CenterY.SetValue(True)
+        camera.Width.SetValue(width)
+        camera.Height.SetValue(height)
+        camera.OffsetX.SetValue(offset_x)
+        camera.OffsetY.SetValue(offset_y)
         camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
     def gain(self, gain):
@@ -521,11 +524,9 @@ class TimeLapseSettings(BoxLayout):
             lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(protocol['frame_width'], protocol['frame_height'])
 
     # Save protocol to JSON file
-    def save_protocol(self):
+    def save_protocol(self, file=".\data\protocol.json"):
         global protocol
-        # determine file to write
-        protocol_file = ".\data\protocol_save.json"
-        with open(protocol_file, "w") as write_file:
+        with open(file, "w") as write_file:
             json.dump(protocol, write_file)
 
     # Run the timed process of capture event
@@ -631,6 +632,11 @@ class LumaViewProApp(App):
     def build(self):
         global lumaview
         lumaview = MainDisplay()
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol(".\data\default.json")
         return lumaview
+
+    def on_stop(self):
+        global lumaview
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol(".\data\default.json")
 
 LumaViewProApp().run()
