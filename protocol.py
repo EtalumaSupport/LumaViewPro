@@ -13,7 +13,7 @@ protocol = {
         "file_root": "W_",
         "ill": 0.,
         "gain": 0.,
-        "exp": 10.,
+        "exp": 20.,
         "false_color": False,
         "acquire": True
     },
@@ -31,7 +31,7 @@ protocol = {
         "file_root": "G_",
         "ill": 0.,
         "gain": 0.,
-        "exp": 30.,
+        "exp": 40.,
         "false_color": True,
         "acquire": True
     },
@@ -40,7 +40,7 @@ protocol = {
         "file_root": "R_",
         "ill": 0.,
         "gain": 0.,
-        "exp": 40.,
+        "exp": 60.,
         "false_color": True,
         "acquire": True
     },

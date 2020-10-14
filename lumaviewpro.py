@@ -101,7 +101,9 @@ class PylonCamera(Camera):
             print(e.GetDescription())
 
     def capture(self, save_folder = 'capture/', file_root = 'live_'):
+
         timestr = time.strftime("%Y%m%d_%H%M%S")
+
         filename = save_folder + file_root + timestr + '.tiff'
         self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
 
@@ -111,8 +113,8 @@ class PylonCamera(Camera):
 
         width = int(min(int(w), camera.Width.Max)/2)*2
         height = int(min(int(h), camera.Height.Max)/2)*2
-        offset_x = int((camera.Width.Max-width)/2)
-        offset_y = int((camera.Height.Max-height)/2)
+        offset_x = int((camera.Width.Max-width)/4)*2
+        offset_y = int((camera.Height.Max-height)/4)*2
 
         camera.StopGrabbing()
         camera.Width.SetValue(width)
@@ -512,7 +514,6 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
-                # lumaview.ids['mainsettings_id'].ids[layer].ids['led_slider'].value = protocol[layer]['led']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '...' + protocol[layer]['save_folder'][-30:]
                 lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
