@@ -6,6 +6,7 @@ import os
 import json
 import glob
 import serial
+import random
 
 # Kivy
 import kivy
@@ -92,7 +93,7 @@ class PylonCamera(Camera):
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
 
                 if self.record == True:
-                    self.capture()
+                    self.capture(append = 'ms')
 
                 grabResult.Release()
 
@@ -100,11 +101,16 @@ class PylonCamera(Camera):
             print("An exception occurred.")
             print(e.GetDescription())
 
-    def capture(self, save_folder = 'capture/', file_root = 'live_'):
+    def capture(self, save_folder = 'capture/', file_root = 'live_', append = 'time'):
 
-        timestr = time.strftime("%Y%m%d_%H%M%S")
+        if append == 'time':
+            append = time.strftime("%Y%m%d_%H%M%S")
+        elif append == 'ms':
+            append = str(int(round(time.time() * 1000)))
+        else:
+            append =''
 
-        filename = save_folder + file_root + timestr + '.tiff'
+        filename = save_folder + file_root + append + '.tiff'
         self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
 
     def frame_size(self, w, h):
@@ -390,8 +396,13 @@ class MicroscopeSettings(BoxLayout):
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
 
-        protocol['frame_width'] = w
-        protocol['frame_height'] = h
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+
+        width = int(min(int(w), camera.Width.Max)/2)*2
+        height = int(min(int(h), camera.Height.Max)/2)*2
+
+        protocol['frame_width'] = width
+        protocol['frame_height'] = height
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(w, h)
 
