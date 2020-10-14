@@ -5,7 +5,7 @@ protocol = {
     "microscope": 'LS620',
     "frame_width": 2592,
     "frame_height": 1944,
-    "objective": '???',
+    "objective": 'unknown',
     "period": 0.017,
     "duration": 0.17,
     "BF": {
@@ -51,5 +51,5 @@ protocol = {
 
 import json
 
-with open("./data/protocol.json", "w") as write_file:
+with open("./data/default.json", "w") as write_file:
     json.dump(protocol, write_file)

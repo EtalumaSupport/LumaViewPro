@@ -369,12 +369,6 @@ class MainSettings(BoxLayout):
             self.hide_settings = False
             self.pos = lumaview.width-300, 0
 
-    def accordion_select(self):
-        print('ACCORDION SELECT')
-
-    def item_select(self, item):
-        print('ITEM SELECT', item)
-
 class MicroscopeSettings(BoxLayout):
     def microscope_select(self, scope):
         global protocol
@@ -411,41 +405,40 @@ class LayerControl(BoxLayout):
         self.led = LED()
 
     def ill_slider(self):
+        self.apply_settings()
         protocol[self.layer]['ill'] = self.ids['ill_slider'].value
 
     def ill_text(self):
+        self.apply_settings()
         protocol[self.layer]['ill'] = float(self.ids['ill_text'].text)
         self.ids['ill_slider'].value = float(self.ids['ill_text'].text)
 
     def gain_slider(self):
+        self.apply_settings()
         gain = self.ids['gain_slider'].value
         protocol[self.layer]['gain'] = gain
         lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
 
     def gain_text(self):
+        self.apply_settings()
         gain = float(self.ids['gain_text'].text)
         protocol[self.layer]['gain'] = gain
         self.ids['gain_slider'].value = gain
         lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
 
     def exp_slider(self):
+        self.apply_settings()
         exposure = self.ids['exp_slider'].value
         protocol[self.layer]['exp'] = exposure
         lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
     def exp_text(self):
+        self.apply_settings()
         exposure = int(self.ids['exp_text'].text)
         protocol[self.layer]['exp'] = exposure
         self.ids['exp_slider'].value = exposure
         lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
-    # def led_slider(self):
-    #     protocol[self.layer]['led'] = self.ids['led_slider'].value
-    #
-    # def led_text(self):
-    #     protocol[self.layer]['led'] = int(self.ids['led_text'].text)
-    #     self.ids['led_slider'].value = int(self.ids['led_text'].text)
-    #
     def choose_folder(self):
         content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
         self._popup = Popup(title="Select Save Folder", content=content,
@@ -463,14 +456,18 @@ class LayerControl(BoxLayout):
     def root_text(self):
         protocol[self.layer]['file_root'] = self.ids['root_text'].text
 
-    # def led_button(self):
-    #     self.led.set_layer(self.layer)
-    #     if self.ids['led_btn'].state == 'normal':
-    #         self.led.off() # turn LED off
-    #         self.ids['led_btn'].text = 'is off'
-    #     else:
-    #         self.led.on(50) # turn LED on
-    #         self.ids['led_btn'].text = 'is on'
+    def apply_settings(self):
+        # update illumination to currently selected settings
+        illumination = protocol[self.layer]['ill']
+        # set LED illumination level here
+        # update gain to currently selected settings
+        gain = protocol[self.layer]['gain']
+        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
+        # update exposure to currently selected settings
+        exposure = protocol[self.layer]['exp']
+        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
+        # update false color to currently selected settings
+        self.false_color()
 
     def false_color(self):
         protocol[self.layer]['false_color'] = self.ids['acquire'].active

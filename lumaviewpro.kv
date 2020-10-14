@@ -123,18 +123,15 @@
     Accordion:
         orientation: 'vertical'
         id: accordion_id
-        on_touch_down: root.accordion_select()
         # MICROSCOPE SETTINGS
         AccordionItem:
             title: 'Microscope Settings'
-            id: microscope_settings_accordion
             MicroscopeSettings:
                 id: microscope_settings_id
 
         # BRIGHTFIELD SETTINGS
         AccordionItem:
             title: 'Brightfield Control'
-            on_touch_down: root.item_select('BF')
             LayerControl:
                 id: BF
                 layer: 'BF'
@@ -143,7 +140,6 @@
         # BLUE SETTINGS
         AccordionItem:
             title: 'Blue Layer Control'
-            on_touch_down: root.item_select('Blue')
             LayerControl:
                 id: Blue
                 layer: 'Blue'
@@ -152,7 +148,6 @@
         # GREEN SETTINGS
         AccordionItem:
             title: 'Green Layer Control'
-            on_touch_down: root.item_select('Green')
             LayerControl:
                 id: Green
                 layer: 'Green'
@@ -345,7 +340,6 @@
                 font_size: 14
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'left'
-                # background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
                 text:"%.2f" % ill_slider.value
                 on_text: root.ill_text()
@@ -376,7 +370,6 @@
                 font_size: 14
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'left'
-                # background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
                 text:"%.2f" % gain_slider.value
                 on_text: root.gain_text()
@@ -406,40 +399,10 @@
                 font_size: 14
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'left'
-                # background_color: 0.6, 0.6, 0.6, 1
                 input_filter: 'float'
                 text: str(int(exp_slider.value))
                 on_text: root.exp_text()
-        # # LED Warmup Settongs
-        # BoxLayout:
-        #     orientation: 'horizontal'
-        #     Label:
-        #         text: 'LED Warmup'
-        #         halign: 'center'
-        #         size_hint_x: None
-        #         width: 100
-        #     Slider:
-        #         id: led_slider
-        #         min: 0
-        #         max: 50
-        #         value: 50
-        #         cursor_size: 20,20
-        #         cursor_image: './data/slider_cursor.png'
-        #         value_track: True
-        #         value_track_color: root.bg_color
-        #         on_value: root.led_slider()
-        #     TextInput:
-        #         id: led_text
-        #         size_hint_x: None
-        #         width: 50
-        #         multiline: False
-        #         font_size: 14
-        #         padding: [10, (self.height-self.line_height)/2]
-        #         halign: 'left'
-        #         # background_color: 0.6, 0.6, 0.6, 1
-        #         input_filter: 'float'
-        #         text: str(int(led_slider.value))
-        #         on_text: root.led_text()
+
         # File Save Settings
         Button:
             id: folder_btn
@@ -451,22 +414,19 @@
             text: 'File Root'
             padding: [10, (self.height-self.line_height)/2]
             on_text: root.root_text()
-        # LED Include settings
+
+        # bulk settings
         BoxLayout:
             orientation: 'horizontal'
-            # Label:
-            #     size_hint_x: None
-            #     width: 80
-            #     text: 'LED'
-            # ToggleButton:
-            #     id: led_btn
-            #     text: 'is off'
-            #     on_press: root.led_button()
-            #     state: 'normal'
+            padding: 5
+            Button:
+                id: apply_btn
+                text: 'Apply'
+                halign: 'center'
+                valign: 'middle'
+                on_press: root.apply_settings()
             Label:
-                # size_hint_x: None
-                # width: 80
-                text: 'False Color'
+                text: 'Colorize'
                 halign: 'center'
                 valign: 'middle'
             CheckBox:
@@ -476,8 +436,6 @@
                 active: True
                 on_press: root.false_color()
             Label:
-                # size_hint_x: None
-                # width: 80
                 text: 'Acquire'
                 halign: 'center'
                 valign: 'middle'
