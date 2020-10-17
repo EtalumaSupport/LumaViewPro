@@ -278,9 +278,6 @@ global gain_vals
 gain_vals = (1., )*4
 
 class ShaderViewer(BoxLayout):
-    fs = StringProperty(None)
-    vs = StringProperty(None)
-
     fs = StringProperty('''
 void main (void){
 	gl_FragColor =
@@ -442,39 +439,39 @@ class LayerControl(BoxLayout):
         self.led = LED()
 
     def ill_slider(self):
-        self.apply_settings()
         protocol[self.layer]['ill'] = self.ids['ill_slider'].value
+        self.apply_settings()
 
     def ill_text(self):
-        self.apply_settings()
         protocol[self.layer]['ill'] = float(self.ids['ill_text'].text)
         self.ids['ill_slider'].value = float(self.ids['ill_text'].text)
+        self.apply_settings()
 
     def gain_slider(self):
-        self.apply_settings()
         gain = self.ids['gain_slider'].value
         protocol[self.layer]['gain'] = gain
-        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
+        self.apply_settings()
+        # lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
 
     def gain_text(self):
-        self.apply_settings()
         gain = float(self.ids['gain_text'].text)
         protocol[self.layer]['gain'] = gain
         self.ids['gain_slider'].value = gain
-        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
+        self.apply_settings()
+        # lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
 
     def exp_slider(self):
-        self.apply_settings()
         exposure = self.ids['exp_slider'].value
         protocol[self.layer]['exp'] = exposure
-        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
+        self.apply_settings()
+        # lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
     def exp_text(self):
-        self.apply_settings()
         exposure = int(self.ids['exp_text'].text)
         protocol[self.layer]['exp'] = exposure
         self.ids['exp_slider'].value = exposure
-        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
+        self.apply_settings()
+        # lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
     def choose_folder(self):
         content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
@@ -493,7 +490,28 @@ class LayerControl(BoxLayout):
     def root_text(self):
         protocol[self.layer]['file_root'] = self.ids['root_text'].text
 
+    def false_color(self):
+        protocol[self.layer]['false_color'] = self.ids['false_color'].active
+        self.apply_settings()
+
+    def update_acquire(self):
+        protocol[self.layer]['acquire'] = self.ids['acquire'].active
+
     def apply_settings(self):
+        global gain_vals
+        # update false color to currently selected settings
+        if self.ids['false_color'].active:
+
+            if(self.layer) == 'Red':
+                gain_vals = (1., 0., 0., 1.)
+            elif(self.layer) == 'Green':
+                gain_vals = (0., 1., 0., 1.)
+            elif(self.layer) == 'Blue':
+                gain_vals = (0., 0., 1., 1.)
+            else:
+                gain_vals =  (1., )*4
+        else:
+            gain_vals =  (1., )*4
         # update illumination to currently selected settings
         illumination = protocol[self.layer]['ill']
         # set LED illumination level here
@@ -503,27 +521,6 @@ class LayerControl(BoxLayout):
         # update exposure to currently selected settings
         exposure = protocol[self.layer]['exp']
         lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
-        # update false color to currently selected settings
-        self.false_color()
-
-    def false_color(self):
-        global gain_vals
-
-        protocol[self.layer]['false_color'] = self.ids['false_color'].active
-        # apply false color using Shader Editor
-        if self.ids['false_color'].active:
-
-            if(self.layer) == 'Red':
-                gain_vals = (1., 0., 0., 1.)
-            elif(self.layer) == 'Green':
-                gain_vals = (0., 1., 0., 1.)
-            elif(self.layer) == 'Blue':
-                gain_vals = (0., 0., 1., 1.)
-        else:
-            gain_vals =  (1., )*4
-
-    def update_acquire(self):
-        protocol[self.layer]['acquire'] = self.ids['acquire'].active
 
 class TimeLapseSettings(BoxLayout):
     record = ObjectProperty(None)
