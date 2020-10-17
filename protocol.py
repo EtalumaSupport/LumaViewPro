@@ -5,7 +5,7 @@ protocol = {
     "microscope": 'LS620',
     "frame_width": 2592,
     "frame_height": 1944,
-    "objective": 'unknown',
+    "objective": 'Canon 55mm',
     "period": 0.017,
     "duration": 0.17,
     "BF": {

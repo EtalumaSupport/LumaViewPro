@@ -271,9 +271,9 @@ uniform mat4       projection_mat;
 uniform vec4       color;
 '''
 
-global illumination_vals
-illumination_vals = (0., )*4
-
+# global illumination_vals
+# illumination_vals = (0., )*4
+#
 global gain_vals
 gain_vals = (1., )*4
 
@@ -287,13 +287,16 @@ class ShaderViewer(BoxLayout):
         Clock.schedule_interval(self.update_shader, 0)
 
     def update_shader(self, *args):
-        global illumination_vals
-        global gain_vals
+        # global illumination_vals
+        # global gain_vals
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
-        c['black_point'] = illumination_vals
+
+        # false color and active
+
+        c['black_point'] = (0., )*4
         c['white_point'] = gain_vals
 
     def on_fs(self, instance, value):
@@ -397,7 +400,6 @@ class MicroscopeSettings(BoxLayout):
         h = int(self.ids['frame_height'].text)
 
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
-
         width = int(min(int(w), camera.Width.Max)/2)*2
         height = int(min(int(h), camera.Height.Max)/2)*2
 
@@ -483,8 +485,20 @@ class LayerControl(BoxLayout):
         self.false_color()
 
     def false_color(self):
-        protocol[self.layer]['false_color'] = self.ids['acquire'].active
+        global gain_vals
+
+        protocol[self.layer]['false_color'] = self.ids['false_color'].active
         # apply false color using Shader Editor
+        if self.ids['false_color'].active:
+
+            if(self.layer) == 'Red':
+                gain_vals = (1., 0., 0., 1.)
+            elif(self.layer) == 'Green':
+                gain_vals = (0., 1., 0., 1.)
+            elif(self.layer) == 'Blue':
+                gain_vals = (0., 0., 1., 1.)
+        else:
+            gain_vals =  (1., )*4
 
     def update_acquire(self):
         protocol[self.layer]['acquire'] = self.ids['acquire'].active
