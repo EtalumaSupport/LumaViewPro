@@ -273,7 +273,7 @@ uniform vec4       color;
 
 # global illumination_vals
 # illumination_vals = (0., )*4
-#
+
 global gain_vals
 gain_vals = (1., )*4
 
@@ -281,22 +281,44 @@ class ShaderViewer(BoxLayout):
     fs = StringProperty(None)
     vs = StringProperty(None)
 
+    fs = StringProperty('''
+void main (void){
+	gl_FragColor =
+    white_point *
+    frag_color *
+    texture2D(texture0, tex_coord0)
+	- black_point;
+}
+''')
+    vs = StringProperty('''
+void main (void) {
+  frag_color = color;
+  tex_coord0 = vTexCoords0;
+  gl_Position =
+  projection_mat *
+  modelview_mat *
+  vec4(vPosition.xy, 0.0, 1.0);
+# }
+''')
+
+
     def __init__(self, **kwargs):
         self.canvas = RenderContext()
         super(ShaderViewer, self).__init__(**kwargs)
+        self.canvas.shader.fs = fs_header + self.fs
+        self.canvas.shader.vs = vs_header + self.vs
         Clock.schedule_interval(self.update_shader, 0)
 
+
     def update_shader(self, *args):
-        # global illumination_vals
-        # global gain_vals
+        global gain_vals
+
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
-
-        # false color and active
-
         c['black_point'] = (0., )*4
+        # adjust for false color
         c['white_point'] = gain_vals
 
     def on_fs(self, instance, value):
