@@ -145,28 +145,54 @@ class PylonCamera(Camera):
         camera.ExposureTime.SetValue(t*1000) # in microseconds
         camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
-class LED:
-    # def __init__(self, layer):
-    #     self.layer = layer
+class LEDBoard:
+    def __init__(self, **kwargs):
 
-    def set_layer(self, layer):
-        self.layer = layer
+        self.port = 'COM4'
+        self.baudrate=9600
+        self.bytesize=serial.EIGHTBITS
+        self.parity=serial.PARITY_NONE
+        self.stopbits=serial.STOPBITS_ONE
+        self.timeout=10.0 # seconds
+        self.driver = serial.Serial(port=self.port, baudrate=self.baudrate, bytesize=self.bytesize, parity=self.parity, stopbits=self.stopbits, timeout=self.timeout)
+        self.driver.close()
+        self.driver.open()
 
-    def on(self, current):
-        print(self.layer, 'turned ON at i =', current, 'mA')
+    def __del__(self):
+        self.driver.close()
 
-    def off(self):
-        print(self.layer, 'turned OFF')
+    def color2ch(self, color):
+        if color == 'Blue':
+            return 0
+        elif color == 'Green':
+            return 1
+        else:
+            return 2
 
+    def led_cal(self, channel):
+        command = '{CAL,'+ str(channel) + '}00'
+        self.driver.write(command.encode('utf-8')+b"\r\n")
+
+    def led_on(self, channel, mA):
+        command = '{TON,'+ str(channel) + ',H,' + str(mA) + '}00'
+        self.driver.write(command.encode('utf-8')+b"\r\n")
+
+    def led_off(self):
+        command = '{TOF}00'
+        self.driver.write(command.encode('utf-8')+b"\r\n")
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
 class MainDisplay(FloatLayout):
+    led_board = ObjectProperty(None)
+    led_board = LEDBoard()
+
     def cam_toggle(self):
         if self.ids['viewer_id'].ids['microscope_camera'].play == True:
             self.ids['viewer_id'].ids['microscope_camera'].play = False
             self.ids['live_btn'].text = 'Play Live'
+            self.led_board.led_off()
             self.ids['viewer_id'].ids['microscope_camera'].stop()
         else:
             self.ids['viewer_id'].ids['microscope_camera'].play = True
@@ -204,8 +230,10 @@ class MainDisplay(FloatLayout):
                 camera.update(0)
 
                 # turn on the LED
-
-                # wait for LED time
+                # update illumination to currently selected settings
+                illumination = protocol[layer]['ill']
+                led_board = lumaview.led_board
+                led_board.led_on(led_board.color2ch(layer), illumination)
 
                 # buffer the images
                 if layer == 'Blue':
@@ -436,7 +464,6 @@ class LayerControl(BoxLayout):
         super(LayerControl, self).__init__(**kwargs)
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
-        self.led = LED()
 
     def ill_slider(self):
         protocol[self.layer]['ill'] = self.ids['ill_slider'].value
@@ -498,10 +525,10 @@ class LayerControl(BoxLayout):
         protocol[self.layer]['acquire'] = self.ids['acquire'].active
 
     def apply_settings(self):
+        global lumaview
         global gain_vals
         # update false color to currently selected settings
         if self.ids['false_color'].active:
-
             if(self.layer) == 'Red':
                 gain_vals = (1., 0., 0., 1.)
             elif(self.layer) == 'Green':
@@ -515,6 +542,8 @@ class LayerControl(BoxLayout):
         # update illumination to currently selected settings
         illumination = protocol[self.layer]['ill']
         # set LED illumination level here
+        led_board = lumaview.led_board
+        led_board.led_on(led_board.color2ch(self.layer), illumination)
         # update gain to currently selected settings
         gain = protocol[self.layer]['gain']
         lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
@@ -619,9 +648,13 @@ class TimeLapseSettings(BoxLayout):
                 camera.update(0)
 
                 # turn on the LED
+                # update illumination to currently selected settings
+                illumination = protocol[layer]['ill']
+                led_board = lumaview.led_board
+                led_board.led_on(led_board.color2ch(layer), illumination)
 
                 # Wait the delay
-                # time.sleep(float(protocol[layer]['led'])/1000)
+                time.sleep(50/1000)
 
                 # capture the image
                 save_folder = protocol[layer]['save_folder']
