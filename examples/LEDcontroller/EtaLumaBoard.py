@@ -1,4 +1,11 @@
-import serial
+import serial.tools.list_ports
+a=serial.tools.list_ports.comports()
+print(a[0])
+
+
+
+
+# import serial
 # import time
 #
 # port = 'COM4'
@@ -22,6 +29,7 @@ import serial
 # driver.close()
 
 # ALTERNATIVE USING OBJECT ORIENTED PROGRAMMING #
+import serial
 
 class LEDBoard:
     def __init__(self, **kwargs):

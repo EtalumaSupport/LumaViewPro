@@ -16,18 +16,15 @@ Scale bar - annotation on image
 
 TASKS:
 
-
+-> How to autodetect COM port?
 -> Need folder select in CONVERT_TO_AVI
 -> Need folder select in LIVE CAPTURE
 -> Need folder select in COMPOSITE
+-> False color SAVE
+-> Unfreeze settings
 -> ZOOM
-  -> stencil view ShaderViewer
+  -> stencil view ShaderViewer?
   -> Scale
 -> ANNOTATIONS
   -> frame or time
 -> COMPILE
-
-** WAITING ON INFO ABOUT LED FUNCTION **
--> LED function
-  -> Illumination
-  -> On/Off
