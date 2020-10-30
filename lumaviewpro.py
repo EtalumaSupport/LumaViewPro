@@ -166,8 +166,10 @@ class LEDBoard:
             return 0
         elif color == 'Green':
             return 1
-        else:
+        elif color == 'Red':
             return 2
+        else:
+            return 3
 
     def led_cal(self, channel):
         command = '{CAL,'+ str(channel) + '}00'
