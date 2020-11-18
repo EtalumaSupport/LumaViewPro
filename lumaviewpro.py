@@ -4,9 +4,9 @@ import numpy as np
 import time
 import os
 import json
-import glob
+# import glob
 import serial
-import random
+# import random
 
 # Kivy
 import kivy
@@ -193,12 +193,12 @@ class MainDisplay(FloatLayout):
     def cam_toggle(self):
         if self.ids['viewer_id'].ids['microscope_camera'].play == True:
             self.ids['viewer_id'].ids['microscope_camera'].play = False
-            self.ids['live_btn'].text = 'Play Live'
+            self.ids['live_btn'].text = 'Stream Live'
             self.led_board.led_off()
             self.ids['viewer_id'].ids['microscope_camera'].stop()
         else:
             self.ids['viewer_id'].ids['microscope_camera'].play = True
-            self.ids['live_btn'].text = 'Freeze'
+            self.ids['live_btn'].text = 'Pause Stream'
             self.ids['viewer_id'].ids['microscope_camera'].start()
 
     def capture(self, dt):
@@ -229,7 +229,6 @@ class MainDisplay(FloatLayout):
                 camera.gain(gain)
                 exposure = protocol[layer]['exp']
                 camera.exposure_t(exposure)
-                camera.update(0)
 
                 # turn on the LED
                 # update illumination to currently selected settings
@@ -237,12 +236,15 @@ class MainDisplay(FloatLayout):
                 led_board = lumaview.led_board
                 led_board.led_on(led_board.color2ch(layer), illumination)
 
+                camera.update(0)
                 # buffer the images
                 if layer == 'Blue':
                     img[:,:,0] = camera.array
                 elif layer == 'Green':
                     img[:,:,1] = camera.array
                 elif layer == 'Red':
+                    img[:,:,2] = camera.array
+                else:
                     img[:,:,2] = camera.array
 
         cv2.imwrite('./capture/composite.png', img)

@@ -1,2 +1,0 @@
-
-%include <pylon/Result.h>;
