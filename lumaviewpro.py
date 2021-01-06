@@ -4,9 +4,7 @@ import numpy as np
 import time
 import os
 import json
-# import glob
 import serial
-# import random
 
 # Kivy
 import kivy
@@ -23,6 +21,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.relativelayout import RelativeLayout
+from kivy.uix.scatter import Scatter
 from kivy.uix.widget import Widget
 from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.switch import Switch
@@ -35,7 +34,6 @@ from kivy.graphics.texture import Texture
 from kivy.uix.camera import Camera
 from kivy.clock import Clock
 import cv2
-# from kivy.core.camera import Camera
 
 # Pylon Camera Related
 from pypylon import pylon
@@ -101,7 +99,7 @@ class PylonCamera(Camera):
             print("An exception occurred.")
             print(e.GetDescription())
 
-    def capture(self, save_folder = 'capture/', file_root = 'live_', append = 'time'):
+    def capture(self, save_folder = 'capture/', file_root = 'live_', append = 'ms'):
 
         if append == 'time':
             append = time.strftime("%Y%m%d_%H%M%S")
@@ -247,13 +245,22 @@ class MainDisplay(FloatLayout):
                 else:
                     img[:,:,2] = camera.array
 
-        cv2.imwrite('./capture/composite.png', img)
+        filename = 'composite_' + str(int(round(time.time() * 1000))) + '.png'
+        cv2.imwrite('./capture/'+filename, img)
 
     def fit_image(self):
-        self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = True
+        self.ids['viewer_id'].scale = 1
+        self.ids['viewer_id'].pos = (0,0)
 
     def one2one_image(self):
-        self.ids['viewer_id'].ids['microscope_camera'].keep_ratio = False
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        w = self.width
+        h = self.height
+        scale_hor = float(camera.Width.GetValue()) / float(w)
+        scale_ver = float(camera.Height.GetValue()) / float(h)
+        scale = max(scale_hor, scale_ver)
+        self.ids['viewer_id'].scale = scale
+        self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))
 
 # -----------------------------------------------------------------------------
 # Shader code
@@ -309,14 +316,15 @@ uniform vec4       color;
 global gain_vals
 gain_vals = (1., )*4
 
-class ShaderViewer(BoxLayout):
+#class ShaderViewer(BoxLayout):
+class ShaderViewer(Scatter):
     fs = StringProperty('''
-void main (void){
+void main (void) {
 	gl_FragColor =
     white_point *
     frag_color *
     texture2D(texture0, tex_coord0)
-	- black_point;
+    - black_point;
 }
 ''')
     vs = StringProperty('''
@@ -327,7 +335,7 @@ void main (void) {
   projection_mat *
   modelview_mat *
   vec4(vPosition.xy, 0.0, 1.0);
-# }
+}
 ''')
 
 
@@ -365,7 +373,7 @@ void main (void){
     white_point *
     frag_color *
     texture2D(texture0, tex_coord0)
-	- black_point;
+    - black_point;
 }
 ''')
     vs = StringProperty('''
@@ -376,7 +384,7 @@ void main (void) {
   projection_mat *
   modelview_mat *
   vec4(vPosition.xy, 0.0, 1.0);
-# }
+}
 ''')
 
     viewer = ObjectProperty(None)
@@ -505,13 +513,16 @@ class LayerControl(BoxLayout):
         # lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
     def choose_folder(self):
-        content = LoadDialog(load=self.load, cancel=self.dismiss_popup)
-        self._popup = Popup(title="Select Save Folder", content=content,
+        content = LoadDialog(load=self.load,
+                             cancel=self.dismiss_popup,
+                             path=protocol[self.layer]['save_folder'])
+        self._popup = Popup(title="Select Save Folder",
+                            content=content,
                             size_hint=(0.9, 0.9))
         self._popup.open()
 
     def load(self, path):
-        protocol[self.layer]['save_folder'] = path
+        protocol[self.layer]['save_folder'] = path + '\\'
         self.ids['folder_btn'].text = '...'+path[-30:]
         self.dismiss_popup()
 
@@ -703,6 +714,8 @@ class TimeLapseSettings(BoxLayout):
 class LoadDialog(FloatLayout):
     load = ObjectProperty(None)
     cancel = ObjectProperty(None)
+    path = ObjectProperty(None)
+
 
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP

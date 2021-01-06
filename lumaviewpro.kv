@@ -9,9 +9,12 @@
     # Primary Display of Camera Results
     ShaderViewer:
         id: viewer_id
+        pos: 0, 0
         size_hint: None, None
         size: root.width, root.height
-        pos: 0, 0
+        auto_bring_to_front: False
+        do_rotation: False
+        do_translation: True
 
     # ShaderEditor:
     #     viewer: viewer_id
@@ -69,6 +72,8 @@
 <ShaderViewer>:
     PylonCamera:
         id: microscope_camera
+        size_hint: None, None
+        size: root.width, root.height
         resolution: (2592, 1944)
         allow_stretch: True
         keep_ratio: True
@@ -533,7 +538,6 @@
         orientation: "vertical"
         FileChooserListView:
             id: filechooser
-            path: '.\\'
         BoxLayout:
             size_hint_y: None
             height: 40
