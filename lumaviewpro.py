@@ -316,7 +316,6 @@ uniform vec4       color;
 global gain_vals
 gain_vals = (1., )*4
 
-#class ShaderViewer(BoxLayout):
 class ShaderViewer(Scatter):
     fs = StringProperty('''
 void main (void) {
@@ -346,6 +345,18 @@ void main (void) {
         self.canvas.shader.vs = vs_header + self.vs
         Clock.schedule_interval(self.update_shader, 0)
 
+    def on_touch_down(self, touch):
+        # Override Scatter's `on_touch_down` behavior for mouse scroll
+        if touch.is_mouse_scrolling:
+            if touch.button == 'scrolldown':
+                if self.scale < 100:
+                    self.scale = self.scale * 1.1
+            elif touch.button == 'scrollup':
+                if self.scale > 0.1:
+                    self.scale = self.scale * 0.8
+        # If some other kind of "touch": Fall back on Scatter's behavior
+        else:
+            super(ShaderViewer, self).on_touch_down(touch)
 
     def update_shader(self, *args):
         global gain_vals
