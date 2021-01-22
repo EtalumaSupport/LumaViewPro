@@ -5,6 +5,7 @@ import time
 import os
 import json
 import serial
+import serial.tools.list_ports as list_ports
 
 # Kivy
 import kivy
@@ -146,7 +147,8 @@ class PylonCamera(Camera):
 class LEDBoard:
     def __init__(self, **kwargs):
 
-        self.port = 'COM4'
+        ports = list(list_ports.comports())
+        self.port = ports[0].device
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
