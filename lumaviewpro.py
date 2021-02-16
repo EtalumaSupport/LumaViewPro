@@ -147,8 +147,9 @@ class PylonCamera(Camera):
 class LEDBoard:
     def __init__(self, **kwargs):
 
-        ports = list(list_ports.comports())
-        self.port = ports[0].device
+        #ports = list(list_ports.comports())
+        #self.port = ports[0].device
+        self.port="/dev/ttyS0"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
@@ -592,7 +593,7 @@ class TimeLapseSettings(BoxLayout):
         protocol['duration'] = float(self.ids['capture_dur'].text)
 
     # load protocol from JSON file
-    def load_protocol(self, file=".\data\protocol.json"):
+    def load_protocol(self, file="./data/protocol.json"):
         global lumaview
 
         # determine file to read
@@ -623,7 +624,7 @@ class TimeLapseSettings(BoxLayout):
             lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(protocol['frame_width'], protocol['frame_height'])
 
     # Save protocol to JSON file
-    def save_protocol(self, file=".\data\protocol.json"):
+    def save_protocol(self, file="./data/protocol.json"):
         global protocol
         with open(file, "w") as write_file:
             json.dump(protocol, write_file)
@@ -737,11 +738,11 @@ class LumaViewProApp(App):
     def build(self):
         global lumaview
         lumaview = MainDisplay()
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol(".\data\default.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/default.json")
         return lumaview
 
     def on_stop(self):
         global lumaview
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol(".\data\default.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/default.json")
 
 LumaViewProApp().run()
