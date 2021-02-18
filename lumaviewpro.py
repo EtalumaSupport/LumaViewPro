@@ -51,6 +51,10 @@ class PylonCamera(Camera):
 
     def __init__(self, **kwargs):
         super(PylonCamera,self).__init__(**kwargs)
+        self.connect()
+        self.start()
+
+    def connect(self):
         try:
             # Create an instant camera object with the camera device found first.
             self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
@@ -63,10 +67,8 @@ class PylonCamera(Camera):
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
         except genicam.GenericException as e:
-            print("An exception occurred.")
-            print(e.GetDescription())
-
-        self.start()
+            print("It looks like a Lumaview compatible camera or scope is not plugged in")
+            self.camera = False #print(e.GetDescription())
 
     def start(self):
         self.fps = 14
@@ -77,6 +79,10 @@ class PylonCamera(Camera):
             Clock.unschedule(self.frame_event)
 
     def update(self, dt):
+        if self.camera == False:
+            self.connect()
+            if self.camera == False:
+                return
         try:
             if self.camera.IsGrabbing():
                 grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
@@ -115,6 +121,8 @@ class PylonCamera(Camera):
     def frame_size(self, w, h):
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        if camera == False:
+            return
 
         width = int(min(int(w), camera.Width.Max)/2)*2
         height = int(min(int(h), camera.Height.Max)/2)*2
@@ -131,6 +139,8 @@ class PylonCamera(Camera):
     def gain(self, gain):
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        if camera == False:
+            return
 
         camera.StopGrabbing()
         camera.Gain.SetValue(gain)
@@ -139,6 +149,8 @@ class PylonCamera(Camera):
     def exposure_t(self, t):
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        if camera == False:
+            return
 
         camera.StopGrabbing()
         camera.ExposureTime.SetValue(t*1000) # in microseconds
@@ -602,7 +614,7 @@ class TimeLapseSettings(BoxLayout):
         with open(file, "r") as read_file:
             global protocol
             protocol = json.load(read_file)
-            # update GUI values from JSON data
+            # update GUI values from JSON data:
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_btn'].text = protocol['microscope']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
