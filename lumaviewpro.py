@@ -51,8 +51,10 @@ class PylonCamera(Camera):
 
     def __init__(self, **kwargs):
         super(PylonCamera,self).__init__(**kwargs)
+        self.camera = True;
         self.connect()
         self.start()
+
 
     def connect(self):
         try:
@@ -67,7 +69,8 @@ class PylonCamera(Camera):
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
         except genicam.GenericException as e:
-            print("It looks like a Lumaview compatible camera or scope is not plugged in")
+            if self.camera != False:
+                print("It looks like a Lumaview compatible camera or scope is not plugged in")
             self.camera = False #print(e.GetDescription())
 
     def start(self):
@@ -103,8 +106,9 @@ class PylonCamera(Camera):
                 grabResult.Release()
 
         except genicam.GenericException as e:
-            print("An exception occurred.")
-            print(e.GetDescription())
+            if self.camera != False:
+                print("It looks like a Lumaview compatible camera was unplugged")
+            self.camera = False
 
     def capture(self, save_folder = 'capture/', file_root = 'live_', append = 'ms'):
 
