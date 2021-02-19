@@ -51,6 +51,12 @@ class PylonCamera(Camera):
 
     def __init__(self, **kwargs):
         super(PylonCamera,self).__init__(**kwargs)
+        self.camera = True;
+        self.connect()
+        self.start()
+
+
+    def connect(self):
         try:
             # Create an instant camera object with the camera device found first.
             self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
@@ -63,10 +69,9 @@ class PylonCamera(Camera):
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
         except genicam.GenericException as e:
-            print("An exception occurred.")
-            print(e.GetDescription())
-
-        self.start()
+            if self.camera != False:
+                print("It looks like a Lumaview compatible camera or scope is not plugged in")
+            self.camera = False #print(e.GetDescription())
 
     def start(self):
         self.fps = 14
@@ -77,6 +82,10 @@ class PylonCamera(Camera):
             Clock.unschedule(self.frame_event)
 
     def update(self, dt):
+        if self.camera == False:
+            self.connect()
+            if self.camera == False:
+                return
         try:
             if self.camera.IsGrabbing():
                 grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
@@ -97,8 +106,9 @@ class PylonCamera(Camera):
                 grabResult.Release()
 
         except genicam.GenericException as e:
-            print("An exception occurred.")
-            print(e.GetDescription())
+            if self.camera != False:
+                print("It looks like a Lumaview compatible camera was unplugged")
+            self.camera = False
 
     def capture(self, save_folder = 'capture/', file_root = 'live_', append = 'ms'):
 
@@ -115,6 +125,8 @@ class PylonCamera(Camera):
     def frame_size(self, w, h):
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        if camera == False:
+            return
 
         width = int(min(int(w), camera.Width.Max)/2)*2
         height = int(min(int(h), camera.Height.Max)/2)*2
@@ -131,6 +143,8 @@ class PylonCamera(Camera):
     def gain(self, gain):
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        if camera == False:
+            return
 
         camera.StopGrabbing()
         camera.Gain.SetValue(gain)
@@ -139,6 +153,8 @@ class PylonCamera(Camera):
     def exposure_t(self, t):
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        if camera == False:
+            return
 
         camera.StopGrabbing()
         camera.ExposureTime.SetValue(t*1000) # in microseconds
@@ -147,8 +163,9 @@ class PylonCamera(Camera):
 class LEDBoard:
     def __init__(self, **kwargs):
 
-        ports = list(list_ports.comports())
-        self.port = ports[0].device
+        #ports = list(list_ports.comports())
+        #self.port = ports[0].device
+        self.port="/dev/ttyS0"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
@@ -592,7 +609,7 @@ class TimeLapseSettings(BoxLayout):
         protocol['duration'] = float(self.ids['capture_dur'].text)
 
     # load protocol from JSON file
-    def load_protocol(self, file=".\data\protocol.json"):
+    def load_protocol(self, file="./data/protocol.json"):
         global lumaview
 
         # determine file to read
@@ -601,7 +618,7 @@ class TimeLapseSettings(BoxLayout):
         with open(file, "r") as read_file:
             global protocol
             protocol = json.load(read_file)
-            # update GUI values from JSON data
+            # update GUI values from JSON data:
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_btn'].text = protocol['microscope']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
@@ -623,7 +640,7 @@ class TimeLapseSettings(BoxLayout):
             lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(protocol['frame_width'], protocol['frame_height'])
 
     # Save protocol to JSON file
-    def save_protocol(self, file=".\data\protocol.json"):
+    def save_protocol(self, file="./data/protocol.json"):
         global protocol
         with open(file, "w") as write_file:
             json.dump(protocol, write_file)
@@ -737,11 +754,11 @@ class LumaViewProApp(App):
     def build(self):
         global lumaview
         lumaview = MainDisplay()
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol(".\data\default.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/default.json")
         return lumaview
 
     def on_stop(self):
         global lumaview
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol(".\data\default.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/default.json")
 
 LumaViewProApp().run()
