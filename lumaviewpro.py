@@ -163,9 +163,9 @@ class PylonCamera(Camera):
 class LEDBoard:
     def __init__(self, **kwargs):
 
-        #ports = list(list_ports.comports())
-        #self.port = ports[0].device
-        self.port="/dev/ttyS0"
+        ports = list(list_ports.comports())
+        self.port = ports[0].device
+        #self.port="/dev/ttyS0"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
