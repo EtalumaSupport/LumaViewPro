@@ -552,7 +552,7 @@ class LayerControl(BoxLayout):
         self._popup.open()
 
     def load(self, path):
-        protocol[self.layer]['save_folder'] = path + '\\'
+        protocol[self.layer]['save_folder'] = path + '/'
         self.ids['folder_btn'].text = '...'+path[-30:]
         self.dismiss_popup()
 
