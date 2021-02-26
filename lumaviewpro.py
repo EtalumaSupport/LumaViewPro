@@ -173,12 +173,22 @@ class LEDBoard:
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
         self.timeout=10.0 # seconds
-        self.driver = serial.Serial(port=self.port, baudrate=self.baudrate, bytesize=self.bytesize, parity=self.parity, stopbits=self.stopbits, timeout=self.timeout)
-        self.driver.close()
-        self.driver.open()
+        self.driver = True
+        self.connect()
 
     def __del__(self):
-        self.driver.close()
+        if self.driver != False:
+            self.driver.close()
+
+    def connect(self):
+        try:
+            self.driver = serial.Serial(port=self.port, baudrate=self.baudrate, bytesize=self.bytesize, parity=self.parity, stopbits=self.stopbits, timeout=self.timeout)
+            self.driver.close()
+            self.driver.open()
+        except:
+            if self.driver != False:
+                print("It looks like a Lumaview compatible LED driver board is not plugged in")
+            self.driver = False
 
     def color2ch(self, color):
         if color == 'Blue':
@@ -192,15 +202,18 @@ class LEDBoard:
 
     def led_cal(self, channel):
         command = '{CAL,'+ str(channel) + '}00'
-        self.driver.write(command.encode('utf-8')+b"\r\n")
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
 
     def led_on(self, channel, mA):
         command = '{TON,'+ str(channel) + ',H,' + str(mA) + '}00'
-        self.driver.write(command.encode('utf-8')+b"\r\n")
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
 
     def led_off(self):
         command = '{TOF}00'
-        self.driver.write(command.encode('utf-8')+b"\r\n")
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
