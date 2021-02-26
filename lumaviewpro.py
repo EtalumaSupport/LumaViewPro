@@ -165,9 +165,9 @@ class PylonCamera(Camera):
 class LEDBoard:
     def __init__(self, **kwargs):
 
-        #ports = list(list_ports.comports())
-        #self.port = ports[0].device
-        self.port="/dev/ttyS0"
+        ports = list(list_ports.comports())
+        self.port = ports[0].device
+        #self.port="/dev/ttyS0"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
@@ -567,7 +567,7 @@ class LayerControl(BoxLayout):
         self._popup.open()
 
     def load(self, path):
-        protocol[self.layer]['save_folder'] = path + '\\'
+        protocol[self.layer]['save_folder'] = path + '/'
         self.ids['folder_btn'].text = '...'+path[-30:]
         self.dismiss_popup()
 
