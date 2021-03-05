@@ -1,11 +1,24 @@
 
-#needed for Ubuntu 20.04
+# needed for Ubuntu 20.04
 
+# install python3
+sudo apt-get update
+sudo apt-get install python3.8
+sudo apt-get install python3-pip
+
+# check if it works
+python3 --version
+
+# install kyvi
+pip3 install --upgrade pip setuptools virtualenv
+python3 -m virtualenv kivy_venv
+pip3 install kivy[base] kivy_examples --no-binary kivy
+
+# install serial code to talk to LED boards
 pip3 install pyserial
+
+# install pypylon and OpenCV to talk to cameras
 pip3 install opencv-python
 wget https://pypi.org/project/pypylon/pypylon-1.6.0-cp38-cp38-linux_x86_64.whl
 pip3 install pypylon-1.6.0-cp38-cp38-linux_x86_64.whl
 sudo chmod o+rw /dev/ttyS0
-
-
-
