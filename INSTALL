@@ -1,4 +1,4 @@
-#!/etc/bash 
+#!/etc/bash
 # needed for Ubuntu 20.04
 
 # install python3
@@ -16,9 +16,12 @@ pip3 install kivy[base] kivy_examples --no-binary kivy
 
 # install serial code to talk to LED boards
 pip3 install pyserial
+sudo chmod o+rw /dev/ttyS0
 
 # install pypylon and OpenCV to talk to cameras
 pip3 install opencv-python
+pip3 install pypylon
+
+# if that doesn't work we need to get the wheel directly
 wget https://pypi.org/project/pypylon/pypylon-1.6.0-cp38-cp38-linux_x86_64.whl
 pip3 install pypylon-1.6.0-cp38-cp38-linux_x86_64.whl
-sudo chmod o+rw /dev/ttyS0
