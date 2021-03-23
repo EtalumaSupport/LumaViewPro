@@ -15,7 +15,7 @@ Run the command prompt as administrator, and use each of these commands. The ver
 * pip install pypylon (pypylon-1.7.2)
 * pip install docutils pygments pypiwin32 (docutils-0.16 pygments-2.8.1 pypiwin32-223 pywin32-300)
 * pip install kivy.deps.sdl2 (kivy_deps.sdl2-0.3.1-cp39-cp39-win_amd64.whl)
-* pip install kivy_deps.glew (kivy_deps.glew-0.3.0-cp39-cp39-win_amd64.whl)
+* pip install kivy.deps.glew (kivy_deps.glew-0.3.0-cp39-cp39-win_amd64.whl)
 * pip install kivy.deps.gstreamer (kivy_deps.gstreamer-0.3.1-cp39-cp39-win_amd64.whl)
 * pip install kivy
 
