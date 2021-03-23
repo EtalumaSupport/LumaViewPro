@@ -3,7 +3,7 @@
 
 
 ## Installing dependencies on Windows 10
-Install Python 3.9 from python page for ALL users (C:\Program Files\Python39)
+Install Python 3.9 from python page https://www.python.org/downloads/ for ALL users (C:\Program Files\Python39)
 
 RUN COMMAND PROMPT AS ADMINISTRATOR, and use each of these commands. In parentheses are the versions that are installed on my current development computer
 
