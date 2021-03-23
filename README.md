@@ -5,7 +5,7 @@
 ## Installing dependencies on Windows 10
 Install Python 3.9 from python page https://www.python.org/downloads/ for ALL users (C:\Program Files\Python39)
 
-RUN COMMAND PROMPT AS ADMINISTRATOR, and use each of these commands. In parentheses are the versions that are installed on my current development computer
+Run the command prompt as administrator, and use each of these commands. The versions that are installed on my current development computer are in parentheses.
 
 * python -m pip install --upgrade pip setuptools virtualenv (pip-21.0.1 setuptools-54.2.0 virtualenv-20.4.3)
 * pip install numpy (numpy-1.20.1)
