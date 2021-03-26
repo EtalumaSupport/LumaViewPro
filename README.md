@@ -3,7 +3,7 @@ LumaViewPro is an open source fluorescence microscope control interface written 
 
 
 ## Installing dependencies on Windows 10
-Install Python 3.9 from python page https://www.python.org/downloads/ for ALL users (C:\Program Files\Python39)
+Install Python 3.9 from python page https://www.python.org/downloads/ for ALL users (C:\Program Files\Python39). You will have to run the program in administrative mode.
 
 Run the command prompt as administrator, and use each of these commands. The versions that are installed on my current development computer are in parentheses.
 
