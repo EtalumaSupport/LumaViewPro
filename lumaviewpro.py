@@ -129,6 +129,7 @@ class PylonCamera(Camera):
 
                 if grabResult.GrabSucceeded():
                     image = grabResult.GetArray()
+                    image = cv2.flip(image, 1)
                     self.array = image
                     image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
                     image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
@@ -201,7 +202,8 @@ class LEDBoard:
     def __init__(self, **kwargs):
 
         ports = list(list_ports.comports())
-        self.port = ports[0].device
+        if (len(ports)!=0):
+            self.port = ports[0].device
         #self.port="/dev/ttyS0"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
@@ -520,15 +522,20 @@ class MainSettings(BoxLayout):
             self.pos = lumaview.width-300, 0
 
 class MicroscopeSettings(BoxLayout):
-    def microscope_select(self, scope):
+    def microscope_selectFN(self, scope):
         global protocol
         self.ids['select_scope_btn'].text = scope
         self.ids['image_of_microscope'].source = './data/'+scope+'.png'
         protocol['microscope'] = scope
 
+    def port_select(self, port):
+        global protocol
+        self.ids['select_port_btn'].text = port
+        # protocol['objective'] = objective
+
     def objective_select(self, objective):
         global protocol
-        self.ids['select_obj_btn'].text = 'Objective '+objective
+        self.ids['select_obj_btn'].text = 'Objective '+ objective
         protocol['objective'] = objective
 
     def frame_size(self):

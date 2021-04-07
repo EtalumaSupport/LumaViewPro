@@ -220,6 +220,38 @@
         Rectangle:
             size: self.size
             pos: self.pos
+
+
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: 40
+        Label:
+            text: 'LED Board'
+            size_hint_x: None
+            width: 140
+        Button:
+            id: select_port_btn
+            text: 'Serial Port'
+            size_hint_y: None
+            height: 40
+            on_release: port_select.open(self)
+        DropDown:
+            id: port_select
+            on_select: root.port_select(args[1])
+            Button:
+                id: COM3_btn
+                text: 'COM3'
+                size_hint_y: None
+                height: 40
+                on_release: port_select.select('COM3')
+            Button:
+                id: linux_btn
+                text: '/dev/ttyS0'
+                size_hint_y: None
+                height: 40
+                on_release: port_select.select('/dev/ttyS0')
+
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
@@ -231,10 +263,12 @@
         Button:
             id: select_scope_btn
             text: 'Select Scope'
+            size_hint_y: None
+            height: 40
             on_release: microscope_select.open(self)
         DropDown:
             id: microscope_select
-            on_select: root.microscope_select(args[1])
+            on_select: root.microscope_selectFN(args[1])
             Button:
                 id: LS460_btn
                 text: 'LS460'
@@ -247,19 +281,18 @@
                 size_hint_y: None
                 height: 40
                 on_release: microscope_select.select('LS560')
-            Button:
-                id: LS620_btn
-                text: 'LS620'
-                size_hint_y: None
-                height: 40
-                on_release: microscope_select.select('LS620')
-            Button:
-                id: LS720_btn
-                text: 'LS720'
-                size_hint_y: None
-                height: 40
-                on_release: microscope_select.select('LS720')
-
+            # Button:
+            #     id: LS620_btn
+            #     text: 'LS620'
+            #     size_hint_y: None
+            #     height: 40
+            #     on_release: microscope_select.select('LS620')
+            # Button:
+            #     id: LS720_btn
+            #     text: 'LS720'
+            #     size_hint_y: None
+            #     height: 40
+            #     on_release: microscope_select.select('LS720')
 
     BoxLayout:
         orientation: 'horizontal'
@@ -288,19 +321,19 @@
                 size_hint_y: None
                 height: 40
                 on_release: objective_select.select('B')
-            Button:
-                id: LS620_btn
-                text: 'Objective C'
-                size_hint_y: None
-                height: 40
-                on_release: objective_select.select('C')
-            Button:
-                id: LS720_btn
-                text: 'Objective D'
-                size_hint_y: None
-                height: 40
-                on_release: objective_select.select('D')
-
+            # Button:
+            #     id: LS620_btn
+            #     text: 'Objective C'
+            #     size_hint_y: None
+            #     height: 40
+            #     on_release: objective_select.select('C')
+            # Button:
+            #     id: LS720_btn
+            #     text: 'Objective D'
+            #     size_hint_y: None
+            #     height: 40
+            #     on_release: objective_select.select('D')
+            #
 
 
 
