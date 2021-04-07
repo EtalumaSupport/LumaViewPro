@@ -761,8 +761,10 @@ class TimeLapseSettings(BoxLayout):
                 # capture the image
                 save_folder = protocol[layer]['save_folder']
                 file_root = protocol[layer]['file_root']
-                lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
-
+                try:
+                    lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
+                except:
+                    print("Save folder does not exist")
                 # turn off the LED
 
 
