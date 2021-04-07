@@ -815,6 +815,8 @@ class LumaViewProApp(App):
         global lumaview
         lumaview = MainDisplay()
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/default.json")
+        lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
+        lumaview.led_board.led_off()
         return lumaview
 
     def on_stop(self):
