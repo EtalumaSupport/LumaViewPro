@@ -143,7 +143,7 @@ class PylonCamera(Camera):
 
                 grabResult.Release()
 
-        except genicam.GenericException as e:
+        except:
             if self.camera != False:
                 print("It looks like a Lumaview compatible camera was unplugged")
             self.camera = False
@@ -319,6 +319,7 @@ class MainDisplay(FloatLayout):
                 else:
                     img[:,:,2] = camera.array
 
+        led_board.led_off()
         filename = 'composite_' + str(int(round(time.time() * 1000))) + '.png'
         cv2.imwrite('./capture/'+filename, img)
 
