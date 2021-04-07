@@ -158,7 +158,10 @@ class PylonCamera(Camera):
             append =''
 
         filename = save_folder + file_root + append + '.tiff'
-        self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
+        try:
+            self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
+        except:
+            print("Save folder does not exist")
 
     def frame_size(self, w, h):
         global lumaview
@@ -761,10 +764,7 @@ class TimeLapseSettings(BoxLayout):
                 # capture the image
                 save_folder = protocol[layer]['save_folder']
                 file_root = protocol[layer]['file_root']
-                try:
-                    lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
-                except:
-                    print("Save folder does not exist")
+                lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
                 # turn off the LED
 
 
