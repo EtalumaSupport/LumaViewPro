@@ -1,0 +1,70 @@
+import serial
+import serial.tools.list_ports as list_ports
+import time
+
+class LEDBoard:
+    def __init__(self, **kwargs):
+
+        ports = list(list_ports.comports())
+        if (len(ports)!=0):
+            self.port = ports[0].device
+        self.port="COM5"
+        self.baudrate=9600
+        self.bytesize=serial.EIGHTBITS
+        self.parity=serial.PARITY_NONE
+        self.stopbits=serial.STOPBITS_ONE
+        self.timeout=10.0 # seconds
+        self.driver = True
+        self.connect()
+
+    def __del__(self):
+        if self.driver != False:
+            self.driver.close()
+
+    def connect(self):
+        try:
+            self.driver = serial.Serial(port=self.port, baudrate=self.baudrate, bytesize=self.bytesize, parity=self.parity, stopbits=self.stopbits, timeout=self.timeout)
+            self.driver.close()
+            self.driver.open()
+        except:
+            if self.driver != False:
+                print("It looks like a Lumaview compatible LED driver board is not plugged in")
+            self.driver = False
+
+    def color2ch(self, color):
+        if color == 'Blue':
+            return 0
+        elif color == 'Green':
+            return 1
+        elif color == 'Red':
+            return 2
+        else:
+            return 3
+
+    def led_cal(self, channel):
+        command = '{CAL,'+ str(channel) + '}00'
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
+
+    def led_on(self, channel, mA):
+        command = '{TON,'+ str(channel) + ',H,' + str(mA) + '}00'
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
+
+    def led_off(self):
+        command = '{TOF}00'
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
+
+led_board = LEDBoard()
+print('led_board connection attempted')
+led_board.led_on(0, 50)
+print('LED 0 is on')
+time.sleep(1)
+led_board.led_on(1, 50)
+print('LED 1 is on')
+time.sleep(1)
+led_board.led_on(2, 50)
+print('LED 2 is on')
+time.sleep(1)
+led_board.led_off()

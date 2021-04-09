@@ -207,7 +207,7 @@ class LEDBoard:
         ports = list(list_ports.comports())
         if (len(ports)!=0):
             self.port = ports[0].device
-        #self.port="/dev/ttyS0"
+        self.port="COM5"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
@@ -511,19 +511,15 @@ void main (void) {
             self.pos = 0, 0
 
 class MainSettings(BoxLayout):
-    hide_settings = ObjectProperty(None)
-    hide_settings = True
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
         global lumaview
         # update protocol
-        if self.hide_settings == False:
-            self.hide_settings = True
-            self.pos = lumaview.width-15, 0
-        else:
-            self.hide_settings = False
+        if self.ids['toggle_mainsettings'].state == 'down': # if down, open the settinsg
             self.pos = lumaview.width-300, 0
+        else:
+            self.pos = lumaview.width-15, 0
 
 class MicroscopeSettings(BoxLayout):
     def microscope_selectFN(self, scope):
