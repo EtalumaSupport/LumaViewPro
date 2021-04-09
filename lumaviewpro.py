@@ -817,6 +817,7 @@ class LumaViewProApp(App):
 
     def on_stop(self):
         global lumaview
+        lumaview.led_board.led_off()
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/default.json")
 
 LumaViewProApp().run()
