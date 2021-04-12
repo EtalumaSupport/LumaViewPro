@@ -643,7 +643,7 @@ class LayerControl(BoxLayout):
 
         if self.layer == 'BF':
             self.ids['false_color_label'].text = '' # Remove 'Colorize' option in brightfield control
-            #self.ids['false_color'].size_hint = None, None
+            self.ids['false_color'].color = (0., )*4
             #self.ids['false_color'].size = 0, 0
 
         # update illumination to currently selected settings
