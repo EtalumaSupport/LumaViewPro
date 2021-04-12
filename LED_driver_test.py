@@ -2,13 +2,21 @@ import serial
 import serial.tools.list_ports as list_ports
 import time
 
+# /dev/ttyACM0
+#     desc: STM32 Virtual ComPort
+#     hwid: USB VID:PID=0483:5740 SER=205835435736 LOCATION=1-5:1.0
+# /dev/ttyS0
+#     desc: ttyS0
+#     hwid: PNP0501
+
 class LEDBoard:
     def __init__(self, **kwargs):
 
         ports = list(list_ports.comports())
         if (len(ports)!=0):
+            print(ports[0])
             self.port = ports[0].device
-        self.port="COM5"
+        #self.port="COM5"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
