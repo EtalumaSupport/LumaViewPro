@@ -32,7 +32,7 @@ Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 
 MODIFIED:
-March 5, 2021
+April 12, 2021
 '''
 
 # General
@@ -148,7 +148,7 @@ class PylonCamera(Camera):
                 print("It looks like a Lumaview compatible camera was unplugged")
             self.camera = False
 
-    def capture(self, save_folder = 'capture/', file_root = 'live_', append = 'ms'):
+    def capture(self, save_folder = './capture/', file_root = 'live_', append = 'ms'):
 
         if append == 'time':
             append = time.strftime("%Y%m%d_%H%M%S")
@@ -157,7 +157,7 @@ class PylonCamera(Camera):
         else:
             append =''
 
-        filename = save_folder + file_root + append + '.tiff'
+        filename = save_folder + '/' + file_root + append + '.tiff'
         try:
             self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
         except:
@@ -609,8 +609,11 @@ class LayerControl(BoxLayout):
         self._popup.open()
 
     def load(self, path):
-        protocol[self.layer]['save_folder'] = path + '/'
-        self.ids['folder_btn'].text = '...'+path[-30:]
+        protocol[self.layer]['save_folder'] = path
+        if len(path) > 30:
+            self.ids['folder_btn'].text = '... '+path[-30:]
+        else:
+            self.ids['folder_btn'].text = path
         self.dismiss_popup()
 
     def dismiss_popup(self):
@@ -704,7 +707,10 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '...' + protocol[layer]['save_folder'][-30:]
+                if len(protocol[layer]['save_folder']) > 30:
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '... ' + protocol[layer]['save_folder'][-30:]
+                else:
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = protocol[layer]['save_folder'][-30:]
                 lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
