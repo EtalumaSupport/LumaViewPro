@@ -645,7 +645,22 @@ class LayerControl(BoxLayout):
         illumination = protocol[self.layer]['ill']
         # set LED illumination level here
         led_board = lumaview.led_board
-        led_board.led_on(led_board.color2ch(self.layer), illumination)
+        if self.ids['apply_btn'].state == 'down':
+            # need to turn the state of the other channels to 'normal'
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].text = 'OFF'
+                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+            # Update the text of the button
+            self.ids['apply_btn'].text = 'ON'
+            self.ids['apply_btn'].state = 'down'
+            # turn on the LED
+            led_board.led_on(led_board.color2ch(self.layer), illumination)
+        else:
+            # update the text of the button
+            self.ids['apply_btn'].text = 'OFF'
+            # turn off the LED
+            led_board.led_off()
         # update gain to currently selected settings
         gain = protocol[self.layer]['gain']
         lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
