@@ -638,10 +638,14 @@ class LayerControl(BoxLayout):
                 gain_vals = (0., 1., 0., 1.)
             elif(self.layer) == 'Blue':
                 gain_vals = (0., 0., 1., 1.)
-            else:
-                gain_vals =  (1., )*4
         else:
             gain_vals =  (1., )*4
+
+        if self.layer == 'BF':
+            self.ids['false_color_label'].text = '' # Remove 'Colorize' option in brightfield control
+            #self.ids['false_color'].size_hint = None, None
+            #self.ids['false_color'].size = 0, 0
+
         # update illumination to currently selected settings
         illumination = protocol[self.layer]['ill']
         # set LED illumination level here
@@ -662,12 +666,15 @@ class LayerControl(BoxLayout):
             self.ids['apply_btn'].text = 'OFF'
             # turn off the LED
             led_board.led_off()
+
         # update gain to currently selected settings
         gain = protocol[self.layer]['gain']
         lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
+
         # update exposure to currently selected settings
         exposure = protocol[self.layer]['exp']
         lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
+
 
 class TimeLapseSettings(BoxLayout):
     record = ObjectProperty(None)
