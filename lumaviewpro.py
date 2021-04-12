@@ -565,39 +565,37 @@ class LayerControl(BoxLayout):
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
 
     def ill_slider(self):
-        protocol[self.layer]['ill'] = self.ids['ill_slider'].value
+        illumination = self.ids['ill_slider'].value
+        protocol[self.layer]['ill'] = illumination
         self.apply_settings()
 
     def ill_text(self):
-        protocol[self.layer]['ill'] = float(self.ids['ill_text'].text)
-        self.ids['ill_slider'].value = float(self.ids['ill_text'].text)
+        illumination = float(self.ids['ill_text'].text)
+        protocol[self.layer]['ill'] = illumination
+        self.ids['ill_slider'].value = illumination
         self.apply_settings()
 
     def gain_slider(self):
         gain = self.ids['gain_slider'].value
         protocol[self.layer]['gain'] = gain
         self.apply_settings()
-        # lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
 
     def gain_text(self):
         gain = float(self.ids['gain_text'].text)
         protocol[self.layer]['gain'] = gain
         self.ids['gain_slider'].value = gain
         self.apply_settings()
-        # lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
 
     def exp_slider(self):
         exposure = self.ids['exp_slider'].value
         protocol[self.layer]['exp'] = exposure
         self.apply_settings()
-        # lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
     def exp_text(self):
-        exposure = int(self.ids['exp_text'].text)
+        exposure = float(self.ids['exp_text'].text)
         protocol[self.layer]['exp'] = exposure
         self.ids['exp_slider'].value = exposure
         self.apply_settings()
-        # lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
     def choose_folder(self):
         content = LoadDialog(load=self.load,
@@ -728,19 +726,20 @@ class TimeLapseSettings(BoxLayout):
         global protocol
 
         # number of capture events remaining
+        ## duration is in hours, period is in minutes
         self.n_captures = int(float(protocol['duration'])*60 / float(protocol['period']))
 
         # update protocol
         if self.record == False:
             self.record = True
 
-            hrs = np.floor(self.n_captures*protocol['period']/60)
+            hrs = np.floor(self.n_captures * protocol['period']/60)
             minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
             hrs = '%02d' % hrs
             minutes = '%02d' % minutes
             self.ids['protocol_btn'].text = hrs+':'+minutes+' remaining'
 
-            self.dt = protocol['period']*60
+            self.dt = protocol['period']*60 # frame events are measured in seconds
             self.frame_event = Clock.schedule_interval(self.capture, self.dt)
         else:
             self.record = False
@@ -759,6 +758,9 @@ class TimeLapseSettings(BoxLayout):
 
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
+            # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].text = 'OFF'
+            # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+            #
             if protocol[layer]['acquire'] == True:
                 global lumaview
                 camera = lumaview.ids['viewer_id'].ids['microscope_camera']
@@ -784,6 +786,7 @@ class TimeLapseSettings(BoxLayout):
                 file_root = protocol[layer]['file_root']
                 lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
                 # turn off the LED
+                led_board.led_off()
 
 
     def convert_to_avi(self):

@@ -32,7 +32,7 @@
 # Anna Iwaniec Hickerson, Keck Graduate Institute
 #
 # MODIFIED:
-# March 3, 2021
+# April 12, 2021
 #-------------------------------------------------------------------------------
 
 # -----------------------
@@ -398,9 +398,9 @@
                 width: 100
             Slider:
                 id: ill_slider
-                min: 0
-                max: 100
-                value: 20
+                min: 1
+                max: 200
+                value: 100
                 cursor_size: 20,20
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
@@ -414,8 +414,8 @@
                 font_size: 14
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'left'
-                input_filter: 'float'
-                text:"%.2f" % ill_slider.value
+                input_filter: 'int'
+                text:str(int(ill_slider.value))
                 on_text: root.ill_text()
         # Gain
         BoxLayout:
@@ -428,7 +428,7 @@
                 width: 100
             Slider:
                 id: gain_slider
-                min: 0
+                min: 0.
                 max: 24.
                 value: 0.
                 cursor_size: 20,20
@@ -445,7 +445,7 @@
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'left'
                 input_filter: 'float'
-                text:"%.2f" % gain_slider.value
+                text:"%.1f" % gain_slider.value
                 on_text: root.gain_text()
         # Exposure
         BoxLayout:
@@ -473,7 +473,7 @@
                 font_size: 14
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'left'
-                input_filter: 'float'
+                input_filter: 'int'
                 text: str(int(exp_slider.value))
                 on_text: root.exp_text()
 

@@ -1,1 +1,11 @@
-{"microscope": "LS460", "frame_width": 500, "frame_height": 1000, "objective": "A", "period": 0.017, "duration": 0.17, "BF": {"save_folder": "C:\\Users\\iwani", "file_root": "W_", "ill": 0.0, "gain": 0.0, "exp": 61, "false_color": false, "acquire": true}, "Blue": {"save_folder": "C:\\Users\\iwani", "file_root": "B_", "ill": 52.69, "gain": 0.0, "exp": 29, "false_color": true, "acquire": true}, "Green": {"save_folder": "C:\\Users\\iwani", "file_root": "G_", "ill": 37.63, "gain": 0.0, "exp": 32, "false_color": true, "acquire": true}, "Red": {"save_folder": "C:\\Users\\iwani", "file_root": "R_", "ill": 37.63, "gain": 6.19, "exp": 8, "false_color": false, "acquire": true}, "Composite": {"acquire": false}}
+{"microscope": "LS460",
+"frame_width": 500,
+"frame_height": 1000,
+"objective": "Objective A",
+"period": 0.17,
+"duration": 0.17,
+"BF": {"save_folder": "C:\\Users\\iwani\\Documents\\Code\\LumaViewPro\\capture","file_root": "W_", "ill": 100, "gain": 0.0, "exp": 50, "false_color": false, "acquire": true},
+"Blue": {"save_folder": "C:\\Users\\iwani\\Documents\\Code\\LumaViewPro\\capture", "file_root": "B_", "ill": 100, "gain": 0.0, "exp": 50, "false_color": true, "acquire": true},
+"Green": {"save_folder": "C:\\Users\\iwani\\Documents\\Code\\LumaViewPro\\capture", "file_root": "G_", "ill": 100, "gain": 0.0, "exp": 50, "false_color": true, "acquire": true},
+"Red": {"save_folder": "C:\\Users\\iwani\\Documents\\Code\\LumaViewPro\\capture", "file_root": "R_", "ill": 100, "gain": 0.0, "exp": 50, "false_color": false, "acquire": true},
+"Composite": {"acquire": false}}

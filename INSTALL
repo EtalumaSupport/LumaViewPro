@@ -9,7 +9,7 @@ sudo apt-get install python3-pip
 # check if it works
 python3 --version
 
-# install kyvi
+# install kivy
 pip3 install --upgrade pip setuptools virtualenv
 python3 -m virtualenv kivy_venv
 pip3 install kivy[base] kivy_examples --no-binary kivy
