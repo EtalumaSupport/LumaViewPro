@@ -68,15 +68,10 @@ led_board = LEDBoard()
 print('led_board connection attempted')
 
 while True:
-    led_board.led_on(0, 50)
-    print('LED 0 is on')
-    time.sleep(1)
-    led_board.led_on(1, 50)
-    print('LED 1 is on')
-    time.sleep(1)
-    led_board.led_on(2, 50)
-    print('LED 2 is on')
-    time.sleep(1)
-    led_board.led_off()
-    print('LEDs off')
-    time.sleep(1)
+    mA = input('current:')
+    if mA == 0:
+        led_board.led_off()
+    elif mA == 'q':
+        break
+    else:
+        led_board.led_on(0, mA)
