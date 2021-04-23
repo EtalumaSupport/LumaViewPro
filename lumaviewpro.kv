@@ -223,35 +223,35 @@
             pos: self.pos
 
 
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: 40
-        Label:
-            text: 'LED Board'
-            size_hint_x: None
-            width: 140
-        Button:
-            id: select_port_btn
-            text: 'Serial Port'
-            size_hint_y: None
-            height: 40
-            on_release: port_select.open(self)
-        DropDown:
-            id: port_select
-            on_select: root.port_select(args[1])
-            Button:
-                id: COM3_btn
-                text: 'COM3'
-                size_hint_y: None
-                height: 40
-                on_release: port_select.select('COM3')
-            Button:
-                id: linux_btn
-                text: '/dev/ttyS0'
-                size_hint_y: None
-                height: 40
-                on_release: port_select.select('/dev/ttyS0')
+    # BoxLayout:
+    #     orientation: 'horizontal'
+    #     size_hint_y: None
+    #     height: 40
+    #     Label:
+    #         text: 'LED Board'
+    #         size_hint_x: None
+    #         width: 140
+    #     Button:
+    #         id: select_port_btn
+    #         text: 'Serial Port'
+    #         size_hint_y: None
+    #         height: 40
+    #         on_release: port_select.open(self)
+    #     DropDown:
+    #         id: port_select
+    #         on_select: root.port_select(args[1])
+    #         Button:
+    #             id: COM3_btn
+    #             text: 'COM3'
+    #             size_hint_y: None
+    #             height: 40
+    #             on_release: port_select.select('COM3')
+    #         Button:
+    #             id: linux_btn
+    #             text: '/dev/ttyS0'
+    #             size_hint_y: None
+    #             height: 40
+    #             on_release: port_select.select('/dev/ttyS0')
 
     BoxLayout:
         orientation: 'horizontal'
@@ -385,7 +385,7 @@
     BoxLayout:
         orientation: 'vertical'
         size_hint_y: None
-        height: 280
+        height: 30*6+10*5
         spacing: 10
         # Illumination
         BoxLayout:
@@ -394,13 +394,14 @@
                 text: 'Illumination (mA)'
                 halign: 'center'
                 valign: 'middle'
+                font_size: 12
                 size_hint_x: None
-                width: 100
+                width: 110
             Slider:
                 id: ill_slider
-                min: 1
-                max: 200
-                value: 100
+                min: 0.
+                max: 600.
+                value: 100.
                 cursor_size: 20,20
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
@@ -409,13 +410,13 @@
             TextInput:
                 id: ill_text
                 size_hint_x: None
-                width: 50
+                width: 60
                 multiline: False
-                font_size: 14
+                font_size: 12
                 padding: [10, (self.height-self.line_height)/2]
-                halign: 'left'
+                halign: 'right'
                 input_filter: 'int'
-                text:str(int(ill_slider.value))
+                text:"%.1f" % ill_slider.value
                 on_text: root.ill_text()
         # Gain
         BoxLayout:
@@ -424,10 +425,11 @@
                 text: 'Gain (dB)'
                 halign: 'center'
                 valign: 'middle'
+                font_size: 12
                 size_hint_x: None
-                width: 100
+                width: 110
             Slider:
-                id: gain_slider
+                id: gain_slider # 0 to 24, default 0, based on camera limits
                 min: 0.
                 max: 24.
                 value: 0.
@@ -439,11 +441,11 @@
             TextInput:
                 id: gain_text
                 size_hint_x: None
-                width: 50
+                width: 60
                 multiline: False
-                font_size: 14
+                font_size: 12
                 padding: [10, (self.height-self.line_height)/2]
-                halign: 'left'
+                halign: 'right'
                 input_filter: 'float'
                 text:"%.1f" % gain_slider.value
                 on_text: root.gain_text()
@@ -453,13 +455,15 @@
             Label:
                 text: 'Exposure (ms)'
                 halign: 'center'
+                valign: 'middle'
+                font_size: 12
                 size_hint_x: None
-                width: 100
+                width: 110
             Slider:
-                id: exp_slider
-                min: 1
-                max: 100
-                value: 50
+                id: exp_slider # 2e-5 to 60, default .005
+                min: 0.01 # minimum allowable by camera 10.0 us = 0.01 ms
+                max: 1000 # maximum, allowable by camera 1000000.0 us = 1000.0 ms
+                value: 200
                 cursor_size: 20,20
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
@@ -468,13 +472,13 @@
             TextInput:
                 id: exp_text
                 size_hint_x: None
-                width: 50
+                width: 60
                 multiline: False
-                font_size: 14
+                font_size: 12
                 padding: [10, (self.height-self.line_height)/2]
-                halign: 'left'
+                halign: 'right'
                 input_filter: 'int'
-                text: str(int(exp_slider.value))
+                text: "%.1f" % exp_slider.value
                 on_text: root.exp_text()
 
         # File Save Settings
@@ -492,7 +496,7 @@
         # bulk settings
         BoxLayout:
             orientation: 'horizontal'
-            padding: 5
+            padding: 0
             ToggleButton:
                 id: apply_btn
                 text: 'ON'

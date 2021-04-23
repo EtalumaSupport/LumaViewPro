@@ -198,7 +198,10 @@ class PylonCamera(Camera):
             return
 
         camera.StopGrabbing()
-        camera.ExposureTime.SetValue(t*1000) # in microseconds
+        camera.ExposureTime.SetValue(t*1000) # (t*1000) in microseconds; therefore t  in milliseconds
+        # # DEBUG:
+        # print(camera.ExposureTime.Min)
+        # print(camera.ExposureTime.Max)
         camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
 class LEDBoard:

@@ -1,8 +1,8 @@
-# USED TO GENERATE PROtOCOL JSON FILE
+# USED TO GENERATE PROTOCOL JSON FILE
 
 # Protocol Layout
 protocol = {
-    "microscope": 'LS620',
+    "microscope": "LS620",
     "frame_width": 2592,
     "frame_height": 1944,
     "objective": 'Canon 55mm',
@@ -11,36 +11,36 @@ protocol = {
     "BF": {
         "save_folder": "./capture",
         "file_root": "W_",
-        "ill": 100,
+        "ill": 100.,
         "gain": 0.,
-        "exp": 50.,
+        "exp": 200.,
         "false_color": False,
         "acquire": True
     },
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 100,
+        "ill": 100.,
         "gain": 0.,
-        "exp": 50,
+        "exp": 200.,
         "false_color": True,
         "acquire": True
     },
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 100,
+        "ill": 100.,
         "gain": 0.,
-        "exp": 50,
+        "exp": 200.,
         "false_color": True,
         "acquire": True
     },
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 1000,
+        "ill": 100.,
         "gain": 0.,
-        "exp": 50,
+        "exp": 200.,
         "false_color": True,
         "acquire": True
     },
