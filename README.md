@@ -16,7 +16,7 @@ Run the command prompt as administrator, and enter each of these commands. The v
 * `python -m pip install docutils pygments pypiwin32` (docutils-0.16 pygments-2.8.1 pypiwin32-223 pywin32-300)
 * `python -m pip install kivy.deps.sdl2` (kivy_deps.sdl2-0.3.1-cp39-cp39-win_amd64.whl)
 * `python -m pip install kivy.deps.glew` (kivy_deps.glew-0.3.0-cp39-cp39-win_amd64.whl)
-*` python -m pip install kivy.deps.gstreamer` (kivy_deps.gstreamer-0.3.1-cp39-cp39-win_amd64.whl)
+* `python -m pip install kivy.deps.gstreamer` (kivy_deps.gstreamer-0.3.1-cp39-cp39-win_amd64.whl)
 * `python -m pip install kivy`
 
 
