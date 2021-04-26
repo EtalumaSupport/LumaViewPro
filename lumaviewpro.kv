@@ -208,6 +208,57 @@
             TimeLapseSettings:
                 id: time_lapse_id
 
+# MicroscopeDropDown - Drop down list for microscope selection
+# Used within MicroscopeSettings1
+# ------------------------------------------------------------
+<MicroscopeDropDown>:
+	Button:
+		text: 'LS460'
+		font_size: 30
+		size_hint_y: None
+		height: 40
+		on_release: root.select('LS460')
+	Button:
+		text: 'LS560'
+		font_size: 30
+		size_hint_y: None
+		height: 40
+		on_release: root.select('LS560')
+	Button:
+		text: 'LS620'
+		font_size: 30
+		size_hint_y: None
+		height: 40
+		on_release: root.select('LS620')
+	Button:
+		text: 'LS720'
+		font_size: 30
+		size_hint_y: None
+		height: 40
+		on_release: root.select('LS720')
+
+# ObjectiveDropDown - Drop down list for objective selection
+# Used within MicroscopeSettings2
+# ----------------------------------------------------------
+<ObjectiveDropDown>:
+	Button:
+		text: 'Objective A'
+		font_size: 30
+		size_hint_y: None
+		height: 40
+		on_release: root.select('Objective A')
+	Button:
+		text: 'Objective B'
+		font_size: 30
+		size_hint_y: None
+		height: 40
+		on_release: root.select('Objective B')
+	Button:
+		text: 'Canon 55mm'
+		font_size: 30
+		size_hint_y: None
+		height: 40
+		on_release: root.select('Canon 55mm')
 
 # MicroscopeSettings - Settings for  Microscope within MainSettings
 # ------------------------------------------
@@ -222,7 +273,53 @@
             size: self.size
             pos: self.pos
 
+	MicroscopeSettings1:
+		id: select_scope_btn
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: 40
 
+	MicroscopeSettings2:
+		id: select_obj_btn
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: 40
+
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: 40
+        Label:
+            text: 'Frame Size'
+            size_hint_x: None
+            width: 300
+			font_size: 30
+        TextInput:
+            id: frame_width
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+            halign: 'left'
+            input_filter: 'int'
+            text: '2592'
+            on_text_validate: root.frame_size()
+			font_size: 30
+        Label:
+            text: 'x'
+            size_hint_x: None
+            width: 20
+			font_size: 30
+        TextInput:
+            id: frame_height
+            multiline: False
+            padding: [10, (self.height-self.line_height)/2]
+            halign: 'left'
+            input_filter: 'int'
+            text: '1944'
+            on_text_validate: root.frame_size()
+			font_size: 30
+    Image:
+        id: image_of_microscope
+        source: './data/LS620.png'
     # BoxLayout:
     #     orientation: 'horizontal'
     #     size_hint_y: None
@@ -252,78 +349,34 @@
     #             size_hint_y: None
     #             height: 40
     #             on_release: port_select.select('/dev/ttyS0')
-
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: 40
-        Label:
-            text: 'Lumascope Model'
-            size_hint_x: None
-            width: 300
-			font_size: 30
-        Button:
-            id: select_scope_btn
-            text: 'Select Scope'
-            size_hint_y: None
-            height: 40
-            on_release: microscope_select.open(self)
-        DropDown:
-            id: microscope_select
-            on_select: root.microscope_selectFN(args[1])
-            Button:
-                id: LS460_btn
-                text: 'LS460'
-                size_hint_y: None
-                height: 40
-                on_release: microscope_select.select('LS460')
-            Button:
-                id: LS560_btn
-                text: 'LS560'
-                size_hint_y: None
-                height: 40
-                on_release: microscope_select.select('LS560')
-            # Button:
-            #     id: LS620_btn
-            #     text: 'LS620'
-            #     size_hint_y: None
-            #     height: 40
-            #     on_release: microscope_select.select('LS620')
-            # Button:
-            #     id: LS720_btn
-            #     text: 'LS720'
-            #     size_hint_y: None
-            #     height: 40
-            #     on_release: microscope_select.select('LS720')
-
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: 40
-        Label:
-            text: 'Objective'
-            size_hint_x: None
-            width: 300
-			font_size: 30
-        Button:
-            id: select_obj_btn
-            text: 'Select Objective'
-            on_release: objective_select.open(self)
-        DropDown:
-            id: objective_select
-            on_select: root.objective_select(args[1])
-            Button:
-                id: LS460_btn
-                text: 'Objective A'
-                size_hint_y: None
-                height: 40
-                on_release: objective_select.select('A')
-            Button:
-                id: LS560_btn
-                text: 'Objective B'
-                size_hint_y: None
-                height: 40
-                on_release: objective_select.select('B')
+    # BoxLayout:
+    #    orientation: 'horizontal'
+    #    size_hint_y: None
+    #    height: 40
+    #    Label:
+    #        text: 'Objective'
+    #        size_hint_x: None
+    #        width: 300
+	#		font_size: 30
+    #    Button:
+    #        id: select_obj_btn
+    #        text: 'Select Objective'
+    #        on_release: objective_select.open(self)
+    #    DropDown:
+    #        id: objective_select
+    #        on_select: root.objective_select(args[1])
+    #        Button:
+    #            id: LS460_btn
+    #            text: 'Objective A'
+    #            size_hint_y: None
+    #            height: 40
+    #            on_release: objective_select.select('A')
+    #        Button:
+    #            id: LS560_btn
+    #            text: 'Objective B'
+    #            size_hint_y: None
+    #            height: 40
+    #            on_release: objective_select.select('B')
             # Button:
             #     id: LS620_btn
             #     text: 'Objective C'
@@ -338,40 +391,6 @@
             #     on_release: objective_select.select('D')
             #
 
-
-
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: 40
-        Label:
-            text: 'Frame Size'
-            size_hint_x: None
-            width: 300
-			font_size: 30
-        TextInput:
-            id: frame_width
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-            halign: 'left'
-            input_filter: 'int'
-            text: '2592'
-            on_text_validate: root.frame_size()
-        Label:
-            text: 'x'
-            size_hint_x: None
-            width: 20
-        TextInput:
-            id: frame_height
-            multiline: False
-            padding: [10, (self.height-self.line_height)/2]
-            halign: 'left'
-            input_filter: 'int'
-            text: '1944'
-            on_text_validate: root.frame_size()
-    Image:
-        id: image_of_microscope
-        source: './data/LS620.png'
 
 # LayerControl - Settings for Layers within MainSettings
 # ------------------------------------------

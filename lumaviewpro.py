@@ -66,6 +66,8 @@ from kivy.uix.switch import Switch
 from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
 from kivy.uix.popup import Popup
+from kivy.uix.label import Label
+from kivy.uix.button import Button
 
 # Video Related
 from kivy.graphics.texture import Texture
@@ -526,21 +528,10 @@ class MainSettings(BoxLayout):
             self.pos = lumaview.width-15, 0
 
 class MicroscopeSettings(BoxLayout):
-    def microscope_selectFN(self, scope):
-        global protocol
-        self.ids['select_scope_btn'].text = scope
-        self.ids['image_of_microscope'].source = './data/'+scope+'.png'
-        protocol['microscope'] = scope
-
-    def port_select(self, port):
-        global protocol
-        self.ids['select_port_btn'].text = port
-        # protocol['objective'] = objective
-
-    def objective_select(self, objective):
-        global protocol
-        self.ids['select_obj_btn'].text = 'Objective '+ objective
-        protocol['objective'] = objective
+#    def port_select(self, port):
+#        global protocol
+#        self.ids['select_port_btn'].text = port
+#        # protocol['objective'] = objective
 
     def frame_size(self):
         global lumaview
@@ -549,9 +540,16 @@ class MicroscopeSettings(BoxLayout):
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
 
+        print(w)
+        print(h)
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
-        width = int(min(int(w), camera.Width.Max)/2)*2
-        height = int(min(int(h), camera.Height.Max)/2)*2
+        print(camera)
+
+        #width = int(min(int(w), camera.Width.Max)/2)*2
+        #height = int(min(int(h), camera.Height.Max)/2)*2
+
+        width = w
+        height = h
 
         protocol['frame_width'] = width
         protocol['frame_height'] = height
@@ -559,8 +557,88 @@ class MicroscopeSettings(BoxLayout):
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(w, h)
 
 
+# Pass-through class for microscope selection drop-down menu, defined in .kv file
+# -------------------------------------------------------------------------------
 class MicroscopeDropDown(DropDown):
     pass
+
+
+# First line of Microscope Settings control panel, to select model of microscope
+# ------------------------------------------------------------------------------
+class MicroscopeSettings1(BoxLayout):
+    # The text displayed in the button
+    scope_str = StringProperty('LS620')
+
+    def __init__(self, **kwargs):
+        super(MicroscopeSettings1, self).__init__(**kwargs)
+        
+        # Create label and button here so DropDown menu works properly
+        self.mainlabel = Label(text = 'Lumascope Model',
+                               size_hint_x = None, width = 300, font_size = 30)
+        self.mainbutton = Button(text = self.scope_str,
+                                 size_hint_y = None, height = 40)
+        
+        # Group widgets together
+        self.dropdown = MicroscopeDropDown()
+        self.add_widget(self.mainlabel)
+        self.add_widget(self.mainbutton)
+        
+        # Add actions - mainbutton opens dropdown menu
+        self.mainbutton.bind(on_release = self.dropdown.open)
+        
+        # Dropdown buttons do stuff based on their text through microscope_selectFN
+        self.dropdown.bind(on_select = lambda instance, 
+                                       scope: setattr(self.mainbutton, 'text', scope))
+        self.dropdown.bind(on_select = self.microscope_selectFN)
+
+
+    def microscope_selectFN(self, instance, scope):
+        global protocol
+        self.scope_str = scope
+        self.parent.ids['image_of_microscope'].source = './data/'+scope+'.png'
+        protocol['microscope'] = scope
+        print("Selected microscope: {0}" . format(scope))
+
+
+# Pass-through class for objective settings drop down menu, defined in .kv file
+# ----------------------------------------------------------------------------
+class ObjectiveDropDown(DropDown):
+    pass
+
+
+# Second line of Microscope Settings control panel, to select objective
+# ---------------------------------------------------------------------
+class MicroscopeSettings2(BoxLayout):
+    # The text displayed in the button
+    objective_str = StringProperty('Canon 55mm')
+
+    def __init__(self, **kwargs):
+        super(MicroscopeSettings2, self).__init__(**kwargs)
+
+        # Create label and button here so DropDown menu works properly
+        self.mainlabel = Label(text = 'Objective', 
+                               size_hint_x = None, width = 300, font_size = 30)
+        self.mainbutton = Button(text = self.objective_str, 
+                                 size_hint_y = None, height = 40)
+
+        # Group widgets together
+        self.dropdown = ObjectiveDropDown()
+        self.add_widget(self.mainlabel)
+        self.add_widget(self.mainbutton)
+
+        # Add actions - mainbutton opens dropdown menu
+        self.mainbutton.bind(on_release = self.dropdown.open)
+
+        # Dropdown buttons do stuff based on their text through objective_select
+        self.dropdown.bind(on_select = lambda instance, 
+                           objective: setattr(self.mainbutton, 'text', objective))
+        self.dropdown.bind(on_select = self.objective_select)
+
+
+    def objective_select(self, instance, objective):
+        global protocol
+        self.objective_str = objective
+        protocol['objective'] = objective
 
 
 class LayerControl(BoxLayout):
@@ -708,10 +786,10 @@ class TimeLapseSettings(BoxLayout):
             global protocol
             protocol = json.load(read_file)
             # update GUI values from JSON data:
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_btn'].text = protocol['microscope']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_btn'].scope_str = protocol['microscope']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_btn'].text = str(protocol['objective'])
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_btn'].objective_str = str(protocol['objective'])
 
             self.ids['capture_period'].text = str(protocol['period'])
             self.ids['capture_dur'].text = str(protocol['duration'])
