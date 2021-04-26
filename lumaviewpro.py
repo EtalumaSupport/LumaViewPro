@@ -514,13 +514,14 @@ void main (void) {
             self.pos = 0, 0
 
 class MainSettings(BoxLayout):
+    settings_width = 600
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
         global lumaview
         # update protocol
         if self.ids['toggle_mainsettings'].state == 'down': # if down, open the settinsg
-            self.pos = lumaview.width-300, 0
+            self.pos = lumaview.width - self.settings_width, 0
         else:
             self.pos = lumaview.width-15, 0
 
@@ -556,6 +557,11 @@ class MicroscopeSettings(BoxLayout):
         protocol['frame_height'] = height
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(w, h)
+
+
+class MicroscopeDropDown(DropDown):
+    pass
+
 
 class LayerControl(BoxLayout):
     layer = StringProperty(None)

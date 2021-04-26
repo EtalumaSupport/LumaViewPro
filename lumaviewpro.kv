@@ -60,7 +60,7 @@
     MainSettings:
         id: mainsettings_id
         size_hint: None, None
-        size: 300, root.height
+        size: self.settings_width, root.height
         pos: root.width-15, 0
 
     # Camera Controls
@@ -260,7 +260,8 @@
         Label:
             text: 'Lumascope Model'
             size_hint_x: None
-            width: 140
+            width: 300
+			font_size: 30
         Button:
             id: select_scope_btn
             text: 'Select Scope'
@@ -302,7 +303,8 @@
         Label:
             text: 'Objective'
             size_hint_x: None
-            width: 140
+            width: 300
+			font_size: 30
         Button:
             id: select_obj_btn
             text: 'Select Objective'
@@ -345,7 +347,8 @@
         Label:
             text: 'Frame Size'
             size_hint_x: None
-            width: 140
+            width: 300
+			font_size: 30
         TextInput:
             id: frame_width
             multiline: False
