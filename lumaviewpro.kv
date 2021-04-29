@@ -416,9 +416,9 @@
                 text: 'Illumination (mA)'
                 halign: 'center'
                 valign: 'middle'
-                font_size: 12
+                font_size: 20
                 size_hint_x: None
-                width: 110
+                width: 160
             Slider:
                 id: ill_slider
                 min: 0.
@@ -432,9 +432,9 @@
             TextInput:
                 id: ill_text
                 size_hint_x: None
-                width: 60
+                width: 80
                 multiline: False
-                font_size: 12
+                font_size: 20
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'right'
                 input_filter: 'int'
@@ -447,9 +447,9 @@
                 text: 'Gain (dB)'
                 halign: 'center'
                 valign: 'middle'
-                font_size: 12
+                font_size: 20
                 size_hint_x: None
-                width: 110
+                width: 160
             Slider:
                 id: gain_slider # 0 to 24, default 0, based on camera limits
                 min: 0.
@@ -463,9 +463,9 @@
             TextInput:
                 id: gain_text
                 size_hint_x: None
-                width: 60
+                width: 80
                 multiline: False
-                font_size: 12
+                font_size: 20
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'right'
                 input_filter: 'float'
@@ -478,9 +478,9 @@
                 text: 'Exposure (ms)'
                 halign: 'center'
                 valign: 'middle'
-                font_size: 12
+                font_size: 20
                 size_hint_x: None
-                width: 110
+                width: 160
             Slider:
                 id: exp_slider # 2e-5 to 60, default .005
                 min: 0.01 # minimum allowable by camera 10.0 us = 0.01 ms
@@ -494,9 +494,9 @@
             TextInput:
                 id: exp_text
                 size_hint_x: None
-                width: 60
+                width: 80
                 multiline: False
-                font_size: 12
+                font_size: 20
                 padding: [10, (self.height-self.line_height)/2]
                 halign: 'right'
                 input_filter: 'int'
@@ -569,7 +569,8 @@
         Label:
             text: 'Capture Period'
             size_hint_x: None
-            width: 150
+            width: 300
+			font_size: 30
         TextInput:
             id: capture_period
             multiline: False
@@ -590,7 +591,8 @@
         Label:
             text: 'Capture Duration'
             size_hint_x: None
-            width: 150
+            width: 300
+			font_size: 30
         TextInput:
             id: capture_dur
             multiline: False

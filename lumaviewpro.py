@@ -543,13 +543,9 @@ class MicroscopeSettings(BoxLayout):
         print(w)
         print(h)
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
-        print(camera)
 
-        #width = int(min(int(w), camera.Width.Max)/2)*2
-        #height = int(min(int(h), camera.Height.Max)/2)*2
-
-        width = w
-        height = h
+        width = int(min(int(w), camera.Width.Max)/2)*2
+        height = int(min(int(h), camera.Height.Max)/2)*2
 
         protocol['frame_width'] = width
         protocol['frame_height'] = height
@@ -657,10 +653,11 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def ill_text(self):
-        illumination = float(self.ids['ill_text'].text)
-        protocol[self.layer]['ill'] = illumination
-        self.ids['ill_slider'].value = illumination
-        self.apply_settings()
+        if self.ids['ill_text'].text.isnumeric():
+            illumination = float(self.ids['ill_text'].text)
+            protocol[self.layer]['ill'] = illumination
+            self.ids['ill_slider'].value = illumination
+            self.apply_settings()
 
     def gain_slider(self):
         gain = self.ids['gain_slider'].value
@@ -668,10 +665,11 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def gain_text(self):
-        gain = float(self.ids['gain_text'].text)
-        protocol[self.layer]['gain'] = gain
-        self.ids['gain_slider'].value = gain
-        self.apply_settings()
+        if self.ids['gain_text'].text.isnumeric():
+            gain = float(self.ids['gain_text'].text)
+            protocol[self.layer]['gain'] = gain
+            self.ids['gain_slider'].value = gain
+            self.apply_settings()
 
     def exp_slider(self):
         exposure = self.ids['exp_slider'].value
@@ -679,10 +677,11 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def exp_text(self):
-        exposure = float(self.ids['exp_text'].text)
-        protocol[self.layer]['exp'] = exposure
-        self.ids['exp_slider'].value = exposure
-        self.apply_settings()
+        if self.ids['exp_text'].text.isnumeric():
+            exposure = float(self.ids['exp_text'].text)
+            protocol[self.layer]['exp'] = exposure
+            self.ids['exp_slider'].value = exposure
+            self.apply_settings()
 
     def choose_folder(self):
         content = LoadDialog(load=self.load,
