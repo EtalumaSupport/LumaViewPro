@@ -297,7 +297,7 @@
         TextInput:
             id: frame_width
             multiline: False
-            padding: ['10dp', (self.height-self.line_height)/2]
+            padding: ['5dp', (self.height-self.line_height)/2]
             halign: 'left'
             input_filter: 'int'
             text: '2592'
@@ -306,12 +306,13 @@
         Label:
             text: 'x'
             size_hint_x: None
-            width: '10dp'
+            width: '15dp'
 			font_size: '14sp'
+			halign: 'center'
         TextInput:
             id: frame_height
             multiline: False
-            padding: ['10dp', (self.height-self.line_height)/2]
+            padding: ['5dp', (self.height-self.line_height)/2]
             halign: 'left'
             input_filter: 'int'
             text: '1944'
@@ -375,9 +376,9 @@
                 text: 'Illumination (mA)'
                 halign: 'center'
                 valign: 'middle'
-                font_size: '10sp'
+                font_size: '11sp'
                 size_hint_x: None
-                width: '80dp'
+                width: '85dp'
             Slider:
                 id: ill_slider
                 min: 0.
@@ -393,8 +394,8 @@
                 size_hint_x: None
                 width: '40dp'
                 multiline: False
-                font_size: '10sp'
-                padding: ['10dp', (self.height-self.line_height)/2]
+                font_size: '11sp'
+                padding: ['4dp', (self.height-self.line_height)/2]
                 halign: 'right'
                 input_filter: 'int'
                 text:"%.1f" % ill_slider.value
@@ -406,9 +407,9 @@
                 text: 'Gain (dB)'
                 halign: 'center'
                 valign: 'middle'
-                font_size: '10sp'
+                font_size: '11sp'
                 size_hint_x: None
-                width: '80dp'
+                width: '85dp'
             Slider:
                 id: gain_slider # 0 to 24, default 0, based on camera limits
                 min: 0.
@@ -424,8 +425,8 @@
                 size_hint_x: None
                 width: '40dp'
                 multiline: False
-                font_size: '10sp'
-                padding: ['10dp', (self.height-self.line_height)/2]
+                font_size: '11sp'
+                padding: ['4dp', (self.height-self.line_height)/2]
                 halign: 'right'
                 input_filter: 'float'
                 text:"%.1f" % gain_slider.value
@@ -437,9 +438,9 @@
                 text: 'Exposure (ms)'
                 halign: 'center'
                 valign: 'middle'
-                font_size: '10sp'
+                font_size: '11sp'
                 size_hint_x: None
-                width: '80dp'
+                width: '85dp'
             Slider:
                 id: exp_slider # 2e-5 to 60, default .005
                 min: 0.01 # minimum allowable by camera 10.0 us = 0.01 ms
@@ -455,8 +456,8 @@
                 size_hint_x: None
                 width: '40dp'
                 multiline: False
-                font_size: '10sp'
-                padding: ['10dp', (self.height-self.line_height)/2]
+                font_size: '11sp'
+                padding: ['4dp', (self.height-self.line_height)/2]
                 halign: 'right'
                 input_filter: 'int'
                 text: "%.1f" % exp_slider.value
@@ -471,7 +472,7 @@
             id: root_text
             multiline: False
             text: 'File Root'
-            padding: ['10dp', (self.height-self.line_height)/2]
+            padding: ['5dp', (self.height-self.line_height)/2]
             on_text: root.root_text()
 
         # bulk settings
@@ -533,7 +534,7 @@
         TextInput:
             id: capture_period
             multiline: False
-            padding: ['10dp', (self.height-self.line_height)/2]
+            padding: ['5dp', (self.height-self.line_height)/2]
             halign: 'right'
             input_filter: 'float'
             text: '5'
@@ -557,7 +558,7 @@
         TextInput:
             id: capture_dur
             multiline: False
-            padding: ['10dp', (self.height-self.line_height)/2]
+            padding: ['5dp', (self.height-self.line_height)/2]
             halign: 'right'
             input_filter: 'float'
             text: '48'
