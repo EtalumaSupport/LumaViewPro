@@ -563,10 +563,13 @@ class MicroscopeDropDown(DropDown):
 # ------------------------------------------------------------------------------
 class MicroscopeSettings1(BoxLayout):
     # The text displayed in the button
-    scope_str = StringProperty('LS620')
+    scope_str = StringProperty(protocol['microscope'])
 
     def __init__(self, **kwargs):
         super(MicroscopeSettings1, self).__init__(**kwargs)
+
+        # Extract current scope value and put it in scope_str
+#        self.scope_str = protocol['microscope']
         
         # Create label and button here so DropDown menu works properly
         self.mainlabel = Label(text = 'Lumascope Model',
