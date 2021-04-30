@@ -71,26 +71,25 @@ from kivy.uix.button import Button
 
 # Video Related
 from kivy.graphics.texture import Texture
-from kivy.uix.camera import Camera
 from kivy.clock import Clock
 import cv2
 
 # Pylon Camera Related
 from pypylon import pylon
-from pypylon import genicam
 
 global lumaview
 global protocol
 with open('./data/protocol.json', "r") as read_file:
     protocol = json.load(read_file)
 
-class PylonCamera(Camera):
+class PylonCamera(Image):
     record = ObjectProperty(None)
     record = False
 
     def __init__(self, **kwargs):
         super(PylonCamera,self).__init__(**kwargs)
-        self.camera = True;
+        self.camera = False;
+        self.play = True;
         self.connect()
         self.start()
 
@@ -107,13 +106,13 @@ class PylonCamera(Camera):
             # Grabbing Continusely (video) with minimal delay
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
-        except genicam.GenericException as e:
-            if self.camera != False:
+        except:
+            if self.camera == False:
                 print("It looks like a Lumaview compatible camera or scope is not plugged in")
             self.camera = False #print(e.GetDescription())
 
     def start(self):
-        self.fps = 14
+        self.fps = 10
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
 
     def stop(self):
@@ -146,7 +145,7 @@ class PylonCamera(Camera):
                 grabResult.Release()
 
         except:
-            if self.camera != False:
+            if self.camera == False:
                 print("It looks like a Lumaview compatible camera was unplugged")
             self.camera = False
 
@@ -516,7 +515,7 @@ void main (void) {
             self.pos = 0, 0
 
 class MainSettings(BoxLayout):
-    settings_width = 600
+    settings_width = 300
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
@@ -540,8 +539,8 @@ class MicroscopeSettings(BoxLayout):
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
 
-        print(w)
-        print(h)
+        # print(w)
+        # print(h)
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
 
         width = int(min(int(w), camera.Width.Max)/2)*2
@@ -561,32 +560,32 @@ class MicroscopeDropDown(DropDown):
 
 # First line of Microscope Settings control panel, to select model of microscope
 # ------------------------------------------------------------------------------
-class MicroscopeSettings1(BoxLayout):
+class ScopeSelect(BoxLayout):
     # The text displayed in the button
     scope_str = StringProperty(protocol['microscope'])
 
     def __init__(self, **kwargs):
-        super(MicroscopeSettings1, self).__init__(**kwargs)
+        super(ScopeSelect, self).__init__(**kwargs)
 
         # Extract current scope value and put it in scope_str
 #        self.scope_str = protocol['microscope']
-        
+
         # Create label and button here so DropDown menu works properly
         self.mainlabel = Label(text = 'Lumascope Model',
-                               size_hint_x = None, width = 300, font_size = 30)
+                               size_hint_x = None, width = '150dp', font_size = '14sp')
         self.mainbutton = Button(text = self.scope_str,
-                                 size_hint_y = None, height = 40)
-        
+                                 size_hint_y = None, height = '40dp')
+
         # Group widgets together
         self.dropdown = MicroscopeDropDown()
         self.add_widget(self.mainlabel)
         self.add_widget(self.mainbutton)
-        
+
         # Add actions - mainbutton opens dropdown menu
         self.mainbutton.bind(on_release = self.dropdown.open)
-        
+
         # Dropdown buttons do stuff based on their text through microscope_selectFN
-        self.dropdown.bind(on_select = lambda instance, 
+        self.dropdown.bind(on_select = lambda instance,
                                        scope: setattr(self.mainbutton, 'text', scope))
         self.dropdown.bind(on_select = self.microscope_selectFN)
 
@@ -607,18 +606,18 @@ class ObjectiveDropDown(DropDown):
 
 # Second line of Microscope Settings control panel, to select objective
 # ---------------------------------------------------------------------
-class MicroscopeSettings2(BoxLayout):
+class ObjectiveSelect(BoxLayout):
     # The text displayed in the button
     objective_str = StringProperty('Canon 55mm')
 
     def __init__(self, **kwargs):
-        super(MicroscopeSettings2, self).__init__(**kwargs)
+        super(ObjectiveSelect, self).__init__(**kwargs)
 
         # Create label and button here so DropDown menu works properly
-        self.mainlabel = Label(text = 'Objective', 
-                               size_hint_x = None, width = 300, font_size = 30)
-        self.mainbutton = Button(text = self.objective_str, 
-                                 size_hint_y = None, height = 40)
+        self.mainlabel = Label(text = 'Objective',
+                               size_hint_x = None, width = '150dp', font_size = '14sp')
+        self.mainbutton = Button(text = self.objective_str,
+                                 size_hint_y = None, height = '40dp')
 
         # Group widgets together
         self.dropdown = ObjectiveDropDown()
@@ -629,7 +628,7 @@ class MicroscopeSettings2(BoxLayout):
         self.mainbutton.bind(on_release = self.dropdown.open)
 
         # Dropdown buttons do stuff based on their text through objective_select
-        self.dropdown.bind(on_select = lambda instance, 
+        self.dropdown.bind(on_select = lambda instance,
                            objective: setattr(self.mainbutton, 'text', objective))
         self.dropdown.bind(on_select = self.objective_select)
 
