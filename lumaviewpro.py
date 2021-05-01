@@ -30,9 +30,10 @@ This open source software was developed for use with Etaluma microscopes.
 AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
+Bryan Tiedemann
 
 MODIFIED:
-April 12, 2021
+April 30, 2021
 '''
 
 # General
@@ -932,6 +933,9 @@ class LumaViewProApp(App):
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/default.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
+        Window.minimum_width = 800
+        Window.minimum_height = 600
+        Window.maximize()
         return lumaview
 
     def on_stop(self):
