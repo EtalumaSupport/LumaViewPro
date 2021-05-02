@@ -25,6 +25,13 @@ SOFTWARE.
 ```
 
 ```
+Creative Commons Attributions - NOT CURRENTLY IN USE!!!!
+-----------------------------
+USB Icon: USB to USB by Ben Davis from the Noun Project
+Camera Icon: Camera by Adriansyah from the Noun Project
+```
+
+```
 This open source software was developed for use with Etaluma microscopes.
 
 AUTHORS:
@@ -110,7 +117,7 @@ class PylonCamera(Image):
         except:
             if self.camera == False:
                 print("It looks like a Lumaview compatible camera or scope is not plugged in")
-            self.camera = False #print(e.GetDescription())
+            self.camera = False
 
     def start(self):
         self.fps = 10
@@ -124,6 +131,8 @@ class PylonCamera(Image):
         if self.camera == False:
             self.connect()
             if self.camera == False:
+                self.source = "./data/camera to USB.png"
+                self.resolution = (375, 132)
                 return
         try:
             if self.camera.IsGrabbing():
@@ -737,24 +746,26 @@ class LayerControl(BoxLayout):
 
         # update illumination to currently selected settings
         illumination = protocol[self.layer]['ill']
-        # set LED illumination level here
+
+        # update LED illumination to currently selected settings
         led_board = lumaview.led_board
-        if self.ids['apply_btn'].state == 'down':
-            # need to turn the state of the other channels to 'normal'
+        if self.ids['apply_btn'].state == 'down': # if the button is down
+            #  turn the state of all channels to 'normal' and
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
-                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].text = 'OFF'
                 lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-            # Update the text of the button
-            self.ids['apply_btn'].text = 'ON'
+                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].text = 'OFF'
+
+            # return the state of the current channel to 'down' and text to 'ON'
             self.ids['apply_btn'].state = 'down'
+            self.ids['apply_btn'].text = 'ON'
+
             # turn on the LED
             led_board.led_on(led_board.color2ch(self.layer), illumination)
         else:
             # update the text of the button
             self.ids['apply_btn'].text = 'OFF'
-            # turn off the LED
-            led_board.led_off()
+            led_board.led_off() # turn off the LED
 
         # update gain to currently selected settings
         gain = protocol[self.layer]['gain']
@@ -928,14 +939,13 @@ class LoadDialog(FloatLayout):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def build(self):
+        Window.minimum_width = 800
+        Window.minimum_height = 600
         global lumaview
         lumaview = MainDisplay()
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/default.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
-        Window.minimum_width = 800
-        Window.minimum_height = 600
-        Window.maximize()
         return lumaview
 
     def on_stop(self):

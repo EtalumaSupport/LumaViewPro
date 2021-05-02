@@ -321,35 +321,7 @@
     Image:
         id: image_of_microscope
         source: './data/LS620.png'
-    # BoxLayout:
-    #     orientation: 'horizontal'
-    #     size_hint_y: None
-    #     height: 40
-    #     Label:
-    #         text: 'LED Board'
-    #         size_hint_x: None
-    #         width: 140
-    #     Button:
-    #         id: select_port_btn
-    #         text: 'Serial Port'
-    #         size_hint_y: None
-    #         height: 40
-    #         on_release: port_select.open(self)
-    #     DropDown:
-    #         id: port_select
-    #         on_select: root.port_select(args[1])
-    #         Button:
-    #             id: COM3_btn
-    #             text: 'COM3'
-    #             size_hint_y: None
-    #             height: 40
-    #             on_release: port_select.select('COM3')
-    #         Button:
-    #             id: linux_btn
-    #             text: '/dev/ttyS0'
-    #             size_hint_y: None
-    #             height: 40
-    #             on_release: port_select.select('/dev/ttyS0')
+
 
 
 # LayerControl - Settings for Layers within MainSettings
@@ -487,7 +459,7 @@
                 text: 'ON'
                 halign: 'center'
                 valign: 'middle'
-                on_press: root.apply_settings()
+                on_release: root.apply_settings()
             Label:
                 id: false_color_label
                 text: 'Colorize'
@@ -498,7 +470,7 @@
                 size_hint_x: None
                 width: '30dp'
                 active: True
-                on_press: root.false_color()
+                on_release: root.false_color()
             Label:
                 text: 'Acquire'
                 halign: 'center'
@@ -508,7 +480,7 @@
                 size_hint_x: None
                 width: '30dp'
                 active: True
-                on_press: root.update_acquire()
+                on_release: root.update_acquire()
     BoxLayout:
         orientation: 'vertical'
 
