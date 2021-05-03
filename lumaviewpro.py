@@ -60,6 +60,7 @@ from kivy.factory import Factory
 from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty
 from kivy.clock import Clock
+from kivy.metrics import dp
 
 # User Interface
 from kivy.uix.accordion import Accordion, AccordionItem
@@ -525,7 +526,7 @@ void main (void) {
             self.pos = 0, 0
 
 class MainSettings(BoxLayout):
-    settings_width = 300
+    settings_width = dp(300)
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
@@ -783,10 +784,12 @@ class TimeLapseSettings(BoxLayout):
     n_captures = ObjectProperty(None)
 
     def update_period(self):
-        protocol['period'] = float(self.ids['capture_period'].text)
+        if self.ids['capture_period'].text.isnumeric():
+            protocol['period'] = float(self.ids['capture_period'].text)
 
     def update_duration(self):
-        protocol['duration'] = float(self.ids['capture_dur'].text)
+        if self.ids['capture_dur'].text.isnumeric():
+            protocol['duration'] = float(self.ids['capture_dur'].text)
 
     # load protocol from JSON file
     def load_protocol(self, file="./data/protocol.json"):
