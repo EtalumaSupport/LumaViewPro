@@ -280,12 +280,12 @@ class MainDisplay(FloatLayout):
     def cam_toggle(self):
         if self.ids['viewer_id'].ids['microscope_camera'].play == True:
             self.ids['viewer_id'].ids['microscope_camera'].play = False
-            self.ids['live_btn'].text = 'Stream Live'
+            # self.ids['live_btn'].text = 'Stream Live'
             self.led_board.led_off()
             self.ids['viewer_id'].ids['microscope_camera'].stop()
         else:
             self.ids['viewer_id'].ids['microscope_camera'].play = True
-            self.ids['live_btn'].text = 'Pause Stream'
+            # self.ids['live_btn'].text = 'Pause Stream'
             self.ids['viewer_id'].ids['microscope_camera'].start()
 
     def capture(self, dt):
@@ -295,10 +295,10 @@ class MainDisplay(FloatLayout):
         print(self.ids['viewer_id'].ids['microscope_camera'].record)
         if self.ids['viewer_id'].ids['microscope_camera'].record == True:
             self.ids['viewer_id'].ids['microscope_camera'].record = False
-            self.ids['record_btn'].text = 'Record'
+            # self.ids['record_btn'].text = 'Record'
         else:
             self.ids['viewer_id'].ids['microscope_camera'].record = True
-            self.ids['record_btn'].text = 'Stop Recording'
+            # self.ids['record_btn'].text = 'Stop Recording'
 
     def composite(self, dt):
         global lumaview

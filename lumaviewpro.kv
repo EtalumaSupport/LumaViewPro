@@ -66,41 +66,74 @@
     # Camera Controls
     # ------------------------------
     BoxLayout:
-        orientation: 'vertical'
+        orientation: 'horizontal'
         padding: '5dp'
         spacing: '5dp'
-        size_hint: None, None
-        size: '150dp', '200dp'
         # pos: root.width/2-200, 0
         pos: 0, 0
+        Button:
+            id: live_folder_btn
+            border: 0, 0, 0, 0
+            background_normal: './data/folder.png' # Press to Select Folder
+            background_down: './data/folder_down.png'
+            size_hint: None, None
+            size: '40dp', '40dp'
+            # on_press:
         ToggleButton:
             id: live_btn
-            text: 'Pause Stream'
+            border: 0, 0, 0, 0
+            background_normal: './data/pause.png' # Press to Pause Live Stream
+            background_down: './data/play.png' # Press to Play Live Stream
+            size_hint: None, None
+            size: '40dp', '40dp'
+            # text: 'Pause Stream'
             state: 'normal'
             on_press: root.cam_toggle()
         Button:
             id: capture_btn
-            text: 'Capture Image'
+            border: 0, 0, 0, 0
+            background_normal: './data/capture.png' # Press to Capture Image
+            background_down: './data/capture_down.png'
+            size_hint: None, None
+            size: '40dp', '40dp'
+            # text: 'Capture Image'
             on_press: root.capture(0)
         Button:
             id: composite_btn
-            text: 'Composite'
+            border: 0, 0, 0, 0
+            background_normal: './data/composite.png' # Press to Capture Composite Image
+            background_down: './data/composite_down.png'
+            size_hint: None, None
+            size: '40dp', '40dp'
+            # text: 'Composite'
             on_press: root.composite(0)
         ToggleButton:
             id: record_btn
-            text: 'Record Video'
+            border: 0, 0, 0, 0
+            background_normal: './data/record.png' # Press to Record Live Stream
+            background_down: './data/stop.png' # Press to Stop Recording
+            size_hint: None, None
+            size: '40dp', '40dp'
+            # text: 'Record Video'
             on_press: root.record()
-        BoxLayout:
-            orientation: 'horizontal'
-            spacing: '5dp'
-            Button:
-                id: fit_btn
-                text: 'Fit'
-                on_press: root.fit_image()
-            Button:
-                id: one2one_btn
-                text: '1:1'
-                on_press: root.one2one_image()
+        Button:
+            id: fit_btn
+            border: 0, 0, 0, 0
+            background_normal: './data/fit.png' # Press to Fit Image to Window
+            background_down: './data/fit_down.png'
+            size_hint: None, None
+            size: '40dp', '40dp'
+            # text: 'Fit'
+            on_press: root.fit_image()
+        Button:
+            id: one2one_btn
+            border: 0, 0, 0, 0
+            background_normal: './data/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
+            background_down: './data/one2one_down.png'
+            size_hint: None, None
+            size: '40dp', '40dp'
+            # text: '1:1'
+            on_press: root.one2one_image()
 
 # ShaderViewer - Shaded Live Camera view
 # ------------------------------------------
@@ -143,6 +176,7 @@
         size_hint: None, None
         size: 15, 50
         pos_hint: {"x":0, "y":0.5}
+        border: 0, 0, 0, 0
         background_normal: './data/right_arrow.png'
         background_down: './data/left_arrow.png'
         on_press: root.toggle_editor()
@@ -156,6 +190,7 @@
         size_hint: None, None
         size: 15, 50
         pos_hint: {"x":0, "y":0.5}
+        border: 0, 0, 0, 0
         background_normal: './data/left_arrow.png' # left pointing (press to open)
         background_down: './data/right_arrow.png' # right pointing (press to close)
         on_press: root.toggle_settings()
