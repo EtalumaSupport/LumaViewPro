@@ -604,7 +604,7 @@ class ScopeSelect(BoxLayout):
     def microscope_selectFN(self, instance, scope):
         global protocol
         self.scope_str = scope
-        self.parent.ids['image_of_microscope'].source = './data/'+scope+'.png'
+        self.parent.ids['image_of_microscope'].source = './data/scopes/'+scope+'.png'
         protocol['microscope'] = scope
         print("Selected microscope: {0}" . format(scope))
 
