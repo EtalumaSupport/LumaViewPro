@@ -6,6 +6,7 @@ protocol = {
     "frame_width": 2592,
     "frame_height": 1944,
     "objective": 'Canon 55mm',
+    "live_folder": "./capture",
     "period": 0.17,
     "duration": 0.17,
     "BF": {

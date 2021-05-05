@@ -277,6 +277,22 @@ class MainDisplay(FloatLayout):
     led_board = ObjectProperty(None)
     led_board = LEDBoard()
 
+    def choose_folder(self):
+        content = LoadDialog(load=self.load,
+                             cancel=self.dismiss_popup,
+                             path=protocol['live_folder'])
+        self._popup = Popup(title="Select Save Folder",
+                            content=content,
+                            size_hint=(0.9, 0.9))
+        self._popup.open()
+
+    def load(self, path):
+        protocol['live_folder'] = path
+        self.dismiss_popup()
+
+    def dismiss_popup(self):
+        self._popup.dismiss()
+
     def cam_toggle(self):
         if self.ids['viewer_id'].ids['microscope_camera'].play == True:
             self.ids['viewer_id'].ids['microscope_camera'].play = False
@@ -289,7 +305,8 @@ class MainDisplay(FloatLayout):
             self.ids['viewer_id'].ids['microscope_camera'].start()
 
     def capture(self, dt):
-        self.ids['viewer_id'].ids['microscope_camera'].capture()
+        folder = protocol['live_folder']
+        self.ids['viewer_id'].ids['microscope_camera'].capture(save_folder = folder)
 
     def record(self):
         print(self.ids['viewer_id'].ids['microscope_camera'].record)
@@ -301,8 +318,10 @@ class MainDisplay(FloatLayout):
             # self.ids['record_btn'].text = 'Stop Recording'
 
     def composite(self, dt):
+        # self.ids['viewer_id'].ids['microscope_camera'].capture(save_folder = folder)
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
+        folder = protocol['live_folder']
 
         img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
 
@@ -336,7 +355,7 @@ class MainDisplay(FloatLayout):
 
         led_board.led_off()
         filename = 'composite_' + str(int(round(time.time() * 1000))) + '.png'
-        cv2.imwrite('./capture/'+filename, img)
+        cv2.imwrite(folder+'/'+filename, img)
 
     def fit_image(self):
         self.ids['viewer_id'].scale = 1
@@ -946,7 +965,7 @@ class LumaViewProApp(App):
         Window.minimum_height = 600
         global lumaview
         lumaview = MainDisplay()
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/default.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/protocol.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
         return lumaview
@@ -954,6 +973,6 @@ class LumaViewProApp(App):
     def on_stop(self):
         global lumaview
         lumaview.led_board.led_off()
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/default.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/protocol.json")
 
 LumaViewProApp().run()
