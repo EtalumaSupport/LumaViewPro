@@ -133,7 +133,8 @@ class PylonCamera(Image):
             self.connect()
             if self.camera == False:
                 self.source = "./data/camera to USB.png"
-                self.resolution = (375, 132)
+                # self.scale = 1
+                # self.pos = (0,0)
                 return
         try:
             if self.camera.IsGrabbing():
@@ -161,6 +162,9 @@ class PylonCamera(Image):
             self.camera = False
 
     def capture(self, save_folder = './capture/', file_root = 'live_', append = 'ms'):
+        if self.camera == False:
+            print("DEBUG: capture() self.camera == False")
+            return
 
         if append == 'time':
             append = time.strftime("%Y%m%d_%H%M%S")
@@ -176,45 +180,42 @@ class PylonCamera(Image):
             print("Save folder does not exist")
 
     def frame_size(self, w, h):
-        global lumaview
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
-        if camera == False:
+        if self.camera == False:
+            print("DEBUG: frame_size() self.camera == False")
             return
 
-        width = int(min(int(w), camera.Width.Max)/2)*2
-        height = int(min(int(h), camera.Height.Max)/2)*2
-        offset_x = int((camera.Width.Max-width)/4)*2
-        offset_y = int((camera.Height.Max-height)/4)*2
+        width = int(min(int(w), self.camera.Width.Max)/2)*2
+        height = int(min(int(h), self.camera.Height.Max)/2)*2
+        offset_x = int((self.camera.Width.Max-width)/4)*2
+        offset_y = int((self.camera.Height.Max-height)/4)*2
 
-        camera.StopGrabbing()
-        camera.Width.SetValue(width)
-        camera.Height.SetValue(height)
-        camera.OffsetX.SetValue(offset_x)
-        camera.OffsetY.SetValue(offset_y)
-        camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+        self.camera.StopGrabbing()
+        self.camera.Width.SetValue(width)
+        self.camera.Height.SetValue(height)
+        self.camera.OffsetX.SetValue(offset_x)
+        self.camera.OffsetY.SetValue(offset_y)
+        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
     def gain(self, gain):
-        global lumaview
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
-        if camera == False:
+        if self.camera == False:
+            print("DEBUG: gain() self.camera == False")
             return
 
-        camera.StopGrabbing()
-        camera.Gain.SetValue(gain)
-        camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+        self.camera.StopGrabbing()
+        self.camera.Gain.SetValue(gain)
+        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
     def exposure_t(self, t):
-        global lumaview
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
-        if camera == False:
+        if self.camera == False:
+            print("DEBUG: exposure_t() self.camera == False")
             return
 
-        camera.StopGrabbing()
-        camera.ExposureTime.SetValue(t*1000) # (t*1000) in microseconds; therefore t  in milliseconds
+        self.camera.StopGrabbing()
+        self.camera.ExposureTime.SetValue(t*1000) # (t*1000) in microseconds; therefore t  in milliseconds
         # # DEBUG:
         # print(camera.ExposureTime.Min)
         # print(camera.ExposureTime.Max)
-        camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
 class LEDBoard:
     def __init__(self, **kwargs):
@@ -294,35 +295,42 @@ class MainDisplay(FloatLayout):
         self._popup.dismiss()
 
     def cam_toggle(self):
-        if self.ids['viewer_id'].ids['microscope_camera'].play == True:
-            self.ids['viewer_id'].ids['microscope_camera'].play = False
-            # self.ids['live_btn'].text = 'Stream Live'
+        microscope = self.ids['viewer_id'].ids['microscope_camera']
+        if microscope.camera == False:
+            return
+
+        if microscope.play == True:
+            microscope.play = False
             self.led_board.led_off()
-            self.ids['viewer_id'].ids['microscope_camera'].stop()
+            microscope.stop()
         else:
-            self.ids['viewer_id'].ids['microscope_camera'].play = True
-            # self.ids['live_btn'].text = 'Pause Stream'
-            self.ids['viewer_id'].ids['microscope_camera'].start()
+            microscope.play = True
+            microscope.start()
 
     def capture(self, dt):
+        microscope = self.ids['viewer_id'].ids['microscope_camera']
+        if microscope.camera == False:
+            return
         folder = protocol['live_folder']
-        self.ids['viewer_id'].ids['microscope_camera'].capture(save_folder = folder)
+        microscope.capture(save_folder = folder)
 
     def record(self):
-        print(self.ids['viewer_id'].ids['microscope_camera'].record)
-        if self.ids['viewer_id'].ids['microscope_camera'].record == True:
-            self.ids['viewer_id'].ids['microscope_camera'].record = False
-            # self.ids['record_btn'].text = 'Record'
-        else:
-            self.ids['viewer_id'].ids['microscope_camera'].record = True
-            # self.ids['record_btn'].text = 'Stop Recording'
+        microscope = self.ids['viewer_id'].ids['microscope_camera']
+        if microscope.camera == False:
+            return
+        microscope.record != microscope.record
+        # if camera.record == True:
+        #     camera.record = False
+        # else:
+        #     camera.record = True
+        #     # self.ids['record_btn'].text = 'Stop Recording'
 
     def composite(self, dt):
-        # self.ids['viewer_id'].ids['microscope_camera'].capture(save_folder = folder)
-        global lumaview
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
-        folder = protocol['live_folder']
+        microscope = self.ids['viewer_id'].ids['microscope_camera']
+        if microscope.camera == False:
+            return
 
+        folder = protocol['live_folder']
         img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
 
         layers = ['BF', 'Blue', 'Green', 'Red']
@@ -332,9 +340,9 @@ class MainDisplay(FloatLayout):
             if protocol[layer]['acquire'] == True:
                 # set the gain and expusure
                 gain = protocol[layer]['gain']
-                camera.gain(gain)
+                microscope.gain(gain)
                 exposure = protocol[layer]['exp']
-                camera.exposure_t(exposure)
+                microscope.exposure_t(exposure)
 
                 # turn on the LED
                 # update illumination to currently selected settings
@@ -342,31 +350,36 @@ class MainDisplay(FloatLayout):
                 led_board = lumaview.led_board
                 led_board.led_on(led_board.color2ch(layer), illumination)
 
-                camera.update(0)
+                microscope.update(0)
                 # buffer the images
                 if layer == 'Blue':
-                    img[:,:,0] = camera.array
+                    img[:,:,0] = microscope.array
                 elif layer == 'Green':
-                    img[:,:,1] = camera.array
+                    img[:,:,1] = microscope.array
                 elif layer == 'Red':
-                    img[:,:,2] = camera.array
+                    img[:,:,2] = microscope.array
                 else:
-                    img[:,:,2] = camera.array
+                    img[:,:,2] = microscope.array
 
         led_board.led_off()
         filename = 'composite_' + str(int(round(time.time() * 1000))) + '.png'
         cv2.imwrite(folder+'/'+filename, img)
 
     def fit_image(self):
+        microscope = self.ids['viewer_id'].ids['microscope_camera']
+        if microscope.camera == False:
+            return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0,0)
 
     def one2one_image(self):
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
+        microscope = self.ids['viewer_id'].ids['microscope_camera']
+        if microscope.camera == False:
+            return
         w = self.width
         h = self.height
-        scale_hor = float(camera.Width.GetValue()) / float(w)
-        scale_ver = float(camera.Height.GetValue()) / float(h)
+        scale_hor = float(microscope.camera.Width.GetValue()) / float(w)
+        scale_ver = float(microscope.camera.Height.GetValue()) / float(h)
         scale = max(scale_hor, scale_ver)
         self.ids['viewer_id'].scale = scale
         self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))
@@ -880,6 +893,9 @@ class TimeLapseSettings(BoxLayout):
     # One procotol capture event
     def capture(self, dt):
         global lumaview
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
+        if camera == False:
+            return
         try:
             self.n_captures = self.n_captures-1
         except:
@@ -887,12 +903,8 @@ class TimeLapseSettings(BoxLayout):
 
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
-            # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].text = 'OFF'
-            # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-            #
             if protocol[layer]['acquire'] == True:
-                global lumaview
-                camera = lumaview.ids['viewer_id'].ids['microscope_camera']
+                # global lumaview
 
                 # set the gain and exposure
                 gain = protocol[layer]['gain']
