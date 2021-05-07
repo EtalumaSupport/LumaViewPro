@@ -17,6 +17,7 @@ class LEDBoard:
             print(ports[0])
             self.port = ports[0].device
         #self.port="COM5"
+        self.port = "/dev/ttyS0"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
