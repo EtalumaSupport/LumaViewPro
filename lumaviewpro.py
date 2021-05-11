@@ -58,7 +58,7 @@ from kivy.app import App
 from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
-from kivy.properties import StringProperty, ObjectProperty
+from kivy.properties import StringProperty, ObjectProperty, BooleanProperty
 from kivy.clock import Clock
 from kivy.metrics import dp
 
@@ -559,15 +559,34 @@ void main (void) {
 
 class MainSettings(BoxLayout):
     settings_width = dp(300)
+    isOpen = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        Window.bind(on_draw=self.check_settings)
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
         global lumaview
         # update protocol
-        if self.ids['toggle_mainsettings'].state == 'down': # if down, open the settinsg
-            self.pos = lumaview.width - self.settings_width, 0
+        if self.isOpen:
+            self.ids['toggle_mainsettings'].state = 'normal'
+            self.pos = lumaview.width - 15, 0
+            self.isOpen = False
         else:
-            self.pos = lumaview.width-15, 0
+            self.ids['toggle_mainsettings'].state = 'down'
+            self.pos = lumaview.width - self.settings_width, 0
+            self.isOpen = True
+
+    def check_settings(self, *args):
+        global lumaview
+        if not self.isOpen:
+            self.ids['toggle_mainsettings'].state = 'normal'
+            self.pos = lumaview.width - 15, 0
+        else:
+            self.ids['toggle_mainsettings'].state = 'down'
+            self.pos = lumaview.width - self.settings_width, 0
+
 
 class MicroscopeSettings(BoxLayout):
 #    def port_select(self, port):
