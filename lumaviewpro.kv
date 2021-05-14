@@ -36,6 +36,38 @@
 #-------------------------------------------------------------------------------
 
 # -----------------------
+# TOOLTIPS
+# -----------------------
+<TooltipViewClass>:
+	size_hint: None, None
+	width: self.minimum_width
+	height: self.minimum_height + root.padding[1]
+	opacity: 0
+
+	canvas.before:
+		PushMatrix
+		Color:
+			rgba: root.tooltip_bg_color
+		RoundedRectangle:
+			pos: self.pos
+			size: self.size
+			radius: root.tooltip_radius
+		Scale:
+			origin: self.center
+			x: root._scale_x
+			y: root._scale_y
+	canvas.after:
+		PopMatrix
+
+	Label:
+		id: label_tooltip
+		text: root.tooltip_text
+		size_hint: None, None
+		size: self.texture_size
+		pos_hint: {'center_y': 0.5}
+
+
+# -----------------------
 # MAIN DISPLAY
 # -----------------------
 <MainDisplay>:
@@ -71,7 +103,7 @@
         spacing: '5dp'
         # pos: root.width/2-200, 0
         pos: 0, 0
-        Button:
+        TooltipButton:
             id: live_folder_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/folder.png' # Press to Select Folder
@@ -79,7 +111,8 @@
             size_hint: None, None
             size: '40dp', '40dp'
             on_press: root.choose_folder()
-        ToggleButton:
+			tooltip_text: "Select save folder"
+        TooltipToggleButton:
             id: live_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/pause.png' # Press to Pause Live Stream
@@ -89,7 +122,8 @@
             # text: 'Pause Stream'
             state: 'normal'
             on_press: root.cam_toggle()
-        Button:
+			tooltip_text: "Pause/play live stream"
+        TooltipButton:
             id: capture_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/capture.png' # Press to Capture Image
@@ -98,7 +132,8 @@
             size: '40dp', '40dp'
             # text: 'Capture Image'
             on_press: root.capture(0)
-        Button:
+			tooltip_text: "Capture image"
+        TooltipButton:
             id: composite_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/composite.png' # Press to Capture Composite Image
@@ -107,7 +142,8 @@
             size: '40dp', '40dp'
             # text: 'Composite'
             on_press: root.composite(0)
-        ToggleButton:
+			tooltip_text: "Capture composite image"
+        TooltipToggleButton:
             id: record_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/record.png' # Press to Record Live Stream
@@ -116,7 +152,8 @@
             size: '40dp', '40dp'
             # text: 'Record Video'
             on_press: root.record()
-        Button:
+			tooltip_text:  "Start/stop recording"
+        TooltipButton:
             id: fit_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/fit.png' # Press to Fit Image to Window
@@ -125,7 +162,8 @@
             size: '40dp', '40dp'
             # text: 'Fit'
             on_press: root.fit_image()
-        Button:
+			tooltip_text: "Fit image to window"
+        TooltipButton:
             id: one2one_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
@@ -134,6 +172,7 @@
             size: '40dp', '40dp'
             # text: '1:1'
             on_press: root.one2one_image()
+			tooltip_text: "Scale 1:1"
 
 # ShaderViewer - Shaded Live Camera view
 # ------------------------------------------

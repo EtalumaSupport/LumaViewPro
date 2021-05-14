@@ -58,9 +58,11 @@ from kivy.app import App
 from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
-from kivy.properties import StringProperty, ObjectProperty, BooleanProperty
+from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, NumericProperty
+from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, ListProperty
 from kivy.clock import Clock
 from kivy.metrics import dp
+from kivy.animation import Animation
 
 # User Interface
 from kivy.uix.accordion import Accordion, AccordionItem
@@ -77,6 +79,9 @@ from kivy.uix.image import Image
 from kivy.uix.popup import Popup
 from kivy.uix.label import Label
 from kivy.uix.button import Button
+
+# From KivyMD
+from kivymd.uix.behaviors import HoverBehavior, TouchBehavior
 
 # Video Related
 from kivy.graphics.texture import Texture
@@ -985,6 +990,140 @@ class LoadDialog(FloatLayout):
     load = ObjectProperty(None)
     cancel = ObjectProperty(None)
     path = ObjectProperty(None)
+
+
+# ------------------------------------------------------------------------
+# TOOLTIPS
+# ------------------------------------------------------------------------
+class Tooltip(HoverBehavior, TouchBehavior):
+    # Tooltip background color
+    tooltip_bg_color = ColorProperty(None)
+
+    # Tooltip text color
+    tooltip_text_color = ColorProperty(None)
+
+    # Tooltip text to display
+    tooltip_text = StringProperty(None)
+
+    # Radius of rounded rectangle's corner
+    tooltip_radius = ListProperty([dp(5),])
+
+    # Tooltip display delay, defaults to 0 and max of 4
+    tooltip_display_delay = BoundedNumericProperty(0, min=0, max=4)
+
+    # Y-offset of tooltip text, defaults to 0
+    shift_y = NumericProperty(0)
+
+    _tooltip = None
+
+
+    def delete_clock(self, widget, touch, *args):
+        if self.collide_point(touch.x, touch.y) and touch.grab_current:
+            try:
+                Clock.unschedule(touch.ud["event"])
+            except KeyError:
+                pass
+            self.on_leave()
+
+    # Returns the coordinates of the tooltio that fit in screen borders
+    def adjust_tooltip_position(self, x, y):
+        # If tooltip position is outside the right border of the screen:
+        if x + self._tooltip.width > Window.width:
+            x = Window.width - (self._tooltip.width + dp(10))
+        elif x < 0:
+            # If the tooltip position is outside the left boder of the screen
+            x = '10dp'
+
+        # If the tooltip position is below the bottom border:
+        if y < 0:
+            y = dp(10)
+        elif Window.height - self._tooltip.height < y:
+            y - Window.height - (self._tooltip.height + dp(10))
+
+        return x, y
+
+    # Display the tooltip using an animated routine after a display delay defined by user
+    def display_tooltip(self, interval):
+        if not self._tooltip:
+            return
+
+        Window.add_widget(self._tooltip)
+        pos = self.to_window(self.center_x, self.center_y)
+        x = pos[0] - self._tooltip.width / 2
+        
+        if not self.shift_y:
+            y = pos[1] - self._tooltip.height / 2 - self.height / 2 - dp(20)
+        else:
+            y = pos[1] - self._tooltip.height / 2 - self.height + self.shift_y
+
+        x, y = self.adjust_tooltip_position(x, y)
+        self._tooltip.pos = (x, y)
+
+        Clock.schedule_once(self.animation_tooltip_show, self.tooltip_display_delay)
+
+    # Method that displays tooltip in an animated way
+    def animation_tooltip_show(self, interval):
+        if not self._tooltip:
+            return
+
+        (Animation(_scale_x = 1, _scale_y = 1, d = 0.1)
+                + Animation(opacity = 1, d = 0.2)).start(self._tooltip)
+
+    # Makes tooltip disappear
+    def remove_tooltip(self, *args):
+        Window.remove_widget(self._tooltip)
+
+    def on_long_touch(self, touch, *args):
+        return
+
+    def on_enter(self, *args):
+        if not self.tooltip_text:
+            return
+
+        self._tooltip = TooltipViewClass(
+                tooltip_bg_color = self.tooltip_bg_color,
+                tooltip_text_color = self.tooltip_text_color,
+                tooltip_text = self.tooltip_text,
+                tooltip_radius = self.tooltip_radius)
+        Clock.schedule_once(self.display_tooltip, -1)
+
+    def on_leave(self):
+        if self._tooltip:
+            Window.remove_widget(self._tooltip)
+            self._tooltip = None
+
+
+# Holder layout for the tooltip
+class TooltipViewClass(BoxLayout):
+    tooltip_bg_color = ColorProperty(None)
+    tooltip_text_color = ColorProperty(None)
+    tooltip_text = StringProperty()
+    tooltip_radius = ListProperty()
+
+    _scale_x = NumericProperty(0)
+    _scale_y = NumericProperty(0)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.padding = [dp(8), dp(4), dp(8), dp(4)]
+
+
+# Button-derivative with tooltips
+class TooltipButton(Button, Tooltip):
+    def __init__(self, **kwargs):
+        super(TooltipButton, self).__init__(**kwargs)
+        self.tooltip_bg_color = (0.1, 0.1, 0.1, 0.7)
+        self.tooltip_display_delay = 0.5
+        self.shift_y = dp(80)
+
+
+# Toggle Button-derivative with tooltips
+class TooltipToggleButton(ToggleButton, Tooltip):
+    def __init__(self, **kwargs):
+        super(TooltipToggleButton, self).__init__(**kwargs)
+        self.tooltip_bg_color = (0.1, 0.1, 0.1, 0.7)
+        self.tooltip_display_delay = 0.5
+        self.shift_y = dp(80)
 
 
 # -------------------------------------------------------------------------
