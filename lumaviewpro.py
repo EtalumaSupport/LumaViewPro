@@ -576,7 +576,7 @@ class MainSettings(BoxLayout):
         # update protocol
         if self.isOpen:
             self.ids['toggle_mainsettings'].state = 'normal'
-            self.pos = lumaview.width - 15, 0
+            self.pos = lumaview.width - 30, 0
             self.isOpen = False
         else:
             self.ids['toggle_mainsettings'].state = 'down'
@@ -587,7 +587,7 @@ class MainSettings(BoxLayout):
         global lumaview
         if not self.isOpen:
             self.ids['toggle_mainsettings'].state = 'normal'
-            self.pos = lumaview.width - 15, 0
+            self.pos = lumaview.width - 30, 0
         else:
             self.ids['toggle_mainsettings'].state = 'down'
             self.pos = lumaview.width - self.settings_width, 0
@@ -1050,7 +1050,7 @@ class Tooltip(HoverBehavior, TouchBehavior):
         Window.add_widget(self._tooltip)
         pos = self.to_window(self.center_x, self.center_y)
         x = pos[0] - self._tooltip.width / 2
-        
+
         if not self.shift_y:
             y = pos[1] - self._tooltip.height / 2 - self.height / 2 - dp(20)
         else:
