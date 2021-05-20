@@ -228,7 +228,7 @@ class LEDBoard:
         ports = list(list_ports.comports())
         if (len(ports)!=0):
             self.port = ports[0].device
-        self.port="COM5"
+        # self.port="COM5"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
