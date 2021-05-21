@@ -1113,7 +1113,7 @@ class TooltipButton(Button, Tooltip):
     def __init__(self, **kwargs):
         super(TooltipButton, self).__init__(**kwargs)
         self.tooltip_bg_color = (0.1, 0.1, 0.1, 0.7)
-        self.tooltip_display_delay = 0.5
+        self.tooltip_display_delay = 0.
         self.shift_y = dp(80)
 
 
