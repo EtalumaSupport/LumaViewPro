@@ -778,7 +778,42 @@ class LayerControl(BoxLayout):
     def apply_settings(self):
         global lumaview
         global gain_vals
+
+        # update illumination to currently selected settings
+        # -----------------------------------------------------
+        illumination = protocol[self.layer]['ill']
+
+        led_board = lumaview.led_board
+        if self.ids['apply_btn'].state == 'down': # if the button is down
+
+            # In active channel, change text to 'ON' and turn on LED
+            self.ids['apply_btn'].text = 'ON'
+            led_board.led_on(led_board.color2ch(self.layer), illumination)
+
+            #  turn the state of remaining channels to 'normal' and text to 'OFF'
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                if(layer != self.layer):
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].text = 'OFF'
+
+        else: # if the button is 'normal' meaning not active
+            # In active channel, change text to 'OFF' and turn off LED
+            self.ids['apply_btn'].text = 'OFF'
+            led_board.led_off()
+
+        # update gain to currently selected settings
+        # -----------------------------------------------------
+        gain = protocol[self.layer]['gain']
+        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
+
+        # update exposure to currently selected settings
+        # -----------------------------------------------------
+        exposure = protocol[self.layer]['exp']
+        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
+
         # update false color to currently selected settings
+        # -----------------------------------------------------
         if self.ids['false_color'].active:
             if(self.layer) == 'Red':
                 gain_vals = (1., 0., 0., 1.)
@@ -789,41 +824,13 @@ class LayerControl(BoxLayout):
         else:
             gain_vals =  (1., )*4
 
+        # Remove 'Colorize' option in brightfield control
+        # -----------------------------------------------------
         if self.layer == 'BF':
-            self.ids['false_color_label'].text = '' # Remove 'Colorize' option in brightfield control
+            self.ids['false_color_label'].text = ''
             self.ids['false_color'].color = (0., )*4
             #self.ids['false_color'].size = 0, 0
 
-        # update illumination to currently selected settings
-        illumination = protocol[self.layer]['ill']
-
-        # update LED illumination to currently selected settings
-        led_board = lumaview.led_board
-        if self.ids['apply_btn'].state == 'down': # if the button is down
-            #  turn the state of all channels to 'normal' and
-            layers = ['BF', 'Blue', 'Green', 'Red']
-            for layer in layers:
-                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].text = 'OFF'
-
-            # return the state of the current channel to 'down' and text to 'ON'
-            self.ids['apply_btn'].state = 'down'
-            self.ids['apply_btn'].text = 'ON'
-
-            # turn on the LED
-            led_board.led_on(led_board.color2ch(self.layer), illumination)
-        else:
-            # update the text of the button
-            self.ids['apply_btn'].text = 'OFF'
-            led_board.led_off() # turn off the LED
-
-        # update gain to currently selected settings
-        gain = protocol[self.layer]['gain']
-        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
-
-        # update exposure to currently selected settings
-        exposure = protocol[self.layer]['exp']
-        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
 
 class TimeLapseSettings(BoxLayout):
