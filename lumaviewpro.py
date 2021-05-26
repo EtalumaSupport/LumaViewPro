@@ -715,11 +715,14 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def ill_text(self):
-        if self.ids['ill_text'].text.isnumeric():
+        # if self.ids['ill_text'].text.isnumeric(): # Did not allow for floating point numbers
+        try:
             illumination = float(self.ids['ill_text'].text)
             protocol[self.layer]['ill'] = illumination
             self.ids['ill_slider'].value = illumination
             self.apply_settings()
+        except:
+            print('illumination is not acceptable value')
 
     def gain_slider(self):
         gain = self.ids['gain_slider'].value
@@ -727,23 +730,29 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def gain_text(self):
-        if self.ids['gain_text'].text.isnumeric():
+        # if self.ids['gain_text'].text.isnumeric(): # Did not allow for floating point numbers
+        try:
             gain = float(self.ids['gain_text'].text)
             protocol[self.layer]['gain'] = gain
             self.ids['gain_slider'].value = gain
             self.apply_settings()
+        except:
+            print('gain is not acceptable value')
 
     def exp_slider(self):
-        exposure = self.ids['exp_slider'].value
-        protocol[self.layer]['exp'] = exposure
+        exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
+        protocol[self.layer]['exp'] = exposure        # protocol is ms
         self.apply_settings()
 
     def exp_text(self):
-        if self.ids['exp_text'].text.isnumeric():
+        # if self.ids['exp_text'].text.isnumeric():  # Did not allow for floating point numbers
+        try:
             exposure = float(self.ids['exp_text'].text)
             protocol[self.layer]['exp'] = exposure
-            self.ids['exp_slider'].value = exposure
+            self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
             self.apply_settings()
+        except:
+            print('exposure is not acceptable value')
 
     def choose_folder(self):
         content = LoadDialog(load=self.load,
@@ -840,12 +849,18 @@ class TimeLapseSettings(BoxLayout):
     n_captures = ObjectProperty(None)
 
     def update_period(self):
-        if self.ids['capture_period'].text.isnumeric():
+        # if self.ids['capture_period'].text.isnumeric(): # Did not allow for floating point numbers
+        try:
             protocol['period'] = float(self.ids['capture_period'].text)
+        except:
+            print('period is not in acceptable range')
 
     def update_duration(self):
-        if self.ids['capture_dur'].text.isnumeric():
+        # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
+        try:
             protocol['duration'] = float(self.ids['capture_dur'].text)
+        except:
+            print('duration is not in acceptable range')
 
     # load protocol from JSON file
     def load_protocol(self, file="./data/protocol.json"):
@@ -870,7 +885,7 @@ class TimeLapseSettings(BoxLayout):
             for layer in layers:
                 lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
                 if len(protocol[layer]['save_folder']) > 30:
                     lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '... ' + protocol[layer]['save_folder'][-30:]
                 else:
