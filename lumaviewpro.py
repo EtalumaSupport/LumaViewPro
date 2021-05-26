@@ -25,13 +25,6 @@ SOFTWARE.
 ```
 
 ```
-Creative Commons Attributions - NOT CURRENTLY IN USE!!!!
------------------------------
-USB Icon: USB to USB by Ben Davis from the Noun Project
-Camera Icon: Camera by Adriansyah from the Noun Project
-```
-
-```
 This open source software was developed for use with Etaluma microscopes.
 
 AUTHORS:
