@@ -133,30 +133,30 @@ class PylonCamera(Image):
             if self.camera == False:
                 self.source = "./data/camera to USB.png"
                 return
-        # try:
-        #     if self.camera.IsGrabbing():
-        #         grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
-        #
-        #         if grabResult.GrabSucceeded():
-        #             image = grabResult.GetArray()
-        #             image = cv2.flip(image, 1)
-        #             self.array = image
-        #             image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
-        #             image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
-        #             self.texture = image_texture
-        #
-        #         self.lastGrab = pylon.PylonImage()
-        #         self.lastGrab.AttachGrabResultBuffer(grabResult)
-        #
-        #         if self.record == True:
-        #             self.capture(append = 'ms')
-        #
-        #         grabResult.Release()
-        #
-        # except:
-        #     if self.camera == False:
-        #         print("It looks like a Lumaview compatible camera was unplugged")
-        #     self.camera = False
+        try:
+            if self.camera.IsGrabbing():
+                grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
+
+                if grabResult.GrabSucceeded():
+                    image = grabResult.GetArray()
+                    image = cv2.flip(image, 1)
+                    self.array = image
+                    image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
+                    image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
+                    self.texture = image_texture
+
+                self.lastGrab = pylon.PylonImage()
+                self.lastGrab.AttachGrabResultBuffer(grabResult)
+
+                if self.record == True:
+                    self.capture(append = 'ms')
+
+                grabResult.Release()
+
+        except:
+            if self.camera == False:
+                print("It looks like a Lumaview compatible camera was unplugged")
+            self.camera = False
 
     def capture(self, save_folder = './capture/', file_root = 'live_', append = 'ms'):
         if self.camera == False:
