@@ -30,7 +30,7 @@ This open source software was developed for use with Etaluma microscopes.
 AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
-Bryan Tiedemann
+Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
 April 30, 2021
