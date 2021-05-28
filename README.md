@@ -1,6 +1,12 @@
 # lumaviewpro
 LumaViewPro is an open source fluorescence microscope control interface written in Python.  It is sponsored by Etaluma, Inc. and includes an example of an interface to the Etaluma LED control board and an initial version of a Basler camera.  Multi-axis motion control is anticipated in 2021. It is intended to offer a multi OS functional GUI as well as a development tool for testing and building applications from.
 
+## Executable for Windows 10
+
+The most recent executable for Windows 10 can be retreived from:
+https://drive.google.com/drive/folders/1I_szuj7lm418qxJWm0wzUnUD11tcDDzx?usp=sharing
+
+To use, download 'LumaViewPro.exe' and the two folders 'data' and 'capture'. You can run the executable by double-clicking with no further installation. Note that the code may be more current than the executable.
 
 ## Installing dependencies on Windows 10
 Download and install Python 3.9 from python page https://www.python.org/downloads/ for ALL users into new folder at (C:\Program Files\Python39). You will have to run the program in administrative mode.
@@ -18,7 +24,6 @@ Run the command prompt as administrator, and enter each of these commands. The v
 * `python3 -m pip install kivy.deps.glew` (kivy_deps.glew-0.3.0-cp39-cp39-win_amd64.whl)
 * `python3 -m pip install kivy`
 * `python3 -m pip install kivymd` (kivymd-0.104.1)
-
 
 ## Installing dependencies on Mac OS X
 Upgrade to the latest version of Mac OS X.  Also ensure you have the latest version of XCode installed from the [Mac App store](https://apps.apple.com/us/app/xcode/id497799835?mt=12).  Open XCode and let installation scripts download and run any additional tools needed.  Then open a terminal and enter the following command to install the XCode command line tools:
