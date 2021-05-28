@@ -17,6 +17,7 @@ class LEDBoard:
             print(ports[0])
             self.port = ports[0].device
         #self.port="COM5"
+        self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
