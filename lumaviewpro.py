@@ -708,13 +708,16 @@ class LayerControl(BoxLayout):
         super(LayerControl, self).__init__(**kwargs)
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
+        print('LayerControl init')
 
     def ill_slider(self):
+        print('ill_slider()')
         illumination = self.ids['ill_slider'].value
         protocol[self.layer]['ill'] = illumination
         self.apply_settings()
 
     def ill_text(self):
+        print('ill_text()')
         # if self.ids['ill_text'].text.isnumeric(): # Did not allow for floating point numbers
         try:
             illumination = float(self.ids['ill_text'].text)
@@ -725,11 +728,13 @@ class LayerControl(BoxLayout):
             print('illumination is not acceptable value')
 
     def gain_slider(self):
+        print('gain_slider()')
         gain = self.ids['gain_slider'].value
         protocol[self.layer]['gain'] = gain
         self.apply_settings()
 
     def gain_text(self):
+        print('gain_text()')
         # if self.ids['gain_text'].text.isnumeric(): # Did not allow for floating point numbers
         try:
             gain = float(self.ids['gain_text'].text)
@@ -740,11 +745,13 @@ class LayerControl(BoxLayout):
             print('gain is not acceptable value')
 
     def exp_slider(self):
+        print('exp_slider()')
         exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         protocol[self.layer]['exp'] = exposure        # protocol is ms
         self.apply_settings()
 
     def exp_text(self):
+        print('exp_text()')
         # if self.ids['exp_text'].text.isnumeric():  # Did not allow for floating point numbers
         try:
             exposure = float(self.ids['exp_text'].text)
@@ -793,22 +800,26 @@ class LayerControl(BoxLayout):
         illumination = protocol[self.layer]['ill']
 
         led_board = lumaview.led_board
-        if self.ids['apply_btn'].state == 'down': # if the button is down
+        print("DEBUG: 796: led_board")
 
-            # In active channel, change text to 'ON' and turn on LED
-            self.ids['apply_btn'].text = 'ON'
+        if self.ids['apply_btn'].state == 'down': # if the button is down
+            print("DEBUG: 799: ", self.layer)
+
+            # In active channel,turn on LED
             led_board.led_on(led_board.color2ch(self.layer), illumination)
 
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
+                print("DEBUG: 807: ", layer)
                 if(layer != self.layer):
+
+                    print("DEBUG: 810: ", layer)
                     lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].text = 'OFF'
 
         else: # if the button is 'normal' meaning not active
-            # In active channel, change text to 'OFF' and turn off LED
-            self.ids['apply_btn'].text = 'OFF'
+            # In active channel, and turn off LED
+            print("DEBUG: 815: led_off()")
             led_board.led_off()
 
         # update gain to currently selected settings
@@ -839,6 +850,7 @@ class LayerControl(BoxLayout):
             self.ids['false_color_label'].text = ''
             self.ids['false_color'].color = (0., )*4
             #self.ids['false_color'].size = 0, 0
+        print("DEBUG: 846: end of applysettings()")
 
 
 
@@ -967,7 +979,8 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
                 # turn off the LED
                 led_board.led_off()
-
+                # # turn off toggle switches
+                # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
     def convert_to_avi(self):
 

@@ -436,7 +436,7 @@
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_touch_up: root.ill_slider()
+                on_touch_down: root.ill_slider()
             TextInput:
                 id: ill_text
                 size_hint_x: None
@@ -469,7 +469,7 @@
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_touch_up: root.gain_slider()
+                on_touch_down: root.gain_slider()
             TextInput:
                 id: gain_text
                 size_hint_x: None
@@ -502,7 +502,7 @@
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_touch_up: root.exp_slider()
+                on_touch_down: root.exp_slider()
             TextInput:
                 id: exp_text
                 size_hint_x: None
@@ -533,9 +533,11 @@
             padding: 0
             ToggleButton:
                 id: apply_btn
-                text: 'ON'
                 halign: 'center'
                 valign: 'middle'
+				border: 0, 0, 0, 0
+				background_normal: './data/icons/ToggleL.png'
+				background_down: './data/icons/ToggleR.png'
                 on_release: root.apply_settings()
             Label:
                 id: false_color_label
