@@ -14,7 +14,7 @@ protocol = {
         "file_root": "W_",
         "ill": 100.,
         "gain": 0.,
-        "exp": 200.,
+        "exp": 100.,
         "false_color": False,
         "acquire": True
     },
@@ -23,7 +23,7 @@ protocol = {
         "file_root": "B_",
         "ill": 100.,
         "gain": 0.,
-        "exp": 200.,
+        "exp": 100.,
         "false_color": True,
         "acquire": True
     },
@@ -32,7 +32,7 @@ protocol = {
         "file_root": "G_",
         "ill": 100.,
         "gain": 0.,
-        "exp": 200.,
+        "exp": 100.,
         "false_color": True,
         "acquire": True
     },
@@ -41,7 +41,7 @@ protocol = {
         "file_root": "R_",
         "ill": 100.,
         "gain": 0.,
-        "exp": 200.,
+        "exp": 100.,
         "false_color": True,
         "acquire": True
     },
@@ -52,5 +52,5 @@ protocol = {
 
 import json
 
-with open("./data/default.json", "w") as write_file:
+with open("./data/protocol.json", "w") as write_file:
     json.dump(protocol, write_file)

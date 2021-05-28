@@ -36,6 +36,38 @@
 #-------------------------------------------------------------------------------
 
 # -----------------------
+# TOOLTIPS
+# -----------------------
+<TooltipViewClass>:
+	size_hint: None, None
+	width: self.minimum_width
+	height: self.minimum_height + root.padding[1]
+	opacity: 0
+
+	canvas.before:
+		PushMatrix
+		Color:
+			rgba: root.tooltip_bg_color
+		RoundedRectangle:
+			pos: self.pos
+			size: self.size
+			radius: root.tooltip_radius
+		Scale:
+			origin: self.center
+			x: root._scale_x
+			y: root._scale_y
+	canvas.after:
+		PopMatrix
+
+	Label:
+		id: label_tooltip
+		text: root.tooltip_text
+		size_hint: None, None
+		size: self.texture_size
+		pos_hint: {'center_y': 0.5}
+
+
+# -----------------------
 # MAIN DISPLAY
 # -----------------------
 <MainDisplay>:
@@ -61,7 +93,7 @@
         id: mainsettings_id
         size_hint: None, None
         size: self.settings_width, root.height
-        pos: root.width-15, 0
+        pos: root.width-30, 0
 
     # Camera Controls
     # ------------------------------
@@ -71,7 +103,7 @@
         spacing: '5dp'
         # pos: root.width/2-200, 0
         pos: 0, 0
-        Button:
+        TooltipButton:
             id: live_folder_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/folder.png' # Press to Select Folder
@@ -79,7 +111,8 @@
             size_hint: None, None
             size: '40dp', '40dp'
             on_press: root.choose_folder()
-        ToggleButton:
+			tooltip_text: "Select save folder"
+        TooltipToggleButton:
             id: live_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/pause.png' # Press to Pause Live Stream
@@ -89,7 +122,8 @@
             # text: 'Pause Stream'
             state: 'normal'
             on_press: root.cam_toggle()
-        Button:
+			tooltip_text: "Pause/play live stream"
+        TooltipButton:
             id: capture_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/capture.png' # Press to Capture Image
@@ -98,7 +132,8 @@
             size: '40dp', '40dp'
             # text: 'Capture Image'
             on_press: root.capture(0)
-        Button:
+			tooltip_text: "Capture image"
+        TooltipButton:
             id: composite_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/composite.png' # Press to Capture Composite Image
@@ -107,7 +142,8 @@
             size: '40dp', '40dp'
             # text: 'Composite'
             on_press: root.composite(0)
-        ToggleButton:
+			tooltip_text: "Capture composite image"
+        TooltipToggleButton:
             id: record_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/record.png' # Press to Record Live Stream
@@ -116,7 +152,8 @@
             size: '40dp', '40dp'
             # text: 'Record Video'
             on_press: root.record()
-        Button:
+			tooltip_text:  "Start/stop recording"
+        TooltipButton:
             id: fit_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/fit.png' # Press to Fit Image to Window
@@ -125,7 +162,8 @@
             size: '40dp', '40dp'
             # text: 'Fit'
             on_press: root.fit_image()
-        Button:
+			tooltip_text: "Fit image to window"
+        TooltipButton:
             id: one2one_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
@@ -134,6 +172,7 @@
             size: '40dp', '40dp'
             # text: '1:1'
             on_press: root.one2one_image()
+			tooltip_text: "Scale 1:1"
 
 # ShaderViewer - Shaded Live Camera view
 # ------------------------------------------
@@ -174,7 +213,7 @@
     ToggleButton:
         id: toggle_editor
         size_hint: None, None
-        size: 15, 50
+        size: 30, 60
         pos_hint: {"x":0, "y":0.5}
         border: 0, 0, 0, 0
         background_normal: './data/right_arrow.png'
@@ -188,7 +227,7 @@
     ToggleButton:
         id: toggle_mainsettings
         size_hint: None, None
-        size: 15, 50
+        size: 30, 60
         pos_hint: {"x":0, "y":0.5}
         border: 0, 0, 0, 0
         background_normal: './data/left_arrow.png' # left pointing (press to open)
@@ -391,12 +430,13 @@
                 min: 0.
                 max: 600.
                 value: 100.
+				step: 5.
                 cursor_size: '20dp','20dp'
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_touch_up: root.ill_slider()
+                on_touch_down: root.ill_slider()
             TextInput:
                 id: ill_text
                 size_hint_x: None
@@ -405,9 +445,9 @@
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
                 halign: 'right'
-                input_filter: 'int'
-                text:"%.1f" % ill_slider.value
-                on_text: root.ill_text()
+                input_filter: 'float'
+                text: format(ill_slider.value, '.3g')
+                on_text_validate: root.ill_text()
         # Gain
         BoxLayout:
             orientation: 'horizontal'
@@ -423,12 +463,13 @@
                 min: 0.
                 max: 24.
                 value: 0.
+				step: 0.1
                 cursor_size: '20dp','20dp'
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_touch_up: root.gain_slider()
+                on_touch_down: root.gain_slider()
             TextInput:
                 id: gain_text
                 size_hint_x: None
@@ -438,8 +479,8 @@
                 padding: ['4dp', (self.height-self.line_height)/2]
                 halign: 'right'
                 input_filter: 'float'
-                text:"%.1f" % gain_slider.value
-                on_text: root.gain_text()
+                text: format(gain_slider.value, '.3g')
+                on_text_validate: root.gain_text()
         # Exposure
         BoxLayout:
             orientation: 'horizontal'
@@ -451,16 +492,17 @@
                 size_hint_x: None
                 width: '100dp'
             Slider:
-                id: exp_slider # 2e-5 to 60, default .005
-                min: 0.01 # minimum allowable by camera 10.0 us = 0.01 ms
-                max: 1000 # maximum, allowable by camera 1000000.0 us = 1000.0 ms
-                value: 200
+                id: exp_slider
+                min: -2. # minimum allowable by camera 10.0 us = 0.01 ms -> 10^-2 log-10 scale
+                max: 3. # maximum, allowable by camera 1000000.0 us = 1000.0 ms -> 10^3 -> 10^-2 log-10 scale
+                value: 2. # 10^2 -> 100 ms exposure
+				step: 0.01
                 cursor_size: '20dp','20dp'
                 cursor_image: './data/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_touch_up: root.exp_slider()
+                on_touch_down: root.exp_slider()
             TextInput:
                 id: exp_text
                 size_hint_x: None
@@ -469,9 +511,9 @@
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
                 halign: 'right'
-                input_filter: 'int'
-                text: "%.1f" % exp_slider.value
-                on_text: root.exp_text()
+                input_filter: 'float'
+                text: format(10 ** exp_slider.value, '.3g')
+                on_text_validate: root.exp_text()
 
         # File Save Settings
         Button:
@@ -491,9 +533,11 @@
             padding: 0
             ToggleButton:
                 id: apply_btn
-                text: 'ON'
                 halign: 'center'
                 valign: 'middle'
+				border: 0, 0, 0, 0
+				background_normal: './data/icons/ToggleL.png'
+				background_down: './data/icons/ToggleR.png'
                 on_release: root.apply_settings()
             Label:
                 id: false_color_label
@@ -609,6 +653,7 @@
         orientation: "vertical"
         FileChooserListView:
             id: filechooser
+			path: root.path
         BoxLayout:
             size_hint_y: None
             height: '40dp'

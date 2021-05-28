@@ -1,5 +1,5 @@
 # lumaviewpro
-LumaViewPro is an open source fluorescence microscope control interface written in Python.  It is sponsored by Etaluma, Inc. and includes an example of an interface to the Etaluma LED control board and an initial version of a Basler camera.  Multi-axis motion control is anticipated in 2021. It is intended to offer a multi OS functionl GUI as well as a development tool for testing and building applications from.
+LumaViewPro is an open source fluorescence microscope control interface written in Python.  It is sponsored by Etaluma, Inc. and includes an example of an interface to the Etaluma LED control board and an initial version of a Basler camera.  Multi-axis motion control is anticipated in 2021. It is intended to offer a multi OS functional GUI as well as a development tool for testing and building applications from.
 
 
 ## Installing dependencies on Windows 10
@@ -16,8 +16,8 @@ Run the command prompt as administrator, and enter each of these commands. The v
 * `python3 -m pip install docutils pygments pypiwin32` (docutils-0.16 pygments-2.8.1 pypiwin32-223 pywin32-300)
 * `python3 -m pip install kivy.deps.sdl2` (kivy_deps.sdl2-0.3.1-cp39-cp39-win_amd64.whl)
 * `python3 -m pip install kivy.deps.glew` (kivy_deps.glew-0.3.0-cp39-cp39-win_amd64.whl)
-* `python3 -m pip install kivy.deps.gstreamer` (kivy_deps.gstreamer-0.3.1-cp39-cp39-win_amd64.whl)
 * `python3 -m pip install kivy`
+* `python3 -m pip install kivymd` (kivymd-0.104.1)
 
 
 ## Installing dependencies on Mac OS X
@@ -55,6 +55,7 @@ Install dependencies using Homebrew:
 
 Install kivy using pip:
 * `python -m pip install kivy`
+* `python -m pip install kivymd`
 
 ## Running from Code on Windows 10 and MacOS
 

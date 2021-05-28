@@ -25,13 +25,6 @@ SOFTWARE.
 ```
 
 ```
-Creative Commons Attributions - NOT CURRENTLY IN USE!!!!
------------------------------
-USB Icon: USB to USB by Ben Davis from the Noun Project
-Camera Icon: Camera by Adriansyah from the Noun Project
-```
-
-```
 This open source software was developed for use with Etaluma microscopes.
 
 AUTHORS:
@@ -58,9 +51,11 @@ from kivy.app import App
 from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
-from kivy.properties import StringProperty, ObjectProperty
+from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, NumericProperty
+from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, ListProperty
 from kivy.clock import Clock
 from kivy.metrics import dp
+from kivy.animation import Animation
 
 # User Interface
 from kivy.uix.accordion import Accordion, AccordionItem
@@ -77,6 +72,9 @@ from kivy.uix.image import Image
 from kivy.uix.popup import Popup
 from kivy.uix.label import Label
 from kivy.uix.button import Button
+
+# From KivyMD
+from kivymd.uix.behaviors import HoverBehavior, TouchBehavior
 
 # Video Related
 from kivy.graphics.texture import Texture
@@ -119,6 +117,7 @@ class PylonCamera(Image):
             if self.camera == False:
                 print("It looks like a Lumaview compatible camera or scope is not plugged in")
             self.camera = False
+        print("DEBUG: connect(self)")
 
     def start(self):
         self.fps = 10
@@ -133,33 +132,31 @@ class PylonCamera(Image):
             self.connect()
             if self.camera == False:
                 self.source = "./data/camera to USB.png"
-                # self.scale = 1
-                # self.pos = (0,0)
                 return
-        try:
-            if self.camera.IsGrabbing():
-                grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
-
-                if grabResult.GrabSucceeded():
-                    image = grabResult.GetArray()
-                    image = cv2.flip(image, 1)
-                    self.array = image
-                    image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
-                    image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
-                    self.texture = image_texture
-
-                self.lastGrab = pylon.PylonImage()
-                self.lastGrab.AttachGrabResultBuffer(grabResult)
-
-                if self.record == True:
-                    self.capture(append = 'ms')
-
-                grabResult.Release()
-
-        except:
-            if self.camera == False:
-                print("It looks like a Lumaview compatible camera was unplugged")
-            self.camera = False
+        # try:
+        #     if self.camera.IsGrabbing():
+        #         grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
+        #
+        #         if grabResult.GrabSucceeded():
+        #             image = grabResult.GetArray()
+        #             image = cv2.flip(image, 1)
+        #             self.array = image
+        #             image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
+        #             image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
+        #             self.texture = image_texture
+        #
+        #         self.lastGrab = pylon.PylonImage()
+        #         self.lastGrab.AttachGrabResultBuffer(grabResult)
+        #
+        #         if self.record == True:
+        #             self.capture(append = 'ms')
+        #
+        #         grabResult.Release()
+        #
+        # except:
+        #     if self.camera == False:
+        #         print("It looks like a Lumaview compatible camera was unplugged")
+        #     self.camera = False
 
     def capture(self, save_folder = './capture/', file_root = 'live_', append = 'ms'):
         if self.camera == False:
@@ -223,7 +220,7 @@ class LEDBoard:
         ports = list(list_ports.comports())
         if (len(ports)!=0):
             self.port = ports[0].device
-        self.port="COM5"
+        # self.port="COM5"
         self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
@@ -559,15 +556,34 @@ void main (void) {
 
 class MainSettings(BoxLayout):
     settings_width = dp(300)
+    isOpen = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        Window.bind(on_draw=self.check_settings)
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
         global lumaview
         # update protocol
-        if self.ids['toggle_mainsettings'].state == 'down': # if down, open the settinsg
-            self.pos = lumaview.width - self.settings_width, 0
+        if self.isOpen:
+            self.ids['toggle_mainsettings'].state = 'normal'
+            self.pos = lumaview.width - 30, 0
+            self.isOpen = False
         else:
-            self.pos = lumaview.width-15, 0
+            self.ids['toggle_mainsettings'].state = 'down'
+            self.pos = lumaview.width - self.settings_width, 0
+            self.isOpen = True
+
+    def check_settings(self, *args):
+        global lumaview
+        if not self.isOpen:
+            self.ids['toggle_mainsettings'].state = 'normal'
+            self.pos = lumaview.width - 30, 0
+        else:
+            self.ids['toggle_mainsettings'].state = 'down'
+            self.pos = lumaview.width - self.settings_width, 0
+
 
 class MicroscopeSettings(BoxLayout):
 #    def port_select(self, port):
@@ -691,42 +707,58 @@ class LayerControl(BoxLayout):
         super(LayerControl, self).__init__(**kwargs)
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
+        print('LayerControl init')
 
     def ill_slider(self):
+        print('ill_slider()')
         illumination = self.ids['ill_slider'].value
         protocol[self.layer]['ill'] = illumination
         self.apply_settings()
 
     def ill_text(self):
-        if self.ids['ill_text'].text.isnumeric():
+        print('ill_text()')
+        # if self.ids['ill_text'].text.isnumeric(): # Did not allow for floating point numbers
+        try:
             illumination = float(self.ids['ill_text'].text)
             protocol[self.layer]['ill'] = illumination
             self.ids['ill_slider'].value = illumination
             self.apply_settings()
+        except:
+            print('illumination is not acceptable value')
 
     def gain_slider(self):
+        print('gain_slider()')
         gain = self.ids['gain_slider'].value
         protocol[self.layer]['gain'] = gain
         self.apply_settings()
 
     def gain_text(self):
-        if self.ids['gain_text'].text.isnumeric():
+        print('gain_text()')
+        # if self.ids['gain_text'].text.isnumeric(): # Did not allow for floating point numbers
+        try:
             gain = float(self.ids['gain_text'].text)
             protocol[self.layer]['gain'] = gain
             self.ids['gain_slider'].value = gain
             self.apply_settings()
+        except:
+            print('gain is not acceptable value')
 
     def exp_slider(self):
-        exposure = self.ids['exp_slider'].value
-        protocol[self.layer]['exp'] = exposure
+        print('exp_slider()')
+        exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
+        protocol[self.layer]['exp'] = exposure        # protocol is ms
         self.apply_settings()
 
     def exp_text(self):
-        if self.ids['exp_text'].text.isnumeric():
+        print('exp_text()')
+        # if self.ids['exp_text'].text.isnumeric():  # Did not allow for floating point numbers
+        try:
             exposure = float(self.ids['exp_text'].text)
             protocol[self.layer]['exp'] = exposure
-            self.ids['exp_slider'].value = exposure
+            self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
             self.apply_settings()
+        except:
+            print('exposure is not acceptable value')
 
     def choose_folder(self):
         content = LoadDialog(load=self.load,
@@ -761,7 +793,40 @@ class LayerControl(BoxLayout):
     def apply_settings(self):
         global lumaview
         global gain_vals
+
+        # update illumination to currently selected settings
+        # -----------------------------------------------------
+        illumination = protocol[self.layer]['ill']
+
+        led_board = lumaview.led_board
+
+        if self.ids['apply_btn'].state == 'down': # if the button is down
+
+            # In active channel,turn on LED
+            led_board.led_on(led_board.color2ch(self.layer), illumination)
+
+            #  turn the state of remaining channels to 'normal' and text to 'OFF'
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                if(layer != self.layer):
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+
+        else: # if the button is 'normal' meaning not active
+            # In active channel, and turn off LED
+            led_board.led_off()
+
+        # update gain to currently selected settings
+        # -----------------------------------------------------
+        gain = protocol[self.layer]['gain']
+        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
+
+        # update exposure to currently selected settings
+        # -----------------------------------------------------
+        exposure = protocol[self.layer]['exp']
+        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
+
         # update false color to currently selected settings
+        # -----------------------------------------------------
         if self.ids['false_color'].active:
             if(self.layer) == 'Red':
                 gain_vals = (1., 0., 0., 1.)
@@ -772,42 +837,11 @@ class LayerControl(BoxLayout):
         else:
             gain_vals =  (1., )*4
 
+        # Remove 'Colorize' option in brightfield control
+        # -----------------------------------------------------
         if self.layer == 'BF':
-            self.ids['false_color_label'].text = '' # Remove 'Colorize' option in brightfield control
+            self.ids['false_color_label'].text = ''
             self.ids['false_color'].color = (0., )*4
-            #self.ids['false_color'].size = 0, 0
-
-        # update illumination to currently selected settings
-        illumination = protocol[self.layer]['ill']
-
-        # update LED illumination to currently selected settings
-        led_board = lumaview.led_board
-        if self.ids['apply_btn'].state == 'down': # if the button is down
-            #  turn the state of all channels to 'normal' and
-            layers = ['BF', 'Blue', 'Green', 'Red']
-            for layer in layers:
-                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].text = 'OFF'
-
-            # return the state of the current channel to 'down' and text to 'ON'
-            self.ids['apply_btn'].state = 'down'
-            self.ids['apply_btn'].text = 'ON'
-
-            # turn on the LED
-            led_board.led_on(led_board.color2ch(self.layer), illumination)
-        else:
-            # update the text of the button
-            self.ids['apply_btn'].text = 'OFF'
-            led_board.led_off() # turn off the LED
-
-        # update gain to currently selected settings
-        gain = protocol[self.layer]['gain']
-        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
-
-        # update exposure to currently selected settings
-        exposure = protocol[self.layer]['exp']
-        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
-
 
 class TimeLapseSettings(BoxLayout):
     record = ObjectProperty(None)
@@ -816,12 +850,18 @@ class TimeLapseSettings(BoxLayout):
     n_captures = ObjectProperty(None)
 
     def update_period(self):
-        if self.ids['capture_period'].text.isnumeric():
+        # if self.ids['capture_period'].text.isnumeric(): # Did not allow for floating point numbers
+        try:
             protocol['period'] = float(self.ids['capture_period'].text)
+        except:
+            print('period is not in acceptable range')
 
     def update_duration(self):
-        if self.ids['capture_dur'].text.isnumeric():
+        # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
+        try:
             protocol['duration'] = float(self.ids['capture_dur'].text)
+        except:
+            print('duration is not in acceptable range')
 
     # load protocol from JSON file
     def load_protocol(self, file="./data/protocol.json"):
@@ -846,7 +886,7 @@ class TimeLapseSettings(BoxLayout):
             for layer in layers:
                 lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
                 if len(protocol[layer]['save_folder']) > 30:
                     lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '... ' + protocol[layer]['save_folder'][-30:]
                 else:
@@ -928,7 +968,8 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
                 # turn off the LED
                 led_board.led_off()
-
+                # # turn off toggle switches
+                # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
     def convert_to_avi(self):
 
@@ -966,6 +1007,140 @@ class LoadDialog(FloatLayout):
     load = ObjectProperty(None)
     cancel = ObjectProperty(None)
     path = ObjectProperty(None)
+
+
+# ------------------------------------------------------------------------
+# TOOLTIPS
+# ------------------------------------------------------------------------
+class Tooltip(HoverBehavior, TouchBehavior):
+    # Tooltip background color
+    tooltip_bg_color = ColorProperty(None)
+
+    # Tooltip text color
+    tooltip_text_color = ColorProperty(None)
+
+    # Tooltip text to display
+    tooltip_text = StringProperty(None)
+
+    # Radius of rounded rectangle's corner
+    tooltip_radius = ListProperty([dp(5),])
+
+    # Tooltip display delay, defaults to 0 and max of 4
+    tooltip_display_delay = BoundedNumericProperty(0, min=0, max=4)
+
+    # Y-offset of tooltip text, defaults to 0
+    shift_y = NumericProperty(0)
+
+    _tooltip = None
+
+
+    def delete_clock(self, widget, touch, *args):
+        if self.collide_point(touch.x, touch.y) and touch.grab_current:
+            try:
+                Clock.unschedule(touch.ud["event"])
+            except KeyError:
+                pass
+            self.on_leave()
+
+    # Returns the coordinates of the tooltio that fit in screen borders
+    def adjust_tooltip_position(self, x, y):
+        # If tooltip position is outside the right border of the screen:
+        if x + self._tooltip.width > Window.width:
+            x = Window.width - (self._tooltip.width + dp(10))
+        elif x < 0:
+            # If the tooltip position is outside the left boder of the screen
+            x = '10dp'
+
+        # If the tooltip position is below the bottom border:
+        if y < 0:
+            y = dp(10)
+        elif Window.height - self._tooltip.height < y:
+            y - Window.height - (self._tooltip.height + dp(10))
+
+        return x, y
+
+    # Display the tooltip using an animated routine after a display delay defined by user
+    def display_tooltip(self, interval):
+        if not self._tooltip:
+            return
+
+        Window.add_widget(self._tooltip)
+        pos = self.to_window(self.center_x, self.center_y)
+        x = pos[0] - self._tooltip.width / 2
+
+        if not self.shift_y:
+            y = pos[1] - self._tooltip.height / 2 - self.height / 2 - dp(20)
+        else:
+            y = pos[1] - self._tooltip.height / 2 - self.height + self.shift_y
+
+        x, y = self.adjust_tooltip_position(x, y)
+        self._tooltip.pos = (x, y)
+
+        Clock.schedule_once(self.animation_tooltip_show, self.tooltip_display_delay)
+
+    # Method that displays tooltip in an animated way
+    def animation_tooltip_show(self, interval):
+        if not self._tooltip:
+            return
+
+        (Animation(_scale_x = 1, _scale_y = 1, d = 0.1)
+                + Animation(opacity = 1, d = 0.2)).start(self._tooltip)
+
+    # Makes tooltip disappear
+    def remove_tooltip(self, *args):
+        Window.remove_widget(self._tooltip)
+
+    def on_long_touch(self, touch, *args):
+        return
+
+    def on_enter(self, *args):
+        if not self.tooltip_text:
+            return
+
+        self._tooltip = TooltipViewClass(
+                tooltip_bg_color = self.tooltip_bg_color,
+                tooltip_text_color = self.tooltip_text_color,
+                tooltip_text = self.tooltip_text,
+                tooltip_radius = self.tooltip_radius)
+        Clock.schedule_once(self.display_tooltip, -1)
+
+    def on_leave(self):
+        if self._tooltip:
+            Window.remove_widget(self._tooltip)
+            self._tooltip = None
+
+
+# Holder layout for the tooltip
+class TooltipViewClass(BoxLayout):
+    tooltip_bg_color = ColorProperty(None)
+    tooltip_text_color = ColorProperty(None)
+    tooltip_text = StringProperty()
+    tooltip_radius = ListProperty()
+
+    _scale_x = NumericProperty(0)
+    _scale_y = NumericProperty(0)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.padding = [dp(8), dp(4), dp(8), dp(4)]
+
+
+# Button-derivative with tooltips
+class TooltipButton(Button, Tooltip):
+    def __init__(self, **kwargs):
+        super(TooltipButton, self).__init__(**kwargs)
+        self.tooltip_bg_color = (0.1, 0.1, 0.1, 0.7)
+        self.tooltip_display_delay = 0.
+        self.shift_y = dp(80)
+
+
+# Toggle Button-derivative with tooltips
+class TooltipToggleButton(ToggleButton, Tooltip):
+    def __init__(self, **kwargs):
+        super(TooltipToggleButton, self).__init__(**kwargs)
+        self.tooltip_bg_color = (0.1, 0.1, 0.1, 0.7)
+        self.tooltip_display_delay = 0.5
+        self.shift_y = dp(80)
 
 
 # -------------------------------------------------------------------------
