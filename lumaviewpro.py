@@ -710,14 +710,11 @@ class LayerControl(BoxLayout):
         print('LayerControl init')
 
     def ill_slider(self):
-        print('ill_slider()')
         illumination = self.ids['ill_slider'].value
         protocol[self.layer]['ill'] = illumination
         self.apply_settings()
 
     def ill_text(self):
-        print('ill_text()')
-        # if self.ids['ill_text'].text.isnumeric(): # Did not allow for floating point numbers
         try:
             illumination = float(self.ids['ill_text'].text)
             protocol[self.layer]['ill'] = illumination
@@ -727,14 +724,11 @@ class LayerControl(BoxLayout):
             print('illumination is not acceptable value')
 
     def gain_slider(self):
-        print('gain_slider()')
         gain = self.ids['gain_slider'].value
         protocol[self.layer]['gain'] = gain
         self.apply_settings()
 
     def gain_text(self):
-        print('gain_text()')
-        # if self.ids['gain_text'].text.isnumeric(): # Did not allow for floating point numbers
         try:
             gain = float(self.ids['gain_text'].text)
             protocol[self.layer]['gain'] = gain
@@ -744,14 +738,11 @@ class LayerControl(BoxLayout):
             print('gain is not acceptable value')
 
     def exp_slider(self):
-        print('exp_slider()')
         exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         protocol[self.layer]['exp'] = exposure        # protocol is ms
         self.apply_settings()
 
     def exp_text(self):
-        print('exp_text()')
-        # if self.ids['exp_text'].text.isnumeric():  # Did not allow for floating point numbers
         try:
             exposure = float(self.ids['exp_text'].text)
             protocol[self.layer]['exp'] = exposure
@@ -797,14 +788,10 @@ class LayerControl(BoxLayout):
         # update illumination to currently selected settings
         # -----------------------------------------------------
         illumination = protocol[self.layer]['ill']
-
         led_board = lumaview.led_board
-
         if self.ids['apply_btn'].state == 'down': # if the button is down
-
             # In active channel,turn on LED
             led_board.led_on(led_board.color2ch(self.layer), illumination)
-
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
