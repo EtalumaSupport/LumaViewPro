@@ -8,7 +8,7 @@ https://drive.google.com/drive/folders/1I_szuj7lm418qxJWm0wzUnUD11tcDDzx?usp=sha
 
 To use, download 'LumaViewPro.exe' and the two folders 'data' and 'capture'. You can run the executable by double-clicking with no further installation. Note that the code may be more current than the executable.
 
-## Installing dependencies on Windows 10
+## Installing dependencies on Windows 10 to run as a Python Script
 Download and install Python 3.9 from python page https://www.python.org/downloads/ for ALL users into new folder at (C:\Program Files\Python39). You will have to run the program in administrative mode.
 
 Run the command prompt as administrator, and enter each of these commands. The versions that are installed on my current development computer are in parentheses.
@@ -25,7 +25,7 @@ Run the command prompt as administrator, and enter each of these commands. The v
 * `python3 -m pip install kivy`
 * `python3 -m pip install kivymd` (kivymd-0.104.1)
 
-## Installing dependencies on Mac OS X
+## Installing dependencies on Mac OS X to run as a Python Script
 Upgrade to the latest version of Mac OS X.  Also ensure you have the latest version of XCode installed from the [Mac App store](https://apps.apple.com/us/app/xcode/id497799835?mt=12).  Open XCode and let installation scripts download and run any additional tools needed.  Then open a terminal and enter the following command to install the XCode command line tools:
 
 - `xcode-select --install` 
