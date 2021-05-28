@@ -867,8 +867,6 @@ class TimeLapseSettings(BoxLayout):
     def load_protocol(self, file="./data/protocol.json"):
         global lumaview
 
-        # determine file to read
-
         # load protocol JSON file
         with open(file, "r") as read_file:
             global protocol
