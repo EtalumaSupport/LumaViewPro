@@ -67,6 +67,7 @@ from kivy.uix.scatter import Scatter
 from kivy.uix.widget import Widget
 from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.switch import Switch
+from kivy.uix.slider import Slider
 from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
 from kivy.uix.popup import Popup
@@ -697,6 +698,19 @@ class ObjectiveSelect(BoxLayout):
         self.objective_str = objective
         protocol['objective'] = objective
 
+class ModSlider(Slider):
+    def __init__(self, **kwargs):
+        self.register_event_type('on_release')
+        super(ModSlider, self).__init__(**kwargs)
+
+    def on_release(self):
+        pass
+
+    def on_touch_up(self, touch):
+        super(ModSlider, self).on_touch_up(touch)
+        if touch.grab_current == self:
+            self.dispatch('on_release')
+            return True
 
 class LayerControl(BoxLayout):
     layer = StringProperty(None)

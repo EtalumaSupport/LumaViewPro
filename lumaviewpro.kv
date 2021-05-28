@@ -425,7 +425,7 @@
                 font_size: '14sp'
                 size_hint_x: None
                 width: '100dp'
-            Slider:
+            ModSlider:
                 id: ill_slider
                 min: 0.
                 max: 600.
@@ -436,7 +436,7 @@
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_touch_down: root.ill_slider()
+                on_release: root.ill_slider()
             TextInput:
                 id: ill_text
                 size_hint_x: None
@@ -458,7 +458,7 @@
                 font_size: '14sp'
                 size_hint_x: None
                 width: '100dp'
-            Slider:
+            ModSlider:
                 id: gain_slider # 0 to 24, default 0, based on camera limits
                 min: 0.
                 max: 24.
@@ -469,7 +469,7 @@
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_touch_down: root.gain_slider()
+                on_release: root.gain_slider()
             TextInput:
                 id: gain_text
                 size_hint_x: None
@@ -491,7 +491,7 @@
                 font_size: '14sp'
                 size_hint_x: None
                 width: '100dp'
-            Slider:
+            ModSlider:
                 id: exp_slider
                 min: -2. # minimum allowable by camera 10.0 us = 0.01 ms -> 10^-2 log-10 scale
                 max: 3. # maximum, allowable by camera 1000000.0 us = 1000.0 ms -> 10^3 -> 10^-2 log-10 scale
@@ -502,7 +502,7 @@
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_touch_down: root.exp_slider()
+                on_release: root.exp_slider()
             TextInput:
                 id: exp_text
                 size_hint_x: None
