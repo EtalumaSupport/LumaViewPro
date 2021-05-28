@@ -117,6 +117,7 @@ class PylonCamera(Image):
             if self.camera == False:
                 print("It looks like a Lumaview compatible camera or scope is not plugged in")
             self.camera = False
+        print("DEBUG: connect(self)")
 
     def start(self):
         self.fps = 10
@@ -131,33 +132,31 @@ class PylonCamera(Image):
             self.connect()
             if self.camera == False:
                 self.source = "./data/camera to USB.png"
-                # self.scale = 1
-                # self.pos = (0,0)
                 return
-        try:
-            if self.camera.IsGrabbing():
-                grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
-
-                if grabResult.GrabSucceeded():
-                    image = grabResult.GetArray()
-                    image = cv2.flip(image, 1)
-                    self.array = image
-                    image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
-                    image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
-                    self.texture = image_texture
-
-                self.lastGrab = pylon.PylonImage()
-                self.lastGrab.AttachGrabResultBuffer(grabResult)
-
-                if self.record == True:
-                    self.capture(append = 'ms')
-
-                grabResult.Release()
-
-        except:
-            if self.camera == False:
-                print("It looks like a Lumaview compatible camera was unplugged")
-            self.camera = False
+        # try:
+        #     if self.camera.IsGrabbing():
+        #         grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
+        #
+        #         if grabResult.GrabSucceeded():
+        #             image = grabResult.GetArray()
+        #             image = cv2.flip(image, 1)
+        #             self.array = image
+        #             image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
+        #             image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
+        #             self.texture = image_texture
+        #
+        #         self.lastGrab = pylon.PylonImage()
+        #         self.lastGrab.AttachGrabResultBuffer(grabResult)
+        #
+        #         if self.record == True:
+        #             self.capture(append = 'ms')
+        #
+        #         grabResult.Release()
+        #
+        # except:
+        #     if self.camera == False:
+        #         print("It looks like a Lumaview compatible camera was unplugged")
+        #     self.camera = False
 
     def capture(self, save_folder = './capture/', file_root = 'live_', append = 'ms'):
         if self.camera == False:
@@ -800,10 +799,8 @@ class LayerControl(BoxLayout):
         illumination = protocol[self.layer]['ill']
 
         led_board = lumaview.led_board
-        print("DEBUG: 796: led_board")
 
         if self.ids['apply_btn'].state == 'down': # if the button is down
-            print("DEBUG: 799: ", self.layer)
 
             # In active channel,turn on LED
             led_board.led_on(led_board.color2ch(self.layer), illumination)
@@ -811,15 +808,11 @@ class LayerControl(BoxLayout):
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
-                print("DEBUG: 807: ", layer)
                 if(layer != self.layer):
-
-                    print("DEBUG: 810: ", layer)
                     lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         else: # if the button is 'normal' meaning not active
             # In active channel, and turn off LED
-            print("DEBUG: 815: led_off()")
             led_board.led_off()
 
         # update gain to currently selected settings
@@ -849,10 +842,6 @@ class LayerControl(BoxLayout):
         if self.layer == 'BF':
             self.ids['false_color_label'].text = ''
             self.ids['false_color'].color = (0., )*4
-            #self.ids['false_color'].size = 0, 0
-        print("DEBUG: 846: end of applysettings()")
-
-
 
 class TimeLapseSettings(BoxLayout):
     record = ObjectProperty(None)
