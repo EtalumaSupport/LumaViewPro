@@ -1140,7 +1140,7 @@ class TooltipToggleButton(ToggleButton, Tooltip):
     def __init__(self, **kwargs):
         super(TooltipToggleButton, self).__init__(**kwargs)
         self.tooltip_bg_color = (0.1, 0.1, 0.1, 0.7)
-        self.tooltip_display_delay = 0.5
+        self.tooltip_display_delay = 0.
         self.shift_y = dp(80)
 
 
@@ -1149,7 +1149,7 @@ class TooltipToggleButton(ToggleButton, Tooltip):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def build(self):
-        # self.icon = './data/icon.ico'
+        self.icon = './data/icon32x.png'
         Window.minimum_width = 800
         Window.minimum_height = 600
         global lumaview
