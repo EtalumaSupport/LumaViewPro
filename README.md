@@ -3,7 +3,7 @@ LumaViewPro is an open source fluorescence microscope control interface written 
 
 ## Executable for Windows 10
 
-The most recent executable for Windows 10 can be retreived from:
+The most recent executable for Windows 10 can be retrieved from:
 https://drive.google.com/drive/folders/1I_szuj7lm418qxJWm0wzUnUD11tcDDzx?usp=sharing
 
 To use, download 'LumaViewPro.zip' and extract file. You can run the executable by double-clicking with no further installation. Note that the code may be more current than the executable.
@@ -28,7 +28,7 @@ Run the command prompt as administrator, and enter each of these commands. The v
 ## Installing dependencies on Mac OS X to run as a Python Script
 Upgrade to the latest version of Mac OS X.  Also ensure you have the latest version of XCode installed from the [Mac App store](https://apps.apple.com/us/app/xcode/id497799835?mt=12).  Open XCode and let installation scripts download and run any additional tools needed.  Then open a terminal and enter the following command to install the XCode command line tools:
 
-- `xcode-select --install` 
+- `xcode-select --install`
 
 Download and install Homebrew according to the instructions on the [Homebrew page](https://brew.sh).  Then open a terminal and download and install Python 3.9 using Homebrew:
 
