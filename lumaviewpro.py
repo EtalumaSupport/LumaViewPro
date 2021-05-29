@@ -113,12 +113,14 @@ class PylonCamera(Image):
             self.camera.ExposureAuto.SetValue('Off')
             # Grabbing Continusely (video) with minimal delay
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+            print("LumaViewPro compatible camera or scope is now connected.")
+            print("Error: PylonCamera.connect()")
 
         except:
             if self.camera == False:
-                print("It looks like a Lumaview compatible camera or scope is not plugged in")
+                print("It looks like a LumaViewPro compatible camera or scope is not connected.")
+                print("Error: PylonCamera.connect() exception")
             self.camera = False
-        print("DEBUG: connect(self)")
 
     def start(self):
         self.fps = 10
@@ -156,12 +158,14 @@ class PylonCamera(Image):
 
         except:
             if self.camera == False:
-                print("It looks like a Lumaview compatible camera was unplugged")
+                print("A LumaViewPro compatible camera or scope was disconnected.")
+                print("Error: PylonCamera.update() exception")
             self.camera = False
 
     def capture(self, save_folder = './capture/', file_root = 'live_', append = 'ms'):
         if self.camera == False:
-            print("DEBUG: capture() self.camera == False")
+            print("A LumaViewPro compatible camera or scope is not connected.")
+            print("Error: PylonCamera.capture() self.camera == False")
             return
 
         if append == 'time':
@@ -175,11 +179,12 @@ class PylonCamera(Image):
         try:
             self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
         except:
-            print("Save folder does not exist")
+            print("Error: Save folder does not exist.")
 
     def frame_size(self, w, h):
         if self.camera == False:
-            print("DEBUG: frame_size() self.camera == False")
+            print("A LumaViewPro compatible camera or scope is not connected.")
+            print("Error: PylonCamera.frame_size() self.camera == False")
             return
 
         width = int(min(int(w), self.camera.Width.Max)/2)*2
@@ -196,7 +201,8 @@ class PylonCamera(Image):
 
     def gain(self, gain):
         if self.camera == False:
-            print("DEBUG: gain() self.camera == False")
+            print("A LumaViewPro compatible camera or scope is not connected.")
+            print("Error: PylonCamera.gain() self.camera == False")
             return
 
         self.camera.StopGrabbing()
@@ -205,7 +211,8 @@ class PylonCamera(Image):
 
     def exposure_t(self, t):
         if self.camera == False:
-            print("DEBUG: exposure_t() self.camera == False")
+            print("A LumaViewPro compatible camera or scope is not connected.")
+            print("Error: PylonCamera.exposure_t() self.camera == False")
             return
 
         self.camera.StopGrabbing()
@@ -219,6 +226,8 @@ class LEDBoard:
     def __init__(self, **kwargs):
 
         ports = list(list_ports.comports())
+        # currently seeks for the first available COM port
+        # Improvements forthcoming
         if (len(ports)!=0):
             self.port = ports[0].device
         # self.port="COM5"
@@ -241,7 +250,8 @@ class LEDBoard:
             self.driver.open()
         except:
             if self.driver != False:
-                print("It looks like a Lumaview compatible LED driver board is not plugged in")
+                print("It looks like a Lumaview compatible LED driver board is not plugged in.")
+                print("Error: LEDBoard.connect() exception")
             self.driver = False
 
     def color2ch(self, color):
@@ -531,9 +541,9 @@ void main (void) {
         self.bind(fs=self.trigger_compile, vs=self.trigger_compile)
 
     def compile_shaders(self, *largs):
-        print('try compile')
+        print('ShaderEditor.compile_shaders()')
         if not self.viewer:
-            print('compile fail')
+            print('ShaderEditor.compile_shaders() Fail')
             return
 
         # we don't use str() here because it will crash with non-ascii char
@@ -587,10 +597,6 @@ class MainSettings(BoxLayout):
 
 
 class MicroscopeSettings(BoxLayout):
-#    def port_select(self, port):
-#        global protocol
-#        self.ids['select_port_btn'].text = port
-#        # protocol['objective'] = objective
 
     def frame_size(self):
         global lumaview
@@ -599,8 +605,6 @@ class MicroscopeSettings(BoxLayout):
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
 
-        # print(w)
-        # print(h)
         camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
 
         width = int(min(int(w), camera.Width.Max)/2)*2
@@ -626,9 +630,6 @@ class ScopeSelect(BoxLayout):
 
     def __init__(self, **kwargs):
         super(ScopeSelect, self).__init__(**kwargs)
-
-        # Extract current scope value and put it in scope_str
-#        self.scope_str = protocol['microscope']
 
         # Create label and button here so DropDown menu works properly
         self.mainlabel = Label(text = 'Lumascope Model',
@@ -698,6 +699,8 @@ class ObjectiveSelect(BoxLayout):
         self.objective_str = objective
         protocol['objective'] = objective
 
+# Modified Slider Class to enable on_release event
+# ---------------------------------------------------------------------
 class ModSlider(Slider):
     def __init__(self, **kwargs):
         self.register_event_type('on_release')
@@ -712,6 +715,8 @@ class ModSlider(Slider):
             self.dispatch('on_release')
             return True
 
+# LayerControl Layout class
+# ---------------------------------------------------------------------
 class LayerControl(BoxLayout):
     layer = StringProperty(None)
     bg_color = ObjectProperty(None)
@@ -721,7 +726,6 @@ class LayerControl(BoxLayout):
         super(LayerControl, self).__init__(**kwargs)
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
-        print('LayerControl init')
 
     def ill_slider(self):
         illumination = self.ids['ill_slider'].value
@@ -735,7 +739,7 @@ class LayerControl(BoxLayout):
             self.ids['ill_slider'].value = illumination
             self.apply_settings()
         except:
-            print('illumination is not acceptable value')
+            print('Illumination value is not in acceptable range of 0 to 600 mA.')
 
     def gain_slider(self):
         gain = self.ids['gain_slider'].value
@@ -749,7 +753,7 @@ class LayerControl(BoxLayout):
             self.ids['gain_slider'].value = gain
             self.apply_settings()
         except:
-            print('gain is not acceptable value')
+            print('Gain value is not in acceptable range of 0 to 24 dB.')
 
     def exp_slider(self):
         exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
@@ -763,7 +767,7 @@ class LayerControl(BoxLayout):
             self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
             self.apply_settings()
         except:
-            print('exposure is not acceptable value')
+            print('Exposure value is not in acceptable range of 0.01 to 1000ms.')
 
     def choose_folder(self):
         content = LoadDialog(load=self.load,
@@ -855,14 +859,14 @@ class TimeLapseSettings(BoxLayout):
         try:
             protocol['period'] = float(self.ids['capture_period'].text)
         except:
-            print('period is not in acceptable range')
+            print('Update Period is not an acceptable value')
 
     def update_duration(self):
         # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
         try:
             protocol['duration'] = float(self.ids['capture_dur'].text)
         except:
-            print('duration is not in acceptable range')
+            print('Update Duration is not an acceptable value')
 
     # load protocol from JSON file
     def load_protocol(self, file="./data/protocol.json"):
@@ -938,7 +942,7 @@ class TimeLapseSettings(BoxLayout):
         try:
             self.n_captures = self.n_captures-1
         except:
-            print('single composite mode')
+            print('Capturing a Single Composite Image')
 
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
@@ -967,8 +971,6 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
                 # turn off the LED
                 led_board.led_off()
-                # # turn off toggle switches
-                # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
     def convert_to_avi(self):
 
@@ -996,7 +998,7 @@ class TimeLapseSettings(BoxLayout):
 
     def load(self, path):
         self.movie_folder = path
-        print(self.movie_folder)
+        # print(self.movie_folder)
         self.dismiss_popup()
 
     def dismiss_popup(self):
