@@ -568,6 +568,7 @@ void main (void) {
 class MainSettings(BoxLayout):
     settings_width = dp(300)
     isOpen = BooleanProperty(False)
+    notCollapsing = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -576,6 +577,9 @@ class MainSettings(BoxLayout):
     # Hide (and unhide) main settings
     def toggle_settings(self):
         global lumaview
+        microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
+        microscope.stop()
+
         # update protocol
         if self.isOpen:
             self.ids['toggle_mainsettings'].state = 'normal'
@@ -585,6 +589,19 @@ class MainSettings(BoxLayout):
             self.ids['toggle_mainsettings'].state = 'down'
             self.pos = lumaview.width - self.settings_width, 0
             self.isOpen = True
+
+        if microscope.play == True:
+            microscope.start()
+
+    def accordion_collapse(self):
+        global lumaview
+        microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
+        microscope.stop()
+
+        if self.notCollapsing:
+            if microscope.play == True:
+                microscope.start()
+        self.notCollapsing = not(self.notCollapsing)
 
     def check_settings(self, *args):
         global lumaview

@@ -241,12 +241,14 @@
         AccordionItem:
             title: 'Microscope Settings'
             collapse: False
+			on_collapse: root.accordion_collapse()
             MicroscopeSettings:
                 id: microscope_settings_id
 
         # BRIGHTFIELD SETTINGS
         AccordionItem:
             title: 'Brightfield Channel'
+			on_collapse: root.accordion_collapse()
             LayerControl:
                 id: BF
                 layer: 'BF'
@@ -255,6 +257,7 @@
         # BLUE SETTINGS
         AccordionItem:
             title: 'Blue Channel Control'
+			on_collapse: root.accordion_collapse()
             LayerControl:
                 id: Blue
                 layer: 'Blue'
@@ -263,6 +266,7 @@
         # GREEN SETTINGS
         AccordionItem:
             title: 'Green Channel Control'
+			on_collapse: root.accordion_collapse()
             LayerControl:
                 id: Green
                 layer: 'Green'
@@ -271,6 +275,7 @@
         # RED SETTINGS
         AccordionItem:
             title: 'Red Channel Control'
+			on_collapse: root.accordion_collapse()
             LayerControl:
                 id: Red
                 layer: 'Red'
@@ -279,6 +284,7 @@
         # TIME LAPSE SETTINGS
         AccordionItem:
             title: 'Time Lapse Protocol'
+			on_collapse: root.accordion_collapse()
             TimeLapseSettings:
                 id: time_lapse_id
 
