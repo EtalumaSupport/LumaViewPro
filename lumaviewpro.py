@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-April 30, 2021
+May 28, 2021
 '''
 
 # General
@@ -1147,6 +1147,7 @@ class TooltipToggleButton(ToggleButton, Tooltip):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def build(self):
+        # self.icon = './data/icon.ico'
         Window.minimum_width = 800
         Window.minimum_height = 600
         global lumaview
