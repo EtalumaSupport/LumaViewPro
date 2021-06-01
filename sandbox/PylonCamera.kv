@@ -11,11 +11,17 @@
         size_hint_y: .1
 
         Button:
+            text: 'frame_size()'
+            on_press: root.frame_size()
+        Button:
             text: 'gain()'
-            on_press: root.ids['camera'].gain(10)
+            on_press: root.gain()
+        Button:
+            text: 'auto_gain()'
+            on_press: root.auto_gain()
         Button:
             text: 'exposure_t()'
-            on_press: root.ids['camera'].exposure_t(50)
+            on_press: root.exposure_t()
         Button:
-            text: 'frame_size()'
-            on_press: root.ids['camera'].frame_size(100,100)
+            text: 'auto_exposure_t()'
+            on_press: root.auto_exposure_t()

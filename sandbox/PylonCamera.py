@@ -8,14 +8,13 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.image import Image
 from kivy.uix.button import Button
 from kivy.clock import Clock
-from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, NumericProperty
+from kivy.properties import ObjectProperty
 
 # Video Related
 from kivy.graphics.texture import Texture
 import cv2
 from pypylon import pylon
-
-
+import random
 
 class PylonCamera(Image):
     record = ObjectProperty(None)
@@ -136,6 +135,16 @@ class PylonCamera(Image):
         self.camera.Gain.SetValue(gain)
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
+    def auto_gain(self):
+        if self.camera == False:
+            print("A LumaViewPro compatible camera or scope is not connected.")
+            print("Error: PylonCamera.gain() self.camera == False")
+            return
+
+        self.camera.StopGrabbing()
+        self.camera.GainAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
     def exposure_t(self, t):
         if self.camera == False:
             print("A LumaViewPro compatible camera or scope is not connected.")
@@ -149,12 +158,36 @@ class PylonCamera(Image):
         # print(camera.ExposureTime.Max)
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
+    def auto_exposure_t(self):
+        if self.camera == False:
+            print("A LumaViewPro compatible camera or scope is not connected.")
+            print("Error: PylonCamera.gain() self.camera == False")
+            return
+
+        self.camera.StopGrabbing()
+        self.camera.ExposureAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
 
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
 # -------------------------------------------------------------------------
 class Main(BoxLayout):
-    pass
+    def gain(self):
+        self.ids['camera'].gain(random.randint(0,24))
+
+    def auto_gain(self):
+        self.ids['camera'].auto_gain()
+
+    def exposure_t(self):
+        self.ids['camera'].exposure_t(random.randint(1,1000))
+
+    def auto_exposure_t(self):
+        self.ids['camera'].auto_exposure_t()
+
+    def frame_size(self):
+        self.ids['camera'].frame_size(random.randint(500,1000), random.randint(500,1000))
+
 
 class PylonCameraApp(App):
     def build(self):
