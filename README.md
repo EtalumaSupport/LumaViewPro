@@ -4,7 +4,7 @@ LumaViewPro is an open source fluorescence microscope control interface written 
 ## Executable for Windows 10
 
 The most recent executable for Windows 10 can be retrieved from:
-https://drive.google.com/drive/folders/1I_szuj7lm418qxJWm0wzUnUD11tcDDzx?usp=sharing
+https://drive.google.com/drive/folders/1vFG5wKAaB_DNMNctJCE5Sax5WXlNiw_3?usp=sharing
 
 To use, download 'LumaViewPro.zip' and extract file. You can run the executable by double-clicking with no further installation. Note that the code may be more current than the executable.
 
