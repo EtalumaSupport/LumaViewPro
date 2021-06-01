@@ -1,0 +1,21 @@
+<Main>:
+    orientation: 'vertical'
+
+    PylonCamera:
+        id: camera
+        allow_stretch: True
+        keep_ratio: True
+
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: .1
+
+        Button:
+            text: 'gain()'
+            on_press: root.ids['camera'].gain(10)
+        Button:
+            text: 'exposure_t()'
+            on_press: root.ids['camera'].exposure_t(50)
+        Button:
+            text: 'frame_size()'
+            on_press: root.ids['camera'].frame_size(100,100)
