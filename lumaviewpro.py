@@ -191,6 +191,16 @@ class PylonCamera(Image):
         self.camera.Gain.SetValue(gain)
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
+    def auto_gain(self):
+        if self.camera == False:
+            print("A LumaViewPro compatible camera or scope is not connected.")
+            print("Error: PylonCamera.gain() self.camera == False")
+            return
+
+        self.camera.StopGrabbing()
+        self.camera.GainAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
     def exposure_t(self, t):
         if self.camera == False:
             print("A LumaViewPro compatible camera or scope is not connected.")
@@ -202,6 +212,16 @@ class PylonCamera(Image):
         # # DEBUG:
         # print(camera.ExposureTime.Min)
         # print(camera.ExposureTime.Max)
+        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
+    def auto_exposure_t(self):
+        if self.camera == False:
+            print("A LumaViewPro compatible camera or scope is not connected.")
+            print("Error: PylonCamera.gain() self.camera == False")
+            return
+
+        self.camera.StopGrabbing()
+        self.camera.ExposureAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
 class LEDBoard:

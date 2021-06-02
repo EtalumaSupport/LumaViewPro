@@ -77,35 +77,17 @@ class PylonCamera(Image):
                 self.lastGrab = pylon.PylonImage()
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
 
-                if self.record == True:
-                    self.capture(append = 'ms')
+            if self.record == True:
+                global lumaview
+                lumaview.capture(0)
 
-                grabResult.Release()
+            grabResult.Release()
 
         except:
             if self.camera == False:
                 print("A LumaViewPro compatible camera or scope was disconnected.")
                 print("Error: PylonCamera.update() exception")
             self.camera = False
-
-    def capture(self, save_folder = './capture/', file_root = 'live_', append = 'ms'):
-        if self.camera == False:
-            print("A LumaViewPro compatible camera or scope is not connected.")
-            print("Error: PylonCamera.capture() self.camera == False")
-            return
-
-        if append == 'time':
-            append = time.strftime("%Y%m%d_%H%M%S")
-        elif append == 'ms':
-            append = str(int(round(time.time() * 1000)))
-        else:
-            append =''
-
-        filename = save_folder + '/' + file_root + append + '.tiff'
-        try:
-            self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
-        except:
-            print("Error: Save folder does not exist.")
 
     def frame_size(self, w, h):
         if self.camera == False:
