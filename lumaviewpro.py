@@ -151,35 +151,17 @@ class PylonCamera(Image):
                 self.lastGrab = pylon.PylonImage()
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
 
-                if self.record == True:
-                    self.capture(append = 'ms')
+            if self.record == True:
+                global lumaview
+                lumaview.capture(0)
 
-                grabResult.Release()
+            grabResult.Release()
 
         except:
             if self.camera == False:
                 print("A LumaViewPro compatible camera or scope was disconnected.")
                 print("Error: PylonCamera.update() exception")
             self.camera = False
-
-    def capture(self, save_folder = './capture/', file_root = 'live_', append = 'ms'):
-        if self.camera == False:
-            print("A LumaViewPro compatible camera or scope is not connected.")
-            print("Error: PylonCamera.capture() self.camera == False")
-            return
-
-        if append == 'time':
-            append = time.strftime("%Y%m%d_%H%M%S")
-        elif append == 'ms':
-            append = str(int(round(time.time() * 1000)))
-        else:
-            append =''
-
-        filename = save_folder + '/' + file_root + append + '.tiff'
-        try:
-            self.lastGrab.Save(pylon.ImageFileFormat_Tiff, filename)
-        except:
-            print("Error: Save folder does not exist.")
 
     def frame_size(self, w, h):
         if self.camera == False:
@@ -315,23 +297,51 @@ class MainDisplay(FloatLayout):
             microscope.play = True
             microscope.start()
 
-    def capture(self, dt):
+    def capture(self, dt, save_folder = './capture/', file_root = 'live_', append = 'ms', color = 'BF'):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
         if microscope.camera == False:
             return
+
+        img = np.zeros((microscope.array.shape[0], microscope.array.shape[1], 3))
+
+        if self.ids['mainsettings_id'].currentLayer != 'protocol':
+            color = self.ids['mainsettings_id'].currentLayer
+
+        if color == 'Blue':
+            img[:,:,0] = microscope.array
+        elif color == 'Green':
+            img[:,:,1] = microscope.array
+        elif color == 'Red':
+            img[:,:,2] = microscope.array
+        else:
+            img[:,:,0] = microscope.array
+            img[:,:,1] = microscope.array
+            img[:,:,2] = microscope.array
+
         folder = protocol['live_folder']
-        microscope.capture(save_folder = folder)
+
+        # set filename options
+        if append == 'time':
+            append = time.strftime("%Y%m%d_%H%M%S")
+        elif append == 'ms':
+            append = str(int(round(time.time() * 1000)))
+        else:
+            append =''
+
+        # generate filename string
+        filename =  file_root + append + '.tiff'
+
+        try:
+            cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
+
+        except:
+            print("Error: Unable to save. Save folder does not exist?")
 
     def record(self):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
         if microscope.camera == False:
             return
-        microscope.record != microscope.record
-        # if camera.record == True:
-        #     camera.record = False
-        # else:
-        #     camera.record = True
-        #     # self.ids['record_btn'].text = 'Stop Recording'
+        microscope.record = not microscope.record
 
     def composite(self, dt):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
@@ -370,8 +380,8 @@ class MainDisplay(FloatLayout):
                     img[:,:,2] = microscope.array
 
         led_board.led_off()
-        filename = 'composite_' + str(int(round(time.time() * 1000))) + '.png'
-        cv2.imwrite(folder+'/'+filename, img)
+        filename = 'composite_' + str(int(round(time.time() * 1000))) + '.tiff'
+        cv2.imwrite(folder+'/'+filename, img.astype(np.uint8))
 
     def fit_image(self):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
@@ -568,7 +578,8 @@ void main (void) {
 class MainSettings(BoxLayout):
     settings_width = dp(300)
     isOpen = BooleanProperty(False)
-    notCollapsing = BooleanProperty(False)
+    notCollapsing = BooleanProperty(True)
+    currentLayer = StringProperty('microscope')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -593,15 +604,15 @@ class MainSettings(BoxLayout):
         if microscope.play == True:
             microscope.start()
 
-    def accordion_collapse(self):
+    def accordion_collapse(self, layer):
         global lumaview
         microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
         microscope.stop()
-
+        self.currentLayer = layer
+        self.notCollapsing = not(self.notCollapsing)
         if self.notCollapsing:
             if microscope.play == True:
                 microscope.start()
-        self.notCollapsing = not(self.notCollapsing)
 
     def check_settings(self, *args):
         global lumaview
@@ -985,7 +996,7 @@ class TimeLapseSettings(BoxLayout):
                 # capture the image
                 save_folder = protocol[layer]['save_folder']
                 file_root = protocol[layer]['file_root']
-                lumaview.ids['viewer_id'].ids['microscope_camera'].capture(save_folder, file_root)
+                lumaview.capture(0, save_folder, file_root, color = layer)
                 # turn off the LED
                 led_board.led_off()
 
