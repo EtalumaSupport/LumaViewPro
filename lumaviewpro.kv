@@ -589,21 +589,21 @@
         Label:
             text: 'Capture Period'
             size_hint_x: None
-            width: '150dp'
+            width: '130dp'
 			font_size: '14sp'
         TextInput:
             id: capture_period
             multiline: False
-            padding: ['5dp', (self.height-self.line_height)/2]
+            font_size: '12sp'
+            padding: ['4dp', (self.height-self.line_height)/2]
             halign: 'right'
             input_filter: 'float'
-            text: '5'
-			font_size: '14sp'
-            on_text: root.update_period()
+            text: format(5, '.3g')
+            on_text_validate: root.update_period()
         Label:
             text: 'min'
             size_hint_x: None
-            width: '75dp'
+            width: '60dp'
 			font_size: '14sp'
 
     BoxLayout:
@@ -613,20 +613,21 @@
         Label:
             text: 'Capture Duration'
             size_hint_x: None
-            width: '150dp'
+            width: '130dp'
 			font_size: '14sp'
         TextInput:
             id: capture_dur
             multiline: False
-            padding: ['5dp', (self.height-self.line_height)/2]
+            font_size: '12sp'
+            padding: ['4dp', (self.height-self.line_height)/2]
             halign: 'right'
             input_filter: 'float'
-            text: '48'
-            on_text: root.update_duration()
+            text: format(48, '.3g')
+            on_text_validate: root.update_duration()
         Label:
             text: 'hrs'
             size_hint_x: None
-            width: '75dp'
+            width: '60dp'
 			font_size: '14sp'
     Button:
         text: 'Load Protocol'
