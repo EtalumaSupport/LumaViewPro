@@ -6,7 +6,7 @@ LumaViewPro is an open source fluorescence microscope control interface written 
 The most recent executable for Windows 10 can be retrieved from:
 https://drive.google.com/drive/folders/1vFG5wKAaB_DNMNctJCE5Sax5WXlNiw_3?usp=sharing
 
-To use, download 'LumaViewPro.zip' and extract file. You can run the executable by double-clicking with no further installation. Note that the code may be more current than the executable.
+To use, download 'LumaViewPro.zip' and extract file. First install the camera driver. Then you can run the executable by double-clicking with no further installation. Note that the code may be more current than the executable.
 
 ## Installing dependencies on Windows 10 to run as a Python Script
 Download and install Python 3.9 from python page https://www.python.org/downloads/ for ALL users into new folder at (C:\Program Files\Python39). You will have to run the program in administrative mode.
