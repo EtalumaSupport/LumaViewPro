@@ -12,26 +12,25 @@ import time
 class LEDBoard:
     def __init__(self, **kwargs):
 
-        ports = list(list_ports.comports())
-        if (len(ports)!=0):
-            print(ports[0])
-            self.port = ports[0].device
-        #self.port="COM5"
-<<<<<<< HEAD
-        self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
-=======
-        self.port = "/dev/ttyS0"
->>>>>>> 66d1251ce4200ecfdbcbf10dc9dccd9f9f1f0969
-        self.baudrate=9600
+        # find all available serial ports
+        ports = list(list_ports.comports(include_links = True))
+        for port in ports:
+            if 'PJRC.COM' in port.manufacturer:
+                self.port = port.device
+
+        # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
+        # self.port = "/dev/ttyS0"
+        self.baudrate=11520
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
-        self.timeout=10.0 # seconds
+        self.timeout=.5 # seconds
         self.driver = True
         self.connect()
 
     def __del__(self):
         if self.driver != False:
+            self.led_off()
             self.driver.close()
 
     def connect(self):
@@ -44,6 +43,36 @@ class LEDBoard:
                 print("It looks like a Lumaview compatible LED driver board is not plugged in")
             self.driver = False
 
+    def led_status(self):
+        command = '{SST}00'
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
+
+            n_input = self.driver.in_waiting
+            if n_input > 0:
+                buffer = self.driver.read(n_input)
+                status = buffer.decode('utf-8')
+                print(status)
+                if 'Etaluma' in status:
+                    return True
+                else:
+                    return False
+
+    def led_cal(self, channel):
+        command = '{CAL,' + str(channel) + '}00'
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
+
+    def led_on(self, channel, mA):
+        command = '{TON,' + str(channel) + ',H,' + str(mA) + '}00'
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
+
+    def led_off(self):
+        command = '{TOF}00'
+        if self.driver != False:
+            self.driver.write(command.encode('utf-8')+b"\r\n")
+
     def color2ch(self, color):
         if color == 'Blue':
             return 0
@@ -54,29 +83,21 @@ class LEDBoard:
         else:
             return 3
 
-    def led_cal(self, channel):
-        command = '{CAL,'+ str(channel) + '}00'
-        if self.driver != False:
-            self.driver.write(command.encode('utf-8')+b"\r\n")
 
-    def led_on(self, channel, mA):
-        command = '{TON,'+ str(channel) + ',H,' + str(mA) + '}00'
-        if self.driver != False:
-            self.driver.write(command.encode('utf-8')+b"\r\n")
 
-    def led_off(self):
-        command = '{TOF}00'
-        if self.driver != False:
-            self.driver.write(command.encode('utf-8')+b"\r\n")
-
+# Create instance
 led_board = LEDBoard()
-print('led_board connection attempted')
 
+# Control LED
 while True:
+    CH = input('channel:')
     mA = input('current:')
     if mA == 0:
         led_board.led_off()
     elif mA == 'q':
         break
+    elif CH == 'q':
+        break
     else:
-        led_board.led_on(0, mA)
+        led_board.led_on(CH, mA)
+    print('')

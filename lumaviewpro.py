@@ -227,17 +227,19 @@ class PylonCamera(Image):
 class LEDBoard:
     def __init__(self, **kwargs):
 
-        ports = list(list_ports.comports())
-        # currently seeks for the first available COM port
-        # Improvements forthcoming
-        if (len(ports)!=0):
-            self.port = ports[0].device
-        # self.port="COM5"
-        self.baudrate=9600
+        # find all available serial ports
+        ports = list(list_ports.comports(include_links = True))
+        for port in ports:
+            if 'PJRC.COM' in port.manufacturer:
+                self.port = port.device
+
+        # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
+        # self.port = "/dev/ttyS0"
+        self.baudrate=11520
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
-        self.timeout=10.0 # seconds
+        self.timeout=.5 # seconds
         self.driver = True
         self.connect()
 
