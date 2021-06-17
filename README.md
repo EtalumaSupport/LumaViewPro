@@ -44,18 +44,23 @@ The latest version of each are should be functional. However, the versions that 
 ## Installing dependencies on Mac OS X to run as a Python Script
 Upgrade to the latest version of Mac OS X.  Also ensure you have the latest version of XCode installed from the [Mac App store](https://apps.apple.com/us/app/xcode/id497799835?mt=12).  Open XCode and let installation scripts download and run any additional tools needed.  Then open a terminal and enter the following command to install the XCode command line tools:
 
-- `xcode-select --install`
+```
+xcode-select --install
+```
 
 Download and install Homebrew according to the instructions on the [Homebrew page](https://brew.sh).  Then open a terminal and download and install Python 3.9 using Homebrew:
-
-- `brew install python3`
+```
+brew install python3
+```
 
 Move the /usr/local/bin/pip binary to a temporary directory and create symlinks for pip3 and python3:
 
-* `mkdir ~/temp` (if not already present)
-* `sudo mv /usr/local/bin/pip ~/temp`
-* `sudo ln -s /usr/local/bin/pip3.9 /usr/local/bin/pip`
-* `sudo ln -s /usr/local/bin/python3 /usr/local/bin/python`
+```
+mkdir ~/temp
+sudo mv /usr/local/bin/pip ~/temp
+sudo ln -s /usr/local/bin/pip3.9 /usr/local/bin/pip
+sudo ln -s /usr/local/bin/python3 /usr/local/bin/python
+```
 
 Install python packages using pip:
 ```
