@@ -2,12 +2,16 @@ import serial
 import serial.tools.list_ports as list_ports
 import time
 
-# /dev/ttyACM0
-#     desc: STM32 Virtual ComPort
-#     hwid: USB VID:PID=0483:5740 SER=205835435736 LOCATION=1-5:1.0
-# /dev/ttyS0
-#     desc: ttyS0
-#     hwid: PNP0501
+'''
+DEBUGGING NOTES
+---------------
+/dev/ttyACM0
+    desc: STM32 Virtual ComPort
+    hwid: USB VID:PID=0483:5740 SER=205835435736 LOCATION=1-5:1.0
+/dev/ttyS0
+    desc: ttyS0
+    hwid: PNP0501
+'''
 
 class LEDBoard:
     def __init__(self, **kwargs):
@@ -88,7 +92,8 @@ class LEDBoard:
 # Create instance
 led_board = LEDBoard()
 
-# Control LED
+#'''
+# Command Prompt Control of LEDBoard
 while True:
     CH = input('channel:')
     mA = input('current:')
@@ -101,3 +106,12 @@ while True:
     else:
         led_board.led_on(CH, mA)
     print('')
+#'''
+
+'''
+# Test Speed of LEDBoard
+for i in range(10000):
+    led_board.led_on(i%3, 50)
+    led_board.led_off()
+    time.sleep(1/10000)
+'''
