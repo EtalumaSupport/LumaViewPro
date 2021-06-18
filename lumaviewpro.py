@@ -109,8 +109,10 @@ class PylonCamera(Image):
             self.camera.Open()
             self.camera.Width.SetValue(self.camera.Width.Max)
             self.camera.Height.SetValue(self.camera.Height.Max)
+            # self.camera.PixelFormat.SetValue('PixelFormat_Mono12')
             self.camera.GainAuto.SetValue('Off')
             self.camera.ExposureAuto.SetValue('Off')
+            self.camera.ReverseX.SetValue(True);
             # Grabbing Continusely (video) with minimal delay
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             print("LumaViewPro compatible camera or scope is now connected.")
@@ -142,7 +144,6 @@ class PylonCamera(Image):
 
                 if grabResult.GrabSucceeded():
                     image = grabResult.GetArray()
-                    image = cv2.flip(image, 1)
                     self.array = image
                     image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
                     image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
@@ -663,7 +664,10 @@ class MicroscopeSettings(BoxLayout):
         protocol['frame_width'] = width
         protocol['frame_height'] = height
 
-        lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(w, h)
+        self.ids['frame_width'].text = str(width)
+        self.ids['frame_height'].text = str(height)
+
+        lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(width, height)
 
 
 # Pass-through class for microscope selection drop-down menu, defined in .kv file

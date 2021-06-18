@@ -37,6 +37,7 @@ class PylonCamera(Image):
             self.camera.Height.SetValue(self.camera.Height.Max)
             self.camera.GainAuto.SetValue('Off')
             self.camera.ExposureAuto.SetValue('Off')
+            self.camera.ReverseX.SetValue(True);
             # Grabbing Continusely (video) with minimal delay
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             print("LumaViewPro compatible camera or scope is now connected.")
@@ -68,7 +69,6 @@ class PylonCamera(Image):
 
                 if grabResult.GrabSucceeded():
                     image = grabResult.GetArray()
-                    image = cv2.flip(image, 1)
                     self.array = image
                     image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
                     image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
