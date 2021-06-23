@@ -228,12 +228,13 @@ class PylonCamera(Image):
 class LEDBoard:
     def __init__(self, **kwargs):
 
+        # initial default to 'COM3'
+        self.port = 'COM3'
         # find all available serial ports
         ports = list(list_ports.comports(include_links = True))
         for port in ports:
             if 'PJRC.COM' in port.manufacturer:
                 self.port = port.device
-
         # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
         # self.port = "/dev/ttyS0"
         self.baudrate=11520
@@ -669,6 +670,17 @@ class MicroscopeSettings(BoxLayout):
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(width, height)
 
+    def LED_port(self):
+        global lumaview
+        global protocol
+
+        # close the serial port
+        if lumaview.led_board.driver != False:
+            lumaview.led_board.driver.close()
+        # change the port value
+        lumaview.led_board.port = self.ids['LED_port'].text
+        # re-connect the serial port
+        lumaview.led_board.connect()
 
 # Pass-through class for microscope selection drop-down menu, defined in .kv file
 # -------------------------------------------------------------------------------
@@ -723,7 +735,7 @@ class ObjectiveDropDown(DropDown):
 # ---------------------------------------------------------------------
 class ObjectiveSelect(BoxLayout):
     # The text displayed in the button
-    objective_str = StringProperty('Canon 55mm')
+    objective_str = StringProperty('Unknown')
 
     def __init__(self, **kwargs):
         super(ObjectiveSelect, self).__init__(**kwargs)

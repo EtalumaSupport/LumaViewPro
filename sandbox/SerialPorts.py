@@ -17,5 +17,5 @@ for port in ports:
     print('product:      ', port.product)
     print('interface:    ', port.interface)
     if 'PJRC.COM' in port.manufacturer:
-        print('*** MATCH AT:', port.device, '***')
+        print('\n*** MATCH AT:', port.device, '***')
     print('')
