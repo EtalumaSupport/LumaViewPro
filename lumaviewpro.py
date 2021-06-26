@@ -116,7 +116,6 @@ class PylonCamera(Image):
             # Grabbing Continusely (video) with minimal delay
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             print("LumaViewPro compatible camera or scope is now connected.")
-            print("Error: PylonCamera.connect()")
 
         except:
             if self.camera == False:
@@ -229,14 +228,9 @@ class LEDBoard:
     def __init__(self, **kwargs):
 
         # initial default to 'COM3'
-        self.port = 'COM3'
-        # find all available serial ports
-        ports = list(list_ports.comports(include_links = True))
-        for port in ports:
-            if 'PJRC.COM' in port.manufacturer:
-                self.port = port.device
         # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
         # self.port = "/dev/ttyS0"
+        self.port = 'COM6'
         self.baudrate=11520
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
@@ -674,6 +668,8 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
         global protocol
 
+        # change port settings in protocol
+        protocol['port'] = self.ids['LED_port'].text
         # close the serial port
         if lumaview.led_board.driver != False:
             lumaview.led_board.driver.close()
@@ -944,9 +940,10 @@ class TimeLapseSettings(BoxLayout):
             protocol = json.load(read_file)
             # update GUI values from JSON data:
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_btn'].scope_str = protocol['microscope']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_btn'].objective_str = str(protocol['objective'])
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['LED_port'].text = protocol['port']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_btn'].objective_str = str(protocol['objective'])
 
             self.ids['capture_period'].text = str(protocol['period'])
             self.ids['capture_dur'].text = str(protocol['duration'])
