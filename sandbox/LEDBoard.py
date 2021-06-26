@@ -19,9 +19,8 @@ class LEDBoard:
         # find all available serial ports
         ports = list(list_ports.comports(include_links = True))
         for port in ports:
-            if 'PJRC.COM' in port.manufacturer:
-                self.port = port.device
-
+            print(port)
+        self.port = 'COM6'
         # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
         # self.port = "/dev/ttyS0"
         self.baudrate=11520

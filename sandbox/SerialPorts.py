@@ -5,6 +5,7 @@ import serial.tools.list_ports
 ports = serial.tools.list_ports.comports(include_links = True)
 
 for port in ports:
+    print('-------------------------------------------')
     print('device:       ', port.device)
     print('name:         ', port.name)
     print('description:  ', port.description)
@@ -16,6 +17,5 @@ for port in ports:
     print('manufacturer: ', port.manufacturer)
     print('product:      ', port.product)
     print('interface:    ', port.interface)
-    if 'PJRC.COM' in port.manufacturer:
-        print('\n*** MATCH AT:', port.device, '***')
+    print('-------------------------------------------')
     print('')
