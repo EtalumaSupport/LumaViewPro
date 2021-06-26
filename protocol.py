@@ -3,9 +3,10 @@
 # Protocol Layout
 protocol = {
     "microscope": "LS720",
+    "objective": 'Unknown',
+    "port": 'COM3',
     "frame_width": 1900,
     "frame_height": 1900,
-    "objective": 'Unknown',
     "live_folder": "./capture",
     "period": 0.17,
     "duration": 0.17,
