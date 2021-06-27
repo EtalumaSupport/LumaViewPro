@@ -15,6 +15,7 @@ protocol = {
         "file_root": "W_",
         "ill": 100.,
         "gain": 0.,
+        "gain_auto": False,
         "exp": 100.,
         "false_color": False,
         "acquire": True
@@ -24,6 +25,7 @@ protocol = {
         "file_root": "B_",
         "ill": 100.,
         "gain": 0.,
+        "gain_auto": False,
         "exp": 100.,
         "false_color": True,
         "acquire": True
@@ -33,6 +35,7 @@ protocol = {
         "file_root": "G_",
         "ill": 100.,
         "gain": 0.,
+        "gain_auto": False,
         "exp": 100.,
         "false_color": True,
         "acquire": True
@@ -42,6 +45,7 @@ protocol = {
         "file_root": "R_",
         "ill": 100.,
         "gain": 0.,
+        "gain_auto": False,
         "exp": 100.,
         "false_color": True,
         "acquire": True

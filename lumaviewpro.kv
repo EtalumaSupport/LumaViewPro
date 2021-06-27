@@ -481,7 +481,13 @@
                 valign: 'middle'
                 font_size: '14sp'
                 size_hint_x: None
-                width: '100dp'
+                width: '70dp'
+            CheckBox:
+                id: gain_auto
+                size_hint_x: None
+                width: '30dp'
+                active: False
+                on_release: root.gain_auto()
             ModSlider:
                 id: gain_slider # 0 to 24, default 0, based on camera limits
                 min: 0.

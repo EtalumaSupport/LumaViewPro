@@ -191,14 +191,18 @@ class PylonCamera(Image):
         self.camera.Gain.SetValue(gain)
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
-    def auto_gain(self):
+    def auto_gain(self, state):
         if self.camera == False:
             print("A LumaViewPro compatible camera or scope is not connected.")
             print("Error: PylonCamera.gain() self.camera == False")
             return
 
         self.camera.StopGrabbing()
-        self.camera.GainAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        if state == True:
+            self.camera.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
+        else:
+            self.camera.GainAuto.SetValue('Off')
+
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
     def exposure_t(self, t):
@@ -803,6 +807,14 @@ class LayerControl(BoxLayout):
         except:
             print('Illumination value is not in acceptable range of 0 to 600 mA.')
 
+    def gain_auto(self):
+        if self.ids['gain_auto'].state == 'down':
+            state = True
+        else:
+            state = False
+        protocol[self.layer]['gain_auto'] = state
+        self.apply_settings()
+
     def gain_slider(self):
         gain = self.ids['gain_slider'].value
         protocol[self.layer]['gain'] = gain
@@ -884,8 +896,11 @@ class LayerControl(BoxLayout):
 
         # update gain to currently selected settings
         # -----------------------------------------------------
-        gain = protocol[self.layer]['gain']
-        lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
+        state = protocol[self.layer]['gain_auto']
+        lumaview.ids['viewer_id'].ids['microscope_camera'].auto_gain(state)
+        if not(state):
+            gain = protocol[self.layer]['gain']
+            lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
@@ -1213,13 +1228,13 @@ class TooltipToggleButton(ToggleButton, Tooltip):
 class LumaViewProApp(App):
     def build(self):
         self.icon = './data/icon32x.png'
-        Window.minimum_width = 800
-        Window.minimum_height = 600
         global lumaview
         lumaview = MainDisplay()
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/protocol.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
+        Window.minimum_width = 800
+        Window.minimum_height = 600
         return lumaview
 
     def on_stop(self):
