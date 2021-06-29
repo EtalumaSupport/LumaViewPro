@@ -983,7 +983,7 @@ class TimeLapseSettings(BoxLayout):
     def save_protocol(self, file="./data/protocol.json"):
         global protocol
         with open(file, "w") as write_file:
-            json.dump(protocol, write_file)
+            json.dump(protocol, write_file, indent = 4)
 
     # Run the timed process of capture event
     def run_protocol(self):

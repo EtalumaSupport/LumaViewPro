@@ -58,4 +58,4 @@ protocol = {
 import json
 
 with open("./data/protocol.json", "w") as write_file:
-    json.dump(protocol, write_file)
+    json.dump(protocol, write_file, indent = 4)
