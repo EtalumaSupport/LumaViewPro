@@ -41,7 +41,6 @@ class PylonCamera(Image):
             # Grabbing Continusely (video) with minimal delay
             self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             print("LumaViewPro compatible camera or scope is now connected.")
-            print("Error: PylonCamera.connect()")
 
         except:
             if self.camera == False:
@@ -117,14 +116,18 @@ class PylonCamera(Image):
         self.camera.Gain.SetValue(gain)
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
-    def auto_gain(self):
+    def auto_gain(self, state = True):
         if self.camera == False:
             print("A LumaViewPro compatible camera or scope is not connected.")
             print("Error: PylonCamera.gain() self.camera == False")
             return
 
         self.camera.StopGrabbing()
-        self.camera.GainAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        if state == True:
+            self.camera.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
+        else:
+            self.camera.GainAuto.SetValue('Off')
+
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
     def exposure_t(self, t):
@@ -147,7 +150,7 @@ class PylonCamera(Image):
             return
 
         self.camera.StopGrabbing()
-        self.camera.ExposureAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        self.camera.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
 

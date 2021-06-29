@@ -191,7 +191,7 @@ class PylonCamera(Image):
         self.camera.Gain.SetValue(gain)
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
-    def auto_gain(self, state):
+    def auto_gain(self, state = True):
         if self.camera == False:
             print("A LumaViewPro compatible camera or scope is not connected.")
             print("Error: PylonCamera.gain() self.camera == False")
@@ -225,7 +225,7 @@ class PylonCamera(Image):
             return
 
         self.camera.StopGrabbing()
-        self.camera.ExposureAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        self.camera.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
 class LEDBoard:
@@ -669,6 +669,7 @@ class MicroscopeSettings(BoxLayout):
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(width, height)
 
     def LED_port(self):
+        # BUG: This will crash if you try to talk to the wrong port.
         global lumaview
         global protocol
 
