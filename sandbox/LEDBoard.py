@@ -1,3 +1,5 @@
+# Test LED Board COM connection and commands
+
 import serial
 import serial.tools.list_ports as list_ports
 import time

@@ -8,8 +8,8 @@ protocol = {
     "frame_width": 1900,
     "frame_height": 1900,
     "live_folder": "./capture",
-    "period": 0.17,
-    "duration": 0.17,
+    "period": 0.1,
+    "duration": 0.1,
     "BF": {
         "save_folder": "./capture",
         "file_root": "W_",
