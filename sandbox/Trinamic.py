@@ -7,13 +7,34 @@
 # Trinamic 6110 board (now)
 # Trinamic 3230 board (preferred)
 
+import serial.tools.list_ports
+
 class Trinamic:
     def __init__(self, **kwargs):
-        self.Address = 0
+
+        self.port = 'COM11'
+        # ports = serial.tools.list_ports.comports(include_links = True)
+        # for port in ports:
+        #     if port.vid == 9025 and port.pid == 67:
+        #         self.port = port
+        self.baudrate=115200
+        self.bytesize=serial.EIGHTBITS
+        self.parity=serial.PARITY_NONE
+        self.stopbits=serial.STOPBITS_ONE
+        self.timeout=5 # seconds
         self.connect()
 
+    def __del__(self):
+        self.driver.close()
+
     def connect(self):
-        return # needs to be filled
+        try:
+            self.driver = serial.Serial(port=self.port, baudrate=self.baudrate, bytesize=self.bytesize, parity=self.parity, stopbits=self.stopbits, timeout=self.timeout)
+            self.driver.close()
+            self.driver.open()
+        except:
+            print("Did not connect to Trinamic Board")
+
     #---------------------------------------------------------
     # Address
     #----------------------------------------------------------
@@ -43,7 +64,7 @@ class Trinamic:
             'CCO':32   # Capture Coordinate
         }
         return command[Code]
-'''
+        '''
         //Options for MVP commands
         #define MVP_ABS 0   # absolute
         #define MVP_REL 1   # relative
@@ -53,7 +74,7 @@ class Trinamic:
         #define RFS_START 0
         #define RFS_STOP 1
         #define RFS_STATUS 2
-'''
+        '''
     # ---------------------------------------------------------
     # Type
     #----------------------------------------------------------
@@ -88,24 +109,12 @@ class Trinamic:
 
         return datagram
 
-'''
-        TxBuffer[0]=Address
-        TxBuffer[1]=Command
-        TxBuffer[2]=Type
-        TxBuffer[3]=Motor
-        TxBuffer[4]=Value >> 24
-        TxBuffer[5]=Value >> 16
-        TxBuffer[6]=Value >> 8
-        TxBuffer[7]=Value & 0xff
-        TxBuffer[8]=0
-        for(i=0; i<8; i++)
-            TxBuffer[8]+=TxBuffer[i]
-'''
-
     #----------------------------------------------------------
     # Send Datagram
     #----------------------------------------------------------
     def SendGram(self, datagram):
+        print(datagram)
+        self.driver.write(datagram)
         return
 
     #----------------------------------------------------------
@@ -115,7 +124,7 @@ class Trinamic:
     def GetGram(self):
         return
 
-'''
+        '''
     //Get the result
     //Return TRUE when checksum of the result if okay, else return FALSE
     // The follwing values are returned:
@@ -146,4 +155,8 @@ class Trinamic:
 
     	return TRUE;
     }
-'''
+    '''
+
+instance_trinamic = Trinamic()
+data = instance_trinamic.MakeGram(255, 0, 0, 0, 0)
+instance_trinamic.SendGram(data)
