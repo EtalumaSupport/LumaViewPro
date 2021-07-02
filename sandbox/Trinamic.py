@@ -64,10 +64,10 @@ class Trinamic:
         t = byte(Type)
         m = byte(Motor)
         # 'Value' is an integer
-        v1 = byte(Value >> 24)  # shift by 24 bits i.e. divide by 2, 24 times
-        v2 = byte(Value >> 16)  # shift by 16 bits i.e. divide by 2, 24 times
-        v3 = byte(Value >> 8)   # shift by 8 bits i.e. divide by 2, 24 times
-        v4 = byte(Value) & 0xff # bitwise add with 0xff to get last 8 byte
+        v1 = Value >> 24  # shift by 24 bits i.e. divide by 2, 24 times
+        v2 = Value >> 16  # shift by 16 bits i.e. divide by 2, 24 times
+        v3 = Value >> 8   # shift by 8 bits i.e. divide by 2, 24 times
+        v4 = Value & 0xff # bitwise add with 0xff to get last 8 byte
 
 
     #
