@@ -25,7 +25,7 @@ class LEDBoard:
         self.port = 'COM6'
         # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
         # self.port = "/dev/ttyS0"
-        self.baudrate=11520
+        self.baudrate=115200
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
