@@ -29,6 +29,15 @@ commands = {
     'CCO':32   # Capture Coordinate
 }
 
+commandtypes = {
+    'MVP_ABS': 0,
+    'MVP_REL': 1,
+    'MVP_COORD': 2,
+    'RFS_START': 0,
+    'RFS_STOP': 1,
+    'RFS_STATUS': 2
+}
+
 motors = {
     'X':0,
     'Y':1,
@@ -37,11 +46,17 @@ motors = {
 
 # Set up Serial Port connection
 import serial
+import serial.tools.list_ports
+
 class motorport:
     def __init__(self, **kwargs):
+        ports = serial.tools.list_ports.comports(include_links = True)
+        for port in ports:
+            if (port.vid == 10812) and (port.pid == 256):
+                print('Trinamic Motor Control Board identified')
+                self.port = port.device
 
-        self.port = 'COM11'
-        self.baudrate=115200
+        self.baudrate=9600
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
@@ -96,7 +111,11 @@ def GetGram(self):
 ser = motorport()
 
 # Example: Stop 'Z' Motor
-datagram = MakeGram(address, commands['MST'], 0, motors['Z'], 0)
+datagram = MakeGram(Address = address,
+                Command = commands['MST'],
+                Type = 0,
+                Motor = motors['Z'],
+                Value = 0)
 
 
 SendGram(datagram, ser.driver)
