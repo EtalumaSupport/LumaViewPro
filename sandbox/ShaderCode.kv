@@ -1,18 +1,15 @@
 #: import GLShaderLexer pygments.lexers.GLShaderLexer
 
 <Main>:
-    orientation: 'vertical'
+    orientation: 'horizontal'
 
     ShaderEditor:
         viewer: viewer_id
-        size_hint_x: .2
-        size_hint: None, None
-        size: 300, root.height
+        size_hint_x: .3
 
     # Primary Display of Camera Results
     ShaderViewer:
         id: viewer_id
-        size_hint_x: .8
 
 
 # ShaderViewer - Shaded Live Camera view
