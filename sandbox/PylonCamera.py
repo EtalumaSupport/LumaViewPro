@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''
 Minimal Kivy program to demo PylonCamera Class
 '''
