@@ -4,7 +4,7 @@
     orientation: 'horizontal'
 
     ShaderEditor:
-        #viewer: viewer_id
+        viewer: viewer_id
         size_hint_x: .3
     ShaderViewer:
         viewer: viewer_id
@@ -22,25 +22,23 @@
 # ShaderEditor - view and edit shader code
 # ------------------------------------------
 <ShaderEditor>:
-    orientation: 'horizontal'
-    BoxLayout:
-        orientation: 'vertical'
-        # Fragment Shader Editor
-        Label:
-            text: 'Fragment Shader'
-            size_hint_y: None
-            height: self.texture_size[1] + 10
-        CodeInput:
-            text: root.fs
-            lexer: GLShaderLexer()
-            on_text: root.fs = args[1]
+    orientation: 'vertical'
+    # Fragment Shader Editor
+    Label:
+        text: 'Fragment Shader'
+        size_hint_y: None
+        height: self.texture_size[1] + 10
+    CodeInput:
+        text: root.fs
+        lexer: GLShaderLexer()
+        on_text: root.fs = args[1]
 
-        # Vertex Shader Editor
-        Label:
-            text: 'Vertex Shader'
-            size_hint_y: None
-            height: self.texture_size[1] + 10
-        CodeInput:
-            text: root.vs
-            lexer: GLShaderLexer()
-            on_text: root.vs = args[1]
+    # Vertex Shader Editor
+    Label:
+        text: 'Vertex Shader'
+        size_hint_y: None
+        height: self.texture_size[1] + 10
+    CodeInput:
+        text: root.vs
+        lexer: GLShaderLexer()
+        on_text: root.vs = args[1]
