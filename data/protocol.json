@@ -1,7 +1,7 @@
 {
     "microscope": "LS720",
     "objective": "Unknown",
-    "port": "COM7",
+    "port": "COM3",
     "frame_width": 1900,
     "frame_height": 1900,
     "live_folder": "./capture",
@@ -11,9 +11,9 @@
         "save_folder": "./capture",
         "file_root": "W_",
         "ill": 100.0,
-        "gain": 24.0,
+        "gain": 0.0,
         "gain_auto": false,
-        "exp": 72.44359600749898,
+        "exp": 100.0,
         "false_color": false,
         "acquire": true
     },
@@ -32,8 +32,8 @@
         "file_root": "G_",
         "ill": 100.0,
         "gain": 0.0,
-        "gain_auto": true,
-        "exp": 22.3872113856834,
+        "gain_auto": false,
+        "exp": 100.0,
         "false_color": true,
         "acquire": true
     },

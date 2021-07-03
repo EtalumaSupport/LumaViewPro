@@ -234,7 +234,14 @@ class LEDBoard:
         # initial default to 'COM3'
         # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
         # self.port = "/dev/ttyS0"
-        self.port = 'COM6'
+
+        ports = serial.tools.list_ports.comports(include_links = True)
+        for port in ports:
+            if (port.vid == 1155) and (port.pid == 22336):
+                print('LED Control Board identified at', port.device)
+                self.port = port.device
+                protocol['port'] = port.device
+
         self.baudrate=115200
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
@@ -668,20 +675,20 @@ class MicroscopeSettings(BoxLayout):
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(width, height)
 
-    def LED_port(self):
-        # BUG: This will crash if you try to talk to the wrong port.
-        global lumaview
-        global protocol
-
-        # change port settings in protocol
-        protocol['port'] = self.ids['LED_port'].text
-        # close the serial port
-        if lumaview.led_board.driver != False:
-            lumaview.led_board.driver.close()
-        # change the port value
-        lumaview.led_board.port = self.ids['LED_port'].text
-        # re-connect the serial port
-        lumaview.led_board.connect()
+    # def LED_port(self):
+    #     # BUG: This will crash if you try to talk to the wrong port.
+    #     global lumaview
+    #     global protocol
+    #
+    #     # change port settings in protocol
+    #     protocol['port'] = self.ids['LED_port'].text
+    #     # close the serial port
+    #     if lumaview.led_board.driver != False:
+    #         lumaview.led_board.driver.close()
+    #     # change the port value
+    #     lumaview.led_board.port = self.ids['LED_port'].text
+    #     # re-connect the serial port
+    #     lumaview.led_board.connect()
 
 # Pass-through class for microscope selection drop-down menu, defined in .kv file
 # -------------------------------------------------------------------------------
@@ -957,7 +964,7 @@ class TimeLapseSettings(BoxLayout):
             # update GUI values from JSON data:
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_btn'].scope_str = protocol['microscope']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_btn'].objective_str = str(protocol['objective'])
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['LED_port'].text = protocol['port']
+            # lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['LED_port'].text = protocol['port']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
 
