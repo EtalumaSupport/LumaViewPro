@@ -1,14 +1,10 @@
 <Main>:
-    orientation: 'vertical'
+    orientation: 'horizontal'
 
-    PylonCamera:
-        id: camera
-        allow_stretch: True
-        keep_ratio: True
 
     BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: .1
+        orientation: 'vertical'
+        size_hint_x: .2
 
         Button:
             text: 'frame_size()'
@@ -25,3 +21,8 @@
         Button:
             text: 'auto_exposure_t()'
             on_press: root.auto_exposure_t()
+
+    PylonCamera:
+        id: camera
+        allow_stretch: True
+        keep_ratio: True
