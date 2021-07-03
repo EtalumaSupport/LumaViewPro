@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Create, Send, and Receive commands (datagrams) to a Trinamic Motion Board
 # Using direct mode and Serial communication
 
