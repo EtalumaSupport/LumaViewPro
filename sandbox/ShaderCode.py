@@ -66,7 +66,8 @@ class PylonCamera(Image):
             if self.camera == False:
                 #self.source = "~/Documents/Earthineering/isim_optim.jpg"
                 #self.source = "~/Documents/Earthineering/DaneRecolor_optim.jpg"
-                self.source = "~/Documents/Earthineering/McNamara2_optim.jpg"
+                #self.source = "~/Documents/Earthineering/McNamara2_optim.jpg"
+                self.source = "../data/camera to USB.png"
                 return
         try:
             if self.camera.IsGrabbing():

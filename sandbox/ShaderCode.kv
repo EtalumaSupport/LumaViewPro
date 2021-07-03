@@ -3,7 +3,6 @@
 <Main>:
     orientation: 'horizontal'
 
-
     BoxLayout:
         orientation: 'vertical'
         size_hint_x: .2
@@ -12,18 +11,17 @@
             viewer: viewer_id
             size_hint: None, None
             size: 300, root.height
-            pos: -285, 0
 
-    # Primary Display of Camera Results
-    ShaderViewer:
-        id: viewer_id
-        size_hint_x: .8
+        # Primary Display of Camera Results
+        ShaderViewer:
+            id: viewer_id
+            size_hint_x: .8
 
-        # size_hint: None, None
-        # size: root.width, root.height
-        # auto_bring_to_front: False
-        # do_rotation: False
-        # do_translation: True
+            # size_hint: None, None
+            # size: root.width, root.height
+            # auto_bring_to_front: False
+            # do_rotation: False
+            # do_translation: True
 
 # ShaderViewer - Shaded Live Camera view
 # ------------------------------------------
