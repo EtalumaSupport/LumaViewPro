@@ -1,7 +1,6 @@
 
 # List all ports and properties
 import serial.tools.list_ports
-
 ports = serial.tools.list_ports.comports(include_links = True)
 
 for port in ports:
@@ -18,4 +17,8 @@ for port in ports:
     print('product:      ', port.product)
     print('interface:    ', port.interface)
     print('-------------------------------------------')
+    if (port.vid == 1155) and (port.pid == 22336):
+        print('LED Control Board identified')
+    if (port.vid == 10812) and (port.pid == 256):
+        print('Trinamic Motor Control Board identified')
     print('')
