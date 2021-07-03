@@ -1,34 +1,25 @@
 #: import GLShaderLexer pygments.lexers.GLShaderLexer
 
 <Main>:
-    orientation: 'horizontal'
+    orientation: 'vertical'
 
-    BoxLayout:
-        orientation: 'vertical'
+    ShaderEditor:
+        viewer: viewer_id
         size_hint_x: .2
+        size_hint: None, None
+        size: 300, root.height
 
-        ShaderEditor:
-            viewer: viewer_id
-            size_hint: None, None
-            size: 300, root.height
+    # Primary Display of Camera Results
+    ShaderViewer:
+        id: viewer_id
+        size_hint_x: .8
 
-        # Primary Display of Camera Results
-        ShaderViewer:
-            id: viewer_id
-            size_hint_x: .8
-
-            # size_hint: None, None
-            # size: root.width, root.height
-            # auto_bring_to_front: False
-            # do_rotation: False
-            # do_translation: True
 
 # ShaderViewer - Shaded Live Camera view
 # ------------------------------------------
 <ShaderViewer>:
     PylonCamera:
         id: microscope_camera
-        resolution: (1900, 1900)
         allow_stretch: True
         keep_ratio: True
 

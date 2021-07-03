@@ -7,7 +7,6 @@ import kivy
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.image import Image
-from kivy.uix.scatter import Scatter
 from kivy.clock import Clock
 from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, NumericProperty
