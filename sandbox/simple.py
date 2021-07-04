@@ -7,12 +7,14 @@ from kivy.uix.label import Label
 from kivy.uix.button import Button
 
 
+class ButtonHolder(Button):
+    pass
 
-class Simple(App):
-
+class SimpleApp(App):
     def build(self):
-        return Button(text='Hello world')
+        return ButtonHolder()
+        #return Button(text='Hello world')
 
 
 if __name__ == '__main__':
-    Simple().run()
+    SimpleApp().run()
