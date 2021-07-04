@@ -121,4 +121,3 @@ datagram = MakeGram(Address = address,
 
 
 SendGram(datagram, ser.driver)
-print(datagram)
