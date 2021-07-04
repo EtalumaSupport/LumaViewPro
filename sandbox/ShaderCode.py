@@ -1,9 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 '''
 Minimal Kivy program to test shader code
 '''
 
 import kivy
+kivy.require('2.0.0')
+
+
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.image import Image
@@ -237,6 +240,7 @@ void main (void) {
 
 
     def __init__(self, **kwargs):
+        print("Shader viwer initializing")
         self.canvas = RenderContext()
         super(ShaderViewer, self).__init__(**kwargs)
         self.canvas.shader.fs = fs_header + self.fs
@@ -302,6 +306,7 @@ void main (void) {
 
 
     def __init__(self, **kwargs):
+        print("Shader Editor initializing")
         super(ShaderEditor, self).__init__(**kwargs)
         self.test_canvas = RenderContext()
         s = self.test_canvas.shader
@@ -341,6 +346,7 @@ class Main(BoxLayout):
 
 class ShaderCodeApp(App):
     def build(self):
+        print("About to run main")
         return Main()
 
 ShaderCodeApp().run()

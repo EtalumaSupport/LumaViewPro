@@ -7,17 +7,17 @@
         viewer: viewer_id
         size_hint_x: .3
     ShaderViewer:
-        viewer: viewer_id
         id: viewer_id
 
 
 # ShaderViewer - Shaded Live Camera view
 # ------------------------------------------
 <ShaderViewer>:
-    PylonCamera:
+    Image:
         id: microscope_camera
-        allow_stretch: True
-        keep_ratio: True
+        source: "~/Documents/Earthineering/McNamara2_optim.jpg"
+        #allow_stretch: True
+        #keep_ratio: True
 
 # ShaderEditor - view and edit shader code
 # ------------------------------------------
