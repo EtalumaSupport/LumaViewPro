@@ -102,16 +102,32 @@ def MakeGram(Address, Command, Type, Motor, Value):
 # Send Datagram
 #----------------------------------------------------------
 def SendGram(datagram, ser):
-    print(datagram)
+    print('Writing datagram:', datagram)
     ser.write(datagram)
+    GetGram(ser)
     return
 
 #----------------------------------------------------------
 # Receive Datagram
 #----------------------------------------------------------
-def GetGram(self):
-    return
+def GetGram(ser):
 
+    # receive the datagram
+    datagram = ser.read(9)
+    #print('Return datagram: ', datagram)
+
+    checksum = 0
+    for i in range(8):         # compare checksum
+        checksum =  (checksum + datagram[i]) & 0xff
+
+    if checksum != datagram[8]:
+        return False
+
+    Address=datagram[0]
+    Status=datagram[2]
+    print('Return Status:', Status)
+    Value = int.from_bytes(datagram[4:8], byteorder='big', signed=False)
+    return True
 
 #----------------------------------------------------------
 #----------------------------------------------------------
@@ -160,7 +176,7 @@ SendGram(MakeGram(255, commands['SAP'], 195, 2, 10), ser.driver)   # SAP 195, 2,
 #----------------------------------------------------------
 SendGram(MakeGram(255, commands['RFS'], 0, 2, 0), ser.driver)      # RFS START, 2
 SendGram(MakeGram(255, commands['RFS'], 1, 2, 0), ser.driver)      # WAIT RFS, 2 , 0
-'''
+
 # Move out of home Position
 #----------------------------------------------------------
 SendGram(MakeGram(255, commands['MVP'], 0, 2, 100000), ser.driver) # MVP ABS, 2, 100000 // for the TMCM-6110 the parameter is positive.
@@ -228,4 +244,3 @@ SendGram(MakeGram(255, commands['RFS'], 1, 2, 0), ser.driver)      # WAIT RFS, 1
 # Move out of home Position
 #----------------------------------------------------------
 SendGram(MakeGram(255, commands['MVP'], 0, 1, 100000), ser.driver)  # MVP ABS, 1, 100000 // for the TMCM-6110 the parameter is positive.
-'''
