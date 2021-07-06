@@ -279,7 +279,8 @@ SendGram(MakeGram(255, commands['MVP'], 0, 1, 100000), ser.driver)  # MVP ABS, 1
 
 
 
-
+'''
 # Stop the Program
 #----------------------------------------------------------
 SendGram(MakeGram(255, commands['STOP'], 0, 0, 0), ser.driver)
+'''
