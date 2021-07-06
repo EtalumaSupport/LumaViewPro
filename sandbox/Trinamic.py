@@ -26,9 +26,11 @@ commands = {
     'RFS':13,   # Reference Search
     'SIO':14,   # Set Output
     'GIO':15,   # Get Input / Output
+    'WAIT':27,  # Wait with further program execution
+    'STOP':28,  # Stop program execution
     'SCO':30,   # Set Coordinate
     'GCO':31,   # Get Coordinate
-    'CCO':32   # Capture Coordinate
+    'CCO':32    # Capture Coordinate
 }
 
 commandtypes = {
@@ -57,7 +59,7 @@ class motorport:
         ports = serial.tools.list_ports.comports(include_links = True)
         for port in ports:
             if (port.vid == 10812) and (port.pid == 256):
-                print('Trinamic Motor Control Board identified')
+                print('Trinamic Motor Control Board identified at', port.device)
                 self.port = port.device
 
         self.baudrate=9600
@@ -126,7 +128,7 @@ def GetGram(ser):
     Address=datagram[0]
     Status=datagram[2]
     print('Return Status:', Status)
-    Value = int.from_bytes(datagram[4:8], byteorder='big', signed=False)
+    Value = int.from_bytes(datagram[4:8], byteorder='big', signed=True)
     return True
 
 #----------------------------------------------------------
@@ -139,15 +141,14 @@ ser = motorport()
 '''
 # Example: Stop 'Z' Motor
 datagram = MakeGram(Address = address,
-                Command = commands['MST'],
-                Type = 0,
-                Motor = motors['Z'],
-                Value = 0)
-
+                    Command = commands['MST'],
+                    Type = 0,
+                    Motor = motors['Y'],
+                    Value = 0)
 
 SendGram(datagram, ser.driver)
 '''
-
+'''
 #----------------------------------------------------------
 # Z-Axis Initialization
 #----------------------------------------------------------
@@ -168,18 +169,32 @@ SendGram(MakeGram(255, commands['SAP'], 13, 2, 0), ser.driver)      # SAP 13, 2,
 
 # Parameters for Homing
 #----------------------------------------------------------
+
+
+# BUT DOESN'T THIS LOOK FOR THE 'RIGHT' LIMIT SWITCH? PG 116 MANUAL, Checked that this is 'down'
+# "Add 64 to a mode for searching the right instead of the left reference switch"
 SendGram(MakeGram(255, commands['SAP'], 193, 2, 65), ser.driver)   # SAP 193, 2, 65 // Search left Stop switch Only
+
+
 SendGram(MakeGram(255, commands['SAP'], 194, 2, 1000), ser.driver) # SAP 194, 2, 1000 // Reference search speed
 SendGram(MakeGram(255, commands['SAP'], 195, 2, 10), ser.driver)   # SAP 195, 2, 10 // Reference switch speed (was 10X less than search speed in LumaView)
 
 # Start the Trinamic Homing Procedure
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['RFS'], 0, 2, 0), ser.driver)      # RFS START, 2
-SendGram(MakeGram(255, commands['RFS'], 1, 2, 0), ser.driver)      # WAIT RFS, 2 , 0
+SendGram(MakeGram(255, commands['RFS'], 0, 2, 0), ser.driver)                     # RFS START, 2
+SendGram(MakeGram(255, commands['WAIT'], commands['RFS'], 2, 0), ser.driver)      # WAIT RFS, 2 , 0
 
 # Move out of home Position
 #----------------------------------------------------------
 SendGram(MakeGram(255, commands['MVP'], 0, 2, 100000), ser.driver) # MVP ABS, 2, 100000 // for the TMCM-6110 the parameter is positive.
+
+'''
+
+
+
+
+
+
 
 #----------------------------------------------------------
 # X-Axis Initialization
@@ -207,11 +222,23 @@ SendGram(MakeGram(255, commands['SAP'], 195, 0, 10), ser.driver)   # SAP 195, 0,
 # Start the Trinamic Homing Procedure
 #----------------------------------------------------------
 SendGram(MakeGram(255, commands['RFS'], 0, 0, 0), ser.driver)      # RFS START, 0
-SendGram(MakeGram(255, commands['RFS'], 1, 0, 0), ser.driver)      # WAIT RFS, 0 , 0
+SendGram(MakeGram(255, commands['WAIT'], commands['RFS'], 0, 0), ser.driver) # WAIT RFS, 0 , 0
 
 # Move out of home Position
 #----------------------------------------------------------
 SendGram(MakeGram(255, commands['MVP'], 0, 0, 100000), ser.driver) # MVP ABS, 0, 100000 // for the TMCM-6110 the parameter is positive.
+# # Added by anna
+# SendGram(MakeGram(255, commands['WAIT'], 1, 0, 0), ser.driver) # WAIT, target position, x-motor , no-timeout
+
+
+'''
+
+
+
+
+
+
+
 
 #----------------------------------------------------------
 # Y-Axis Initialization
@@ -232,15 +259,27 @@ SendGram(MakeGram(255, commands['SAP'], 13, 1, 0), ser.driver)    # SAP 13, 1, 0
 
 # Parameters for Homing
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['SAP'], 193, 1, 65), ser.driver)   # SAP 193, 1, 65 // Search left Stop switch Only
+SendGram(MakeGram(255, commands['SAP'], 193, 1, 1), ser.driver)   # SAP 193, 1, 65 // Search left Stop switch Only
 SendGram(MakeGram(255, commands['SAP'], 194, 1, 1000), ser.driver) # SAP 194, 1, 1000 // Reference search speed
 SendGram(MakeGram(255, commands['SAP'], 195, 1, 10), ser.driver)   # SAP 195, 1, 10 // Reference switch speed (was 10X less than search speed in LumaView)
 
 # Start the Trinamic Homing Procedure
 #----------------------------------------------------------
 SendGram(MakeGram(255, commands['RFS'], 0, 2, 0), ser.driver)      # RFS START, 1
-SendGram(MakeGram(255, commands['RFS'], 1, 2, 0), ser.driver)      # WAIT RFS, 1, 0
+SendGram(MakeGram(255, commands['WAIT'], commands['RFS'], 1, 0), ser.driver) # WAIT RFS, 1, 0
 
 # Move out of home Position
 #----------------------------------------------------------
 SendGram(MakeGram(255, commands['MVP'], 0, 1, 100000), ser.driver)  # MVP ABS, 1, 100000 // for the TMCM-6110 the parameter is positive.
+
+'''
+
+
+
+
+
+
+
+# Stop the Program
+#----------------------------------------------------------
+SendGram(MakeGram(255, commands['STOP'], 0, 0, 0), ser.driver)
