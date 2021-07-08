@@ -26,8 +26,6 @@ commands = {
     'RFS':13,   # Reference Search
     'SIO':14,   # Set Output
     'GIO':15,   # Get Input / Output
-    'WAIT':27,  # Wait with further program execution
-    'STOP':28,  # Stop program execution
     'SCO':30,   # Set Coordinate
     'GCO':31,   # Get Coordinate
     'CCO':32    # Capture Coordinate
@@ -104,15 +102,13 @@ def MakeGram(Address, Command, Type, Motor, Value):
 # Send Datagram
 #----------------------------------------------------------
 def SendGram(datagram, ser):
-    print('Writing datagram:', datagram)
     ser.write(datagram)
-    GetGram(ser)
-    return
+    return GetGram(ser)
 
 #----------------------------------------------------------
 # Receive Datagram
 #----------------------------------------------------------
-def GetGram(ser):
+def GetGram(ser, verbose = False):
 
     # receive the datagram
     datagram = ser.read(9)
@@ -123,13 +119,26 @@ def GetGram(ser):
         checksum =  (checksum + datagram[i]) & 0xff
 
     if checksum != datagram[8]:
+        print('Return Checksum Error')
         return False
 
     Address=datagram[0]
     Status=datagram[2]
-    print('Return Status:', Status)
+    if Status != 100:
+        print('Return Status Error')
     Value = int.from_bytes(datagram[4:8], byteorder='big', signed=True)
-    return True
+    if verbose == True:
+        print(Value)
+    return Value
+
+# Wait for reference function to complete (homing)
+import time
+def Wait(Motor):
+    value = 1
+    while value != 0:
+        value = SendGram(MakeGram(255, commands['RFS'], 2, Motor, 0), ser.driver)
+        time.sleep(0.1)
+
 
 #----------------------------------------------------------
 #----------------------------------------------------------
@@ -148,47 +157,45 @@ datagram = MakeGram(Address = address,
 
 SendGram(datagram, ser.driver)
 '''
+
+
+
+
+
 '''
 #----------------------------------------------------------
 # Z-Axis Initialization
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['SAP'], 6, 2, 16), ser.driver)      # SAP 6, 2, 16 // Maximum current
-SendGram(MakeGram(255, commands['SAP'], 7, 2, 8), ser.driver)       # SAP 7, 2, 8 // Standby current
-SendGram(MakeGram(255, commands['SAP'], 2, 2, 1000), ser.driver)    # SAP 2, 2, 1000  // Target Velocity
-SendGram(MakeGram(255, commands['SAP'], 5, 2, 500), ser.driver)     # SAP 5, 2, 500 // Acceleration
-SendGram(MakeGram(255, commands['SAP'], 140, 2, 5), ser.driver)     # SAP 140, 2, 5  //32X Microstepping
-SendGram(MakeGram(255, commands['SAP'], 153, 2, 9), ser.driver)     # SAP 153, 2, 9  // Ramp Divisor 9
-SendGram(MakeGram(255, commands['SAP'], 154, 2, 3), ser.driver)     # SAP 154, 2, 3  // Pulse Divisor 3
-SendGram(MakeGram(255, commands['SAP'], 163, 2, 0), ser.driver)     # SAP 163, 2, 0  // Constant TOff Mode ( spreadcycle )
+SendGram(MakeGram(255, commands['SAP'], 6, 2, 16), ser.driver)      # Maximum current
+SendGram(MakeGram(255, commands['SAP'], 7, 2, 8), ser.driver)       # Standby current
+SendGram(MakeGram(255, commands['SAP'], 2, 2, 1000), ser.driver)    # Target Velocity
+SendGram(MakeGram(255, commands['SAP'], 5, 2, 500), ser.driver)     # Acceleration
+SendGram(MakeGram(255, commands['SAP'], 140, 2, 5), ser.driver)     # 32X Microstepping
+SendGram(MakeGram(255, commands['SAP'], 153, 2, 9), ser.driver)     # Ramp Divisor 9
+SendGram(MakeGram(255, commands['SAP'], 154, 2, 3), ser.driver)     # Pulse Divisor 3
+SendGram(MakeGram(255, commands['SAP'], 163, 2, 0), ser.driver)     # Constant TOff Mode (spreadcycle)
 
 
 # Parameters for Limit Switches
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['SAP'], 12, 2, 0), ser.driver)      # SAP 12, 2, 0 // enable (un-disable) Right Limit switch
-SendGram(MakeGram(255, commands['SAP'], 13, 2, 0), ser.driver)      # SAP 13, 2, 0 // enable (un-disable) Left Limit switch
+SendGram(MakeGram(255, commands['SAP'], 12, 2, 0), ser.driver)      # enable (un-disable) Right Limit switch
+SendGram(MakeGram(255, commands['SAP'], 13, 2, 0), ser.driver)      # enable (un-disable) Left Limit switch
 
 # Parameters for Homing
 #----------------------------------------------------------
-
-
-# BUT DOESN'T THIS LOOK FOR THE 'RIGHT' LIMIT SWITCH? PG 116 MANUAL, Checked that this is 'down'
-# "Add 64 to a mode for searching the right instead of the left reference switch"
-SendGram(MakeGram(255, commands['SAP'], 193, 2, 65), ser.driver)   # SAP 193, 2, 65 // Search left Stop switch Only
-
-
-SendGram(MakeGram(255, commands['SAP'], 194, 2, 1000), ser.driver) # SAP 194, 2, 1000 // Reference search speed
-SendGram(MakeGram(255, commands['SAP'], 195, 2, 10), ser.driver)   # SAP 195, 2, 10 // Reference switch speed (was 10X less than search speed in LumaView)
+SendGram(MakeGram(255, commands['SAP'], 193, 2, 65), ser.driver)    # Search Right Stop Switch (Down)
+SendGram(MakeGram(255, commands['SAP'], 194, 2, 1000), ser.driver)  # Reference search speed
+SendGram(MakeGram(255, commands['SAP'], 195, 2, 10), ser.driver)    # Reference switch speed (was 10X less than search speed in LumaView)
 
 # Start the Trinamic Homing Procedure
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['RFS'], 0, 2, 0), ser.driver)                     # RFS START, 2
-SendGram(MakeGram(255, commands['WAIT'], commands['RFS'], 2, 0), ser.driver)      # WAIT RFS, 2 , 0
+SendGram(MakeGram(255, commands['RFS'], 0, 2, 0), ser.driver)                 # Home to the Right Limit switch (Down)
 
 # Move out of home Position
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['MVP'], 0, 2, 100000), ser.driver) # MVP ABS, 2, 100000 // for the TMCM-6110 the parameter is positive.
-
+SendGram(MakeGram(255, commands['MVP'], 0, 2, -100), ser.driver)  # Move up by 100 (what is the unit?)
 '''
+
 
 
 
@@ -199,39 +206,35 @@ SendGram(MakeGram(255, commands['MVP'], 0, 2, 100000), ser.driver) # MVP ABS, 2,
 #----------------------------------------------------------
 # X-Axis Initialization
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['SAP'], 6, 0, 16), ser.driver)     # SAP 6, 0, 16 // Maximum current
-SendGram(MakeGram(255, commands['SAP'], 7, 0, 8), ser.driver)      # SAP 7, 0, 8 // Standby current
-SendGram(MakeGram(255, commands['SAP'], 2, 0, 1000), ser.driver)   # SAP 2, 0, 1000  // Target Velocity
-SendGram(MakeGram(255, commands['SAP'], 5, 0, 500), ser.driver)    # SAP 5, 0, 500 // Acceleration
-SendGram(MakeGram(255, commands['SAP'], 140, 0, 5), ser.driver)    # SAP 140, 0, 5  //32X Microstepping
-SendGram(MakeGram(255, commands['SAP'], 153, 0, 9), ser.driver)    # SAP 153, 0, 9  // Ramp Divisor 9
-SendGram(MakeGram(255, commands['SAP'], 154, 0, 3), ser.driver)    # SAP 154, 0, 3  // Pulse Divisor 3
-SendGram(MakeGram(255, commands['SAP'], 163, 0, 0), ser.driver)    # SAP 163, 0, 0  // Constant TOff Mode ( spreadcycle )
+SendGram(MakeGram(255, commands['SAP'], 6, 0, 16), ser.driver)     # Maximum current
+SendGram(MakeGram(255, commands['SAP'], 7, 0, 8), ser.driver)      # standby current
+SendGram(MakeGram(255, commands['SAP'], 2, 0, 1000), ser.driver)   # Target Velocity
+SendGram(MakeGram(255, commands['SAP'], 5, 0, 500), ser.driver)    # Acceleration
+SendGram(MakeGram(255, commands['SAP'], 140, 0, 5), ser.driver)    # 32X Microstepping
+SendGram(MakeGram(255, commands['SAP'], 153, 0, 9), ser.driver)    # Ramp Divisor 9
+SendGram(MakeGram(255, commands['SAP'], 154, 0, 3), ser.driver)    # Pulse Divisor 3
+SendGram(MakeGram(255, commands['SAP'], 163, 0, 0), ser.driver)    # Constant TOff Mode (spreadcycle)
 
 # Parameters for Limit Switches
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['SAP'], 12, 0, 0), ser.driver)     # SAP 12, 0, 0 // enable (un-disable) Right Limit switch
-SendGram(MakeGram(255, commands['SAP'], 13, 0, 0), ser.driver)     # SAP 13, 0, 0 // enable (un-disable) Left Limit switch
+SendGram(MakeGram(255, commands['SAP'], 12, 0, 0), ser.driver)     # enable (un-disable) Right Limit switch
+SendGram(MakeGram(255, commands['SAP'], 13, 0, 0), ser.driver)     # enable (un-disable) Left Limit switch
 
 # Parameters for Homing
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['SAP'], 193, 0, 65), ser.driver)   # SAP 193, 0, 65 // Search left Stop switch Only
-SendGram(MakeGram(255, commands['SAP'], 194, 0, 1000), ser.driver) # SAP 194, 0, 1000 // Reference search speed
-SendGram(MakeGram(255, commands['SAP'], 195, 0, 10), ser.driver)   # SAP 195, 0, 10 // Reference switch speed (was 10X less than search speed in LumaView)
+# 'Set Axis Parameter', 'Reference Search Mode', 'X-axis', '1+64 = Search Right Stop Switch Only'
+SendGram(MakeGram(255, commands['SAP'], 193, 0, 65), ser.driver)   # Search Right Stop switch Only
+SendGram(MakeGram(255, commands['SAP'], 194, 0, 1000), ser.driver) # Reference search speed
+SendGram(MakeGram(255, commands['SAP'], 195, 0, 10), ser.driver)   # Reference switch speed (was 10X less than search speed in LumaView)
 
 # Start the Trinamic Homing Procedure
-#----------------------------------------------------------
-SendGram(MakeGram(255, commands['RFS'], 0, 0, 0), ser.driver)      # RFS START, 0
-SendGram(MakeGram(255, commands['WAIT'], commands['RFS'], 0, 0), ser.driver) # WAIT RFS, 0 , 0
+# ----------------------------------------------------------
+SendGram(MakeGram(255, commands['RFS'], 0, 0, 0), ser.driver)                # Home to the Right Limit switch (Right)
+Wait(motors['X'])
 
 # Move out of home Position
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['MVP'], 0, 0, 100000), ser.driver) # MVP ABS, 0, 100000 // for the TMCM-6110 the parameter is positive.
-# # Added by anna
-# SendGram(MakeGram(255, commands['WAIT'], 1, 0, 0), ser.driver) # WAIT, target position, x-motor , no-timeout
-
-
-'''
+SendGram(MakeGram(255, commands['MVP'], 0, 0, -200000), ser.driver)  # Move left by 100000 (what is the unit?)
 
 
 
@@ -243,44 +246,31 @@ SendGram(MakeGram(255, commands['MVP'], 0, 0, 100000), ser.driver) # MVP ABS, 0,
 #----------------------------------------------------------
 # Y-Axis Initialization
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['SAP'], 6, 1, 16), ser.driver)    # SAP 6, 1, 16 // Maximum current
-SendGram(MakeGram(255, commands['SAP'], 7, 1, 8), ser.driver)     # SAP 7, 1, 8 // Standby current
-SendGram(MakeGram(255, commands['SAP'], 2, 1, 1000), ser.driver)  # SAP 2, 1, 1000  // Target Velocity
-SendGram(MakeGram(255, commands['SAP'], 5, 1, 500), ser.driver)   # SAP 5, 1, 500 // Acceleration
-SendGram(MakeGram(255, commands['SAP'], 140, 1, 5), ser.driver)   # SAP 140, 1, 5  //32X Microstepping
-SendGram(MakeGram(255, commands['SAP'], 153, 1, 9), ser.driver)   # SAP 153, 1, 9  // Ramp Divisor 9
-SendGram(MakeGram(255, commands['SAP'], 154, 1, 3), ser.driver)   # SAP 154, 1, 3  // Pulse Divisor 3
-SendGram(MakeGram(255, commands['SAP'], 163, 1, 0), ser.driver)   # SAP 163, 1, 0  // Constant TOff Mode ( spreadcycle )
+SendGram(MakeGram(255, commands['SAP'], 6, 1, 16), ser.driver)    # Maximum current
+SendGram(MakeGram(255, commands['SAP'], 7, 1, 8), ser.driver)     # Standby current
+SendGram(MakeGram(255, commands['SAP'], 2, 1, 1000), ser.driver)  # Target Velocity
+SendGram(MakeGram(255, commands['SAP'], 5, 1, 500), ser.driver)   # Acceleration
+SendGram(MakeGram(255, commands['SAP'], 140, 1, 5), ser.driver)   # 32X Microstepping
+SendGram(MakeGram(255, commands['SAP'], 153, 1, 9), ser.driver)   # Ramp Divisor 9
+SendGram(MakeGram(255, commands['SAP'], 154, 1, 3), ser.driver)   # Pulse Divisor 3
+SendGram(MakeGram(255, commands['SAP'], 163, 1, 0), ser.driver)   # Constant TOff Mode (spreadcycle)
 
 # Parameters for Limit Switches
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['SAP'], 12, 1, 0), ser.driver)    # SAP 12, 1, 0 // enable (un-disable) Right Limit switch
-SendGram(MakeGram(255, commands['SAP'], 13, 1, 0), ser.driver)    # SAP 13, 1, 0 // enable (un-disable) Left Limit switch
+SendGram(MakeGram(255, commands['SAP'], 12, 1, 0), ser.driver)    # enable (un-disable) Right Limit switch
+SendGram(MakeGram(255, commands['SAP'], 13, 1, 0), ser.driver)    # enable (un-disable) Left Limit switch
 
 # Parameters for Homing
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['SAP'], 193, 1, 1), ser.driver)   # SAP 193, 1, 65 // Search left Stop switch Only
-SendGram(MakeGram(255, commands['SAP'], 194, 1, 1000), ser.driver) # SAP 194, 1, 1000 // Reference search speed
-SendGram(MakeGram(255, commands['SAP'], 195, 1, 10), ser.driver)   # SAP 195, 1, 10 // Reference switch speed (was 10X less than search speed in LumaView)
+SendGram(MakeGram(255, commands['SAP'], 193,  1, 65), ser.driver)  # Search Right Stop switch Only (Back)
+SendGram(MakeGram(255, commands['SAP'], 194, 1, 1000), ser.driver) # Reference search speed
+SendGram(MakeGram(255, commands['SAP'], 195, 1, 10), ser.driver)   # Reference switch speed (was 10X less than search speed in LumaView)
 
 # Start the Trinamic Homing Procedure
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['RFS'], 0, 2, 0), ser.driver)      # RFS START, 1
-SendGram(MakeGram(255, commands['WAIT'], commands['RFS'], 1, 0), ser.driver) # WAIT RFS, 1, 0
+SendGram(MakeGram(255, commands['RFS'], 0, 1, 0), ser.driver)      # Home to the Right Limit switch (Back)
+Wait(motors['Y'])
 
 # Move out of home Position
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['MVP'], 0, 1, 100000), ser.driver)  # MVP ABS, 1, 100000 // for the TMCM-6110 the parameter is positive.
-
-'''
-
-
-
-
-
-
-'''
-# Stop the Program
-#----------------------------------------------------------
-SendGram(MakeGram(255, commands['STOP'], 0, 0, 0), ser.driver)
-'''
+SendGram(MakeGram(255, commands['MVP'], 0, 1, -1000000), ser.driver)  # Move forward by 100000 (what is the unit?)
