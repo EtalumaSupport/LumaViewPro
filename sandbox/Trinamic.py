@@ -162,7 +162,7 @@ SendGram(datagram, ser.driver)
 
 
 
-'''
+
 #----------------------------------------------------------
 # Z-Axis Initialization
 #----------------------------------------------------------
@@ -189,12 +189,13 @@ SendGram(MakeGram(255, commands['SAP'], 195, 2, 10), ser.driver)    # Reference 
 
 # Start the Trinamic Homing Procedure
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['RFS'], 0, 2, 0), ser.driver)                 # Home to the Right Limit switch (Down)
+SendGram(MakeGram(255, commands['RFS'], 0, 2, 0), ser.driver)       # Home to the Right Limit switch (Down)
+Wait(motors['Z'])
 
-# Move out of home Position
-#----------------------------------------------------------
-SendGram(MakeGram(255, commands['MVP'], 0, 2, -100), ser.driver)  # Move up by 100 (what is the unit?)
-'''
+# # Move out of home Position
+# #----------------------------------------------------------
+# SendGram(MakeGram(255, commands['MVP'], 0, 2, -100), ser.driver)  # Move up by 100 (what is the unit?)
+
 
 
 
@@ -273,4 +274,4 @@ Wait(motors['Y'])
 
 # Move out of home Position
 #----------------------------------------------------------
-SendGram(MakeGram(255, commands['MVP'], 0, 1, -1000000), ser.driver)  # Move forward by 100000 (what is the unit?)
+SendGram(MakeGram(255, commands['MVP'], 0, 1, -100000), ser.driver)  # Move forward by 100000 (what is the unit?)
