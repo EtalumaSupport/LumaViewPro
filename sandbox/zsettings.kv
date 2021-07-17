@@ -1,0 +1,97 @@
+<Main>:
+    orientation: 'horizontal'
+    canvas:
+        Color:
+            rgba: 0.1, 0.1, 0.1, 0.7
+        Rectangle:
+            size: self.size
+            pos: self.pos
+
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint_x: None
+        width: '40dp'
+        # padding: '5dp'
+        spacing: '5dp'
+        Label:
+        Button:
+            id: fast_up
+			border: 0, 0, 0, 0
+            size_hint: None, None
+            size: '40dp', '40dp'
+			background_normal: './data/icons/fast_up.png'
+        Button:
+            id: slow_up
+			border: 0, 0, 0, 0
+            size_hint: None, None
+            size: '40dp', '40dp'
+			background_normal: './data/icons/slow_up.png'
+        Button:
+            id: slow_down
+			border: 0, 0, 0, 0
+            size_hint: None, None
+            size: '40dp', '40dp'
+			background_normal: './data/icons/slow_down.png'
+        Button:
+            id: fast_down
+			border: 0, 0, 0, 0
+            size_hint: None, None
+            size: '40dp', '40dp'
+			background_normal: './data/icons/fast_down.png'
+        Label:
+        Label:
+            size_hint_y: None
+            height: '60dp'
+    BoxLayout:
+        orientation: 'vertical'
+        padding: '5dp'
+        Slider:
+            id: obj_setting
+            orientation: 'vertical'
+            min: 0.
+            max: 100.
+            value: 75.
+			step: 1.
+            cursor_size: '20dp','20dp'
+            cursor_image: '../data/slider_cursor.png'
+            value_track: True
+            value_track_color: 51/255, 181/255, 229/255, 1
+            value_track_width: '5dp'
+        Label:
+            size_hint_y: None
+            height: '40dp'
+            text: 'Setting'
+        TextInput:
+            size_hint_y: None
+            height: '30dp'
+            font_size: '12sp'
+            text: '2.000'
+            halign: 'center'
+    BoxLayout:
+        orientation: 'vertical'
+        padding: '5dp'
+        Slider:
+            id: obj_position
+            orientation: 'vertical'
+            min: 0.
+            max: 100.
+            value: 50.
+			step: 1.
+            cursor_size: '60dp','60dp'
+            cursor_image: '../data/icons/objective.png'
+            cursor_disabled_image: '../data/icons/objective.png'
+            value_track: True
+            value_track_color: 51/255, 181/255, 229/255, 1
+            value_track_width: '5dp'
+            # disabled: True
+        Label:
+            size_hint_y: None
+            height: '40dp'
+            text: 'Position'
+        TextInput:
+            size_hint_y: None
+            height: '30dp'
+            font_size: '12sp'
+            text: '2.498'
+            halign: 'center'
+            disabled: True
