@@ -19,12 +19,12 @@ class LEDBoard:
     def __init__(self, **kwargs):
 
         # find all available serial ports
-        ports = list(list_ports.comports(include_links = True))
+        ports = serial.tools.list_ports.comports(include_links = True)
         for port in ports:
-            print(port)
-        self.port = 'COM6'
-        # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
-        # self.port = "/dev/ttyS0"
+            if (port.vid == 1155) and (port.pid == 22336):
+                print('LED Control Board identified at', port.device)
+                self.port = port.device
+
         self.baudrate=115200
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
@@ -92,8 +92,7 @@ class LEDBoard:
 
 # Create instance
 led_board = LEDBoard()
-
-#'''
+'''
 # Command Prompt Control of LEDBoard
 while True:
     CH = input('channel:')
@@ -107,12 +106,12 @@ while True:
     else:
         led_board.led_on(CH, mA)
     print('')
-#'''
+'''
 
-'''
+#led_board.led_status()
 # Test Speed of LEDBoard
-for i in range(10000):
-    led_board.led_on(i%3, 50)
-    led_board.led_off()
-    time.sleep(1/10000)
-'''
+
+for i in range(10):
+    print('LED Status attempt', i)
+    led_board.led_status()
+    time.sleep(1/5)
