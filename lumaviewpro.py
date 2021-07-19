@@ -290,12 +290,169 @@ class LEDBoard:
         if self.driver != False:
             self.driver.write(command.encode('utf-8')+b"\r\n")
 
+class TrinamicBoard:
+    # Trinamic 3230 board (preferred)
+    # Trinamic 6110 board (now) Address
+
+    addr = 255
+
+    # Commmand set available in direct mode
+    cmnd = {
+        'ROR':1,    # Rotate Right
+        'ROL':2,    # Rotate Left
+        'MST':3,    # Motor Stop
+        'MVP':4,    # Move to Position
+        'SAP':5,    # Set Axis Parameter
+        'GAP':6,    # Get Axis Parameter
+        'STAP':7,   # Store Axis Parameter
+        'RSAP':8,   # Restore Axis Parameter
+        'SGP':9,    # Set Global Parameter
+        'GGP':10,   # Get Global Parameter
+        'STGP':11,  # Store Global Parameter
+        'RSGP':12,  # Restore Global Parameter
+        'RFS':13,   # Reference Search
+        'SIO':14,   # Set Output
+        'GIO':15,   # Get Input / Output
+        'SCO':30,   # Set Coordinate
+        'GCO':31,   # Get Coordinate
+        'CCO':32    # Capture Coordinate
+    }
+
+    axis = {
+        'X':0, # Left to Right is positive
+        'Y':1, # Front to Back is positive
+        'Z':2  # Down is positive
+    }
+
+    #----------------------------------------------------------
+    # Set up Serial Port connection
+    #----------------------------------------------------------
+    def __init__(self, **kwargs):
+        # find all available serial ports
+        ports = serial.tools.list_ports.comports(include_links = True)
+        for port in ports:
+            if (port.vid == 10812) and (port.pid == 256):
+                print('Trinamic Motor Control Board identified at', port.device)
+                self.port = port.device
+
+        self.baudrate = 9600
+        self.bytesize = serial.EIGHTBITS
+        self.parity = serial.PARITY_NONE
+        self.stopbits = serial.STOPBITS_ONE
+        self.timeout = 5 # seconds
+        self.driver = True
+        try:
+            self.connect()
+            self.home()
+        except:
+            print("Could not connect to Trinamic Motor Control Board")
+            self.driver = False
+
+    def __del__(self):
+        if self.driver != False:
+            self.driver.close()
+
+    def connect(self):
+        self.driver = serial.Serial(port=self.port, baudrate=self.baudrate, bytesize=self.bytesize, parity=self.parity, stopbits=self.stopbits, timeout=self.timeout)
+        self.driver.close()
+        self.driver.open()
+
+    #----------------------------------------------------------
+    # Receive Datagram
+    #----------------------------------------------------------
+    def GetGram(self, verbose = False):
+
+        # receive the datagram
+        datagram = self.driver.read(9)
+
+        checksum = 0
+        for i in range(8):         # compare checksum
+            checksum =  (checksum + datagram[i]) & 0xff
+
+        if checksum != datagram[8]:
+            print('Return Checksum Error')
+            return False
+
+        Address=datagram[0]
+        Status=datagram[2]
+        if Status != 100:
+            print('Return Status Error')
+        Value = int.from_bytes(datagram[4:8], byteorder='big', signed=True)
+        if verbose == True:
+            print('Status: ', Status)
+            print('Value:  ', Value)
+        return Value
+
+    #----------------------------------------------------------
+    # Send Datagram
+    #----------------------------------------------------------
+    def SendGram(self, Command, Type, Motor, Value):
+
+        datagram = bytearray(9)
+        datagram[0] = self.addr
+        datagram[1] = self.cmnd[Command]
+        datagram[2] = Type
+        datagram[3] = self.axis[Motor]
+        datagram[4] = (Value >> 24)  & 0xff # shift by 24 bits i.e. divide by 2, 24 times
+        datagram[5] = (Value >> 16)  & 0xff # shift by 16 bits i.e. divide by 2, 16 times
+        datagram[6] = (Value >> 8)  & 0xff  # shift by 8 bits i.e. divide by 2, 8 times
+        datagram[7] = Value & 0xff # bitwise add with 0xff to get last 8 byte
+
+        for i in range(8):         # generate checksum
+            datagram[8] =  (datagram[8] + datagram[i]) & 0xff
+
+        if self.driver != False:
+            self.driver.write(datagram)
+            return self.GetGram(verbose = True)
+        else:
+            print('Trinamic Motor Control Board is not connected')
+            return False
+
+
+    # Wait for reference function to complete (homing)
+    def RFS_Wait(self, Motor):
+        value = 1
+        while value != 0:
+            value = self.SendGram('RFS', 2, Motor, 0)
+            # DEBUG NEEDED #
+            time.sleep(0.1)
+
+    def home(self):
+        self.SendGram('SAP', 6, 'Z', 16)      # Maximum current
+        self.SendGram('SAP', 7, 'Z', 8)       # Standby current
+        self.SendGram('SAP', 2, 'Z', 1000)    # Target Velocity
+        self.SendGram('SAP', 5, 'Z', 500)     # Acceleration
+        self.SendGram('SAP', 140, 'Z', 5)     # 32X Microstepping
+        self.SendGram('SAP', 153, 'Z', 9)     # Ramp Divisor 9
+        self.SendGram('SAP', 154, 'Z', 3)     # Pulse Divisor 3
+        self.SendGram('SAP', 163, 'Z', 0)     # Constant TOff Mode (spreadcycle)
+
+
+        # Parameters for Limit Switches
+        #----------------------------------------------------------
+        self.SendGram('SAP', 12, 'Z', 0)      # enable Right Limit switch
+        self.SendGram('SAP', 13, 'Z', 0)      # enable Left Limit switch
+
+        # Parameters for Homing
+        #----------------------------------------------------------
+        self.SendGram('SAP', 193, 'Z', 65)    # Search Right Stop Switch (Down)
+        self.SendGram('SAP', 194, 'Z', 1000)  # Reference search speed
+        self.SendGram('SAP', 195, 'Z', 10)    # Reference switch speed (was 10X less than search speed in LumaView)
+
+        # Start the Trinamic Homing Procedure
+        #----------------------------------------------------------
+        self.SendGram('RFS', 0, 'Z', 0)       # Home to the Right Limit switch (Down)
+        self.RFS_Wait('Z')
+
+
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
 class MainDisplay(FloatLayout):
     led_board = ObjectProperty(None)
     led_board = LEDBoard()
+    motion = ObjectProperty(None)
+    motion = TrinamicBoard()
 
     def choose_folder(self):
         content = LoadDialog(load=self.load,
@@ -546,6 +703,43 @@ void main (void) {
 
 Factory.register('ShaderViewer', cls=ShaderViewer)
 
+
+class MotionSettings(BoxLayout):
+    settings_width = dp(300)
+    isOpen = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        Window.bind(on_draw=self.check_settings)
+
+    # Hide (and unhide) motion settings
+    def toggle_settings(self):
+        global lumaview
+        microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
+        microscope.stop()
+
+        # move position of motion control
+        if self.isOpen:
+            self.ids['toggle_motionsettings'].state = 'normal'
+            self.pos = -self.settings_width+30, 0
+            self.isOpen = False
+        else:
+            self.ids['toggle_motionsettings'].state = 'down'
+            self.pos = 0, 0
+            self.isOpen = True
+
+        if microscope.play == True:
+            microscope.start()
+
+    def check_settings(self, *args):
+        # global lumaview
+        if not self.isOpen:
+            self.ids['toggle_motionsettings'].state = 'normal'
+            self.pos = -self.settings_width+30, 0
+        else:
+            self.ids['toggle_motionsettings'].state = 'down'
+            self.pos = 0, 0
+
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
 void main (void){
@@ -620,7 +814,7 @@ class MainSettings(BoxLayout):
         microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
         microscope.stop()
 
-        # update protocol
+        # move position of settings
         if self.isOpen:
             self.ids['toggle_mainsettings'].state = 'normal'
             self.pos = lumaview.width - 30, 0
@@ -652,6 +846,36 @@ class MainSettings(BoxLayout):
             self.ids['toggle_mainsettings'].state = 'down'
             self.pos = lumaview.width - self.settings_width, 0
 
+class VerticalControl(BoxLayout):
+    def course_up(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Z', -100000)  # Move UP relative by 100000
+        # lumaview.motion.SendGram('ROL', 0, 'Z', 1000)
+
+    def fine_up(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Z', -10000)  # Move UP by 10000
+        # lumaview.motion.SendGram('ROL', 0, 'Z', 100)
+
+    def fine_down(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Z', 10000)  # Move DOWN by 10000
+        # lumaview.motion.SendGram('ROR', 0, 'Z', 100)
+
+    def course_down(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Z', 100000)  # Move DOWN by 100000
+        # lumaview.motion.SendGram('ROR', 0, 'Z', 1000)
+
+    def stop(self):
+        global lumaview
+        # lumaview.motion.SendGram('MST', 0, 'X', 0)
+        # lumaview.motion.SendGram('MST', 0, 'Y', 0)
+        # lumaview.motion.SendGram('MST', 0, 'Z', 0)
+
+
+class XYStageControl(BoxLayout):
+    pass
 
 class MicroscopeSettings(BoxLayout):
 

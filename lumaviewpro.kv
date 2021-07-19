@@ -83,12 +83,19 @@
         do_rotation: False
         do_translation: True
 
+	MotionSettings:
+        id: motionsettings_id
+        size_hint: None, None
+        size: self.settings_width, root.height
+        pos: -self.settings_width+30, 0
+
     # ShaderEditor:
     #     viewer: viewer_id
     #     size_hint: None, None
     #     size: 300, root.height
     #     pos: -285, 0
     #
+
     MainSettings:
         id: mainsettings_id
         size_hint: None, None
@@ -101,8 +108,8 @@
         orientation: 'horizontal'
         padding: '5dp'
         spacing: '5dp'
-        # pos: root.width/2-200, 0
-        pos: 0, 0
+        pos: (root.width-7*40)/2, 0
+        # pos: 0, 0
         TooltipButton:
             id: live_folder_btn
             border: 0, 0, 0, 0
@@ -181,7 +188,7 @@
         id: microscope_camera
         size_hint: None, None
         size: root.width, root.height
-        resolution: (2592, 1944)
+        resolution: (1900, 1900)
         allow_stretch: True
         keep_ratio: True
 
@@ -220,6 +227,146 @@
         background_down: './data/left_arrow.png'
         on_press: root.toggle_editor()
 
+# MotionSettings - view and control motion control Board
+# ------------------------------------------
+<MotionSettings>:
+    orientation: 'horizontal'
+
+	Accordion:
+		orientation: 'vertical'
+		AccordionItem:
+			title: 'Vertical Control'
+            collapse: False
+			VerticalControl:
+		AccordionItem:
+			title: 'XY Stage Control'
+			XYStageControl:
+
+    ToggleButton:
+        id: toggle_motionsettings
+        size_hint: None, None
+        size: 30, 60
+        pos_hint: {"x":0, "y":0.5}
+        border: 0, 0, 0, 0
+        background_normal: './data/right_arrow.png' # right pointing (press to open)
+        background_down: './data/left_arrow.png' # left pointing (press to close)
+        on_press: root.toggle_settings()
+
+
+<VerticalControl>:
+	orientation: 'vertical'
+    canvas:
+        Color:
+            rgba: 0.1, 0.1, 0.1, 0.7
+        Rectangle:
+            size: self.size
+            pos: self.pos
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '200dp'
+		BoxLayout:
+		    orientation: 'vertical'
+		    size_hint_x: None
+		    width: '40dp'
+		    # padding: '5dp'
+		    spacing: '5dp'
+		    Label:
+		    Button:
+		        id: fast_up
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/icons/fast_up.png'
+				on_press: root.course_up()
+				on_release: root.stop()
+		    Button:
+		        id: slow_up
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/icons/slow_up.png'
+				on_press: root.fine_up()
+				on_release: root.stop()
+		    Button:
+		        id: slow_down
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/icons/slow_down.png'
+				on_press: root.fine_down()
+				on_release: root.stop()
+		    Button:
+		        id: fast_down
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/icons/fast_down.png'
+				on_press: root.course_down()
+				on_release: root.stop()
+		    Label:
+		BoxLayout:
+			orientation: 'vertical'
+			Label:
+				size_hint_y: None
+				height: '30dp'
+		    ModSlider:
+		        id: obj_position
+		        orientation: 'vertical'
+		        min: 0.
+		        max: 100.
+		        value: 0.
+				step: 1.
+		        cursor_size: '60dp','60dp'
+		        cursor_image: './data/icons/objective.png'
+		        cursor_disabled_image: './data/icons/objective.png'
+		        value_track: True
+		        value_track_color: 51/255, 181/255, 229/255, 1
+		        value_track_width: '5dp'
+		        disabled: False
+			Label:
+				size_hint_y: None
+				height: '30dp'
+
+		BoxLayout:
+		    orientation: 'vertical'
+		    padding: '5dp'
+			Label:
+		    Label:
+		        size_hint_y: None
+		        height: '40dp'
+		        text: 'Z Setting'
+		    TextInput:
+		        size_hint_y: None
+		        height: '30dp'
+		        font_size: '12sp'
+		        text: '2.000'
+		        halign: 'center'
+		    Label:
+		        size_hint_y: None
+		        height: '40dp'
+		        text: 'Z Position'
+		    TextInput:
+		        size_hint_y: None
+		        height: '30dp'
+		        font_size: '12sp'
+		        text: '2.498'
+		        halign: 'center'
+		        disabled: True
+			Label:
+	Label:
+
+<XYStageControl>:
+    canvas:
+        Color:
+            rgba: 0.1, 0.1, 0.1, 0.7
+        Rectangle:
+            size: self.size
+            pos: self.pos
+	Label:
+		text: 'Not Available'
+
+
 # MainSettings - view and edit control accordian
 # ------------------------------------------
 <MainSettings>:
@@ -247,7 +394,7 @@
 
         # BRIGHTFIELD SETTINGS
         AccordionItem:
-            title: 'Brightfield Channel'
+            title: 'Brightfield Channel Control'
 			on_collapse: root.accordion_collapse('BF')
             LayerControl:
                 id: BF
