@@ -279,7 +279,7 @@
 		        size: '40dp', '40dp'
 				background_normal: './data/icons/fast_up.png'
 				on_press: root.course_up()
-				on_release: root.stop()
+				# on_release: root.stop()
 		    Button:
 		        id: slow_up
 				border: 0, 0, 0, 0
@@ -287,7 +287,7 @@
 		        size: '40dp', '40dp'
 				background_normal: './data/icons/slow_up.png'
 				on_press: root.fine_up()
-				on_release: root.stop()
+				# on_release: root.stop()
 		    Button:
 		        id: slow_down
 				border: 0, 0, 0, 0
@@ -295,7 +295,7 @@
 		        size: '40dp', '40dp'
 				background_normal: './data/icons/slow_down.png'
 				on_press: root.fine_down()
-				on_release: root.stop()
+				# on_release: root.stop()
 		    Button:
 		        id: fast_down
 				border: 0, 0, 0, 0
@@ -303,7 +303,7 @@
 		        size: '40dp', '40dp'
 				background_normal: './data/icons/fast_down.png'
 				on_press: root.course_down()
-				on_release: root.stop()
+				# on_release: root.stop()
 		    Label:
 		BoxLayout:
 			orientation: 'vertical'
@@ -357,15 +357,94 @@
 	Label:
 
 <XYStageControl>:
+	orientation: 'vertical'
+    spacing: '5dp'
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
         Rectangle:
             size: self.size
             pos: self.pos
-	Label:
-		text: 'Not Available'
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '40dp'
+	    padding: '5dp'
+	    spacing: '5dp'
+	    Label:
+			text: 'A'
+	    Button:
+	        id: fast_up
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '40dp', '40dp'
+			background_normal: './data/icons/fast_up.png'
+			on_press: root.course_left()
+	    Button:
+	        id: slow_up
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '40dp', '40dp'
+			background_normal: './data/icons/slow_up.png'
+			on_press: root.fine_left()
+	    Button:
+	        id: slow_down
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '40dp', '40dp'
+			background_normal: './data/icons/slow_down.png'
+			on_press: root.fine_right()
+	    Button:
+	        id: fast_down
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '40dp', '40dp'
+			background_normal: './data/icons/fast_down.png'
+			on_press: root.course_right()
+		Label:
+			text: 'B'
 
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '180dp'
+		BoxLayout:
+		    orientation: 'vertical'
+		    size_hint_x: None
+		    width: '40dp'
+		    padding: '5dp'
+		    spacing: '5dp'
+		    Button:
+		        id: fast_up
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/icons/fast_up.png'
+				on_press: root.course_back()
+		    Button:
+		        id: slow_up
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/icons/slow_up.png'
+				on_press: root.fine_back()
+		    Button:
+		        id: slow_down
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/icons/slow_down.png'
+				on_press: root.fine_fwd()
+		    Button:
+		        id: fast_down
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/icons/fast_down.png'
+				on_press: root.course_fwd()
+		Label:
+			text: 'Should be the plate'
+	Label:
 
 # MainSettings - view and edit control accordian
 # ------------------------------------------

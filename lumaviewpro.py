@@ -418,6 +418,9 @@ class TrinamicBoard:
             time.sleep(0.1)
 
     def home(self):
+        #----------------------------------------------------------
+        # Z-Axis Initialization
+        #----------------------------------------------------------
         self.SendGram('SAP', 6, 'Z', 16)      # Maximum current
         self.SendGram('SAP', 7, 'Z', 8)       # Standby current
         self.SendGram('SAP', 2, 'Z', 1000)    # Target Velocity
@@ -443,6 +446,71 @@ class TrinamicBoard:
         #----------------------------------------------------------
         self.SendGram('RFS', 0, 'Z', 0)       # Home to the Right Limit switch (Down)
         self.RFS_Wait('Z')
+
+        #----------------------------------------------------------
+        # X-Axis Initialization
+        #----------------------------------------------------------
+        self.SendGram('SAP', 6, 'X', 16)     # Maximum current
+        self.SendGram('SAP', 7, 'X', 8)      # standby current
+        self.SendGram('SAP', 2, 'X', 1000)   # Target Velocity
+        self.SendGram('SAP', 5, 'X', 500)    # Acceleration
+        self.SendGram('SAP', 140, 'X', 5)    # 32X Microstepping
+        self.SendGram('SAP', 153, 'X', 9)    # Ramp Divisor 9
+        self.SendGram('SAP', 154, 'X', 3)    # Pulse Divisor 3
+        self.SendGram('SAP', 163, 'X', 0)    # Constant TOff Mode (spreadcycle)
+
+        # Parameters for Limit Switches
+        #----------------------------------------------------------
+        self.SendGram('SAP', 12, 'X', 0)     # enable Right Limit switch
+        self.SendGram('SAP', 13, 'X', 0)     # enable Left Limit switch
+
+        # Parameters for Homing
+        #----------------------------------------------------------
+        # 'Set Axis Parameter', 'Reference Search Mode', 'X-axis', '1+64 = Search Right Stop Switch Only'
+        self.SendGram('SAP', 193, 'X', 65)   # Search Right Stop switch Only
+        self.SendGram('SAP', 194, 'X', 1000) # Reference search speed
+        self.SendGram('SAP', 195, 'X', 10)   # Reference switch speed (was 10X less than search speed in LumaView)
+
+        # Start the Trinamic Homing Procedure
+        # ----------------------------------------------------------
+        self.SendGram('RFS', 0, 'X', 0)      # Home to the Right Limit switch (Right)
+        self.RFS_Wait('X')
+
+        # Move out of home Position
+        #----------------------------------------------------------
+        self.SendGram('MVP', 0, 'X', -385000)  # Move left by 100000 (what is the unit?)
+
+        #----------------------------------------------------------
+        # Y-Axis Initialization
+        #----------------------------------------------------------
+        self.SendGram('SAP', 6, 'Y', 16)    # Maximum current
+        self.SendGram('SAP', 7, 'Y', 8)     # Standby current
+        self.SendGram('SAP', 2, 'Y', 1000)  # Target Velocity
+        self.SendGram('SAP', 5, 'Y', 500)   # Acceleration
+        self.SendGram('SAP', 140, 'Y', 5)   # 32X Microstepping
+        self.SendGram('SAP', 153, 'Y', 9)   # Ramp Divisor 9
+        self.SendGram('SAP', 154, 'Y', 3)   # Pulse Divisor 3
+        self.SendGram('SAP', 163, 'Y', 0)   # Constant TOff Mode (spreadcycle)
+
+        # Parameters for Limit Switches
+        #----------------------------------------------------------
+        self.SendGram('SAP', 12, 'Y', 0)    # enable Right Limit switch
+        self.SendGram('SAP', 13, 'Y', 0)    # enable Left Limit switch
+
+        # Parameters for Homing
+        #----------------------------------------------------------
+        self.SendGram('SAP', 193, 'Y', 65)   # Search Right Stop switch Only (Back)
+        self.SendGram('SAP', 194, 'Y', 1000) # Reference search speed
+        self.SendGram('SAP', 195, 'Y', 10)   # Reference switch speed (was 10X less than search speed in LumaView)
+
+        # Start the Trinamic Homing Procedure
+        #----------------------------------------------------------
+        self.SendGram('RFS', 0, 'Y', 0)      # Home to the Right Limit switch (Back)
+        self.RFS_Wait('Y')
+
+        # Move out of home Position
+        #----------------------------------------------------------
+        self.SendGram('MVP', 0, 'Y', -200000)  # Move forward by 100000 (what is the unit?)
 
 
 # -------------------------------------------------------------------------
@@ -553,7 +621,8 @@ class MainDisplay(FloatLayout):
                 illumination = protocol[layer]['ill']
                 led_board = lumaview.led_board
                 led_board.led_on(led_board.color2ch(layer), illumination)
-
+                # SERIOUS DEBUG needed here
+                time.sleep(1)
                 microscope.update(0)
                 # buffer the images
                 if layer == 'Blue':
@@ -849,33 +918,59 @@ class MainSettings(BoxLayout):
 class VerticalControl(BoxLayout):
     def course_up(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', -100000)  # Move UP relative by 100000
+        lumaview.motion.SendGram('MVP', 1, 'Z', -5000)  # Move UP relative by 10000
         # lumaview.motion.SendGram('ROL', 0, 'Z', 1000)
 
     def fine_up(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', -10000)  # Move UP by 10000
+        lumaview.motion.SendGram('MVP', 1, 'Z', -250)  # Move UP by 1000
         # lumaview.motion.SendGram('ROL', 0, 'Z', 100)
 
     def fine_down(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', 10000)  # Move DOWN by 10000
+        lumaview.motion.SendGram('MVP', 1, 'Z', 250)  # Move DOWN by 1000
         # lumaview.motion.SendGram('ROR', 0, 'Z', 100)
 
     def course_down(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', 100000)  # Move DOWN by 100000
+        lumaview.motion.SendGram('MVP', 1, 'Z', 5000)  # Move DOWN by 10000
         # lumaview.motion.SendGram('ROR', 0, 'Z', 1000)
 
-    def stop(self):
-        global lumaview
-        # lumaview.motion.SendGram('MST', 0, 'X', 0)
-        # lumaview.motion.SendGram('MST', 0, 'Y', 0)
-        # lumaview.motion.SendGram('MST', 0, 'Z', 0)
+
 
 
 class XYStageControl(BoxLayout):
-    pass
+    def course_left(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'X', -10000)  # Move LEFT relative by 10000
+
+    def fine_left(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'X', -1000)  # Move LEFT by 1000
+
+    def fine_right(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'X', 1000)  # Move RIGHT by 1000
+
+    def course_right(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'X', 10000)  # Move RIGHT by 10000
+
+    def course_back(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Y', -10000)  # Move BACK relative by 10000
+
+    def fine_back(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Y', -1000)  # Move BACK by 1000
+
+    def fine_fwd(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Y', 1000)  # Move FORWARD by 1000
+
+    def course_fwd(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Y', 10000)  # Move FORWARD by 10000
 
 class MicroscopeSettings(BoxLayout):
 
