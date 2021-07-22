@@ -113,8 +113,8 @@
         TooltipButton:
             id: live_folder_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/folder.png' # Press to Select Folder
-            background_down: './data/icons/folder_down.png'
+            background_normal: './data/folder.png' # Press to Select Folder
+            background_down: './data/folder_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             on_press: root.choose_folder()
@@ -122,8 +122,8 @@
         TooltipToggleButton:
             id: live_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/pause.png' # Press to Pause Live Stream
-            background_down: './data/icons/play.png' # Press to Play Live Stream
+            background_normal: './data/pause.png' # Press to Pause Live Stream
+            background_down: './data/play.png' # Press to Play Live Stream
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Pause Stream'
@@ -133,8 +133,8 @@
         TooltipButton:
             id: capture_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/capture.png' # Press to Capture Image
-            background_down: './data/icons/capture_down.png'
+            background_normal: './data/capture.png' # Press to Capture Image
+            background_down: './data/capture_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Capture Image'
@@ -143,8 +143,8 @@
         TooltipButton:
             id: composite_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/composite.png' # Press to Capture Composite Image
-            background_down: './data/icons/composite_down.png'
+            background_normal: './data/composite.png' # Press to Capture Composite Image
+            background_down: './data/composite_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Composite'
@@ -153,8 +153,8 @@
         TooltipToggleButton:
             id: record_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/record.png' # Press to Record Live Stream
-            background_down: './data/icons/stop.png' # Press to Stop Recording
+            background_normal: './data/record.png' # Press to Record Live Stream
+            background_down: './data/stop.png' # Press to Stop Recording
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Record Video'
@@ -163,8 +163,8 @@
         TooltipButton:
             id: fit_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/fit.png' # Press to Fit Image to Window
-            background_down: './data/icons/fit_down.png'
+            background_normal: './data/fit.png' # Press to Fit Image to Window
+            background_down: './data/fit_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Fit'
@@ -173,8 +173,8 @@
         TooltipButton:
             id: one2one_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
-            background_down: './data/icons/one2one_down.png'
+            background_normal: './data/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
+            background_down: './data/one2one_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             # text: '1:1'
@@ -264,7 +264,7 @@
 	BoxLayout:
 		orientation: 'horizontal'
 		size_hint_y: None
-		height: '200dp'
+		height: '220dp'
 		BoxLayout:
 		    orientation: 'vertical'
 		    size_hint_x: None
@@ -276,8 +276,9 @@
 		        id: fast_up
 				border: 0, 0, 0, 0
 		        size_hint: None, None
-		        size: '40dp', '40dp'
-				background_normal: './data/icons/fast_up.png'
+		        size: '40dp', '53dp'
+				background_normal: './data/UU_normal.png'
+				background_down: './data/UU_down.png'
 				on_press: root.course_up()
 				# on_release: root.stop()
 		    Button:
@@ -285,7 +286,8 @@
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '40dp', '40dp'
-				background_normal: './data/icons/slow_up.png'
+				background_normal: './data/U_normal.png'
+				background_down: './data/U_down.png'
 				on_press: root.fine_up()
 				# on_release: root.stop()
 		    Button:
@@ -293,15 +295,17 @@
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '40dp', '40dp'
-				background_normal: './data/icons/slow_down.png'
+				background_normal: './data/D_normal.png'
+				background_down: './data/D_down.png'
 				on_press: root.fine_down()
 				# on_release: root.stop()
 		    Button:
 		        id: fast_down
 				border: 0, 0, 0, 0
 		        size_hint: None, None
-		        size: '40dp', '40dp'
-				background_normal: './data/icons/fast_down.png'
+		        size: '40dp', '53dp'
+				background_normal: './data/DD_normal.png'
+				background_down: './data/DD_down.png'
 				on_press: root.course_down()
 				# on_release: root.stop()
 		    Label:
@@ -318,8 +322,8 @@
 		        value: 0.
 				step: 1.
 		        cursor_size: '60dp','60dp'
-		        cursor_image: './data/icons/objective.png'
-		        cursor_disabled_image: './data/icons/objective.png'
+		        cursor_image: './data/objective.png'
+		        cursor_disabled_image: './data/objective.png'
 		        value_track: True
 		        value_track_color: 51/255, 181/255, 229/255, 1
 		        value_track_width: '5dp'
@@ -368,46 +372,50 @@
 	BoxLayout:
 	    orientation: 'horizontal'
 	    size_hint_y: None
-	    height: '40dp'
+	    height: '50dp'
 	    padding: '5dp'
 	    spacing: '5dp'
 	    Label:
-			text: 'A'
+			size_hint_x: None
+			width: '40dp'
 	    Button:
 	        id: fast_up
 			border: 0, 0, 0, 0
 	        size_hint: None, None
-	        size: '40dp', '40dp'
-			background_normal: './data/icons/fast_up.png'
+	        size: '53dp', '40dp'
+			background_normal: './data/LL_normal.png'
+			background_down: './data/LL_down.png'
 			on_press: root.course_left()
 	    Button:
 	        id: slow_up
 			border: 0, 0, 0, 0
 	        size_hint: None, None
 	        size: '40dp', '40dp'
-			background_normal: './data/icons/slow_up.png'
+			background_normal: './data/L_normal.png'
+			background_down: './data/L_down.png'
 			on_press: root.fine_left()
 	    Button:
 	        id: slow_down
 			border: 0, 0, 0, 0
 	        size_hint: None, None
 	        size: '40dp', '40dp'
-			background_normal: './data/icons/slow_down.png'
+			background_normal: './data/R_normal.png'
+			background_down: './data/R_down.png'
 			on_press: root.fine_right()
 	    Button:
 	        id: fast_down
 			border: 0, 0, 0, 0
 	        size_hint: None, None
-	        size: '40dp', '40dp'
-			background_normal: './data/icons/fast_down.png'
+	        size: '53dp', '40dp'
+			background_normal: './data/RR_normal.png'
+			background_down: './data/RR_down.png'
 			on_press: root.course_right()
 		Label:
-			text: 'B'
 
 	BoxLayout:
 	    orientation: 'horizontal'
 	    size_hint_y: None
-	    height: '180dp'
+	    height: '210dp'
 		BoxLayout:
 		    orientation: 'vertical'
 		    size_hint_x: None
@@ -418,30 +426,35 @@
 		        id: fast_up
 				border: 0, 0, 0, 0
 		        size_hint: None, None
-		        size: '40dp', '40dp'
-				background_normal: './data/icons/fast_up.png'
+		        size: '40dp', '53dp'
+				background_normal: './data/UU_normal.png'
+				background_down: './data/UU_down.png'
 				on_press: root.course_back()
 		    Button:
 		        id: slow_up
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '40dp', '40dp'
-				background_normal: './data/icons/slow_up.png'
+				background_normal: './data/U_normal.png'
+				background_down: './data/U_down.png'
 				on_press: root.fine_back()
 		    Button:
 		        id: slow_down
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '40dp', '40dp'
-				background_normal: './data/icons/slow_down.png'
+				background_normal: './data/D_normal.png'
+				background_down: './data/D_down.png'
 				on_press: root.fine_fwd()
 		    Button:
 		        id: fast_down
 				border: 0, 0, 0, 0
 		        size_hint: None, None
-		        size: '40dp', '40dp'
-				background_normal: './data/icons/fast_down.png'
+		        size: '40dp', '53dp'
+				background_normal: './data/DD_normal.png'
+				background_down: './data/DD_down.png'
 				on_press: root.course_fwd()
+			Label:
 		Label:
 			text: 'Should be the plate'
 	Label:
@@ -456,8 +469,8 @@
         size: 30, 60
         pos_hint: {"x":0, "y":0.5}
         border: 0, 0, 0, 0
-        background_normal: './data/left_arrow.png' # left pointing (press to open)
-        background_down: './data/right_arrow.png' # right pointing (press to close)
+        background_normal: './data/left_arrow_left_arc.png' # left pointing (press to open)
+        background_down: './data/right_arrow_left_arc.png' # right pointing (press to close)
         on_press: root.toggle_settings()
 
     Accordion:
@@ -792,8 +805,8 @@
                 halign: 'center'
                 valign: 'middle'
 				border: 0, 0, 0, 0
-				background_normal: './data/icons/ToggleL.png'
-				background_down: './data/icons/ToggleR.png'
+				background_normal: './data/ToggleL.png'
+				background_down: './data/ToggleR.png'
                 on_release: root.apply_settings()
             Label:
                 id: false_color_label
