@@ -79,7 +79,6 @@ from kivymd.uix.behaviors import HoverBehavior, TouchBehavior
 
 # Video Related
 from kivy.graphics.texture import Texture
-from kivy.clock import Clock
 import cv2
 
 # Pylon Camera Related
@@ -408,13 +407,11 @@ class TrinamicBoard:
             print('Trinamic Motor Control Board is not connected')
             return False
 
-
     # Wait for reference function to complete (homing)
     def RFS_Wait(self, Motor):
         value = 1
         while value != 0:
             value = self.SendGram('RFS', 2, Motor, 0)
-            # DEBUG NEEDED #
             time.sleep(0.1)
 
     def home(self):
@@ -918,25 +915,58 @@ class MainSettings(BoxLayout):
 class VerticalControl(BoxLayout):
     def course_up(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', -5000)  # Move UP relative by 10000
-        # lumaview.motion.SendGram('ROL', 0, 'Z', 1000)
+        lumaview.motion.SendGram('MVP', 1, 'Z', -5000)  # Move UP relative
+        self.update_gui()
 
     def fine_up(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', -250)  # Move UP by 1000
-        # lumaview.motion.SendGram('ROL', 0, 'Z', 100)
+        lumaview.motion.SendGram('MVP', 1, 'Z', -250)  # Move UP
+        self.update_gui()
 
     def fine_down(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', 250)  # Move DOWN by 1000
-        # lumaview.motion.SendGram('ROR', 0, 'Z', 100)
+        lumaview.motion.SendGram('MVP', 1, 'Z', 250)  # Move DOWN
+        self.update_gui()
 
     def course_down(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', 5000)  # Move DOWN by 10000
-        # lumaview.motion.SendGram('ROR', 0, 'Z', 1000)
+        lumaview.motion.SendGram('MVP', 1, 'Z', 5000)  # Move DOWN
+        self.update_gui()
 
+    # should be moved into trinamic class
+    def value2pos(self, value):
+        pos = -float(value)/1000
+        return pos
 
+    # should be moved into trinamic class
+    def pos2value(self, pos):
+        value = int(-pos*1000)
+        return value
+
+    def set_position(self, pos):
+        global lumaview
+        value = self.pos2value(pos)
+        lumaview.motion.SendGram('MVP', 0, 'Z', value)  # Move to absolute position
+        self.update_gui()
+
+    def update_gui(self):
+
+        # self.ids['get_position_id'].text = self.ids['set_position_id'].text
+
+        set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
+        pos = self.value2pos(set_value)
+        self.ids['set_position_id'].text = format(pos, '.3f')
+
+        # timer to update current position until it reaches target
+        self.value_event = Clock.schedule_interval(self.compare, 0.2)
+
+    def compare(self, dt):
+        set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
+        get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current value
+        pos = self.value2pos(get_value)
+        self.ids['get_position_id'].text = format(pos, '.3f')
+        if set_value == get_value:
+            Clock.unschedule(self.value_event)
 
 
 class XYStageControl(BoxLayout):

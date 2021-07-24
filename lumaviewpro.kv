@@ -318,9 +318,9 @@
 		        id: obj_position
 		        orientation: 'vertical'
 		        min: 0.
-		        max: 100.
+		        max: 220.
 		        value: 0.
-				step: 1.
+				step: 0.22
 		        cursor_size: '60dp','60dp'
 		        cursor_image: './data/objective.png'
 		        cursor_disabled_image: './data/objective.png'
@@ -328,6 +328,7 @@
 		        value_track_color: 51/255, 181/255, 229/255, 1
 		        value_track_width: '5dp'
 		        disabled: False
+				on_release: root.set_position(self.value)
 			Label:
 				size_hint_y: None
 				height: '30dp'
@@ -338,24 +339,30 @@
 			Label:
 		    Label:
 		        size_hint_y: None
-		        height: '40dp'
-		        text: 'Z Setting'
+		        height: '50dp'
+				halign: 'left'
+		        text: 'Target\nZ-Position'
 		    TextInput:
+				id: set_position_id
+            	multiline: False
 		        size_hint_y: None
 		        height: '30dp'
 		        font_size: '12sp'
-		        text: '2.000'
-		        halign: 'center'
+				halign: 'center'
+		        text: format(obj_position.value, '.3f')
+                on_text_validate: root.set_position()
 		    Label:
 		        size_hint_y: None
-		        height: '40dp'
-		        text: 'Z Position'
+		        height: '50dp'
+				halign: 'left'
+		        text: 'Current\nZ-Position'
 		    TextInput:
+				id: get_position_id
+            	multiline: False
 		        size_hint_y: None
 		        height: '30dp'
 		        font_size: '12sp'
-		        text: '2.498'
-		        halign: 'center'
+				halign: 'center'
 		        disabled: True
 			Label:
 	Label:
