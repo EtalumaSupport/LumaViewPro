@@ -3,7 +3,11 @@
 # Protocol Layout
 protocol = {
     "microscope": "LS720",
-    "objective": 'Unknown',
+    "objective": {
+        "name": "unknown",
+        "magnification": 40,
+        "FOV": "tbd"
+    },
     "port": 'COM3',
     "frame_width": 1900,
     "frame_height": 1900,
