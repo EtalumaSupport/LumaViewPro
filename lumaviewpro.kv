@@ -83,12 +83,19 @@
         do_rotation: False
         do_translation: True
 
+	MotionSettings:
+        id: motionsettings_id
+        size_hint: None, None
+        size: self.settings_width, root.height
+        pos: -self.settings_width+30, 0
+
     # ShaderEditor:
     #     viewer: viewer_id
     #     size_hint: None, None
     #     size: 300, root.height
     #     pos: -285, 0
     #
+
     MainSettings:
         id: mainsettings_id
         size_hint: None, None
@@ -101,13 +108,13 @@
         orientation: 'horizontal'
         padding: '5dp'
         spacing: '5dp'
-        # pos: root.width/2-200, 0
-        pos: 0, 0
+        pos: (root.width-7*40)/2, 0
+        # pos: 0, 0
         TooltipButton:
             id: live_folder_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/folder.png' # Press to Select Folder
-            background_down: './data/icons/folder_down.png'
+            background_normal: './data/folder.png' # Press to Select Folder
+            background_down: './data/folder_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             on_press: root.choose_folder()
@@ -115,8 +122,8 @@
         TooltipToggleButton:
             id: live_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/pause.png' # Press to Pause Live Stream
-            background_down: './data/icons/play.png' # Press to Play Live Stream
+            background_normal: './data/pause.png' # Press to Pause Live Stream
+            background_down: './data/play.png' # Press to Play Live Stream
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Pause Stream'
@@ -126,8 +133,8 @@
         TooltipButton:
             id: capture_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/capture.png' # Press to Capture Image
-            background_down: './data/icons/capture_down.png'
+            background_normal: './data/capture.png' # Press to Capture Image
+            background_down: './data/capture_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Capture Image'
@@ -136,8 +143,8 @@
         TooltipButton:
             id: composite_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/composite.png' # Press to Capture Composite Image
-            background_down: './data/icons/composite_down.png'
+            background_normal: './data/composite.png' # Press to Capture Composite Image
+            background_down: './data/composite_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Composite'
@@ -146,8 +153,8 @@
         TooltipToggleButton:
             id: record_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/record.png' # Press to Record Live Stream
-            background_down: './data/icons/stop.png' # Press to Stop Recording
+            background_normal: './data/record.png' # Press to Record Live Stream
+            background_down: './data/stop.png' # Press to Stop Recording
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Record Video'
@@ -156,8 +163,8 @@
         TooltipButton:
             id: fit_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/fit.png' # Press to Fit Image to Window
-            background_down: './data/icons/fit_down.png'
+            background_normal: './data/fit.png' # Press to Fit Image to Window
+            background_down: './data/fit_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             # text: 'Fit'
@@ -166,8 +173,8 @@
         TooltipButton:
             id: one2one_btn
             border: 0, 0, 0, 0
-            background_normal: './data/icons/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
-            background_down: './data/icons/one2one_down.png'
+            background_normal: './data/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
+            background_down: './data/one2one_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             # text: '1:1'
@@ -181,7 +188,7 @@
         id: microscope_camera
         size_hint: None, None
         size: root.width, root.height
-        resolution: (2592, 1944)
+        resolution: (1900, 1900)
         allow_stretch: True
         keep_ratio: True
 
@@ -216,9 +223,248 @@
         size: 30, 60
         pos_hint: {"x":0, "y":0.5}
         border: 0, 0, 0, 0
-        background_normal: './data/right_arrow.png'
-        background_down: './data/left_arrow.png'
+        background_normal: './data/right_arrow_right_arc.png'
+        background_down: './data/left_arrow_right_arc.png'
         on_press: root.toggle_editor()
+
+# MotionSettings - view and control motion control Board
+# ------------------------------------------
+<MotionSettings>:
+    orientation: 'horizontal'
+
+	Accordion:
+		orientation: 'vertical'
+		AccordionItem:
+			title: 'Vertical Control'
+            collapse: False
+			VerticalControl:
+		AccordionItem:
+			title: 'XY Stage Control'
+			XYStageControl:
+
+    ToggleButton:
+        id: toggle_motionsettings
+        size_hint: None, None
+        size: 30, 60
+        pos_hint: {"x":0, "y":0.5}
+        border: 0, 0, 0, 0
+        background_normal: './data/right_arrow_right_arc.png' # right pointing (press to open)
+        background_down: './data/left_arrow_right_arc.png' # left pointing (press to close)
+        on_press: root.toggle_settings()
+
+
+<VerticalControl>:
+	orientation: 'vertical'
+    canvas:
+        Color:
+            rgba: 0.1, 0.1, 0.1, 0.7
+        Rectangle:
+            size: self.size
+            pos: self.pos
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '220dp'
+		BoxLayout:
+		    orientation: 'vertical'
+		    size_hint_x: None
+		    width: '40dp'
+		    # padding: '5dp'
+		    spacing: '5dp'
+		    Label:
+		    Button:
+		        id: fast_up
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '53dp'
+				background_normal: './data/UU_normal.png'
+				background_down: './data/UU_down.png'
+				on_press: root.course_up()
+				# on_release: root.stop()
+		    Button:
+		        id: slow_up
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/U_normal.png'
+				background_down: './data/U_down.png'
+				on_press: root.fine_up()
+				# on_release: root.stop()
+		    Button:
+		        id: slow_down
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/D_normal.png'
+				background_down: './data/D_down.png'
+				on_press: root.fine_down()
+				# on_release: root.stop()
+		    Button:
+		        id: fast_down
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '53dp'
+				background_normal: './data/DD_normal.png'
+				background_down: './data/DD_down.png'
+				on_press: root.course_down()
+				# on_release: root.stop()
+		    Label:
+		BoxLayout:
+			orientation: 'vertical'
+			Label:
+				size_hint_y: None
+				height: '30dp'
+		    ModSlider:
+		        id: obj_position
+		        orientation: 'vertical'
+		        min: 0.
+		        max: 220.
+		        value: 0.
+				step: 0.22
+		        cursor_size: '60dp','60dp'
+		        cursor_image: './data/objective.png'
+		        cursor_disabled_image: './data/objective.png'
+		        value_track: True
+		        value_track_color: 51/255, 181/255, 229/255, 1
+		        value_track_width: '5dp'
+		        disabled: False
+				on_release: root.set_position(self.value)
+			Label:
+				size_hint_y: None
+				height: '30dp'
+
+		BoxLayout:
+		    orientation: 'vertical'
+		    padding: '5dp'
+			Label:
+		    Label:
+		        size_hint_y: None
+		        height: '50dp'
+				halign: 'left'
+		        text: 'Target\nZ-Position'
+		    TextInput:
+				id: set_position_id
+            	multiline: False
+		        size_hint_y: None
+		        height: '30dp'
+		        font_size: '12sp'
+				halign: 'center'
+		        text: format(obj_position.value, '.3f')
+                on_text_validate: root.set_position()
+		    Label:
+		        size_hint_y: None
+		        height: '50dp'
+				halign: 'left'
+		        text: 'Current\nZ-Position'
+		    TextInput:
+				id: get_position_id
+            	multiline: False
+		        size_hint_y: None
+		        height: '30dp'
+		        font_size: '12sp'
+				halign: 'center'
+		        disabled: True
+			Label:
+	Label:
+
+<XYStageControl>:
+	orientation: 'vertical'
+    spacing: '5dp'
+    canvas:
+        Color:
+            rgba: 0.1, 0.1, 0.1, 0.7
+        Rectangle:
+            size: self.size
+            pos: self.pos
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '50dp'
+	    padding: '5dp'
+	    spacing: '5dp'
+	    Label:
+			size_hint_x: None
+			width: '40dp'
+	    Button:
+	        id: fast_up
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '53dp', '40dp'
+			background_normal: './data/LL_normal.png'
+			background_down: './data/LL_down.png'
+			on_press: root.course_left()
+	    Button:
+	        id: slow_up
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '40dp', '40dp'
+			background_normal: './data/L_normal.png'
+			background_down: './data/L_down.png'
+			on_press: root.fine_left()
+	    Button:
+	        id: slow_down
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '40dp', '40dp'
+			background_normal: './data/R_normal.png'
+			background_down: './data/R_down.png'
+			on_press: root.fine_right()
+	    Button:
+	        id: fast_down
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '53dp', '40dp'
+			background_normal: './data/RR_normal.png'
+			background_down: './data/RR_down.png'
+			on_press: root.course_right()
+		Label:
+
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '210dp'
+		BoxLayout:
+		    orientation: 'vertical'
+		    size_hint_x: None
+		    width: '40dp'
+		    padding: '5dp'
+		    spacing: '5dp'
+		    Button:
+		        id: fast_up
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '53dp'
+				background_normal: './data/UU_normal.png'
+				background_down: './data/UU_down.png'
+				on_press: root.course_back()
+		    Button:
+		        id: slow_up
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/U_normal.png'
+				background_down: './data/U_down.png'
+				on_press: root.fine_back()
+		    Button:
+		        id: slow_down
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '40dp'
+				background_normal: './data/D_normal.png'
+				background_down: './data/D_down.png'
+				on_press: root.fine_fwd()
+		    Button:
+		        id: fast_down
+				border: 0, 0, 0, 0
+		        size_hint: None, None
+		        size: '40dp', '53dp'
+				background_normal: './data/DD_normal.png'
+				background_down: './data/DD_down.png'
+				on_press: root.course_fwd()
+			Label:
+		Label:
+			text: 'Should be the plate'
+	Label:
 
 # MainSettings - view and edit control accordian
 # ------------------------------------------
@@ -230,8 +476,8 @@
         size: 30, 60
         pos_hint: {"x":0, "y":0.5}
         border: 0, 0, 0, 0
-        background_normal: './data/left_arrow.png' # left pointing (press to open)
-        background_down: './data/right_arrow.png' # right pointing (press to close)
+        background_normal: './data/left_arrow_left_arc.png' # left pointing (press to open)
+        background_down: './data/right_arrow_left_arc.png' # right pointing (press to close)
         on_press: root.toggle_settings()
 
     Accordion:
@@ -247,7 +493,7 @@
 
         # BRIGHTFIELD SETTINGS
         AccordionItem:
-            title: 'Brightfield Channel'
+            title: 'Brightfield Channel Control'
 			on_collapse: root.accordion_collapse('BF')
             LayerControl:
                 id: BF
@@ -334,11 +580,11 @@
 		height: '40dp'
 		on_release: root.select('Objective B')
 	Button:
-		text: 'Unknown'
+		text: 'Objective C'
 		font_size: '14sp'
 		size_hint_y: None
 		height: '40dp'
-		on_release: root.select('Unknown')
+		on_release: root.select('Objective C')
 
 # MicroscopeSettings - Settings for  Microscope within MainSettings
 # ------------------------------------------
@@ -365,24 +611,44 @@
 		size_hint_y: None
 		height: '40dp'
 
-    # BoxLayout:
-    #     orientation: 'horizontal'
-    #     size_hint_y: None
-    #     height: '40dp'
-    #     Label:
-    #         text: 'LED Port'
-    #         size_hint_x: None
-    #         width: '150dp'
-	# 		font_size: '14sp'
-    #     TextInput:
-    #         id: LED_port
-    #         multiline: False
-    #         padding: ['5dp', (self.height-self.line_height)/2]
-    #         halign: 'center'
-    #         text: 'COM3'
-    #         on_text_validate: root.LED_port()
-	# 		font_size: '14sp'
-	#
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '40dp'
+        Label:
+            text: 'Magnification'
+            size_hint_x: None
+            width: '150dp'
+			font_size: '14sp'
+        TextInput:
+            id: magnification_id
+            multiline: False
+            padding: ['5dp', (self.height-self.line_height)/2]
+            halign: 'center'
+            input_filter: 'int'
+            text: '40'
+			disabled: True
+			font_size: '14sp'
+
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '40dp'
+        Label:
+            text: 'Field of View'
+            size_hint_x: None
+            width: '150dp'
+			font_size: '14sp'
+        TextInput:
+            id: FOV_id
+            multiline: False
+            padding: ['5dp', (self.height-self.line_height)/2]
+            halign: 'center'
+            # input_filter: 'int'
+            text: 'tbd'
+			disabled: True
+			font_size: '14sp'
+
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
@@ -566,8 +832,8 @@
                 halign: 'center'
                 valign: 'middle'
 				border: 0, 0, 0, 0
-				background_normal: './data/icons/ToggleL.png'
-				background_down: './data/icons/ToggleR.png'
+				background_normal: './data/ToggleL.png'
+				background_down: './data/ToggleR.png'
                 on_release: root.apply_settings()
             Label:
                 id: false_color_label

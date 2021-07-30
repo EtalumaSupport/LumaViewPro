@@ -12,7 +12,7 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
+The above copyribackground_downght notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -79,7 +79,6 @@ from kivymd.uix.behaviors import HoverBehavior, TouchBehavior
 
 # Video Related
 from kivy.graphics.texture import Texture
-from kivy.clock import Clock
 import cv2
 
 # Pylon Camera Related
@@ -290,12 +289,235 @@ class LEDBoard:
         if self.driver != False:
             self.driver.write(command.encode('utf-8')+b"\r\n")
 
+class TrinamicBoard:
+    # Trinamic 3230 board (preferred)
+    # Trinamic 6110 board (now) Address
+
+    addr = 255
+
+    # Commmand set available in direct mode
+    cmnd = {
+        'ROR':1,    # Rotate Right
+        'ROL':2,    # Rotate Left
+        'MST':3,    # Motor Stop
+        'MVP':4,    # Move to Position
+        'SAP':5,    # Set Axis Parameter
+        'GAP':6,    # Get Axis Parameter
+        'STAP':7,   # Store Axis Parameter
+        'RSAP':8,   # Restore Axis Parameter
+        'SGP':9,    # Set Global Parameter
+        'GGP':10,   # Get Global Parameter
+        'STGP':11,  # Store Global Parameter
+        'RSGP':12,  # Restore Global Parameter
+        'RFS':13,   # Reference Search
+        'SIO':14,   # Set Output
+        'GIO':15,   # Get Input / Output
+        'SCO':30,   # Set Coordinate
+        'GCO':31,   # Get Coordinate
+        'CCO':32    # Capture Coordinate
+    }
+
+    axis = {
+        'X':0, # Left to Right is positive
+        'Y':1, # Front to Back is positive
+        'Z':2  # Down is positive
+    }
+
+    #----------------------------------------------------------
+    # Set up Serial Port connection
+    #----------------------------------------------------------
+    def __init__(self, **kwargs):
+        # find all available serial ports
+        ports = serial.tools.list_ports.comports(include_links = True)
+        for port in ports:
+            if (port.vid == 10812) and (port.pid == 256):
+                print('Trinamic Motor Control Board identified at', port.device)
+                self.port = port.device
+
+        self.baudrate = 9600
+        self.bytesize = serial.EIGHTBITS
+        self.parity = serial.PARITY_NONE
+        self.stopbits = serial.STOPBITS_ONE
+        self.timeout = 5 # seconds
+        self.driver = True
+        try:
+            self.connect()
+            self.home()
+        except:
+            print("Could not connect to Trinamic Motor Control Board")
+            self.driver = False
+
+    def __del__(self):
+        if self.driver != False:
+            self.driver.close()
+
+    def connect(self):
+        self.driver = serial.Serial(port=self.port, baudrate=self.baudrate, bytesize=self.bytesize, parity=self.parity, stopbits=self.stopbits, timeout=self.timeout)
+        self.driver.close()
+        self.driver.open()
+
+    #----------------------------------------------------------
+    # Receive Datagram
+    #----------------------------------------------------------
+    def GetGram(self, verbose = False):
+
+        # receive the datagram
+        datagram = self.driver.read(9)
+
+        checksum = 0
+        for i in range(8):         # compare checksum
+            checksum =  (checksum + datagram[i]) & 0xff
+
+        if checksum != datagram[8]:
+            print('Return Checksum Error')
+            return False
+
+        Address=datagram[0]
+        Status=datagram[2]
+        if Status != 100:
+            print('Return Status Error')
+        Value = int.from_bytes(datagram[4:8], byteorder='big', signed=True)
+        if verbose == True:
+            print('Status: ', Status)
+            print('Value:  ', Value)
+        return Value
+
+    #----------------------------------------------------------
+    # Send Datagram
+    #----------------------------------------------------------
+    def SendGram(self, Command, Type, Motor, Value):
+
+        datagram = bytearray(9)
+        datagram[0] = self.addr
+        datagram[1] = self.cmnd[Command]
+        datagram[2] = Type
+        datagram[3] = self.axis[Motor]
+        datagram[4] = (Value >> 24)  & 0xff # shift by 24 bits i.e. divide by 2, 24 times
+        datagram[5] = (Value >> 16)  & 0xff # shift by 16 bits i.e. divide by 2, 16 times
+        datagram[6] = (Value >> 8)  & 0xff  # shift by 8 bits i.e. divide by 2, 8 times
+        datagram[7] = Value & 0xff # bitwise add with 0xff to get last 8 byte
+
+        for i in range(8):         # generate checksum
+            datagram[8] =  (datagram[8] + datagram[i]) & 0xff
+
+        if self.driver != False:
+            self.driver.write(datagram)
+            return self.GetGram(verbose = True)
+        else:
+            print('Trinamic Motor Control Board is not connected')
+            return False
+
+    # Wait for reference function to complete (homing)
+    def RFS_Wait(self, Motor):
+        value = 1
+        while value != 0:
+            value = self.SendGram('RFS', 2, Motor, 0)
+            time.sleep(0.1)
+
+    def home(self):
+        #----------------------------------------------------------
+        # Z-Axis Initialization
+        #----------------------------------------------------------
+        self.SendGram('SAP', 6, 'Z', 16)      # Maximum current
+        self.SendGram('SAP', 7, 'Z', 8)       # Standby current
+        self.SendGram('SAP', 2, 'Z', 1000)    # Target Velocity
+        self.SendGram('SAP', 5, 'Z', 500)     # Acceleration
+        self.SendGram('SAP', 140, 'Z', 5)     # 32X Microstepping
+        self.SendGram('SAP', 153, 'Z', 9)     # Ramp Divisor 9
+        self.SendGram('SAP', 154, 'Z', 3)     # Pulse Divisor 3
+        self.SendGram('SAP', 163, 'Z', 0)     # Constant TOff Mode (spreadcycle)
+
+
+        # Parameters for Limit Switches
+        #----------------------------------------------------------
+        self.SendGram('SAP', 12, 'Z', 0)      # enable Right Limit switch
+        self.SendGram('SAP', 13, 'Z', 0)      # enable Left Limit switch
+
+        # Parameters for Homing
+        #----------------------------------------------------------
+        self.SendGram('SAP', 193, 'Z', 65)    # Search Right Stop Switch (Down)
+        self.SendGram('SAP', 194, 'Z', 1000)  # Reference search speed
+        self.SendGram('SAP', 195, 'Z', 10)    # Reference switch speed (was 10X less than search speed in LumaView)
+
+        # Start the Trinamic Homing Procedure
+        #----------------------------------------------------------
+        self.SendGram('RFS', 0, 'Z', 0)       # Home to the Right Limit switch (Down)
+        self.RFS_Wait('Z')
+
+        #----------------------------------------------------------
+        # X-Axis Initialization
+        #----------------------------------------------------------
+        self.SendGram('SAP', 6, 'X', 16)     # Maximum current
+        self.SendGram('SAP', 7, 'X', 8)      # standby current
+        self.SendGram('SAP', 2, 'X', 1000)   # Target Velocity
+        self.SendGram('SAP', 5, 'X', 500)    # Acceleration
+        self.SendGram('SAP', 140, 'X', 5)    # 32X Microstepping
+        self.SendGram('SAP', 153, 'X', 9)    # Ramp Divisor 9
+        self.SendGram('SAP', 154, 'X', 3)    # Pulse Divisor 3
+        self.SendGram('SAP', 163, 'X', 0)    # Constant TOff Mode (spreadcycle)
+
+        # Parameters for Limit Switches
+        #----------------------------------------------------------
+        self.SendGram('SAP', 12, 'X', 0)     # enable Right Limit switch
+        self.SendGram('SAP', 13, 'X', 0)     # enable Left Limit switch
+
+        # Parameters for Homing
+        #----------------------------------------------------------
+        # 'Set Axis Parameter', 'Reference Search Mode', 'X-axis', '1+64 = Search Right Stop Switch Only'
+        self.SendGram('SAP', 193, 'X', 65)   # Search Right Stop switch Only
+        self.SendGram('SAP', 194, 'X', 1000) # Reference search speed
+        self.SendGram('SAP', 195, 'X', 10)   # Reference switch speed (was 10X less than search speed in LumaView)
+
+        # Start the Trinamic Homing Procedure
+        # ----------------------------------------------------------
+        self.SendGram('RFS', 0, 'X', 0)      # Home to the Right Limit switch (Right)
+        self.RFS_Wait('X')
+
+        # Move out of home Position
+        #----------------------------------------------------------
+        self.SendGram('MVP', 0, 'X', -385000)  # Move left by 100000 (what is the unit?)
+
+        #----------------------------------------------------------
+        # Y-Axis Initialization
+        #----------------------------------------------------------
+        self.SendGram('SAP', 6, 'Y', 16)    # Maximum current
+        self.SendGram('SAP', 7, 'Y', 8)     # Standby current
+        self.SendGram('SAP', 2, 'Y', 1000)  # Target Velocity
+        self.SendGram('SAP', 5, 'Y', 500)   # Acceleration
+        self.SendGram('SAP', 140, 'Y', 5)   # 32X Microstepping
+        self.SendGram('SAP', 153, 'Y', 9)   # Ramp Divisor 9
+        self.SendGram('SAP', 154, 'Y', 3)   # Pulse Divisor 3
+        self.SendGram('SAP', 163, 'Y', 0)   # Constant TOff Mode (spreadcycle)
+
+        # Parameters for Limit Switches
+        #----------------------------------------------------------
+        self.SendGram('SAP', 12, 'Y', 0)    # enable Right Limit switch
+        self.SendGram('SAP', 13, 'Y', 0)    # enable Left Limit switch
+
+        # Parameters for Homing
+        #----------------------------------------------------------
+        self.SendGram('SAP', 193, 'Y', 65)   # Search Right Stop switch Only (Back)
+        self.SendGram('SAP', 194, 'Y', 1000) # Reference search speed
+        self.SendGram('SAP', 195, 'Y', 10)   # Reference switch speed (was 10X less than search speed in LumaView)
+
+        # Start the Trinamic Homing Procedure
+        #----------------------------------------------------------
+        self.SendGram('RFS', 0, 'Y', 0)      # Home to the Right Limit switch (Back)
+        self.RFS_Wait('Y')
+
+        # Move out of home Position
+        #----------------------------------------------------------
+        self.SendGram('MVP', 0, 'Y', -200000)  # Move forward by 100000 (what is the unit?)
+
+
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
 class MainDisplay(FloatLayout):
     led_board = ObjectProperty(None)
     led_board = LEDBoard()
+    motion = ObjectProperty(None)
+    motion = TrinamicBoard()
 
     def choose_folder(self):
         content = LoadDialog(load=self.load,
@@ -396,7 +618,8 @@ class MainDisplay(FloatLayout):
                 illumination = protocol[layer]['ill']
                 led_board = lumaview.led_board
                 led_board.led_on(led_board.color2ch(layer), illumination)
-
+                # SERIOUS DEBUG needed here
+                time.sleep(1)
                 microscope.update(0)
                 # buffer the images
                 if layer == 'Blue':
@@ -546,6 +769,43 @@ void main (void) {
 
 Factory.register('ShaderViewer', cls=ShaderViewer)
 
+
+class MotionSettings(BoxLayout):
+    settings_width = dp(300)
+    isOpen = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        Window.bind(on_draw=self.check_settings)
+
+    # Hide (and unhide) motion settings
+    def toggle_settings(self):
+        global lumaview
+        microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
+        microscope.stop()
+
+        # move position of motion control
+        if self.isOpen:
+            self.ids['toggle_motionsettings'].state = 'normal'
+            self.pos = -self.settings_width+30, 0
+            self.isOpen = False
+        else:
+            self.ids['toggle_motionsettings'].state = 'down'
+            self.pos = 0, 0
+            self.isOpen = True
+
+        if microscope.play == True:
+            microscope.start()
+
+    def check_settings(self, *args):
+        # global lumaview
+        if not self.isOpen:
+            self.ids['toggle_motionsettings'].state = 'normal'
+            self.pos = -self.settings_width+30, 0
+        else:
+            self.ids['toggle_motionsettings'].state = 'down'
+            self.pos = 0, 0
+
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
 void main (void){
@@ -620,7 +880,7 @@ class MainSettings(BoxLayout):
         microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
         microscope.stop()
 
-        # update protocol
+        # move position of settings
         if self.isOpen:
             self.ids['toggle_mainsettings'].state = 'normal'
             self.pos = lumaview.width - 30, 0
@@ -652,6 +912,95 @@ class MainSettings(BoxLayout):
             self.ids['toggle_mainsettings'].state = 'down'
             self.pos = lumaview.width - self.settings_width, 0
 
+class VerticalControl(BoxLayout):
+    def course_up(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Z', -5000)  # Move UP relative
+        self.update_gui()
+
+    def fine_up(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Z', -250)  # Move UP
+        self.update_gui()
+
+    def fine_down(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Z', 250)  # Move DOWN
+        self.update_gui()
+
+    def course_down(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Z', 5000)  # Move DOWN
+        self.update_gui()
+
+    # should be moved into trinamic class
+    def value2pos(self, value):
+        pos = -float(value)/1000
+        return pos
+
+    # should be moved into trinamic class
+    def pos2value(self, pos):
+        value = int(-pos*1000)
+        return value
+
+    def set_position(self, pos):
+        global lumaview
+        value = self.pos2value(pos)
+        lumaview.motion.SendGram('MVP', 0, 'Z', value)  # Move to absolute position
+        self.update_gui()
+
+    def update_gui(self):
+
+        # self.ids['get_position_id'].text = self.ids['set_position_id'].text
+
+        set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
+        pos = self.value2pos(set_value)
+        self.ids['set_position_id'].text = format(pos, '.3f')
+
+        # timer to update current position until it reaches target
+        self.value_event = Clock.schedule_interval(self.compare, 0.2)
+
+    def compare(self, dt):
+        set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
+        get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current value
+        pos = self.value2pos(get_value)
+        self.ids['get_position_id'].text = format(pos, '.3f')
+        if set_value == get_value:
+            Clock.unschedule(self.value_event)
+
+
+class XYStageControl(BoxLayout):
+    def course_left(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'X', -10000)  # Move LEFT relative by 10000
+
+    def fine_left(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'X', -1000)  # Move LEFT by 1000
+
+    def fine_right(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'X', 1000)  # Move RIGHT by 1000
+
+    def course_right(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'X', 10000)  # Move RIGHT by 10000
+
+    def course_back(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Y', -10000)  # Move BACK relative by 10000
+
+    def fine_back(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Y', -1000)  # Move BACK by 1000
+
+    def fine_fwd(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Y', 1000)  # Move FORWARD by 1000
+
+    def course_fwd(self):
+        global lumaview
+        lumaview.motion.SendGram('MVP', 1, 'Y', 10000)  # Move FORWARD by 10000
 
 class MicroscopeSettings(BoxLayout):
 
@@ -675,20 +1024,6 @@ class MicroscopeSettings(BoxLayout):
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(width, height)
 
-    # def LED_port(self):
-    #     # BUG: This will crash if you try to talk to the wrong port.
-    #     global lumaview
-    #     global protocol
-    #
-    #     # change port settings in protocol
-    #     protocol['port'] = self.ids['LED_port'].text
-    #     # close the serial port
-    #     if lumaview.led_board.driver != False:
-    #         lumaview.led_board.driver.close()
-    #     # change the port value
-    #     lumaview.led_board.port = self.ids['LED_port'].text
-    #     # re-connect the serial port
-    #     lumaview.led_board.connect()
 
 # Pass-through class for microscope selection drop-down menu, defined in .kv file
 # -------------------------------------------------------------------------------
@@ -771,7 +1106,7 @@ class ObjectiveSelect(BoxLayout):
     def objective_select(self, instance, objective):
         global protocol
         self.objective_str = objective
-        protocol['objective'] = objective
+        protocol['objective']['name'] = objective
 
 # Modified Slider Class to enable on_release event
 # ---------------------------------------------------------------------
@@ -963,8 +1298,9 @@ class TimeLapseSettings(BoxLayout):
             protocol = json.load(read_file)
             # update GUI values from JSON data:
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_btn'].scope_str = protocol['microscope']
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_btn'].objective_str = str(protocol['objective'])
-            # lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['LED_port'].text = protocol['port']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_btn'].objective_str = str(protocol['objective']['name'])
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['magnification_id'].text = str(protocol['objective']['magnification'])
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['FOV_id'].text = str(protocol['objective']['FOV'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
 
