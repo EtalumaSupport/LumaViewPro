@@ -45,9 +45,9 @@
         "save_folder": "./capture",
         "file_root": "R_",
         "ill": 100.0,
-        "gain": 0.0,
+        "gain": 10.100000000000001,
         "gain_auto": false,
-        "exp": 100.0,
+        "exp": 0.13803842646028852,
         "false_color": true,
         "acquire": true
     },
