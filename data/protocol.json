@@ -1,10 +1,15 @@
 {
+<<<<<<< HEAD
+    "microscope": "LS620",
+    "objective": "Unknown",
+=======
     "microscope": "LS720",
     "objective": {
         "name": "unknown",
         "magnification": 40,
         "FOV": "tbd"
     },
+>>>>>>> ec1ff157860990747956dcfbf359701baa27e72e
     "port": "COM3",
     "frame_width": 1900,
     "frame_height": 1900,
