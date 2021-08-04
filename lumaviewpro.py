@@ -122,8 +122,8 @@ class PylonCamera(Image):
                 print("Error: PylonCamera.connect() exception")
             self.camera = False
 
-    def start(self):
-        self.fps = 10
+    def start(self, fps = 10):
+        self.fps = fps
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
 
     def stop(self):
@@ -210,12 +210,19 @@ class PylonCamera(Image):
             print("Error: PylonCamera.exposure_t() self.camera == False")
             return
 
+        self.stop()
         self.camera.StopGrabbing()
         self.camera.ExposureTime.SetValue(t*1000) # (t*1000) in microseconds; therefore t  in milliseconds
+
         # # DEBUG:
         # print(camera.ExposureTime.Min)
         # print(camera.ExposureTime.Max)
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
+        # Adjust Frame Rate based on exposure time
+        fps = 1/(t/1000) # maximum based on exposure time
+        fps = min(14, fps) # camera limit is 14 fps regardless of exposure
+        self.start(fps)
 
     def auto_exposure_t(self):
         if self.camera == False:
@@ -915,22 +922,22 @@ class MainSettings(BoxLayout):
 class VerticalControl(BoxLayout):
     def course_up(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', -5000)  # Move UP relative
+        lumaview.motion.SendGram('MVP', 1, 'Z', -500)  # Move UP relative
         self.update_gui()
 
     def fine_up(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', -250)  # Move UP
+        lumaview.motion.SendGram('MVP', 1, 'Z', -50)  # Move UP
         self.update_gui()
 
     def fine_down(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', 250)  # Move DOWN
+        lumaview.motion.SendGram('MVP', 1, 'Z', 50)  # Move DOWN
         self.update_gui()
 
     def course_down(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', 5000)  # Move DOWN
+        lumaview.motion.SendGram('MVP', 1, 'Z', 500)  # Move DOWN
         self.update_gui()
 
     # should be moved into trinamic class
@@ -955,6 +962,7 @@ class VerticalControl(BoxLayout):
 
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         pos = self.value2pos(set_value)
+        self.ids['obj_position'].value = pos
         self.ids['set_position_id'].text = format(pos, '.3f')
 
         # timer to update current position until it reaches target

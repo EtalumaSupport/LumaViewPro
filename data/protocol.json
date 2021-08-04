@@ -1,15 +1,10 @@
 {
-<<<<<<< HEAD
-    "microscope": "LS620",
-    "objective": "Unknown",
-=======
     "microscope": "LS720",
     "objective": {
         "name": "unknown",
         "magnification": 40,
         "FOV": "tbd"
     },
->>>>>>> ec1ff157860990747956dcfbf359701baa27e72e
     "port": "COM3",
     "frame_width": 1900,
     "frame_height": 1900,
@@ -24,22 +19,22 @@
         "gain_auto": false,
         "exp": 100.0,
         "false_color": false,
-        "acquire": true
+        "acquire": false
     },
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 100.0,
+        "ill": 600.0,
         "gain": 0.0,
-        "gain_auto": false,
-        "exp": 100.0,
+        "gain_auto": true,
+        "exp": 8.0,
         "false_color": true,
         "acquire": true
     },
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 100.0,
+        "ill": 600.0,
         "gain": 0.0,
         "gain_auto": false,
         "exp": 100.0,
@@ -49,10 +44,10 @@
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 100.0,
-        "gain": 10.100000000000001,
-        "gain_auto": false,
-        "exp": 0.13803842646028852,
+        "ill": 600.0,
+        "gain": 6.300000000000001,
+        "gain_auto": true,
+        "exp": 2.1379620895022327,
         "false_color": true,
         "acquire": true
     },
