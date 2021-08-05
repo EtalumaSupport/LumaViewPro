@@ -19,22 +19,22 @@
         "gain_auto": false,
         "exp": 100.0,
         "false_color": false,
-        "acquire": true
+        "acquire": false
     },
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 100.0,
+        "ill": 600.0,
         "gain": 0.0,
-        "gain_auto": false,
-        "exp": 100.0,
+        "gain_auto": true,
+        "exp": 8.0,
         "false_color": true,
         "acquire": true
     },
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 100.0,
+        "ill": 600.0,
         "gain": 0.0,
         "gain_auto": false,
         "exp": 100.0,
@@ -44,10 +44,10 @@
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 100.0,
-        "gain": 0.0,
-        "gain_auto": false,
-        "exp": 100.0,
+        "ill": 600.0,
+        "gain": 6.300000000000001,
+        "gain_auto": true,
+        "exp": 2.1379620895022327,
         "false_color": true,
         "acquire": true
     },

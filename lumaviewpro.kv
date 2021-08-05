@@ -280,7 +280,6 @@
 				background_normal: './data/UU_normal.png'
 				background_down: './data/UU_down.png'
 				on_press: root.course_up()
-				# on_release: root.stop()
 		    Button:
 		        id: slow_up
 				border: 0, 0, 0, 0
@@ -289,7 +288,6 @@
 				background_normal: './data/U_normal.png'
 				background_down: './data/U_down.png'
 				on_press: root.fine_up()
-				# on_release: root.stop()
 		    Button:
 		        id: slow_down
 				border: 0, 0, 0, 0
@@ -298,7 +296,6 @@
 				background_normal: './data/D_normal.png'
 				background_down: './data/D_down.png'
 				on_press: root.fine_down()
-				# on_release: root.stop()
 		    Button:
 		        id: fast_down
 				border: 0, 0, 0, 0
@@ -307,7 +304,6 @@
 				background_normal: './data/DD_normal.png'
 				background_down: './data/DD_down.png'
 				on_press: root.course_down()
-				# on_release: root.stop()
 		    Label:
 		BoxLayout:
 			orientation: 'vertical'
@@ -320,8 +316,8 @@
 		        min: 0.
 		        max: 220.
 		        value: 0.
-				step: 0.22
-		        cursor_size: '60dp','60dp'
+				step: 0.01
+		        cursor_size: '45dp','60dp'
 		        cursor_image: './data/objective.png'
 		        cursor_disabled_image: './data/objective.png'
 		        value_track: True
@@ -350,7 +346,7 @@
 		        font_size: '12sp'
 				halign: 'center'
 		        text: format(obj_position.value, '.3f')
-                on_text_validate: root.set_position()
+                on_text_validate: root.set_position(obj_position.value)
 		    Label:
 		        size_hint_y: None
 		        height: '50dp'
