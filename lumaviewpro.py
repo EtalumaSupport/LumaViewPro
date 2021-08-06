@@ -949,27 +949,27 @@ class MainSettings(BoxLayout):
 class VerticalControl(BoxLayout):
     def course_up(self):
         global lumaview
-        dist = lumaview.motion.z_um2ustep(10)
+        dist = lumaview.motion.z_um2ustep(10)           # 10 um
         print('distamce should be ')
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP relative
         self.update_gui()
 
     def fine_up(self):
         global lumaview
-        dist = lumaview.motion.z_um2ustep(1)
+        dist = lumaview.motion.z_um2ustep(1)            # 1 um
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP
         self.update_gui()
 
     def fine_down(self):
         global lumaview
-        dist = lumaview.motion.z_um2ustep(1)
-        lumaview.motion.SendGram('MVP', 1, 'Z', dist)  # Move DOWN
+        dist = lumaview.motion.z_um2ustep(1)             # 1 um
+        lumaview.motion.SendGram('MVP', 1, 'Z', dist)   # Move DOWN
         self.update_gui()
 
     def course_down(self):
         global lumaview
-        dist = lumaview.motion.z_um2ustep(10)
-        lumaview.motion.SendGram('MVP', 1, 'Z', dist)  # Move DOWN
+        dist = lumaview.motion.z_um2ustep(10)           # 10 um
+        lumaview.motion.SendGram('MVP', 1, 'Z', dist)   # Move DOWN
         self.update_gui()
 
     # # should be moved into trinamic class
@@ -987,7 +987,7 @@ class VerticalControl(BoxLayout):
 
     def set_position(self, pos):
         global lumaview
-        value = -lumaview.motion.z_um2ustep(pos*1000)   # position on slider is in mm
+        value = -lumaview.motion.z_um2ustep(pos)   # position on slider is in mm
         lumaview.motion.SendGram('MVP', 0, 'Z', value)  # Move to absolute position
         self.update_gui()
 
@@ -996,7 +996,7 @@ class VerticalControl(BoxLayout):
         # self.ids['get_position_id'].text = self.ids['set_position_id'].text
 
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-        pos = -lumaview.motion.z_ustep2um(set_value)/1000        # position on slider is in mm
+        pos = -lumaview.motion.z_ustep2um(set_value)
         self.ids['obj_position'].value = pos
         self.ids['set_position_id'].text = format(pos, '.3f')
 
@@ -1617,6 +1617,7 @@ class LumaViewProApp(App):
         self.icon = './data/icon32x.png'
         global lumaview
         lumaview = MainDisplay()
+        # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['obj_position'].value
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/protocol.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
