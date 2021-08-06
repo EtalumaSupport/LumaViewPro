@@ -425,11 +425,11 @@ class TrinamicBoard:
             time.sleep(0.1)
 
     def z_ustep2um(self, ustep):
-        um = -float(ustep)*self.z_microstep
+        um = float(ustep)*self.z_microstep
         return um
 
     def z_um2ustep(self, um):
-        ustep = int(-um/self.z_microstep)
+        ustep = int(um/self.z_microstep)
         return ustep
 
     def zhome(self):
@@ -986,7 +986,7 @@ class VerticalControl(BoxLayout):
 
     def set_position(self, pos):
         global lumaview
-        value = lumaview.motion.z_um2ustep(pos)
+        value = -lumaview.motion.z_um2ustep(pos)
         lumaview.motion.SendGram('MVP', 0, 'Z', value)  # Move to absolute position
         self.update_gui()
 
@@ -995,7 +995,7 @@ class VerticalControl(BoxLayout):
         # self.ids['get_position_id'].text = self.ids['set_position_id'].text
 
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-        pos = lumaview.motion.z_ustep2um(set_value)
+        pos = -lumaview.motion.z_ustep2um(set_value)
         self.ids['obj_position'].value = pos
         self.ids['set_position_id'].text = format(pos, '.3f')
 
@@ -1005,7 +1005,7 @@ class VerticalControl(BoxLayout):
     def compare(self, dt):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current value
-        pos = lumaview.motion.z_ustep2um(get_value)
+        pos = -lumaview.motion.z_ustep2um(get_value)
         self.ids['get_position_id'].text = format(pos, '.3f')
         if set_value == get_value:
             Clock.unschedule(self.value_event)
