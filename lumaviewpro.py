@@ -950,6 +950,7 @@ class VerticalControl(BoxLayout):
     def course_up(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(10)
+        print('distamce should be ')
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP relative
         self.update_gui()
 
@@ -986,7 +987,7 @@ class VerticalControl(BoxLayout):
 
     def set_position(self, pos):
         global lumaview
-        value = -lumaview.motion.z_um2ustep(pos)
+        value = -lumaview.motion.z_um2ustep(pos*1000)   # position on slider is in mm
         lumaview.motion.SendGram('MVP', 0, 'Z', value)  # Move to absolute position
         self.update_gui()
 
@@ -995,7 +996,7 @@ class VerticalControl(BoxLayout):
         # self.ids['get_position_id'].text = self.ids['set_position_id'].text
 
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-        pos = -lumaview.motion.z_ustep2um(set_value)
+        pos = -lumaview.motion.z_ustep2um(set_value)/1000        # position on slider is in mm
         self.ids['obj_position'].value = pos
         self.ids['set_position_id'].text = format(pos, '.3f')
 
