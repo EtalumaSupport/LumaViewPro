@@ -299,6 +299,9 @@ class LEDBoard:
 class TrinamicBoard:
     # Trinamic 3230 board (preferred)
     # Trinamic 6110 board (now) Address
+    z_microstep = 0.05489864865 # microns per microstep at 32x microstepping
+                                # via Eric Weiner 6/24/2021
+    xy_microstep = 0.15625      # microns per microstep at 32x microstepping
 
     addr = 255
 
@@ -421,7 +424,15 @@ class TrinamicBoard:
             value = self.SendGram('RFS', 2, Motor, 0)
             time.sleep(0.1)
 
-    def home(self):
+    def z_ustep2um(self, ustep):
+        um = -float(ustep)*self.z_microstep
+        return um
+
+    def z_um2ustep(self, um):
+        ustep = int(-um/self.z_microstep)
+        return ustep
+
+    def zhome(self):
         #----------------------------------------------------------
         # Z-Axis Initialization
         #----------------------------------------------------------
@@ -451,6 +462,9 @@ class TrinamicBoard:
         self.SendGram('RFS', 0, 'Z', 0)       # Home to the Right Limit switch (Down)
         self.RFS_Wait('Z')
 
+    def xyhome(self):
+
+        zhome(self)
         #----------------------------------------------------------
         # X-Axis Initialization
         #----------------------------------------------------------
@@ -953,19 +967,22 @@ class VerticalControl(BoxLayout):
         lumaview.motion.SendGram('MVP', 1, 'Z', 500)  # Move DOWN
         self.update_gui()
 
-    # should be moved into trinamic class
-    def value2pos(self, value):
-        pos = -float(value)/1000
-        return pos
-
-    # should be moved into trinamic class
-    def pos2value(self, pos):
-        value = int(-pos*1000)
-        return value
+    # # should be moved into trinamic class
+    # def usteps2um(self, step):
+    #     # pos = -float(step)/1000 # placeholder formula
+    #     # 0.05490 micron/microstep via Eric Weiner 6/24/2021
+    #     pos = -float(step)*0.05489864865
+    #     return pos
+    #
+    # # should be moved into trinamic class
+    # def um2usteps(self, pos):
+    #     # value = int(-pos*1000) # placeholder formula
+    #     value = int(-pos*1000)
+    #     return value
 
     def set_position(self, pos):
         global lumaview
-        value = self.pos2value(pos)
+        value = lumaview.motion.z_um2ustep(pos)
         lumaview.motion.SendGram('MVP', 0, 'Z', value)  # Move to absolute position
         self.update_gui()
 
@@ -974,7 +991,7 @@ class VerticalControl(BoxLayout):
         # self.ids['get_position_id'].text = self.ids['set_position_id'].text
 
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-        pos = self.value2pos(set_value)
+        pos = lumaview.motion.z_ustep2um(set_value)
         self.ids['obj_position'].value = pos
         self.ids['set_position_id'].text = format(pos, '.3f')
 
@@ -984,7 +1001,7 @@ class VerticalControl(BoxLayout):
     def compare(self, dt):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current value
-        pos = self.value2pos(get_value)
+        pos = lumaview.motion.z_ustep2um(get_value)
         self.ids['get_position_id'].text = format(pos, '.3f')
         if set_value == get_value:
             Clock.unschedule(self.value_event)
