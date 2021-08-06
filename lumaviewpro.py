@@ -651,7 +651,7 @@ class MainDisplay(FloatLayout):
         cv2.imwrite(folder+'/'+filename, img.astype(np.uint8))
         # TODO save file in 16 bit TIFF, OMETIFF, and others
         microscope.stop()
-        microscope.source = folder+'/'+filename
+        microscope.source = filename
         time.sleep(10)
         microscope.start()
 
