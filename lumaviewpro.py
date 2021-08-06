@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-May 28, 2021
+Aug 5, 2021
 '''
 
 # General
@@ -122,7 +122,7 @@ class PylonCamera(Image):
                 print("Error: PylonCamera.connect() exception")
             self.camera = False
 
-    def start(self, fps = 10):
+    def start(self, fps = 14):
         self.fps = fps
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
 
@@ -220,7 +220,7 @@ class PylonCamera(Image):
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
         # Adjust Frame Rate based on exposure time
-        fps = 1/(t/1000) # maximum based on exposure time
+        fps = 1000/t # maximum based on exposure time
         fps = min(14, fps) # camera limit is 14 fps regardless of exposure
         self.start(fps)
 
@@ -349,7 +349,7 @@ class TrinamicBoard:
         self.driver = True
         try:
             self.connect()
-            self.home()
+            #self.home() # TODO Add a home button and make autohoming at startup a settings option
         except:
             print("Could not connect to Trinamic Motor Control Board")
             self.driver = False
@@ -624,23 +624,36 @@ class MainDisplay(FloatLayout):
                 # update illumination to currently selected settings
                 illumination = protocol[layer]['ill']
                 led_board = lumaview.led_board
-                led_board.led_on(led_board.color2ch(layer), illumination)
-                # SERIOUS DEBUG needed here
-                time.sleep(1)
+
+                # Dark field capture
+                led_board.led_off()
+                time.sleep(1) # SERIOUS DEBUG needed here to remove rolling shutter and timing
                 microscope.update(0)
+                darkfield = microscope.array
+                # Florescent capture
+                led_board.led_on(led_board.color2ch(layer), illumination)
+                time.sleep(1) # SERIOUS DEBUG needed here to remove rolling shutter and timing
+                microscope.update(0)
+                #corrected = np.max(microscope.array - darkfield, np.zeros(like=darkfield))
+                corrected = microscope.array - np.minimum(microscope.array,darkfield)
                 # buffer the images
                 if layer == 'Blue':
-                    img[:,:,0] = microscope.array
+                    img[:,:,0] = corrected
                 elif layer == 'Green':
-                    img[:,:,1] = microscope.array
+                    img[:,:,1] = corrected
                 elif layer == 'Red':
-                    img[:,:,2] = microscope.array
-                else:
-                    img[:,:,2] = microscope.array
+                    img[:,:,2] = corrected
+                #else:
+                    #img[:,:,2] = corrected
 
         led_board.led_off()
         filename = 'composite_' + str(int(round(time.time() * 1000))) + '.tiff'
         cv2.imwrite(folder+'/'+filename, img.astype(np.uint8))
+        # TODO save file in 16 bit TIFF, OMETIFF, and others
+        microscope.stop()
+        microscope.source = folder+'/'+filename
+        time.sleep(10)
+        microscope.start()
 
     def fit_image(self):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
