@@ -314,9 +314,9 @@
 		        id: obj_position
 		        orientation: 'vertical'
 		        min: 0.
-		        max: 220.
+		        max: 12.
 		        value: 0.
-				step: 0.01
+				step: 0.001
 		        cursor_size: '45dp','60dp'
 		        cursor_image: './data/objective.png'
 		        cursor_disabled_image: './data/objective.png'
@@ -337,7 +337,7 @@
 		        size_hint_y: None
 		        height: '50dp'
 				halign: 'left'
-		        text: 'Target\nZ-Position'
+		        text: 'Z-Position\nTarget (mm)'
 		    TextInput:
 				id: set_position_id
             	multiline: False
@@ -351,7 +351,7 @@
 		        size_hint_y: None
 		        height: '50dp'
 				halign: 'left'
-		        text: 'Current\nZ-Position'
+		        text: 'Z-Position\nCurrent (mm)'
 		    TextInput:
 				id: get_position_id
             	multiline: False
