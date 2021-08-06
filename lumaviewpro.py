@@ -949,22 +949,26 @@ class MainSettings(BoxLayout):
 class VerticalControl(BoxLayout):
     def course_up(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', -500)  # Move UP relative
+        dist = lumaview.motion.z_um2ustep(10)
+        lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP relative
         self.update_gui()
 
     def fine_up(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', -50)  # Move UP
+        dist = lumaview.motion.z_um2ustep(1)
+        lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP
         self.update_gui()
 
     def fine_down(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', 50)  # Move DOWN
+        dist = lumaview.motion.z_um2ustep(1)
+        lumaview.motion.SendGram('MVP', 1, 'Z', dist)  # Move DOWN
         self.update_gui()
 
     def course_down(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Z', 500)  # Move DOWN
+        dist = lumaview.motion.z_um2ustep(10)
+        lumaview.motion.SendGram('MVP', 1, 'Z', dist)  # Move DOWN
         self.update_gui()
 
     # # should be moved into trinamic class
