@@ -602,8 +602,8 @@
 # MicroscopeSettings - Settings for  Microscope within MainSettings
 # ------------------------------------------
 <MicroscopeSettings>:
-    padding: 5
-    spacing: 5
+    padding: '5dp'
+    spacing: '5dp'
     orientation: 'vertical'
     canvas:
         Color:
@@ -704,7 +704,8 @@
 # LayerControl - Settings for Layers within MainSettings
 # ------------------------------------------
 <LayerControl>:
-    padding: 5
+    padding: '5dp'
+    spacing: '5dp'
     orientation: 'vertical'
     canvas:
         Color:
@@ -715,12 +716,12 @@
 
     BoxLayout:
         orientation: 'vertical'
-        size_hint_y: None
-        height: dp(30*6+10*5)
-        spacing: '10dp'
+        spacing: '5dp'
         # Illumination
         BoxLayout:
             orientation: 'horizontal'
+        	size_hint_y: None
+			height: '40dp'
             Label:
                 text: 'Illumination (mA)'
                 halign: 'center'
@@ -754,6 +755,8 @@
         # Gain
         BoxLayout:
             orientation: 'horizontal'
+        	size_hint_y: None
+			height: '40dp'
             Label:
                 text: 'Gain (dB)'
                 halign: 'center'
@@ -793,6 +796,8 @@
         # Exposure
         BoxLayout:
             orientation: 'horizontal'
+        	size_hint_y: None
+			height: '40dp'
             Label:
                 text: 'Exposure (ms)'
                 halign: 'center'
@@ -827,10 +832,14 @@
         # File Save Settings
         Button:
             id: folder_btn
+        	size_hint_y: None
+			height: '40dp'
             text: 'Folder'
             on_press: root.choose_folder()
         TextInput:
             id: root_text
+        	size_hint_y: None
+			height: '40dp'
             multiline: False
             text: 'File Root'
             padding: ['5dp', (self.height-self.line_height)/2]
@@ -839,7 +848,8 @@
         # bulk settings
         BoxLayout:
             orientation: 'horizontal'
-            padding: 0
+        	size_hint_y: None
+			height: '30dp'
             ToggleButton:
                 id: apply_btn
                 halign: 'center'
@@ -870,11 +880,11 @@
                 active: True
                 on_release: root.update_acquire()
 		Button:
-			padding: '5dp'
+        	size_hint_y: None
+			height: '40dp'
 			text: 'Save Focus'
 			on_press: root.save_focus()
-    BoxLayout:
-        orientation: 'vertical'
+		Label:
 
 # TimeLapseSettings - Settings for Time Lapse within MainSettings
 # ------------------------------------------
