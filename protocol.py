@@ -22,7 +22,8 @@ protocol = {
         "gain_auto": False,
         "exp": 100.,
         "false_color": False,
-        "acquire": True
+        "acquire": True,
+        "focus": 0.
     },
     "Blue": {
         "save_folder": "./capture",
@@ -32,7 +33,8 @@ protocol = {
         "gain_auto": False,
         "exp": 100.,
         "false_color": True,
-        "acquire": True
+        "acquire": True,
+        "focus": 0.
     },
     "Green": {
         "save_folder": "./capture",
@@ -42,7 +44,8 @@ protocol = {
         "gain_auto": False,
         "exp": 100.,
         "false_color": True,
-        "acquire": True
+        "acquire": True,
+        "focus": 0.
     },
     "Red": {
         "save_folder": "./capture",
@@ -52,7 +55,8 @@ protocol = {
         "gain_auto": False,
         "exp": 100.,
         "false_color": True,
-        "acquire": True
+        "acquire": True,
+        "focus": 0.
     },
     "Composite": {
         "acquire": False

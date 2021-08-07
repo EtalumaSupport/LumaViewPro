@@ -235,7 +235,7 @@
 	Accordion:
 		orientation: 'vertical'
 		AccordionItem:
-			title: 'Vertical Control'
+			title: 'Focus'
             collapse: False
 			VerticalControl:
 		AccordionItem:
@@ -256,6 +256,8 @@
 <VerticalControl>:
 	orientation: 'vertical'
 	id: verticalcontrol_id
+    spacing: '5dp'
+
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
@@ -362,6 +364,20 @@
 				halign: 'center'
 		        disabled: True
 			Label:
+	Button:
+		text: 'Set Bookmark'
+		on_press: root.set_bookmark()
+	Button:
+		text: 'Go to Bookmark'
+		on_press: root.goto_bookmark()
+	Button:
+		text: 'Home'
+		on_press: root.home()
+	Button:
+		text: 'Autofocus'
+		on_press: root.autofocus()
+	Label:
+		text: 'Z-Stack Stuff Here?'
 	Label:
 
 <XYStageControl>:
@@ -853,6 +869,10 @@
                 width: '30dp'
                 active: True
                 on_release: root.update_acquire()
+		Button:
+			padding: '5dp'
+			text: 'Save Focus'
+			on_press: root.save_focus()
     BoxLayout:
         orientation: 'vertical'
 

@@ -462,6 +462,14 @@ class TrinamicBoard:
         self.SendGram('RFS', 0, 'Z', 0)       # Home to the Right Limit switch (Down)
         self.RFS_Wait('Z')
 
+    def xy_ustep2um(self, ustep):
+        um = float(ustep)*self.xy_microstep
+        return um
+
+    def xy_um2ustep(self, um):
+        ustep = int(um/self.xy_microstep)
+        return ustep
+
     def xyhome(self):
 
         zhome(self)
@@ -496,7 +504,7 @@ class TrinamicBoard:
 
         # Move out of home Position
         #----------------------------------------------------------
-        self.SendGram('MVP', 0, 'X', -385000)  # Move left by 100000 (what is the unit?)
+        self.SendGram('MVP', 0, 'X', -xy_um2ustep(60000))  # Move left by 6cm
 
         #----------------------------------------------------------
         # Y-Axis Initialization
@@ -528,7 +536,7 @@ class TrinamicBoard:
 
         # Move out of home Position
         #----------------------------------------------------------
-        self.SendGram('MVP', 0, 'Y', -200000)  # Move forward by 100000 (what is the unit?)
+        self.SendGram('MVP', 0, 'Y', -xy_um2ustep(9375))  # Move forward by 100000 (what is the unit?)
 
 
 # -------------------------------------------------------------------------
@@ -972,19 +980,6 @@ class VerticalControl(BoxLayout):
         lumaview.motion.SendGram('MVP', 1, 'Z', dist)   # Move DOWN
         self.update_gui()
 
-    # # should be moved into trinamic class
-    # def usteps2um(self, step):
-    #     # pos = -float(step)/1000 # placeholder formula
-    #     # 0.05490 micron/microstep via Eric Weiner 6/24/2021
-    #     pos = -float(step)*0.05489864865
-    #     return pos
-    #
-    # # should be moved into trinamic class
-    # def um2usteps(self, pos):
-    #     # value = int(-pos*1000) # placeholder formula
-    #     value = int(-pos*1000)
-    #     return value
-
     def set_position(self, pos):
         global lumaview
         value = -lumaview.motion.z_um2ustep(pos)   # position on slider is in mm
@@ -992,8 +987,6 @@ class VerticalControl(BoxLayout):
         self.update_gui()
 
     def update_gui(self):
-
-        # self.ids['get_position_id'].text = self.ids['set_position_id'].text
 
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         pos = -lumaview.motion.z_ustep2um(set_value)
@@ -1005,11 +998,28 @@ class VerticalControl(BoxLayout):
 
     def compare(self, dt):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-        get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current value
+        get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
         pos = -lumaview.motion.z_ustep2um(get_value)
         self.ids['get_position_id'].text = format(pos, '.3f')
         if set_value == get_value:
             Clock.unschedule(self.value_event)
+
+    def set_bookmark(self):
+        # TODO
+        return
+
+    def goto_bookmark(self):
+        # TODO
+        return
+
+    def home(self):
+        global lumaview
+        lumaview.motion.zhome()
+        return
+
+    def autofocus(self):
+        # TODO
+        return
 
 
 class XYStageControl(BoxLayout):
@@ -1258,6 +1268,12 @@ class LayerControl(BoxLayout):
 
     def update_acquire(self):
         protocol[self.layer]['acquire'] = self.ids['acquire'].active
+
+    def save_focus(self):
+        global lumaview
+        usteps = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current z height in usteps
+        height = lumaview.motion.z_ustep2um(usteps)
+        protocol[self.layer]['focus'] = height
 
     def apply_settings(self):
         global lumaview
