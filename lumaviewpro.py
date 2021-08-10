@@ -1005,12 +1005,19 @@ class VerticalControl(BoxLayout):
             Clock.unschedule(self.value_event)
 
     def set_bookmark(self):
-        # TODO
-        return
+        # TEST
+        global lumaview
+        usteps = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current z height in usteps
+        height = lumaview.motion.z_ustep2um(usteps)
+        protocol['z_bookmark'] = height
 
     def goto_bookmark(self):
-        # TODO
-        return
+        # TEST
+        global lumaview
+        height = protocol['z_bookmark']
+        usteps = lumaview.motion.z_um2ustep(height)
+        lumaview.motion.SendGram('GAP', 0, 'Z', 0)  # set current z height in usteps
+        self.update_gui()
 
     def home(self):
         global lumaview
