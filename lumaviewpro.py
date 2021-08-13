@@ -962,6 +962,12 @@ class MainSettings(BoxLayout):
 
 
 class Histogram(Widget):
+    color = ObjectProperty(None)
+
+    def __init__(self, **kwargs):
+        super(Histogram, self).__init__(**kwargs)
+        if self.color is None:
+            self.color = (1, 1, 1, 1)
 
     def histogram(self, *args):
         # if draw histogram; will move to seperate function

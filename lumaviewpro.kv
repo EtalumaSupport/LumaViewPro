@@ -902,12 +902,13 @@
 
 		Histogram:
 			id: histo_id
+			color: root.bg_color
 		Label:
 
 <Histogram>:
 	canvas:
 		Color:
-			rgba: .1, 1, .1, .8
+			rgba: root.color
 		Line:
 			width: 1
 			rectangle: (self.x+5, self.y+5, self.width-10, self.height-10)
