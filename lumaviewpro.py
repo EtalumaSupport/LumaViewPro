@@ -142,10 +142,12 @@ class PylonCamera(Image):
 
                 if grabResult.GrabSucceeded():
                     image = grabResult.GetArray()
+                    # if draw histogram
+                    #hist = cv2.caclHist(image,[0],None,[256],[0,256])
                     self.array = image
                     image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
                     image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
-                    self.texture = image_texture
+                    self.texture = imagTrinamicBoarde_texture
 
                 self.lastGrab = pylon.PylonImage()
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
