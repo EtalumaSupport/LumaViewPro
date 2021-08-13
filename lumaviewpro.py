@@ -95,8 +95,9 @@ class PylonCamera(Image):
 
     def __init__(self, **kwargs):
         super(PylonCamera,self).__init__(**kwargs)
-        self.camera = False;
-        self.play = True;
+        self.camera = False
+        self.play = True
+        self.array = []
         self.connect()
         self.start()
 
@@ -969,13 +970,22 @@ class Histogram(Widget):
         if self.color is None:
             self.color = (1, 1, 1, 1)
 
+        self.event = Clock.schedule_interval(self.histogram,0.1)
+
     def histogram(self, *args):
-        # if draw histogram; will move to seperate function
-        #hist = cv2.caclHist([image],[0],None,[256],[0,256])
-        hist = np.histogram(image)
-        for i in range(len(hist[0])):
-            cv2.line(image, (i+10,10), (i+10, hist[0][i]+10), (0, 255, 0), 1)
-        #print(hist[0])
+        global lumaview
+
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
+        if camera.camera != False:
+            image = camera.array
+            # if draw histogram; will move to seperate function
+            #hist = cv2.caclHist([image],[0],None,[256],[0,256])
+            hist = np.histogram(image)
+            #for i in range(len(hist[0])):
+            #    cv2.line(image, (i+10,10), (i+10, hist[0][i]+10), (0, 255, 0), 1)
+            print(hist[0])
+        else:
+            print("Can't find image.")
 
 class VerticalControl(BoxLayout):
     def course_up(self):
