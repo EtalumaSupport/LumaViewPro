@@ -142,12 +142,16 @@ class PylonCamera(Image):
 
                 if grabResult.GrabSucceeded():
                     image = grabResult.GetArray()
-                    # if draw histogram
-                    #hist = cv2.caclHist(image,[0],None,[256],[0,256])
+                    # if draw histogram; will move to seperate function
+                    #hist = cv2.caclHist([image],[0],None,[256],[0,256])
+                    #hist = np.histogram(image)
+                    #for i in range(len(hist[0])):
+                    #    cv2.line(image, (i+10,10), (i+10, hist[0][i]+10), (0, 255, 0), 1)
+                    #print(hist[0])
                     self.array = image
                     image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
                     image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
-                    self.texture = imagTrinamicBoarde_texture
+                    self.texture = image_texture
 
                 self.lastGrab = pylon.PylonImage()
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
@@ -955,6 +959,14 @@ class MainSettings(BoxLayout):
         else:
             self.ids['toggle_mainsettings'].state = 'down'
             self.pos = lumaview.width - self.settings_width, 0
+
+    def histogram(self, *args):
+        # if draw histogram; will move to seperate function
+        #hist = cv2.caclHist([image],[0],None,[256],[0,256])
+        hist = np.histogram(image)
+        for i in range(len(hist[0])):
+            cv2.line(image, (i+10,10), (i+10, hist[0][i]+10), (0, 255, 0), 1)
+        #print(hist[0])
 
 class VerticalControl(BoxLayout):
     def course_up(self):
