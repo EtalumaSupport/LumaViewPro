@@ -958,12 +958,12 @@ class MainSettings(BoxLayout):
 
 
 class Histogram(Widget):
-    color = ObjectProperty(None)
+    bg_color = ObjectProperty(None)
 
     def __init__(self, **kwargs):
         super(Histogram, self).__init__(**kwargs)
-        if self.color is None:
-            self.color = (1, 1, 1, 1)
+        if self.bg_color is None:
+            self.bg_color = (1, 1, 1, 1)
 
         self.event = Clock.schedule_interval(self.histogram,0.1)
 
@@ -973,22 +973,19 @@ class Histogram(Widget):
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
         if camera.camera != False:
             image = camera.array
-            # if draw histogram; will move to seperate function
-            #hist = cv2.caclHist([image],[0],None,[256],[0,256])
             hist = np.histogram(image, bins=256,range=(0,256))
-            #for i in range(len(hist[0])):
-            #    cv2.line(image, (i+10,10), (i+10, hist[0][i]+10), (0, 255, 0), 1)
-            print(hist[0])
+            # print(hist[0])
 
             self.canvas.clear()
-            layer=self.color
+            r, b, g, a = self.bg_color
+            # print(bg_color)
             with self.canvas:
-                Color(layer)
+                Color(r, b, g, a)
                 #self.color = Color(rgba=self.color)
                 scale=(self.height-10)/np.max(hist[0])
                 for i in range(len(hist[0])):
                     self.pos = self.pos
-                    self.line = Line(points=(self.x+i+10, self.y, self.x+i+10, self.y+scale*hist[0][i]), width=1, color=self.color)
+                    self.line = Line(points=(self.x+i+10, self.y, self.x+i+10, self.y+scale*hist[0][i]), width=1)
         else:
             print("Can't find image.")
 
