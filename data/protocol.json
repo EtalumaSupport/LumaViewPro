@@ -9,7 +9,7 @@
     "frame_width": 1900,
     "frame_height": 1900,
     "live_folder": "./capture",
-    "z_bookmark": 0,
+    "z_bookmark": 3217.88429061975,
     "period": 0.1,
     "duration": 0.1,
     "BF": {
@@ -26,35 +26,35 @@
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 100.0,
-        "gain": 0.0,
+        "ill": 600.0,
+        "gain": 16.1,
         "gain_auto": false,
         "exp": 100.0,
         "false_color": true,
         "acquire": true,
-        "focus": 0.0
+        "focus": 3217.88429061975
     },
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 100.0,
-        "gain": 0.0,
+        "ill": 575.0,
+        "gain": 13.600000000000001,
         "gain_auto": false,
-        "exp": 100.0,
+        "exp": 123.02687708123811,
         "false_color": true,
         "acquire": true,
-        "focus": 0.0
+        "focus": -3240.5574325122
     },
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 100.0,
-        "gain": 0.0,
+        "ill": 600.0,
+        "gain": 24.0,
         "gain_auto": false,
-        "exp": 100.0,
+        "exp": 200.0,
         "false_color": true,
         "acquire": true,
-        "focus": 0.0
+        "focus": -3240.5574325122
     },
     "Composite": {
         "acquire": false

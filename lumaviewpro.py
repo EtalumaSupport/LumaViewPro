@@ -412,7 +412,7 @@ class TrinamicBoard:
 
         if self.driver != False:
             self.driver.write(datagram)
-            return self.GetGram(verbose = True)
+            return self.GetGram(verbose = False)
         else:
             print('Trinamic Motor Control Board is not connected')
             return False
@@ -982,8 +982,8 @@ class VerticalControl(BoxLayout):
 
     def set_position(self, pos):
         global lumaview
-        value = -lumaview.motion.z_um2ustep(pos)   # position on slider is in mm
-        lumaview.motion.SendGram('MVP', 0, 'Z', value)  # Move to absolute position
+        usteps = -lumaview.motion.z_um2ustep(float(pos))   # position on slider is in mm
+        lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # Move to absolute position
         self.update_gui()
 
     def update_gui(self):
@@ -1005,18 +1005,16 @@ class VerticalControl(BoxLayout):
             Clock.unschedule(self.value_event)
 
     def set_bookmark(self):
-        # TEST
         global lumaview
         usteps = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current z height in usteps
-        height = lumaview.motion.z_ustep2um(usteps)
+        height = -lumaview.motion.z_ustep2um(usteps)
         protocol['z_bookmark'] = height
 
     def goto_bookmark(self):
-        # TEST
         global lumaview
         height = protocol['z_bookmark']
-        usteps = lumaview.motion.z_um2ustep(height)
-        lumaview.motion.SendGram('GAP', 0, 'Z', 0)  # set current z height in usteps
+        usteps = -lumaview.motion.z_um2ustep(height)
+        lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # set current z height in usteps
         self.update_gui()
 
     def home(self):
@@ -1279,7 +1277,7 @@ class LayerControl(BoxLayout):
     def save_focus(self):
         global lumaview
         usteps = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current z height in usteps
-        height = lumaview.motion.z_ustep2um(usteps)
+        height = -lumaview.motion.z_ustep2um(usteps)
         protocol[self.layer]['focus'] = height
 
     def apply_settings(self):

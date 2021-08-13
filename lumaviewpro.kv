@@ -348,8 +348,9 @@
 		        height: '30dp'
 		        font_size: '12sp'
 				halign: 'center'
+            	input_filter: 'float'
 		        text: format(obj_position.value, '.3f')
-                on_text_validate: root.set_position(obj_position.value)
+                on_text_validate: root.set_position(self.text)
 		    Label:
 		        size_hint_y: None
 		        height: '50dp'
