@@ -642,12 +642,12 @@ class MainDisplay(FloatLayout):
             # multicolor image stack
 
             if protocol[layer]['acquire'] == True:
+                # lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
                 # set the gain and expusure
                 gain = protocol[layer]['gain']
                 microscope.gain(gain)
                 exposure = protocol[layer]['exp']
                 microscope.exposure_t(exposure)
-
                 # turn on the LED
                 # update illumination to currently selected settings
                 illumination = protocol[layer]['ill']
