@@ -960,6 +960,9 @@ class MainSettings(BoxLayout):
             self.ids['toggle_mainsettings'].state = 'down'
             self.pos = lumaview.width - self.settings_width, 0
 
+
+class Histogram(Widget):
+
     def histogram(self, *args):
         # if draw histogram; will move to seperate function
         #hist = cv2.caclHist([image],[0],None,[256],[0,256])

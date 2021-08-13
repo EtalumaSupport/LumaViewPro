@@ -900,7 +900,17 @@
             padding: ['5dp', (self.height-self.line_height)/2]
             on_text: root.root_text()
 
+		Histogram:
+			id: histo_id
 		Label:
+
+<Histogram>:
+	canvas:
+		Color:
+			rgba: 1, .1, .1, .9
+		Line:
+			width: 11
+			ellipse: (self.x, self.y, self.width, self.height, 90, 180)
 
 # TimeLapseSettings - Settings for Time Lapse within MainSettings
 # ------------------------------------------
