@@ -56,6 +56,7 @@ from kivy.properties import BoundedNumericProperty, ColorProperty, OptionPropert
 from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.animation import Animation
+from kivy.graphics import Line, Color
 
 # User Interface
 from kivy.uix.accordion import Accordion, AccordionItem
@@ -143,12 +144,6 @@ class PylonCamera(Image):
 
                 if grabResult.GrabSucceeded():
                     image = grabResult.GetArray()
-                    # if draw histogram; will move to seperate function
-                    #hist = cv2.caclHist([image],[0],None,[256],[0,256])
-                    #hist = np.histogram(image)
-                    #for i in range(len(hist[0])):
-                    #    cv2.line(image, (i+10,10), (i+10, hist[0][i]+10), (0, 255, 0), 1)
-                    #print(hist[0])
                     self.array = image
                     image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
                     image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
@@ -980,10 +975,20 @@ class Histogram(Widget):
             image = camera.array
             # if draw histogram; will move to seperate function
             #hist = cv2.caclHist([image],[0],None,[256],[0,256])
-            hist = np.histogram(image)
+            hist = np.histogram(image, bins=256,range=(0,256))
             #for i in range(len(hist[0])):
             #    cv2.line(image, (i+10,10), (i+10, hist[0][i]+10), (0, 255, 0), 1)
             print(hist[0])
+
+            self.canvas.clear()
+            layer=self.color
+            with self.canvas:
+                Color(layer)
+                #self.color = Color(rgba=self.color)
+                scale=(self.height-10)/np.max(hist[0])
+                for i in range(len(hist[0])):
+                    self.pos = self.pos
+                    self.line = Line(points=(self.x+i+10, self.y, self.x+i+10, self.y+scale*hist[0][i]), width=1, color=self.color)
         else:
             print("Can't find image.")
 
