@@ -1280,6 +1280,13 @@ class LayerControl(BoxLayout):
         height = -lumaview.motion.z_ustep2um(usteps)
         protocol[self.layer]['focus'] = height
 
+    def goto_focus(self):
+        global lumaview
+        height = protocol[self.layer]['focus']
+        usteps = -lumaview.motion.z_um2ustep(height)
+        lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # set current z height in usteps
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_gui()
+
     def apply_settings(self):
         global lumaview
         global gain_vals

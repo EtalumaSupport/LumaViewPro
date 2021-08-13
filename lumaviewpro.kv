@@ -238,6 +238,7 @@
 			title: 'Focus'
             collapse: False
 			VerticalControl:
+				id: verticalcontrol_id
 		AccordionItem:
 			title: 'XY Stage Control'
 			XYStageControl:
@@ -255,7 +256,6 @@
 
 <VerticalControl>:
 	orientation: 'vertical'
-	id: verticalcontrol_id
     spacing: '5dp'
 
     canvas:
@@ -830,22 +830,6 @@
                 text: format(10 ** exp_slider.value, '.3g')
                 on_text_validate: root.exp_text()
 
-        # File Save Settings
-        Button:
-            id: folder_btn
-        	size_hint_y: None
-			height: '40dp'
-            text: 'Folder'
-            on_press: root.choose_folder()
-        TextInput:
-            id: root_text
-        	size_hint_y: None
-			height: '40dp'
-            multiline: False
-            text: 'File Root'
-            padding: ['5dp', (self.height-self.line_height)/2]
-            on_text: root.root_text()
-
         # bulk settings
         BoxLayout:
             orientation: 'horizontal'
@@ -880,11 +864,42 @@
                 width: '30dp'
                 active: True
                 on_release: root.update_acquire()
-		Button:
+		# Focus Settings
+        BoxLayout:
+            orientation: 'horizontal'
         	size_hint_y: None
 			height: '40dp'
-			text: 'Save Focus'
-			on_press: root.save_focus()
+			spacing: '5dp'
+			Button:
+	        	size_hint_y: None
+				height: '40dp'
+				text: 'Save Focus'
+				on_press: root.save_focus()
+			Button:
+	        	size_hint_y: None
+				height: '40dp'
+				text: 'Go to Focus'
+				on_press: root.goto_focus()
+        # File Save Settings
+        # BoxLayout:
+        #     orientation: 'horizontal'
+        # 	size_hint_y: None
+		# 	height: '40dp'
+        Button:
+            id: folder_btn
+        	size_hint_y: None
+			height: '40dp'
+            text: 'Folder'
+            on_press: root.choose_folder()
+        TextInput:
+            id: root_text
+        	size_hint_y: None
+			height: '40dp'
+            multiline: False
+            text: 'File Root'
+            padding: ['5dp', (self.height-self.line_height)/2]
+            on_text: root.root_text()
+
 		Label:
 
 # TimeLapseSettings - Settings for Time Lapse within MainSettings
