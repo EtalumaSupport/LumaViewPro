@@ -142,10 +142,12 @@ class PylonCamera(Image):
 
                 if grabResult.GrabSucceeded():
                     image = grabResult.GetArray()
+                    # if draw histogram
+                    #hist = cv2.caclHist(image,[0],None,[256],[0,256])
                     self.array = image
                     image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
                     image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
-                    self.texture = image_texture
+                    self.texture = imagTrinamicBoarde_texture
 
                 self.lastGrab = pylon.PylonImage()
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
@@ -402,10 +404,10 @@ class TrinamicBoard:
         datagram[1] = self.cmnd[Command]
         datagram[2] = Type
         datagram[3] = self.axis[Motor]
-        datagram[4] = (Value >> 24)  & 0xff # shift by 24 bits i.e. divide by 2, 24 times
-        datagram[5] = (Value >> 16)  & 0xff # shift by 16 bits i.e. divide by 2, 16 times
-        datagram[6] = (Value >> 8)  & 0xff  # shift by 8 bits i.e. divide by 2, 8 times
-        datagram[7] = Value & 0xff # bitwise add with 0xff to get last 8 byte
+        datagram[4] = (Value >> 24) & 0xff # shift by 24 bits i.e. divide by 2, 24 times
+        datagram[5] = (Value >> 16) & 0xff # shift by 16 bits i.e. divide by 2, 16 times
+        datagram[6] = (Value >> 8) & 0xff  # shift by 8 bits i.e. divide by 2, 8 times
+        datagram[7] = Value & 0xff # bitwise and with 0xff to get last 8 byte
 
         for i in range(8):         # generate checksum
             datagram[8] =  (datagram[8] + datagram[i]) & 0xff
