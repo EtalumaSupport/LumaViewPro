@@ -402,10 +402,10 @@ class TrinamicBoard:
         datagram[1] = self.cmnd[Command]
         datagram[2] = Type
         datagram[3] = self.axis[Motor]
-        datagram[4] = (Value >> 24)  & 0xff # shift by 24 bits i.e. divide by 2, 24 times
-        datagram[5] = (Value >> 16)  & 0xff # shift by 16 bits i.e. divide by 2, 16 times
-        datagram[6] = (Value >> 8)  & 0xff  # shift by 8 bits i.e. divide by 2, 8 times
-        datagram[7] = Value & 0xff # bitwise add with 0xff to get last 8 byte
+        datagram[4] = (Value >> 24) & 0xff # shift by 24 bits i.e. divide by 2, 24 times
+        datagram[5] = (Value >> 16) & 0xff # shift by 16 bits i.e. divide by 2, 16 times
+        datagram[6] = (Value >> 8) & 0xff  # shift by 8 bits i.e. divide by 2, 8 times
+        datagram[7] = Value & 0xff # bitwise and with 0xff to get last 8 byte
 
         for i in range(8):         # generate checksum
             datagram[8] =  (datagram[8] + datagram[i]) & 0xff
