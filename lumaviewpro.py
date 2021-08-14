@@ -639,8 +639,13 @@ class MainDisplay(FloatLayout):
 
             if protocol[layer]['acquire'] == True:
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
-                time.sleep(1)
-                # set the gain and expusure
+
+                # Wait for focus to be reached (approximate)
+                set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
+                get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
+                time.sleep(abs(set_value-get_value)/500)
+
+                # set the gain and exposure
                 gain = protocol[layer]['gain']
                 microscope.gain(gain)
                 exposure = protocol[layer]['exp']
@@ -984,8 +989,8 @@ class Histogram(Widget):
             lumaview.ids['viewer_id'].white = float(edges[1])/255.
 
             self.canvas.clear()
+            #Rectangle(self.x+5, self.y+5, self.width-10, self.height-10)
             r, b, g, a = self.bg_color
-            # print(bg_color)
             with self.canvas:
                 Color(r, b, g, a)
                 #self.color = Color(rgba=self.color)
@@ -1693,6 +1698,7 @@ class LumaViewProApp(App):
         lumaview.led_board.led_off()
         Window.minimum_width = 800
         Window.minimum_height = 600
+        Window.size = (1024, 768)
         return lumaview
 
     def on_stop(self):
