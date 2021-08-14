@@ -635,7 +635,7 @@ class MainDisplay(FloatLayout):
         folder = protocol['live_folder']
         img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
 
-        layers = ['BF', 'Green', 'Blue', 'Red']
+        layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             # multicolor image stack
 
@@ -675,6 +675,7 @@ class MainDisplay(FloatLayout):
                     img[:,:,1] = corrected
                 elif layer == 'Red':
                     img[:,:,2] = corrected
+                # This is where we add the brightfield
                 #else:
                     #img[:,:,2] = corrected
         img = np.flip(img, 0)
