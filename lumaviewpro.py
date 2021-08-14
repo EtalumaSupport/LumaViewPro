@@ -633,12 +633,13 @@ class MainDisplay(FloatLayout):
         folder = protocol['live_folder']
         img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
 
-        layers = ['BF', 'Blue', 'Green', 'Red']
+        layers = ['BF', 'Green', 'Blue', 'Red']
         for layer in layers:
             # multicolor image stack
 
             if protocol[layer]['acquire'] == True:
-                # lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
+                lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
+                time.sleep(1)
                 # set the gain and expusure
                 gain = protocol[layer]['gain']
                 microscope.gain(gain)
@@ -676,7 +677,7 @@ class MainDisplay(FloatLayout):
         # TODO save file in 16 bit TIFF, OMETIFF, and others
         microscope.stop()
         microscope.source = filename
-        time.sleep(10)
+        time.sleep(5) #Needs to be user selected
         microscope.start()
 
     def fit_image(self):
@@ -753,6 +754,9 @@ global gain_vals
 gain_vals = (1., )*4
 
 class ShaderViewer(Scatter):
+    black = ObjectProperty(0)
+    white = ObjectProperty(1)
+
     fs = StringProperty('''
 void main (void) {
 	gl_FragColor =
@@ -801,9 +805,10 @@ void main (void) {
         c['projection_mat'] = Window.render_context['projection_mat']
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
-        c['black_point'] = (0., )*4
+        c['black_point'] = (self.black, )*4
+        #c['black_point'] = (float(self.edges[0])/255., )*4
         # adjust for false color
-        c['white_point'] = gain_vals
+        c['white_point'] = (self.white, )*4 #*gain_vals
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -974,7 +979,9 @@ class Histogram(Widget):
         if camera.camera != False:
             image = camera.array
             hist = np.histogram(image, bins=256,range=(0,256))
-            # print(hist[0])
+            edges = np.histogram_bin_edges(image, bins=1)
+            lumaview.ids['viewer_id'].black = float(edges[0])/255.
+            lumaview.ids['viewer_id'].white = float(edges[1])/255.
 
             self.canvas.clear()
             r, b, g, a = self.bg_color
