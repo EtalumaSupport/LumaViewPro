@@ -675,7 +675,7 @@ class MainDisplay(FloatLayout):
                     img[:,:,1] = corrected
                 elif layer == 'Red':
                     img[:,:,2] = corrected
-                # This is where we add the brightfield
+                # TODO: Add Brightfield
                 #else:
                     #img[:,:,2] = corrected
         img = np.flip(img, 0)
@@ -842,7 +842,7 @@ class MotionSettings(BoxLayout):
         global lumaview
         microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
         microscope.stop()
-
+        self.ids['verticalcontrol_id'].update_gui()
         # move position of motion control
         if self.isOpen:
             self.ids['toggle_motionsettings'].state = 'normal'
@@ -1016,6 +1016,10 @@ class Histogram(Widget):
             print("Can't find image.")
 
 class VerticalControl(BoxLayout):
+    # def __init__(self, **kwargs):
+    #     super(VerticalControl, self).__init__(**kwargs)
+    #     self.update_gui()
+
     def course_up(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(10)           # 10 um
@@ -1048,14 +1052,14 @@ class VerticalControl(BoxLayout):
         self.update_gui()
 
     def update_gui(self):
-
+        global lumaview
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         pos = -lumaview.motion.z_ustep2um(set_value)
         self.ids['obj_position'].value = pos
         self.ids['set_position_id'].text = format(pos, '.3f')
 
         # timer to update current position until it reaches target
-        self.value_event = Clock.schedule_interval(self.compare, 0.2)
+        self.value_event = Clock.schedule_interval(self.compare, 0.5)
 
     def compare(self, dt):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
