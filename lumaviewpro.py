@@ -56,7 +56,7 @@ from kivy.properties import BoundedNumericProperty, ColorProperty, OptionPropert
 from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.animation import Animation
-from kivy.graphics import Line, Color
+from kivy.graphics import Line, Color, Rectangle
 
 # User Interface
 from kivy.uix.accordion import Accordion, AccordionItem
@@ -990,15 +990,24 @@ class Histogram(Widget):
             lumaview.ids['viewer_id'].white = float(edges[1])/255.
 
             self.canvas.clear()
-            #Rectangle(self.x+5, self.y+5, self.width-10, self.height-10)
+
             r, b, g, a = self.bg_color
+
             with self.canvas:
-                Color(r, b, g, a)
+                x = self.x
+                y = self.y
+                w = self.width
+                h = self.height
+                Color(r, b, g, a/12)
+                Rectangle(pos=(x, y), size=(256, h))
+                Color(r, b, g, a/4)
+                Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
+                Color(r, b, g, a/2)
                 #self.color = Color(rgba=self.color)
-                scale=(self.height-10)/np.max(hist[0])
+                scale=h/np.max(hist[0])
                 for i in range(len(hist[0])):
                     self.pos = self.pos
-                    self.line = Line(points=(self.x+i+10, self.y, self.x+i+10, self.y+scale*hist[0][i]), width=1)
+                    self.line = Line(points=(x+i, y, x+i, y+np.ceil(scale*hist[0][i])), width=1)
         else:
             print("Can't find image.")
 
