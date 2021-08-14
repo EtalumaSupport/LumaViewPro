@@ -599,7 +599,7 @@ class MainDisplay(FloatLayout):
             img[:,:,0] = microscope.array
             img[:,:,1] = microscope.array
             img[:,:,2] = microscope.array
-            
+
         img = np.flip(img, 0)
 
         folder = protocol['live_folder']
@@ -1711,7 +1711,6 @@ class LumaViewProApp(App):
         lumaview.led_board.led_off()
         Window.minimum_width = 800
         Window.minimum_height = 600
-        # Window.size = (1024, 768)
         return lumaview
 
     def on_stop(self):
