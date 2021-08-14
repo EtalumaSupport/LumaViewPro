@@ -808,7 +808,8 @@ void main (void) {
         c['black_point'] = (self.black, )*4
         #c['black_point'] = (float(self.edges[0])/255., )*4
         # adjust for false color
-        c['white_point'] = (self.white, )*4 #*gain_vals
+        # c['white_point'] = (self.white, )*4 #*gain_vals
+        c['white_point'] = self.white*gain_vals
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
