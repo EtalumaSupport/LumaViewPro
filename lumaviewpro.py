@@ -58,6 +58,9 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.animation import Animation
 from kivy.graphics import Line, Color, Rectangle
+# from kivy.config import Config
+# Config.set('graphics', 'width', '1920')
+# Config.set('graphics', 'height', '1080')
 
 # User Interface
 from kivy.uix.accordion import Accordion, AccordionItem
@@ -1714,6 +1717,7 @@ class TooltipToggleButton(ToggleButton, Tooltip):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def build(self):
+        Window.size = (1280, 1024)
         self.icon = './data/icon32x.png'
         global lumaview
         lumaview = MainDisplay()
@@ -1723,7 +1727,6 @@ class LumaViewProApp(App):
         lumaview.led_board.led_off()
         # Window.minimum_width = 800
         # Window.minimum_height = 600
-        # Window.size = (1024, 768)
         return lumaview
 
     def on_stop(self):
