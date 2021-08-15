@@ -1024,8 +1024,8 @@ class Histogram(Widget):
         else:
             print("Can't find image.")
 
-    def on_touch_move(self):
-        pass
+    # def on_touch_move(self):
+    #     pass
 
 
 class VerticalControl(BoxLayout):

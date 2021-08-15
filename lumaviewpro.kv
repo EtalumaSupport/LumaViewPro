@@ -256,6 +256,7 @@
 
 <VerticalControl>:
 	orientation: 'vertical'
+	padding: '5dp'
     spacing: '5dp'
 
     canvas:
@@ -365,19 +366,30 @@
 				halign: 'center'
 		        disabled: True
 			Label:
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '40dp'
+		spacing: '5dp'
+		Button:
+			text: 'Set Bookmark'
+			on_press: root.set_bookmark()
+		Button:
+			text: 'Go to Bookmark'
+			on_press: root.goto_bookmark()
 	Button:
-		text: 'Set Bookmark'
-		on_press: root.set_bookmark()
-	Button:
-		text: 'Go to Bookmark'
-		on_press: root.goto_bookmark()
-	Button:
+	    size_hint_y: None
+	    height: '40dp'
 		text: 'Home'
 		on_press: root.home()
 	Button:
+	    size_hint_y: None
+	    height: '40dp'
 		text: 'Autofocus'
 		on_press: root.autofocus()
 	Label:
+	    size_hint_y: None
+	    height: '40dp'
 		text: 'Z-Stack Stuff Here?'
 	Label:
 
@@ -722,12 +734,12 @@
         BoxLayout:
             orientation: 'horizontal'
         	size_hint_y: None
-			height: '40dp'
+			height: '30dp'
             Label:
                 text: 'Illumination (mA)'
                 halign: 'center'
                 valign: 'middle'
-                font_size: '14sp'
+                font_size: '12sp'
                 size_hint_x: None
                 width: '100dp'
             ModSlider:
@@ -745,7 +757,7 @@
             TextInput:
                 id: ill_text
                 size_hint_x: None
-                width: '40dp'
+                width: '30dp'
                 multiline: False
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
@@ -757,12 +769,12 @@
         BoxLayout:
             orientation: 'horizontal'
         	size_hint_y: None
-			height: '40dp'
+			height: '30dp'
             Label:
                 text: 'Gain (dB)'
                 halign: 'center'
                 valign: 'middle'
-                font_size: '14sp'
+                font_size: '12sp'
                 size_hint_x: None
                 width: '70dp'
             CheckBox:
@@ -786,7 +798,7 @@
             TextInput:
                 id: gain_text
                 size_hint_x: None
-                width: '40dp'
+                width: '30dp'
                 multiline: False
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
@@ -798,12 +810,12 @@
         BoxLayout:
             orientation: 'horizontal'
         	size_hint_y: None
-			height: '40dp'
+			height: '30dp'
             Label:
                 text: 'Exposure (ms)'
                 halign: 'center'
                 valign: 'middle'
-                font_size: '14sp'
+                font_size: '12sp'
                 size_hint_x: None
                 width: '100dp'
             ModSlider:
@@ -821,7 +833,7 @@
             TextInput:
                 id: exp_text
                 size_hint_x: None
-                width: '40dp'
+                width: '30dp'
                 multiline: False
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
@@ -868,16 +880,16 @@
         BoxLayout:
             orientation: 'horizontal'
         	size_hint_y: None
-			height: '40dp'
+			height: '30dp'
 			spacing: '5dp'
 			Button:
 	        	size_hint_y: None
-				height: '40dp'
+				height: '30dp'
 				text: 'Save Focus'
 				on_press: root.save_focus()
 			Button:
 	        	size_hint_y: None
-				height: '40dp'
+				height: '30dp'
 				text: 'Go to Focus'
 				on_press: root.goto_focus()
         # File Save Settings
@@ -888,13 +900,13 @@
         Button:
             id: folder_btn
         	size_hint_y: None
-			height: '40dp'
+			height: '30dp'
             text: 'Folder'
             on_press: root.choose_folder()
         TextInput:
             id: root_text
         	size_hint_y: None
-			height: '40dp'
+			height: '30dp'
             multiline: False
             text: 'File Root'
             padding: ['5dp', (self.height-self.line_height)/2]
@@ -906,7 +918,7 @@
 			padding: '5dp'
 			size_hint_y: None
 			height: '128dp'
-			on_touch_move: root.on_touch_move()
+			# on_touch_move: root.on_touch_move()
 		Label:
 
 <Histogram>:
