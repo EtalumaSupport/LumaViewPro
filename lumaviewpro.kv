@@ -369,22 +369,26 @@
 	BoxLayout:
 	    orientation: 'horizontal'
 	    size_hint_y: None
-	    height: '40dp'
+	    height: '30dp'
 		spacing: '5dp'
 		Button:
 			text: 'Set Bookmark'
+			font_size: '12sp'
 			on_press: root.set_bookmark()
 		Button:
 			text: 'Go to Bookmark'
+			font_size: '12sp'
 			on_press: root.goto_bookmark()
 	Button:
 	    size_hint_y: None
-	    height: '40dp'
+	    height: '30dp'
+		font_size: '12sp'
 		text: 'Home'
 		on_press: root.home()
 	Button:
 	    size_hint_y: None
-	    height: '40dp'
+	    height: '30dp'
+		font_size: '12sp'
 		text: 'Autofocus'
 		on_press: root.autofocus()
 	Label:
@@ -566,27 +570,27 @@
 <MicroscopeDropDown>:
 	Button:
 		text: 'LS460'
-		font_size: '14sp'
+		font_size: '12sp'
 		size_hint_y: None
-		height: '40dp'
+		height: '30dp'
 		on_release: root.select('LS460')
 	Button:
 		text: 'LS560'
-		font_size: '14sp'
+		font_size: '12sp'
 		size_hint_y: None
-		height: '40dp'
+		height: '30dp'
 		on_release: root.select('LS560')
 	Button:
 		text: 'LS620'
-		font_size: '14sp'
+		font_size: '12sp'
 		size_hint_y: None
-		height: '40dp'
+		height: '30dp'
 		on_release: root.select('LS620')
 	Button:
 		text: 'LS720'
-		font_size: '14sp'
+		font_size: '12sp'
 		size_hint_y: None
-		height: '40dp'
+		height: '30dp'
 		on_release: root.select('LS720')
 
 # ObjectiveDropDown - Drop down list for objective selection
@@ -595,21 +599,21 @@
 <ObjectiveDropDown>:
 	Button:
 		text: 'Objective A'
-		font_size: '14sp'
+		font_size: '12sp'
 		size_hint_y: None
-		height: '40dp'
+		height: '30dp'
 		on_release: root.select('Objective A')
 	Button:
 		text: 'Objective B'
-		font_size: '14sp'
+		font_size: '12sp'
 		size_hint_y: None
-		height: '40dp'
+		height: '30dp'
 		on_release: root.select('Objective B')
 	Button:
 		text: 'Objective C'
-		font_size: '14sp'
+		font_size: '12sp'
 		size_hint_y: None
-		height: '40dp'
+		height: '30dp'
 		on_release: root.select('Objective C')
 
 # MicroscopeSettings - Settings for  Microscope within MainSettings
@@ -629,23 +633,23 @@
 		id: select_scope_btn
 		orientation: 'horizontal'
 		size_hint_y: None
-		height: '40dp'
+		height: '30dp'
 
 	ObjectiveSelect:
 		id: select_obj_btn
 		orientation: 'horizontal'
 		size_hint_y: None
-		height: '40dp'
+		height: '30dp'
 
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
-        height: '40dp'
+        height: '30dp'
         Label:
             text: 'Magnification'
             size_hint_x: None
             width: '150dp'
-			font_size: '14sp'
+			font_size: '12sp'
         TextInput:
             id: magnification_id
             multiline: False
@@ -654,17 +658,17 @@
             input_filter: 'int'
             text: '40'
 			disabled: True
-			font_size: '14sp'
+			font_size: '12sp'
 
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
-        height: '40dp'
+        height: '30dp'
         Label:
             text: 'Field of View'
             size_hint_x: None
             width: '150dp'
-			font_size: '14sp'
+			font_size: '12sp'
         TextInput:
             id: FOV_id
             multiline: False
@@ -673,17 +677,17 @@
             # input_filter: 'int'
             text: 'tbd'
 			disabled: True
-			font_size: '14sp'
+			font_size: '12sp'
 
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
-        height: '40dp'
+        height: '30dp'
         Label:
             text: 'Frame Size'
             size_hint_x: None
             width: '150dp'
-			font_size: '14sp'
+			font_size: '12sp'
         TextInput:
             id: frame_width
             multiline: False
@@ -692,12 +696,12 @@
             input_filter: 'int'
             text: '2592'
             on_text_validate: root.frame_size()
-			font_size: '14sp'
+			font_size: '12sp'
         Label:
             text: 'x'
             size_hint_x: None
             width: '15dp'
-			font_size: '14sp'
+			font_size: '12sp'
 			halign: 'center'
         TextInput:
             id: frame_height
@@ -707,7 +711,7 @@
             input_filter: 'int'
             text: '1944'
             on_text_validate: root.frame_size()
-			font_size: '14sp'
+			font_size: '12sp'
     Image:
         id: image_of_microscope
         source: './data/scopes/LS620.png'
@@ -757,7 +761,7 @@
             TextInput:
                 id: ill_text
                 size_hint_x: None
-                width: '30dp'
+                width: '35dp'
                 multiline: False
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
@@ -798,7 +802,7 @@
             TextInput:
                 id: gain_text
                 size_hint_x: None
-                width: '30dp'
+                width: '35dp'
                 multiline: False
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
@@ -833,7 +837,7 @@
             TextInput:
                 id: exp_text
                 size_hint_x: None
-                width: '30dp'
+                width: '35dp'
                 multiline: False
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
@@ -851,12 +855,15 @@
                 id: apply_btn
                 halign: 'center'
                 valign: 'middle'
+				size_hint: None, None
+				size: '33dp', '20dp'
 				border: 0, 0, 0, 0
 				background_normal: './data/ToggleL.png'
 				background_down: './data/ToggleR.png'
                 on_release: root.apply_settings()
             Label:
                 id: false_color_label
+				font_size: '12sp'
                 text: 'Colorize'
                 halign: 'center'
                 valign: 'middle'
@@ -868,6 +875,7 @@
                 on_release: root.false_color()
             Label:
                 text: 'Acquire'
+				font_size: '12sp'
                 halign: 'center'
                 valign: 'middle'
             CheckBox:
@@ -885,11 +893,13 @@
 			Button:
 	        	size_hint_y: None
 				height: '30dp'
+				font_size: '12sp'
 				text: 'Save Focus'
 				on_press: root.save_focus()
 			Button:
 	        	size_hint_y: None
 				height: '30dp'
+				font_size: '12sp'
 				text: 'Go to Focus'
 				on_press: root.goto_focus()
         # File Save Settings
@@ -901,12 +911,14 @@
             id: folder_btn
         	size_hint_y: None
 			height: '30dp'
+			font_size: '12sp'
             text: 'Folder'
             on_press: root.choose_folder()
         TextInput:
             id: root_text
         	size_hint_y: None
 			height: '30dp'
+			font_size: '12sp'
             multiline: False
             text: 'File Root'
             padding: ['5dp', (self.height-self.line_height)/2]
@@ -945,12 +957,12 @@
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
-        height: '40dp'
+        height: '30dp'
         Label:
             text: 'Capture Period'
             size_hint_x: None
             width: '130dp'
-			font_size: '14sp'
+			font_size: '12sp'
         TextInput:
             id: capture_period
             multiline: False
@@ -964,17 +976,17 @@
             text: 'min'
             size_hint_x: None
             width: '60dp'
-			font_size: '14sp'
+			font_size: '12sp'
 
     BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
-        height: '40dp'
+        height: '30dp'
         Label:
             text: 'Capture Duration'
             size_hint_x: None
             width: '130dp'
-			font_size: '14sp'
+			font_size: '12sp'
         TextInput:
             id: capture_dur
             multiline: False
@@ -988,22 +1000,25 @@
             text: 'hrs'
             size_hint_x: None
             width: '60dp'
-			font_size: '14sp'
+			font_size: '12sp'
     Button:
         text: 'Load Protocol'
         size_hint_y: None
-        height: '40dp'
+        height: '30dp'
+		font_size: '12sp'
         on_press: root.load_protocol()
     Button:
         text: 'Save Protocol'
         size_hint_y: None
-        height: '40dp'
+        height: '30dp'
+		font_size: '12sp'
         on_press: root.save_protocol()
     ToggleButton:
         id: protocol_btn
         text: 'Run Protocol'
         size_hint_y: None
-        height: '40dp'
+        height: '30dp'
+		font_size: '12sp'
         on_press: root.run_protocol()
     # Button:
     #     id: movie_btn
@@ -1023,10 +1038,12 @@
 			path: root.path
         BoxLayout:
             size_hint_y: None
-            height: '40dp'
+            height: '30dp'
             Button:
                 text: "Cancel"
+				font_size: '12sp'
                 on_release: root.cancel()
             Button:
                 text: "Select"
+				font_size: '12sp'
                 on_release: root.load(filechooser.path)

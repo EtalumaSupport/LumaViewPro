@@ -1177,9 +1177,9 @@ class ScopeSelect(BoxLayout):
 
         # Create label and button here so DropDown menu works properly
         self.mainlabel = Label(text = 'Lumascope Model',
-                               size_hint_x = None, width = '150dp', font_size = '14sp')
+                               size_hint_x = None, width = '150dp', font_size = '12sp')
         self.mainbutton = Button(text = self.scope_str,
-                                 size_hint_y = None, height = '40dp')
+                                 size_hint_y = None, height = '30dp')
 
         # Group widgets together
         self.dropdown = MicroscopeDropDown()
@@ -1220,9 +1220,9 @@ class ObjectiveSelect(BoxLayout):
 
         # Create label and button here so DropDown menu works properly
         self.mainlabel = Label(text = 'Objective',
-                               size_hint_x = None, width = '150dp', font_size = '14sp')
+                               size_hint_x = None, width = '150dp', font_size = '12sp')
         self.mainbutton = Button(text = self.objective_str,
-                                 size_hint_y = None, height = '40dp')
+                                 size_hint_y = None, height = '30dp')
 
         # Group widgets together
         self.dropdown = ObjectiveDropDown()
