@@ -1050,14 +1050,14 @@ class VerticalControl(BoxLayout):
         self.update_gui()
 
     def update_gui(self):
-
+        global lumaview
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         pos = -lumaview.motion.z_ustep2um(set_value)
         self.ids['obj_position'].value = pos
         self.ids['set_position_id'].text = format(pos, '.3f')
 
         # timer to update current position until it reaches target
-        self.value_event = Clock.schedule_interval(self.compare, 0.2)
+        self.value_event = Clock.schedule_interval(self.compare, 0.5)
 
     def compare(self, dt):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
@@ -1518,15 +1518,13 @@ class TimeLapseSettings(BoxLayout):
                 led_board = lumaview.led_board
                 led_board.led_on(led_board.color2ch(layer), illumination)
 
-                # Wait the delay
-                time.sleep(50/1000)
-
                 # capture the image
                 save_folder = protocol[layer]['save_folder']
                 file_root = protocol[layer]['file_root']
                 lumaview.capture(0, save_folder, file_root, color = layer)
                 # turn off the LED
                 led_board.led_off()
+            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
     def convert_to_avi(self):
 
@@ -1712,9 +1710,9 @@ class LumaViewProApp(App):
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/protocol.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
-        Window.minimum_width = 800
-        Window.minimum_height = 600
-        Window.size = (1024, 768)
+        # Window.minimum_width = 800
+        # Window.minimum_height = 600
+        # Window.size = (1024, 768)
         return lumaview
 
     def on_stop(self):
