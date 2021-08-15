@@ -418,6 +418,9 @@
 	Label:
 
 <XYStageControl>:
+	orientation: 'vertical'
+	padding: '5dp'
+	spacing: '5dp'
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
@@ -426,6 +429,7 @@
             pos: self.pos
 	RelativeLayout:
 		size_hint_y: None
+		# pos_hint: {'center_x': 0.5, 'center_y': 0.5}
 		height: '300dp'
 	    Button: # COURSE BACK
 			border: 0, 0, 0, 0
@@ -497,6 +501,63 @@
 			background_normal: './data/RR_normal.png'
 			background_down: './data/RR_down.png'
 			on_press: root.course_right()
+	BoxLayout:
+		orientation: 'horizontal'
+		spacing: '5dp'
+		size_hint_y: None
+		height: '30dp'
+		Label:
+	        height: '30dp'
+	        font_size: '12sp'
+			text: 'X: (mm)'
+		TextInput:
+        	multiline: False
+	        size_hint_y: None
+	        height: '30dp'
+	        font_size: '12sp'
+			halign: 'center'
+        	input_filter: 'float'
+	        text: ''
+            # on_text_validate: root.set_position(self.text)
+		Label:
+	        height: '30dp'
+	        font_size: '12sp'
+			text: 'Y: (mm)'
+		TextInput:
+        	multiline: False
+	        size_hint_y: None
+	        height: '30dp'
+	        font_size: '12sp'
+			halign: 'center'
+        	input_filter: 'float'
+	        text: ''
+            # on_text_validate: root.set_position(self.text)	Label:
+	BoxLayout:
+		orientation: 'horizontal'
+		spacing: '5dp'
+		size_hint_y: None
+		height: '30dp'
+		Button:
+	        height: '30dp'
+	        font_size: '12sp'
+			text: 'Set X'
+			on_press: root.set_xbookmark()
+		Button:
+	        height: '30dp'
+	        font_size: '12sp'
+	        text: 'Go to X'
+			on_press: root.goto_xbookmark()
+		Button:
+	        height: '30dp'
+	        font_size: '12sp'
+			text: 'Set Y'
+			on_press: root.set_ybookmark()
+		Button:
+	        height: '30dp'
+	        font_size: '12sp'
+	        text: 'Go to Y'
+			on_press: root.goto_ybookmark()
+	Label:
 
 # MainSettings - view and edit control accordian
 # ------------------------------------------
