@@ -998,7 +998,7 @@ class Histogram(Widget):
             image = camera.array
             hist = np.histogram(image, bins=256,range=(0,256))
             edges = np.histogram_bin_edges(image, bins=1)
-            mean = np.mean(hist[1],hist[0])
+            # mean = np.mean(hist[1],hist[0])
             lumaview.ids['viewer_id'].black = float(edges[0])/255.
             lumaview.ids['viewer_id'].white = float(edges[1])/255.
 
@@ -1024,7 +1024,7 @@ class Histogram(Widget):
         else:
             print("Can't find image.")
 
-    def on_touch_move(self, touch):
+    def on_touch_move(self):
         pass
 
 
@@ -1065,7 +1065,7 @@ class VerticalControl(BoxLayout):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         pos = -lumaview.motion.z_ustep2um(set_value)
         self.ids['obj_position'].value = pos
-        self.ids['set_position_id'].text = format(pos, '.3f')
+        self.ids['set_position_id'].text = format(pos, '.2f')
 
         # timer to update current position until it reaches target
         self.value_event = Clock.schedule_interval(self.compare, 0.5)
@@ -1074,7 +1074,7 @@ class VerticalControl(BoxLayout):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
         pos = -lumaview.motion.z_ustep2um(get_value)
-        self.ids['get_position_id'].text = format(pos, '.3f')
+        self.ids['get_position_id'].text = format(pos, '.2f')
         if set_value == get_value:
             Clock.unschedule(self.value_event)
 
