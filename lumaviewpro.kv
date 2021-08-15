@@ -268,7 +268,7 @@
 	BoxLayout:
 		orientation: 'horizontal'
 		size_hint_y: None
-		height: '220dp'
+		height: '180dp'
 		BoxLayout:
 		    orientation: 'vertical'
 		    size_hint_x: None
@@ -280,7 +280,7 @@
 		        id: fast_up
 				border: 0, 0, 0, 0
 		        size_hint: None, None
-		        size: '40dp', '53dp'
+		        size: '30dp', '40dp'
 				background_normal: './data/UU_normal.png'
 				background_down: './data/UU_down.png'
 				on_press: root.course_up()
@@ -288,7 +288,7 @@
 		        id: slow_up
 				border: 0, 0, 0, 0
 		        size_hint: None, None
-		        size: '40dp', '40dp'
+		        size: '30dp', '30dp'
 				background_normal: './data/U_normal.png'
 				background_down: './data/U_down.png'
 				on_press: root.fine_up()
@@ -296,7 +296,7 @@
 		        id: slow_down
 				border: 0, 0, 0, 0
 		        size_hint: None, None
-		        size: '40dp', '40dp'
+		        size: '30dp', '30dp'
 				background_normal: './data/D_normal.png'
 				background_down: './data/D_down.png'
 				on_press: root.fine_down()
@@ -304,16 +304,18 @@
 		        id: fast_down
 				border: 0, 0, 0, 0
 		        size_hint: None, None
-		        size: '40dp', '53dp'
+		        size: '30dp', '40dp'
 				background_normal: './data/DD_normal.png'
 				background_down: './data/DD_down.png'
 				on_press: root.course_down()
 		    Label:
 		BoxLayout:
 			orientation: 'vertical'
+			size_hint_x: None
+			width: '40dp'
 			Label:
 				size_hint_y: None
-				height: '30dp'
+				height: '15dp'
 		    ModSlider:
 		        id: obj_position
 		        orientation: 'vertical'
@@ -321,7 +323,7 @@
 		        max: 12000.
 		        value: 0.
 				step: 0.01
-		        cursor_size: '45dp','60dp'
+		        cursor_size: '30dp','40dp'
 		        cursor_image: './data/objective.png'
 		        cursor_disabled_image: './data/objective.png'
 		        value_track: True
@@ -331,17 +333,25 @@
 				on_release: root.set_position(self.value)
 			Label:
 				size_hint_y: None
-				height: '30dp'
+				height: '15dp'
 
 		BoxLayout:
 		    orientation: 'vertical'
 		    padding: '5dp'
+			spacing: '5dp'
 			Label:
 		    Label:
 		        size_hint_y: None
-		        height: '50dp'
-				halign: 'left'
-		        text: 'Z-Position\nTarget (um)'
+		        height: '15dp'
+				halign: 'center'
+		        font_size: '12sp'
+		        text: 'Z-Position'
+		    Label:
+		        size_hint_y: None
+		        height: '15dp'
+				halign: 'center'
+		        font_size: '12sp'
+		        text: 'Target (um)'
 		    TextInput:
 				id: set_position_id
             	multiline: False
@@ -352,11 +362,21 @@
             	input_filter: 'float'
 		        text: format(obj_position.value, '.2f')
                 on_text_validate: root.set_position(self.text)
+			Label:
+		        size_hint_y: None
+		        height: '10dp'
 		    Label:
 		        size_hint_y: None
-		        height: '50dp'
-				halign: 'left'
-		        text: 'Z-Position\nCurrent (um)'
+		        height: '15dp'
+				halign: 'center'
+		        font_size: '12sp'
+		        text: 'Z-Position'
+		    Label:
+		        size_hint_y: None
+		        height: '15dp'
+				halign: 'center'
+		        font_size: '12sp'
+		        text: 'Current (um)'
 		    TextInput:
 				id: get_position_id
             	multiline: False
@@ -399,101 +419,144 @@
 
 <XYStageControl>:
 	orientation: 'vertical'
-    spacing: '5dp'
+	padding: '5dp'
+	spacing: '5dp'
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
         Rectangle:
             size: self.size
             pos: self.pos
-	BoxLayout:
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '50dp'
-	    padding: '5dp'
-	    spacing: '5dp'
-	    Label:
-			size_hint_x: None
-			width: '40dp'
-	    Button:
-	        id: fast_up
+	RelativeLayout:
+		size_hint_y: None
+		# pos_hint: {'center_x': 0.5, 'center_y': 0.5}
+		height: '300dp'
+	    Button: # COURSE BACK
 			border: 0, 0, 0, 0
 	        size_hint: None, None
-	        size: '53dp', '40dp'
-			background_normal: './data/LL_normal.png'
-			background_down: './data/LL_down.png'
-			on_press: root.course_left()
-	    Button:
-	        id: slow_up
+	        size: '30dp', '40dp'
+			pos_hint: {'center_x': 0.5, 'center_y': 0.8}
+			background_normal: './data/UU_normal.png'
+			background_down: './data/UU_down.png'
+			on_press: root.course_back()
+	    Button: # FINE BACK
 			border: 0, 0, 0, 0
 	        size_hint: None, None
-	        size: '40dp', '40dp'
-			background_normal: './data/L_normal.png'
-			background_down: './data/L_down.png'
-			on_press: root.fine_left()
-	    Button:
-	        id: slow_down
+	        size: '30dp', '30dp'
+			pos_hint: {'center_x': 0.5, 'center_y': 0.65}
+			background_normal: './data/U_normal.png'
+			background_down: './data/U_down.png'
+			on_press: root.fine_back()
+	    Button: # FINE FORWARD
 			border: 0, 0, 0, 0
 	        size_hint: None, None
-	        size: '40dp', '40dp'
-			background_normal: './data/R_normal.png'
-			background_down: './data/R_down.png'
-			on_press: root.fine_right()
-	    Button:
+	        size: '30dp', '30dp'
+			pos_hint: {'center_x': 0.5, 'center_y': 0.35}
+			background_normal: './data/D_normal.png'
+			background_down: './data/D_down.png'
+			on_press: root.fine_fwd()
+	    Button: # COURSE FORWARD
 	        id: fast_down
 			border: 0, 0, 0, 0
 	        size_hint: None, None
-	        size: '53dp', '40dp'
+	        size: '30dp', '40dp'
+			pos_hint: {'center_x': 0.5, 'center_y': 0.2}
+			background_normal: './data/DD_normal.png'
+			background_down: './data/DD_down.png'
+			on_press: root.course_fwd()
+
+
+	    Button: # COURSE LEFT
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '40dp', '30dp'
+			pos_hint: {'center_x': 0.2, 'center_y': 0.5}
+			background_normal: './data/LL_normal.png'
+			background_down: './data/LL_down.png'
+			on_press: root.course_left()
+	    Button: # FINE LEFT
+	        id: slow_up
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '30dp', '30dp'
+			pos_hint: {'center_x': 0.35, 'center_y': 0.5}
+			background_normal: './data/L_normal.png'
+			background_down: './data/L_down.png'
+			on_press: root.fine_left()
+	    Button: # FINE RIGHT
+	        id: slow_down
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '30dp', '30dp'
+			pos_hint: {'center_x': 0.65, 'center_y': 0.5}
+			background_normal: './data/R_normal.png'
+			background_down: './data/R_down.png'
+			on_press: root.fine_right()
+	    Button: # COURSE RIGHT
+	        id: fast_down
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '40dp', '30dp'
+			pos_hint: {'center_x': 0.8, 'center_y': 0.5}
 			background_normal: './data/RR_normal.png'
 			background_down: './data/RR_down.png'
 			on_press: root.course_right()
-		Label:
-
 	BoxLayout:
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '210dp'
-		BoxLayout:
-		    orientation: 'vertical'
-		    size_hint_x: None
-		    width: '40dp'
-		    padding: '5dp'
-		    spacing: '5dp'
-		    Button:
-		        id: fast_up
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '40dp', '53dp'
-				background_normal: './data/UU_normal.png'
-				background_down: './data/UU_down.png'
-				on_press: root.course_back()
-		    Button:
-		        id: slow_up
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '40dp', '40dp'
-				background_normal: './data/U_normal.png'
-				background_down: './data/U_down.png'
-				on_press: root.fine_back()
-		    Button:
-		        id: slow_down
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '40dp', '40dp'
-				background_normal: './data/D_normal.png'
-				background_down: './data/D_down.png'
-				on_press: root.fine_fwd()
-		    Button:
-		        id: fast_down
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '40dp', '53dp'
-				background_normal: './data/DD_normal.png'
-				background_down: './data/DD_down.png'
-				on_press: root.course_fwd()
-			Label:
+		orientation: 'horizontal'
+		spacing: '5dp'
+		size_hint_y: None
+		height: '30dp'
 		Label:
-			text: 'Should be the plate'
+	        height: '30dp'
+	        font_size: '12sp'
+			text: 'X: (mm)'
+		TextInput:
+        	multiline: False
+	        size_hint_y: None
+	        height: '30dp'
+	        font_size: '12sp'
+			halign: 'center'
+        	input_filter: 'float'
+	        text: ''
+            # on_text_validate: root.set_position(self.text)
+		Label:
+	        height: '30dp'
+	        font_size: '12sp'
+			text: 'Y: (mm)'
+		TextInput:
+        	multiline: False
+	        size_hint_y: None
+	        height: '30dp'
+	        font_size: '12sp'
+			halign: 'center'
+        	input_filter: 'float'
+	        text: ''
+            # on_text_validate: root.set_position(self.text)	Label:
+	BoxLayout:
+		orientation: 'horizontal'
+		spacing: '5dp'
+		size_hint_y: None
+		height: '30dp'
+		Button:
+	        height: '30dp'
+	        font_size: '12sp'
+			text: 'Set X'
+			on_press: root.set_xbookmark()
+		Button:
+	        height: '30dp'
+	        font_size: '12sp'
+	        text: 'Go to X'
+			on_press: root.goto_xbookmark()
+		Button:
+	        height: '30dp'
+	        font_size: '12sp'
+			text: 'Set Y'
+			on_press: root.set_ybookmark()
+		Button:
+	        height: '30dp'
+	        font_size: '12sp'
+	        text: 'Go to Y'
+			on_press: root.goto_ybookmark()
 	Label:
 
 # MainSettings - view and edit control accordian
@@ -741,7 +804,7 @@
 			height: '30dp'
             Label:
                 text: 'Illumination (mA)'
-                halign: 'center'
+                halign: 'left'
                 valign: 'middle'
                 font_size: '12sp'
                 size_hint_x: None
@@ -761,7 +824,7 @@
             TextInput:
                 id: ill_text
                 size_hint_x: None
-                width: '35dp'
+                width: '45dp'
                 multiline: False
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
@@ -776,7 +839,7 @@
 			height: '30dp'
             Label:
                 text: 'Gain (dB)'
-                halign: 'center'
+                halign: 'left'
                 valign: 'middle'
                 font_size: '12sp'
                 size_hint_x: None
@@ -802,7 +865,7 @@
             TextInput:
                 id: gain_text
                 size_hint_x: None
-                width: '35dp'
+                width: '45dp'
                 multiline: False
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
@@ -817,17 +880,22 @@
 			height: '30dp'
             Label:
                 text: 'Exposure (ms)'
-                halign: 'center'
+                halign: 'left'
                 valign: 'middle'
                 font_size: '12sp'
                 size_hint_x: None
                 width: '100dp'
             ModSlider:
                 id: exp_slider
-                min: -2. # minimum allowable by camera 10.0 us = 0.01 ms -> 10^-2 log-10 scale
-                max: 3. # maximum, allowable by camera 1000000.0 us = 1000.0 ms -> 10^3 -> 10^-2 log-10 scale
-                value: 2. # 10^2 -> 100 ms exposure
+                min: 0.01
+                max: 1000. # values are in ms
+                value: 100.
 				step: 0.01
+				# # This was to create a log scale
+                # min: -2. # minimum allowable by camera 10.0 us = 0.01 ms -> 10^-2 log-10 scale
+                # max: 3. # maximum, allowable by camera 1000000.0 us = 1000.0 ms -> 10^3 -> 10^-2 log-10 scale
+                # value: 2. # 10^2 -> 100 ms exposure
+				# step: 0.01
                 cursor_size: '20dp','20dp'
                 cursor_image: './data/slider_cursor.png'
 				track_width: 5
@@ -838,13 +906,14 @@
             TextInput:
                 id: exp_text
                 size_hint_x: None
-                width: '35dp'
+                width: '45dp'
                 multiline: False
                 font_size: '12sp'
                 padding: ['4dp', (self.height-self.line_height)/2]
                 halign: 'right'
                 input_filter: 'float'
-                text: format(10 ** exp_slider.value, '.3g')
+                text: format(exp_slider.value, '.4g')
+                # text: format(10 ** exp_slider.value, '.3g')
                 on_text_validate: root.exp_text()
 
         # bulk settings
@@ -852,6 +921,12 @@
             orientation: 'horizontal'
         	size_hint_y: None
 			height: '30dp'
+            Label:
+                id: false_color_label
+				font_size: '12sp'
+                text: 'LED'
+                halign: 'left'
+                valign: 'middle'
 			BoxLayout:
 				orientation: 'vertical'
 				Label:
@@ -969,6 +1044,8 @@
         TextInput:
             id: capture_period
             multiline: False
+		    size_hint_y: None
+		    height: '30dp'
             font_size: '12sp'
             padding: ['4dp', (self.height-self.line_height)/2]
             halign: 'right'
@@ -993,6 +1070,8 @@
         TextInput:
             id: capture_dur
             multiline: False
+	        size_hint_y: None
+	        height: '30dp'
             font_size: '12sp'
             padding: ['4dp', (self.height-self.line_height)/2]
             halign: 'right'
@@ -1004,6 +1083,11 @@
             size_hint_x: None
             width: '60dp'
 			font_size: '12sp'
+	# BoxLayout:
+	# 	orientation: 'horizontal'
+    #     size_hint_y: None
+    #     height: '30dp'
+	# 	spacing: '5dp'
     Button:
         text: 'Load Protocol'
         size_hint_y: None
@@ -1029,14 +1113,14 @@
     #     height: 40
     #     text: 'Convert to AVI'
     #     on_release: root.convert_to_avi()
-    BoxLayout:
+    Label:
 
 <LoadDialog>:
     BoxLayout:
         size: root.size
         pos: root.pos
         orientation: "vertical"
-        FileChooserListView:
+        FileChooserIconView:
             id: filechooser
 			path: root.path
         BoxLayout:
