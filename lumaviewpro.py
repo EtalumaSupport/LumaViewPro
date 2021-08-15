@@ -992,6 +992,7 @@ class Histogram(Widget):
             self.bg_color = (1, 1, 1, 1)
 
         self.event = Clock.schedule_interval(self.histogram,0.1)
+        self.hist_range_set = False
 
     def histogram(self, *args):
         global lumaview
@@ -1000,15 +1001,18 @@ class Histogram(Widget):
         if camera.camera != False:
             image = camera.array
             hist = np.histogram(image, bins=256,range=(0,256))
-            edges = np.histogram_bin_edges(image, bins=1)
+            if self.hist_range_set:
+                edges = self.edges
+            else:
+                edges = np.histogram_bin_edges(image, bins=1)
             # mean = np.mean(hist[1],hist[0])
             lumaview.ids['viewer_id'].black = float(edges[0])/255.
             lumaview.ids['viewer_id'].white = float(edges[1])/255.
 
             self.canvas.clear()
-
             r, b, g, a = self.bg_color
-
+            self.hist = hist
+            self.edges = edges
             with self.canvas:
                 x = self.x
                 y = self.y
@@ -1028,7 +1032,25 @@ class Histogram(Widget):
             print("Can't find image.")
 
     def on_touch_down(self, touch):
-         pass
+        x = touch.x - self.x
+        print(x)
+        if abs(x - self.edges[0]) < 20:
+            self.edges[0] = x
+            self.hist_range_set = True
+        if abs(x - self.edges[1]) < 20:
+            self.edges[1] = x
+            self.hist_range_set = True
+        '''if touch.is_mouse_scrolling:
+            if touch.button == 'scrolldown':
+                if self.scale < 100:
+                    self.scale = self.scale * 1.1
+            elif touch.button == 'scrollup':
+                if self.scale > 0.1:
+                    self.scale = self.scale * 0.8
+                    '''
+        # If some other kind of "touch": Fall back on Scatter's behavior
+        #else:
+            #super(ShaderViewer, self).on_touch_down(touch)
 
 
 class VerticalControl(BoxLayout):
