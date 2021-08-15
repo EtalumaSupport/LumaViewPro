@@ -1028,29 +1028,29 @@ class Histogram(Widget):
                 for i in range(len(hist[0])):
                     self.pos = self.pos
                     self.line = Line(points=(x+i, y, x+i, y+np.ceil(scale*hist[0][i])), width=1)
-        else:
-            print("Can't find image.")
+        # else:
+        #     print("Can't find image.")
 
-    def on_touch_down(self, touch):
-        x = touch.x - self.x
-        print(x)
-        if abs(x - self.edges[0]) < 20:
-            self.edges[0] = x
-            self.hist_range_set = True
-        if abs(x - self.edges[1]) < 20:
-            self.edges[1] = x
-            self.hist_range_set = True
-        '''if touch.is_mouse_scrolling:
-            if touch.button == 'scrolldown':
-                if self.scale < 100:
-                    self.scale = self.scale * 1.1
-            elif touch.button == 'scrollup':
-                if self.scale > 0.1:
-                    self.scale = self.scale * 0.8
-                    '''
-        # If some other kind of "touch": Fall back on Scatter's behavior
-        #else:
-            #super(ShaderViewer, self).on_touch_down(touch)
+    # def on_touch_down(self, touch):
+    #     x = touch.x - self.x
+    #     print(x)
+    #     if abs(x - self.edges[0]) < 20:
+    #         self.edges[0] = x
+    #         self.hist_range_set = True
+    #     if abs(x - self.edges[1]) < 20:
+    #         self.edges[1] = x
+    #         self.hist_range_set = True
+    #     '''if touch.is_mouse_scrolling:
+    #         if touch.button == 'scrolldown':
+    #             if self.scale < 100:
+    #                 self.scale = self.scale * 1.1
+    #         elif touch.button == 'scrollup':
+    #             if self.scale > 0.1:
+    #                 self.scale = self.scale * 0.8
+    #                 '''
+    #     # If some other kind of "touch": Fall back on Scatter's behavior
+    #     #else:
+    #         #super(ShaderViewer, self).on_touch_down(touch)
 
 
 class VerticalControl(BoxLayout):
@@ -1126,7 +1126,7 @@ class VerticalControl(BoxLayout):
         return
 
 
-class XYStageControl(BoxLayout):
+class XYStageControl(RelativeLayout):
     def course_left(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'X', -10000)  # Move LEFT relative by 10000
@@ -1330,7 +1330,8 @@ class LayerControl(BoxLayout):
             print('Gain value is not in acceptable range of 0 to 24 dB.')
 
     def exp_slider(self):
-        exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
+        exposure = self.ids['exp_slider'].value
+        # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         protocol[self.layer]['exp'] = exposure        # protocol is ms
         self.apply_settings()
 
@@ -1338,7 +1339,8 @@ class LayerControl(BoxLayout):
         try:
             exposure = float(self.ids['exp_text'].text)
             protocol[self.layer]['exp'] = exposure
-            self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
+            self.ids['exp_slider'].value = exposure
+            # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
             self.apply_settings()
         except:
             print('Exposure value is not in acceptable range of 0.01 to 1000ms.')
@@ -1493,7 +1495,8 @@ class TimeLapseSettings(BoxLayout):
             for layer in layers:
                 lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
+                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
+                # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
                 if len(protocol[layer]['save_folder']) > 30:
                     lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '... ' + protocol[layer]['save_folder'][-30:]
                 else:
@@ -1751,7 +1754,7 @@ class TooltipToggleButton(ToggleButton, Tooltip):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def build(self):
-        Window.size = (1280, 1024)
+        Window.size = (1280, 800)
         self.icon = './data/icon32x.png'
         global lumaview
         lumaview = MainDisplay()
