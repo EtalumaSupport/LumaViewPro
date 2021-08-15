@@ -634,7 +634,7 @@ class MainDisplay(FloatLayout):
         folder = protocol['live_folder']
         img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
 
-        layers = ['BF', 'Blue', 'Green', 'Red']
+        layers = ['BF', 'Green', 'Blue', 'Red']
         for layer in layers:
             # multicolor image stack
 
@@ -1014,7 +1014,7 @@ class Histogram(Widget):
             print("Can't find image.")
 
     def on_touch_move(self, touch):
-
+        pass
 
 
 class VerticalControl(BoxLayout):
