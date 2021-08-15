@@ -1163,6 +1163,16 @@ class XYStageControl(BoxLayout):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'Y', 10000)  # Move FORWARD by 10000
 
+    def set_xposition(self, pos):
+        global lumaview
+        usteps = -lumaview.motion.xy_um2ustep(float(pos))   # position on slider is in mm
+        lumaview.motion.SendGram('MVP', 0, 'X', usteps)  # Move to absolute position
+
+    def set_yposition(self, pos):
+        global lumaview
+        usteps = -lumaview.motion.xy_um2ustep(float(pos))   # position on slider is in mm
+        lumaview.motion.SendGram('MVP', 0, 'Y', usteps)  # Move to absolute position
+
     def set_xbookmark(self):
         global lumaview
         usteps = lumaview.motion.SendGram('GAP', 1, 'X', 0)  # Get current x position in usteps
