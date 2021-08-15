@@ -18,43 +18,43 @@
         "ill": 100.0,
         "gain": 0.0,
         "gain_auto": false,
-        "exp": 100.0,
+        "exp": 0.08317637711026708,
         "false_color": false,
         "acquire": true,
-        "focus": 0.0
+        "focus": 3218.76266899815
     },
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 600.0,
-        "gain": 16.1,
+        "ill": 435.0,
+        "gain": 4.6000000000000005,
         "gain_auto": false,
         "exp": 100.0,
         "false_color": true,
         "acquire": true,
-        "focus": 3217.88429061975
+        "focus": 3207.6182433221998
     },
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 575.0,
-        "gain": 13.600000000000001,
+        "ill": 350.0,
+        "gain": 9.0,
         "gain_auto": false,
-        "exp": 123.02687708123811,
+        "exp": 150.0,
         "false_color": true,
         "acquire": true,
-        "focus": -3240.5574325122
+        "focus": 3210.3631757547
     },
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
         "ill": 600.0,
-        "gain": 24.0,
+        "gain": 18.0,
         "gain_auto": false,
-        "exp": 200.0,
+        "exp": 400.0,
         "false_color": true,
         "acquire": true,
-        "focus": -3240.5574325122
+        "focus": 3198.34037170035
     },
     "Composite": {
         "acquire": false
