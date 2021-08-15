@@ -601,6 +601,8 @@ class MainDisplay(FloatLayout):
             img[:,:,1] = microscope.array
             img[:,:,2] = microscope.array
 
+        img = np.flip(img, 0)
+
         folder = protocol['live_folder']
 
         # set filename options
@@ -674,17 +676,25 @@ class MainDisplay(FloatLayout):
                     img[:,:,1] = corrected
                 elif layer == 'Red':
                     img[:,:,2] = corrected
-                #else:
-                    #img[:,:,2] = corrected
+                # TODO: Add Brightfield
+                # else:
+                #     img[:,:,2] = corrected
 
-        led_board.led_off()
+            led_board.led_off()
+            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+
+        img = np.flip(img, 0)
+
+
         filename = 'composite_' + str(int(round(time.time() * 1000))) + '.tiff'
         cv2.imwrite(folder+'/'+filename, img.astype(np.uint8))
         # TODO save file in 16 bit TIFF, OMETIFF, and others
-        microscope.stop()
-        microscope.source = filename
-        time.sleep(5) #Needs to be user selected
-        microscope.start()
+
+        # # TODO display captured composite
+        # microscope.stop()
+        # microscope.source = filename
+        # time.sleep(5) #Needs to be user selected
+        # microscope.start()
 
     def fit_image(self):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
@@ -839,6 +849,7 @@ class MotionSettings(BoxLayout):
         global lumaview
         microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
         microscope.stop()
+        self.ids['verticalcontrol_id'].update_gui()
 
         # move position of motion control
         if self.isOpen:
