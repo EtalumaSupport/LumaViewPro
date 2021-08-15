@@ -830,7 +830,8 @@
 				step: 0.01
                 cursor_size: '20dp','20dp'
                 cursor_image: './data/slider_cursor.png'
-                value_track: True
+				track_width: 5
+				value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
                 on_release: root.exp_slider()
@@ -851,16 +852,18 @@
             orientation: 'horizontal'
         	size_hint_y: None
 			height: '30dp'
-            ToggleButton:
-                id: apply_btn
-                halign: 'center'
-                valign: 'middle'
-				size_hint: None, None
-				size: '33dp', '20dp'
-				border: 0, 0, 0, 0
-				background_normal: './data/ToggleL.png'
-				background_down: './data/ToggleR.png'
-                on_release: root.apply_settings()
+			BoxLayout:
+				orientation: 'vertical'
+				Label:
+	            ToggleButton:
+	                id: apply_btn
+					size_hint: None, None
+					size: '33dp', '20dp'
+					border: 0, 0, 0, 0
+					background_normal: './data/ToggleL.png'
+					background_down: './data/ToggleR.png'
+	                on_release: root.apply_settings()
+				Label:
             Label:
                 id: false_color_label
 				font_size: '12sp'

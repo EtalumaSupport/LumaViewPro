@@ -1432,6 +1432,18 @@ class LayerControl(BoxLayout):
         else:
             gain_vals =  (1., )*4
 
+        # choose correct active toggle button image based on color
+        # -----------------------------------------------------
+        if self.ids['apply_btn'].state == 'down':
+            if(self.layer) == 'Red':
+                self.ids['apply_btn'].background_down = './data/ToggleRR.png'
+            elif(self.layer) == 'Green':
+                self.ids['apply_btn'].background_down = './data/ToggleRG.png'
+            elif(self.layer) == 'Blue':
+                self.ids['apply_btn'].background_down = './data/ToggleRB.png'
+        else:
+            self.ids['apply_btn'].background_down = './data/ToggleR.png'
+
         # Remove 'Colorize' option in brightfield control
         # -----------------------------------------------------
         if self.layer == 'BF':
