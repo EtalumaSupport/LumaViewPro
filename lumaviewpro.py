@@ -44,6 +44,7 @@ import os
 import json
 import serial
 import serial.tools.list_ports as list_ports
+# from scipy.optimized import curve_fit
 
 # Kivy
 import kivy
@@ -600,8 +601,6 @@ class MainDisplay(FloatLayout):
             img[:,:,1] = microscope.array
             img[:,:,2] = microscope.array
 
-        img = np.flip(img, 0)
-
         folder = protocol['live_folder']
 
         # set filename options
@@ -675,24 +674,17 @@ class MainDisplay(FloatLayout):
                     img[:,:,1] = corrected
                 elif layer == 'Red':
                     img[:,:,2] = corrected
-                # TODO: Add Brightfield
                 #else:
                     #img[:,:,2] = corrected
-            led_board.led_off()
-            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-                # lumaview.ids['mainsettings_id'].ids[layer].apply_settings()
 
-        img = np.flip(img, 0)
-
+        led_board.led_off()
         filename = 'composite_' + str(int(round(time.time() * 1000))) + '.tiff'
         cv2.imwrite(folder+'/'+filename, img.astype(np.uint8))
         # TODO save file in 16 bit TIFF, OMETIFF, and others
-
-        # TODO display captured composite
-        # microscope.stop()
-        # microscope.source = filename
-        # time.sleep(5) #Needs to be user selected
-        # microscope.start()
+        microscope.stop()
+        microscope.source = filename
+        time.sleep(5) #Needs to be user selected
+        microscope.start()
 
     def fit_image(self):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
@@ -847,7 +839,7 @@ class MotionSettings(BoxLayout):
         global lumaview
         microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
         microscope.stop()
-        self.ids['verticalcontrol_id'].update_gui()
+
         # move position of motion control
         if self.isOpen:
             self.ids['toggle_motionsettings'].state = 'normal'
@@ -995,6 +987,7 @@ class Histogram(Widget):
             image = camera.array
             hist = np.histogram(image, bins=256,range=(0,256))
             edges = np.histogram_bin_edges(image, bins=1)
+            mean = np.mean(hist[1],hist[0])
             lumaview.ids['viewer_id'].black = float(edges[0])/255.
             lumaview.ids['viewer_id'].white = float(edges[1])/255.
 
@@ -1020,11 +1013,11 @@ class Histogram(Widget):
         else:
             print("Can't find image.")
 
-class VerticalControl(BoxLayout):
-    # def __init__(self, **kwargs):
-    #     super(VerticalControl, self).__init__(**kwargs)
-    #     self.update_gui()
+    def on_touch_move(self, touch):
 
+
+
+class VerticalControl(BoxLayout):
     def course_up(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(10)           # 10 um
@@ -1057,14 +1050,14 @@ class VerticalControl(BoxLayout):
         self.update_gui()
 
     def update_gui(self):
-        global lumaview
+
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         pos = -lumaview.motion.z_ustep2um(set_value)
         self.ids['obj_position'].value = pos
         self.ids['set_position_id'].text = format(pos, '.3f')
 
         # timer to update current position until it reaches target
-        self.value_event = Clock.schedule_interval(self.compare, 0.5)
+        self.value_event = Clock.schedule_interval(self.compare, 0.2)
 
     def compare(self, dt):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
@@ -1525,8 +1518,8 @@ class TimeLapseSettings(BoxLayout):
                 led_board = lumaview.led_board
                 led_board.led_on(led_board.color2ch(layer), illumination)
 
-                # # Wait the delay
-                # time.sleep(50/1000)
+                # Wait the delay
+                time.sleep(50/1000)
 
                 # capture the image
                 save_folder = protocol[layer]['save_folder']
@@ -1534,9 +1527,6 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.capture(0, save_folder, file_root, color = layer)
                 # turn off the LED
                 led_board.led_off()
-
-            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-            # lumaview.ids['mainsettings_id'].ids[layer].apply_settings()
 
     def convert_to_avi(self):
 
@@ -1722,8 +1712,9 @@ class LumaViewProApp(App):
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/protocol.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
-        # Window.minimum_width = 800
-        # Window.minimum_height = 600
+        Window.minimum_width = 800
+        Window.minimum_height = 600
+        Window.size = (1024, 768)
         return lumaview
 
     def on_stop(self):
