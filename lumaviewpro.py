@@ -1026,8 +1026,9 @@ class Histogram(Widget):
                 #self.color = Color(rgba=self.color)
                 scale=h/np.max(hist[0])
                 for i in range(len(hist[0])):
+                    counts = np.ceil(scale*hist[0][i])
                     self.pos = self.pos
-                    self.line = Line(points=(x+i, y, x+i, y+np.ceil(scale*hist[0][i])), width=1)
+                    self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
         else:
             print("Can't find image.")
 
