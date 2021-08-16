@@ -143,6 +143,7 @@ class PylonCamera(Image):
                 self.source = "./data/camera to USB.png"
                 return
         try:
+            global lumaview
             if self.camera.IsGrabbing():
                 grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
 
@@ -155,9 +156,9 @@ class PylonCamera(Image):
 
                 self.lastGrab = pylon.PylonImage()
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
+                lumaview.ids['viewer_id'].update_shader()
 
             if self.record == True:
-                global lumaview
                 lumaview.capture(0)
 
             grabResult.Release()
@@ -776,8 +777,8 @@ global gain_vals
 gain_vals = (1., )*4
 
 class ShaderViewer(Scatter):
-    black = ObjectProperty(0)
-    white = ObjectProperty(1)
+    black = ObjectProperty(0.)
+    white = ObjectProperty(1.)
 
     fs = StringProperty('''
 void main (void) {
@@ -805,7 +806,7 @@ void main (void) {
         super(ShaderViewer, self).__init__(**kwargs)
         self.canvas.shader.fs = fs_header + self.fs
         self.canvas.shader.vs = vs_header + self.vs
-        Clock.schedule_interval(self.update_shader, 0)
+        #Clock.schedule_interval(self.update_shader, 0.1)
 
     def on_touch_down(self, touch):
         # Override Scatter's `on_touch_down` behavior for mouse scroll
@@ -830,7 +831,7 @@ void main (void) {
         c['black_point'] = (self.black, )*4
         #c['black_point'] = (float(self.edges[0])/255., )*4
         # adjust for false color
-        c['white_point'] = (self.white, )*4 #*gain_vals
+        c['white_point'] = gain_vals
         #c['white_point'] = gain_vals
 
     def on_fs(self, instance, value):
@@ -1462,13 +1463,15 @@ class LayerControl(BoxLayout):
 
         # update false color to currently selected settings
         # -----------------------------------------------------
+
         if self.ids['false_color'].active:
+            white = lumaview.ids['viewer_id'].white
             if(self.layer) == 'Red':
-                gain_vals = (1., 0., 0., 1.)
+                gain_vals = (white, 0., 0., 1.)
             elif(self.layer) == 'Green':
-                gain_vals = (0., 1., 0., 1.)
+                gain_vals = (0., white, 0., 1.)
             elif(self.layer) == 'Blue':
-                gain_vals = (0., 0., 1., 1.)
+                gain_vals = (0., 0., white, 1.)
         else:
             gain_vals =  (1., )*4
 
