@@ -1027,11 +1027,13 @@ class Histogram(Widget):
                 Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
                 Color(r, b, g, a/2)
                 #self.color = Color(rgba=self.color)
-                scale=h/np.max(hist[0])
-                for i in range(len(hist[0])):
-                    counts = np.ceil(scale*hist[0][i])
-                    self.pos = self.pos
-                    self.line = Line(points=(x+i, y, x+i, y+np.ceil(scale*hist[0][i])), width=1)
+                maxheight = np.max(hist[0])
+                if max > 0:
+                    scale=h/maxheight
+                    for i in range(len(hist[0])):
+                        counts = np.ceil(scale*hist[0][i])
+                        self.pos = self.pos
+                        self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
         # else:
         #     print("Can't find image.")
 
