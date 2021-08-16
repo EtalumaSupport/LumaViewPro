@@ -830,8 +830,8 @@ void main (void) {
         c['black_point'] = (self.black, )*4
         #c['black_point'] = (float(self.edges[0])/255., )*4
         # adjust for false color
-        # c['white_point'] = (self.white, )*4 #*gain_vals
-        c['white_point'] = gain_vals
+        c['white_point'] = (self.white, )*4 #*gain_vals
+        #c['white_point'] = gain_vals
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -1028,7 +1028,7 @@ class Histogram(Widget):
                 Color(r, b, g, a/2)
                 #self.color = Color(rgba=self.color)
                 maxheight = np.max(hist[0])
-                if max > 0:
+                if maxheight > 0:
                     scale=h/maxheight
                     for i in range(len(hist[0])):
                         counts = np.ceil(scale*hist[0][i])
