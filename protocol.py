@@ -12,6 +12,7 @@ protocol = {
     "frame_width": 1900,
     "frame_height": 1900,
     "live_folder": "./capture",
+    "protocol_folder": "./data",
     "x_bookmark": 0,
     "y_bookmark": 0,
     "z_bookmark": 0,
