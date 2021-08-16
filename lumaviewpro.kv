@@ -518,7 +518,7 @@
 			halign: 'center'
         	input_filter: 'float'
 	        text: ''
-            # on_text_validate: root.set_position(self.text)
+            on_text_validate: root.set_xposition(self.text)
 		Label:
 	        height: '30dp'
 	        font_size: '12sp'
@@ -531,7 +531,7 @@
 			halign: 'center'
         	input_filter: 'float'
 	        text: ''
-            # on_text_validate: root.set_position(self.text)	Label:
+            on_text_validate: root.set_yposition(self.text)
 	BoxLayout:
 		orientation: 'horizontal'
 		spacing: '5dp'

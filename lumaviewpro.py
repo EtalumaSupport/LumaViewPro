@@ -204,7 +204,7 @@ class PylonCamera(Image):
 
         self.camera.StopGrabbing()
         if state == True:
-            self.camera.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
+            self.camera.GainAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
         else:
             self.camera.GainAuto.SetValue('Off')
 
@@ -1459,6 +1459,7 @@ class LayerControl(BoxLayout):
         # -----------------------------------------------------
         state = protocol[self.layer]['gain_auto']
         lumaview.ids['viewer_id'].ids['microscope_camera'].auto_gain(state)
+
         if not(state):
             gain = protocol[self.layer]['gain']
             lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
