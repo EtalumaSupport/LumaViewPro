@@ -650,7 +650,8 @@ class MainDisplay(FloatLayout):
                 # Wait for focus to be reached (approximate)
                 set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
                 get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
-                time.sleep(abs(set_value-get_value)/500)
+                time.sleep(1)   # TODO DEBUG
+                # time.sleep(abs(set_value-get_value)/500)
 
                 # set the gain and exposure
                 gain = protocol[layer]['gain']
