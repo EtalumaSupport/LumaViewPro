@@ -376,7 +376,7 @@ class TrinamicBoard:
     #----------------------------------------------------------
     # Receive Datagram
     #----------------------------------------------------------
-    def GetGram(self, verbose = False):
+    def GetGram(self, verbose = True):
 
         # receive the datagram
         datagram = self.driver.read(9)
@@ -479,7 +479,7 @@ class TrinamicBoard:
 
     def xyhome(self):
 
-        zhome(self)
+        self.zhome()
         #----------------------------------------------------------
         # X-Axis Initialization
         #----------------------------------------------------------
@@ -511,7 +511,7 @@ class TrinamicBoard:
 
         # Move out of home Position
         #----------------------------------------------------------
-        self.SendGram('MVP', 0, 'X', -xy_um2ustep(60000))  # Move left by 6cm
+        self.SendGram('MVP', 0, 'X', -self.xy_um2ustep(60000))  # Move left by 6cm
 
         #----------------------------------------------------------
         # Y-Axis Initialization
@@ -543,7 +543,7 @@ class TrinamicBoard:
 
         # Move out of home Position
         #----------------------------------------------------------
-        self.SendGram('MVP', 0, 'Y', -xy_um2ustep(9375))  # Move forward by 100000 (what is the unit?)
+        self.SendGram('MVP', 0, 'Y', -self.xy_um2ustep(9375))  # Move forward by 100000 (what is the unit?)
 
 
 # -------------------------------------------------------------------------
@@ -858,6 +858,7 @@ class MotionSettings(BoxLayout):
         microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
         microscope.stop()
         self.ids['verticalcontrol_id'].update_gui()
+        self.ids['xy_stagecontrol_id'].update_xy_pos()
 
         # move position of motion control
         if self.isOpen:
@@ -1135,6 +1136,7 @@ class VerticalControl(BoxLayout):
 
 
 class XYStageControl(BoxLayout):
+
     def course_left(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'X', -10000)  # Move LEFT relative by 10000
@@ -1169,13 +1171,15 @@ class XYStageControl(BoxLayout):
 
     def set_xposition(self, pos):
         global lumaview
-        usteps = -lumaview.motion.xy_um2ustep(float(pos))   # position on slider is in mm
+        usteps = -lumaview.motion.xy_um2ustep(float(pos)*1000)   # position in text is in mm
         lumaview.motion.SendGram('MVP', 0, 'X', usteps)  # Move to absolute position
+        self.update_xy_pos()
 
     def set_yposition(self, pos):
         global lumaview
-        usteps = -lumaview.motion.xy_um2ustep(float(pos))   # position on slider is in mm
+        usteps = -lumaview.motion.xy_um2ustep(float(pos)*1000)   # position in text is in mm
         lumaview.motion.SendGram('MVP', 0, 'Y', usteps)  # Move to absolute position
+        self.update_xy_pos()
 
     def set_xbookmark(self):
         global lumaview
@@ -1188,6 +1192,7 @@ class XYStageControl(BoxLayout):
         x_pos = protocol['x_bookmark']
         usteps = -lumaview.motion.xy_um2ustep(x_pos)
         lumaview.motion.SendGram('MVP', 0, 'X', usteps)  # set current x position in usteps
+        self.update_xy_pos()
 
     def set_ybookmark(self):
         global lumaview
@@ -1200,14 +1205,30 @@ class XYStageControl(BoxLayout):
         y_pos = protocol['y_bookmark']
         usteps = -lumaview.motion.z_um2ustep(y_pos)
         lumaview.motion.SendGram('MVP', 0, 'Y', usteps)  # set current y position in usteps
+        self.update_xy_pos()
 
     def home(self):
         global lumaview
-        lumaview.motion.zhome()
+        lumaview.motion.xyhome()
+        self.update_xy_pos()
         return
 
+    def update_xy_pos(self):
+        global lumaview
+        x_target = lumaview.motion.SendGram('GAP', 0, 'X', 10)  # Get target value
+        y_target = lumaview.motion.SendGram('GAP', 0, 'Y', 10)  # Get target value
 
+        x_value = lumaview.motion.SendGram('GAP', 1, 'X', 0)  # Get current value
+        y_value = lumaview.motion.SendGram('GAP', 1, 'Y', 0)  # Get current value
 
+        x_pos = -lumaview.motion.xy_ustep2um(x_target)
+        y_pos = -lumaview.motion.xy_ustep2um(y_target)
+
+        self.ids['x_pos_id'].text = format(x_pos/1000, '.2f')
+        self.ids['y_pos_id'].text = format(y_pos/1000, '.2f')
+
+        # if (x_target == x_value) and (y_target == y_value):
+        #     Clock.unschedule(self.position_event)
 
 class MicroscopeSettings(BoxLayout):
 

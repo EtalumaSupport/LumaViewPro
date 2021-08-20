@@ -242,6 +242,7 @@
 		AccordionItem:
 			title: 'XY Stage Control'
 			XYStageControl:
+				id: xy_stagecontrol_id
 
     ToggleButton:
         id: toggle_motionsettings
@@ -431,6 +432,17 @@
 		size_hint_y: None
 		# pos_hint: {'center_x': 0.5, 'center_y': 0.5}
 		height: '250dp'
+
+		Button: # HOME STAGE
+			border: 0, 0, 0, 0
+	        size_hint: None, None
+	        size: '80dp', '80dp'
+			pos_hint: {'center_x': 0.8, 'center_y': 0.8}
+	        font_size: '12sp'
+	        text: 'Home Stage'
+			on_press: root.home()
+
+
 	    Button: # COURSE BACK
 			border: 0, 0, 0, 0
 	        size_hint: None, None
@@ -511,6 +523,7 @@
 	        font_size: '12sp'
 			text: 'X: (mm)'
 		TextInput:
+			id: x_pos_id
         	multiline: False
 	        size_hint_y: None
 	        height: '30dp'
@@ -524,6 +537,7 @@
 	        font_size: '12sp'
 			text: 'Y: (mm)'
 		TextInput:
+			id: y_pos_id
         	multiline: False
 	        size_hint_y: None
 	        height: '30dp'
