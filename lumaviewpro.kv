@@ -400,7 +400,8 @@
 			text: 'Go to Bookmark'
 			font_size: '12sp'
 			on_press: root.goto_bookmark()
-	Button:
+	ToggleButton:
+		id: home_id
 	    size_hint_y: None
 	    height: '30dp'
 		font_size: '12sp'
@@ -433,7 +434,8 @@
 		# pos_hint: {'center_x': 0.5, 'center_y': 0.5}
 		height: '250dp'
 
-		Button: # HOME STAGE
+		ToggleButton: # HOME STAGE
+			id: home_id
 			border: 0, 0, 0, 0
 	        size_hint: None, None
 	        size: '80dp', '80dp'

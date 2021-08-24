@@ -285,7 +285,7 @@ class LEDBoard:
             return 1
         elif color == 'Red':
             return 2
-        else:
+        else: # BF
             return 3
 
     def led_cal(self, channel):
@@ -359,7 +359,6 @@ class TrinamicBoard:
         self.driver = True
         try:
             self.connect()
-            #self.home() # TODO Add a home button and make autohoming at startup a settings option
         except:
             print("Could not connect to Trinamic Motor Control Board")
             self.driver = False
@@ -424,13 +423,6 @@ class TrinamicBoard:
             print('Trinamic Motor Control Board is not connected')
             return False
 
-    # Wait for reference function to complete (homing)
-    def RFS_Wait(self, Motor):
-        value = 1
-        while value != 0:
-            value = self.SendGram('RFS', 2, Motor, 0)
-            time.sleep(0.1)
-
     def z_ustep2um(self, ustep):
         um = float(ustep)*self.z_microstep
         return um
@@ -440,6 +432,7 @@ class TrinamicBoard:
         return ustep
 
     def zhome(self):
+        # TODO all the initialization should be in __init__
         #----------------------------------------------------------
         # Z-Axis Initialization
         #----------------------------------------------------------
@@ -467,7 +460,13 @@ class TrinamicBoard:
         # Start the Trinamic Homing Procedure
         #----------------------------------------------------------
         self.SendGram('RFS', 0, 'Z', 0)       # Home to the Right Limit switch (Down)
-        self.RFS_Wait('Z')
+        self.zhome_event = Clock.schedule_interval(self.check_zhome, 0.05)
+
+    # Test if reference function is complete (z homing)
+    def check_zhome(self, dt):
+        value = self.SendGram('RFS', 2, 'Z', 0)
+        if value == 0:
+            Clock.unschedule(self.zhome_event)
 
     def xy_ustep2um(self, ustep):
         um = float(ustep)*self.xy_microstep
@@ -507,11 +506,6 @@ class TrinamicBoard:
         # Start the Trinamic Homing Procedure
         # ----------------------------------------------------------
         self.SendGram('RFS', 0, 'X', 0)      # Home to the Right Limit switch (Right)
-        self.RFS_Wait('X')
-
-        # Move out of home Position
-        #----------------------------------------------------------
-        self.SendGram('MVP', 0, 'X', -self.xy_um2ustep(60000))  # Move left by 6cm
 
         #----------------------------------------------------------
         # Y-Axis Initialization
@@ -539,12 +533,14 @@ class TrinamicBoard:
         # Start the Trinamic Homing Procedure
         #----------------------------------------------------------
         self.SendGram('RFS', 0, 'Y', 0)      # Home to the Right Limit switch (Back)
-        self.RFS_Wait('Y')
+        self.xyhome_event = Clock.schedule_interval(self.check_xyhome, 0.05)
 
-        # Move out of home Position
-        #----------------------------------------------------------
-        self.SendGram('MVP', 0, 'Y', -self.xy_um2ustep(9375))  # Move forward by 100000 (what is the unit?)
-
+    # Test if reference function is complete (xy homing)
+    def check_xyhome(self, dt):
+        x = self.SendGram('RFS', 2, 'X', 0)
+        y = self.SendGram('RFS', 2, 'Y', 0)
+        if (x == 0) and (y == 0):
+            Clock.unschedule(self.xyhome_event)
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -857,8 +853,8 @@ class MotionSettings(BoxLayout):
         global lumaview
         microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
         microscope.stop()
-        self.ids['verticalcontrol_id'].update_gui()
-        self.ids['xy_stagecontrol_id'].update_xy_pos()
+        self.ids['verticalcontrol_id'].update_event = Clock.schedule_interval(self.ids['verticalcontrol_id'].update_gui, 0.5)
+        self.ids['xy_stagecontrol_id'].update_event = Clock.schedule_interval(self.ids['xy_stagecontrol_id'].update_gui, 0.5)
 
         # move position of motion control
         if self.isOpen:
@@ -1068,49 +1064,36 @@ class VerticalControl(BoxLayout):
         dist = lumaview.motion.z_um2ustep(10)           # 10 um
         print('distamce should be ')
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP relative
-        self.update_gui()
+        # self.update_gui()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def fine_up(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(1)            # 1 um
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP
-        self.update_gui()
+        # self.update_gui()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def fine_down(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(1)             # 1 um
         lumaview.motion.SendGram('MVP', 1, 'Z', dist)   # Move DOWN
-        self.update_gui()
+        # self.update_gui()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def course_down(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(10)           # 10 um
         lumaview.motion.SendGram('MVP', 1, 'Z', dist)   # Move DOWN
-        self.update_gui()
+        # self.update_gui()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_position(self, pos):
         global lumaview
         usteps = -lumaview.motion.z_um2ustep(float(pos))   # position on slider is in mm
         lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # Move to absolute position
-        self.update_gui()
-
-    def update_gui(self):
-        global lumaview
-        set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-        pos = -lumaview.motion.z_ustep2um(set_value)
-        self.ids['obj_position'].value = pos
-        self.ids['set_position_id'].text = format(pos, '.2f')
-
-        # timer to update current position until it reaches target
-        self.value_event = Clock.schedule_interval(self.compare, 0.5)
-
-    def compare(self, dt):
-        set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-        get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
-        pos = -lumaview.motion.z_ustep2um(get_value)
-        self.ids['get_position_id'].text = format(pos, '.2f')
-        if set_value == get_value:
-            Clock.unschedule(self.value_event)
+        # self.update_gui()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_bookmark(self):
         global lumaview
@@ -1123,17 +1106,40 @@ class VerticalControl(BoxLayout):
         height = protocol['z_bookmark']
         usteps = -lumaview.motion.z_um2ustep(height)
         lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # set current z height in usteps
-        self.update_gui()
+        # self.update_gui()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def home(self):
         global lumaview
         lumaview.motion.zhome()
-        return
+        self.ids['home_id'].text = 'Homing...'
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+
+    def update_gui(self, dt):
+        global lumaview
+        set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
+        get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
+
+        z_home = lumaview.motion.SendGram('RFS', 2, 'Z', 0)
+        if z_home != 0:
+            self.ids['obj_position'].value = 0
+            self.ids['set_position_id'].text = '0.00'
+        else:
+            set_pos = -lumaview.motion.z_ustep2um(set_value)
+            self.ids['obj_position'].value = set_pos
+            self.ids['set_position_id'].text = format(set_pos, '.2f')
+
+        get_pos = -lumaview.motion.z_ustep2um(get_value)
+        self.ids['get_position_id'].text = format(get_pos, '.2f')
+
+        if set_value == get_value:
+            Clock.unschedule(self.update_event)
+            self.ids['home_id'].text = 'Home'
+            self.ids['home_id'].state = 'normal'
 
     def autofocus(self):
         # TODO
         return
-
 
 class XYStageControl(BoxLayout):
 
@@ -1173,13 +1179,13 @@ class XYStageControl(BoxLayout):
         global lumaview
         usteps = -lumaview.motion.xy_um2ustep(float(pos)*1000)   # position in text is in mm
         lumaview.motion.SendGram('MVP', 0, 'X', usteps)  # Move to absolute position
-        self.update_xy_pos()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_yposition(self, pos):
         global lumaview
         usteps = -lumaview.motion.xy_um2ustep(float(pos)*1000)   # position in text is in mm
         lumaview.motion.SendGram('MVP', 0, 'Y', usteps)  # Move to absolute position
-        self.update_xy_pos()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_xbookmark(self):
         global lumaview
@@ -1192,7 +1198,7 @@ class XYStageControl(BoxLayout):
         x_pos = protocol['x_bookmark']
         usteps = -lumaview.motion.xy_um2ustep(x_pos)
         lumaview.motion.SendGram('MVP', 0, 'X', usteps)  # set current x position in usteps
-        self.update_xy_pos()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_ybookmark(self):
         global lumaview
@@ -1205,15 +1211,17 @@ class XYStageControl(BoxLayout):
         y_pos = protocol['y_bookmark']
         usteps = -lumaview.motion.z_um2ustep(y_pos)
         lumaview.motion.SendGram('MVP', 0, 'Y', usteps)  # set current y position in usteps
-        self.update_xy_pos()
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def home(self):
         global lumaview
         lumaview.motion.xyhome()
-        self.update_xy_pos()
-        return
+        self.ids['home_id'].text = 'Homing...'
+        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        # self.ids['x_pos_id'].text = format(0, '.2f')
+        # self.ids['y_pos_id'].text = format(0, '.2f')
 
-    def update_xy_pos(self):
+    def update_gui(self, dt):
         global lumaview
         x_target = lumaview.motion.SendGram('GAP', 0, 'X', 10)  # Get target value
         y_target = lumaview.motion.SendGram('GAP', 0, 'Y', 10)  # Get target value
@@ -1221,14 +1229,22 @@ class XYStageControl(BoxLayout):
         x_value = lumaview.motion.SendGram('GAP', 1, 'X', 0)  # Get current value
         y_value = lumaview.motion.SendGram('GAP', 1, 'Y', 0)  # Get current value
 
-        x_pos = -lumaview.motion.xy_ustep2um(x_target)
-        y_pos = -lumaview.motion.xy_ustep2um(y_target)
+        x_home = lumaview.motion.SendGram('RFS', 2, 'X', 0)
+        y_home = lumaview.motion.SendGram('RFS', 2, 'Y', 0)
 
-        self.ids['x_pos_id'].text = format(x_pos/1000, '.2f')
-        self.ids['y_pos_id'].text = format(y_pos/1000, '.2f')
+        if (x_home != 0) or (y_home != 0):
+            self.ids['x_pos_id'].text = '0.00'
+            self.ids['y_pos_id'].text = '0.00'
+        else:
+            x_pos = -lumaview.motion.xy_ustep2um(x_target)
+            y_pos = -lumaview.motion.xy_ustep2um(y_target)
+            self.ids['x_pos_id'].text = format(x_pos/1000, '.2f')
+            self.ids['y_pos_id'].text = format(y_pos/1000, '.2f')
 
-        # if (x_target == x_value) and (y_target == y_value):
-        #     Clock.unschedule(self.position_event)
+        if (x_target == x_value) and (y_target == y_value):
+            Clock.unschedule(self.update_event)
+            self.ids['home_id'].text = 'Home'
+            self.ids['home_id'].state = 'normal'
 
 class MicroscopeSettings(BoxLayout):
 
