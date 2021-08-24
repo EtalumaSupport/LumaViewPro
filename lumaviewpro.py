@@ -1026,11 +1026,18 @@ class Histogram(Widget):
                 Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
                 Color(r, b, g, a/2)
                 #self.color = Color(rgba=self.color)
-                maxheight = np.max(hist[0])
+                logHistogram = True
+                if logHistogram:
+                    maxheight = np.log(np.max(hist[0])+1)
+                else:
+                    maxheight = np.max(hist[0])
                 if maxheight > 0:
                     scale=h/maxheight
                     for i in range(len(hist[0])):
-                        counts = np.ceil(scale*hist[0][i])
+                        if logHistogram:
+                            counts = scale*np.log(hist[0][i] + 1)
+                        else:
+                            counts = np.ceil(scale*hist[0][i])
                         self.pos = self.pos
                         self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
         # else:
