@@ -1071,35 +1071,30 @@ class VerticalControl(BoxLayout):
         dist = lumaview.motion.z_um2ustep(10)           # 10 um
         print('distamce should be ')
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP relative
-        # self.update_gui()
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def fine_up(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(1)            # 1 um
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP
-        # self.update_gui()
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def fine_down(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(1)             # 1 um
         lumaview.motion.SendGram('MVP', 1, 'Z', dist)   # Move DOWN
-        # self.update_gui()
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def course_down(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(10)           # 10 um
         lumaview.motion.SendGram('MVP', 1, 'Z', dist)   # Move DOWN
-        # self.update_gui()
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_position(self, pos):
         global lumaview
         usteps = -lumaview.motion.z_um2ustep(float(pos))   # position on slider is in mm
         lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # Move to absolute position
-        # self.update_gui()
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_bookmark(self):
@@ -1113,7 +1108,6 @@ class VerticalControl(BoxLayout):
         height = protocol['z_bookmark']
         usteps = -lumaview.motion.z_um2ustep(height)
         lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # set current z height in usteps
-        # self.update_gui()
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def home(self):
@@ -1480,7 +1474,9 @@ class LayerControl(BoxLayout):
         height = protocol[self.layer]['focus']
         usteps = -lumaview.motion.z_um2ustep(height)
         lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # set current z height in usteps
-        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_gui()
+        control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
+        control.update_event = Clock.schedule_interval(control.update_gui, 0.5)
+
 
     def apply_settings(self):
         global lumaview

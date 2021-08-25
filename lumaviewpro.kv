@@ -117,7 +117,7 @@
             background_down: './data/folder_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
-            on_press: root.choose_folder()
+            on_release: root.choose_folder()
 			tooltip_text: "Select save folder"
         TooltipToggleButton:
             id: live_btn
@@ -126,9 +126,8 @@
             background_down: './data/play.png' # Press to Play Live Stream
             size_hint: None, None
             size: '40dp', '40dp'
-            # text: 'Pause Stream'
             state: 'normal'
-            on_press: root.cam_toggle()
+            on_release: root.cam_toggle()
 			tooltip_text: "Pause/play live stream"
         TooltipButton:
             id: capture_btn
@@ -137,8 +136,7 @@
             background_down: './data/capture_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
-            # text: 'Capture Image'
-            on_press: root.capture(0)
+            on_release: root.capture(0)
 			tooltip_text: "Capture image"
         TooltipButton:
             id: composite_btn
@@ -147,8 +145,7 @@
             background_down: './data/composite_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
-            # text: 'Composite'
-            on_press: root.composite(0)
+            on_release: root.composite(0)
 			tooltip_text: "Capture composite image"
         TooltipToggleButton:
             id: record_btn
@@ -157,7 +154,6 @@
             background_down: './data/stop.png' # Press to Stop Recording
             size_hint: None, None
             size: '40dp', '40dp'
-            # text: 'Record Video'
             on_press: root.record()
 			tooltip_text:  "Start/stop recording"
         TooltipButton:
@@ -167,8 +163,7 @@
             background_down: './data/fit_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
-            # text: 'Fit'
-            on_press: root.fit_image()
+            on_release: root.fit_image()
 			tooltip_text: "Fit image to window"
         TooltipButton:
             id: one2one_btn
@@ -177,8 +172,7 @@
             background_down: './data/one2one_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
-            # text: '1:1'
-            on_press: root.one2one_image()
+            on_release: root.one2one_image()
 			tooltip_text: "Scale 1:1"
 
 # ShaderViewer - Shaded Live Camera view
@@ -252,7 +246,7 @@
         border: 0, 0, 0, 0
         background_normal: './data/right_arrow_right_arc.png' # right pointing (press to open)
         background_down: './data/left_arrow_right_arc.png' # left pointing (press to close)
-        on_press: root.toggle_settings()
+        on_release: root.toggle_settings()
 
 
 <VerticalControl>:
@@ -284,7 +278,7 @@
 		        size: '30dp', '40dp'
 				background_normal: './data/UU_normal.png'
 				background_down: './data/UU_down.png'
-				on_press: root.course_up()
+				on_release: root.course_up()
 		    Button:
 		        id: slow_up
 				border: 0, 0, 0, 0
@@ -292,7 +286,7 @@
 		        size: '30dp', '30dp'
 				background_normal: './data/U_normal.png'
 				background_down: './data/U_down.png'
-				on_press: root.fine_up()
+				on_release: root.fine_up()
 		    Button:
 		        id: slow_down
 				border: 0, 0, 0, 0
@@ -300,7 +294,7 @@
 		        size: '30dp', '30dp'
 				background_normal: './data/D_normal.png'
 				background_down: './data/D_down.png'
-				on_press: root.fine_down()
+				on_release: root.fine_down()
 		    Button:
 		        id: fast_down
 				border: 0, 0, 0, 0
@@ -308,7 +302,7 @@
 		        size: '30dp', '40dp'
 				background_normal: './data/DD_normal.png'
 				background_down: './data/DD_down.png'
-				on_press: root.course_down()
+				on_release: root.course_down()
 		    Label:
 		BoxLayout:
 			orientation: 'vertical'
@@ -395,11 +389,11 @@
 		Button:
 			text: 'Set Bookmark'
 			font_size: '12sp'
-			on_press: root.set_bookmark()
+			on_release: root.set_bookmark()
 		Button:
 			text: 'Go to Bookmark'
 			font_size: '12sp'
-			on_press: root.goto_bookmark()
+			on_release: root.goto_bookmark()
 	ToggleButton:
 		id: home_id
 	    size_hint_y: None
@@ -412,7 +406,7 @@
 	    height: '30dp'
 		font_size: '12sp'
 		text: 'Autofocus'
-		on_press: root.autofocus()
+		on_release: root.autofocus()
 	Label:
 	    size_hint_y: None
 	    height: '40dp'
@@ -452,7 +446,7 @@
 			pos_hint: {'center_x': 0.5, 'center_y': 0.85}
 			background_normal: './data/UU_normal.png'
 			background_down: './data/UU_down.png'
-			on_press: root.course_back()
+			on_release: root.course_back()
 	    Button: # FINE BACK
 			border: 0, 0, 0, 0
 	        size_hint: None, None
@@ -460,7 +454,7 @@
 			pos_hint: {'center_x': 0.5, 'center_y': 0.65}
 			background_normal: './data/U_normal.png'
 			background_down: './data/U_down.png'
-			on_press: root.fine_back()
+			on_release: root.fine_back()
 	    Button: # FINE FORWARD
 			border: 0, 0, 0, 0
 	        size_hint: None, None
@@ -468,7 +462,7 @@
 			pos_hint: {'center_x': 0.5, 'center_y': 0.35}
 			background_normal: './data/D_normal.png'
 			background_down: './data/D_down.png'
-			on_press: root.fine_fwd()
+			on_release: root.fine_fwd()
 	    Button: # COURSE FORWARD
 	        id: fast_down
 			border: 0, 0, 0, 0
@@ -477,7 +471,7 @@
 			pos_hint: {'center_x': 0.5, 'center_y': 0.15}
 			background_normal: './data/DD_normal.png'
 			background_down: './data/DD_down.png'
-			on_press: root.course_fwd()
+			on_release: root.course_fwd()
 
 
 	    Button: # COURSE LEFT
@@ -487,7 +481,7 @@
 			pos_hint: {'center_x': 0.2, 'center_y': 0.5}
 			background_normal: './data/LL_normal.png'
 			background_down: './data/LL_down.png'
-			on_press: root.course_left()
+			on_release: root.course_left()
 	    Button: # FINE LEFT
 	        id: slow_up
 			border: 0, 0, 0, 0
@@ -496,7 +490,7 @@
 			pos_hint: {'center_x': 0.35, 'center_y': 0.5}
 			background_normal: './data/L_normal.png'
 			background_down: './data/L_down.png'
-			on_press: root.fine_left()
+			on_release: root.fine_left()
 	    Button: # FINE RIGHT
 	        id: slow_down
 			border: 0, 0, 0, 0
@@ -505,7 +499,7 @@
 			pos_hint: {'center_x': 0.65, 'center_y': 0.5}
 			background_normal: './data/R_normal.png'
 			background_down: './data/R_down.png'
-			on_press: root.fine_right()
+			on_release: root.fine_right()
 	    Button: # COURSE RIGHT
 	        id: fast_down
 			border: 0, 0, 0, 0
@@ -514,7 +508,7 @@
 			pos_hint: {'center_x': 0.8, 'center_y': 0.5}
 			background_normal: './data/RR_normal.png'
 			background_down: './data/RR_down.png'
-			on_press: root.course_right()
+			on_release: root.course_right()
 	BoxLayout:
 		orientation: 'horizontal'
 		spacing: '5dp'
@@ -557,22 +551,22 @@
 	        height: '30dp'
 	        font_size: '12sp'
 			text: 'Set X'
-			on_press: root.set_xbookmark()
+			on_release: root.set_xbookmark()
 		Button:
 	        height: '30dp'
 	        font_size: '12sp'
 	        text: 'Go to X'
-			on_press: root.goto_xbookmark()
+			on_release: root.goto_xbookmark()
 		Button:
 	        height: '30dp'
 	        font_size: '12sp'
 			text: 'Set Y'
-			on_press: root.set_ybookmark()
+			on_release: root.set_ybookmark()
 		Button:
 	        height: '30dp'
 	        font_size: '12sp'
 	        text: 'Go to Y'
-			on_press: root.goto_ybookmark()
+			on_release: root.goto_ybookmark()
 	Label:
 
 # MainSettings - view and edit control accordian
@@ -989,13 +983,13 @@
 				height: '30dp'
 				font_size: '12sp'
 				text: 'Save Focus'
-				on_press: root.save_focus()
+				on_release: root.save_focus()
 			Button:
 	        	size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
 				text: 'Go to Focus'
-				on_press: root.goto_focus()
+				on_release: root.goto_focus()
         # File Save Settings
         # BoxLayout:
         #     orientation: 'horizontal'
@@ -1007,7 +1001,7 @@
 			height: '30dp'
 			font_size: '12sp'
             text: 'Folder'
-            on_press: root.choose_folder()
+            on_release: root.choose_folder()
         TextInput:
             id: root_text
         	size_hint_y: None
@@ -1109,20 +1103,20 @@
         size_hint_y: None
         height: '30dp'
 		font_size: '12sp'
-        on_press: root.load_protocol()
+        on_release: root.load_protocol()
     Button:
         text: 'Save Protocol'
         size_hint_y: None
         height: '30dp'
 		font_size: '12sp'
-        on_press: root.save_protocol()
+        on_release: root.save_protocol()
     ToggleButton:
         id: protocol_btn
         text: 'Run Protocol'
         size_hint_y: None
         height: '30dp'
 		font_size: '12sp'
-        on_press: root.run_protocol()
+        on_release: root.run_protocol()
     # Button:
     #     id: movie_btn
     #     size_hint_y: None
