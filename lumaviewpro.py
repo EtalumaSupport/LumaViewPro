@@ -646,8 +646,10 @@ class MainDisplay(FloatLayout):
                 # Wait for focus to be reached (approximate)
                 set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
                 get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
-                time.sleep(1)   # TODO DEBUG
-                # time.sleep(abs(set_value-get_value)/500)
+
+                while set_value != get_value:
+                    time.sleep(.01)
+                    get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
 
                 # set the gain and exposure
                 gain = protocol[layer]['gain']
@@ -661,12 +663,12 @@ class MainDisplay(FloatLayout):
 
                 # Dark field capture
                 led_board.led_off()
-                time.sleep(exposure/1000) # SERIOUS DEBUG needed here to remove rolling shutter and timing
+                time.sleep(exposure/1000)
                 microscope.update(0)
                 darkfield = microscope.array
                 # Florescent capture
                 led_board.led_on(led_board.color2ch(layer), illumination)
-                time.sleep(exposure/1000) # SERIOUS DEBUG needed here to remove rolling shutter and timing
+                time.sleep(exposure/1000)
                 microscope.update(0)
                 #corrected = np.max(microscope.array - darkfield, np.zeros(like=darkfield))
                 corrected = microscope.array - np.minimum(microscope.array,darkfield)
