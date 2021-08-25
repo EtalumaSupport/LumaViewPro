@@ -969,6 +969,7 @@ class MainSettings(BoxLayout):
         global lumaview
         microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
         microscope.stop()
+        lumaview.led_board.led_off()
         self.currentLayer = layer
         self.notCollapsing = not(self.notCollapsing)
         if self.notCollapsing:
