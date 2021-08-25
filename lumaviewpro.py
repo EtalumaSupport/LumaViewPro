@@ -987,6 +987,7 @@ class MainSettings(BoxLayout):
 
 class Histogram(Widget):
     bg_color = ObjectProperty(None)
+    layer = ObjectProperty(None)
 
     def __init__(self, **kwargs):
         super(Histogram, self).__init__(**kwargs)
@@ -1026,7 +1027,7 @@ class Histogram(Widget):
                 Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
                 Color(r, b, g, a/2)
                 #self.color = Color(rgba=self.color)
-                logHistogram = True
+                logHistogram = lumaview.ids['mainsettings_id'].ids[self.layer].ids['logHistogram_id'].active
                 if logHistogram:
                     maxheight = np.log(np.max(hist[0])+1)
                 else:
