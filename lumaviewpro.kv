@@ -1012,12 +1012,28 @@
             padding: ['5dp', (self.height-self.line_height)/2]
             on_text: root.root_text()
 
-		Histogram:
-			id: histo_id
-			bg_color: root.bg_color
+		FloatLayout:
 			padding: '5dp'
 			size_hint_y: None
 			height: '128dp'
+			Label:
+				size_hint: None, None
+				width: '30dp'
+				height: '20dp'
+				font_size: '12sp'
+				pos_hint:{"right":0.85,"top":1}
+				text: 'log scale'
+			CheckBox:
+				id: logHistogram_id
+				size_hint: None, None
+				width: '30dp'
+				height: '20dp'
+				pos_hint:{"right":1,"top":1}
+				state: 'normal'
+			Histogram:
+				id: histo_id
+				pos_hint:{'center_x':0.5, 'center_y':0.5}
+				bg_color: root.bg_color
 			# on_touch_move: root.on_touch_move()
 		Label:
 
@@ -1028,6 +1044,7 @@
 		Line:
 			width: 1
 			rectangle: (self.x+5, self.y+5, self.width-10, self.height-10)
+
 
 # TimeLapseSettings - Settings for Time Lapse within MainSettings
 # ------------------------------------------
