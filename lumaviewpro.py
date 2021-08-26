@@ -999,6 +999,8 @@ class Histogram(Widget):
 
         self.event = Clock.schedule_interval(self.histogram,0.1)
         self.hist_range_set = False
+        self.edges = [0,255]
+        self.stablize = 0.3
 
     def histogram(self, *args):
         global lumaview
@@ -1011,6 +1013,9 @@ class Histogram(Widget):
                 edges = self.edges
             else:
                 edges = np.histogram_bin_edges(image, bins=1)
+                edges[0] = self.stablize*self.edges[0] + (1 - self.stablize)*edges[0]
+                edges[1] = self.stablize*self.edges[1] + (1 - self.stablize)*edges[1]
+
             # mean = np.mean(hist[1],hist[0])
             lumaview.ids['viewer_id'].black = float(edges[0])/255.
             lumaview.ids['viewer_id'].white = float(edges[1])/255.
