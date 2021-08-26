@@ -691,10 +691,10 @@ class MainDisplay(FloatLayout):
 
         img = np.flip(img, 0)
 
-
         filename = 'composite_' + str(int(round(time.time() * 1000))) + '.tiff'
         cv2.imwrite(folder+'/'+filename, img.astype(np.uint8))
         # TODO save file in 16 bit TIFF, OMETIFF, and others
+        # cv2.imwrite(folder+'/'+filename, img.astype(np.uint16)) # This works
 
         # # TODO display captured composite
         # microscope.stop()
@@ -1148,8 +1148,32 @@ class VerticalControl(BoxLayout):
             self.ids['home_id'].state = 'normal'
 
     def autofocus(self):
-        # TODO
-        return
+        global lumaview
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
+
+        z_low = 3200
+        z_mid = 3250
+        z_high = 3300
+        z_step = 32
+
+        if camera.camera != False:
+            image = camera.array
+            focus = focus_measure(image)
+
+        while z_step >= 1:
+            image = camera.array                              # aquire image
+            prev_focus = focus
+            focus = focus_measure(image)                      # evaluate focus
+
+            if focus > prev_focus:
+                lumaview.motion.SendGram('MVP', 1, 'Z', z_step)   # move focus
+            else:
+                z_step = -z_step/2
+
+
+    def focus_measure(self, image):
+        return 1
+
 
 class XYStageControl(BoxLayout):
 
