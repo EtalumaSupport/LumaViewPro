@@ -1204,7 +1204,9 @@ class VerticalControl(BoxLayout):
                                  [-1, 4,-1],
                                  [0, -1, 0]])/6
             convolve = signal.convolve2d(image, kernel)
-            return np.sum(convolve)
+            sum = np.sum(convolve)
+            print(sum)
+            return sum
         else:
             return 0
 
