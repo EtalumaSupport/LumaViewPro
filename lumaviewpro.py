@@ -1174,8 +1174,8 @@ class VerticalControl(BoxLayout):
         focus = self.focus_function(image)
 
         # if focus < self.old_focus: # This means the focus got worse
-        self.z_step = self.z_step-1
-        self.dir = -self.dir
+        #self.z_step = self.z_step-1
+        #self.dir = -self.dir
 
         print(self.dir*self.z_step)
         self.old_focus = focus
