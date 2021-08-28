@@ -1078,7 +1078,6 @@ class VerticalControl(BoxLayout):
     def course_up(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(10)           # 10 um
-        print('distamce should be ')
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP relative
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
@@ -1151,29 +1150,53 @@ class VerticalControl(BoxLayout):
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
 
-        z_low = 3200
-        z_mid = 3250
-        z_high = 3300
+        if camera == False:
+            print("Error: VerticalControl.autofocus() self.camera == False")
+            return
+
+        # z_low = 3200
+        # z_mid = 3250
+        # z_high = 3300
         z_step = 32
+        focus = 0
+        dt = 100
+        old_focus = focus
+        focus = self.focus_function(camera.array)
+        print(focus-old_focus)
+        # Clock.focus_event = Clock.schedule_interval(self.focus_iterate, dt/1000)
 
-        if camera.camera != False:
-            image = camera.array
-            focus = focus_measure(image)
+    '''
+    def focus_iterate(self, dt):
+        global lumaview
+        image = camera.array                              # aquire image
+        # prev_focus = focus
+        focus = self.focus_function(image)                      # evaluate focus
+        if focus > prev_focus:
+            lumaview.motion.SendGram('MVP', 1, 'Z', z_step)   # move focus
+        else:
+            z_step = -z_step/2
+        if (z_step <= 1) or (focus == 0):
+            Clock.unschedule(self.focus_event)
+    '''
 
-        while z_step >= 1:
-            image = camera.array                              # aquire image
-            prev_focus = focus
-            focus = focus_measure(image)                      # evaluate focus
+    def focus_function(self, image, algorithm = 'pixel_variation'):
+        if algorithm == 'pixel_variation':
+            w = image.shape[0]
+            h = image.shape[1]
+            sum = np.sum(image)
+            ssq = np.sum(image**2)
+            return ssq*w*h-sum**2
+        elif algorithm == 'convolve2D':
+            # https://medium.com/analytics-vidhya/2d-convolution-using-python-numpy-43442ff5f381
+            return 0
+        else:
+            return 0
 
-            if focus > prev_focus:
-                lumaview.motion.SendGram('MVP', 1, 'Z', z_step)   # move focus
-            else:
-                z_step = -z_step/2
-
-
-    def focus_measure(self, image):
-        return 1
-
+    # Image Sharpening using Richardson-Lucy deconvolution algorithm
+    def Richardson_Lucy(self, image):
+        # https://scikit-image.org/docs/dev/auto_examples/filters/
+        # plot_deconvolution.html#sphx-glr-download-auto-examples-filters-plot-deconvolution-py
+        pass
 
 class XYStageControl(BoxLayout):
 
