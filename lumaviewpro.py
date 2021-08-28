@@ -85,7 +85,7 @@ from kivymd.uix.behaviors import HoverBehavior, TouchBehavior
 # Video Related
 from kivy.graphics.texture import Texture
 import cv2
-import scipy.signal
+from scipy import signal
 
 # Pylon Camera Related
 from pypylon import pylon
@@ -1202,7 +1202,7 @@ class VerticalControl(BoxLayout):
             kernel = np.asarray([[0, -1, 0],
                                  [-1, 4,-1],
                                  [0, -1, 0]])/6
-            convolve = scipy.signal.convolve2d(image, kernel)
+            convolve = signal.convolve2d(image, kernel)
             return np.sum(convolve)
         else:
             return 0
