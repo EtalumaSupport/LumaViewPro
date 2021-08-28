@@ -468,6 +468,7 @@ class TrinamicBoard:
         value = self.SendGram('RFS', 2, 'Z', 0)
         if value == 0:
             Clock.unschedule(self.zhome_event)
+        print('still scheduled?')
 
     def xy_ustep2um(self, ustep):
         um = float(ustep)*self.xy_microstep
@@ -1161,28 +1162,26 @@ class VerticalControl(BoxLayout):
             print("Error: VerticalControl.autofocus() self.camera == False")
             return
 
-        self.z_step = 32
+        self.z_step = 50
         self.dir = 1
         dt = 1 # TODO change this based on focus and exposure time
         self.old_focus = self.focus_function(camera.array)
-        Clock.focus_event = Clock.schedule_interval(self.focus_iterate, 1)
+        self.autofocus_event = Clock.schedule_interval(self.focus_iterate, 1)
 
     def focus_iterate(self, dt):
         global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
         image = camera.array
+
+        lumaview.motion.SendGram('MVP', 1, 'Z', self.dir*self.z_step) # positive value moves down
         focus = self.focus_function(image)
 
-        # if focus < self.old_focus: # This means the focus got worse
-        #self.z_step = self.z_step-1
-        #self.dir = -self.dir
-
-        print(self.dir*self.z_step)
-        self.old_focus = focus
-        if abs(self.z_step) <= 1:
-            Clock.unschedule(self.focus_event)
-        else:
-            lumaview.motion.SendGram('MVP', 1, 'Z', self.dir*self.z_step) # positive value moves down
+        if self.ids['autofocus_id'].state == 'normal':
+            Clock.unschedule(self.autofocus_event) # the technique that works everywhere else
+            self.autofocus_event.cancel()          # another techniwue that is also not working
+            print("should be unscheduled!")
+        elif abs(self.z_step) <= 1:
+            Clock.unschedule(self.autofocus_event)
 
 
     def focus_function(self, image, algorithm = 'convolve2D'):
