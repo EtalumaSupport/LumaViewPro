@@ -1162,6 +1162,7 @@ class VerticalControl(BoxLayout):
 
         self.z_step = 32
         self.dir = 1
+        dt = 1 # TODO change this based on focus and exposure time
         self.old_focus = self.focus_function(camera.array)
         Clock.focus_event = Clock.schedule_interval(self.focus_iterate, 1)
 
@@ -1171,9 +1172,9 @@ class VerticalControl(BoxLayout):
         image = camera.array
         focus = self.focus_function(image)
 
-        # if focus > self.old_focus:
-        self.z_step = self.z_step-1
-        self.dir = -self.dir
+        if focus < self.old_focus: # This means the focus got worse
+            self.z_step = self.z_step*2/3
+            self.dir = -self.dir
 
         print(self.dir*self.z_step)
         self.old_focus = focus
