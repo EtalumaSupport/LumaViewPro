@@ -1075,6 +1075,12 @@ class Histogram(Widget):
 
 
 class VerticalControl(BoxLayout):
+
+    # For autofocus functions
+    z_step = ObjectProperty()
+    z_dir = ObjectProperty()
+    old_focus = ObjectProperty()
+
     def course_up(self):
         global lumaview
         dist = lumaview.motion.z_um2ustep(10)           # 10 um
@@ -1154,37 +1160,41 @@ class VerticalControl(BoxLayout):
             print("Error: VerticalControl.autofocus() self.camera == False")
             return
 
-        # z_low = 3200
-        # z_mid = 3250
-        # z_high = 3300
-        z_step = 32
-        focus = 0
-        dt = 100
-        old_focus = focus
-        focus = self.focus_function(camera.array)
-        print(focus-old_focus)
-        # Clock.focus_event = Clock.schedule_interval(self.focus_iterate, dt/1000)
+        self.z_step = 32
+        self.dir = 1
+        self.old_focus = self.focus_function(camera.array)
+        Clock.focus_event = Clock.schedule_interval(self.focus_iterate, 1)
 
-    '''
     def focus_iterate(self, dt):
         global lumaview
-        image = camera.array                              # aquire image
-        # prev_focus = focus
-        focus = self.focus_function(image)                      # evaluate focus
-        if focus > prev_focus:
-            lumaview.motion.SendGram('MVP', 1, 'Z', z_step)   # move focus
-        else:
-            z_step = -z_step/2
-        if (z_step <= 1) or (focus == 0):
-            Clock.unschedule(self.focus_event)
-    '''
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
+        image = camera.array
+        focus = self.focus_function(image)
 
-    def focus_function(self, image, algorithm = 'pixel_variation'):
-        if algorithm == 'pixel_variation':
-            w = image.shape[0]
-            h = image.shape[1]
+        # if focus > self.old_focus:
+        self.z_step = self.z_step-1
+        self.dir = -self.dir
+
+        print(self.dir*self.z_step)
+        self.old_focus = focus
+        if abs(self.z_step) <= 1:
+            Clock.unschedule(self.focus_event)
+        else:
+            lumaview.motion.SendGram('MVP', 1, 'Z', self.dir*self.z_step) # positive value moves down
+
+
+    def focus_function(self, image, algorithm = 'two_by_two'):
+        w = image.shape[0]
+        h = image.shape[1]
+        # https://stackoverflow.com/questions/4224817/autofocus-algorithm-for-usb-microscope
+        if algorithm == 'two_by_two':
+            sum =  np.sum(np.square(image[:w,:h-1]-image[:w,1:h]))
+            sum += np.sum(np.square(image[:w-1,:h]-image[1:w,:h]))
+            print(sum)
+            return sum
+        elif algorithm == 'pixel_variation':
             sum = np.sum(image)
-            ssq = np.sum(image**2)
+            ssq = np.sum(np.square(image))
             return ssq*w*h-sum**2
         elif algorithm == 'convolve2D':
             # https://medium.com/analytics-vidhya/2d-convolution-using-python-numpy-43442ff5f381
