@@ -1166,8 +1166,9 @@ class VerticalControl(BoxLayout):
         self.dir = 1
         dt = 1 # TODO change this based on focus and exposure time
         self.old_focus = self.focus_function(camera.array)
-        #if autofocusing:
-        self.autofocus_event = Clock.schedule_interval(self.focus_iterate, 1)
+        if self.ids['autofocus_id'].state == 'down':
+            self.ids['autofocus_id'].text = 'Focusing...'
+            self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
 
     def focus_iterate(self, dt):
         global lumaview
@@ -1178,9 +1179,9 @@ class VerticalControl(BoxLayout):
         focus = self.focus_function(image)
 
         if self.ids['autofocus_id'].state == 'normal':
-            #Clock.unschedule(self.autofocus_event) # the technique that works everywhere else
-            self.autofocus_event.cancel()          # another techniwue that is also not working
-            print("should be unscheduled!")
+            self.ids['autofocus_id'].text = 'Autofocus'
+            Clock.unschedule(self.autofocus_event)
+            print("autofocus cancelled")
         elif abs(self.z_step) <= 1:
             Clock.unschedule(self.autofocus_event)
 
