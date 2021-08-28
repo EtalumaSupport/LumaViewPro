@@ -1183,7 +1183,7 @@ class VerticalControl(BoxLayout):
             lumaview.motion.SendGram('MVP', 1, 'Z', self.dir*self.z_step) # positive value moves down
 
 
-    def focus_function(self, image, algorithm = 'two_by_two'):
+    def focus_function(self, image, algorithm = 'convolve2D'):
         w = image.shape[0]
         h = image.shape[1]
         # https://stackoverflow.com/questions/4224817/autofocus-algorithm-for-usb-microscope
@@ -1197,8 +1197,12 @@ class VerticalControl(BoxLayout):
             ssq = np.sum(np.square(image))
             return ssq*w*h-sum**2
         elif algorithm == 'convolve2D':
-            # https://medium.com/analytics-vidhya/2d-convolution-using-python-numpy-43442ff5f381
-            return 0
+            # Bueno-Ibarra et al. Optical Engineering 44(6), 063601 (June 2005)
+            kernel = [[0, -1, 0],
+                      [-1, 4,-1],
+                      [0, -1, 0]]/6
+            convolve = scipy.signal.convolve2d(image, kernel)
+            return np.sum(convolve)
         else:
             return 0
 
