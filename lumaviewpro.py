@@ -1162,14 +1162,17 @@ class VerticalControl(BoxLayout):
             print("Error: VerticalControl.autofocus() self.camera == False")
             return
 
+        # TODO / DEBUG This needs to be set bu the user
         self.z_min = -lumaview.motion.z_um2ustep(3100)
         self.z_max = -lumaview.motion.z_um2ustep(3300)
         self.z_step = -int(lumaview.motion.z_um2ustep(5))
-        self.positions = []
-        self.focus_measures = []
 
         dt = 2 # TODO change this based on focus and exposure time
+
+        self.positions = []
+        self.focus_measures = []
         self.old_focus = self.focus_function(camera.array)
+
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
             lumaview.motion.SendGram('MVP', 0, 'Z', self.z_min) # Go to z_min
@@ -1233,7 +1236,7 @@ class VerticalControl(BoxLayout):
         else:
             return 0
 
-    def focus_best(self, positions, values, algorithm='mov_avg'):
+    def focus_best(self, positions, values, algorithm='direct'):
         if algorithm == 'direct':
             max_value = max(values)
             max_index = values.index(max_value)
