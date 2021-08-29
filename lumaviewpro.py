@@ -664,12 +664,12 @@ class MainDisplay(FloatLayout):
 
                 # Dark field capture
                 led_board.led_off()
-                time.sleep(exposure/1000)
+                time.sleep(exposure/1000)  # Should be replaced with Clock
                 microscope.update(0)
                 darkfield = microscope.array
                 # Florescent capture
                 led_board.led_on(led_board.color2ch(layer), illumination)
-                time.sleep(exposure/1000)
+                time.sleep(exposure/1000)  # Should be replaced with Clock
                 microscope.update(0)
                 #corrected = np.max(microscope.array - darkfield, np.zeros(like=darkfield))
                 corrected = microscope.array - np.minimum(microscope.array,darkfield)
@@ -1005,7 +1005,7 @@ class Histogram(Widget):
         if self.bg_color is None:
             self.bg_color = (1, 1, 1, 1)
 
-        self.event = Clock.schedule_interval(self.histogram,0.1)
+        self.event = Clock.schedule_interval(self.histogram, 1)
         self.hist_range_set = False
         self.edges = [0,255]
         self.stablize = 0.3
@@ -1175,7 +1175,7 @@ class VerticalControl(BoxLayout):
         self.z_max = -lumaview.motion.z_um2ustep(3300)
         self.z_step = -int(lumaview.motion.z_um2ustep(5))
 
-        dt = 2 # TODO change this based on focus and exposure time
+        dt = 1 # TODO change this based on focus and exposure time
 
         self.positions = []
         self.focus_measures = []
@@ -1191,8 +1191,8 @@ class VerticalControl(BoxLayout):
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
         image = camera.array
 
-        target = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-        # target = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current value
+        #target = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
+        target = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current value
 
         self.positions.append(target)
         self.focus_measures.append(self.focus_function(image))
@@ -1210,10 +1210,8 @@ class VerticalControl(BoxLayout):
             Clock.unschedule(self.autofocus_event)
 
             focus = self.focus_best(self.positions, self.focus_measures)
-            print(-lumaview.motion.z_ustep2um(focus))
+            print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
             lumaview.motion.SendGram('MVP', 0, 'Z', focus) # move to absolute target
-
-
 
     def focus_function(self, image, algorithm = 'convolve2D'):
         w = image.shape[0]
@@ -1223,22 +1221,25 @@ class VerticalControl(BoxLayout):
         if algorithm == 'two_by_two':
             sum =  np.sum(np.square(image[:w,:h-1]-image[:w,1:h]))
             sum += np.sum(np.square(image[:w-1,:h]-image[1:w,:h]))
-            print(sum)
+            print('two_by_two:', sum)
             return sum
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
             ssq = np.sum(np.square(image))
-            return ssq*w*h-sum**2
+            var = ssq*w*h-sum**2
+            print('pixel_variation:', var)
+            return var
 
         elif algorithm == 'convolve2D':
             # Bueno-Ibarra et al. Optical Engineering 44(6), 063601 (June 2005)
             kernel = np.array([ [0, -1, 0],
                                 [-1, 4,-1],
-                                [0, -1, 0]])
+                                [0, -1, 0]], )
             convolve = signal.convolve2d(image, kernel)
             sum = np.sum(convolve)
-            print(sum)
+            print('Image Sum:', np.sum(image))
+            print('Convolve2D Sum:', sum)
             return sum
 
         else:
@@ -1654,8 +1655,8 @@ class LayerControl(BoxLayout):
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
-        for i in range(10):
-            Clock.schedule_once(self.update_shader, (i+1)/10)
+        for i in np.arange(0.1, 3, 0.1):
+            Clock.schedule_once(self.update_shader, i)
 
     def update_shader(self, dt):
         if self.ids['false_color'].active:
