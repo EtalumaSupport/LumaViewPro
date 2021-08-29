@@ -1022,14 +1022,14 @@
 				width: '30dp'
 				height: '20dp'
 				font_size: '12sp'
-				pos_hint:{"right":0.9,"top":1}
+				pos_hint:{"right":0.9,"top":0.95}
 				text: 'Log'
 			CheckBox:
 				id: logHistogram_id
 				size_hint: None, None
 				width: '30dp'
 				height: '20dp'
-				pos_hint:{"right":1,"top":1}
+				pos_hint:{"right":1,"top":0.95}
 				state: 'normal'
 			Histogram:
 				id: histo_id
@@ -1045,7 +1045,7 @@
 			rgba: root.bg_color
 		Line:
 			width: 1
-			rectangle: (self.x+5, self.y+5, self.width-10, self.height-10)
+			rectangle: (self.x, self.y, self.width, self.height)
 
 
 # TimeLapseSettings - Settings for Time Lapse within MainSettings
