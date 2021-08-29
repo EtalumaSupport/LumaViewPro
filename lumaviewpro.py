@@ -1079,9 +1079,9 @@ class Histogram(Widget):
 class VerticalControl(BoxLayout):
 
     # For autofocus functions
-    z_step = ObjectProperty()
-    z_dir = ObjectProperty()
-    old_focus = ObjectProperty()
+    # z_step = ObjectProperty()
+    # z_dir = ObjectProperty()
+    # old_focus = ObjectProperty()
 
     def course_up(self):
         global lumaview
@@ -1162,12 +1162,17 @@ class VerticalControl(BoxLayout):
             print("Error: VerticalControl.autofocus() self.camera == False")
             return
 
-        self.z_step = 50
-        self.dir = 1
-        dt = 1 # TODO change this based on focus and exposure time
+        self.z_min = -lumaview.motion.z_um2ustep(3100)
+        self.z_max = -lumaview.motion.z_um2ustep(3300)
+        self.z_step = -int(lumaview.motion.z_um2ustep(5))
+        self.positions = []
+        self.focus_measures = []
+
+        dt = 2 # TODO change this based on focus and exposure time
         self.old_focus = self.focus_function(camera.array)
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
+            lumaview.motion.SendGram('MVP', 0, 'Z', self.z_min) # Go to z_min
             self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
 
     def focus_iterate(self, dt):
@@ -1175,30 +1180,46 @@ class VerticalControl(BoxLayout):
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
         image = camera.array
 
-        lumaview.motion.SendGram('MVP', 1, 'Z', self.dir*self.z_step) # positive value moves down
-        focus = self.focus_function(image)
+        target = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
+        # target = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current value
+
+        self.positions.append(target)
+        self.focus_measures.append(self.focus_function(image))
+
+        lumaview.motion.SendGram('MVP', 1, 'Z', self.z_step) # move by z_step
 
         if self.ids['autofocus_id'].state == 'normal':
             self.ids['autofocus_id'].text = 'Autofocus'
             Clock.unschedule(self.autofocus_event)
             print("autofocus cancelled")
-        elif abs(self.z_step) <= 1:
+
+        elif target <= self.z_max:
+            self.ids['autofocus_id'].text = 'Autofocus'
+            self.ids['autofocus_id'].state = 'normal'
             Clock.unschedule(self.autofocus_event)
+
+            focus = self.focus_best(self.positions, self.focus_measures)
+            print(-lumaview.motion.z_ustep2um(focus))
+            lumaview.motion.SendGram('MVP', 0, 'Z', focus) # move to absolute target
+
 
 
     def focus_function(self, image, algorithm = 'convolve2D'):
         w = image.shape[0]
         h = image.shape[1]
+
         # https://stackoverflow.com/questions/4224817/autofocus-algorithm-for-usb-microscope
         if algorithm == 'two_by_two':
             sum =  np.sum(np.square(image[:w,:h-1]-image[:w,1:h]))
             sum += np.sum(np.square(image[:w-1,:h]-image[1:w,:h]))
             print(sum)
             return sum
+
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
             ssq = np.sum(np.square(image))
             return ssq*w*h-sum**2
+
         elif algorithm == 'convolve2D':
             # Bueno-Ibarra et al. Optical Engineering 44(6), 063601 (June 2005)
             kernel = np.asarray([[0, -1, 0],
@@ -1208,8 +1229,23 @@ class VerticalControl(BoxLayout):
             sum = np.sum(convolve)
             print(sum)
             return sum
+
         else:
             return 0
+
+    def focus_best(self, positions, values, algorithm='mov_avg'):
+        if algorithm == 'direct':
+            max_value = max(values)
+            max_index = values.index(max_value)
+            return positions[max_index]
+
+        elif algorithm == 'mov_avg':
+            avg_values = np.convolve(values, [.5, 1, 1, 1, 0.5], 'same')
+            max_index = avg_values.argmax()
+            return positions[max_index]
+
+        else:
+            return positions[0]
 
     # Image Sharpening using Richardson-Lucy deconvolution algorithm
     def Richardson_Lucy(self, image):
