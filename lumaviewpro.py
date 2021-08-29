@@ -1236,6 +1236,13 @@ class VerticalControl(BoxLayout):
             kernel = np.array([ [0, -1, 0],
                                 [-1, 4,-1],
                                 [0, -1, 0]], dtype='float') / 6
+            n = 5
+            kernel = np.zeros([n,n])
+            for i in range(n):
+                for j in range(n):
+                    r = np.sqrt((i-2)**2 + (j-2)**2)
+                    a = 2
+                    kernel[i,j] = 2*(1-(r/a)**2)*np.exp(-0.5*(r/a)**2)/np.sqrt(3*a)
             convolve = signal.convolve2d(image, kernel, mode='valid')
             sum = np.sum(convolve)
             print(sum)
