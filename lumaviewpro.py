@@ -1170,12 +1170,12 @@ class VerticalControl(BoxLayout):
             print("Error: VerticalControl.autofocus() self.camera == False")
             return
 
-        # TODO / DEBUG This needs to be set bu the user
-        self.z_min = -lumaview.motion.z_um2ustep(3100)
-        self.z_max = -lumaview.motion.z_um2ustep(3300)
-        self.z_step = -int(lumaview.motion.z_um2ustep(5))
+        # TODO / DEBUG This needs to be set bu the user 3239.90
+        self.z_min = -lumaview.motion.z_um2ustep(3200)
+        self.z_max = -lumaview.motion.z_um2ustep(3280)
+        self.z_step = -int(lumaview.motion.z_um2ustep(1))
 
-        dt = 1 # TODO change this based on focus and exposure time
+        dt = 0.5 # TODO change this based on focus and exposure time
 
         self.positions = []
         self.focus_measures = []
@@ -1235,17 +1235,16 @@ class VerticalControl(BoxLayout):
             # Bueno-Ibarra et al. Optical Engineering 44(6), 063601 (June 2005)
             kernel = np.array([ [0, -1, 0],
                                 [-1, 4,-1],
-                                [0, -1, 0]], )
-            convolve = signal.convolve2d(image, kernel)
+                                [0, -1, 0]], dtype='float') / 6
+            convolve = signal.convolve2d(image, kernel, mode='valid')
             sum = np.sum(convolve)
-            print('Image Sum:', np.sum(image))
-            print('Convolve2D Sum:', sum)
+            print(sum)
             return sum
 
         else:
             return 0
 
-    def focus_best(self, positions, values, algorithm='direct'):
+    def focus_best(self, positions, values, algorithm='mov_avg'):
         if algorithm == 'direct':
             max_value = max(values)
             max_index = values.index(max_value)
