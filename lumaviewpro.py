@@ -1212,6 +1212,7 @@ class VerticalControl(BoxLayout):
             focus = self.focus_best(self.positions, self.focus_measures)
             print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
             lumaview.motion.SendGram('MVP', 0, 'Z', focus) # move to absolute target
+        self.update_gui(0)
 
     def focus_function(self, image, algorithm = 'skew'):
         w = image.shape[0]
