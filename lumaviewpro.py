@@ -157,7 +157,7 @@ class PylonCamera(Image):
 
                 self.lastGrab = pylon.PylonImage()
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
-                lumaview.ids['viewer_id'].update_shader()
+                #lumaview.ids['viewer_id'].update_shader()
 
             if self.record == True:
                 lumaview.capture(0)
@@ -785,10 +785,10 @@ class ShaderViewer(Scatter):
 void main (void) {
 	gl_FragColor =
     white_point *
-    //frag_color *
-    (frag_color/whitepoint)^gamma
+    frag_color *
     texture2D(texture0, tex_coord0)
     - black_point;
+    //gl_FragColor = pow(glFragColor.rgb, 1/gamma)
 }
 ''')
     vs = StringProperty('''
@@ -835,6 +835,8 @@ void main (void) {
         #c['black_point'] = (float(self.edges[0])/255., )*4
         # adjust for false color
         c['white_point'] = gain_vals
+        print(self.black)
+        print(gain_vals)
         #c['white_point'] = gain_vals
 
     def on_fs(self, instance, value):
@@ -1345,7 +1347,7 @@ class MicroscopeSettings(BoxLayout):
         self.ids['frame_height'].text = str(height)
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(width, height)
-
+        lumaview.ids['viewer_id'].update_shader()
 
 # Pass-through class for microscope selection drop-down menu, defined in .kv file
 # -------------------------------------------------------------------------------
@@ -1621,6 +1623,9 @@ class LayerControl(BoxLayout):
         if self.layer == 'BF':
             self.ids['false_color_label'].text = ''
             self.ids['false_color'].color = (0., )*4
+
+        lumaview.ids['viewer_id'].update_shader()
+
 
 class TimeLapseSettings(BoxLayout):
     record = ObjectProperty(None)
