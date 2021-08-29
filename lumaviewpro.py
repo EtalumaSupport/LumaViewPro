@@ -86,6 +86,7 @@ from kivymd.uix.behaviors import HoverBehavior, TouchBehavior
 from kivy.graphics.texture import Texture
 import cv2
 from scipy import signal
+from scipy import stats
 
 # Pylon Camera Related
 from pypylon import pylon
@@ -839,7 +840,7 @@ void main (void) {
         else:
             c['white_point'] = (self.white, )*4
 
-        print('b:', self.black, 'w:', self.white)
+        # print('b:', self.black, 'w:', self.white)
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -1210,7 +1211,7 @@ class VerticalControl(BoxLayout):
             Clock.unschedule(self.autofocus_event)
 
             focus = self.focus_best(self.positions, self.focus_measures)
-            print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
+            print(self.positions, '\t', self.focus_measures)
             lumaview.motion.SendGram('MVP', 0, 'Z', focus) # move to absolute target
         self.update_gui(0)
 
@@ -1234,7 +1235,16 @@ class VerticalControl(BoxLayout):
             white_edge = edges[1]
 
             skew = white_edge-max_index
+            print(skew)
             return skew
+
+        # elif algorithm == 'skew':
+        #     hist = np.histogram(image, bins=256,range=(0,256))
+        #     hist = np.asarray(hist[0], dtype='int')
+        #     skew = stats.skew(hist)
+        #
+        #     print(skew)
+        #     return skew
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
