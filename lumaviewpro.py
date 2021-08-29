@@ -785,7 +785,8 @@ class ShaderViewer(Scatter):
 void main (void) {
 	gl_FragColor =
     white_point *
-    frag_color *
+    //frag_color *
+    (frag_color/whitepoint)^gamma
     texture2D(texture0, tex_coord0)
     - black_point;
 }
@@ -830,6 +831,7 @@ void main (void) {
         c['time'] = Clock.get_boottime()
         c['resolution'] = list(map(float, self.size))
         c['black_point'] = (self.black, )*4
+        c['gamma'] = 2.2
         #c['black_point'] = (float(self.edges[0])/255., )*4
         # adjust for false color
         c['white_point'] = gain_vals
@@ -1201,9 +1203,9 @@ class VerticalControl(BoxLayout):
             return ssq*w*h-sum**2
         elif algorithm == 'convolve2D':
             # Bueno-Ibarra et al. Optical Engineering 44(6), 063601 (June 2005)
-            kernel = np.asarray([[0, -1, 0],
-                                 [-1, 4,-1],
-                                 [0, -1, 0]])/6
+            kernel = np.array([ [0, -1, 0],
+                                [-1, 4,-1],
+                                [0, -1, 0]])
             convolve = signal.convolve2d(image, kernel)
             sum = np.sum(convolve)
             print(sum)
