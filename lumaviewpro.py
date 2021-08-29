@@ -157,7 +157,6 @@ class PylonCamera(Image):
 
                 self.lastGrab = pylon.PylonImage()
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
-                #lumaview.ids['viewer_id'].update_shader()
 
             if self.record == True:
                 lumaview.capture(0)
@@ -774,8 +773,8 @@ uniform vec4       color;
 # global illumination_vals
 # illumination_vals = (0., )*4
 
-global gain_vals
-gain_vals = (1., )*4
+# global gain_vals
+# gain_vals = (1., )*4
 
 class ShaderViewer(Scatter):
     black = ObjectProperty(0.)
@@ -808,7 +807,6 @@ void main (void) {
         super(ShaderViewer, self).__init__(**kwargs)
         self.canvas.shader.fs = fs_header + self.fs
         self.canvas.shader.vs = vs_header + self.vs
-        #Clock.schedule_interval(self.update_shader, 0.1)
 
     def on_touch_down(self, touch):
         # Override Scatter's `on_touch_down` behavior for mouse scroll
@@ -823,8 +821,7 @@ void main (void) {
         else:
             super(ShaderViewer, self).on_touch_down(touch)
 
-    def update_shader(self, *args):
-        global gain_vals
+    def update_shader(self, false_color):
 
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
@@ -832,12 +829,17 @@ void main (void) {
         c['resolution'] = list(map(float, self.size))
         c['black_point'] = (self.black, )*4
         c['gamma'] = 2.2
-        #c['black_point'] = (float(self.edges[0])/255., )*4
-        # adjust for false color
-        c['white_point'] = gain_vals
-        print(self.black)
-        print(gain_vals)
-        #c['white_point'] = gain_vals
+
+        if false_color == 'Red':
+            c['white_point'] = (self.white, 0., 0., 1.)
+        elif false_color == 'Green':
+            c['white_point'] = (0., self.white, 0., 1.)
+        elif false_color == 'Blue':
+            c['white_point'] = (0., 0., self.white, 1.)
+        else:
+            c['white_point'] = (self.white, )*4
+
+        print('b:', self.black, 'w:', self.white)
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -1025,6 +1027,8 @@ class Histogram(Widget):
             # mean = np.mean(hist[1],hist[0])
             lumaview.ids['viewer_id'].black = float(edges[0])/255.
             lumaview.ids['viewer_id'].white = float(edges[1])/255.
+
+            # UPDATE SHADER
 
             self.canvas.clear()
             r, b, g, a = self.bg_color
@@ -1386,7 +1390,6 @@ class MicroscopeSettings(BoxLayout):
         self.ids['frame_height'].text = str(height)
 
         lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(width, height)
-        lumaview.ids['viewer_id'].update_shader()
 
 # Pass-through class for microscope selection drop-down menu, defined in .kv file
 # -------------------------------------------------------------------------------
@@ -1598,7 +1601,7 @@ class LayerControl(BoxLayout):
 
     def apply_settings(self):
         global lumaview
-        global gain_vals
+        # global gain_vals
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
@@ -1631,20 +1634,6 @@ class LayerControl(BoxLayout):
         exposure = protocol[self.layer]['exp']
         lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
 
-        # update false color to currently selected settings
-        # -----------------------------------------------------
-
-        if self.ids['false_color'].active:
-            white = lumaview.ids['viewer_id'].white
-            if(self.layer) == 'Red':
-                gain_vals = (white, 0., 0., 1.)
-            elif(self.layer) == 'Green':
-                gain_vals = (0., white, 0., 1.)
-            elif(self.layer) == 'Blue':
-                gain_vals = (0., 0., white, 1.)
-        else:
-            gain_vals =  (1., )*4
-
         # choose correct active toggle button image based on color
         # -----------------------------------------------------
         if self.ids['apply_btn'].state == 'down':
@@ -1663,7 +1652,16 @@ class LayerControl(BoxLayout):
             self.ids['false_color_label'].text = ''
             self.ids['false_color'].color = (0., )*4
 
-        lumaview.ids['viewer_id'].update_shader()
+        # update false color to currently selected settings and shader
+        # -----------------------------------------------------
+        for i in range(10):
+            Clock.schedule_once(self.update_shader, (i+1)/10)
+
+    def update_shader(self, dt):
+        if self.ids['false_color'].active:
+            lumaview.ids['viewer_id'].update_shader(self.layer)
+        else:
+            lumaview.ids['viewer_id'].update_shader('none')
 
 
 class TimeLapseSettings(BoxLayout):
