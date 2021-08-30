@@ -1182,9 +1182,10 @@ class VerticalControl(BoxLayout):
         self.old_focus = self.focus_function(camera.array)
 
         if self.ids['autofocus_id'].state == 'down':
-            self.ids['autofocus_id'].text = 'Focusing...'
-            lumaview.motion.SendGram('MVP', 0, 'Z', self.z_min) # Go to z_min
-            self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
+            if image:
+                self.ids['autofocus_id'].text = 'Focusing...'
+                lumaview.motion.SendGram('MVP', 0, 'Z', self.z_min) # Go to z_min
+                self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
 
     def focus_iterate(self, dt):
         global lumaview
@@ -1236,13 +1237,14 @@ class VerticalControl(BoxLayout):
             kernel = np.array([ [0, -1, 0],
                                 [-1, 4,-1],
                                 [0, -1, 0]], dtype='float') / 6
-            n = 5
+            n = 9
             kernel = np.zeros([n,n])
             for i in range(n):
                 for j in range(n):
-                    r = np.sqrt((i-2)**2 + (j-2)**2)
-                    a = 2
-                    kernel[i,j] = 2*(1-(r/a)**2)*np.exp(-0.5*(r/a)**2)/np.sqrt(3*a)
+                    a = 1
+                    r2 = ((i-(n-1)/2)**2 + (j-(n-1)/2)**2)/a**2
+                    kernel[i,j] = 2*(1-r2)*np.exp(-0.5*r2)/np.sqrt(3*a)
+            print(kernel)
             convolve = signal.convolve2d(image, kernel, mode='valid')
             sum = np.sum(convolve)
             print(sum)
