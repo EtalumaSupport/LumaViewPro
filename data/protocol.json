@@ -1,15 +1,23 @@
 {
     "microscope": "LS720",
     "objective": {
-        "name": "unknown",
+        "desc": "40x description",
         "magnification": 40,
-        "FOV": "tbd"
+        "aperture": 0.65,
+        "DOF": 1.0,
+        "AF_min": 1.0,
+        "AF_max": 9.0,
+        "AF_range": 20.0,
+        "step_fine": 0.5,
+        "step_course": 5.0,
+        "ID": "40x"
     },
     "port": "COM3",
     "frame_width": 1900,
     "frame_height": 1900,
     "live_folder": "./capture",
-    "x_bookmark": -0.0,
+    "protocol_folder": "./data",
+    "x_bookmark": 0,
     "y_bookmark": 0,
     "z_bookmark": 0,
     "period": 0.1,

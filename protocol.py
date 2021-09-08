@@ -4,9 +4,16 @@
 protocol = {
     "microscope": "LS720",
     "objective": {
-        "name": "unknown",
-        "magnification": 40,
-        "FOV": "tbd"
+        "desc": "100x description",
+        "magnification": 100,
+        "aperture": 0.95,
+        "DOF": 0.19,
+        "AF_min": 0.2,
+        "AF_max": 4.0,
+        "AF_range": 10.0,
+        "step_fine": 0.11,
+        "step_course": 1.1,
+        "ID": "100x"
     },
     "port": 'COM3',
     "frame_width": 1900,

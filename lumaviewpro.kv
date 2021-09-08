@@ -670,24 +670,7 @@
 # Used within ScopeSelection
 # ----------------------------------------------------------
 <ObjectiveDropDown>:
-	Button:
-		text: 'Objective A'
-		font_size: '12sp'
-		size_hint_y: None
-		height: '30dp'
-		on_release: root.select('Objective A')
-	Button:
-		text: 'Objective B'
-		font_size: '12sp'
-		size_hint_y: None
-		height: '30dp'
-		on_release: root.select('Objective B')
-	Button:
-		text: 'Objective C'
-		font_size: '12sp'
-		size_hint_y: None
-		height: '30dp'
-		on_release: root.select('Objective C')
+	# Buttons are generated dynamically based on objectives.json file
 
 # MicroscopeSettings - Settings for  Microscope within MainSettings
 # ------------------------------------------
@@ -709,7 +692,7 @@
 		height: '30dp'
 
 	ObjectiveSelect:
-		id: select_obj_btn
+		id: select_obj_id
 		orientation: 'horizontal'
 		size_hint_y: None
 		height: '30dp'
