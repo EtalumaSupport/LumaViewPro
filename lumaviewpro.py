@@ -1728,7 +1728,7 @@ class TimeLapseSettings(BoxLayout):
             global protocol
             protocol = json.load(read_file)
             # update GUI values from JSON data:
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_btn'].scope_str = protocol['microscope']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_id'].scope_str = protocol['microscope']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_id'].mainbutton.text = protocol['objective']['ID']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['magnification_id'].text = str(protocol['objective']['magnification'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
