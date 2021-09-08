@@ -1,0 +1,73 @@
+{
+    "4x": {
+        "name": "4x name",
+        "magnification": 4,
+        "aperture": 0.1,
+        "DOF": 55.5,
+        "AF_min": 20.,
+        "AF_max": 72.,
+        "AF_range": 150.,
+        "step_fine": 27.75,
+        "step_course": 277.5
+    },
+
+    "10x": {
+        "name": "10x name",
+        "magnification": 10,
+        "aperture": 0.25,
+        "DOF": 8.5,
+        "AF_min": 8.,
+        "AF_max": 36.,
+        "AF_range": 75.,
+        "step_fine": 4.25,
+        "step_course": 42.5
+    },
+
+    "20x": {
+        "name": "20x name",
+        "magnification": 20,
+        "aperture": 0.40,
+        "DOF": 5.8,
+        "AF_min": 2.,
+        "AF_max": 18.,
+        "AF_range": 40.,
+        "step_fine": 2.9,
+        "step_course": 29.
+    },
+
+    "40x": {
+        "name": "40x name",
+        "magnification": 40,
+        "aperture": 0.65,
+        "DOF": 1.0,
+        "AF_min": 1.,
+        "AF_max": 9.,
+        "AF_range": 20.,
+        "step_fine": 0.5,
+        "step_course": 5.
+    },
+
+    "60x": {
+        "name": "60x name",
+        "magnification": 60,
+        "aperture": 0.85,
+        "DOF": 0.4,
+        "AF_min": 0.5,
+        "AF_max": 6.,
+        "AF_range": 15.,
+        "step_fine": 0.2,
+        "step_course": 2.
+    },
+
+    "100x": {
+        "name": "100x name",
+        "magnification": 100,
+        "aperture": 0.95,
+        "DOF": 0.19,
+        "AF_min": 0.2,
+        "AF_max": 4.,
+        "AF_range": 10.,
+        "step_fine": 0.11,
+        "step_course": 1.1
+    },
+}
