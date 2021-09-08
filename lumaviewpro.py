@@ -1086,62 +1086,52 @@ class Histogram(Widget):
 
 class VerticalControl(BoxLayout):
 
-    # For autofocus functions
-    # z_step = ObjectProperty()
-    # z_dir = ObjectProperty()
-    # old_focus = ObjectProperty()
-
     def course_up(self):
-        global lumaview
-        dist = lumaview.motion.z_um2ustep(10)           # 10 um
+        course = protocol['objective']['step_course']
+        dist = lumaview.motion.z_um2ustep(course)       # 10 um
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP relative
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def fine_up(self):
-        global lumaview
-        dist = lumaview.motion.z_um2ustep(1)            # 1 um
+        fine = protocol['objective']['step_fine']
+        dist = lumaview.motion.z_um2ustep(fine)         # 1 um
         lumaview.motion.SendGram('MVP', 1, 'Z', -dist)  # Move UP
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def fine_down(self):
-        global lumaview
-        dist = lumaview.motion.z_um2ustep(1)             # 1 um
+        fine = protocol['objective']['step_fine']
+        dist = lumaview.motion.z_um2ustep(fine)         # 1 um
         lumaview.motion.SendGram('MVP', 1, 'Z', dist)   # Move DOWN
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def course_down(self):
-        global lumaview
-        dist = lumaview.motion.z_um2ustep(10)           # 10 um
+        course = protocol['objective']['step_course']
+        dist = lumaview.motion.z_um2ustep(course)       # 10 um
         lumaview.motion.SendGram('MVP', 1, 'Z', dist)   # Move DOWN
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_position(self, pos):
-        global lumaview
         usteps = -lumaview.motion.z_um2ustep(float(pos))   # position on slider is in mm
         lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # Move to absolute position
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_bookmark(self):
-        global lumaview
         usteps = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current z height in usteps
         height = -lumaview.motion.z_ustep2um(usteps)
         protocol['z_bookmark'] = height
 
     def goto_bookmark(self):
-        global lumaview
         height = protocol['z_bookmark']
         usteps = -lumaview.motion.z_um2ustep(height)
         lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # set current z height in usteps
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def home(self):
-        global lumaview
         lumaview.motion.zhome()
         self.ids['home_id'].text = 'Homing...'
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def update_gui(self, dt):
-        global lumaview
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
 
@@ -1163,7 +1153,6 @@ class VerticalControl(BoxLayout):
             self.ids['home_id'].state = 'normal'
 
     def autofocus(self):
-        global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
 
         if camera == False:
@@ -1188,7 +1177,6 @@ class VerticalControl(BoxLayout):
             self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
 
     def focus_iterate(self, dt):
-        global lumaview
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
         image = camera.array
 
