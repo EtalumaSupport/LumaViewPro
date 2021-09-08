@@ -839,7 +839,7 @@ void main (void) {
         else:
             c['white_point'] = (self.white, )*4
 
-        print('b:', self.black, 'w:', self.white)
+        # print('b:', self.black, 'w:', self.white)
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -1160,11 +1160,16 @@ class VerticalControl(BoxLayout):
             return
 
         # TODO / DEBUG This needs to be set bu the user 3239.90
-        self.z_min = -lumaview.motion.z_um2ustep(3200)
-        self.z_max = -lumaview.motion.z_um2ustep(3280)
-        self.z_step = -int(lumaview.motion.z_um2ustep(1))
+        center = protocol['z_bookmark']
+        range =  protocol['objective']['AF_range']
+        fine =   protocol['objective']['AF_min']
+        course = protocol['objective']['AF_max']
 
-        dt = 0.5 # TODO change this based on focus and exposure time
+        self.z_min = -lumaview.motion.z_um2ustep(center-range)
+        self.z_max = -lumaview.motion.z_um2ustep(center+range)
+        self.z_step = -int(lumaview.motion.z_um2ustep(fine))
+
+        dt = 1 # TODO change this based on focus and exposure time
 
         self.positions = []
         self.focus_measures = []

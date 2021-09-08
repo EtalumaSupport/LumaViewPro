@@ -19,7 +19,7 @@
     "protocol_folder": "./data",
     "x_bookmark": 0,
     "y_bookmark": 0,
-    "z_bookmark": 3223.70354737665,
+    "z_bookmark": 3233.2010135931,
     "period": 0.1,
     "duration": 0.1,
     "BF": {
@@ -47,13 +47,13 @@
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 100.0,
-        "gain": 0.0,
+        "ill": 310.0,
+        "gain": 6.7,
         "gain_auto": false,
-        "exp": 100.0,
+        "exp": 590.37,
         "false_color": true,
         "acquire": true,
-        "focus": 0.0
+        "focus": 3233.2010135931
     },
     "Red": {
         "save_folder": "./capture",
