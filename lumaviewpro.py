@@ -86,7 +86,6 @@ from kivymd.uix.behaviors import HoverBehavior, TouchBehavior
 from kivy.graphics.texture import Texture
 import cv2
 from scipy import signal
-from scipy import stats
 
 # Pylon Camera Related
 from pypylon import pylon
@@ -840,7 +839,7 @@ void main (void) {
         else:
             c['white_point'] = (self.white, )*4
 
-        # print('b:', self.black, 'w:', self.white)
+        print('b:', self.black, 'w:', self.white)
 
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
@@ -1183,10 +1182,10 @@ class VerticalControl(BoxLayout):
         self.old_focus = self.focus_function(camera.array)
 
         if self.ids['autofocus_id'].state == 'down':
-            if image:
-                self.ids['autofocus_id'].text = 'Focusing...'
-                lumaview.motion.SendGram('MVP', 0, 'Z', self.z_min) # Go to z_min
-                self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
+            #if camera.array:
+            self.ids['autofocus_id'].text = 'Focusing...'
+            lumaview.motion.SendGram('MVP', 0, 'Z', self.z_min) # Go to z_min
+            self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
 
     def focus_iterate(self, dt):
         global lumaview
@@ -1212,11 +1211,10 @@ class VerticalControl(BoxLayout):
             Clock.unschedule(self.autofocus_event)
 
             focus = self.focus_best(self.positions, self.focus_measures)
-            print(self.positions, '\t', self.focus_measures)
+            print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
             lumaview.motion.SendGram('MVP', 0, 'Z', focus) # move to absolute target
-        self.update_gui(0)
 
-    def focus_function(self, image, algorithm = 'skew'):
+    def focus_function(self, image, algorithm = 'convolve2D'):
         w = image.shape[0]
         h = image.shape[1]
 
@@ -1226,26 +1224,6 @@ class VerticalControl(BoxLayout):
             sum += np.sum(np.square(image[:w-1,:h]-image[1:w,:h]))
             print('two_by_two:', sum)
             return sum
-
-        elif algorithm == 'skew':
-            hist = np.histogram(image, bins=256,range=(0,256))
-            hist = np.asarray(hist[0], dtype='int')
-            max_index = hist.argmax()
-
-            edges = np.histogram_bin_edges(image, bins=1)
-            white_edge = edges[1]
-
-            skew = white_edge-max_index
-            print(skew)
-            return skew
-
-        # elif algorithm == 'skew':
-        #     hist = np.histogram(image, bins=256,range=(0,256))
-        #     hist = np.asarray(hist[0], dtype='int')
-        #     skew = stats.skew(hist)
-        #
-        #     print(skew)
-        #     return skew
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
@@ -1260,10 +1238,10 @@ class VerticalControl(BoxLayout):
                                 [-1, 4,-1],
                                 [0, -1, 0]], dtype='float') / 6
             n = 9
+            a = 1
             kernel = np.zeros([n,n])
             for i in range(n):
                 for j in range(n):
-                    a = 1
                     r2 = ((i-(n-1)/2)**2 + (j-(n-1)/2)**2)/a**2
                     kernel[i,j] = 2*(1-r2)*np.exp(-0.5*r2)/np.sqrt(3*a)
             print(kernel)
