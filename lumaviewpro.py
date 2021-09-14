@@ -1220,9 +1220,9 @@ class VerticalControl(BoxLayout):
     def focus_function(self, image, algorithm = 'volloth4'):
         w = image.shape[0]
         h = image.shape[1]
-        image = image[int(w/3):int(2*w/3), int(h/3):int(2*h/3)]
-        w = image.shape[0]
-        h = image.shape[1]
+        # image = image[int(w/3):int(2*w/3), int(h/3):int(2*h/3)]
+        # w = image.shape[0]
+        # h = image.shape[1]
 
         # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
         if algorithm == 'volloth4': # pg 266
