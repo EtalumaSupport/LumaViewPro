@@ -1181,7 +1181,7 @@ class VerticalControl(BoxLayout):
 
         self.positions = []
         self.focus_measures = []
-        self.old_focus = self.focus_function(camera.array)
+        # self.old_focus = self.focus_function(camera.array)
 
         if self.ids['autofocus_id'].state == 'down':
             #if camera.array:
@@ -1211,13 +1211,16 @@ class VerticalControl(BoxLayout):
             self.ids['autofocus_id'].state = 'normal'
             Clock.unschedule(self.autofocus_event)
 
-            focus = self.focus_best(self.positions[1:], self.focus_measures[1:])
+            focus = self.focus_best(self.positions, self.focus_measures)
             # print(self.positions, '\t', self.focus_measures)
             print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
             lumaview.motion.SendGram('MVP', 0, 'Z', focus) # move to absolute target
         self.update_gui(0)
 
     def focus_function(self, image, algorithm = 'volloth4'):
+        w = image.shape[0]
+        h = image.shape[1]
+        image = image[int(w/3):int(2*w/3), int(h/3):int(2*h/3)]
         w = image.shape[0]
         h = image.shape[1]
 
