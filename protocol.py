@@ -15,7 +15,6 @@ protocol = {
         "step_course": 1.1,
         "ID": "100x"
     },
-    "port": 'COM3',
     "frame_width": 1900,
     "frame_height": 1900,
     "live_folder": "./capture",

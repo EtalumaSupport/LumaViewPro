@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-Aug 15, 2021
+Sept. 10, 2021
 '''
 
 # General
@@ -244,7 +244,6 @@ class PylonCamera(Image):
 class LEDBoard:
     def __init__(self, **kwargs):
 
-        # initial default to 'COM3'
         # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
         # self.port = "/dev/ttyS0"
 
@@ -351,6 +350,7 @@ class TrinamicBoard:
                 print('Trinamic Motor Control Board identified at', port.device)
                 self.port = port.device
 
+        self.reset = 0
         self.baudrate = 9600
         self.bytesize = serial.EIGHTBITS
         self.parity = serial.PARITY_NONE
@@ -369,6 +369,14 @@ class TrinamicBoard:
 
     def connect(self):
         self.driver = serial.Serial(port=self.port, baudrate=self.baudrate, bytesize=self.bytesize, parity=self.parity, stopbits=self.stopbits, timeout=self.timeout)
+
+        # check user variable not stored in EEPROM
+        self.reset = self.SendGram('GGP', 255, 'Z', 0) # This is bank 2 ('Z' is just to get at it)
+        if self.reset == 0:
+            print('Homing Z-axis')
+            self.zhome()
+            self.reset = self.SendGram('SGP', 255, 'Z', 1) # This is bank 2 ('Z' is just to get at it)
+
         self.driver.close()
         self.driver.open()
 
@@ -467,7 +475,7 @@ class TrinamicBoard:
         value = self.SendGram('RFS', 2, 'Z', 0)
         if value == 0:
             Clock.unschedule(self.zhome_event)
-        print('still scheduled?')
+        # print('still scheduled?')
 
     def xy_ustep2um(self, ustep):
         um = float(ustep)*self.xy_microstep
@@ -1159,7 +1167,7 @@ class VerticalControl(BoxLayout):
             print("Error: VerticalControl.autofocus() self.camera == False")
             return
 
-        # TODO / DEBUG This needs to be set bu the user 3239.90
+        # TODO / DEBUG This needs to be set bu the user
         center = protocol['z_bookmark']
         range =  protocol['objective']['AF_range']
         fine =   protocol['objective']['AF_min']
@@ -1203,18 +1211,26 @@ class VerticalControl(BoxLayout):
             self.ids['autofocus_id'].state = 'normal'
             Clock.unschedule(self.autofocus_event)
 
-            focus = self.focus_best(self.positions, self.focus_measures)
+            focus = self.focus_best(self.positions[1:], self.focus_measures[1:])
             # print(self.positions, '\t', self.focus_measures)
             print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
             lumaview.motion.SendGram('MVP', 0, 'Z', focus) # move to absolute target
         self.update_gui(0)
 
-    def focus_function(self, image, algorithm = 'skew'):
+    def focus_function(self, image, algorithm = 'volloth4'):
         w = image.shape[0]
         h = image.shape[1]
 
+        # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
+        if algorithm == 'volloth4': # pg 266
+            image = np.double(image)
+            sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
+            sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
+            print(sum_one - sum_two)
+            return sum_one - sum_two
+
         # https://stackoverflow.com/questions/4224817/autofocus-algorithm-for-usb-microscope
-        if algorithm == 'two_by_two':
+        elif algorithm == 'two_by_two':
             sum =  np.sum(np.square(image[:w,:h-1]-image[:w,1:h]))
             sum += np.sum(np.square(image[:w-1,:h]-image[1:w,:h]))
             print('two_by_two:', sum)
@@ -1275,7 +1291,7 @@ class VerticalControl(BoxLayout):
             return positions[max_index]
 
         elif algorithm == 'mov_avg':
-            avg_values = np.convolve(values, [.5, 1, 1, 1, 0.5], 'same')
+            avg_values = np.convolve(values, [.5, 1, 0.5], 'same')
             max_index = avg_values.argmax()
             return positions[max_index]
 

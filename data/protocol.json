@@ -19,7 +19,7 @@
     "protocol_folder": "./data",
     "x_bookmark": 0,
     "y_bookmark": 0,
-    "z_bookmark": 3233.2010135931,
+    "z_bookmark": 3221.7820946739,
     "period": 0.1,
     "duration": 0.1,
     "BF": {
@@ -40,9 +40,9 @@
         "gain": 7.800000000000001,
         "gain_auto": false,
         "exp": 373.5,
-        "false_color": true,
+        "false_color": false,
         "acquire": true,
-        "focus": 0.0
+        "focus": 3221.7820946739
     },
     "Green": {
         "save_folder": "./capture",
