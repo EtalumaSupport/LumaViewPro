@@ -645,7 +645,7 @@ class MainDisplay(FloatLayout):
         folder = protocol['live_folder']
         img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
 
-        layers = ['Blue', 'Green', 'Red', 'BF']
+        layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             # multicolor image stack
 
@@ -676,7 +676,7 @@ class MainDisplay(FloatLayout):
                 microscope.update(0)
                 darkfield = microscope.array
                 # Florescent capture
-                led_board.led_on(led_board.color2ch(layer), illumination)
+                led_board.led_on(led_board.color2ch(layer), illumination) #self.layer??
                 time.sleep(exposure/1000)  # Should be replaced with Clock
                 microscope.update(0)
                 #corrected = np.max(microscope.array - darkfield, np.zeros(like=darkfield))
