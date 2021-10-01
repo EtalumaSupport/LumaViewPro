@@ -1160,6 +1160,7 @@ class VerticalControl(BoxLayout):
             self.ids['home_id'].text = 'Home'
             self.ids['home_id'].state = 'normal'
 
+    # User selected the autofocus function
     def autofocus(self):
         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
 
@@ -1167,7 +1168,7 @@ class VerticalControl(BoxLayout):
             print("Error: VerticalControl.autofocus() self.camera == False")
             return
 
-        # TODO / DEBUG This needs to be set bu the user
+        # TODO Needs to be set by the user
         center = protocol['z_bookmark']
         range =  protocol['objective']['AF_range']
         fine =   protocol['objective']['AF_min']
@@ -1175,16 +1176,14 @@ class VerticalControl(BoxLayout):
 
         self.z_min = -lumaview.motion.z_um2ustep(center-range)
         self.z_max = -lumaview.motion.z_um2ustep(center+range)
-        self.z_step = -int(lumaview.motion.z_um2ustep(fine))
+        self.z_step = -int(lumaview.motion.z_um2ustep(fine*2))
 
         dt = 1 # TODO change this based on focus and exposure time
 
-        self.positions = []
-        self.focus_measures = []
-        # self.old_focus = self.focus_function(camera.array)
+        self.positions = [0]
+        self.focus_measures = [0]
 
         if self.ids['autofocus_id'].state == 'down':
-            #if camera.array:
             self.ids['autofocus_id'].text = 'Focusing...'
             lumaview.motion.SendGram('MVP', 0, 'Z', self.z_min) # Go to z_min
             self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
@@ -1207,37 +1206,29 @@ class VerticalControl(BoxLayout):
             print("autofocus cancelled")
 
         elif target <= self.z_max:
-            self.ids['autofocus_id'].text = 'Autofocus'
             self.ids['autofocus_id'].state = 'normal'
+            self.ids['autofocus_id'].text = 'Autofocus'
             Clock.unschedule(self.autofocus_event)
 
             focus = self.focus_best(self.positions, self.focus_measures)
             # print(self.positions, '\t', self.focus_measures)
             print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
             lumaview.motion.SendGram('MVP', 0, 'Z', focus) # move to absolute target
+
         self.update_gui(0)
 
-    def focus_function(self, image, algorithm = 'volloth4'):
+    # Algorithms for estimating the quality of the focus
+    def focus_function(self, image, algorithm = 'vollath4'):
         w = image.shape[0]
         h = image.shape[1]
-        # image = image[int(w/3):int(2*w/3), int(h/3):int(2*h/3)]
-        # w = image.shape[0]
-        # h = image.shape[1]
 
         # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
-        if algorithm == 'volloth4': # pg 266
+        if algorithm == 'vollath4': # pg 266
             image = np.double(image)
             sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
             sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
             print(sum_one - sum_two)
             return sum_one - sum_two
-
-        # https://stackoverflow.com/questions/4224817/autofocus-algorithm-for-usb-microscope
-        elif algorithm == 'two_by_two':
-            sum =  np.sum(np.square(image[:w,:h-1]-image[:w,1:h]))
-            sum += np.sum(np.square(image[:w-1,:h]-image[1:w,:h]))
-            print('two_by_two:', sum)
-            return sum
 
         elif algorithm == 'skew':
             hist = np.histogram(image, bins=256,range=(0,256))
@@ -1250,14 +1241,6 @@ class VerticalControl(BoxLayout):
             skew = white_edge-max_index
             print(skew)
             return skew
-
-        # elif algorithm == 'skew':
-        #     hist = np.histogram(image, bins=256,range=(0,256))
-        #     hist = np.asarray(hist[0], dtype='int')
-        #     skew = stats.skew(hist)
-        #
-        #     print(skew)
-        #     return skew
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
