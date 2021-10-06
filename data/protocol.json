@@ -25,10 +25,10 @@
     "BF": {
         "save_folder": "./capture",
         "file_root": "W_",
-        "ill": 100.0,
-        "gain": 0.0,
+        "ill": 435.0,
+        "gain": 11.3,
         "gain_auto": false,
-        "exp": 100.0,
+        "exp": 253.02,
         "false_color": false,
         "acquire": true,
         "focus": 0.0
@@ -39,7 +39,7 @@
         "ill": 225.0,
         "gain": 13.9,
         "gain_auto": false,
-        "exp": 373.5,
+        "exp": 325.31,
         "false_color": false,
         "acquire": true,
         "focus": 3221.7820946739
@@ -50,7 +50,7 @@
         "ill": 310.0,
         "gain": 18.8,
         "gain_auto": false,
-        "exp": 590.37,
+        "exp": 445.79,
         "false_color": false,
         "acquire": true,
         "focus": 3233.2010135931
@@ -58,7 +58,7 @@
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 100.0,
+        "ill": 535.0,
         "gain": 0.0,
         "gain_auto": false,
         "exp": 100.0,
