@@ -1434,7 +1434,7 @@ class ScopeSelect(BoxLayout):
 
         # Create label and button here so DropDown menu works properly
         self.mainlabel = Label(text = 'Lumascope Model',
-                               size_hint_x = None, width = '150dp', font_size = '12sp')
+                               size_hint_x = None, width = '120dp', font_size = '12sp')
         self.mainbutton = Button(text = self.scope_str,
                                  size_hint_y = None, height = '30dp', font_size = '12sp')
 
@@ -1499,7 +1499,7 @@ class ObjectiveSelect(BoxLayout):
 
         # Create label and button here so DropDown menu works properly
         self.mainlabel = Label(text = 'Objective',
-                               size_hint_x = None, width = '150dp', font_size = '12sp')
+                               size_hint_x = None, width = '120dp', font_size = '12sp')
         self.mainbutton = Button(text = str(protocol['objective']['ID']),
                                  size_hint_y = None, height = '30dp', font_size = '12sp')
 
