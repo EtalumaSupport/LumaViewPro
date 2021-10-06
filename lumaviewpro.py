@@ -1710,10 +1710,6 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
                 # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
-                if len(protocol[layer]['save_folder']) > 30:
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '... ' + protocol[layer]['save_folder'][-30:]
-                else:
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = protocol[layer]['save_folder'][-30:]
                 lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
@@ -1801,27 +1797,50 @@ class FileChooseBTN(Button):
         filechooser.open_file(on_selection=self.handle_selection)
 
     def handle_selection(self, selection):
-        # Callback function for handling the selection response from Activity.
         self.selection = selection
 
     def on_selection(self, *a, **k):
-        # Update TextInput.text after FileChoose.selection is changed
-        # via FileChoose.handle_selection.
-        [path, file] = os.path.split(self.selection[0])
+        if self.context == 'load_protocol':
+            global lumaview
+            lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol(self.selection[0])
+
+# Button the triggers 'filechooser.choose_dir()' from plyer
+class FolderChooseBTN(Button):
+    context  = StringProperty()
+    selection = ListProperty([])
+
+    def choose(self, context):
+        self.context = context
+        filechooser.choose_dir(on_selection=self.handle_selection)
+
+    def handle_selection(self, selection):
+        self.selection = selection
+
+    def on_selection(self, *a, **k):
+        path = self.selection[0]
 
         if self.context == 'live_folder':
             protocol['live_folder'] = path
-            # print('live_folder', path)
-
-        elif self.context == 'load_protocol':
-            global lumaview
-            lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol(self.selection[0])
-            # print('protocol file is:', self.selection)
 
         else: # Channel Save Folder selections
             protocol[self.context]['save_folder'] = path
-            # print(self.context, 'path is:', path)
 
+# Button the triggers 'filechooser.save_file()' from plyer
+class FileSaveBTN(Button):
+    context  = StringProperty()
+    selection = ListProperty([])
+
+    def choose(self, context):
+        self.context = context
+        filechooser.save_file(on_selection=self.handle_selection)
+
+    def handle_selection(self, selection):
+        self.selection = selection
+
+    def on_selection(self, *a, **k):
+        global lumaview
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol(self.selection[0])
+        print('Saving Protocol to File:', self.selection[0])
 
 # ------------------------------------------------------------------------
 # TOOLTIPS
