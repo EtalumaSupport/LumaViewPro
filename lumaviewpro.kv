@@ -110,15 +110,14 @@
         spacing: '5dp'
         pos: (root.width-7*40)/2, 0
         # pos: 0, 0
-        TooltipButton:
+        FileChooseBTN:
             id: live_folder_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/folder.png' # Press to Select Folder
             background_down: './data/folder_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
-            on_release: root.choose_folder()
-			tooltip_text: "Select save folder"
+            on_release: self.choose('live_folder')
         TooltipToggleButton:
             id: live_btn
             border: 0, 0, 0, 0
@@ -973,18 +972,13 @@
 				font_size: '12sp'
 				text: 'Go to Focus'
 				on_release: root.goto_focus()
-        # File Save Settings
-        # BoxLayout:
-        #     orientation: 'horizontal'
-        # 	size_hint_y: None
-		# 	height: '40dp'
-        Button:
+        FileChooseBTN:
             id: folder_btn
         	size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'
             text: 'Folder'
-            on_release: root.choose_folder()
+            on_release: self.choose(root.layer)
         TextInput:
             id: root_text
         	size_hint_y: None
@@ -1099,13 +1093,12 @@
     #     size_hint_y: None
     #     height: '30dp'
 	# 	spacing: '5dp'
-    Button:
+    FileChooseBTN:
         text: 'Load Protocol'
         size_hint_y: None
         height: '30dp'
 		font_size: '12sp'
-        # on_release: root.load_protocol()
-        on_release: root.choose_folder()
+        on_release: self.choose('load_protocol')
     Button:
         text: 'Save Protocol'
         size_hint_y: None
@@ -1126,23 +1119,3 @@
     #     text: 'Convert to AVI'
     #     on_release: root.convert_to_avi()
     Label:
-
-<LoadDialog>:
-    BoxLayout:
-        size: root.size
-        pos: root.pos
-        orientation: "vertical"
-        FileChooserIconView:
-            id: filechooser
-			path: root.path
-        BoxLayout:
-            size_hint_y: None
-            height: '30dp'
-            Button:
-                text: "Cancel"
-				font_size: '12sp'
-                on_release: root.cancel()
-            Button:
-                text: "Select"
-				font_size: '12sp'
-                on_release: root.load(filechooser.path)

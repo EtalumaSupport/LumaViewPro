@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-Sept. 10, 2021
+Oct. 6, 2021
 '''
 
 # General
@@ -44,6 +44,7 @@ import os
 import json
 import serial
 import serial.tools.list_ports as list_ports
+from plyer import filechooser
 # from scipy.optimized import curve_fit
 
 # Kivy
@@ -559,22 +560,6 @@ class MainDisplay(FloatLayout):
     led_board = LEDBoard()
     motion = ObjectProperty(None)
     motion = TrinamicBoard()
-
-    def choose_folder(self):
-        content = LoadDialog(load=self.load,
-                             cancel=self.dismiss_popup,
-                             path=protocol['live_folder'])
-        self._popup = Popup(title="Select Save Folder",
-                            content=content,
-                            size_hint=(0.9, 0.9))
-        self._popup.open()
-
-    def load(self, path):
-        protocol['live_folder'] = path
-        self.dismiss_popup()
-
-    def dismiss_popup(self):
-        self._popup.dismiss()
 
     def cam_toggle(self):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
@@ -1591,26 +1576,6 @@ class LayerControl(BoxLayout):
         except:
             print('Exposure value is not in acceptable range of 0.01 to 1000ms.')
 
-    def choose_folder(self):
-        content = LoadDialog(load=self.load,
-                             cancel=self.dismiss_popup,
-                             path=protocol[self.layer]['save_folder'])
-        self._popup = Popup(title="Select Save Folder",
-                            content=content,
-                            size_hint=(0.9, 0.9))
-        self._popup.open()
-
-    def load(self, path):
-        protocol[self.layer]['save_folder'] = path
-        if len(path) > 30:
-            self.ids['folder_btn'].text = '... '+path[-30:]
-        else:
-            self.ids['folder_btn'].text = path
-        self.dismiss_popup()
-
-    def dismiss_popup(self):
-        self._popup.dismiss()
-
     def root_text(self):
         protocol[self.layer]['file_root'] = self.ids['root_text'].text
 
@@ -1825,49 +1790,37 @@ class TimeLapseSettings(BoxLayout):
                 led_board.led_off()
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
-    # def convert_to_avi(self):
-    #
-    #     # self.choose_folder()
-    #     save_location = './capture/movie.avi'
-    #
-    #     img_array = []
-    #     for filename in glob.glob('./capture/*.tiff'):
-    #         img = cv2.imread(filename)
-    #         height, width, layers = img.shape
-    #         size = (width,height)
-    #         img_array.append(img)
-    #
-    #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-    #
-    #     for i in range(len(img_array)):
-    #         out.write(img_array[i])
-    #     out.release()
+# Button the triggers 'filechooser.open_file()' from plyer
+class FileChooseBTN(Button):
+    context  = StringProperty()
+    selection = ListProperty([])
 
-    def choose_folder(self):
-        content = LoadDialog(load=self.load,
-                             cancel=self.dismiss_popup,
-                             path='./data/')
-        self._popup = Popup(title="Select Protocol",
-                            content=content,
-                            size_hint=(0.9, 0.9))
-        self._popup.open()
+    def choose(self, context):
+        # Call plyer filechooser API to run a filechooser Activity.
+        self.context = context
+        filechooser.open_file(on_selection=self.handle_selection)
 
-    def load(self, path):
-        # protocol[self.layer]['save_folder'] = path
-        # if len(path) > 30:
-        #     self.ids['folder_btn'].text = '... '+path[-30:]
-        # else:
-        #     self.ids['folder_btn'].text = path
-        self.load_protocol()
-        self.dismiss_popup()
+    def handle_selection(self, selection):
+        # Callback function for handling the selection response from Activity.
+        self.selection = selection
 
-    def dismiss_popup(self):
-        self._popup.dismiss()
+    def on_selection(self, *a, **k):
+        # Update TextInput.text after FileChoose.selection is changed
+        # via FileChoose.handle_selection.
+        [path, file] = os.path.split(self.selection[0])
 
-class LoadDialog(FloatLayout):
-    load = ObjectProperty(None)
-    cancel = ObjectProperty(None)
-    path = ObjectProperty(None)
+        if self.context == 'live_folder':
+            protocol['live_folder'] = path
+            # print('live_folder', path)
+
+        elif self.context == 'load_protocol':
+            global lumaview
+            lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol(self.selection[0])
+            # print('protocol file is:', self.selection)
+
+        else: # Channel Save Folder selections
+            protocol[self.context]['save_folder'] = path
+            # print(self.context, 'path is:', path)
 
 
 # ------------------------------------------------------------------------
