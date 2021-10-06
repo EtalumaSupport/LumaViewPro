@@ -1,16 +1,16 @@
 {
-    "microscope": "LS720",
+    "microscope": "LS620",
     "objective": {
-        "desc": "60x description",
-        "magnification": 60,
-        "aperture": 0.85,
-        "DOF": 0.4,
-        "AF_min": 0.5,
-        "AF_max": 6.0,
-        "AF_range": 15.0,
-        "step_fine": 0.2,
-        "step_course": 2.0,
-        "ID": "60x"
+        "desc": "10x description",
+        "magnification": 10,
+        "aperture": 0.25,
+        "DOF": 8.5,
+        "AF_min": 8.0,
+        "AF_max": 36.0,
+        "AF_range": 75.0,
+        "step_fine": 4.25,
+        "step_course": 42.5,
+        "ID": "10x"
     },
     "port": "COM3",
     "frame_width": 1900,
@@ -36,13 +36,13 @@
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 225.0,
+        "ill": 150.0,
         "gain": 13.9,
         "gain_auto": false,
-        "exp": 373.5,
+        "exp": 228.92,
         "false_color": false,
         "acquire": true,
-        "focus": 3221.7820946739
+        "focus": 3230.84037170115
     },
     "Green": {
         "save_folder": "./capture",
@@ -50,21 +50,21 @@
         "ill": 310.0,
         "gain": 18.8,
         "gain_auto": false,
-        "exp": 590.37,
-        "false_color": false,
+        "exp": 361.45,
+        "false_color": true,
         "acquire": true,
-        "focus": 3233.2010135931
+        "focus": 3231.38935818765
     },
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 100.0,
-        "gain": 0.0,
+        "ill": 450.0,
+        "gain": 20.8,
         "gain_auto": false,
-        "exp": 100.0,
+        "exp": 554.22,
         "false_color": true,
         "acquire": true,
-        "focus": 0.0
+        "focus": 3220.0253379171
     },
     "Composite": {
         "acquire": false

@@ -113,7 +113,7 @@
         TooltipButton:
             id: live_folder_btn
             border: 0, 0, 0, 0
-            background_normal: './data/folder.png' # Press to Select Folder
+            background_normal: './data/icons/folder.png' # Press to Select Folder
             background_down: './data/folder_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
@@ -122,8 +122,8 @@
         TooltipToggleButton:
             id: live_btn
             border: 0, 0, 0, 0
-            background_normal: './data/pause.png' # Press to Pause Live Stream
-            background_down: './data/play.png' # Press to Play Live Stream
+            background_normal: './data/icons/pause.png' # Press to Pause Live Stream
+            background_down: './data/icons/play.png' # Press to Play Live Stream
             size_hint: None, None
             size: '40dp', '40dp'
             state: 'normal'
@@ -132,8 +132,8 @@
         TooltipButton:
             id: capture_btn
             border: 0, 0, 0, 0
-            background_normal: './data/capture.png' # Press to Capture Image
-            background_down: './data/capture_down.png'
+            background_normal: './data/icons/capture.png' # Press to Capture Image
+            background_down: './data/icons/capture_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.capture(0)
@@ -141,8 +141,8 @@
         TooltipButton:
             id: composite_btn
             border: 0, 0, 0, 0
-            background_normal: './data/composite.png' # Press to Capture Composite Image
-            background_down: './data/composite_down.png'
+            background_normal: './data/icons/composite.png' # Press to Capture Composite Image
+            background_down: './data/icons/composite_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.composite(0)
@@ -150,8 +150,8 @@
         TooltipToggleButton:
             id: record_btn
             border: 0, 0, 0, 0
-            background_normal: './data/record.png' # Press to Record Live Stream
-            background_down: './data/stop.png' # Press to Stop Recording
+            background_normal: './data/icons/record.png' # Press to Record Live Stream
+            background_down: './data/icons/stop.png' # Press to Stop Recording
             size_hint: None, None
             size: '40dp', '40dp'
             on_press: root.record()
@@ -159,8 +159,8 @@
         TooltipButton:
             id: fit_btn
             border: 0, 0, 0, 0
-            background_normal: './data/fit.png' # Press to Fit Image to Window
-            background_down: './data/fit_down.png'
+            background_normal: './data/icons/fit.png' # Press to Fit Image to Window
+            background_down: './data/icons/fit_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.fit_image()
@@ -168,8 +168,8 @@
         TooltipButton:
             id: one2one_btn
             border: 0, 0, 0, 0
-            background_normal: './data/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
-            background_down: './data/one2one_down.png'
+            background_normal: './data/icons/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
+            background_down: './data/icons/one2one_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
             on_release: root.one2one_image()
@@ -217,8 +217,8 @@
         size: 30, 60
         pos_hint: {"x":0, "y":0.5}
         border: 0, 0, 0, 0
-        background_normal: './data/right_arrow_right_arc.png'
-        background_down: './data/left_arrow_right_arc.png'
+        background_normal: './data/icons/right_arrow_right_arc.png'
+        background_down: './data/icons/left_arrow_right_arc.png'
         on_press: root.toggle_editor()
 
 # MotionSettings - view and control motion control Board
@@ -244,8 +244,8 @@
         size: 30, 60
         pos_hint: {"x":0, "y":0.5}
         border: 0, 0, 0, 0
-        background_normal: './data/right_arrow_right_arc.png' # right pointing (press to open)
-        background_down: './data/left_arrow_right_arc.png' # left pointing (press to close)
+        background_normal: './data/icons/right_arrow_right_arc.png' # right pointing (press to open)
+        background_down: './data/icons/left_arrow_right_arc.png' # left pointing (press to close)
         on_release: root.toggle_settings()
 
 
@@ -276,32 +276,32 @@
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '40dp'
-				background_normal: './data/UU_normal.png'
-				background_down: './data/UU_down.png'
+				background_normal: './data/icons/UU_normal.png'
+				background_down: './data/icons/UU_down.png'
 				on_release: root.course_up()
 		    Button:
 		        id: slow_up
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '30dp'
-				background_normal: './data/U_normal.png'
-				background_down: './data/U_down.png'
+				background_normal: './data/icons/U_normal.png'
+				background_down: './data/icons/U_down.png'
 				on_release: root.fine_up()
 		    Button:
 		        id: slow_down
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '30dp'
-				background_normal: './data/D_normal.png'
-				background_down: './data/D_down.png'
+				background_normal: './data/icons/D_normal.png'
+				background_down: './data/icons/D_down.png'
 				on_release: root.fine_down()
 		    Button:
 		        id: fast_down
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '40dp'
-				background_normal: './data/DD_normal.png'
-				background_down: './data/DD_down.png'
+				background_normal: './data/icons/DD_normal.png'
+				background_down: './data/icons/DD_down.png'
 				on_release: root.course_down()
 		    Label:
 		BoxLayout:
@@ -319,8 +319,8 @@
 		        value: 0.
 				step: 0.01
 		        cursor_size: '30dp','40dp'
-		        cursor_image: './data/objective.png'
-		        cursor_disabled_image: './data/objective.png'
+		        cursor_image: './data/icons/objective.png'
+		        cursor_disabled_image: './data/icons/objective.png'
 		        value_track: True
 		        value_track_color: 51/255, 181/255, 229/255, 1
 		        value_track_width: '5dp'
@@ -444,24 +444,24 @@
 	        size_hint: None, None
 	        size: '30dp', '40dp'
 			pos_hint: {'center_x': 0.5, 'center_y': 0.85}
-			background_normal: './data/UU_normal.png'
-			background_down: './data/UU_down.png'
+			background_normal: './data/icons/UU_normal.png'
+			background_down: './data/icons/UU_down.png'
 			on_release: root.course_back()
 	    Button: # FINE BACK
 			border: 0, 0, 0, 0
 	        size_hint: None, None
 	        size: '30dp', '30dp'
 			pos_hint: {'center_x': 0.5, 'center_y': 0.65}
-			background_normal: './data/U_normal.png'
-			background_down: './data/U_down.png'
+			background_normal: './data/icons/U_normal.png'
+			background_down: './data/icons/U_down.png'
 			on_release: root.fine_back()
 	    Button: # FINE FORWARD
 			border: 0, 0, 0, 0
 	        size_hint: None, None
 	        size: '30dp', '30dp'
 			pos_hint: {'center_x': 0.5, 'center_y': 0.35}
-			background_normal: './data/D_normal.png'
-			background_down: './data/D_down.png'
+			background_normal: './data/icons/D_normal.png'
+			background_down: './data/icons/D_down.png'
 			on_release: root.fine_fwd()
 	    Button: # COURSE FORWARD
 	        id: fast_down
@@ -469,8 +469,8 @@
 	        size_hint: None, None
 	        size: '30dp', '40dp'
 			pos_hint: {'center_x': 0.5, 'center_y': 0.15}
-			background_normal: './data/DD_normal.png'
-			background_down: './data/DD_down.png'
+			background_normal: './data/icons/DD_normal.png'
+			background_down: './data/icons/DD_down.png'
 			on_release: root.course_fwd()
 
 
@@ -479,8 +479,8 @@
 	        size_hint: None, None
 	        size: '40dp', '30dp'
 			pos_hint: {'center_x': 0.2, 'center_y': 0.5}
-			background_normal: './data/LL_normal.png'
-			background_down: './data/LL_down.png'
+			background_normal: './data/icons/LL_normal.png'
+			background_down: './data/icons/LL_down.png'
 			on_release: root.course_left()
 	    Button: # FINE LEFT
 	        id: slow_up
@@ -488,8 +488,8 @@
 	        size_hint: None, None
 	        size: '30dp', '30dp'
 			pos_hint: {'center_x': 0.35, 'center_y': 0.5}
-			background_normal: './data/L_normal.png'
-			background_down: './data/L_down.png'
+			background_normal: './data/icons/L_normal.png'
+			background_down: './data/icons/L_down.png'
 			on_release: root.fine_left()
 	    Button: # FINE RIGHT
 	        id: slow_down
@@ -497,8 +497,8 @@
 	        size_hint: None, None
 	        size: '30dp', '30dp'
 			pos_hint: {'center_x': 0.65, 'center_y': 0.5}
-			background_normal: './data/R_normal.png'
-			background_down: './data/R_down.png'
+			background_normal: './data/icons/R_normal.png'
+			background_down: './data/icons/R_down.png'
 			on_release: root.fine_right()
 	    Button: # COURSE RIGHT
 	        id: fast_down
@@ -506,8 +506,8 @@
 	        size_hint: None, None
 	        size: '40dp', '30dp'
 			pos_hint: {'center_x': 0.8, 'center_y': 0.5}
-			background_normal: './data/RR_normal.png'
-			background_down: './data/RR_down.png'
+			background_normal: './data/icons/RR_normal.png'
+			background_down: './data/icons/RR_down.png'
 			on_release: root.course_right()
 	BoxLayout:
 		orientation: 'horizontal'
@@ -579,8 +579,8 @@
         size: 30, 60
         pos_hint: {"x":0, "y":0.5}
         border: 0, 0, 0, 0
-        background_normal: './data/left_arrow_left_arc.png' # left pointing (press to open)
-        background_down: './data/right_arrow_left_arc.png' # right pointing (press to close)
+        background_normal: './data/icons/left_arrow_left_arc.png' # left pointing (press to open)
+        background_down: './data/icons/right_arrow_left_arc.png' # right pointing (press to close)
         on_press: root.toggle_settings()
 
     Accordion:
@@ -809,7 +809,7 @@
                 value: 100.
 				step: 5.
                 cursor_size: '20dp','20dp'
-                cursor_image: './data/slider_cursor.png'
+                cursor_image: './data/icons/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
@@ -850,7 +850,7 @@
                 value: 0.
 				step: 0.1
                 cursor_size: '20dp','20dp'
-                cursor_image: './data/slider_cursor.png'
+                cursor_image: './data/icons/slider_cursor.png'
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
@@ -890,7 +890,7 @@
                 # value: 2. # 10^2 -> 100 ms exposure
 				# step: 0.01
                 cursor_size: '20dp','20dp'
-                cursor_image: './data/slider_cursor.png'
+                cursor_image: './data/icons/slider_cursor.png'
 				track_width: 5
 				value_track: True
                 value_track_color: root.bg_color
@@ -928,8 +928,8 @@
 					size_hint: None, None
 					size: '33dp', '20dp'
 					border: 0, 0, 0, 0
-					background_normal: './data/ToggleL.png'
-					background_down: './data/ToggleR.png'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleR.png'
 	                on_release: root.apply_settings()
 				Label:
             Label:
@@ -1104,7 +1104,8 @@
         size_hint_y: None
         height: '30dp'
 		font_size: '12sp'
-        on_release: root.load_protocol()
+        # on_release: root.load_protocol()
+        on_release: root.choose_folder()
     Button:
         text: 'Save Protocol'
         size_hint_y: None

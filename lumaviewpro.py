@@ -141,7 +141,7 @@ class PylonCamera(Image):
         if self.camera == False:
             self.connect()
             if self.camera == False:
-                self.source = "./data/camera to USB.png"
+                self.source = "./data/icons/camera to USB.png"
                 return
         try:
             global lumaview
@@ -1675,13 +1675,13 @@ class LayerControl(BoxLayout):
         # -----------------------------------------------------
         if self.ids['apply_btn'].state == 'down':
             if(self.layer) == 'Red':
-                self.ids['apply_btn'].background_down = './data/ToggleRR.png'
+                self.ids['apply_btn'].background_down = './data/icons/ToggleRR.png'
             elif(self.layer) == 'Green':
-                self.ids['apply_btn'].background_down = './data/ToggleRG.png'
+                self.ids['apply_btn'].background_down = './data/icons/ToggleRG.png'
             elif(self.layer) == 'Blue':
-                self.ids['apply_btn'].background_down = './data/ToggleRB.png'
+                self.ids['apply_btn'].background_down = './data/icons/ToggleRB.png'
         else:
-            self.ids['apply_btn'].background_down = './data/ToggleR.png'
+            self.ids['apply_btn'].background_down = './data/icons/ToggleR.png'
 
         # Remove 'Colorize' option in brightfield control
         # -----------------------------------------------------
@@ -1843,25 +1843,26 @@ class TimeLapseSettings(BoxLayout):
     #         out.write(img_array[i])
     #     out.release()
 
-    # def choose_folder(self):
-    #     content = LoadDialog(load=self.load,
-    #                         cancel=self.dismiss_popup,
-    #                         path=protocol['protocol_folder'],
-    #                         selection='')
-    #     self._popup = Popup(title="Select Protocol File",
-    #                         content=content,
-    #                         size_hint=(0.9, 0.9))
-    #     self._popup.open()
-    #
-    # def load(self, path, selection):
-    #     protocol['protocol_folder'] = path
-    #     # self.load_protocol()
-    #     print(path)
-    #     #print(file)
-    #     self.dismiss_popup()
-    #
-    # def dismiss_popup(self):
-    #     self._popup.dismiss()
+    def choose_folder(self):
+        content = LoadDialog(load=self.load,
+                             cancel=self.dismiss_popup,
+                             path='./data/')
+        self._popup = Popup(title="Select Protocol",
+                            content=content,
+                            size_hint=(0.9, 0.9))
+        self._popup.open()
+
+    def load(self, path):
+        # protocol[self.layer]['save_folder'] = path
+        # if len(path) > 30:
+        #     self.ids['folder_btn'].text = '... '+path[-30:]
+        # else:
+        #     self.ids['folder_btn'].text = path
+        self.load_protocol()
+        self.dismiss_popup()
+
+    def dismiss_popup(self):
+        self._popup.dismiss()
 
 class LoadDialog(FloatLayout):
     load = ObjectProperty(None)
@@ -2009,7 +2010,7 @@ class TooltipToggleButton(ToggleButton, Tooltip):
 class LumaViewProApp(App):
     def build(self):
         Window.size = (1280, 800)
-        self.icon = './data/icon32x.png'
+        self.icon = './data/icons/icon32x.png'
         global lumaview
         lumaview = MainDisplay()
         # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['obj_position'].value
