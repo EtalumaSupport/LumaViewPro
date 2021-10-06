@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-Sept. 10, 2021
+Oct. 6, 2021
 '''
 
 # General
@@ -44,6 +44,7 @@ import os
 import json
 import serial
 import serial.tools.list_ports as list_ports
+from plyer import filechooser
 # from scipy.optimized import curve_fit
 
 # Kivy
@@ -141,7 +142,7 @@ class PylonCamera(Image):
         if self.camera == False:
             self.connect()
             if self.camera == False:
-                self.source = "./data/camera to USB.png"
+                self.source = "./data/icons/camera to USB.png"
                 return
         try:
             global lumaview
@@ -559,22 +560,6 @@ class MainDisplay(FloatLayout):
     led_board = LEDBoard()
     motion = ObjectProperty(None)
     motion = TrinamicBoard()
-
-    def choose_folder(self):
-        content = LoadDialog(load=self.load,
-                             cancel=self.dismiss_popup,
-                             path=protocol['live_folder'])
-        self._popup = Popup(title="Select Save Folder",
-                            content=content,
-                            size_hint=(0.9, 0.9))
-        self._popup.open()
-
-    def load(self, path):
-        protocol['live_folder'] = path
-        self.dismiss_popup()
-
-    def dismiss_popup(self):
-        self._popup.dismiss()
 
     def cam_toggle(self):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
@@ -1434,7 +1419,7 @@ class ScopeSelect(BoxLayout):
 
         # Create label and button here so DropDown menu works properly
         self.mainlabel = Label(text = 'Lumascope Model',
-                               size_hint_x = None, width = '150dp', font_size = '12sp')
+                               size_hint_x = None, width = '120dp', font_size = '12sp')
         self.mainbutton = Button(text = self.scope_str,
                                  size_hint_y = None, height = '30dp', font_size = '12sp')
 
@@ -1499,7 +1484,7 @@ class ObjectiveSelect(BoxLayout):
 
         # Create label and button here so DropDown menu works properly
         self.mainlabel = Label(text = 'Objective',
-                               size_hint_x = None, width = '150dp', font_size = '12sp')
+                               size_hint_x = None, width = '120dp', font_size = '12sp')
         self.mainbutton = Button(text = str(protocol['objective']['ID']),
                                  size_hint_y = None, height = '30dp', font_size = '12sp')
 
@@ -1591,26 +1576,6 @@ class LayerControl(BoxLayout):
         except:
             print('Exposure value is not in acceptable range of 0.01 to 1000ms.')
 
-    def choose_folder(self):
-        content = LoadDialog(load=self.load,
-                             cancel=self.dismiss_popup,
-                             path=protocol[self.layer]['save_folder'])
-        self._popup = Popup(title="Select Save Folder",
-                            content=content,
-                            size_hint=(0.9, 0.9))
-        self._popup.open()
-
-    def load(self, path):
-        protocol[self.layer]['save_folder'] = path
-        if len(path) > 30:
-            self.ids['folder_btn'].text = '... '+path[-30:]
-        else:
-            self.ids['folder_btn'].text = path
-        self.dismiss_popup()
-
-    def dismiss_popup(self):
-        self._popup.dismiss()
-
     def root_text(self):
         protocol[self.layer]['file_root'] = self.ids['root_text'].text
 
@@ -1675,13 +1640,13 @@ class LayerControl(BoxLayout):
         # -----------------------------------------------------
         if self.ids['apply_btn'].state == 'down':
             if(self.layer) == 'Red':
-                self.ids['apply_btn'].background_down = './data/ToggleRR.png'
+                self.ids['apply_btn'].background_down = './data/icons/ToggleRR.png'
             elif(self.layer) == 'Green':
-                self.ids['apply_btn'].background_down = './data/ToggleRG.png'
+                self.ids['apply_btn'].background_down = './data/icons/ToggleRG.png'
             elif(self.layer) == 'Blue':
-                self.ids['apply_btn'].background_down = './data/ToggleRB.png'
+                self.ids['apply_btn'].background_down = './data/icons/ToggleRB.png'
         else:
-            self.ids['apply_btn'].background_down = './data/ToggleR.png'
+            self.ids['apply_btn'].background_down = './data/icons/ToggleR.png'
 
         # Remove 'Colorize' option in brightfield control
         # -----------------------------------------------------
@@ -1745,10 +1710,6 @@ class TimeLapseSettings(BoxLayout):
                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
                 # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
-                if len(protocol[layer]['save_folder']) > 30:
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = '... ' + protocol[layer]['save_folder'][-30:]
-                else:
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['folder_btn'].text = protocol[layer]['save_folder'][-30:]
                 lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
@@ -1825,49 +1786,61 @@ class TimeLapseSettings(BoxLayout):
                 led_board.led_off()
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
-    # def convert_to_avi(self):
-    #
-    #     # self.choose_folder()
-    #     save_location = './capture/movie.avi'
-    #
-    #     img_array = []
-    #     for filename in glob.glob('./capture/*.tiff'):
-    #         img = cv2.imread(filename)
-    #         height, width, layers = img.shape
-    #         size = (width,height)
-    #         img_array.append(img)
-    #
-    #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-    #
-    #     for i in range(len(img_array)):
-    #         out.write(img_array[i])
-    #     out.release()
+# Button the triggers 'filechooser.open_file()' from plyer
+class FileChooseBTN(Button):
+    context  = StringProperty()
+    selection = ListProperty([])
 
-    # def choose_folder(self):
-    #     content = LoadDialog(load=self.load,
-    #                         cancel=self.dismiss_popup,
-    #                         path=protocol['protocol_folder'],
-    #                         selection='')
-    #     self._popup = Popup(title="Select Protocol File",
-    #                         content=content,
-    #                         size_hint=(0.9, 0.9))
-    #     self._popup.open()
-    #
-    # def load(self, path, selection):
-    #     protocol['protocol_folder'] = path
-    #     # self.load_protocol()
-    #     print(path)
-    #     #print(file)
-    #     self.dismiss_popup()
-    #
-    # def dismiss_popup(self):
-    #     self._popup.dismiss()
+    def choose(self, context):
+        # Call plyer filechooser API to run a filechooser Activity.
+        self.context = context
+        filechooser.open_file(on_selection=self.handle_selection)
 
-class LoadDialog(FloatLayout):
-    load = ObjectProperty(None)
-    cancel = ObjectProperty(None)
-    path = ObjectProperty(None)
+    def handle_selection(self, selection):
+        self.selection = selection
 
+    def on_selection(self, *a, **k):
+        if self.context == 'load_protocol':
+            global lumaview
+            lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol(self.selection[0])
+
+# Button the triggers 'filechooser.choose_dir()' from plyer
+class FolderChooseBTN(Button):
+    context  = StringProperty()
+    selection = ListProperty([])
+
+    def choose(self, context):
+        self.context = context
+        filechooser.choose_dir(on_selection=self.handle_selection)
+
+    def handle_selection(self, selection):
+        self.selection = selection
+
+    def on_selection(self, *a, **k):
+        path = self.selection[0]
+
+        if self.context == 'live_folder':
+            protocol['live_folder'] = path
+
+        else: # Channel Save Folder selections
+            protocol[self.context]['save_folder'] = path
+
+# Button the triggers 'filechooser.save_file()' from plyer
+class FileSaveBTN(Button):
+    context  = StringProperty()
+    selection = ListProperty([])
+
+    def choose(self, context):
+        self.context = context
+        filechooser.save_file(on_selection=self.handle_selection)
+
+    def handle_selection(self, selection):
+        self.selection = selection
+
+    def on_selection(self, *a, **k):
+        global lumaview
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol(self.selection[0])
+        print('Saving Protocol to File:', self.selection[0])
 
 # ------------------------------------------------------------------------
 # TOOLTIPS
@@ -2009,7 +1982,7 @@ class TooltipToggleButton(ToggleButton, Tooltip):
 class LumaViewProApp(App):
     def build(self):
         Window.size = (1280, 800)
-        self.icon = './data/icon32x.png'
+        self.icon = './data/icons/icon32x.png'
         global lumaview
         lumaview = MainDisplay()
         # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['obj_position'].value
