@@ -1185,9 +1185,17 @@ class VerticalControl(BoxLayout):
 
         fine =   protocol['objective']['AF_min']
         course = protocol['objective']['AF_max']
-        closeness = 1/(len(self.positions) + 1)
+        #closeness = 1/(len(self.positions) + 1
+        n = len(self.positions)
+        closeness = 1/(n + 0.1)
+        print(closeness)
+        step = course*closeness + fine*(1 - closeness) 
+        print("fine",fine)
+        print("course",course)
+        print("step",step)
 
-        self.z_step = -int(lumaview.motion.z_um2ustep(course*closeness + fine*(1 - closeness)))
+
+        self.z_step = -int(lumaview.motion.z_um2ustep(step))
         lumaview.motion.SendGram('MVP', 1, 'Z', self.z_step) # move by z_step
 
         if self.ids['autofocus_id'].state == 'normal':
