@@ -92,26 +92,30 @@ class LEDBoard:
 
 # Create instance
 led_board = LEDBoard()
-'''
-# Command Prompt Control of LEDBoard
-while True:
-    CH = input('channel:')
-    mA = input('current:')
-    if mA == 0:
-        led_board.led_off()
-    elif mA == 'q':
-        break
-    elif CH == 'q':
-        break
-    else:
-        led_board.led_on(CH, mA)
-    print('')
-'''
 
-#led_board.led_status()
-# Test Speed of LEDBoard
-
-for i in range(10):
-    print('LED Status attempt', i)
-    led_board.led_status()
-    time.sleep(1/5)
+for i in range(6):
+    led_board.led_cal(i)
+    time.sleep(30)
+# '''
+# # Command Prompt Control of LEDBoard
+# while True:
+#     CH = input('channel:')
+#     mA = input('current:')
+#     if mA == 0:
+#         led_board.led_off()
+#     elif mA == 'q':
+#         break
+#     elif CH == 'q':
+#         break
+#     else:
+#         led_board.led_on(CH, mA)
+#     print('')
+# '''
+#
+# #led_board.led_status()
+# # Test Speed of LEDBoard
+#
+# for i in range(10):
+#     print('LED Status attempt', i)
+#     led_board.led_status()
+#     time.sleep(1/5)

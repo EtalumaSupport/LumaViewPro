@@ -1,0 +1,27 @@
+{
+    "LS460": {
+        "Fl channels": 0,
+        "Focus": false,
+        "XYStage": false
+    },
+    "LS560": {
+        "Fl channels": 1,
+        "Focus": false,
+        "XYStage": false
+    },
+    "LS620": {
+        "Fl channels": 3,
+        "Focus": false,
+        "XYStage": false
+    },
+    "LS650": {
+        "Fl channels": 3,
+        "Focus": true,
+        "XYStage": false
+    },
+    "LS720": {
+        "Fl channels": 3,
+        "Focus": true,
+        "XYStage": true
+    }
+}

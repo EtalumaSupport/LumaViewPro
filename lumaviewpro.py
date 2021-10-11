@@ -1405,7 +1405,36 @@ class MicroscopeSettings(BoxLayout):
 # Pass-through class for microscope selection drop-down menu, defined in .kv file
 # -------------------------------------------------------------------------------
 class MicroscopeDropDown(DropDown):
-    pass
+    scopes = ObjectProperty()
+
+    def __init__(self, **kwargs):
+        super(MicroscopeDropDown, self).__init__(**kwargs)
+
+        with open('./data/scopes.json', "r") as read_file:
+            self.scopes = json.load(read_file)
+
+        for obj in self.scopes:
+            button = Button(text = obj,
+                            size_hint_y = None, height = '30dp', font_size = '12sp')
+            self.add_widget(button)
+            button.bind(on_release = self.scope_select)
+
+    def scope_select(self, instance):
+        global lumaview
+        global protocol
+
+        print(instance.text)
+        protocol['microscope'] = instance.text
+        microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
+        microscope_settings_id.ids['select_scope_id'].mainbutton.text = protocol['microscope']
+        microscope_settings_id.ids['image_of_microscope'].source = './data/scopes/'+instance.text+'.png'
+        self.dismiss()
+
+
+    def microscope_selectFN(self, instance, scope):
+        global protocol
+        self.scope_str = scope
+        self.parent.ids['image_of_microscope'].source = './data/scopes/'+scope+'.png'
 
 
 # First line of Microscope Settings control panel, to select model of microscope
@@ -1430,20 +1459,6 @@ class ScopeSelect(BoxLayout):
 
         # Add actions - mainbutton opens dropdown menu
         self.mainbutton.bind(on_release = self.dropdown.open)
-
-        # Dropdown buttons do stuff based on their text through microscope_selectFN
-        self.dropdown.bind(on_select = lambda instance,
-                                       scope: setattr(self.mainbutton, 'text', scope))
-        self.dropdown.bind(on_select = self.microscope_selectFN)
-
-
-    def microscope_selectFN(self, instance, scope):
-        global protocol
-        self.scope_str = scope
-        self.parent.ids['image_of_microscope'].source = './data/scopes/'+scope+'.png'
-        protocol['microscope'] = scope
-        print("Selected microscope: {0}" . format(scope))
-
 
 # Pass-through class for objective settings drop down menu, defined in .kv file
 # ----------------------------------------------------------------------------
