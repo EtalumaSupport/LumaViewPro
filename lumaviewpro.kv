@@ -83,6 +83,13 @@
         do_rotation: False
         do_translation: True
 
+	Label:
+        size_hint: None, None
+        size: '160dp', '30dp'
+		pos: 10, root.height-40
+		color: 1, 1, 1, 1
+		text: 'pre-release 10/12/2021'
+
 	MotionSettings:
         id: motionsettings_id
         size_hint: None, None
@@ -101,6 +108,7 @@
         size_hint: None, None
         size: self.settings_width, root.height
         pos: root.width-30, 0
+
 
     # Camera Controls
     # ------------------------------
