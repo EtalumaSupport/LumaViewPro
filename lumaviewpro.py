@@ -1189,7 +1189,7 @@ class VerticalControl(BoxLayout):
         n = len(self.positions)
         closeness = 1/(n + 0.1)
         print(closeness)
-        step = course*closeness + fine*(1 - closeness) 
+        step = course*closeness + fine*(1 - closeness)
         print("fine",fine)
         print("course",course)
         print("step",step)
