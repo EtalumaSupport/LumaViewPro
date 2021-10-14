@@ -1,15 +1,26 @@
 {
-    "4x": {
-        "desc": "4x description",
-        "magnification": 4,
-        "aperture": 0.1,
-        "DOF": 55.5,
-        "AF_min": 20.0,
-        "AF_max": 72.0,
-        "AF_range": 150.0,
-        "step_fine": 27.75,
-        "step_course": 277.5
-    },
+  "4x phase": {
+      "desc": "4x description",
+      "magnification": 4,
+      "aperture": 0.1,
+      "DOF": 55.5,
+      "AF_min": 20.0,
+      "AF_max": 72.0,
+      "AF_range": 150.0,
+      "step_fine": 27.75,
+      "step_course": 277.5
+  },
+  "4x other": {
+      "desc": "4x description",
+      "magnification": 4,
+      "aperture": 0.1,
+      "DOF": 55.5,
+      "AF_min": 20.0,
+      "AF_max": 72.0,
+      "AF_range": 150.0,
+      "step_fine": 27.75,
+      "step_course": 277.5
+  },
     "10x": {
         "desc": "10x description",
         "magnification": 10,
