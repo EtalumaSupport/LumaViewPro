@@ -1163,7 +1163,7 @@ class VerticalControl(BoxLayout):
         self.z_max = -lumaview.motion.z_um2ustep(center+range)
         self.z_step = -int(lumaview.motion.z_um2ustep(course))
 
-        dt = 1 # TODO change this based on focus and exposure time
+        dt = 0.2 # TODO change this based on focus and exposure time
 
         self.positions = [0]
         self.focus_measures = [0]
@@ -1188,11 +1188,11 @@ class VerticalControl(BoxLayout):
         #closeness = 1/(len(self.positions) + 1
         n = len(self.positions)
         closeness = 1/(n + 0.1)
-        print(closeness)
+        #print(closeness)
         step = course*closeness + fine*(1 - closeness)
-        print("fine",fine)
-        print("course",course)
-        print("step",step)
+        print("fine: ",fine, end="")
+        print(" course: ",course, end="")
+        print(" step: ",step)
 
 
         self.z_step = -int(lumaview.motion.z_um2ustep(step))
