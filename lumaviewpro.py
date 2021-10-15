@@ -1163,7 +1163,11 @@ class VerticalControl(BoxLayout):
         self.z_max = -lumaview.motion.z_um2ustep(center+range)
         self.z_step = -int(lumaview.motion.z_um2ustep(course))
 
-        dt = 0.2 # TODO change this based on focus and exposure time
+        # dt = 0.2 # TODO change this based on focus and exposure time
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            if protocol[layer].collapse == False
+            dt = protocol[layer]['exp']*2
 
         self.positions = [0]
         self.focus_measures = [0]
