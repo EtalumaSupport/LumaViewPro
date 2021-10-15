@@ -1163,7 +1163,10 @@ class VerticalControl(BoxLayout):
         self.z_max = -lumaview.motion.z_um2ustep(center+range)
         self.z_step = -int(lumaview.motion.z_um2ustep(fine*2))
 
-        dt = 1 # TODO change this based on focus and exposure time
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            if protocol[layer].collapse == False
+            dt = protocol[layer]['exp']*2
 
         self.positions = [0]
         self.focus_measures = [0]
@@ -2001,7 +2004,7 @@ class LumaViewProApp(App):
         global lumaview
         lumaview = MainDisplay()
         # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['obj_position'].value
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/protocol.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/current.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
         # Window.minimum_width = 800
@@ -2011,6 +2014,6 @@ class LumaViewProApp(App):
     def on_stop(self):
         global lumaview
         lumaview.led_board.led_off()
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/protocol.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/current.json")
 
 LumaViewProApp().run()
