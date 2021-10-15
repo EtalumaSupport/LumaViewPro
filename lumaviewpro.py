@@ -1166,8 +1166,8 @@ class VerticalControl(BoxLayout):
         # dt = 0.2 # TODO change this based on focus and exposure time
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
-            if protocol[layer].collapse == False
-            dt = protocol[layer]['exp']*2
+            if lumaview.ids['mainsettings_id'].ids[layer].collapse == False:
+                dt = protocol[layer]['exp']*2
 
         self.positions = [0]
         self.focus_measures = [0]
