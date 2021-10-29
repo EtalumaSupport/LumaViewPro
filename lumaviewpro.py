@@ -43,6 +43,7 @@ import time
 import os
 import json
 import serial
+import glob
 import serial.tools.list_ports as list_ports
 from plyer import filechooser
 # from scipy.optimized import curve_fit
@@ -1819,6 +1820,26 @@ class TimeLapseSettings(BoxLayout):
                 led_board.led_off()
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
+    # def convert_to_avi(self):
+    #
+    #     # self.choose_folder()
+    #     save_location = './capture/movie.avi'
+    #
+    #     img_array = []
+    #     for filename in glob.glob('./capture/*.tiff'):
+    #         img = cv2.imread(filename)
+    #         height, width, layers = img.shape
+    #         size = (width,height)
+    #         img_array.append(img)
+    #
+    #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+    #
+    #     for i in range(len(img_array)):
+    #         out.write(img_array[i])
+    #     out.release()
+
+
+
 # Button the triggers 'filechooser.open_file()' from plyer
 class FileChooseBTN(Button):
     context  = StringProperty()
@@ -1854,6 +1875,22 @@ class FolderChooseBTN(Button):
 
         if self.context == 'live_folder':
             protocol['live_folder'] = path
+
+        elif self.context == 'movie_folder':
+            save_location = path + '/movie.avi'
+
+            img_array = []
+            for filename in glob.glob(path + '/*.tiff'):
+                img = cv2.imread(filename)
+                height, width, layers = img.shape
+                size = (width,height)
+                img_array.append(img)
+
+            out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+
+            for i in range(len(img_array)):
+                out.write(img_array[i])
+            out.release()
 
         else: # Channel Save Folder selections
             protocol[self.context]['save_folder'] = path
@@ -2028,6 +2065,7 @@ class LumaViewProApp(App):
 
     def on_stop(self):
         global lumaview
+        lumaview.motion.zhome()
         lumaview.led_board.led_off()
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/protocol.json")
 
