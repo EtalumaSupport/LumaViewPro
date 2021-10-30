@@ -241,6 +241,10 @@
 			VerticalControl:
 				id: verticalcontrol_id
 		AccordionItem:
+			title: 'Z Stack Aquire'
+			ZStack:
+				id: zstack_id
+		AccordionItem:
 			title: 'XY Stage Control'
 			XYStageControl:
 				id: xy_stagecontrol_id
@@ -401,23 +405,162 @@
 			text: 'Go to Bookmark'
 			font_size: '12sp'
 			on_release: root.goto_bookmark()
-	ToggleButton:
-		id: home_id
+	BoxLayout:
+	    orientation: 'horizontal'
 	    size_hint_y: None
 	    height: '30dp'
-		font_size: '12sp'
-		text: 'Home'
-		on_press: root.home()
-	ToggleButton:
-		id: autofocus_id
-	    size_hint_y: None
-	    height: '30dp'
-		font_size: '12sp'
-		text: 'Autofocus'
-		on_release: root.autofocus()
+		spacing: '5dp'
+		ToggleButton:
+			id: home_id
+		    size_hint_y: None
+		    height: '30dp'
+			font_size: '12sp'
+			text: 'Home'
+			on_press: root.home()
+		ToggleButton:
+			id: autofocus_id
+		    size_hint_y: None
+		    height: '30dp'
+			font_size: '12sp'
+			text: 'Autofocus'
+			on_release: root.autofocus()
 	Label:
+
+# Z-Stack Settings
+<ZStack>:
+	orientation: 'vertical'
+	padding: '5dp'
+    spacing: '5dp'
+
+	BoxLayout: # Focus at Top
+	    orientation: 'horizontal'
 	    size_hint_y: None
-	    height: '40dp'
+	    height: '20dp'
+		spacing: '5dp'
+		Label:
+		    size_hint_x: None
+		    width: '200dp'
+			font_size: '12sp'
+			text: 'Focus at Top'
+		CheckBox:
+			id: focus_top
+			group: 'z-stack'
+
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '20dp'
+		spacing: '5dp'
+		Label:
+		    size_hint_x: None
+		    width: '200dp'
+			font_size: '12sp'
+			text: 'Focus at Center'
+		CheckBox:
+			id: focus_center
+			active: True
+			group: 'z-stack'
+
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '20dp'
+		spacing: '5dp'
+		Label:
+		    size_hint_x: None
+		    width: '200dp'
+			font_size: '12sp'
+			text: 'Focus at Bottom'
+		CheckBox:
+			id: focus_bottom
+			group: 'z-stack'
+
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '20dp'
+		spacing: '5dp'
+		Label:
+		    size_hint_x: None
+		    width: '200dp'
+			font_size: '12sp'
+			text: 'Current Position at Top'
+		CheckBox:
+			id: current_top
+			group: 'z-stack'
+
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '20dp'
+		spacing: '5dp'
+		Label:
+		    size_hint_x: None
+		    width: '200dp'
+			font_size: '12sp'
+			text: 'Current Position at Center'
+		CheckBox:
+			id: current_center
+			group: 'z-stack'
+
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '20dp'
+		spacing: '5dp'
+		Label:
+		    size_hint_x: None
+		    width: '200dp'
+			font_size: '12sp'
+			text: 'Current Position at Bottom'
+		CheckBox:
+			id: current_bottom
+			group: 'z-stack'
+
+		# Label:
+		#     size_hint_y: None
+		#     height: '30dp'
+
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '30dp'
+		spacing: '5dp'
+		Label:
+			font_size: '12sp'
+			text: '# of Steps'
+		Label:
+			font_size: '12sp'
+			text: 'Step size (um)'
+		Label:
+			font_size: '12sp'
+			text: 'Range'
+
+	BoxLayout:
+	    orientation: 'horizontal'
+	    size_hint_y: None
+	    height: '30dp'
+		spacing: '5dp'
+		TextInput:
+        	multiline: False
+	        size_hint_y: None
+	        height: '30dp'
+	        font_size: '12sp'
+			halign: 'center'
+		TextInput:
+        	multiline: False
+	        size_hint_y: None
+	        height: '30dp'
+	        font_size: '12sp'
+			halign: 'center'
+		TextInput:
+        	multiline: False
+	        size_hint_y: None
+	        height: '30dp'
+	        font_size: '12sp'
+			halign: 'center'
+	        disabled: True
+
 	Label:
 
 <XYStageControl>:

@@ -1294,6 +1294,9 @@ class VerticalControl(BoxLayout):
         # plot_deconvolution.html#sphx-glr-download-auto-examples-filters-plot-deconvolution-py
         pass
 
+class ZStack(BoxLayout):
+    pass
+    
 class XYStageControl(BoxLayout):
 
     def course_left(self):
