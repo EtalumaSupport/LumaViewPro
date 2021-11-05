@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-Oct. 6, 2021
+Nov 5, 2021
 '''
 
 # General
@@ -1294,8 +1294,7 @@ class VerticalControl(BoxLayout):
         # plot_deconvolution.html#sphx-glr-download-auto-examples-filters-plot-deconvolution-py
         pass
 
-class ZStack(BoxLayout):
-    pass
+
 
 class XYStageControl(BoxLayout):
 
@@ -1702,8 +1701,47 @@ class LayerControl(BoxLayout):
         else:
             lumaview.ids['viewer_id'].update_shader('none')
 
+class CompositeCapture(BoxLayout):
+    # One procotol capture event
+    def capture(self, dt):
+        global lumaview
+        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
+        if camera == False:
+            return
+        try:
+            self.n_captures = self.n_captures-1
+        except:
+            print('Capturing a Single Composite Image')
 
-class TimeLapseSettings(BoxLayout):
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            if protocol[layer]['acquire'] == True:
+                # global lumaview
+
+                # set the gain and exposure
+                gain = protocol[layer]['gain']
+                camera.gain(gain)
+                exposure = protocol[layer]['exp']
+                camera.exposure_t(exposure)
+                camera.update(0)
+
+                # turn on the LED
+                # update illumination to currently selected settings
+                illumination = protocol[layer]['ill']
+                led_board = lumaview.led_board
+                led_board.led_on(led_board.color2ch(layer), illumination)
+
+                # capture the image
+                save_folder = protocol[layer]['save_folder']
+                file_root = protocol[layer]['file_root']
+                lumaview.capture(0, save_folder, file_root, color = layer)
+                # turn off the LED
+                led_board.led_off()
+            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+
+
+
+class TimeLapseSettings(CompositeCapture):
     record = ObjectProperty(None)
     record = False
     movie_folder = StringProperty(None)
@@ -1786,6 +1824,7 @@ class TimeLapseSettings(BoxLayout):
             if self.frame_event:
                 Clock.unschedule(self.frame_event)
 
+    '''
     # One procotol capture event
     def capture(self, dt):
         global lumaview
@@ -1822,6 +1861,7 @@ class TimeLapseSettings(BoxLayout):
                 # turn off the LED
                 led_board.led_off()
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+    '''
 
     # def convert_to_avi(self):
     #
@@ -1840,6 +1880,16 @@ class TimeLapseSettings(BoxLayout):
     #     for i in range(len(img_array)):
     #         out.write(img_array[i])
     #     out.release()
+
+
+class ZStack(CompositeCapture):
+    def aquire_zstack(self):
+        global protocal
+
+        #self.n_captures = ...
+
+
+        return
 
 
 
