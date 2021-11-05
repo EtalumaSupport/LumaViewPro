@@ -1296,7 +1296,7 @@ class VerticalControl(BoxLayout):
 
 class ZStack(BoxLayout):
     pass
-    
+
 class XYStageControl(BoxLayout):
 
     def course_left(self):

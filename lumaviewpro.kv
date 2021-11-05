@@ -431,7 +431,13 @@
 	orientation: 'vertical'
 	padding: '5dp'
     spacing: '5dp'
-
+	canvas:
+		Color:
+			rgba: 0.1, 0.1, 0.1, 0.7
+		Rectangle:
+			size: self.size
+			pos: self.pos
+			
 	BoxLayout: # Focus at Top
 	    orientation: 'horizontal'
 	    size_hint_y: None
