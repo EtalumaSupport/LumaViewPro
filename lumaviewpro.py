@@ -94,7 +94,7 @@ from pypylon import pylon
 
 global lumaview
 global protocol
-with open('./data/protocol.json', "r") as read_file:
+with open('./data/current.json', "r") as read_file:
     protocol = json.load(read_file)
 
 class PylonCamera(Image):
@@ -161,7 +161,7 @@ class PylonCamera(Image):
                 self.lastGrab.AttachGrabResultBuffer(grabResult)
 
             if self.record == True:
-                lumaview.capture(0)
+                lumaview.capture()
 
             grabResult.Release()
 
@@ -442,7 +442,6 @@ class TrinamicBoard:
         return ustep
 
     def zhome(self):
-        # TODO all the initialization should be in __init__
         #----------------------------------------------------------
         # Z-Axis Initialization
         #----------------------------------------------------------
@@ -470,14 +469,15 @@ class TrinamicBoard:
         # Start the Trinamic Homing Procedure
         #----------------------------------------------------------
         self.SendGram('RFS', 0, 'Z', 0)       # Home to the Right Limit switch (Down)
-        self.zhome_event = Clock.schedule_interval(self.check_zhome, 0.05)
 
-    # Test if reference function is complete (z homing)
-    def check_zhome(self, dt):
-        value = self.SendGram('RFS', 2, 'Z', 0)
-        if value == 0:
-            Clock.unschedule(self.zhome_event)
-        # print('still scheduled?')
+    # DEBUG: What was this for?
+    #     self.zhome_event = Clock.schedule_interval(self.check_zhome, 0.05)
+    #
+    # # Test if reference function is complete (z homing)
+    # def check_zhome(self, dt):
+    #     value = self.SendGram('RFS', 2, 'Z', 0)
+    #     if value == 0:
+    #         Clock.unschedule(self.zhome_event)
 
     def xy_ustep2um(self, ustep):
         um = float(ustep)*self.xy_microstep
@@ -544,14 +544,16 @@ class TrinamicBoard:
         # Start the Trinamic Homing Procedure
         #----------------------------------------------------------
         self.SendGram('RFS', 0, 'Y', 0)      # Home to the Right Limit switch (Back)
-        self.xyhome_event = Clock.schedule_interval(self.check_xyhome, 0.05)
 
-    # Test if reference function is complete (xy homing)
-    def check_xyhome(self, dt):
-        x = self.SendGram('RFS', 2, 'X', 0)
-        y = self.SendGram('RFS', 2, 'Y', 0)
-        if (x == 0) and (y == 0):
-            Clock.unschedule(self.xyhome_event)
+    # DEBUG: What was this for?
+    #     self.xyhome_event = Clock.schedule_interval(self.check_xyhome, 0.05)
+    #
+    # # Test if reference function is complete (xy homing)
+    # def check_xyhome(self, dt):
+    #     x = self.SendGram('RFS', 2, 'X', 0)
+    #     y = self.SendGram('RFS', 2, 'Y', 0)
+    #     if (x == 0) and (y == 0):
+    #         Clock.unschedule(self.xyhome_event)
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -575,7 +577,7 @@ class MainDisplay(FloatLayout):
             microscope.play = True
             microscope.start()
 
-    def capture(self, dt, save_folder = './capture/', file_root = 'live_', append = 'ms', color = 'BF'):
+    def capture(self, dt=0, save_folder = './capture/', file_root = 'live_', append = 'ms', color = 'BF'):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
         if microscope.camera == False:
             return
@@ -623,7 +625,7 @@ class MainDisplay(FloatLayout):
             return
         microscope.record = not microscope.record
 
-    def composite(self, dt):
+    def composite(self, dt=0):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
         if microscope.camera == False:
             return
@@ -1129,7 +1131,9 @@ class VerticalControl(BoxLayout):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
 
+
         z_home = lumaview.motion.SendGram('RFS', 2, 'Z', 0)
+        print(z_home)
         if z_home != 0:
             self.ids['obj_position'].value = 0
             self.ids['set_position_id'].text = '0.00'
@@ -1301,34 +1305,42 @@ class XYStageControl(BoxLayout):
     def course_left(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'X', -10000)  # Move LEFT relative by 10000
+        self.update_gui(0)
 
     def fine_left(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'X', -1000)  # Move LEFT by 1000
+        self.update_gui(0)
 
     def fine_right(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'X', 1000)  # Move RIGHT by 1000
+        self.update_gui(0)
 
     def course_right(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'X', 10000)  # Move RIGHT by 10000
+        self.update_gui(0)
 
     def course_back(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'Y', -10000)  # Move BACK relative by 10000
+        self.update_gui(0)
 
     def fine_back(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'Y', -1000)  # Move BACK by 1000
+        self.update_gui(0)
 
     def fine_fwd(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'Y', 1000)  # Move FORWARD by 1000
+        self.update_gui(0)
 
     def course_fwd(self):
         global lumaview
         lumaview.motion.SendGram('MVP', 1, 'Y', 10000)  # Move FORWARD by 10000
+        self.update_gui(0)
 
     def set_xposition(self, pos):
         global lumaview
@@ -1762,7 +1774,7 @@ class TimeLapseSettings(CompositeCapture):
             print('Update Duration is not an acceptable value')
 
     # load protocol from JSON file
-    def load_protocol(self, file="./data/protocol.json"):
+    def load_protocol(self, file="./data/current.json"):
         global lumaview
 
         # load protocol JSON file
@@ -1792,7 +1804,7 @@ class TimeLapseSettings(CompositeCapture):
             lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(protocol['frame_width'], protocol['frame_height'])
 
     # Save protocol to JSON file
-    def save_protocol(self, file="./data/protocol.json"):
+    def save_protocol(self, file="./data/current.json"):
         global protocol
         with open(file, "w") as write_file:
             json.dump(protocol, write_file, indent = 4)
@@ -1884,7 +1896,7 @@ class TimeLapseSettings(CompositeCapture):
 
 class ZStack(CompositeCapture):
     def aquire_zstack(self):
-        global protocal
+        global protocol
 
         #self.n_captures = ...
 
@@ -2109,7 +2121,7 @@ class LumaViewProApp(App):
         global lumaview
         lumaview = MainDisplay()
         # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['obj_position'].value
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/protocol.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/current.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
         # Window.minimum_width = 800
@@ -2120,6 +2132,6 @@ class LumaViewProApp(App):
         global lumaview
         lumaview.motion.zhome()
         lumaview.led_board.led_off()
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/protocol.json")
+        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/current.json")
 
 LumaViewProApp().run()

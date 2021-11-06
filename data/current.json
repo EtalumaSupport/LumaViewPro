@@ -15,7 +15,7 @@
     "port": "COM3",
     "frame_width": 1900,
     "frame_height": 1900,
-    "live_folder": "./capture",
+    "live_folder": "C:\\Users\\iwani\\Documents\\Code\\LumaViewPro\\capture",
     "protocol_folder": "./data",
     "x_bookmark": 0,
     "y_bookmark": 0,
@@ -40,31 +40,31 @@
         "gain": 13.9,
         "gain_auto": false,
         "exp": 325.31,
-        "false_color": false,
+        "false_color": true,
         "acquire": true,
         "focus": 3221.7820946739
     },
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 310.0,
+        "ill": 600.0,
         "gain": 13.200000000000001,
         "gain_auto": false,
         "exp": 445.79,
-        "false_color": false,
+        "false_color": true,
         "acquire": true,
-        "focus": 3233.2010135931
+        "focus": 3221.7820946739
     },
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
         "ill": 535.0,
-        "gain": 0.0,
+        "gain": 19.400000000000002,
         "gain_auto": false,
-        "exp": 100.0,
+        "exp": 493.98,
         "false_color": true,
         "acquire": true,
-        "focus": 0.0
+        "focus": 3221.7820946739
     },
     "Composite": {
         "acquire": false
