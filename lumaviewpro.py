@@ -50,6 +50,7 @@ from plyer import filechooser
 
 # Additional LumaViewPro files
 from trinamic import *
+#from LEDBoard import *
 
 # Kivy
 import kivy
