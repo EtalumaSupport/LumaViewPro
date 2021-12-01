@@ -48,9 +48,6 @@ import serial.tools.list_ports as list_ports
 from plyer import filechooser
 # from scipy.optimized import curve_fit
 
-global lumaview
-global protocol
-
 # Additional LumaViewPro files
 from trinamic import *
 from ledboard import *
@@ -99,6 +96,8 @@ from scipy import signal
 # Pylon Camera Related
 from pypylon import pylon
 
+global lumaview
+global protocol
 
 with open('./data/current.json', "r") as read_file:
     protocol = json.load(read_file)
