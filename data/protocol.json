@@ -12,7 +12,6 @@
         "step_course": 2.0,
         "ID": "60x"
     },
-    "port": "COM3",
     "frame_width": 1900,
     "frame_height": 1900,
     "live_folder": "./capture",

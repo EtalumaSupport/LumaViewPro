@@ -11,7 +11,6 @@ class LEDBoard:
             if (port.vid == 1155) and (port.pid == 22336):
                 print('LED Control Board identified at', port.device)
                 self.port = port.device
-                #protocol['port'] = port.device
 
         self.baudrate=115200
         self.bytesize=serial.EIGHTBITS
