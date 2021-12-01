@@ -256,7 +256,7 @@ class PylonCamera(Image):
 class MainDisplay(FloatLayout):
     led_board = ObjectProperty(None)
     led_board = LEDBoard()
-    protocol['port'] = led_board.device
+    protocol['port'] = led_board.port
 
     motion = ObjectProperty(None)
     motion = TrinamicBoard()
