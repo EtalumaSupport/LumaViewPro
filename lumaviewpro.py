@@ -94,6 +94,7 @@ from pypylon import pylon
 
 global lumaview
 global protocol
+
 with open('./data/current.json', "r") as read_file:
     protocol = json.load(read_file)
 
