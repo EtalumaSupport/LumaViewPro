@@ -42,15 +42,9 @@ import numpy as np
 import time
 import os
 import json
-import serial
 import glob
-import serial.tools.list_ports as list_ports
 from plyer import filechooser
 # from scipy.optimized import curve_fit
-
-# Additional LumaViewPro files
-from trinamic import *
-from ledboard import *
 
 # Kivy
 import kivy
@@ -95,6 +89,11 @@ from scipy import signal
 
 # Pylon Camera Related
 from pypylon import pylon
+
+# Additional LumaViewPro files
+from trinamic import *
+from ledboard import *
+#from pyloncamera import *
 
 global lumaview
 global protocol
@@ -247,8 +246,6 @@ class PylonCamera(Image):
         self.camera.StopGrabbing()
         self.camera.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-
-
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App

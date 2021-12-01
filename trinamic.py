@@ -1,4 +1,5 @@
 import serial
+import serial.tools.list_ports as list_ports
 
 class TrinamicBoard:
     # Trinamic 3230 board (preferred)

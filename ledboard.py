@@ -1,4 +1,5 @@
 import serial
+import serial.tools.list_ports as list_ports
 
 class LEDBoard:
     def __init__(self, **kwargs):
