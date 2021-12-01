@@ -2,10 +2,6 @@ import serial
 
 class LEDBoard:
     def __init__(self, **kwargs):
-
-        # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
-        # self.port = "/dev/ttyS0"
-
         ports = serial.tools.list_ports.comports(include_links = True)
         for port in ports:
             if (port.vid == 1155) and (port.pid == 22336):
