@@ -93,9 +93,12 @@ class LEDBoard:
 # Create instance
 led_board = LEDBoard()
 
-for i in range(6):
-    led_board.led_cal(i)
-    time.sleep(30)
+led_board.led_status()
+# for i in range(6):
+#     led_board.led_cal(i)
+#     time.sleep(30)
+
+
 # '''
 # # Command Prompt Control of LEDBoard
 # while True:

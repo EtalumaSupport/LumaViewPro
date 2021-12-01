@@ -625,6 +625,7 @@ class MainDisplay(FloatLayout):
             return
         microscope.record = not microscope.record
 
+    # TODO recombine
     def composite(self, dt=0):
         microscope = self.ids['viewer_id'].ids['microscope_camera']
         if microscope.camera == False:

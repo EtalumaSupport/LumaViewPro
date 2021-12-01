@@ -31,5 +31,5 @@ scopes = {
 
 import json
 
-with open("./data/scopes.json", "w") as write_file:
+with open("../data/scopes.json", "w") as write_file:
     json.dump(scopes, write_file, indent = 4)

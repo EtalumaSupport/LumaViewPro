@@ -76,5 +76,5 @@ objectives = {
 
 import json
 
-with open("./data/objectives.json", "w") as write_file:
+with open("../data/objectives.json", "w") as write_file:
     json.dump(objectives, write_file, indent = 4)
