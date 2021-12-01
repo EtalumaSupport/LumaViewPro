@@ -48,9 +48,12 @@ import serial.tools.list_ports as list_ports
 from plyer import filechooser
 # from scipy.optimized import curve_fit
 
+global lumaview
+global protocol
+
 # Additional LumaViewPro files
 from trinamic import *
-#from LEDBoard import *
+from ledboard import *
 
 # Kivy
 import kivy
@@ -96,8 +99,6 @@ from scipy import signal
 # Pylon Camera Related
 from pypylon import pylon
 
-global lumaview
-global protocol
 
 with open('./data/current.json', "r") as read_file:
     protocol = json.load(read_file)
@@ -247,67 +248,6 @@ class PylonCamera(Image):
         self.camera.StopGrabbing()
         self.camera.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
         self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-
-class LEDBoard:
-    def __init__(self, **kwargs):
-
-        # self.port="/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_ComPort_205835435736-if00"
-        # self.port = "/dev/ttyS0"
-
-        ports = serial.tools.list_ports.comports(include_links = True)
-        for port in ports:
-            if (port.vid == 1155) and (port.pid == 22336):
-                print('LED Control Board identified at', port.device)
-                self.port = port.device
-                protocol['port'] = port.device
-
-        self.baudrate=115200
-        self.bytesize=serial.EIGHTBITS
-        self.parity=serial.PARITY_NONE
-        self.stopbits=serial.STOPBITS_ONE
-        self.timeout=.5 # seconds
-        self.driver = True
-        self.connect()
-
-    def __del__(self):
-        if self.driver != False:
-            self.driver.close()
-
-    def connect(self):
-        try:
-            self.driver = serial.Serial(port=self.port, baudrate=self.baudrate, bytesize=self.bytesize, parity=self.parity, stopbits=self.stopbits, timeout=self.timeout)
-            self.driver.close()
-            self.driver.open()
-        except:
-            if self.driver != False:
-                print("It looks like a Lumaview compatible LED driver board is not plugged in.")
-                print("Error: LEDBoard.connect() exception")
-            self.driver = False
-
-    def color2ch(self, color):
-        if color == 'Blue':
-            return 0
-        elif color == 'Green':
-            return 1
-        elif color == 'Red':
-            return 2
-        else: # BF
-            return 3
-
-    def led_cal(self, channel):
-        command = '{CAL,'+ str(channel) + '}00'
-        if self.driver != False:
-            self.driver.write(command.encode('utf-8')+b"\r\n")
-
-    def led_on(self, channel, mA):
-        command = '{TON,'+ str(channel) + ',H,' + str(mA) + '}00'
-        if self.driver != False:
-            self.driver.write(command.encode('utf-8')+b"\r\n")
-
-    def led_off(self):
-        command = '{TOF}00'
-        if self.driver != False:
-            self.driver.write(command.encode('utf-8')+b"\r\n")
 
 
 
