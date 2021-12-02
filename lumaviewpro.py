@@ -87,13 +87,10 @@ from kivy.graphics.texture import Texture
 import cv2
 from scipy import signal
 
-# Pylon Camera Related
-from pypylon import pylon
-
 # Additional LumaViewPro files
 from trinamic import *
 from ledboard import *
-#from pyloncamera import *
+from pyloncamera import *
 
 global lumaview
 global protocol
@@ -101,39 +98,15 @@ global protocol
 with open('./data/current.json', "r") as read_file:
     protocol = json.load(read_file)
 
-class PylonCamera(Image):
-    record = ObjectProperty(None)
+class ScopeDisplay(Image):
+    record = BooleanProperty(None)
     record = False
+    play = BooleanProperty(None)
+    play = True
 
     def __init__(self, **kwargs):
-        super(PylonCamera,self).__init__(**kwargs)
-        self.camera = False
-        self.play = True
-        self.array = []
-        self.connect()
+        super(ScopeDisplay,self).__init__(**kwargs)
         self.start()
-
-
-    def connect(self):
-        try:
-            # Create an instant camera object with the camera device found first.
-            self.camera = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
-            self.camera.Open()
-            self.camera.Width.SetValue(self.camera.Width.Max)
-            self.camera.Height.SetValue(self.camera.Height.Max)
-            # self.camera.PixelFormat.SetValue('PixelFormat_Mono12')
-            self.camera.GainAuto.SetValue('Off')
-            self.camera.ExposureAuto.SetValue('Off')
-            self.camera.ReverseX.SetValue(True);
-            # Grabbing Continusely (video) with minimal delay
-            self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-            print("LumaViewPro compatible camera or scope is now connected.")
-
-        except:
-            if self.camera == False:
-                print("It looks like a LumaViewPro compatible camera or scope is not connected.")
-                print("Error: PylonCamera.connect() exception")
-            self.camera = False
 
     def start(self, fps = 14):
         self.fps = fps
@@ -144,151 +117,64 @@ class PylonCamera(Image):
             Clock.unschedule(self.frame_event)
 
     def update(self, dt):
-        if self.camera == False:
-            self.connect()
-            if self.camera == False:
-                self.source = "./data/icons/camera to USB.png"
-                return
-        try:
-            global lumaview
-            if self.camera.IsGrabbing():
-                grabResult = self.camera.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
+        global lumaview
 
-                if grabResult.GrabSucceeded():
-                    image = grabResult.GetArray()
-                    self.array = image
-                    image_texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
-                    image_texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')                    # display image from the texture
-                    self.texture = image_texture
-
-                self.lastGrab = pylon.PylonImage()
-                self.lastGrab.AttachGrabResultBuffer(grabResult)
-
-            if self.record == True:
-                lumaview.capture()
-
-            grabResult.Release()
-
-        except:
-            if self.camera == False:
-                print("A LumaViewPro compatible camera or scope was disconnected.")
-                print("Error: PylonCamera.update() exception")
-            self.camera = False
-
-    def frame_size(self, w, h):
-        if self.camera == False:
-            print("A LumaViewPro compatible camera or scope is not connected.")
-            print("Error: PylonCamera.frame_size() self.camera == False")
-            return
-
-        width = int(min(int(w), self.camera.Width.Max)/2)*2
-        height = int(min(int(h), self.camera.Height.Max)/2)*2
-        offset_x = int((self.camera.Width.Max-width)/4)*2
-        offset_y = int((self.camera.Height.Max-height)/4)*2
-
-        self.camera.StopGrabbing()
-        self.camera.Width.SetValue(width)
-        self.camera.Height.SetValue(height)
-        self.camera.OffsetX.SetValue(offset_x)
-        self.camera.OffsetY.SetValue(offset_y)
-        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-
-    def gain(self, gain):
-        if self.camera == False:
-            print("A LumaViewPro compatible camera or scope is not connected.")
-            print("Error: PylonCamera.gain() self.camera == False")
-            return
-
-        self.camera.StopGrabbing()
-        self.camera.Gain.SetValue(gain)
-        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-
-    def auto_gain(self, state = True):
-        if self.camera == False:
-            print("A LumaViewPro compatible camera or scope is not connected.")
-            print("Error: PylonCamera.gain() self.camera == False")
-            return
-
-        self.camera.StopGrabbing()
-        if state == True:
-            self.camera.GainAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        if lumaview.camera.grab():
+            array = lumaview.camera.array
+            texture = Texture.create(size=(array.shape[1],array.shape[0]), colorfmt='luminance')
+            texture.blit_buffer(array.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+            # display image from the texture
+            self.texture = texture
         else:
-            self.camera.GainAuto.SetValue('Off')
+            self.source = "./data/icons/camera to USB.png"
 
-        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+        if self.record == True:
+            lumaview.capture()
 
-    def exposure_t(self, t):
-        if self.camera == False:
-            print("A LumaViewPro compatible camera or scope is not connected.")
-            print("Error: PylonCamera.exposure_t() self.camera == False")
-            return
-
-        self.stop()
-        self.camera.StopGrabbing()
-        self.camera.ExposureTime.SetValue(t*1000) # (t*1000) in microseconds; therefore t  in milliseconds
-
-        # # DEBUG:
-        # print(camera.ExposureTime.Min)
-        # print(camera.ExposureTime.Max)
-        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-
-        # Adjust Frame Rate based on exposure time
-        fps = 1000/t # maximum based on exposure time
-        fps = min(14, fps) # camera limit is 14 fps regardless of exposure
-        self.start(fps)
-
-    def auto_exposure_t(self):
-        if self.camera == False:
-            print("A LumaViewPro compatible camera or scope is not connected.")
-            print("Error: PylonCamera.gain() self.camera == False")
-            return
-
-        self.camera.StopGrabbing()
-        self.camera.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
-        self.camera.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
-class MainDisplay(FloatLayout):
+class MainDisplay(FloatLayout): # i.e. global lumaview
     led_board = ObjectProperty(None)
     led_board = LEDBoard()
     motion = ObjectProperty(None)
     motion = TrinamicBoard()
+    camera = ObjectProperty(None)
+    camera = PylonCamera()
 
     def cam_toggle(self):
-        microscope = self.ids['viewer_id'].ids['microscope_camera']
-        if microscope.camera == False:
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+        if self.camera.active == False:
             return
 
-        if microscope.play == True:
-            microscope.play = False
+        if scope_display.play == True:
+            scope_display.play = False
             self.led_board.led_off()
-            microscope.stop()
+            scope_display.stop()
         else:
-            microscope.play = True
-            microscope.start()
+            scope_display.play = True
+            scope_display.start()
 
     def capture(self, dt=0, save_folder = './capture/', file_root = 'live_', append = 'ms', color = 'BF'):
-        microscope = self.ids['viewer_id'].ids['microscope_camera']
-        if microscope.camera == False:
+        if self.camera.active == False:
             return
 
-        img = np.zeros((microscope.array.shape[0], microscope.array.shape[1], 3))
+        img = np.zeros((self.camera.array.shape[0], self.camera.array.shape[1], 3))
 
         if self.ids['mainsettings_id'].currentLayer != 'protocol':
             color = self.ids['mainsettings_id'].currentLayer
 
         if color == 'Blue':
-            img[:,:,0] = microscope.array
+            img[:,:,0] = self.camera.array
         elif color == 'Green':
-            img[:,:,1] = microscope.array
+            img[:,:,1] = self.camera.array
         elif color == 'Red':
-            img[:,:,2] = microscope.array
+            img[:,:,2] = self.camera.array
         else:
-            img[:,:,0] = microscope.array
-            img[:,:,1] = microscope.array
-            img[:,:,2] = microscope.array
+            img[:,:,0] = self.camera.array
+            img[:,:,1] = self.camera.array
+            img[:,:,2] = self.camera.array
 
         img = np.flip(img, 0)
 
@@ -307,20 +193,20 @@ class MainDisplay(FloatLayout):
 
         try:
             cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
-
         except:
-            print("Error: Unable to save. Save folder does not exist?")
+            print("Error: Unable to save. Perhaps save folder does not exist?")
 
     def record(self):
-        microscope = self.ids['viewer_id'].ids['microscope_camera']
-        if microscope.camera == False:
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+        if self.camera.active == False:
             return
-        microscope.record = not microscope.record
+        scope_display.record = not scope_display.record
 
     # TODO recombine
     def composite(self, dt=0):
-        microscope = self.ids['viewer_id'].ids['microscope_camera']
-        if microscope.camera == False:
+        global lumaview
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+        if self.camera.active == False:
             return
 
         folder = protocol['live_folder']
@@ -334,18 +220,18 @@ class MainDisplay(FloatLayout):
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
 
                 # Wait for focus to be reached (approximate)
-                set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-                get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
+                set_value = lumaview.motion.get_z_target()   # Get target value
+                get_value = lumaview.motion.get_z_current()  # Get current value
 
                 while set_value != get_value:
                     time.sleep(.01)
-                    get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
+                    get_value = lumaview.motion.get_z_current() # Get current value
 
                 # set the gain and exposure
                 gain = protocol[layer]['gain']
-                microscope.gain(gain)
+                lumaview.camera.gain(gain)
                 exposure = protocol[layer]['exp']
-                microscope.exposure_t(exposure)
+                lumaview.camera.exposure_t(exposure)
                 # turn on the LED
                 # update illumination to currently selected settings
                 illumination = protocol[layer]['ill']
@@ -354,14 +240,14 @@ class MainDisplay(FloatLayout):
                 # Dark field capture
                 led_board.led_off()
                 time.sleep(exposure/1000)  # Should be replaced with Clock
-                microscope.update(0)
-                darkfield = microscope.array
+                scope_display.update(0)
+                darkfield = lumaview.camera.array
                 # Florescent capture
                 led_board.led_on(led_board.color2ch(layer), illumination) #self.layer??
                 time.sleep(exposure/1000)  # Should be replaced with Clock
-                microscope.update(0)
+                scope_display.update(0)
                 #corrected = np.max(microscope.array - darkfield, np.zeros(like=darkfield))
-                corrected = microscope.array - np.minimum(microscope.array,darkfield)
+                corrected = lumaview.camera.array - np.minimum(lumaview.camera.array,darkfield)
                 # buffer the images
                 if layer == 'Blue':
                     img[:,:,0] = corrected
@@ -393,20 +279,20 @@ class MainDisplay(FloatLayout):
         # microscope.start()
 
     def fit_image(self):
-        microscope = self.ids['viewer_id'].ids['microscope_camera']
-        if microscope.camera == False:
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+        if self.camera.active == False:
             return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0,0)
 
     def one2one_image(self):
-        microscope = self.ids['viewer_id'].ids['microscope_camera']
-        if microscope.camera == False:
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+        if self.camera.active == False:
             return
         w = self.width
         h = self.height
-        scale_hor = float(microscope.camera.Width.GetValue()) / float(w)
-        scale_ver = float(microscope.camera.Height.GetValue()) / float(h)
+        scale_hor = float(lumaview.camera.active.Width.GetValue()) / float(w)
+        scale_ver = float(lumaview.camera.active.Height.GetValue()) / float(h)
         scale = max(scale_hor, scale_ver)
         self.ids['viewer_id'].scale = scale
         self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))
@@ -550,8 +436,8 @@ class MotionSettings(BoxLayout):
     # Hide (and unhide) motion settings
     def toggle_settings(self):
         global lumaview
-        microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
-        microscope.stop()
+        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
+        scope_display.stop()
         self.ids['verticalcontrol_id'].update_event = Clock.schedule_interval(self.ids['verticalcontrol_id'].update_gui, 0.5)
         self.ids['xy_stagecontrol_id'].update_event = Clock.schedule_interval(self.ids['xy_stagecontrol_id'].update_gui, 0.5)
 
@@ -565,8 +451,8 @@ class MotionSettings(BoxLayout):
             self.pos = 0, 0
             self.isOpen = True
 
-        if microscope.play == True:
-            microscope.start()
+        if scope_display.play == True:
+            scope_display.start()
 
     def check_settings(self, *args):
         # global lumaview
@@ -648,8 +534,8 @@ class MainSettings(BoxLayout):
     # Hide (and unhide) main settings
     def toggle_settings(self):
         global lumaview
-        microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
-        microscope.stop()
+        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
+        scope_display.stop()
 
         # move position of settings
         if self.isOpen:
@@ -661,19 +547,19 @@ class MainSettings(BoxLayout):
             self.pos = lumaview.width - self.settings_width, 0
             self.isOpen = True
 
-        if microscope.play == True:
-            microscope.start()
+        if scope_display.play == True:
+            scope_display.start()
 
     def accordion_collapse(self, layer):
         global lumaview
-        microscope = lumaview.ids['viewer_id'].ids['microscope_camera']
-        microscope.stop()
+        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
+        scope_display.stop()
         lumaview.led_board.led_off()
         self.currentLayer = layer
         self.notCollapsing = not(self.notCollapsing)
         if self.notCollapsing:
-            if microscope.play == True:
-                microscope.start()
+            if scope_display.play == True:
+                scope_display.start()
 
     def check_settings(self, *args):
         global lumaview
@@ -702,9 +588,8 @@ class Histogram(Widget):
     def histogram(self, *args):
         global lumaview
 
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
-        if camera.camera != False:
-            image = camera.array
+        if lumaview.camera != False:
+            image = lumaview.camera.array
             hist = np.histogram(image, bins=256,range=(0,256))
             if self.hist_range_set:
                 edges = self.edges
@@ -805,7 +690,7 @@ class VerticalControl(BoxLayout):
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_bookmark(self):
-        usteps = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current z height in usteps
+        usteps = lumaview.motion.get_z_current()  # Get current z height in usteps
         height = -lumaview.motion.z_ustep2um(usteps)
         protocol['z_bookmark'] = height
 
@@ -822,7 +707,7 @@ class VerticalControl(BoxLayout):
 
     def update_gui(self, dt):
         set_value = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
-        get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0)   # Get current value
+        get_value = lumaview.motion.SendGram('GAP', 1, 'Z', 0) # Get current value
 
 
         z_home = lumaview.motion.SendGram('RFS', 2, 'Z', 0)
@@ -845,10 +730,10 @@ class VerticalControl(BoxLayout):
 
     # User selected the autofocus function
     def autofocus(self):
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
-
-        if camera == False:
-            print("Error: VerticalControl.autofocus() self.camera == False")
+        # camera = lumaview.ids['viewer_id'].ids['scope_display_id']
+        global lumaview
+        if lumaview.camera.active == False:
+            print('Error: VerticalControl.autofocus()')
             return
 
         # TODO Needs to be set by the user
@@ -877,8 +762,8 @@ class VerticalControl(BoxLayout):
             self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
 
     def focus_iterate(self, dt):
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
-        image = camera.array
+        global lumaview
+        image = lumaview.camera.array
 
         #target = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         target = lumaview.motion.SendGram('GAP', 1, 'Z', 0)  # Get current value
@@ -1115,10 +1000,8 @@ class MicroscopeSettings(BoxLayout):
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
 
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera'].camera
-
-        width = int(min(int(w), camera.Width.Max)/2)*2
-        height = int(min(int(h), camera.Height.Max)/2)*2
+        width = int(min(int(w), lumaview.camera.Width.Max)/2)*2
+        height = int(min(int(h), lumaview.camera.Height.Max)/2)*2
 
         protocol['frame_width'] = width
         protocol['frame_height'] = height
@@ -1126,7 +1009,7 @@ class MicroscopeSettings(BoxLayout):
         self.ids['frame_width'].text = str(width)
         self.ids['frame_height'].text = str(height)
 
-        lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(width, height)
+        lumaview.camera.frame_size(width, height)
 
 # Pass-through class for microscope selection drop-down menu, defined in .kv file
 # -------------------------------------------------------------------------------
@@ -1366,16 +1249,16 @@ class LayerControl(BoxLayout):
         # update gain to currently selected settings
         # -----------------------------------------------------
         state = protocol[self.layer]['gain_auto']
-        lumaview.ids['viewer_id'].ids['microscope_camera'].auto_gain(state)
+        lumaview.camera.auto_gain(state)
 
         if not(state):
             gain = protocol[self.layer]['gain']
-            lumaview.ids['viewer_id'].ids['microscope_camera'].gain(gain)
+            lumaview.camera.gain(gain)
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
         exposure = protocol[self.layer]['exp']
-        lumaview.ids['viewer_id'].ids['microscope_camera'].exposure_t(exposure)
+        lumaview.camera.exposure_t(exposure)
 
         # choose correct active toggle button image based on color
         # -----------------------------------------------------
@@ -1410,8 +1293,8 @@ class CompositeCapture(BoxLayout):
     # One procotol capture event
     def capture(self, dt):
         global lumaview
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
-        if camera == False:
+        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
+        if lumaview.camera.active == False:
             return
         try:
             self.n_captures = self.n_captures-1
@@ -1425,10 +1308,10 @@ class CompositeCapture(BoxLayout):
 
                 # set the gain and exposure
                 gain = protocol[layer]['gain']
-                camera.gain(gain)
+                lumaview.camera.gain(gain)
                 exposure = protocol[layer]['exp']
-                camera.exposure_t(exposure)
-                camera.update(0)
+                lumaview.camera.exposure_t(exposure)
+                scope_display.update(0)
 
                 # turn on the LED
                 # update illumination to currently selected settings
@@ -1494,7 +1377,7 @@ class TimeLapseSettings(CompositeCapture):
                 lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
                 lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
 
-            lumaview.ids['viewer_id'].ids['microscope_camera'].frame_size(protocol['frame_width'], protocol['frame_height'])
+            lumaview.camera.frame_size(protocol['frame_width'], protocol['frame_height'])
 
     # Save protocol to JSON file
     def save_protocol(self, file="./data/current.json"):
