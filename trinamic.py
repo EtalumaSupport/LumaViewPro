@@ -179,19 +179,19 @@ class TrinamicBoard:
    # Get target position
     def target_Z(self):
         target = self.SendGram('GAP', 0, 'Z', 10)
-        pos = z_ustep2um(target)
+        pos = -self.z_ustep2um(target)
         return pos
 
     # Get current position
     def current_Z(self):
-        current = self.motion.SendGram('GAP', 1, 'Z', 0)
-        pos = z_ustep2um(current)
+        current = self.SendGram('GAP', 1, 'Z', 0)
+        pos = -self.z_ustep2um(current)
         return pos
 
     # Move to absolute position
     def goto_Z(self, pos):
         steps = -self.z_um2ustep(pos)
-        lumaview.motion.SendGram('MVP', 0, 'Z', steps)
+        self.SendGram('MVP', 0, 'Z', steps)
 
     # Move by distance (UP is positive, DOWN in negative)
     def move_Z(self, um):
