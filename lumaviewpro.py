@@ -757,7 +757,6 @@ class VerticalControl(BoxLayout):
         global lumaview
         image = lumaview.camera.array
 
-        #target = lumaview.motion.SendGram('GAP', 0, 'Z', 10)  # Get target value
         target = lumaview.motion.current_Z() # Get current value
 
         self.positions.append(target)
