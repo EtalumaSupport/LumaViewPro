@@ -31,3 +31,8 @@ led.led_off()       # turn off all LEDs
 # ----------------------------------------------------
 xyz.zhome()         # home position (retracted) objective
 xyz.xyhome()        # home position of xy stage
+xyz.goto_Z(1000)    # move to absolute position at 1000um (1 mm)
+
+# ----------------------------------------------------
+# Controlling the Camera
+# ----------------------------------------------------
