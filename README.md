@@ -98,3 +98,23 @@ python -m pip install kivymd
 * Open command prompt
 * Navigate to the folder containing lumaviewpro.py
 * type: python lumaviewpro.py
+
+
+## Creating your own scripts (without a GUI)
+
+Download the files for interacting with the hardware
+* trinamic.py
+* ledboard.py
+* pyloncamera.py
+* script_example.py
+
+Install the necessary libraries
+* numpy
+* pyserial
+* time
+* pypylon
+
+Download and install the Basler Camera Driver
+https://www.baslerweb.com/en/sales-support/downloads/software-downloads/
+
+Edit the sample script
