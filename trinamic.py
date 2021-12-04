@@ -176,27 +176,6 @@ class TrinamicBoard:
     #     if value == 0:
     #         Clock.unschedule(self.zhome_event)
 
-   # Get target position
-    def target_Z(self):
-        target = self.SendGram('GAP', 0, 'Z', 10)
-        pos = -self.z_ustep2um(target)
-        return pos
-
-    # Get current position
-    def current_Z(self):
-        current = self.SendGram('GAP', 1, 'Z', 0)
-        pos = -self.z_ustep2um(current)
-        return pos
-
-    # Move to absolute position
-    def goto_Z(self, pos):
-        steps = -self.z_um2ustep(pos)
-        self.SendGram('MVP', 0, 'Z', steps)
-
-    # Move by distance (UP is positive, DOWN in negative)
-    def move_Z(self, um):
-        dist = self.z_um2ustep(um)
-        self.SendGram('MVP', 1, 'Z', -dist)
 
     def xy_ustep2um(self, ustep):
         um = float(ustep)*self.xy_microstep
@@ -273,3 +252,44 @@ class TrinamicBoard:
     #     y = self.SendGram('RFS', 2, 'Y', 0)
     #     if (x == 0) and (y == 0):
     #         Clock.unschedule(self.xyhome_event)
+
+    # Get reference switch status
+    def limit_status(self, axis):
+        switch = self.SendGram('RFS', 2, 'X', 0)
+        if switch == 0:
+            return True
+        else:
+            return False
+    # Get target position
+    def target_pos(self, axis):
+      target = self.SendGram('GAP', 0, axis, 10)
+      if axis == 'Z':
+          pos = -self.z_ustep2um(target)
+      else:
+          pos = -self.xy_ustep2um(target)
+      return pos
+
+    # Get current position
+    def current_pos(self, axis):
+      current = self.SendGram('GAP', 1, axis, 0)
+      if axis == 'Z':
+          pos = -self.z_ustep2um(current)
+      else:
+          pos = -self.xy_ustep2um(current)
+      return pos
+
+    # Move to absolute position
+    def move_abs_pos(self, axis, pos):
+      if axis == 'Z':
+          steps = -self.z_um2ustep(pos)
+      else:
+          steps = -self.xy_um2ustep(pos)
+      self.SendGram('MVP', 0, axis, steps)
+
+    # Move by distance (UP is positive, DOWN in negative)
+    def move_rel_pos(self, axis, um):
+      if axis == 'Z':
+          steps = -self.z_um2ustep(um)
+      else:
+          steps = -self.xy_um2ustep(um)
+      self.SendGram('MVP', 1, axis, steps)

@@ -220,12 +220,12 @@ class MainDisplay(FloatLayout): # i.e. global lumaview
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
 
                 # Wait for focus to be reached (approximate)
-                set_value = lumaview.motion.target_Z()   # Get target value
-                get_value = lumaview.motion.current_Z()  # Get current value
+                set_value = lumaview.motion.target_pos('Z')   # Get target value
+                get_value = lumaview.motion.current_pos('Z')  # Get current value
 
                 while set_value != get_value:
                     time.sleep(.01)
-                    get_value = lumaview.motion.current_Z() # Get current value
+                    get_value = lumaview.motion.current_pos('Z') # Get current value
 
                 # set the gain and exposure
                 gain = protocol[layer]['gain']
@@ -662,35 +662,35 @@ class VerticalControl(BoxLayout):
 
     def course_up(self):
         course = protocol['objective']['step_course']
-        lumaview.motion.move_Z(course)                  # Move UP
+        lumaview.motion.move_rel_pos('Z', course)                  # Move UP
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def fine_up(self):
         fine = protocol['objective']['step_fine']
-        lumaview.motion.move_Z(fine)                    # Move UP
+        lumaview.motion.move_rel_pos('Z', fine)                    # Move UP
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def fine_down(self):
         fine = protocol['objective']['step_fine']
-        lumaview.motion.move_Z(-fine)                   # Move DOWN
+        lumaview.motion.move_rel_pos('Z', -fine)                   # Move DOWN
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def course_down(self):
         course = protocol['objective']['step_course']
-        lumaview.motion.move_Z(-course)                 # Move DOWN
+        lumaview.motion.move_rel_pos('Z', -course)                 # Move DOWN
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_position(self, pos):
-        lumaview.motion.goto_Z(pos)
+        lumaview.motion.move_abs_pos('Z', pos)
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_bookmark(self):
-        height = lumaview.motion.current_Z()  # Get current z height in um
+        height = lumaview.motion.current_pos('Z')  # Get current z height in um
         protocol['z_bookmark'] = height
 
     def goto_bookmark(self):
         pos = protocol['z_bookmark']
-        lumaview.motion.goto_Z(pos)
+        lumaview.motion.move_abs_pos('Z', pos)
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def home(self):
@@ -699,14 +699,12 @@ class VerticalControl(BoxLayout):
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def update_gui(self, dt):
-        set_pos = lumaview.motion.target_Z()  # Get target value
-        get_pos = lumaview.motion.current_Z() # Get current value
+        set_pos = lumaview.motion.target_pos('Z')  # Get target value
+        get_pos = lumaview.motion.current_pos('Z') # Get current value
 
-        # TODO
-        z_home = lumaview.motion.SendGram('RFS', 2, 'Z', 0)
-        print(z_home)
+        z_home = lumaview.motion.limit_status('Z')
 
-        if z_home != 0:
+        if z_home:
             self.ids['obj_position'].value = 0
             self.ids['set_position_id'].text = '0.00'
         else:
@@ -750,14 +748,14 @@ class VerticalControl(BoxLayout):
 
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
-            lumaview.motion.goto_Z(self.z_min) # Go to z_min
+            lumaview.motion.move_abs_pos('Z', self.z_min) # Go to z_min
             self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
 
     def focus_iterate(self, dt):
         global lumaview
         image = lumaview.camera.array
 
-        target = lumaview.motion.current_Z() # Get current value
+        target = lumaview.motion.current_pos('Z') # Get current value
 
         self.positions.append(target)
         self.focus_measures.append(self.focus_function(image))
@@ -775,7 +773,7 @@ class VerticalControl(BoxLayout):
 
 
         self.z_step = -int(lumaview.motion.z_um2ustep(step))
-        lumaview.motion.move_Z(self.z_step) # move by z_step
+        lumaview.motion.move_rel_pos('Z', self.z_step) # move by z_step
 
         if self.ids['autofocus_id'].state == 'normal':
             self.ids['autofocus_id'].text = 'Autofocus'
@@ -790,7 +788,7 @@ class VerticalControl(BoxLayout):
             focus = self.focus_best(self.positions, self.focus_measures)
             # print(self.positions, '\t', self.focus_measures)
             print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
-            lumaview.motion.SendGram('MVP', 0, 'Z', focus) # move to absolute target
+            lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
 
         self.update_gui(0)
 
@@ -873,80 +871,74 @@ class XYStageControl(BoxLayout):
 
     def course_left(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'X', -10000)  # Move LEFT relative by 10000
+        lumaview.motion.move_rel_pos('X', -100)  # Move LEFT relative
         self.update_gui(0)
 
     def fine_left(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'X', -1000)  # Move LEFT by 1000
+        lumaview.motion.move_rel_pos('X', -10)  # Move LEFT
         self.update_gui(0)
 
     def fine_right(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'X', 1000)  # Move RIGHT by 1000
+        lumaview.motion.move_rel_pos('X', 10)  # Move RIGHT
         self.update_gui(0)
 
     def course_right(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'X', 10000)  # Move RIGHT by 10000
+        lumaview.motion.move_rel_pos('X', 100)  # Move RIGHT
         self.update_gui(0)
 
     def course_back(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Y', -10000)  # Move BACK relative by 10000
+        lumaview.motion.move_rel_pos('Y', -100)  # Move BACK relative by 10000
         self.update_gui(0)
 
     def fine_back(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Y', -1000)  # Move BACK by 1000
+        lumaview.motion.move_rel_pos('Y', -10)  # Move BACK by 1000
         self.update_gui(0)
 
     def fine_fwd(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Y', 1000)  # Move FORWARD by 1000
+        lumaview.motion.move_rel_pos('Y', 10)  # Move FORWARD by 1000
         self.update_gui(0)
 
     def course_fwd(self):
         global lumaview
-        lumaview.motion.SendGram('MVP', 1, 'Y', 10000)  # Move FORWARD by 10000
+        lumaview.motion.move_rel_pos('Y', 100)  # Move FORWARD by 10000
         self.update_gui(0)
 
     def set_xposition(self, pos):
         global lumaview
-        usteps = -lumaview.motion.xy_um2ustep(float(pos)*1000)   # position in text is in mm
-        lumaview.motion.SendGram('MVP', 0, 'X', usteps)  # Move to absolute position
+        lumaview.motion.move_abs_pos('X', float(pos)*1000)  # position in text is in mm
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_yposition(self, pos):
         global lumaview
-        usteps = -lumaview.motion.xy_um2ustep(float(pos)*1000)   # position in text is in mm
-        lumaview.motion.SendGram('MVP', 0, 'Y', usteps)  # Move to absolute position
+        lumaview.motion.move_abs_pos('Y', float(pos)*1000)  # position in text is in mm
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def set_xbookmark(self):
         global lumaview
-        usteps = lumaview.motion.SendGram('GAP', 1, 'X', 0)  # Get current x position in usteps
-        x_pos = -lumaview.motion.xy_ustep2um(usteps)
+        x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
         protocol['x_bookmark'] = x_pos
+
+    def set_ybookmark(self):
+        global lumaview
+        y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
+        protocol['y_bookmark'] = y_pos
 
     def goto_xbookmark(self):
         global lumaview
         x_pos = protocol['x_bookmark']
-        usteps = -lumaview.motion.xy_um2ustep(x_pos)
-        lumaview.motion.SendGram('MVP', 0, 'X', usteps)  # set current x position in usteps
+        lumaview.motion.move_abs_pos('X', x_pos)  # set current x position in um
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
-
-    def set_ybookmark(self):
-        global lumaview
-        usteps = lumaview.motion.SendGram('GAP', 1, 'Y', 0)  # Get current y position in usteps
-        y_pos = -lumaview.motion.z_ustep2um(usteps)
-        protocol['y_bookmark'] = y_pos
 
     def goto_ybookmark(self):
         global lumaview
         y_pos = protocol['y_bookmark']
-        usteps = -lumaview.motion.z_um2ustep(y_pos)
-        lumaview.motion.SendGram('MVP', 0, 'Y', usteps)  # set current y position in usteps
+        lumaview.motion.move_abs_pos('Y', y_pos)  # set current y position in um
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def home(self):
@@ -959,25 +951,23 @@ class XYStageControl(BoxLayout):
 
     def update_gui(self, dt):
         global lumaview
-        x_target = lumaview.motion.SendGram('GAP', 0, 'X', 10)  # Get target value
-        y_target = lumaview.motion.SendGram('GAP', 0, 'Y', 10)  # Get target value
+        x_target = lumaview.motion.target_pos('X')  # Get target value
+        y_target = lumaview.motion.target_pos('Y')  # Get target value
 
-        x_value = lumaview.motion.SendGram('GAP', 1, 'X', 0)  # Get current value
-        y_value = lumaview.motion.SendGram('GAP', 1, 'Y', 0)  # Get current value
+        x_current = lumaview.motion.current_pos('X')  # Get current value
+        y_current = lumaview.motion.current_pos('Y')  # Get current value
 
-        x_home = lumaview.motion.SendGram('RFS', 2, 'X', 0)
-        y_home = lumaview.motion.SendGram('RFS', 2, 'Y', 0)
+        x_home = lumaview.motion.limit_status('X') # Get reference switch status
+        y_home = lumaview.motion.limit_status('Y') # Get reference switch status
 
-        if (x_home != 0) or (y_home != 0):
+        if x_home or y_home:
             self.ids['x_pos_id'].text = '0.00'
             self.ids['y_pos_id'].text = '0.00'
         else:
-            x_pos = -lumaview.motion.xy_ustep2um(x_target)
-            y_pos = -lumaview.motion.xy_ustep2um(y_target)
-            self.ids['x_pos_id'].text = format(x_pos/1000, '.2f')
-            self.ids['y_pos_id'].text = format(y_pos/1000, '.2f')
+            self.ids['x_pos_id'].text = format(x_target/1000, '.2f')
+            self.ids['y_pos_id'].text = format(y_target/1000, '.2f')
 
-        if (x_target == x_value) and (y_target == y_value):
+        if (x_target == x_current) and (y_target == y_current):
             Clock.unschedule(self.update_event)
             self.ids['home_id'].text = 'Home'
             self.ids['home_id'].state = 'normal'
@@ -1203,14 +1193,13 @@ class LayerControl(BoxLayout):
 
     def save_focus(self):
         global lumaview
-        pos = lumaview.motion.current_Z()
+        pos = lumaview.motion.current_pos('Z')
         protocol[self.layer]['focus'] = pos
 
     def goto_focus(self):
         global lumaview
-        height = protocol[self.layer]['focus']
-        usteps = -lumaview.motion.z_um2ustep(height)
-        lumaview.motion.SendGram('MVP', 0, 'Z', usteps)  # set current z height in usteps
+        pos = protocol[self.layer]['focus']
+        lumaview.motion.move_abs_pos('Z', pos)  # set current z height in usteps
         control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
         control.update_event = Clock.schedule_interval(control.update_gui, 0.5)
 
