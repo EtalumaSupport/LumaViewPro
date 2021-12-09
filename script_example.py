@@ -14,6 +14,7 @@ from trinamic import *
 from ledboard import *
 from pyloncamera import *
 import time
+from PIL import Image
 
 led = LEDBoard()
 xyz = TrinamicBoard()
@@ -36,5 +37,8 @@ xyz.move_abs_pos('Z', 1000)    # move to absolute position at 1000um (1 mm)
 # ----------------------------------------------------
 # Controlling the Camera
 # ----------------------------------------------------
-if cam.grab():
-    img = cam.array
+if cam.active:
+    cam.frame_size(1900,1900)
+    array = cam.array
+    img = Image.fromarray(array)
+    img.show()
