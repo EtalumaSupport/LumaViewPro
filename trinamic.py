@@ -253,13 +253,15 @@ class TrinamicBoard:
     #     if (x == 0) and (y == 0):
     #         Clock.unschedule(self.xyhome_event)
 
-    # Get reference switch status
+    # Get reference switch status (True -> reference is currently being saught,
+    #                              False -> reference is not currently being saught)
     def limit_status(self, axis):
         switch = self.SendGram('RFS', 2, 'X', 0)
-        if switch == 0:
+        if switch != 0:
             return True
         else:
             return False
+
     # Get target position
     def target_pos(self, axis):
       target = self.SendGram('GAP', 0, axis, 10)
