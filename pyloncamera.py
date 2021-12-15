@@ -5,7 +5,7 @@ class PylonCamera:
 
     def __init__(self, **kwargs):
         self.active = False
-        self.array = []
+        self.array = np.array([])
         self.connect()
 
     def connect(self):
