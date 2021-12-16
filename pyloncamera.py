@@ -46,6 +46,7 @@ class PylonCamera:
 
         except:
             print('Error: Cannot grab texture from camera')
+            self.active = False
             return False
 
     def frame_size(self, w, h):
