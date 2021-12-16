@@ -17,7 +17,7 @@ import time
 from PIL import Image
 
 led = LEDBoard()
-xyz = TrinamicBoard()
+xyz = TrinamicBoard() 
 cam = PylonCamera()
 
 '''
@@ -52,16 +52,18 @@ if cam.active:
 # ----------------------------------------------------
 # Example
 # ----------------------------------------------------
+xyz.move_abs_pos('Z', 3270)    # move to absolute position in um
+time.sleep(2)       # wait 1 sec
 if cam.active:
     cam.frame_size(1900,1900)
 
-    led.led_on(0, 25)  # turn on LED at channel 0 at 50mA
+    led.led_on(0, 50)  # turn on LED at channel 0 at 50mA
     time.sleep(1)       # wait 1 sec
     cam.grab()
     img = Image.fromarray(cam.array)
     img.show()
 
-    led.led_on(1, 50)  # turn on LED at channel 0 at 50mA
+    led.led_on(1, 100)  # turn on LED at channel 0 at 50mA
     time.sleep(1)       # wait 1 sec
     cam.grab()
     img = Image.fromarray(cam.array)
