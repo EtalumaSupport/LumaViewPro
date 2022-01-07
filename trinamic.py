@@ -256,7 +256,7 @@ class TrinamicBoard:
     # Get reference switch status (True -> reference is currently being saught,
     #                              False -> reference is not currently being saught)
     def limit_status(self, axis):
-        switch = self.SendGram('RFS', 2, 'X', 0)
+        switch = self.SendGram('RFS', 2, axis, 0)
         if switch != 0:
             return True
         else:
