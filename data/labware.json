@@ -1,0 +1,82 @@
+{
+"Slide" : {
+    "x" : 75,
+    "y" : 25,
+    "z" : 1
+},
+
+"Well plate": {
+  "96 well microplate": {
+    "standard" : "ANSI SLAS 2004",
+    "diameter" : -1,
+    "columns" : 24,
+    "rows" : 16,
+    "x" : 127.76,
+    "y" : 85.48,
+    "z" : -1,
+    "dx" : 9,
+    "dy" : 9,
+    "x0" : 14.38,
+    "y0" : 11.24
+  },
+  "384 well microplate": {
+    "standard" : "ANSI SLAS 2004",
+    "diameter" : -1,
+    "columns" : 24,
+    "rows" : 16,
+    "x" : 127.76,
+    "y" : 85.48,
+    "z" : -1,
+    "dx" : 4.5,
+    "dy" : 4.5,
+    "x0" : 12.13,
+    "y0" : 8.99
+  },
+  "1536 well mciroplate": {
+    "standard" : "ANSI SLAS 2004",
+    "diameter" : -1,
+    "columns" : 48,
+    "rows" : 32,
+    "x" : 127.76,
+    "y" : 85.48,
+    "z" : -1,
+    "dx" : 2.25,
+    "dy" : 2.25,
+    "x0" : 11.005,
+    "y0" : 7.865
+  }
+},
+
+"Pitri dish": {
+    "35 mm dish": {
+        "diameter": 100,
+        "inner": 34,
+        "outer": 42,
+        "depth": 13
+    },
+    "60 mm dish": {
+        "diameter": 60,
+        "inner": 52,
+        "outer": 60,
+        "depth": 16
+    },
+    "100 mm dish": {
+        "diameter": 100,
+        "inner": 86,
+        "outer": 95,
+        "depth": 17
+    },
+    "Deep 100 mm dish": {
+        "diameter": 100,
+        "inner": 86,
+        "outer": 95,
+        "depth": 21
+    },
+    "150 mm dish": {
+        "diameter": 150,
+        "inner": 137,
+        "outer": 145,
+        "depth": 21
+    }
+}
+}
