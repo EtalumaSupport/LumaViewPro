@@ -127,7 +127,7 @@ class TrinamicBoard:
             self.driver.write(datagram)
             return self.GetGram(verbose = False)
         else:
-            print('Trinamic Motor Control Board is not connected')
+            # print('Trinamic Motor Control Board is not connected')
             return False
 
     def z_ustep2um(self, ustep):
