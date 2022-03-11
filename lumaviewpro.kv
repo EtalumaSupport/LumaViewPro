@@ -743,11 +743,6 @@
         Rectangle:
             size: self.size
             pos: self.pos
-	#LabwareSelect:
-	#	id: select_labware_id
-	#	orientation: 'horizontal'
-	#	size_hint_y: None
-	#	height: '30dp'
 	BoxLayout:
 		orientation: 'horizontal'
 		size_hint_y: None
@@ -755,20 +750,17 @@
 		Label:
 			text: 'Labware Type'
 			size_hint_x: None
-			width: '120dp'
+			width: '100dp'
 			font_size: '12sp'
-		# LabwareDropDown:
-		# 	id: labware_dropdown_id
-		Button:
-			id: labware_dropdown_id
-			text: 'Select Labware'
-			on_release: root.qwerty()
+	    Spinner:
+			id: labware_spinner
+			sync_height: True
+			# text_autoupdate: True
+	        text: 'Select Labware'
+	        values: 'Home', 'Work', 'Other', 'Custom'
+			on_release: root.load_labware()
+	        on_text: root.select_labware()
 	Label:
-
-<LabwareDropDown>:
-	Label:
-		text: "test"
-	# Buttons are generated dynamically based on labware.json file
 
 # MainSettings - view and edit control accordion
 # ------------------------------------------
