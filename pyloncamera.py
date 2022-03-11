@@ -5,6 +5,7 @@ class PylonCamera:
 
     def __init__(self, **kwargs):
         self.active = False
+        self.error_report_count = 0;
         self.array = np.array([])
         self.connect()
 
@@ -25,7 +26,10 @@ class PylonCamera:
 
         except:
             self.active = False
-            print('Error: Cannot not connect to camera')
+            if (self.error_report_count < 6):
+                print('Error: Cannot connect to camera')
+            else:
+                self.error_report_count += 1
 
     def grab(self):
         if self.active == False:
@@ -45,7 +49,10 @@ class PylonCamera:
             return True
 
         except:
-            print('Error: Cannot grab texture from camera')
+            if self.error_report_count < 3:
+                print('Error: Cannot grab texture from camera')
+            else:
+                self.error_report_count += 1
             self.active = False
             return False
 
