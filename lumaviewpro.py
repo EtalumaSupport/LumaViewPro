@@ -1034,6 +1034,7 @@ class LabwareSettings(BoxLayout):
     def qwerty(self):
         dropdown = LabwareDropDown()
         dropdown.open
+        self.add_widget(dropdown)
         print("Labware Settings")
 
 class MicroscopeSettings(BoxLayout):
