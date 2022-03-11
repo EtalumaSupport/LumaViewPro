@@ -1007,13 +1007,13 @@ class LabwareDropDown(DropDown):
 
         with open('./data/labware.json', "r") as read_file:
             self.labware = json.load(read_file)
-            #self.labware = json.load(read_file)
 
         for obj in self.labware['Wellplate']:
             button = Button(text = obj, size_hint_y = None,
                             height = '30dp', font_size = '12sp')
             self.add_widget(button)
             button.bind(on_release = self.labware_select)
+            print('Dropdown Object:', obj)
 
     def labware_select(self, instance):
         global lumaview
@@ -1032,9 +1032,9 @@ class LabwareSettings(BoxLayout):
         super(LabwareSettings, self).__init__(**kwargs)
 
     def qwerty(self):
-        dropdown = LabwareDropDown
+        dropdown = LabwareDropDown()
         dropdown.open
-        print("WHY!!!")
+        print("Labware Settings")
 
 class MicroscopeSettings(BoxLayout):
 
