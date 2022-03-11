@@ -1032,7 +1032,7 @@ class LabwareSettings(BoxLayout):
         super(LabwareSettings, self).__init__(**kwargs)
 
     def qwerty(self):
-        dropdown = LabwareDropDown
+        dropdown = LabwareDropDown()
         dropdown.open
         print("WHY!!!")
 
