@@ -974,51 +974,28 @@ class XYStageControl(BoxLayout):
             self.ids['home_id'].state = 'normal'
 
 
-# Labware settings tab
-class LabwareSettings(BoxLayout):
-
-    def frame_size(self):
-        global lumaview
-        global protocol
-
-        w = int(self.ids['frame_width'].text)
-        h = int(self.ids['frame_height'].text)
-
-        width = int(min(int(w), lumaview.camera.active.Width.Max)/2)*2
-        height = int(min(int(h), lumaview.camera.active.Height.Max)/2)*2
-
-        protocol['frame_width'] = width
-        protocol['frame_height'] = height
-
-        self.ids['frame_width'].text = str(width)
-        self.ids['frame_height'].text = str(height)
-
-        lumaview.camera.frame_size(width, height)
-
-
-
-# Pass-through class for labware selection drop-down menu, defined in .kv file
-# -------------------------------------------------------------------------------
-class LabwareSelect(BoxLayout):
-    # The text displayed in the button
-    labware_str = "Well plate"#StringProperty(protocol['labware'])
-
-    def __init__(self, **kwargs):
-        super(LabwareSelect, self).__init__(**kwargs)
-
-        # Create label and button here so DropDown menu works properly
-        self.mainlabel = Label(text = 'Labware Type',
-                               size_hint_x = None, width = '120dp', font_size = '12sp')
-        self.mainbutton = Button(text = self.labware_str,
-                                 size_hint_y = None, height = '30dp', font_size = '12sp')
-
-        # Group widgets together
-        self.dropdown = LabwareDropDown()
-        self.add_widget(self.mainlabel)
-        self.add_widget(self.mainbutton)
-
-        # Add actions - mainbutton opens dropdown menu
-        self.mainbutton.bind(on_release = self.dropdown.open)
+# # Pass-through class for labware selection drop-down menu, defined in .kv file
+# # -------------------------------------------------------------------------------
+# class LabwareSelect(BoxLayout):
+#     # The text displayed in the button
+#     labware_str = "Well plate"#StringProperty(protocol['labware'])
+#
+#     def __init__(self, **kwargs):
+#         super(LabwareSelect, self).__init__(**kwargs)
+#
+#         # Create label and button here so DropDown menu works properly
+#         self.mainlabel = Label(text = 'Labware Type',
+#                                size_hint_x = None, width = '120dp', font_size = '12sp')
+#         self.mainbutton = Button(text = self.labware_str,
+#                                  size_hint_y = None, height = '30dp', font_size = '12sp')
+#
+#         # Group widgets together
+#         self.dropdown = LabwareDropDown()
+#         self.add_widget(self.mainlabel)
+#         self.add_widget(self.mainbutton)
+#
+#         # Add actions - mainbutton opens dropdown menu
+#         self.mainbutton.bind(on_release = self.dropdown.open)
 
 # Pass-through class for labware selection drop-down menu, defined in .kv file
 # -------------------------------------------------------------------------------
@@ -1035,8 +1012,8 @@ class LabwareDropDown(DropDown):
         for obj in self.labware['Wellplate']:
             button = Button(text = obj, size_hint_y = None,
                             height = '30dp', font_size = '12sp')
-            button.bind(on_release = self.labware_select)
             self.add_widget(button)
+            button.bind(on_release = self.labware_select)
 
     def labware_select(self, instance):
         global lumaview
@@ -1048,6 +1025,34 @@ class LabwareDropDown(DropDown):
         #microscope_settings_id.ids['select_scope_id'].mainbutton.text = protocol['microscope']
         #microscope_settings_id.ids['image_of_microscope'].source = './data/scopes/'+instance.text+'.png'
         self.dismiss()
+
+# Labware settings tab
+class LabwareSettings(BoxLayout):
+    def __init__(self, **kwargs):
+        super(LabwareSettings, self).__init__(**kwargs)
+        self.dropdown = LabwareDropDown()
+
+
+## WHY IS  THIS HERE????
+    # def frame_size(self):
+    #     global lumaview
+    #     global protocol
+    #
+    #     w = int(self.ids['frame_width'].text)
+    #     h = int(self.ids['frame_height'].text)
+    #
+    #     width = int(min(int(w), lumaview.camera.active.Width.Max)/2)*2
+    #     height = int(min(int(h), lumaview.camera.active.Height.Max)/2)*2
+    #
+    #     protocol['frame_width'] = width
+    #     protocol['frame_height'] = height
+    #
+    #     self.ids['frame_width'].text = str(width)
+    #     self.ids['frame_height'].text = str(height)
+    #
+    #     lumaview.camera.frame_size(width, height)
+
+
 
 
 class MicroscopeSettings(BoxLayout):
@@ -1098,11 +1103,10 @@ class MicroscopeDropDown(DropDown):
         microscope_settings_id.ids['image_of_microscope'].source = './data/scopes/'+instance.text+'.png'
         self.dismiss()
 
-
-    def microscope_selectFN(self, instance, scope):
-        global protocol
-        self.scope_str = scope
-        self.parent.ids['image_of_microscope'].source = './data/scopes/'+scope+'.png'
+    # def microscope_selectFN(self, instance, scope):
+    #     global protocol
+    #     self.scope_str = scope
+    #     self.parent.ids['image_of_microscope'].source = './data/scopes/'+scope+'.png'
 
 
 # First line of Microscope Settings control panel, to select model of microscope

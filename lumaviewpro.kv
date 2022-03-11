@@ -757,9 +757,13 @@
 			size_hint_x: None
 			width: '120dp'
 			font_size: '12sp'
-		LabwareDropDown:
+		# LabwareDropDown:
+		# 	id: labware_dropdown_id
+		Button:
 			id: labware_dropdown_id
-
+			text: 'Select Labware'
+			on_release: root.dropdown.open
+	Label:
 
 <LabwareDropDown>:
 	Label:
