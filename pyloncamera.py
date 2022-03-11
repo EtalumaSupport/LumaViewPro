@@ -28,8 +28,7 @@ class PylonCamera:
             self.active = False
             if (self.error_report_count < 6):
                 print('Error: Cannot connect to camera')
-            else:
-                self.error_report_count += 1
+            self.error_report_count += 1
 
     def grab(self):
         if self.active == False:
@@ -51,8 +50,7 @@ class PylonCamera:
         except:
             if self.error_report_count < 3:
                 print('Error: Cannot grab texture from camera')
-            else:
-                self.error_report_count += 1
+            self.error_report_count += 1
             self.active = False
             return False
 
