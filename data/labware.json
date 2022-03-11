@@ -1,11 +1,13 @@
 {
 "Slide" : {
+  "Standard slide" : {
     "x" : 75,
     "y" : 25,
     "z" : 1
+  }
 },
 
-"Well plate": {
+"Wellplate": {
   "96 well microplate": {
     "standard" : "ANSI SLAS 2004",
     "diameter" : -1,
@@ -32,7 +34,7 @@
     "x0" : 12.13,
     "y0" : 8.99
   },
-  "1536 well mciroplate": {
+  "1536 well microplate": {
     "standard" : "ANSI SLAS 2004",
     "diameter" : -1,
     "columns" : 48,

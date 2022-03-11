@@ -67,5 +67,6 @@
     },
     "Composite": {
         "acquire": false
-    }
+    },
+    "labware": "Well plate"
 }

@@ -97,6 +97,7 @@ global protocol
 
 with open('./data/current.json', "r") as read_file:
     protocol = json.load(read_file)
+    print(protocol['labware'])
 
 class ScopeDisplay(Image):
     record = BooleanProperty(None)
@@ -971,6 +972,83 @@ class XYStageControl(BoxLayout):
             Clock.unschedule(self.update_event)
             self.ids['home_id'].text = 'Home'
             self.ids['home_id'].state = 'normal'
+
+
+# Labware settings tab
+class LabwareSettings(BoxLayout):
+
+    def frame_size(self):
+        global lumaview
+        global protocol
+
+        w = int(self.ids['frame_width'].text)
+        h = int(self.ids['frame_height'].text)
+
+        width = int(min(int(w), lumaview.camera.active.Width.Max)/2)*2
+        height = int(min(int(h), lumaview.camera.active.Height.Max)/2)*2
+
+        protocol['frame_width'] = width
+        protocol['frame_height'] = height
+
+        self.ids['frame_width'].text = str(width)
+        self.ids['frame_height'].text = str(height)
+
+        lumaview.camera.frame_size(width, height)
+
+
+
+# Pass-through class for labware selection drop-down menu, defined in .kv file
+# -------------------------------------------------------------------------------
+class LabwareSelect(BoxLayout):
+    # The text displayed in the button
+    labware_str = "Well plate"#StringProperty(protocol['labware'])
+
+    def __init__(self, **kwargs):
+        super(LabwareSelect, self).__init__(**kwargs)
+
+        # Create label and button here so DropDown menu works properly
+        self.mainlabel = Label(text = 'Labware Type',
+                               size_hint_x = None, width = '120dp', font_size = '12sp')
+        self.mainbutton = Button(text = self.labware_str,
+                                 size_hint_y = None, height = '30dp', font_size = '12sp')
+
+        # Group widgets together
+        self.dropdown = LabwareDropDown()
+        self.add_widget(self.mainlabel)
+        self.add_widget(self.mainbutton)
+
+        # Add actions - mainbutton opens dropdown menu
+        self.mainbutton.bind(on_release = self.dropdown.open)
+
+# Pass-through class for labware selection drop-down menu, defined in .kv file
+# -------------------------------------------------------------------------------
+class LabwareDropDown(DropDown):
+    labware = ObjectProperty()
+
+    def __init__(self, **kwargs):
+        super(LabwareDropDown, self).__init__(**kwargs)
+
+        with open('./data/labware.json', "r") as read_file:
+            self.labware = json.load(read_file)
+            #self.labware = json.load(read_file)
+
+        for obj in self.labware['Wellplate']:
+            button = Button(text = obj, size_hint_y = None,
+                            height = '30dp', font_size = '12sp')
+            button.bind(on_release = self.labware_select)
+            self.add_widget(button)
+
+    def labware_select(self, instance):
+        global lumaview
+        global protocol
+
+        print(instance.text)
+        protocol['labware'] = instance.text
+        #microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
+        #microscope_settings_id.ids['select_scope_id'].mainbutton.text = protocol['microscope']
+        #microscope_settings_id.ids['image_of_microscope'].source = './data/scopes/'+instance.text+'.png'
+        self.dismiss()
+
 
 class MicroscopeSettings(BoxLayout):
 

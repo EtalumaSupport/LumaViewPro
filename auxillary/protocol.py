@@ -70,7 +70,8 @@ protocol = {
     },
     "Composite": {
         "acquire": False
-    }
+    },
+    "labware": "Well plate"
 }
 
 import json

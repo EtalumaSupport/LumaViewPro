@@ -249,9 +249,10 @@
 				id: xy_stagecontrol_id
 		AccordionItem:
 			title: 'Labware'
-			Label:
-				id: labware_id
-				text: "Stuff"
+	        collapse: False
+			#on_collapse: root.accordion_collapse('labware')
+			LabwareSettings:
+                id: labware_settings_id
 
     ToggleButton:
         id: toggle_motionsettings
@@ -728,6 +729,42 @@
 	        text: 'Go to Y'
 			on_release: root.goto_ybookmark()
 	Label:
+
+
+# LabwareSettings - Settings for  Labware within MainSettings
+# ------------------------------------------
+<LabwareSettings>:
+    padding: '5dp'
+    spacing: '5dp'
+    orientation: 'vertical'
+    canvas:
+        Color:
+            rgba: 0.1, 0.1, 0.1, 0.7
+        Rectangle:
+            size: self.size
+            pos: self.pos
+	LabwareSelect:
+		id: select_labware_id
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		Label:
+			text: 'Labware Type'
+			size_hint_x: None
+			width: '120dp'
+			font_size: '12sp'
+		LabwareDropDown:
+			id: labware_dropdown_id
+
+
+<LabwareDropDown>:
+	Label:
+		text: "test"
+	# Buttons are generated dynamically based on labware.json file
 
 # MainSettings - view and edit control accordion
 # ------------------------------------------
