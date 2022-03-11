@@ -1030,30 +1030,11 @@ class LabwareDropDown(DropDown):
 class LabwareSettings(BoxLayout):
     def __init__(self, **kwargs):
         super(LabwareSettings, self).__init__(**kwargs)
-        self.dropdown = LabwareDropDown()
 
-
-## WHY IS  THIS HERE????
-    # def frame_size(self):
-    #     global lumaview
-    #     global protocol
-    #
-    #     w = int(self.ids['frame_width'].text)
-    #     h = int(self.ids['frame_height'].text)
-    #
-    #     width = int(min(int(w), lumaview.camera.active.Width.Max)/2)*2
-    #     height = int(min(int(h), lumaview.camera.active.Height.Max)/2)*2
-    #
-    #     protocol['frame_width'] = width
-    #     protocol['frame_height'] = height
-    #
-    #     self.ids['frame_width'].text = str(width)
-    #     self.ids['frame_height'].text = str(height)
-    #
-    #     lumaview.camera.frame_size(width, height)
-
-
-
+    def qwerty(self):
+        dropdown = LabwareDropDown
+        dropdown.open
+        print("WHY!!!")
 
 class MicroscopeSettings(BoxLayout):
 
