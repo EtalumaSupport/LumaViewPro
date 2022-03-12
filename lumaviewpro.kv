@@ -240,7 +240,7 @@
 			VerticalControl:
 				id: verticalcontrol_id
 		AccordionItem:
-			title: 'Z Stack Aquire'
+			title: 'Z Stack Acquire'
 			ZStack:
 				id: zstack_id
 		AccordionItem:
@@ -755,9 +755,8 @@
 	    Spinner:
 			id: labware_spinner
 			sync_height: True
-			# text_autoupdate: True
 	        text: 'Select Labware'
-	        values: 'Home', 'Work', 'Other', 'Custom'
+			text_autoupdate: True
 			on_release: root.load_labware()
 	        on_text: root.select_labware()
 	Label:
@@ -830,17 +829,17 @@
             TimeLapseSettings:
                 id: time_lapse_id
 
-# MicroscopeDropDown - Drop down list for microscope selection
-# Used within ScopeSelection
-# ------------------------------------------------------------
-<MicroscopeDropDown>:
-	# Buttons are generated dynamically based on scopes.json file
-
-# ObjectiveDropDown - Drop down list for objective selection
-# Used within ScopeSelection
-# ----------------------------------------------------------
-<ObjectiveDropDown>:
-	# Buttons are generated dynamically based on objectives.json file
+# # MicroscopeDropDown - Drop down list for microscope selection
+# # Used within ScopeSelection
+# # ------------------------------------------------------------
+# <MicroscopeDropDown>:
+# 	# Buttons are generated dynamically based on scopes.json file
+#
+# # ObjectiveDropDown - Drop down list for objective selection
+# # Used within ScopeSelection
+# # ----------------------------------------------------------
+# <ObjectiveDropDown>:
+# 	# Buttons are generated dynamically based on objectives.json file
 
 # MicroscopeSettings - Settings for  Microscope within MainSettings
 # ------------------------------------------
@@ -855,17 +854,39 @@
             size: self.size
             pos: self.pos
 
-	ScopeSelect:
-		id: select_scope_id
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Lumascope Model'
+            size_hint_x: None
+            width: '120dp'
+			font_size: '12sp'
+	    Spinner:
+			id: scope_spinner
+			sync_height: True
+	        text: 'Select'
+			text_autoupdate: True
+	        on_release: root.load_scopes()
+	        on_text: root.select_scope()
 
-	ObjectiveSelect:
-		id: select_obj_id
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Objective'
+            size_hint_x: None
+            width: '120dp'
+			font_size: '12sp'
+	    Spinner:
+			id: objective_spinner
+			sync_height: True
+	        text: 'Select'
+			text_autoupdate: True
+	        on_release: root.load_ojectives()
+	        on_text: root.select_objective()
 
     BoxLayout:
         orientation: 'horizontal'
