@@ -987,47 +987,9 @@ class LabwareSettings(BoxLayout):
     def select_labware(self):
         spinner = self.ids['labware_spinner']
         protocol['labware'] = spinner.text
+        println(self.labware['Wellplate'][spinner.value])
 
 class MicroscopeSettings(BoxLayout):
-    def __init__(self, **kwargs):
-        super(MicroscopeSettings, self).__init__(**kwargs)
-
-        with open('./data/scopes.json', "r") as read_file:
-            self.scopes = json.load(read_file)
-
-        with open('./data/objectives.json', "r") as read_file:
-            self.objectives = json.load(read_file)
-
-    def load_scopes(self):
-
-        spinner = self.ids['scope_spinner']
-        spinner.values = ['LS460', 'LS560', 'LS620', 'LS720']
-
-    def select_scope(self):
-        global lumaview
-        global protocol
-
-        spinner = self.ids['scope_spinner']
-        print(spinner.text)
-        protocol['microscope'] = spinner.text
-        microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
-        microscope_settings_id.ids['image_of_microscope'].source = './data/scopes/'+spinner.text+'.png'
-
-    def load_ojectives(self):
-        spinner = self.ids['objective_spinner']
-        spinner.values = ['4x phase', '4x other', '10x', '20x', '40x', '60x', '100x']
-
-    def select_objective(self):
-        global lumaview
-        global protocol
-
-        spinner = self.ids['objective_spinner']
-        print(spinner.text)
-        protocol['objective'] = self.objectives[spinner.text]
-        protocol['objective']['ID'] = spinner.text
-        microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
-        microscope_settings_id.ids['magnification_id'].text = str(protocol['objective']['magnification'])
-
     def frame_size(self):
         global lumaview
         global protocol
@@ -1046,6 +1008,113 @@ class MicroscopeSettings(BoxLayout):
 
         lumaview.camera.frame_size(width, height)
 
+# Pass-through class for microscope selection drop-down menu, defined in .kv file
+# -------------------------------------------------------------------------------
+class MicroscopeDropDown(DropDown):
+    scopes = ObjectProperty()
+
+    def __init__(self, **kwargs):
+        super(MicroscopeDropDown, self).__init__(**kwargs)
+
+        with open('./data/scopes.json', "r") as read_file:
+            self.scopes = json.load(read_file)
+
+        for obj in self.scopes:
+            button = Button(text = obj,
+                            size_hint_y = None, height = '30dp', font_size = '12sp')
+            self.add_widget(button)
+            button.bind(on_release = self.scope_select)
+
+    def scope_select(self, instance):
+        global lumaview
+        global protocol
+
+        print(instance.text)
+        protocol['microscope'] = instance.text
+        microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
+        microscope_settings_id.ids['select_scope_id'].mainbutton.text = protocol['microscope']
+        microscope_settings_id.ids['image_of_microscope'].source = './data/scopes/'+instance.text+'.png'
+        self.dismiss()
+
+    # def microscope_selectFN(self, instance, scope):
+    #     global protocol
+    #     self.scope_str = scope
+    #     self.parent.ids['image_of_microscope'].source = './data/scopes/'+scope+'.png'
+
+
+# First line of Microscope Settings control panel, to select model of microscope
+# ------------------------------------------------------------------------------
+class ScopeSelect(BoxLayout):
+    # The text displayed in the button
+    scope_str = StringProperty(protocol['microscope'])
+
+    def __init__(self, **kwargs):
+        super(ScopeSelect, self).__init__(**kwargs)
+
+        # Create label and button here so DropDown menu works properly
+        self.mainlabel = Label(text = 'Lumascope Model',
+                               size_hint_x = None, width = '120dp', font_size = '12sp')
+        self.mainbutton = Button(text = self.scope_str,
+                                 size_hint_y = None, height = '30dp', font_size = '12sp')
+
+        # Group widgets together
+        self.dropdown = MicroscopeDropDown()
+        self.add_widget(self.mainlabel)
+        self.add_widget(self.mainbutton)
+
+        # Add actions - mainbutton opens dropdown menu
+        self.mainbutton.bind(on_release = self.dropdown.open)
+
+# Pass-through class for objective settings drop down menu, defined in .kv file
+# ----------------------------------------------------------------------------
+class ObjectiveDropDown(DropDown):
+    objectives = ObjectProperty()
+
+    def __init__(self, **kwargs):
+        super(ObjectiveDropDown, self).__init__(**kwargs)
+
+        with open('./data/objectives.json', "r") as read_file:
+            self.objectives = json.load(read_file)
+
+        for obj in self.objectives:
+            button = Button(text = obj,
+                            size_hint_y = None, height = '30dp', font_size = '12sp')
+            self.add_widget(button)
+            button.bind(on_release = self.objective_select)
+
+    def objective_select(self, instance):
+        global lumaview
+        global protocol
+
+        print(instance.text)
+        protocol['objective'] = self.objectives[instance.text]
+        protocol['objective']['ID'] = instance.text
+        microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
+        microscope_settings_id.ids['select_obj_id'].mainbutton.text = protocol['objective']['ID']
+        microscope_settings_id.ids['magnification_id'].text = str(protocol['objective']['magnification'])
+        self.dismiss()
+
+# Second line of Microscope Settings control panel, to select objective
+# ---------------------------------------------------------------------
+class ObjectiveSelect(BoxLayout):
+    global protocol
+
+    def __init__(self, **kwargs):
+        super(ObjectiveSelect, self).__init__(**kwargs)
+
+        # Create label and button here so DropDown menu works properly
+        self.mainlabel = Label(text = 'Objective',
+                               size_hint_x = None, width = '120dp', font_size = '12sp')
+        self.mainbutton = Button(text = str(protocol['objective']['ID']),
+                                 size_hint_y = None, height = '30dp', font_size = '12sp')
+
+        # Group widgets together
+        self.dropdown = ObjectiveDropDown()
+        self.add_widget(self.mainlabel)
+        self.add_widget(self.mainbutton)
+
+        # Add actions - mainbutton opens dropdown menu
+        self.mainbutton.bind(on_release = self.dropdown.open)
 
 # Modified Slider Class to enable on_release event
 # ---------------------------------------------------------------------
@@ -1283,8 +1352,8 @@ class TimeLapseSettings(CompositeCapture):
             global protocol
             protocol = json.load(read_file)
             # update GUI values from JSON data:
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['scope_spinner'].text = protocol['microscope']
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective_spinner'].text = protocol['objective']['ID']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_scope_id'].scope_str = protocol['microscope']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['select_obj_id'].mainbutton.text = protocol['objective']['ID']
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['magnification_id'].text = str(protocol['objective']['magnification'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
