@@ -987,6 +987,7 @@ class LabwareSettings(BoxLayout):
     def select_labware(self):
         spinner = self.ids['labware_spinner']
         protocol['labware'] = spinner.text
+        self.column = self.labware['Wellplate'][spinner.text]['columns']
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
@@ -999,7 +1000,6 @@ class MicroscopeSettings(BoxLayout):
             self.objectives = json.load(read_file)
 
     def load_scopes(self):
-
         spinner = self.ids['scope_spinner']
         spinner.values = ['LS460', 'LS560', 'LS620', 'LS720']
 
