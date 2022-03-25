@@ -11,8 +11,8 @@
   "96 well microplate": {
     "standard" : "ANSI SLAS 2004",
     "diameter" : -1,
-    "columns" : 24,
-    "rows" : 16,
+    "columns" : 12,
+    "rows" : 8,
     "x" : 127.76,
     "y" : 85.48,
     "z" : -1,
