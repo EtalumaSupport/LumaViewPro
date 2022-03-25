@@ -57,7 +57,7 @@ from kivy.properties import BoundedNumericProperty, ColorProperty, OptionPropert
 from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.animation import Animation
-from kivy.graphics import Line, Color, Rectangle
+from kivy.graphics import Line, Color, Rectangle, Ellipse
 # from kivy.config import Config
 # Config.set('graphics', 'width', '1920')
 # Config.set('graphics', 'height', '1080')
@@ -984,9 +984,41 @@ class LabwareSettings(BoxLayout):
         spinner = self.ids['labware_spinner']
         spinner.values = self.labware['Wellplate']
 
+
     def select_labware(self):
         spinner = self.ids['labware_spinner']
         protocol['labware'] = spinner.text
+        labware = self.ids['labware_widget_id']
+        labware.columns = self.labware['Wellplate'][spinner.text]['columns']
+        labware.rows = self.labware['Wellplate'][spinner.text]['rows']
+        labware.draw_labware()
+
+
+
+
+class Labware(Widget):
+    bg_color = ObjectProperty(None)
+    layer = ObjectProperty(None)
+
+    def __init__(self, **kwargs):
+        super(Labware, self).__init__(**kwargs)
+
+    def draw_labware(self):
+        self.canvas.clear()
+        r, b, g, a = (0.5, 0.5, 0.5, 0.5)
+        with self.canvas:
+            x = self.x
+            y = self.y
+            w = self.width
+            h = self.height
+            Color(r, b, g, a)
+            Rectangle(pos=(x, y), size=(w, h))
+
+            for i in range(self.columns):
+                for j in range(self.rows):
+                    d = w/self.columns
+                    Line(circle=(x + d*i + d/2, y + d*j + d/2, d/2 - 1))
+
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
@@ -999,7 +1031,6 @@ class MicroscopeSettings(BoxLayout):
             self.objectives = json.load(read_file)
 
     def load_scopes(self):
-
         spinner = self.ids['scope_spinner']
         spinner.values = ['LS460', 'LS560', 'LS620', 'LS720']
 

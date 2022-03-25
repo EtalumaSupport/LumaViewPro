@@ -666,24 +666,48 @@
             rgba: 0.1, 0.1, 0.1, 0.7
         Rectangle:
             size: self.size
-            pos: self.pos
+    		pos: self.pos
+
 	BoxLayout:
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
+		orientation: 'vertical'
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '30dp'
+			Label:
+				text: 'Labware Type'
+				size_hint_x: None
+				width: '100dp'
+				font_size: '12sp'
+		    Spinner:
+				id: labware_spinner
+				sync_height: True
+		        text: 'Select Labware'
+				text_autoupdate: True
+				on_release: root.load_labware()
+		        on_text: root.select_labware()
+		FloatLayout:
+			padding: '5dp'
+			size_hint_y: None
+			#height: '128dp'
+			#size_hint_y: None
+			height: self.width * 2 / 3
+			Labware:
+				id: labware_widget_id
+				pos_hint:{'center_x':0.5, 'center_y':0.5}
+				#bg_color: root.bg_color
+				#layer: root.layer
+			# on_touch_move: root.on_touch_move()
 		Label:
-			text: 'Labware Type'
-			size_hint_x: None
-			width: '100dp'
-			font_size: '12sp'
-	    Spinner:
-			id: labware_spinner
-			sync_height: True
-	        text: 'Select Labware'
-			text_autoupdate: True
-			on_release: root.load_labware()
-	        on_text: root.select_labware()
 	Label:
+
+
+
+<Labware>:
+	canvas:
+		Line:
+			width: 1
+			rectangle: (self.x, self.y, self.width, self.height)
 
 # MainSettings - view and edit control accordion
 # ------------------------------------------
