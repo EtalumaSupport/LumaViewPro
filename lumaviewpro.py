@@ -983,11 +983,25 @@ class LabwareSettings(BoxLayout):
     def load_labware(self):
         spinner = self.ids['labware_spinner']
         spinner.values = self.labware['Wellplate']
+        self.columns = self.labware['Wellplate'][spinner.text]['columns']
+        self.rows = self.labware['Wellplate'][spinner.text]['rows']
+        self.draw()
 
     def select_labware(self):
         spinner = self.ids['labware_spinner']
         protocol['labware'] = spinner.text
-        self.column = self.labware['Wellplate'][spinner.text]['columns']
+
+    def draw(self):
+        #self.canvas.clear()
+        r, b, g, a = (0.5, 0.5, 0.5, 0.5)
+        with self.canvas:
+            x = self.x
+            y = self.y
+            w = self.width
+            h = self.height
+            Color(r, b, g, a)
+            Rectangle(pos=(x, y + 20), size=(w, h))
+
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
