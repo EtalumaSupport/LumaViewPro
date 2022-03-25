@@ -1398,7 +1398,7 @@ class TimeLapseSettings(CompositeCapture):
 class ZStack(CompositeCapture):
     def aquire_zstack(self):
         global protocol
-
+        print('ztack oh oh ')
         #self.n_captures = ...
 
 

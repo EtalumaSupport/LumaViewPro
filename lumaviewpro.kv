@@ -443,94 +443,13 @@
 			size: self.size
 			pos: self.pos
 
-	BoxLayout: # Focus at Top
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '20dp'
-		spacing: '5dp'
-		Label:
-		    size_hint_x: None
-		    width: '200dp'
-			font_size: '12sp'
-			text: 'Focus at Top'
-		CheckBox:
-			id: focus_top
-			group: 'z-stack'
-
-	BoxLayout:
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '20dp'
-		spacing: '5dp'
-		Label:
-		    size_hint_x: None
-		    width: '200dp'
-			font_size: '12sp'
-			text: 'Focus at Center'
-		CheckBox:
-			id: focus_center
-			active: True
-			group: 'z-stack'
-
-	BoxLayout:
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '20dp'
-		spacing: '5dp'
-		Label:
-		    size_hint_x: None
-		    width: '200dp'
-			font_size: '12sp'
-			text: 'Focus at Bottom'
-		CheckBox:
-			id: focus_bottom
-			group: 'z-stack'
-
-	BoxLayout:
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '20dp'
-		spacing: '5dp'
-		Label:
-		    size_hint_x: None
-		    width: '200dp'
-			font_size: '12sp'
-			text: 'Current Position at Top'
-		CheckBox:
-			id: current_top
-			group: 'z-stack'
-
-	BoxLayout:
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '20dp'
-		spacing: '5dp'
-		Label:
-		    size_hint_x: None
-		    width: '200dp'
-			font_size: '12sp'
-			text: 'Current Position at Center'
-		CheckBox:
-			id: current_center
-			group: 'z-stack'
-
-	BoxLayout:
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '20dp'
-		spacing: '5dp'
-		Label:
-		    size_hint_x: None
-		    width: '200dp'
-			font_size: '12sp'
-			text: 'Current Position at Bottom'
-		CheckBox:
-			id: current_bottom
-			group: 'z-stack'
-
-		# Label:
-		#     size_hint_y: None
-		#     height: '30dp'
+    Spinner:
+		id: zstack_spinner
+		size_hint_y: None
+		height: '30dp'
+        text: 'Z Stack'
+		text_autoupdate: True
+		values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 
 	BoxLayout:
 	    orientation: 'horizontal'
@@ -571,7 +490,12 @@
 	        font_size: '12sp'
 			halign: 'center'
 	        disabled: True
-
+	Button:
+		id: ztack_aqr_btn
+		size_hint_y: None
+		height: '30dp'
+		text: 'Acquire'
+		on_release: root.aquire_zstack()
 	Label:
 
 <XYStageControl>:
