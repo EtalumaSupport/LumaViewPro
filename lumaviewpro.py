@@ -43,6 +43,7 @@ import time
 import os
 import json
 import glob
+import math
 from plyer import filechooser
 # from scipy.optimized import curve_fit
 
@@ -1007,17 +1008,19 @@ class Labware(Widget):
         self.canvas.clear()
         r, b, g, a = (0.5, 0.5, 0.5, 0.5)
         with self.canvas:
-            x = self.x
-            y = self.y
-            w = self.width
-            h = self.height
+            w = 12 * math.floor(self.width/12)
+            h = 12 * math.floor(self.height/12)
+            x = self.x + (self.width - w)/2
+            y = self.y + (self.height - h)/2
             Color(r, b, g, a)
             Rectangle(pos=(x, y), size=(w, h))
 
+            d = w/self.columns
+            r = math.floor(d/2 - 0.5)
+            print(d)
             for i in range(self.columns):
                 for j in range(self.rows):
-                    d = w/self.columns
-                    Line(circle=(x + d*i + d/2, y + d*j + d/2, d/2 - 1))
+                    Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
 
 
 class MicroscopeSettings(BoxLayout):
