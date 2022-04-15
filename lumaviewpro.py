@@ -992,6 +992,9 @@ class LabwareSettings(BoxLayout):
         labware = self.ids['labware_widget_id']
         labware.columns = self.labware['Wellplate'][spinner.text]['columns']
         labware.rows = self.labware['Wellplate'][spinner.text]['rows']
+        labware.dimensions = self.labware['Wellplate'][spinner.text]['dimensions']
+        labware.spacing = self.labware['Wellplate'][spinner.text]['spacing']
+        labware.offset = self.labware['Wellplate'][spinner.text]['offset']
         labware.draw_labware()
 
 
@@ -1005,6 +1008,8 @@ class Labware(Widget):
         super(Labware, self).__init__(**kwargs)
 
     def draw_labware(self):
+        global lumaview
+
         self.canvas.clear()
         r, b, g, a = (0.5, 0.5, 0.5, 0.5)
         with self.canvas:
@@ -1021,6 +1026,11 @@ class Labware(Widget):
             for i in range(self.columns):
                 for j in range(self.rows):
                     Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
+            i_current = (lumaview.motion.current_pos('X') - self.offset['x']) / self.spacing['x']
+            j_current = (lumaview.motion.current_pos('Y') - self.offset['y']) / self.spacing['y']
+            Color(1., 1., 0)
+            print(i_current)
+            Line(circle=(x + d*i_current + d/2, y + d*j_current + d/2, r))
 
 
 class MicroscopeSettings(BoxLayout):

@@ -698,6 +698,19 @@
 				#bg_color: root.bg_color
 				#layer: root.layer
 			# on_touch_move: root.on_touch_move()
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '30dp'
+			Label:
+				text: 'Automate'
+				size_hint_x: None
+				width: '100dp'
+				font_size: '12sp'
+		    Button:
+				id: labware_scan
+				sync_height: True
+		        text: 'Scan'
 		Label:
 	Label:
 
