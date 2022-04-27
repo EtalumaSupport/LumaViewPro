@@ -1,5 +1,6 @@
 from mcp2210 import Mcp2210, Mcp2210GpioDesignation, Mcp2210GpioDirection
 import struct    # For making c style data structures, and send them through the mcp chip
+import time
 
 class TrinamicBoard:
 
@@ -87,31 +88,49 @@ class TrinamicBoard:
                     addr = int(0x80 | int(configLine[0], 16))
                     data = int(configLine[2], 16)
                     self.SPIWRITE(1, addr, data)
-        print ("sucessfully loaded parameters to XY motor driver from xymotorconfig.ini")
+        print ("sucessfully loaded parameters to ZT motor driver from zmotorconfig.ini")
 
     #----------------------------------------------------------
     # Z (Focus) Functions
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
-        pass
+        # Replace with appropriate formula
+        return ustep
 
     def z_um2ustep(self, um):
-        pass
+        # Replace with appropriate formula
+        return um
+
 
     def zhome(self):
-        pass
+        self.move_abs_pos('Z', -1000000000)
+
+        ## needs a delay
+        time.sleep(5)
+        self.SPIWRITE (self.axis_pin['Z'], self.w_actual['Z'], 0x00000000)
+
 
     #----------------------------------------------------------
-    # XY Staage Functions
+    # XY Stage Functions
     #----------------------------------------------------------
     def xy_ustep2um(self, ustep):
-        pass
+        # Replace with appropriate formula
+        return ustep
 
     def xy_um2ustep(self, um):
-        pass
+        # Replace with appropriate formula
+        return um
 
     def xyhome(self):
-        pass
+        self.zhome()
+
+        self.move_abs_pos('X', -1000000000)
+        self.move_abs_pos('Y', -1000000000)
+
+        ## needs a delay
+        time.sleep(5)
+        self.SPIWRITE (self.axis_pin['X'], self.w_actual['X'], 0x00000000)
+        self.SPIWRITE (self.axis_pin['Y'], self.w_actual['Y'], 0x00000000)
 
     #----------------------------------------------------------
     # Motion Functions
@@ -132,16 +151,36 @@ class TrinamicBoard:
         print(list(rx))
 
     # Move to absolute position
-    def move_abs_pos(self, axis, pos):
-        pass
-
-    # Move by relative distance
-    def move_rel_pos(self, axis, um):
-        # currently using steps
-        steps = um
+    def move_abs_pos(self, axis, um):
+        if axis == 'Z':
+            steps = self.z_um2ustep(um)
+        else:
+            steps = self.xy_um2ustep(um)
         # signed to unsigned 32_bit integer
         if steps < 0:
             steps = 4294967296+steps
 
         rx = self.SPIWRITE (self.axis_pin[axis], self.w_target[axis], steps)
         print(list(rx))
+
+    # Move by relative distance
+    def move_rel_pos(self, axis, um):
+        # Read actual
+        # Add relative
+        # Move absolute
+        pass
+
+
+
+'''
+# signed 32 bit hex to dec
+if value >=  0x80000000:
+    value -= 0x10000000
+print(int(value))
+
+# signed dec to 32 bit hex
+value = -200000
+if value < 0:
+    value = 4294967296+value
+print(hex(value))
+'''

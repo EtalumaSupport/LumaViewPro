@@ -38,24 +38,25 @@ xyz = TrinamicBoard()
 import time
 
 time.sleep(1)
-# xyz.move_rel_pos('X', 160000)
-# xyz.move_rel_pos('Y', 160000)
+
+xyz.xyhome()
+print('Start')
 xyz.current_pos('X')
 xyz.current_pos('Y')
 xyz.current_pos('Z')
-xyz.target_pos('X')
-xyz.target_pos('Y')
-xyz.target_pos('Z')
 
-'''
-# signed 32 bit hex to dec
-if value >=  0x80000000:
-    value -= 0x10000000
-print(int(value))
+# Move Approximately Center
+xyz.move_abs_pos('X', 1000000)
+xyz.move_abs_pos('Y', 1000000)
 
-# signed dec to 32 bit hex
-value = -200000
-if value < 0:
-    value = 4294967296+value
-print(hex(value))
-'''
+print('Moving')
+xyz.current_pos('X')
+xyz.current_pos('Y')
+xyz.current_pos('Z')
+
+time.sleep(2)
+
+print('Done')
+xyz.current_pos('X')
+xyz.current_pos('Y')
+xyz.current_pos('Z')
