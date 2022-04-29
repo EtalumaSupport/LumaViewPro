@@ -1028,8 +1028,9 @@ class Labware(Widget):
             for i in range(self.columns):
                 for j in range(self.rows):
                     Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
-            i_current = (lumaview.motion.current_pos('X') - self.offset['x']) / self.spacing['x']
-            j_current = (lumaview.motion.current_pos('Y') - self.offset['y']) / self.spacing['y']
+            x_current = lumaview.motion.current_pos('X')
+            y_current = lumaview.motion.current_pos('Y')
+            [i, j] = self.get_well_numbers(x,y)
             Color(1., 1., 0)
             print(i_current)
             Line(circle=(x + d*i_current + d/2, y + d*j_current + d/2, r))
