@@ -25,3 +25,6 @@ pip3 install pypylon
 # if that doesn't work we need to get the wheel directly
 wget https://pypi.org/project/pypylon/pypylon-1.6.0-cp38-cp38-linux_x86_64.whl
 pip3 install pypylon-1.6.0-cp38-cp38-linux_x86_64.whl
+
+# Updated instructions as of May 2022
+pip3 install numpy plyer kivy kivymd opencv-python scipy pyserial pypylon
