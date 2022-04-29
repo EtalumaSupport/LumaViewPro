@@ -43,6 +43,7 @@ import time
 import os
 import json
 import glob
+import math
 from plyer import filechooser
 # from scipy.optimized import curve_fit
 
@@ -984,15 +985,20 @@ class LabwareSettings(BoxLayout):
         spinner = self.ids['labware_spinner']
         spinner.values = self.labware['Wellplate']
 
-
     def select_labware(self):
         spinner = self.ids['labware_spinner']
         protocol['labware'] = spinner.text
         labware = self.ids['labware_widget_id']
         labware.columns = self.labware['Wellplate'][spinner.text]['columns']
         labware.rows = self.labware['Wellplate'][spinner.text]['rows']
+        labware.dimensions = self.labware['Wellplate'][spinner.text]['dimensions']
+        labware.spacing = self.labware['Wellplate'][spinner.text]['spacing']
+        labware.offset = self.labware['Wellplate'][spinner.text]['offset']
         labware.draw_labware()
 
+    def scan_labware(self):
+        labware = self.ids['labware_widget_id']
+        labware.draw_labware()
 
 
 
@@ -1004,21 +1010,49 @@ class Labware(Widget):
         super(Labware, self).__init__(**kwargs)
 
     def draw_labware(self):
+        global lumaview
+
         self.canvas.clear()
         r, b, g, a = (0.5, 0.5, 0.5, 0.5)
         with self.canvas:
-            x = self.x
-            y = self.y
-            w = self.width
-            h = self.height
+            w = 12 * math.floor(self.width/12)
+            h = 12 * math.floor(self.height/12)
+            x = self.x + (self.width - w)/2
+            y = self.y + (self.height - h)/2
             Color(r, b, g, a)
             Rectangle(pos=(x, y), size=(w, h))
 
+            d = w/self.columns
+            r = math.floor(d/2 - 0.5)
+            print(d)
             for i in range(self.columns):
                 for j in range(self.rows):
-                    d = w/self.columns
-                    Line(circle=(x + d*i + d/2, y + d*j + d/2, d/2 - 1))
+                    Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
+            i_current = (lumaview.motion.current_pos('X') - self.offset['x']) / self.spacing['x']
+            j_current = (lumaview.motion.current_pos('Y') - self.offset['y']) / self.spacing['y']
+            Color(1., 1., 0)
+            print(i_current)
+            Line(circle=(x + d*i_current + d/2, y + d*j_current + d/2, r))
 
+    def scan_labware(self):
+        for i in range(self.columns):
+            for j in range(self.rows):
+                X = self.offset['x'] + i*self.spacing['x']
+                Y = self.offset['y'] + j*self.spacing['y']
+                #lumaview.motion.current_pos('X') = x
+                #lumaview.motion.current_pos('Y') = y
+                self.draw_labware()
+                sleep(10)
+
+    def get_well_position(self, i, j):
+        x = self.offset['x'] + i*self.spacing['x']
+        y = self.offset['y'] + j*self.spacing['y']
+
+
+    def get_well_numbers(self, x, y):
+        i = (x - self.offset['x']) / self.spacing['x']
+        j = (y - self.offset['y']) / self.spacing['y']
+        return [math.clamp(x, 1, self.columns), math.clamp(y, 1, self.rows)]
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
