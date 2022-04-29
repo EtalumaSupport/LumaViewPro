@@ -1039,6 +1039,8 @@ class Labware(Widget):
         global lumaview
         for i in range(self.columns):
             for j in range(self.rows):
+                if i % 2 == 1:
+                    j = self.rows - j
                 x = self.offset['x'] + i*self.spacing['x']
                 y = self.offset['y'] + j*self.spacing['y']
                 lumaview.motion.move_abs_pos('X', x*1000)
