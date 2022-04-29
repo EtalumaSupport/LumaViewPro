@@ -449,7 +449,8 @@
 		height: '30dp'
         text: 'Z Stack'
 		text_autoupdate: True
-		values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
+		values: ('Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
+		# values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 
 	BoxLayout:
 	    orientation: 'horizontal'
@@ -472,23 +473,35 @@
 	    height: '30dp'
 		spacing: '5dp'
 		TextInput:
+			id: zstack_steps_id
         	multiline: False
 	        size_hint_y: None
 	        height: '30dp'
 	        font_size: '12sp'
 			halign: 'center'
+        	input_filter: 'int'
+			text: '0'
+            on_text_validate: root.set_range()
+
 		TextInput:
+			id: zstack_stepsize_id
         	multiline: False
 	        size_hint_y: None
 	        height: '30dp'
 	        font_size: '12sp'
 			halign: 'center'
+        	input_filter: 'float'
+			text: '0'
+            on_text_validate: root.set_range()
+
 		TextInput:
+			id: zstack_range_id
         	multiline: False
 	        size_hint_y: None
 	        height: '30dp'
 	        font_size: '12sp'
 			halign: 'center'
+			text: '0'
 	        disabled: True
 	Button:
 		id: ztack_aqr_btn

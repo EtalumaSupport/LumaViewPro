@@ -221,7 +221,7 @@ class MainDisplay(FloatLayout): # i.e. global lumaview
             if protocol[layer]['acquire'] == True:
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
 
-                # Wait for focus to be reached (approximate)
+                # Wait for focus to be reached
                 set_value = lumaview.motion.target_pos('Z')   # Get target value
                 get_value = lumaview.motion.current_pos('Z')  # Get current value
 
@@ -998,7 +998,7 @@ class LabwareSettings(BoxLayout):
 
     def scan_labware(self):
         labware = self.ids['labware_widget_id']
-        labware.draw_labware()
+        labware.scan_labware()
 
 
 
@@ -1036,14 +1036,16 @@ class Labware(Widget):
             Line(circle=(x + d*i_current + d/2, y + d*j_current + d/2, r))
 
     def scan_labware(self):
+        global lumaview
         for i in range(self.columns):
             for j in range(self.rows):
-                X = self.offset['x'] + i*self.spacing['x']
-                Y = self.offset['y'] + j*self.spacing['y']
-                #lumaview.motion.current_pos('X') = x
-                #lumaview.motion.current_pos('Y') = y
+                x = self.offset['x'] + i*self.spacing['x']
+                y = self.offset['y'] + j*self.spacing['y']
+                lumaview.motion.move_abs_pos('X', x*1000)
+                lumaview.motion.move_abs_pos('Y', y*1000)
+                print(x,y)
                 self.draw_labware()
-                sleep(10)
+                time.sleep(5)
 
     def get_well_position(self, i, j):
         x = self.offset['x'] + i*self.spacing['x']
@@ -1462,14 +1464,59 @@ class TimeLapseSettings(CompositeCapture):
 
 
 class ZStack(CompositeCapture):
+    def set_range(self):
+        n_steps = self.ids['zstack_steps_id'].text
+        n_steps = int(n_steps)
+
+        step_size = self.ids['zstack_stepsize_id'].text
+        step_size = float(step_size)
+
+        range = n_steps * step_size
+        self.ids['zstack_range_id'].text = str(range)
+
     def aquire_zstack(self):
-        global protocol
-        print('ztack oh oh ')
-        #self.n_captures = ...
+        global lumaview
 
+        n_steps = self.ids['zstack_steps_id'].text
+        n_steps = int(n_steps)
 
-        return
+        step_size = self.ids['zstack_stepsize_id'].text
+        step_size = float(step_size)
 
+        z_range = n_steps * step_size
+
+        spinner_values = self.ids['zstack_spinner'].values
+        spinner_value = self.ids['zstack_spinner'].text
+
+        # Get current position
+        current_pos = lumaview.motion.current_pos('Z')
+
+        # Set start position
+        if spinner_value == spinner_values[0]:   # 'Current Position at Top'
+            start_pos = current_pos - z_range
+        elif spinner_value == spinner_values[1]: # 'Current Position at Center'
+            start_pos = current_pos - z_range / 2
+        elif spinner_value == spinner_values[2]: # 'Current Position at Bottom'
+            start_pos = current_pos
+
+        # Make array of positions
+        positions = np.arange(n_steps)*step_size + start_pos
+
+        # Acquire z-stack
+        for pos in positions:
+            # Move to position
+            lumaview.motion.move_abs_pos('Z', pos)
+
+            # Wait to arrive
+            set_value = lumaview.motion.target_pos('Z')   # Get target value
+            get_value = lumaview.motion.current_pos('Z')  # Get current value
+
+            while set_value != get_value:
+                time.sleep(.01)
+                get_value = lumaview.motion.current_pos('Z') # Get current value
+
+            # Capture image
+            print(pos)
 
 
 # Button the triggers 'filechooser.open_file()' from plyer

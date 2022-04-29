@@ -19,6 +19,8 @@ for port in ports:
     print('-------------------------------------------')
     if (port.vid == 1155) and (port.pid == 22336):
         print('LED Control Board identified')
+    if (port.vid == 11914) and (port.pid == 5):
+        print('NEW LED Control Board identified')
     if (port.vid == 10812) and (port.pid == 256):
         print('Trinamic Motor Control Board identified')
     if (port.vid == 10812) and (port.pid == 1792):
