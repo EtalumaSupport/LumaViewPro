@@ -985,7 +985,6 @@ class LabwareSettings(BoxLayout):
         spinner = self.ids['labware_spinner']
         spinner.values = self.labware['Wellplate']
 
-
     def select_labware(self):
         spinner = self.ids['labware_spinner']
         protocol['labware'] = spinner.text
@@ -997,6 +996,9 @@ class LabwareSettings(BoxLayout):
         labware.offset = self.labware['Wellplate'][spinner.text]['offset']
         labware.draw_labware()
 
+    def scan_labware(self):
+        labware = self.ids['labware_widget_id']
+        labware.draw_labware()
 
 
 
@@ -1032,6 +1034,25 @@ class Labware(Widget):
             print(i_current)
             Line(circle=(x + d*i_current + d/2, y + d*j_current + d/2, r))
 
+    def scan_labware(self):
+        for i in range(self.columns):
+            for j in range(self.rows):
+                X = self.offset['x'] + i*self.spacing['x']
+                Y = self.offset['y'] + j*self.spacing['y']
+                #lumaview.motion.current_pos('X') = x
+                #lumaview.motion.current_pos('Y') = y
+                self.draw_labware()
+                sleep(10)
+
+    def get_well_position(self, i, j):
+        x = self.offset['x'] + i*self.spacing['x']
+        y = self.offset['y'] + j*self.spacing['y']
+
+
+    def get_well_numbers(self, x, y):
+        i = (x - self.offset['x']) / self.spacing['x']
+        j = (y - self.offset['y']) / self.spacing['y']
+        return [math.clamp(x, 1, self.columns), math.clamp(y, 1, self.rows)]
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
