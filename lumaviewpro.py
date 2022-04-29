@@ -998,7 +998,7 @@ class LabwareSettings(BoxLayout):
 
     def scan_labware(self):
         labware = self.ids['labware_widget_id']
-        labware.draw_labware()
+        labware.scan_labware()
 
 
 
@@ -1035,14 +1035,16 @@ class Labware(Widget):
             Line(circle=(x + d*i_current + d/2, y + d*j_current + d/2, r))
 
     def scan_labware(self):
+        global lumaview
         for i in range(self.columns):
             for j in range(self.rows):
-                X = self.offset['x'] + i*self.spacing['x']
-                Y = self.offset['y'] + j*self.spacing['y']
-                #lumaview.motion.current_pos('X') = x
-                #lumaview.motion.current_pos('Y') = y
+                x = self.offset['x'] + i*self.spacing['x']
+                y = self.offset['y'] + j*self.spacing['y']
+                lumaview.motion.move_abs_pos('X', x*1000)
+                lumaview.motion.move_abs_pos('Y', y*1000)
+                print(x,y)
                 self.draw_labware()
-                sleep(10)
+                time.sleep(5)
 
     def get_well_position(self, i, j):
         x = self.offset['x'] + i*self.spacing['x']
