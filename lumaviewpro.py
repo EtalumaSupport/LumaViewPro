@@ -1032,7 +1032,6 @@ class Labware(Widget):
             y_current = lumaview.motion.current_pos('Y')
             [i, j] = self.get_well_numbers(x,y)
             Color(1., 1., 0)
-            # print(i_current)
             Line(circle=(x + d*x_current + d/2, y + d*y_current + d/2, r))
 
     def scan_labware(self):
@@ -1045,7 +1044,6 @@ class Labware(Widget):
                 y = self.offset['y'] + j*self.spacing['y']
                 lumaview.motion.move_abs_pos('X', x*1000)
                 lumaview.motion.move_abs_pos('Y', y*1000)
-                print(x,y)
                 self.draw_labware()
                 time.sleep(5)
 
@@ -1519,7 +1517,7 @@ class ZStack(CompositeCapture):
                 get_value = lumaview.motion.current_pos('Z') # Get current value
 
             # Capture image
-            print(pos)
+            # print(pos)
 
 
 # Button the triggers 'filechooser.open_file()' from plyer
