@@ -1024,15 +1024,16 @@ class Labware(Widget):
 
             d = w/self.columns
             r = math.floor(d/2 - 0.5)
-            print(d)
+            #print(d)
             for i in range(self.columns):
                 for j in range(self.rows):
                     Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
-            x_current = lumaview.motion.current_pos('X')
-            y_current = lumaview.motion.current_pos('Y')
-            [i, j] = self.get_well_numbers(x,y)
+            x_curr = lumaview.motion.current_pos('X')/1000
+            y_curr = lumaview.motion.current_pos('Y')/1000
+            i, j = self.get_well_numbers(x_curr, y_curr)
             Color(1., 1., 0)
-            Line(circle=(x + d*x_current + d/2, y + d*y_current + d/2, r))
+            Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
+            print(i, j)
 
     def scan_labware(self):
         global lumaview
@@ -1040,8 +1041,7 @@ class Labware(Widget):
             for j in range(self.rows):
                 if i % 2 == 1:
                     j = self.rows - j
-                x = self.offset['x'] + i*self.spacing['x']
-                y = self.offset['y'] + j*self.spacing['y']
+                x, y = self.get_well_position(i, j)
                 lumaview.motion.move_abs_pos('X', x*1000)
                 lumaview.motion.move_abs_pos('Y', y*1000)
                 self.draw_labware()
@@ -1050,13 +1050,12 @@ class Labware(Widget):
     def get_well_position(self, i, j):
         x = self.offset['x'] + i*self.spacing['x']
         y = self.offset['y'] + j*self.spacing['y']
-
+        return x, y
 
     def get_well_numbers(self, x, y):
         i = (x - self.offset['x']) / self.spacing['x']
         j = (y - self.offset['y']) / self.spacing['y']
-        # return [math.clamp(x, 1, self.columns), math.clamp(y, 1, self.rows)]
-        return [np.clip(x, 1, self.columns), np.clip(y, 1, self.rows)]
+        return np.clip(i, 1, self.columns), np.clip(j, 1, self.rows)
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
