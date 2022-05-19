@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-Mar 18, 2022
+May 19, 2022
 '''
 
 # General
@@ -89,7 +89,7 @@ import cv2
 from scipy import signal
 
 # Additional LumaViewPro files
-from trinamic import *
+from trinamic850 import *
 from ledboard import *
 from pyloncamera import *
 
@@ -696,23 +696,25 @@ class VerticalControl(BoxLayout):
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def home(self):
-        lumaview.motion.zhome()
         self.ids['home_id'].text = 'Homing...'
+        lumaview.motion.zhome()
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
 
     def update_gui(self, dt):
         set_pos = lumaview.motion.target_pos('Z')  # Get target value
         get_pos = lumaview.motion.current_pos('Z') # Get current value
 
-        z_home = lumaview.motion.limit_status('Z')
+        # z_home = lumaview.motion.limit_status('Z')
 
-        if z_home:
-            self.ids['obj_position'].value = 0
-            self.ids['set_position_id'].text = '0.00'
-        else:
-            self.ids['obj_position'].value = set_pos
-            self.ids['set_position_id'].text = format(set_pos, '.2f')
+        # if z_home:
+        #     self.ids['obj_position'].value = 0
+        #     self.ids['set_position_id'].text = '0.00'
+        # else:
+        #     self.ids['obj_position'].value = set_pos
+        #     self.ids['set_position_id'].text = format(set_pos, '.2f')
 
+        self.ids['obj_position'].value = max(0, set_pos)
+        self.ids['set_position_id'].text = format(max(0, set_pos), '.2f')
         self.ids['get_position_id'].text = format(get_pos, '.2f')
 
         if set_pos == get_pos:
@@ -945,11 +947,9 @@ class XYStageControl(BoxLayout):
 
     def home(self):
         global lumaview
-        lumaview.motion.xyhome()
         self.ids['home_id'].text = 'Homing...'
+        lumaview.motion.xyhome()
         self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
-        # self.ids['x_pos_id'].text = format(0, '.2f')
-        # self.ids['y_pos_id'].text = format(0, '.2f')
 
     def update_gui(self, dt):
         global lumaview
@@ -959,15 +959,19 @@ class XYStageControl(BoxLayout):
         x_current = lumaview.motion.current_pos('X')  # Get current value
         y_current = lumaview.motion.current_pos('Y')  # Get current value
 
-        x_home = lumaview.motion.limit_status('X') # Get reference switch status
-        y_home = lumaview.motion.limit_status('Y') # Get reference switch status
+        # x_home = lumaview.motion.limit_status('X') # Get reference switch status
+        # y_home = lumaview.motion.limit_status('Y') # Get reference switch status
+        #
+        # if x_home or y_home:
+        #     self.ids['x_pos_id'].text = '0.00'
+        #     self.ids['y_pos_id'].text = '0.00'
+        # else:
+        #     self.ids['x_pos_id'].text = format(x_target/1000, '.2f')
+        #     self.ids['y_pos_id'].text = format(y_target/1000, '.2f')
 
-        if x_home or y_home:
-            self.ids['x_pos_id'].text = '0.00'
-            self.ids['y_pos_id'].text = '0.00'
-        else:
-            self.ids['x_pos_id'].text = format(x_target/1000, '.2f')
-            self.ids['y_pos_id'].text = format(y_target/1000, '.2f')
+
+        self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f')
+        self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f')
 
         if (x_target == x_current) and (y_target == y_current):
             Clock.unschedule(self.update_event)
@@ -1070,7 +1074,7 @@ class MicroscopeSettings(BoxLayout):
 
     def load_scopes(self):
         spinner = self.ids['scope_spinner']
-        spinner.values = ['LS460', 'LS560', 'LS620', 'LS720']
+        spinner.values = ['LS850']
 
     def select_scope(self):
         global lumaview
@@ -1080,7 +1084,7 @@ class MicroscopeSettings(BoxLayout):
         print(spinner.text)
         protocol['microscope'] = spinner.text
         microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
-        microscope_settings_id.ids['image_of_microscope'].source = './data/scopes/'+spinner.text+'.png'
+        # microscope_settings_id.ids['image_of_microscope'].source = './data/scopes/'+spinner.text+'.png'
 
     def load_ojectives(self):
         spinner = self.ids['objective_spinner']
@@ -1735,17 +1739,15 @@ class LumaViewProApp(App):
         self.icon = './data/icons/icon32x.png'
         global lumaview
         lumaview = MainDisplay()
-        # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['obj_position'].value
+
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/current.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.led_off()
-        # Window.minimum_width = 800
-        # Window.minimum_height = 600
+
         return lumaview
 
     def on_stop(self):
         global lumaview
-        lumaview.motion.zhome()
         lumaview.led_board.led_off()
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/current.json")
 

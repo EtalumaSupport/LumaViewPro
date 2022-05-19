@@ -421,7 +421,7 @@
 		    height: '30dp'
 			font_size: '12sp'
 			text: 'Home'
-			on_press: root.home()
+			on_release: root.home()
 		ToggleButton:
 			id: autofocus_id
 		    size_hint_y: None
@@ -534,7 +534,7 @@
 			pos_hint: {'center_x': 0.8, 'center_y': 0.8}
 	        font_size: '12sp'
 	        text: 'Home Stage'
-			on_press: root.home()
+			on_release: root.home()
 
 
 	    Button: # COURSE BACK
@@ -934,11 +934,11 @@
             text: '1944'
             on_text_validate: root.frame_size()
 			font_size: '12sp'
-    Image:
-        id: image_of_microscope
-        source: './data/scopes/LS620.png'
+    # Image:
+    #     id: image_of_microscope
+    #     source: './data/scopes/LS620.png'
 
-
+	Label:
 
 # LayerControl - Settings for Layers within MainSettings
 # ------------------------------------------
