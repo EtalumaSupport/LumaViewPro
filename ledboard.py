@@ -41,8 +41,8 @@ class LEDBoard:
             self.driver = False
 
     def send_mssg(self, mssg):
+        stream = mssg.encode('utf-8')+b"\r\n"
         if self.driver != False:
-            stream = mssg.encode('utf-8')+b"\r\n"
             self.driver.write(stream)
 
     def receive_mssg(self):
@@ -79,7 +79,7 @@ class LEDBoard:
         self.send_mssg(command)
 
     def led_on(self, channel, mA):
-        command = 'LED' + str(channel) + '_' + str(mA)
+        command = 'LED' + str(channel) + '_' + str(int(mA))
         self.send_mssg(command)
 
     def led_off(self, channel):

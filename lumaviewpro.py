@@ -1741,7 +1741,7 @@ class LumaViewProApp(App):
 
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/current.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
-        lumaview.led_board.ledsoff()
+        lumaview.led_board.leds_off()
 
         return lumaview
 
