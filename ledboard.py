@@ -50,8 +50,6 @@ class LEDBoard:
             stream = self.driver.readline()
             mssg = stream.decode("utf-8","ignore")
             return mssg[:-2]
-        else
-            return
 
     def color2ch(self, color):
         if color == 'Blue':

@@ -152,7 +152,7 @@ class MainDisplay(FloatLayout): # i.e. global lumaview
 
         if scope_display.play == True:
             scope_display.play = False
-            self.led_board.led_off()
+            self.led_board.leds_off()
             scope_display.stop()
         else:
             scope_display.play = True
@@ -240,7 +240,7 @@ class MainDisplay(FloatLayout): # i.e. global lumaview
                 led_board = lumaview.led_board
 
                 # Dark field capture
-                led_board.led_off()
+                led_board.leds_off()
                 time.sleep(exposure/1000)  # Should be replaced with Clock
                 scope_display.update(0)
                 darkfield = lumaview.camera.array
@@ -264,7 +264,7 @@ class MainDisplay(FloatLayout): # i.e. global lumaview
                 #     img[:,:,1] = img[:,:,1]*a + corrected*(1-a)
                 #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
 
-            led_board.led_off()
+            led_board.leds_off()
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         img = np.flip(img, 0)
@@ -556,7 +556,7 @@ class MainSettings(BoxLayout):
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
-        lumaview.led_board.led_off()
+        lumaview.led_board.leds_off()
         self.currentLayer = layer
         self.notCollapsing = not(self.notCollapsing)
         if self.notCollapsing:
@@ -1241,7 +1241,7 @@ class LayerControl(BoxLayout):
 
         else: # if the button is 'normal' meaning not active
             # In active channel, and turn off LED
-            led_board.led_off()
+            led_board.leds_off()
 
         # update gain to currently selected settings
         # -----------------------------------------------------
@@ -1321,7 +1321,7 @@ class CompositeCapture(BoxLayout):
                 file_root = protocol[layer]['file_root']
                 lumaview.capture(0, save_folder, file_root, color = layer)
                 # turn off the LED
-                led_board.led_off()
+                led_board.leds_off()
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
 
@@ -1444,7 +1444,7 @@ class TimeLapseSettings(CompositeCapture):
                 file_root = protocol[layer]['file_root']
                 lumaview.capture(0, save_folder, file_root, color = layer)
                 # turn off the LED
-                led_board.led_off()
+                led_board.leds_off()
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
     '''
 
@@ -1741,13 +1741,13 @@ class LumaViewProApp(App):
 
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/current.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
-        lumaview.led_board.led_off()
+        lumaview.led_board.ledsoff()
 
         return lumaview
 
     def on_stop(self):
         global lumaview
-        lumaview.led_board.led_off()
+        lumaview.led_board.leds_off()
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/current.json")
 
 LumaViewProApp().run()
