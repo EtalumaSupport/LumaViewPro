@@ -1028,12 +1028,14 @@ class Labware(Widget):
             for i in range(self.columns):
                 for j in range(self.rows):
                     Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
+                    #print(x + d*i + d/2, y + d*j + d/2)
             x_curr = lumaview.motion.current_pos('X')/1000
             y_curr = lumaview.motion.current_pos('Y')/1000
             i, j = self.get_well_numbers(x_curr, y_curr)
-            Color(1., 1., 0)
+            Color(0., i%2, 0, 1.)
             Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
-            print(i, j)
+            #print(x + d*i + d/2, y + d*j + d/2)
+            print(i,j)
 
     def scan_labware(self):
         global lumaview
@@ -1045,7 +1047,7 @@ class Labware(Widget):
                 lumaview.motion.move_abs_pos('X', x*1000)
                 lumaview.motion.move_abs_pos('Y', y*1000)
                 self.draw_labware()
-                time.sleep(5)
+
 
     def get_well_position(self, i, j):
         x = self.offset['x'] + i*self.spacing['x']
@@ -1055,7 +1057,9 @@ class Labware(Widget):
     def get_well_numbers(self, x, y):
         i = (x - self.offset['x']) / self.spacing['x']
         j = (y - self.offset['y']) / self.spacing['y']
-        return np.clip(i, 1, self.columns), np.clip(j, 1, self.rows)
+        i = np.clip(i, 0, self.columns-1)
+        j = np.clip(j, 0, self.rows-1)
+        return i, j
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
