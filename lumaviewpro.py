@@ -1511,6 +1511,13 @@ class ZStack(CompositeCapture):
             # Move to position
             lumaview.motion.move_abs_pos('Z', pos)
 
+
+            # REPLACE BELOW WITH:
+            # Schedule Regular Checks
+            # Use target_status
+            # If target_status is True capture image and unschedule
+            # Include a timeout
+
             # Wait to arrive
             set_value = lumaview.motion.target_pos('Z')   # Get target value
             get_value = lumaview.motion.current_pos('Z')  # Get current value
@@ -1742,7 +1749,8 @@ class LumaViewProApp(App):
         lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/current.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
-
+        # how to keep loading software while this is happening?
+        #lumaview.motion.xyhome()
         return lumaview
 
     def on_stop(self):

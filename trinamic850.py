@@ -198,6 +198,11 @@ class TrinamicBoard:
         #print(target == actual)
         return (target == actual)
 
+    # For backward compatibility
+    def limit_status(self, axis):
+        print("This board does not support 'limit_status'")
+        return False
+
     # Get target position
     def target_pos(self, axis):
         self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
