@@ -253,6 +253,25 @@ class TrinamicBoard:
     #     if (x == 0) and (y == 0):
     #         Clock.unschedule(self.xyhome_event)
 
+    # return True if current and target position are at home.
+    def home_status(self, axis):
+        target = self.SendGram('GAP', 0, axis, 10)
+        actual = self.SendGram('GAP', 1, axis, 0)
+
+        if (target == actual) and (target == 0):
+            home_status = True
+        else:
+            home_status = False
+
+        print(home_status)
+        return home_status
+
+    # return True if current position and target position are the same
+    def target_status(self, axis):
+        target = self.SendGram('GAP', 0, axis, 10)
+        actual = self.SendGram('GAP', 1, axis, 0)
+        return (target == actual)
+
     # Get reference switch status (True -> reference is currently being saught,
     #                              False -> reference is not currently being saught)
     def limit_status(self, axis):
@@ -266,19 +285,19 @@ class TrinamicBoard:
     def target_pos(self, axis):
       target = self.SendGram('GAP', 0, axis, 10)
       if axis == 'Z':
-          pos = -self.z_ustep2um(target)
+          um = -self.z_ustep2um(target)
       else:
-          pos = -self.xy_ustep2um(target)
-      return pos
+          um = -self.xy_ustep2um(target)
+      return um
 
     # Get current position
     def current_pos(self, axis):
       current = self.SendGram('GAP', 1, axis, 0)
       if axis == 'Z':
-          pos = -self.z_ustep2um(current)
+          um = -self.z_ustep2um(current)
       else:
-          pos = -self.xy_ustep2um(current)
-      return pos
+          um = -self.xy_ustep2um(current)
+      return um
 
     # Move to absolute position
     def move_abs_pos(self, axis, pos):

@@ -33,30 +33,21 @@ if cam.active:
 # Motion Test
 # -------------------------------------
 from trinamic850 import *
-
-xyz = TrinamicBoard()
 import time
 
-time.sleep(1)
+xyz = TrinamicBoard()
 
 xyz.xyhome()
-print('Start')
-xyz.current_pos('X')
-xyz.current_pos('Y')
-xyz.current_pos('Z')
 
-# Move Approximately Center
-xyz.move_abs_pos('X', 1000000)
-xyz.move_abs_pos('Y', 1000000)
+for i in range(5):
+    print("Moving in 1 sec")
+    time.sleep(1)
+    xyz.move_abs_pos('X', i*10000)
+    xyz.move_rel_pos('Y', 10000)
+    time.sleep(6)
+    print()
 
-print('Moving')
-xyz.current_pos('X')
-xyz.current_pos('Y')
-xyz.current_pos('Z')
-
-time.sleep(2)
-
-print('Done')
-xyz.current_pos('X')
-xyz.current_pos('Y')
-xyz.current_pos('Z')
+# a = xyz.xy_ustep2um(6333850)
+# b = xyz.xy_um2ustep(a)
+# c = xyz.xy_ustep2um(b)
+# print(a, b, c)
