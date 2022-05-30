@@ -184,7 +184,7 @@ class TrinamicBoard:
         else:
             home_status = False
 
-        print(home_status)
+        # print(home_status)
         return home_status
 
     # return True if current position and target position are the same
@@ -237,7 +237,7 @@ class TrinamicBoard:
         if steps < 0:
             steps = 4294967296+steps
 
-        print('steps:', steps, '\t pos:', pos)
+        # print('steps:', steps, '\t pos:', pos)
         self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
 
     # Move by relative distance (in um)
@@ -253,7 +253,7 @@ class TrinamicBoard:
         if steps < 0:
             steps = 4294967296+steps
 
-        print('steps:', steps, '\t um:', um+pos)
+        # print('steps:', steps, '\t um:', um+pos)
         self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
 
 

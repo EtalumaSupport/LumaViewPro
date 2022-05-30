@@ -1002,7 +1002,7 @@ class LabwareSettings(BoxLayout):
 
     def scan_labware(self):
         labware = self.ids['labware_widget_id']
-        labware.scan_labware()
+        labware.scan_labware() # Pass function to the Labware class
 
 
 
@@ -1043,14 +1043,59 @@ class Labware(Widget):
 
     def scan_labware(self):
         global lumaview
-        for i in range(self.columns):
-            for j in range(self.rows):
+
+        for j in range(self.rows):
+            for i in range(self.columns):
                 if i % 2 == 1:
                     j = self.rows - j
                 x, y = self.get_well_position(i, j)
+                print(x,y)
+
+                # Go to position
+                # On arrival, take image
+                # Move to next position
                 lumaview.motion.move_abs_pos('X', x*1000)
                 lumaview.motion.move_abs_pos('Y', y*1000)
-                self.draw_labware()
+                dt = 2
+                self.autoscan_event = Clock.schedule_interval(self.scan_iterate, dt)
+
+    def scan_iterate(self, dt):
+        global lumaview
+
+        self.draw_labware()
+
+        x_status = lumaview.motion.target_status('X')
+        y_status = lumaview.motion.target_status('Y')
+
+        if x_status and y_status:
+            # take the images
+            print("Position Reached")
+            Clock.unschedule(self.autoscan_event)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     def get_well_position(self, i, j):
@@ -1754,7 +1799,7 @@ class LumaViewProApp(App):
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
         # how to keep loading software while this is happening?
-        #lumaview.motion.xyhome()
+        lumaview.motion.xyhome()
         return lumaview
 
     def on_stop(self):
