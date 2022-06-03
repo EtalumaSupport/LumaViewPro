@@ -28,6 +28,9 @@ python3 -m pip install kivy.deps.sdl2
 python3 -m pip install kivy.deps.glew
 python3 -m pip install kivy
 python3 -m pip install kivymd
+python3 -m pip install plyer
+python3 -m pip install scipy
+python3 -m pip install mcp2210-python
 ```
 
 The latest version of each are should be functional. However, the versions that were installed at the start of development were:
