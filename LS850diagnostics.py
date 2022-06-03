@@ -1,5 +1,5 @@
 
-'''
+
 # -------------------------------------
 # Illumination Test
 # -------------------------------------
@@ -9,10 +9,11 @@ import time
 led = LEDBoard()
 
 for i in range(4):
-    led.led_on(i, 60000)  # turn on LED at channel 0 at 50mA
+    led.led_on(i, 600)  # turn on LED at channel 0 at 50mA
+    print('ch', i, 'at 600mA')
     time.sleep(1)       # wait one second
-    led.led_off()       # turn off all LEDs
-'''
+    led.leds_off()       # turn off all LEDs
+
 
 '''
 # -------------------------------------
@@ -29,6 +30,7 @@ if cam.active:
     img.show()
 '''
 
+'''
 # -------------------------------------
 # Motion Test
 # -------------------------------------
@@ -46,6 +48,7 @@ for i in range(5):
     xyz.move_rel_pos('Y', 10000)
     time.sleep(6)
     print()
+'''
 
 # a = xyz.xy_ustep2um(6333850)
 # b = xyz.xy_um2ustep(a)
