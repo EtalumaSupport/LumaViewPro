@@ -127,7 +127,7 @@ class TrinamicBoard:
                     addr = int(0x80 | int(configLine[0], 16))   # take the address field, format it, add 80 to it (to make it a write operation to the trinamic chip), throw it into the 'address' variable
                     data = int(configLine[2], 16)               # take the data field, format it, and put it into the 'data' variable
                     self.SPI_write(0, addr, data)                # call SPI Writer. right now were writing to chip 0
-        print ("Sucessfully loaded parameters to XY motor driver from xymotorconfig.ini")
+        print ("Successfully loaded parameters to XY motor driver from xymotorconfig.ini")
 
         # Load settings for the z motor
         with open('./data/ztmotorconfig.ini', 'r') as ztconfigFile:
@@ -137,7 +137,7 @@ class TrinamicBoard:
                     addr = int(0x80 | int(configLine[0], 16))
                     data = int(configLine[2], 16)
                     self.SPI_write(1, addr, data)
-        print ("Sucessfully loaded parameters to ZT motor driver from zmotorconfig.ini")
+        print ("Successfully loaded parameters to ZT motor driver from zmotorconfig.ini")
 
     #----------------------------------------------------------
     # Z (Focus) Functions
