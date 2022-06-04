@@ -736,9 +736,9 @@ class VerticalControl(BoxLayout):
         fine =   protocol['objective']['AF_min']
         course = protocol['objective']['AF_max']
 
-        self.z_min = -lumaview.motion.z_um2ustep(center-range)
-        self.z_max = -lumaview.motion.z_um2ustep(center+range)
-        self.z_step = -int(lumaview.motion.z_um2ustep(course))
+        self.z_min = center-range
+        self.z_max = center+range
+        self.z_step = course
 
         # dt = 0.2 # TODO change this based on focus and exposure time
         layers = ['BF', 'Blue', 'Green', 'Red']
@@ -776,15 +776,14 @@ class VerticalControl(BoxLayout):
         print(" step: ",step)
 
 
-        self.z_step = -int(lumaview.motion.z_um2ustep(step))
-        lumaview.motion.move_rel_pos('Z', self.z_step) # move by z_step
+        lumaview.motion.move_rel_pos('Z', step) # move by z_step
 
         if self.ids['autofocus_id'].state == 'normal':
             self.ids['autofocus_id'].text = 'Autofocus'
             Clock.unschedule(self.autofocus_event)
             print("autofocus cancelled")
 
-        elif target <= self.z_max:
+        elif target >= self.z_max:
             self.ids['autofocus_id'].state = 'normal'
             self.ids['autofocus_id'].text = 'Autofocus'
             Clock.unschedule(self.autofocus_event)
