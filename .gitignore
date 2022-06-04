@@ -1,6 +1,4 @@
 __pycache__/
 capture/
-sandbox/
-auxillary/
 data/current.json
 LS850diagnostics.py
