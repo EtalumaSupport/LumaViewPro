@@ -1003,16 +1003,16 @@ class LabwareSettings(BoxLayout):
         labware = self.ids['labware_widget_id']
         labware.scan_labware() # Pass function to the Labware class
 
-
-
 class Labware(Widget):
     bg_color = ObjectProperty(None)
     layer = ObjectProperty(None)
 
     def __init__(self, **kwargs):
         super(Labware, self).__init__(**kwargs)
+        #self.event = Clock.schedule_interval(self.draw_labware, 1)
 
-    def draw_labware(self):
+
+    def draw_labware(self, *args):
         global lumaview
 
         self.canvas.clear()
@@ -1027,86 +1027,100 @@ class Labware(Widget):
 
             d = w/self.columns
             r = math.floor(d/2 - 0.5)
-            #print(d)
+
             for i in range(self.columns):
                 for j in range(self.rows):
                     Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
-                    #print(x + d*i + d/2, y + d*j + d/2)
-            x_curr = lumaview.motion.current_pos('X')/1000
-            y_curr = lumaview.motion.current_pos('Y')/1000
-            i, j = self.get_well_numbers(x_curr, y_curr)
-            Color(0., i%2, 0, 1.)
-            Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
-            #print(x + d*i + d/2, y + d*j + d/2)
-            print(i,j)
+
+            # Green Circle
+            x_target = lumaview.motion.target_pos('X')/1000
+            y_target = lumaview.motion.target_pos('Y')/1000
+            i, j = self.get_well_numbers(x_target, y_target)
+            Color(0., 1., 0., 1.)
+            Line(circle=(x + d*i + d/2  , y + d*j + d/2  , r))
+
+            # Red Crosshairs
+            x_current = lumaview.motion.current_pos('X')/1000
+            y_current= lumaview.motion.current_pos('Y')/1000
+            i, j = self.get_screen_position(x_current, y_current)
+            Color(1., 0., 0., 1.)
+            Line(points=(x + d*i      , y + d*j + d/2, x + d*i + d  , y + d*j + d/2), width = 1)
+            Line(points=(x + d*i + d/2, y + d*j      , x + d*i + d/2, y + d*j + d  ), width = 1)
 
     def scan_labware(self):
         global lumaview
 
+        # Generate a list of well positions
+        self.pos_list = []
         for j in range(self.rows):
             for i in range(self.columns):
-                if i % 2 == 1:
-                    j = self.rows - j
-                x, y = self.get_well_position(i, j)
-                print(x,y)
+                if j % 2 == 1:
+                    i = self.columns - i - 1
 
-                # Go to position
-                # On arrival, take image
-                # Move to next position
-                lumaview.motion.move_abs_pos('X', x*1000)
-                lumaview.motion.move_abs_pos('Y', y*1000)
-                dt = 2
-                self.autoscan_event = Clock.schedule_interval(self.scan_iterate, dt)
+                self.pos_list.append([i, j])
+
+        # Begin Move to first position in the list
+        self.pos_index = 0
+        [i, j] = self.pos_list[self.pos_index]
+        x, y = self.get_well_position(i, j)
+        lumaview.motion.move_abs_pos('X', x*1000)
+        lumaview.motion.move_abs_pos('Y', y*1000)
+
+        # Iterate testing and movement through the list
+        self.autoscan_event = Clock.schedule_interval(self.scan_iterate, 0.1)
 
     def scan_iterate(self, dt):
         global lumaview
 
+        # identify desired position
+        [i, j] = self.pos_list[self.pos_index]
+
+        # Draw the Labware
         self.draw_labware()
 
+        # Check if at desired position
         x_status = lumaview.motion.target_status('X')
         y_status = lumaview.motion.target_status('Y')
 
+        # If target location has been reached
         if x_status and y_status:
-            # take the images
+            # take the images (and do all else)
             print("Position Reached")
-            Clock.unschedule(self.autoscan_event)
+
+            # increment to the next position
+            self.pos_index += 1
+            if self.pos_index < len(self.pos_list):
+                [i, j] = self.pos_list[self.pos_index]     # find i, j
+                x, y = self.get_well_position(i, j)        # compute x, y
+                lumaview.motion.move_abs_pos('X', x*1000)  # move to x
+                lumaview.motion.move_abs_pos('Y', y*1000)  # move to y
+
+            # if all positions have already been reached
+            else:
+                Clock.unschedule(self.autoscan_event)
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    # Get real well position in mm given its index
     def get_well_position(self, i, j):
         x = self.offset['x'] + i*self.spacing['x']
         y = self.offset['y'] + j*self.spacing['y']
         return x, y
 
+    # Figure out index of well based on position of xy
     def get_well_numbers(self, x, y):
         i = (x - self.offset['x']) / self.spacing['x']
         j = (y - self.offset['y']) / self.spacing['y']
+        i = round(i)
+        j = round(j)
         i = np.clip(i, 0, self.columns-1)
         j = np.clip(j, 0, self.rows-1)
+        return i, j
+
+    # Figure out index of well based on position of xy
+    def get_screen_position(self, x, y):
+        i = (x - self.offset['x']) / self.spacing['x']
+        j = (y - self.offset['y']) / self.spacing['y']
         return i, j
 
 class MicroscopeSettings(BoxLayout):

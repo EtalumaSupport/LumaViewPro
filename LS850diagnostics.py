@@ -5,7 +5,7 @@
 # -------------------------------------
 from ledboard import *
 import time
-
+'''
 led = LEDBoard()
 
 for i in range(4):
@@ -14,7 +14,7 @@ for i in range(4):
     time.sleep(1)       # wait one second
     led.leds_off()       # turn off all LEDs
 
-
+'''
 '''
 # -------------------------------------
 # Camera Test
@@ -30,7 +30,7 @@ if cam.active:
     img.show()
 '''
 
-'''
+
 # -------------------------------------
 # Motion Test
 # -------------------------------------
@@ -48,7 +48,7 @@ for i in range(5):
     xyz.move_rel_pos('Y', 10000)
     time.sleep(6)
     print()
-'''
+
 
 # a = xyz.xy_ustep2um(6333850)
 # b = xyz.xy_um2ustep(a)
