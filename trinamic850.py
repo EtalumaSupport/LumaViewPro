@@ -32,7 +32,7 @@ Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 
 MODIFIED:
-June 3, 2022
+June 5, 2022
 '''
 
 from mcp2210 import Mcp2210, Mcp2210GpioDesignation, Mcp2210GpioDirection
@@ -77,17 +77,26 @@ class TrinamicBoard:
     # Initialize connection through SPI
     #----------------------------------------------------------
     def __init__(self, **kwargs):
-        # USB\VID_04D8&PID_00DE\0001006900
-        self.chip = Mcp2210('0001006900')  # the serial number of the chip. Can be determined by using dmesg after plugging in the device
-        print ("Found Device", self.chip)
 
-        # set all GPIO lines on the MCP2210 as General GPIO lines
-        # Tri-State all GPIO lines on the MCP2210
-        for i in range(9):
-            self.chip.set_gpio_designation(i, Mcp2210GpioDesignation.GPIO)
-            self.chip.set_gpio_direction(i, Mcp2210GpioDirection.INPUT)
+        self.found = False
 
-        self.configure()
+        try:
+            # USB\VID_04D8&PID_00DE\0001006900
+            self.chip = Mcp2210('0001006900')  # the serial number of the chip. Can be determined by using dmesg after plugging in the device
+            print ("Found Device", self.chip)
+
+            # set all GPIO lines on the MCP2210 as General GPIO lines
+            # Tri-State all GPIO lines on the MCP2210
+            for i in range(9):
+                self.chip.set_gpio_designation(i, Mcp2210GpioDesignation.GPIO)
+                self.chip.set_gpio_direction(i, Mcp2210GpioDirection.INPUT)
+
+            self.configure()
+            self.found = True
+        except:
+            print("Could not connect to Motor Control Board")
+            self.found = False
+
 
     #----------------------------------------------------------
     # Define SPI communication
@@ -151,12 +160,13 @@ class TrinamicBoard:
         return ustep
 
     def zhome(self):
-        self.move_abs_pos('Z', -1000000)
+        if self.found:
+            self.move_abs_pos('Z', -1000000)
 
-        # Schedule writing target and actual Z position to 0 after 4 seconds
-        s = sched.scheduler()
-        zevent = s.enter(3, 1, self.zhome_write)
-        s.run()
+            # Schedule writing target and actual Z position to 0 after 4 seconds
+            s = sched.scheduler()
+            zevent = s.enter(3, 1, self.zhome_write)
+            s.run()
 
     def zhome_write(self):
         self.SPI_write (self.chip_pin['Z'], self.write_actual['Z'], 0x00000000)
@@ -174,15 +184,16 @@ class TrinamicBoard:
         return ustep
 
     def xyhome(self):
-        self.zhome()
+        if self.found:
+            self.zhome()
 
-        self.move_abs_pos('X', -1000000)
-        self.move_abs_pos('Y', -1000000)
+            self.move_abs_pos('X', -1000000)
+            self.move_abs_pos('Y', -1000000)
 
-        # Schedule writing target and actual XY positions to 0 after 8 seconds
-        s = sched.scheduler()
-        xyevent = s.enter(7, 2, self.xyhome_write)
-        s.run()
+            # Schedule writing target and actual XY positions to 0 after 8 seconds
+            s = sched.scheduler()
+            xyevent = s.enter(7, 2, self.xyhome_write)
+            s.run()
 
     def xyhome_write(self):
         self.SPI_write(self.chip_pin['X'], self.write_actual['X'], 0x00000000)
@@ -210,30 +221,38 @@ class TrinamicBoard:
 
     # return True if current and target position are at home.
     def home_status(self, axis):
-        self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
-        status, target = self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
+        if self.found:
+            self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
+            status, target = self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
 
-        self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
-        status, actual = self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
+            self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
+            status, actual = self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
 
-        if (target == actual) and (target == 0):
-            home_status = True
+            if (target == actual) and (target == 0):
+                home_status = True
+            else:
+                home_status = False
+
+            # print(home_status)
+            return home_status
         else:
-            home_status = False
-
-        # print(home_status)
-        return home_status
+            print('Motor control board is not connected')
+            return False
 
     # return True if current position and target position are the same
     def target_status(self, axis):
-        self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
-        status, target = self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
+        if self.found:
+            self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
+            status, target = self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
 
-        self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
-        status, actual = self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
+            self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
+            status, actual = self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
 
-        #print(target == actual)
-        return (target == actual)
+            #print(target == actual)
+            return (target == actual)
+        else:
+            print('Motor control board is not connected')
+            return False
 
     # For backward compatibility
     def limit_status(self, axis):
@@ -242,56 +261,66 @@ class TrinamicBoard:
 
     # Get target position
     def target_pos(self, axis):
-        self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
-        status, pos = self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
-        if axis == 'Z':
-            um = self.z_ustep2um(pos)
-        else:
-            um = self.xy_ustep2um(pos)
+        if self.found:
+            self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
+            status, pos = self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
+            if axis == 'Z':
+                um = self.z_ustep2um(pos)
+            else:
+                um = self.xy_ustep2um(pos)
 
-        # print('read_target:', um)
-        return um
+            # print('read_target:', um)
+            return um
+        else:
+            print('Motor control board is not connected')
+            return 0
 
     # Get current position
     def current_pos(self, axis):
-        self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
-        status, pos = self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
-        if axis == 'Z':
-            um = self.z_ustep2um(pos)
-        else:
-            um = self.xy_ustep2um(pos)
+        if self.found:
+                self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
+                status, pos = self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
+                if axis == 'Z':
+                    um = self.z_ustep2um(pos)
+                else:
+                    um = self.xy_ustep2um(pos)
 
-        # print('read_actual:', um)
-        return um
+                # print('read_actual:', um)
+                return um
+        else:
+            print('Motor control board is not connected')
+            return 0
 
     # Move to absolute position (in um)
     def move_abs_pos(self, axis, pos):
-        if axis == 'Z':
-            steps = self.z_um2ustep(pos)
-        else:
-            steps = self.xy_um2ustep(pos)
-        # signed to unsigned 32_bit integer
-        if steps < 0:
-            steps = 4294967296+steps
+        if self.found:
+            if axis == 'Z':
+                steps = self.z_um2ustep(pos)
+            else:
+                steps = self.xy_um2ustep(pos)
+            # signed to unsigned 32_bit integer
+            if steps < 0:
+                steps = 4294967296+steps
 
-        # print('steps:', steps, '\t pos:', pos)
-        self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
+            # print('steps:', steps, '\t pos:', pos)
+            self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
 
     # Move by relative distance (in um)
     def move_rel_pos(self, axis, um):
-        # Read actual position in um
-        pos = self.current_pos(axis)
-        # Add relative motion and convert
-        if axis == 'Z':
-            steps = self.z_um2ustep(um+pos)
-        else:
-            steps = self.xy_um2ustep(um+pos)
-        # signed to unsigned 32_bit integer
-        if steps < 0:
-            steps = 4294967296+steps
+        if self.found:
+            # Read actual position in um
+            pos = self.current_pos(axis)
+            # Add relative motion and convert
+            if axis == 'Z':
+                steps = self.z_um2ustep(um+pos)
+            else:
+                steps = self.xy_um2ustep(um+pos)
+            # signed to unsigned 32_bit integer
+            if steps < 0:
+                steps = 4294967296+steps
 
-        # print('steps:', steps, '\t um:', um+pos)
-        self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
+            # print('steps:', steps, '\t um:', um+pos)
+            self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
 
 
 
