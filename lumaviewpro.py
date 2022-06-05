@@ -977,10 +977,49 @@ class XYStageControl(BoxLayout):
             self.ids['home_id'].text = 'Home'
             self.ids['home_id'].state = 'normal'
 
-# Labware settings tab
-class LabwareSettings(BoxLayout):
+class CompositeCapture(BoxLayout):
+    # One procotol capture event
+    def capture(self, dt):
+        global lumaview
+        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
+        if lumaview.camera.active == False:
+            return
+        try:
+            self.n_captures = self.n_captures-1
+        except:
+            print('Capturing a Single Composite Image')
+
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            if protocol[layer]['acquire'] == True:
+                # global lumaview
+
+                # set the gain and exposure
+                gain = protocol[layer]['gain']
+                lumaview.camera.gain(gain)
+                exposure = protocol[layer]['exp']
+                lumaview.camera.exposure_t(exposure)
+                scope_display.update(0)
+
+                # turn on the LED
+                # update illumination to currently selected settings
+                illumination = protocol[layer]['ill']
+                led_board = lumaview.led_board
+                led_board.led_on(led_board.color2ch(layer), illumination)
+
+                # capture the image
+                save_folder = protocol[layer]['save_folder']
+                file_root = protocol[layer]['file_root']
+                lumaview.capture(0, save_folder, file_root, color = layer)
+                # turn off the LED
+                led_board.leds_off()
+            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+
+
+# Protocol settings tab
+class ProtocolSettings(CompositeCapture):
     def __init__(self, **kwargs):
-        super(LabwareSettings, self).__init__(**kwargs)
+        super(ProtocolSettings, self).__init__(**kwargs)
         with open('./data/labware.json', "r") as read_file:
             self.labware = json.load(read_file)
 
@@ -1002,6 +1041,111 @@ class LabwareSettings(BoxLayout):
     def scan_labware(self):
         labware = self.ids['labware_widget_id']
         labware.scan_labware() # Pass function to the Labware class
+
+
+
+
+
+
+
+
+    record = ObjectProperty(None)
+    record = False
+    movie_folder = StringProperty(None)
+    n_captures = ObjectProperty(None)
+
+    def update_period(self):
+        # if self.ids['capture_period'].text.isnumeric(): # Did not allow for floating point numbers
+        try:
+            protocol['period'] = float(self.ids['capture_period'].text)
+        except:
+            print('Update Period is not an acceptable value')
+
+    def update_duration(self):
+        # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
+        try:
+            protocol['duration'] = float(self.ids['capture_dur'].text)
+        except:
+            print('Update Duration is not an acceptable value')
+
+    # load protocol from JSON file
+    def load_protocol(self, file="./data/current.json"):
+        global lumaview
+
+        # load protocol JSON file
+        with open(file, "r") as read_file:
+            global protocol
+            protocol = json.load(read_file)
+            # update GUI values from JSON data:
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['scope_spinner'].text = protocol['microscope']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective_spinner'].text = protocol['objective']['ID']
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['magnification_id'].text = str(protocol['objective']['magnification'])
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
+
+            self.ids['capture_period'].text = str(protocol['period'])
+            self.ids['capture_dur'].text = str(protocol['duration'])
+
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
+                # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
+                lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
+
+            lumaview.camera.frame_size(protocol['frame_width'], protocol['frame_height'])
+
+    # Save protocol to JSON file
+    def save_protocol(self, file="./data/current.json"):
+        global protocol
+        with open(file, "w") as write_file:
+            json.dump(protocol, write_file, indent = 4)
+
+    # Run the timed process of capture event
+    def run_protocol(self):
+        global protocol
+
+        # number of capture events remaining
+        ## duration is in hours, period is in minutes
+        self.n_captures = int(float(protocol['duration'])*60 / float(protocol['period']))
+
+        # update protocol
+        if self.record == False:
+            self.record = True
+
+            hrs = np.floor(self.n_captures * protocol['period']/60)
+            minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
+            hrs = '%02d' % hrs
+            minutes = '%02d' % minutes
+            self.ids['protocol_btn'].text = hrs+':'+minutes+' remaining'
+
+            self.dt = protocol['period']*60 # frame events are measured in seconds
+            self.frame_event = Clock.schedule_interval(self.capture, self.dt)
+        else:
+            self.record = False
+            self.ids['protocol_btn'].text = 'Run Protocol'
+
+            if self.frame_event:
+                Clock.unschedule(self.frame_event)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 class Labware(Widget):
     bg_color = ObjectProperty(None)
@@ -1348,186 +1492,148 @@ class LayerControl(BoxLayout):
         else:
             lumaview.ids['viewer_id'].update_shader('none')
 
-class CompositeCapture(BoxLayout):
-    # One procotol capture event
-    def capture(self, dt):
-        global lumaview
-        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        if lumaview.camera.active == False:
-            return
-        try:
-            self.n_captures = self.n_captures-1
-        except:
-            print('Capturing a Single Composite Image')
-
-        layers = ['BF', 'Blue', 'Green', 'Red']
-        for layer in layers:
-            if protocol[layer]['acquire'] == True:
-                # global lumaview
-
-                # set the gain and exposure
-                gain = protocol[layer]['gain']
-                lumaview.camera.gain(gain)
-                exposure = protocol[layer]['exp']
-                lumaview.camera.exposure_t(exposure)
-                scope_display.update(0)
-
-                # turn on the LED
-                # update illumination to currently selected settings
-                illumination = protocol[layer]['ill']
-                led_board = lumaview.led_board
-                led_board.led_on(led_board.color2ch(layer), illumination)
-
-                # capture the image
-                save_folder = protocol[layer]['save_folder']
-                file_root = protocol[layer]['file_root']
-                lumaview.capture(0, save_folder, file_root, color = layer)
-                # turn off the LED
-                led_board.leds_off()
-            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
 
-
-class TimeLapseSettings(CompositeCapture):
-    record = ObjectProperty(None)
-    record = False
-    movie_folder = StringProperty(None)
-    n_captures = ObjectProperty(None)
-
-    def update_period(self):
-        # if self.ids['capture_period'].text.isnumeric(): # Did not allow for floating point numbers
-        try:
-            protocol['period'] = float(self.ids['capture_period'].text)
-        except:
-            print('Update Period is not an acceptable value')
-
-    def update_duration(self):
-        # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
-        try:
-            protocol['duration'] = float(self.ids['capture_dur'].text)
-        except:
-            print('Update Duration is not an acceptable value')
-
-    # load protocol from JSON file
-    def load_protocol(self, file="./data/current.json"):
-        global lumaview
-
-        # load protocol JSON file
-        with open(file, "r") as read_file:
-            global protocol
-            protocol = json.load(read_file)
-            # update GUI values from JSON data:
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['scope_spinner'].text = protocol['microscope']
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective_spinner'].text = protocol['objective']['ID']
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['magnification_id'].text = str(protocol['objective']['magnification'])
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
-
-            self.ids['capture_period'].text = str(protocol['period'])
-            self.ids['capture_dur'].text = str(protocol['duration'])
-
-            layers = ['BF', 'Blue', 'Green', 'Red']
-            for layer in layers:
-                lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
-                # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
-                lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
-
-            lumaview.camera.frame_size(protocol['frame_width'], protocol['frame_height'])
-
-    # Save protocol to JSON file
-    def save_protocol(self, file="./data/current.json"):
-        global protocol
-        with open(file, "w") as write_file:
-            json.dump(protocol, write_file, indent = 4)
-
-    # Run the timed process of capture event
-    def run_protocol(self):
-        global protocol
-
-        # number of capture events remaining
-        ## duration is in hours, period is in minutes
-        self.n_captures = int(float(protocol['duration'])*60 / float(protocol['period']))
-
-        # update protocol
-        if self.record == False:
-            self.record = True
-
-            hrs = np.floor(self.n_captures * protocol['period']/60)
-            minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
-            hrs = '%02d' % hrs
-            minutes = '%02d' % minutes
-            self.ids['protocol_btn'].text = hrs+':'+minutes+' remaining'
-
-            self.dt = protocol['period']*60 # frame events are measured in seconds
-            self.frame_event = Clock.schedule_interval(self.capture, self.dt)
-        else:
-            self.record = False
-            self.ids['protocol_btn'].text = 'Run Protocol'
-
-            if self.frame_event:
-                Clock.unschedule(self.frame_event)
-
-    '''
-    # One procotol capture event
-    def capture(self, dt):
-        global lumaview
-        camera = lumaview.ids['viewer_id'].ids['microscope_camera']
-        if camera == False:
-            return
-        try:
-            self.n_captures = self.n_captures-1
-        except:
-            print('Capturing a Single Composite Image')
-
-        layers = ['BF', 'Blue', 'Green', 'Red']
-        for layer in layers:
-            if protocol[layer]['acquire'] == True:
-                # global lumaview
-
-                # set the gain and exposure
-                gain = protocol[layer]['gain']
-                camera.gain(gain)
-                exposure = protocol[layer]['exp']
-                camera.exposure_t(exposure)
-                camera.update(0)
-
-                # turn on the LED
-                # update illumination to currently selected settings
-                illumination = protocol[layer]['ill']
-                led_board = lumaview.led_board
-                led_board.led_on(led_board.color2ch(layer), illumination)
-
-                # capture the image
-                save_folder = protocol[layer]['save_folder']
-                file_root = protocol[layer]['file_root']
-                lumaview.capture(0, save_folder, file_root, color = layer)
-                # turn off the LED
-                led_board.leds_off()
-            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-    '''
-
-    # def convert_to_avi(self):
-    #
-    #     # self.choose_folder()
-    #     save_location = './capture/movie.avi'
-    #
-    #     img_array = []
-    #     for filename in glob.glob('./capture/*.tiff'):
-    #         img = cv2.imread(filename)
-    #         height, width, layers = img.shape
-    #         size = (width,height)
-    #         img_array.append(img)
-    #
-    #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-    #
-    #     for i in range(len(img_array)):
-    #         out.write(img_array[i])
-    #     out.release()
-
+# class TimeLapseSettings(CompositeCapture):
+#     record = ObjectProperty(None)
+#     record = False
+#     movie_folder = StringProperty(None)
+#     n_captures = ObjectProperty(None)
+#
+#     def update_period(self):
+#         # if self.ids['capture_period'].text.isnumeric(): # Did not allow for floating point numbers
+#         try:
+#             protocol['period'] = float(self.ids['capture_period'].text)
+#         except:
+#             print('Update Period is not an acceptable value')
+#
+#     def update_duration(self):
+#         # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
+#         try:
+#             protocol['duration'] = float(self.ids['capture_dur'].text)
+#         except:
+#             print('Update Duration is not an acceptable value')
+#
+#     # load protocol from JSON file
+#     def load_protocol(self, file="./data/current.json"):
+#         global lumaview
+#
+#         # load protocol JSON file
+#         with open(file, "r") as read_file:
+#             global protocol
+#             protocol = json.load(read_file)
+#             # update GUI values from JSON data:
+#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['scope_spinner'].text = protocol['microscope']
+#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective_spinner'].text = protocol['objective']['ID']
+#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['magnification_id'].text = str(protocol['objective']['magnification'])
+#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
+#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
+#
+#             self.ids['capture_period'].text = str(protocol['period'])
+#             self.ids['capture_dur'].text = str(protocol['duration'])
+#
+#             layers = ['BF', 'Blue', 'Green', 'Red']
+#             for layer in layers:
+#                 lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
+#                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
+#                 lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
+#                 # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
+#                 lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
+#                 lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
+#                 lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
+#
+#             lumaview.camera.frame_size(protocol['frame_width'], protocol['frame_height'])
+#
+#     # Save protocol to JSON file
+#     def save_protocol(self, file="./data/current.json"):
+#         global protocol
+#         with open(file, "w") as write_file:
+#             json.dump(protocol, write_file, indent = 4)
+#
+#     # Run the timed process of capture event
+#     def run_protocol(self):
+#         global protocol
+#
+#         # number of capture events remaining
+#         ## duration is in hours, period is in minutes
+#         self.n_captures = int(float(protocol['duration'])*60 / float(protocol['period']))
+#
+#         # update protocol
+#         if self.record == False:
+#             self.record = True
+#
+#             hrs = np.floor(self.n_captures * protocol['period']/60)
+#             minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
+#             hrs = '%02d' % hrs
+#             minutes = '%02d' % minutes
+#             self.ids['protocol_btn'].text = hrs+':'+minutes+' remaining'
+#
+#             self.dt = protocol['period']*60 # frame events are measured in seconds
+#             self.frame_event = Clock.schedule_interval(self.capture, self.dt)
+#         else:
+#             self.record = False
+#             self.ids['protocol_btn'].text = 'Run Protocol'
+#
+#             if self.frame_event:
+#                 Clock.unschedule(self.frame_event)
+#
+#     '''
+#     # One procotol capture event
+#     def capture(self, dt):
+#         global lumaview
+#         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
+#         if camera == False:
+#             return
+#         try:
+#             self.n_captures = self.n_captures-1
+#         except:
+#             print('Capturing a Single Composite Image')
+#
+#         layers = ['BF', 'Blue', 'Green', 'Red']
+#         for layer in layers:
+#             if protocol[layer]['acquire'] == True:
+#                 # global lumaview
+#
+#                 # set the gain and exposure
+#                 gain = protocol[layer]['gain']
+#                 camera.gain(gain)
+#                 exposure = protocol[layer]['exp']
+#                 camera.exposure_t(exposure)
+#                 camera.update(0)
+#
+#                 # turn on the LED
+#                 # update illumination to currently selected settings
+#                 illumination = protocol[layer]['ill']
+#                 led_board = lumaview.led_board
+#                 led_board.led_on(led_board.color2ch(layer), illumination)
+#
+#                 # capture the image
+#                 save_folder = protocol[layer]['save_folder']
+#                 file_root = protocol[layer]['file_root']
+#                 lumaview.capture(0, save_folder, file_root, color = layer)
+#                 # turn off the LED
+#                 led_board.leds_off()
+#             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+#     '''
+#
+#     # def convert_to_avi(self):
+#     #
+#     #     # self.choose_folder()
+#     #     save_location = './capture/movie.avi'
+#     #
+#     #     img_array = []
+#     #     for filename in glob.glob('./capture/*.tiff'):
+#     #         img = cv2.imread(filename)
+#     #         height, width, layers = img.shape
+#     #         size = (width,height)
+#     #         img_array.append(img)
+#     #
+#     #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+#     #
+#     #     for i in range(len(img_array)):
+#     #         out.write(img_array[i])
+#     #     out.release()
+#
 
 class ZStack(CompositeCapture):
     def set_range(self):
@@ -1608,7 +1714,7 @@ class FileChooseBTN(Button):
     def on_selection(self, *a, **k):
         if self.context == 'load_protocol':
             global lumaview
-            lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol(self.selection[0])
+            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(self.selection[0])
 
 # Button the triggers 'filechooser.choose_dir()' from plyer
 class FolderChooseBTN(Button):
@@ -1661,7 +1767,7 @@ class FileSaveBTN(Button):
 
     def on_selection(self, *a, **k):
         global lumaview
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol(self.selection[0])
+        lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(self.selection[0])
         print('Saving Protocol to File:', self.selection[0])
 
 # ------------------------------------------------------------------------
@@ -1808,16 +1914,15 @@ class LumaViewProApp(App):
         global lumaview
         lumaview = MainDisplay()
 
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].load_protocol("./data/current.json")
+        lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol("./data/current.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
-        # how to keep loading software while this is happening?
         lumaview.motion.xyhome()
         return lumaview
 
     def on_stop(self):
         global lumaview
         lumaview.led_board.leds_off()
-        lumaview.ids['mainsettings_id'].ids['time_lapse_id'].save_protocol("./data/current.json")
+        lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol("./data/current.json")
 
 LumaViewProApp().run()
