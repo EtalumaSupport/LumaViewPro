@@ -875,13 +875,37 @@
     #     text: 'Convert Image Stack to AVI'
     #     on_release: self.choose('movie_folder')
 
-    Button:
-        id: protocol_btn
-        text: 'Run'
+	# Verify / Iterate through protocol
+    Label:
+        text: 'Execute Protocol'
+		font_size: '12sp'
+        size_hint_y: None
+        height: '30dp'
+		spacing: '5dp'
+
+    ToggleButton:
+        id: scan_labware_btn
+        text: 'Run One Scan'
         size_hint_y: None
         height: '30dp'
 		font_size: '12sp'
 		on_release: root.scan_labware()
+
+    ToggleButton:
+        id: protocol_btn
+        text: 'Run Stationary Protocol'
+        size_hint_y: None
+        height: '30dp'
+		font_size: '12sp'
+		on_release: root.run_stationary_protocol()
+
+    ToggleButton:
+        id: full_protocol_btn
+        text: 'Run Full Protocol'
+        size_hint_y: None
+        height: '30dp'
+		font_size: '12sp'
+		on_release: root.run_full_protocol()
 
 	Label:
 

@@ -978,16 +978,17 @@ class XYStageControl(BoxLayout):
             self.ids['home_id'].state = 'normal'
 
 class CompositeCapture(BoxLayout):
+# class CompositeCapture(Widget):
     # One procotol capture event
     def capture(self, dt):
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         if lumaview.camera.active == False:
             return
-        try:
-            self.n_captures = self.n_captures-1
-        except:
-            print('Capturing a Single Composite Image')
+        # try:
+        #     self.n_captures = self.n_captures-1
+        # except:
+        #     print('Capturing a Single Composite Image')
 
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
@@ -1018,6 +1019,13 @@ class CompositeCapture(BoxLayout):
 
 # Protocol settings tab
 class ProtocolSettings(CompositeCapture):
+
+    # No Longer the correct technique
+    # record = ObjectProperty(None)
+    # record = False
+    # movie_folder = StringProperty(None)
+    # n_captures = ObjectProperty(None)
+
     def __init__(self, **kwargs):
         super(ProtocolSettings, self).__init__(**kwargs)
         with open('./data/labware.json', "r") as read_file:
@@ -1037,36 +1045,6 @@ class ProtocolSettings(CompositeCapture):
         labware.spacing = self.labware['Wellplate'][spinner.text]['spacing']
         labware.offset = self.labware['Wellplate'][spinner.text]['offset']
         labware.draw_labware()
-
-    def scan_labware(self):
-        labware = self.ids['labware_widget_id']
-        labware.scan_labware() # Pass function to the Labware class
-
-
-
-
-
-
-
-
-    record = ObjectProperty(None)
-    record = False
-    movie_folder = StringProperty(None)
-    n_captures = ObjectProperty(None)
-
-    def update_period(self):
-        # if self.ids['capture_period'].text.isnumeric(): # Did not allow for floating point numbers
-        try:
-            protocol['period'] = float(self.ids['capture_period'].text)
-        except:
-            print('Update Period is not an acceptable value')
-
-    def update_duration(self):
-        # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
-        try:
-            protocol['duration'] = float(self.ids['capture_dur'].text)
-        except:
-            print('Update Duration is not an acceptable value')
 
     # load protocol from JSON file
     def load_protocol(self, file="./data/current.json"):
@@ -1104,48 +1082,92 @@ class ProtocolSettings(CompositeCapture):
         with open(file, "w") as write_file:
             json.dump(protocol, write_file, indent = 4)
 
-    # Run the timed process of capture event
-    def run_protocol(self):
-        global protocol
+    def update_period(self):
+        # if self.ids['capture_period'].text.isnumeric(): # Did not allow for floating point numbers
+        try:
+            protocol['period'] = float(self.ids['capture_period'].text)
+        except:
+            print('Update Period is not an acceptable value')
 
-        # number of capture events remaining
-        ## duration is in hours, period is in minutes
-        self.n_captures = int(float(protocol['duration'])*60 / float(protocol['period']))
+    def update_duration(self):
+        # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
+        try:
+            protocol['duration'] = float(self.ids['capture_dur'].text)
+        except:
+            print('Update Duration is not an acceptable value')
 
-        # update protocol
-        if self.record == False:
-            self.record = True
+    # Scan or Sweep through the protocol's XY positions
+    def scan_labware(self):
+        labware = self.ids['labware_widget_id']
 
-            hrs = np.floor(self.n_captures * protocol['period']/60)
-            minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
-            hrs = '%02d' % hrs
-            minutes = '%02d' % minutes
-            self.ids['protocol_btn'].text = hrs+':'+minutes+' remaining'
+        if self.ids['scan_labware_btn'].state == 'down':
+            self.ids['scan_labware_btn'].text = 'Scanning Labware'
+            labware.scan_labware() # Pass function to the Labware class
+            # scan labware should have a composite capture event
 
-            self.dt = protocol['period']*60 # frame events are measured in seconds
-            self.frame_event = Clock.schedule_interval(self.capture, self.dt)
         else:
-            self.record = False
-            self.ids['protocol_btn'].text = 'Run Protocol'
-
-            if self.frame_event:
-                Clock.unschedule(self.frame_event)
+            self.ids['scan_labware_btn'].text = 'Run One Scan' # 'normal'
+            Clock.unschedule(labware.autoscan_event)
 
 
 
+    # Run protocol timing with no movement
+    def run_stationary_protocol(self):
 
+        if self.ids['protocol_btn'].state == 'down':
+            self.ids['protocol_btn'].text = 'State == Down'
 
+        else:
+            self.ids['protocol_btn'].text = 'State == Up' # 'normal'
 
+    # Run the complete protocol at all locations
+    def run_full_protocol(self):
+        self.n_scans = int(float(protocol['duration'])*60 / float(protocol['period']))
+        self.start_t = time.time() # start of cycle in seconds
 
+        if self.ids['full_protocol_btn'].state == 'down':
+            self.protocol_event = Clock.schedule_interval(self.protocol_iterate, 1)
+        else:
+            Clock.unschedule(self.protocol_event)
+            labware = self.ids['labware_widget_id']
+            Clock.unschedule(labware.autoscan_event)
+            self.ids['full_protocol_btn'].text = 'Run Full Protocol' # 'normal'
 
+    def protocol_iterate(self, dt):
 
+        # Easy variables
+        start_t = self.start_t # start of cycle in seconds
+        curr_t = time.time()   # in seconds
+        n_scans = self.n_scans # current number of scans left
+        period = protocol['period']*60 # length of cycle in seconds
 
+        # compute time remaining
+        sec_remaining = n_scans*period - (curr_t - start_t)
+        min_remaining = sec_remaining / 60
+        hrs_remaining = min_remaining / 60
 
+        hrs = np.floor(hrs_remaining)
+        minutes = np.floor((hrs_remaining - hrs)*60)
 
+        hrs = '%d' % hrs
+        minutes = '%02d' % minutes
 
+        # Update Button
+        print(hrs + ':' + minutes + ' remaining')
+        self.ids['full_protocol_btn'].text = hrs+':'+minutes+' remaining'
 
+        # Check if reached next Period
+        if (time.time()-self.start_t) > period:
+            self.start_t = time.time() # reset the start time
+            print('Number of Scans Remaining:', self.n_scans)
+            labware = self.ids['labware_widget_id']
+            labware.scan_labware() # scan the labware
 
+            # Decrement the number of remaining scans
+            self.n_scans = self.n_scans - 1
 
+            if self.n_scans < 1:
+                Clock.unschedule(self.protocol_event)
 
 class Labware(Widget):
     bg_color = ObjectProperty(None)
@@ -1229,7 +1251,7 @@ class Labware(Widget):
         # If target location has been reached
         if x_status and y_status:
             # take the images (and do all else)
-            print("Position Reached")
+            print('Position', i, ',', j,  'Reached')
 
             # increment to the next position
             self.pos_index += 1
@@ -1242,8 +1264,6 @@ class Labware(Widget):
             # if all positions have already been reached
             else:
                 Clock.unschedule(self.autoscan_event)
-
-
 
     # Get real well position in mm given its index
     def get_well_position(self, i, j):
