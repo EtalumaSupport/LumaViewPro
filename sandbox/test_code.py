@@ -18,27 +18,34 @@
 # print(i, j)
 
 
-
-
 # import time
 # a = time.time()
 # time.sleep(2)
 # b = time.time()
 # print(b-a)
 
-import numpy as np
 
-sec_remaining = 9284654.232
-min_remaining = sec_remaining / 60
-hrs_remaining = min_remaining / 60
 
-hrs = np.floor(hrs_remaining)
-minutes = np.floor((hrs_remaining - hrs)*60)
 
-hrs = '%d' % hrs
-minutes = '%02d' % minutes
-
-print(hrs + ':' + minutes + ' remaining')
+# import numpy as np
 #
-# print('%02d' % hrs)
-# print('%02d' % minutes)
+# sec_remaining = 9284654.232
+# min_remaining = sec_remaining / 60
+# hrs_remaining = min_remaining / 60
+#
+# hrs = np.floor(hrs_remaining)
+# minutes = np.floor((hrs_remaining - hrs)*60)
+#
+# hrs = '%d' % hrs
+# minutes = '%02d' % minutes
+#
+# print(hrs + ':' + minutes + ' remaining')
+# #
+# # print('%02d' % hrs)
+# # print('%02d' % minutes)
+
+
+try:
+    print(qwerty)
+except:
+    pass
