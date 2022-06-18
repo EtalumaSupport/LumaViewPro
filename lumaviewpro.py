@@ -98,8 +98,10 @@ global protocol
 
 with open('./data/current.json', "r") as read_file:
     protocol = json.load(read_file)
-    print(protocol['labware'])
 
+# -------------------------------------------------------------------------
+# SCOPE DISPLAY Image representing the microscope camera
+# -------------------------------------------------------------------------
 class ScopeDisplay(Image):
     record = BooleanProperty(None)
     record = False
@@ -110,15 +112,16 @@ class ScopeDisplay(Image):
         super(ScopeDisplay,self).__init__(**kwargs)
         self.start()
 
-    def start(self, fps = 14):
+    def start(self, fps = 10):
         self.fps = fps
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
+        # print('DEBUG: ScopeDisplay self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)')
 
     def stop(self):
-        if self.frame_event:
-            Clock.unschedule(self.frame_event)
+        self.frame_event.cancel()
+        # print('DEBUG: ScopeDisplay self.frame_event.cancel()')
 
-    def update(self, dt):
+    def update(self, dt=0):
         global lumaview
 
         if lumaview.camera.grab():
@@ -135,9 +138,45 @@ class ScopeDisplay(Image):
 
 
 # -------------------------------------------------------------------------
+# COMPOSITE CAPTURE FloatLayout with shared capture capabilities
+# -------------------------------------------------------------------------
+class CompositeCapture(FloatLayout):
+    # One procotol capture event
+    def capture(self):
+        global lumaview
+        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
+        if lumaview.camera.active == False:
+            return
+
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            if protocol[layer]['acquire'] == True:
+
+                # set the gain and exposure
+                gain = protocol[layer]['gain']
+                lumaview.camera.gain(gain)
+                exposure = protocol[layer]['exp']
+                lumaview.camera.exposure_t(exposure)
+                scope_display.update()
+
+                # update illumination to currently selected settings
+                illumination = protocol[layer]['ill']
+                # turn on the LED
+                lumaview.led_board.led_on(lumaview.led_board.color2ch(layer), illumination)
+
+                # capture the image
+                save_folder = protocol[layer]['save_folder']
+                file_root = protocol[layer]['file_root']
+                lumaview.capture(0, save_folder, file_root, color = layer)
+
+                # turn off the LED
+                lumaview.led_board.leds_off()
+        lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+
+# -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
-class MainDisplay(FloatLayout): # i.e. global lumaview
+class MainDisplay(CompositeCapture): # i.e. global lumaview
     led_board = ObjectProperty(None)
     led_board = LEDBoard()
     motion = ObjectProperty(None)
@@ -157,6 +196,12 @@ class MainDisplay(FloatLayout): # i.e. global lumaview
         else:
             scope_display.play = True
             scope_display.start()
+
+    def record(self):
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+        if self.camera.active == False:
+            return
+        scope_display.record = not scope_display.record
 
     def capture(self, dt=0, save_folder = './capture/', file_root = 'live_', append = 'ms', color = 'BF'):
         if self.camera.active == False:
@@ -198,15 +243,9 @@ class MainDisplay(FloatLayout): # i.e. global lumaview
         except:
             print("Error: Unable to save. Perhaps save folder does not exist?")
 
-    def record(self):
-        scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        if self.camera.active == False:
-            return
-        scope_display.record = not scope_display.record
 
-    # TODO recombine
-    def composite(self, dt=0):
-        global lumaview
+    # Save composite image to single file
+    def composite(self):
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         if self.camera.active == False:
             return
@@ -237,17 +276,16 @@ class MainDisplay(FloatLayout): # i.e. global lumaview
                 # turn on the LED
                 # update illumination to currently selected settings
                 illumination = protocol[layer]['ill']
-                led_board = lumaview.led_board
 
                 # Dark field capture
-                led_board.leds_off()
+                self.led_board.leds_off()
                 time.sleep(exposure/1000)  # Should be replaced with Clock
-                scope_display.update(0)
+                scope_display.update()
                 darkfield = lumaview.camera.array
                 # Florescent capture
-                led_board.led_on(led_board.color2ch(layer), illumination) #self.layer??
+                self.led_board.led_on(self.led_board.color2ch(layer), illumination) #self.layer??
                 time.sleep(exposure/1000)  # Should be replaced with Clock
-                scope_display.update(0)
+                scope_display.update()
                 #corrected = np.max(microscope.array - darkfield, np.zeros(like=darkfield))
                 corrected = lumaview.camera.array - np.minimum(lumaview.camera.array,darkfield)
                 # buffer the images
@@ -264,21 +302,13 @@ class MainDisplay(FloatLayout): # i.e. global lumaview
                 #     img[:,:,1] = img[:,:,1]*a + corrected*(1-a)
                 #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
 
-            led_board.leds_off()
+            self.led_board.leds_off()
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         img = np.flip(img, 0)
 
         filename = 'composite_' + str(int(round(time.time() * 1000))) + '.tiff'
         cv2.imwrite(folder+'/'+filename, img.astype(np.uint8))
-        # TODO save file in 16 bit TIFF, OMETIFF, and others
-        # cv2.imwrite(folder+'/'+filename, img.astype(np.uint16)) # This works
-
-        # # TODO display captured composite
-        # microscope.stop()
-        # microscope.source = filename
-        # time.sleep(5) #Needs to be user selected
-        # microscope.start()
 
     def fit_image(self):
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
@@ -440,8 +470,8 @@ class MotionSettings(BoxLayout):
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
-        self.ids['verticalcontrol_id'].update_event = Clock.schedule_interval(self.ids['verticalcontrol_id'].update_gui, 0.5)
-        self.ids['xy_stagecontrol_id'].update_event = Clock.schedule_interval(self.ids['xy_stagecontrol_id'].update_gui, 0.5)
+        self.ids['verticalcontrol_id'].update_gui()
+        self.ids['xy_stagecontrol_id'].update_gui()
 
         # move position of motion control
         if self.isOpen:
@@ -464,6 +494,27 @@ class MotionSettings(BoxLayout):
         else:
             self.ids['toggle_motionsettings'].state = 'down'
             self.pos = 0, 0
+
+class PostProcessing(BoxLayout):
+
+    def convert_to_avi(self):
+
+        # self.choose_folder()
+        save_location = './capture/movie.avi'
+
+        img_array = []
+        for filename in glob.glob('./capture/*.tiff'):
+            img = cv2.imread(filename)
+            height, width, layers = img.shape
+            size = (width,height)
+            img_array.append(img)
+
+        out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+
+        for i in range(len(img_array)):
+            out.write(img_array[i])
+        out.release()
+
 
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
@@ -583,6 +634,8 @@ class Histogram(Widget):
             self.bg_color = (1, 1, 1, 1)
 
         self.event = Clock.schedule_interval(self.histogram, 1)
+        #print('DEBUG: Histogram Clock.schedule_interval(self.histogram, 1)')
+
         self.hist_range_set = False
         self.edges = [0,255]
         self.stablize = 0.3
@@ -662,29 +715,36 @@ class Histogram(Widget):
 
 class VerticalControl(BoxLayout):
 
+    def update_gui(self):
+        set_pos = lumaview.motion.target_pos('Z')  # Get target value
+        get_pos = lumaview.motion.current_pos('Z') # Get current value
+
+        self.ids['obj_position'].value = max(0, set_pos)
+        self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
+
     def course_up(self):
         course = protocol['objective']['step_course']
         lumaview.motion.move_rel_pos('Z', course)                  # Move UP
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def fine_up(self):
         fine = protocol['objective']['step_fine']
         lumaview.motion.move_rel_pos('Z', fine)                    # Move UP
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def fine_down(self):
         fine = protocol['objective']['step_fine']
         lumaview.motion.move_rel_pos('Z', -fine)                   # Move DOWN
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def course_down(self):
         course = protocol['objective']['step_course']
         lumaview.motion.move_rel_pos('Z', -course)                 # Move DOWN
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def set_position(self, pos):
         lumaview.motion.move_abs_pos('Z', pos)
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def set_bookmark(self):
         height = lumaview.motion.current_pos('Z')  # Get current z height in um
@@ -693,34 +753,12 @@ class VerticalControl(BoxLayout):
     def goto_bookmark(self):
         pos = protocol['z_bookmark']
         lumaview.motion.move_abs_pos('Z', pos)
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def home(self):
         self.ids['home_id'].text = 'Homing...'
         lumaview.motion.zhome()
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
-
-    def update_gui(self, dt):
-        set_pos = lumaview.motion.target_pos('Z')  # Get target value
-        get_pos = lumaview.motion.current_pos('Z') # Get current value
-
-        # z_home = lumaview.motion.limit_status('Z')
-
-        # if z_home:
-        #     self.ids['obj_position'].value = 0
-        #     self.ids['set_position_id'].text = '0.00'
-        # else:
-        #     self.ids['obj_position'].value = set_pos
-        #     self.ids['set_position_id'].text = format(set_pos, '.2f')
-
-        self.ids['obj_position'].value = max(0, set_pos)
-        self.ids['set_position_id'].text = format(max(0, set_pos), '.2f')
-        self.ids['get_position_id'].text = format(get_pos, '.2f')
-
-        if set_pos == get_pos:
-            Clock.unschedule(self.update_event)
-            self.ids['home_id'].text = 'Home'
-            self.ids['home_id'].state = 'normal'
+        self.update_gui()
 
     # User selected the autofocus function
     def autofocus(self):
@@ -754,13 +792,13 @@ class VerticalControl(BoxLayout):
             self.ids['autofocus_id'].text = 'Focusing...'
             lumaview.motion.move_abs_pos('Z', self.z_min) # Go to z_min
             self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
+            print('DEBUG: Vertical Control self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)')
 
     def focus_iterate(self, dt):
         global lumaview
         image = lumaview.camera.array
 
         target = lumaview.motion.current_pos('Z') # Get current value
-
         self.positions.append(target)
         self.focus_measures.append(self.focus_function(image))
 
@@ -771,29 +809,29 @@ class VerticalControl(BoxLayout):
         closeness = 1/(n + 0.1)
         #print(closeness)
         step = course*closeness + fine*(1 - closeness)
-        print("fine: ",fine, end="")
-        print(" course: ",course, end="")
-        print(" step: ",step)
-
+        print("fine: ", fine, end="")
+        print(" course: ", course, end="")
+        print(" step:", step)
 
         lumaview.motion.move_rel_pos('Z', step) # move by z_step
 
         if self.ids['autofocus_id'].state == 'normal':
             self.ids['autofocus_id'].text = 'Autofocus'
-            Clock.unschedule(self.autofocus_event)
-            print("autofocus cancelled")
+            self.autofocus_event.cancel()
+            print('DEBUG: Vertical Control self.autofocus_event.cancel()')
 
         elif target >= self.z_max:
             self.ids['autofocus_id'].state = 'normal'
             self.ids['autofocus_id'].text = 'Autofocus'
-            Clock.unschedule(self.autofocus_event)
+            self.autofocus_event.cancel()
+            print('DEBUG: Vertical Control self.autofocus_event.cancel()')
 
             focus = self.focus_best(self.positions, self.focus_measures)
             # print(self.positions, '\t', self.focus_measures)
             print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
             lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
 
-        self.update_gui(0)
+        self.update_gui()
 
     # Algorithms for estimating the quality of the focus
     def focus_function(self, image, algorithm = 'vollath4'):
@@ -872,55 +910,63 @@ class VerticalControl(BoxLayout):
 
 class XYStageControl(BoxLayout):
 
+    def update_gui(self):
+        global lumaview
+        x_target = lumaview.motion.target_pos('X')  # Get target value
+        y_target = lumaview.motion.target_pos('Y')  # Get target value
+
+        self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f')
+        self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f')
+
     def course_left(self):
         global lumaview
         lumaview.motion.move_rel_pos('X', -100)  # Move LEFT relative
-        self.update_gui(0)
+        self.update_gui()
 
     def fine_left(self):
         global lumaview
         lumaview.motion.move_rel_pos('X', -10)  # Move LEFT
-        self.update_gui(0)
+        self.update_gui()
 
     def fine_right(self):
         global lumaview
         lumaview.motion.move_rel_pos('X', 10)  # Move RIGHT
-        self.update_gui(0)
+        self.update_gui()
 
     def course_right(self):
         global lumaview
         lumaview.motion.move_rel_pos('X', 100)  # Move RIGHT
-        self.update_gui(0)
+        self.update_gui()
 
     def course_back(self):
         global lumaview
         lumaview.motion.move_rel_pos('Y', -100)  # Move BACK relative by 10000
-        self.update_gui(0)
+        self.update_gui()
 
     def fine_back(self):
         global lumaview
         lumaview.motion.move_rel_pos('Y', -10)  # Move BACK by 1000
-        self.update_gui(0)
+        self.update_gui()
 
     def fine_fwd(self):
         global lumaview
         lumaview.motion.move_rel_pos('Y', 10)  # Move FORWARD by 1000
-        self.update_gui(0)
+        self.update_gui()
 
     def course_fwd(self):
         global lumaview
         lumaview.motion.move_rel_pos('Y', 100)  # Move FORWARD by 10000
-        self.update_gui(0)
+        self.update_gui()
 
     def set_xposition(self, pos):
         global lumaview
         lumaview.motion.move_abs_pos('X', float(pos)*1000)  # position in text is in mm
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def set_yposition(self, pos):
         global lumaview
         lumaview.motion.move_abs_pos('Y', float(pos)*1000)  # position in text is in mm
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def set_xbookmark(self):
         global lumaview
@@ -936,95 +982,22 @@ class XYStageControl(BoxLayout):
         global lumaview
         x_pos = protocol['x_bookmark']
         lumaview.motion.move_abs_pos('X', x_pos)  # set current x position in um
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def goto_ybookmark(self):
         global lumaview
         y_pos = protocol['y_bookmark']
         lumaview.motion.move_abs_pos('Y', y_pos)  # set current y position in um
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
+        self.update_gui()
 
     def home(self):
         global lumaview
-        self.ids['home_id'].text = 'Homing...'
         lumaview.motion.xyhome()
-        self.update_event = Clock.schedule_interval(self.update_gui, 0.5)
-
-    def update_gui(self, dt):
-        global lumaview
-        x_target = lumaview.motion.target_pos('X')  # Get target value
-        y_target = lumaview.motion.target_pos('Y')  # Get target value
-
-        x_current = lumaview.motion.current_pos('X')  # Get current value
-        y_current = lumaview.motion.current_pos('Y')  # Get current value
-
-        # x_home = lumaview.motion.limit_status('X') # Get reference switch status
-        # y_home = lumaview.motion.limit_status('Y') # Get reference switch status
-        #
-        # if x_home or y_home:
-        #     self.ids['x_pos_id'].text = '0.00'
-        #     self.ids['y_pos_id'].text = '0.00'
-        # else:
-        #     self.ids['x_pos_id'].text = format(x_target/1000, '.2f')
-        #     self.ids['y_pos_id'].text = format(y_target/1000, '.2f')
-
-
-        self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f')
-        self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f')
-
-        if (x_target == x_current) and (y_target == y_current):
-            Clock.unschedule(self.update_event)
-            self.ids['home_id'].text = 'Home'
-            self.ids['home_id'].state = 'normal'
-
-class CompositeCapture(BoxLayout):
-# class CompositeCapture(Widget):
-    # One procotol capture event
-    def capture(self, dt):
-        global lumaview
-        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        if lumaview.camera.active == False:
-            return
-        # try:
-        #     self.n_captures = self.n_captures-1
-        # except:
-        #     print('Capturing a Single Composite Image')
-
-        layers = ['BF', 'Blue', 'Green', 'Red']
-        for layer in layers:
-            if protocol[layer]['acquire'] == True:
-                # global lumaview
-
-                # set the gain and exposure
-                gain = protocol[layer]['gain']
-                lumaview.camera.gain(gain)
-                exposure = protocol[layer]['exp']
-                lumaview.camera.exposure_t(exposure)
-                scope_display.update(0)
-
-                # turn on the LED
-                # update illumination to currently selected settings
-                illumination = protocol[layer]['ill']
-                led_board = lumaview.led_board
-                led_board.led_on(led_board.color2ch(layer), illumination)
-
-                # capture the image
-                save_folder = protocol[layer]['save_folder']
-                file_root = protocol[layer]['file_root']
-                lumaview.capture(0, save_folder, file_root, color = layer)
-                # turn off the LED
-                led_board.leds_off()
-            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-
+        self.ids['x_pos_id'].text = '0.00'
+        self.ids['y_pos_id'].text = '0.00'
 
 # Protocol settings tab
 class ProtocolSettings(CompositeCapture):
-
-    # No Longer the correct technique
-    # record = ObjectProperty(None)
-    # record = False
-    # movie_folder = StringProperty(None)
-    # n_captures = ObjectProperty(None)
 
     def __init__(self, **kwargs):
         super(ProtocolSettings, self).__init__(**kwargs)
@@ -1107,16 +1080,15 @@ class ProtocolSettings(CompositeCapture):
 
         else:
             self.ids['scan_labware_btn'].text = 'Run One Scan' # 'normal'
-            Clock.unschedule(labware.autoscan_event)
-
-
+            labware.autoscan_event.cancel()
 
     # Run protocol timing with no movement
     def run_stationary_protocol(self):
 
         if self.ids['protocol_btn'].state == 'down':
             self.ids['protocol_btn'].text = 'State == Down'
-
+            # Timer as in protocol_iterate without the scan labware
+            # self.capture
         else:
             self.ids['protocol_btn'].text = 'State == Up' # 'normal'
 
@@ -1127,10 +1099,13 @@ class ProtocolSettings(CompositeCapture):
 
         if self.ids['full_protocol_btn'].state == 'down':
             self.protocol_event = Clock.schedule_interval(self.protocol_iterate, 1)
+            print('DEBUG: ProtocolSettings self.update_event.cancel()')
+
         else:
-            Clock.unschedule(self.protocol_event)
             labware = self.ids['labware_widget_id']
-            Clock.unschedule(labware.autoscan_event)
+            labware.autoscan_event.cancel()
+
+            self.protocol_event.cancel()
             self.ids['full_protocol_btn'].text = 'Run Full Protocol' # 'normal'
 
     def protocol_iterate(self, dt):
@@ -1153,8 +1128,9 @@ class ProtocolSettings(CompositeCapture):
         minutes = '%02d' % minutes
 
         # Update Button
-        print(hrs + ':' + minutes + ' remaining')
-        self.ids['full_protocol_btn'].text = hrs+':'+minutes+' remaining'
+        # print(hrs + ':' + minutes + ' remaining')
+        # self.ids['full_protocol_btn'].text = hrs+':'+minutes+' remaining'
+        self.ids['full_protocol_btn'].text = str(n_scans)
 
         # Check if reached next Period
         if (time.time()-self.start_t) > period:
@@ -1167,7 +1143,7 @@ class ProtocolSettings(CompositeCapture):
             self.n_scans = self.n_scans - 1
 
             if self.n_scans < 1:
-                Clock.unschedule(self.protocol_event)
+                self.protocol_event.cancel()
 
 class Labware(Widget):
     bg_color = ObjectProperty(None)
@@ -1175,8 +1151,6 @@ class Labware(Widget):
 
     def __init__(self, **kwargs):
         super(Labware, self).__init__(**kwargs)
-        #self.event = Clock.schedule_interval(self.draw_labware, 1)
-
 
     def draw_labware(self, *args):
         global lumaview
@@ -1234,6 +1208,7 @@ class Labware(Widget):
 
         # Iterate testing and movement through the list
         self.autoscan_event = Clock.schedule_interval(self.scan_iterate, 0.1)
+        print('Labware: labware self.autoscan_event = Clock.schedule_interval(self.scan_iterate, 0.1)')
 
     def scan_iterate(self, dt):
         global lumaview
@@ -1253,6 +1228,10 @@ class Labware(Widget):
             # take the images (and do all else)
             print('Position', i, ',', j,  'Reached')
 
+            # take a full composite (right now a single image)
+            lumaview.capture(file_root = 'protocol_')
+
+
             # increment to the next position
             self.pos_index += 1
             if self.pos_index < len(self.pos_list):
@@ -1263,7 +1242,7 @@ class Labware(Widget):
 
             # if all positions have already been reached
             else:
-                Clock.unschedule(self.autoscan_event)
+                self.autoscan_event.cancel()
 
     # Get real well position in mm given its index
     def get_well_position(self, i, j):
@@ -1445,8 +1424,7 @@ class LayerControl(BoxLayout):
         pos = protocol[self.layer]['focus']
         lumaview.motion.move_abs_pos('Z', pos)  # set current z height in usteps
         control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
-        control.update_event = Clock.schedule_interval(control.update_gui, 0.5)
-
+        control.update_gui()
 
     def apply_settings(self):
         global lumaview
@@ -1455,10 +1433,9 @@ class LayerControl(BoxLayout):
         # update illumination to currently selected settings
         # -----------------------------------------------------
         illumination = protocol[self.layer]['ill']
-        led_board = lumaview.led_board
         if self.ids['apply_btn'].state == 'down': # if the button is down
             # In active channel,turn on LED
-            led_board.led_on(led_board.color2ch(self.layer), illumination)
+            lumaview.led_board.led_on(lumaview.led_board.color2ch(self.layer), illumination)
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
@@ -1467,7 +1444,7 @@ class LayerControl(BoxLayout):
 
         else: # if the button is 'normal' meaning not active
             # In active channel, and turn off LED
-            led_board.leds_off()
+            lumaview.led_board.leds_off()
 
         # update gain to currently selected settings
         # -----------------------------------------------------
@@ -1503,8 +1480,10 @@ class LayerControl(BoxLayout):
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
-        for i in np.arange(0.1, 3, 0.1):
+        for i in np.arange(0.1, 2, 0.1):
             Clock.schedule_once(self.update_shader, i)
+            # print('DEBUG: Layer Control Clock.schedule_once(self.update_shader,', i, ')')
+
 
     def update_shader(self, dt):
         if self.ids['false_color'].active:
@@ -1512,148 +1491,6 @@ class LayerControl(BoxLayout):
         else:
             lumaview.ids['viewer_id'].update_shader('none')
 
-
-
-# class TimeLapseSettings(CompositeCapture):
-#     record = ObjectProperty(None)
-#     record = False
-#     movie_folder = StringProperty(None)
-#     n_captures = ObjectProperty(None)
-#
-#     def update_period(self):
-#         # if self.ids['capture_period'].text.isnumeric(): # Did not allow for floating point numbers
-#         try:
-#             protocol['period'] = float(self.ids['capture_period'].text)
-#         except:
-#             print('Update Period is not an acceptable value')
-#
-#     def update_duration(self):
-#         # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
-#         try:
-#             protocol['duration'] = float(self.ids['capture_dur'].text)
-#         except:
-#             print('Update Duration is not an acceptable value')
-#
-#     # load protocol from JSON file
-#     def load_protocol(self, file="./data/current.json"):
-#         global lumaview
-#
-#         # load protocol JSON file
-#         with open(file, "r") as read_file:
-#             global protocol
-#             protocol = json.load(read_file)
-#             # update GUI values from JSON data:
-#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['scope_spinner'].text = protocol['microscope']
-#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective_spinner'].text = protocol['objective']['ID']
-#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['magnification_id'].text = str(protocol['objective']['magnification'])
-#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
-#             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
-#
-#             self.ids['capture_period'].text = str(protocol['period'])
-#             self.ids['capture_dur'].text = str(protocol['duration'])
-#
-#             layers = ['BF', 'Blue', 'Green', 'Red']
-#             for layer in layers:
-#                 lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
-#                 lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
-#                 lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
-#                 # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
-#                 lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
-#                 lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
-#                 lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
-#
-#             lumaview.camera.frame_size(protocol['frame_width'], protocol['frame_height'])
-#
-#     # Save protocol to JSON file
-#     def save_protocol(self, file="./data/current.json"):
-#         global protocol
-#         with open(file, "w") as write_file:
-#             json.dump(protocol, write_file, indent = 4)
-#
-#     # Run the timed process of capture event
-#     def run_protocol(self):
-#         global protocol
-#
-#         # number of capture events remaining
-#         ## duration is in hours, period is in minutes
-#         self.n_captures = int(float(protocol['duration'])*60 / float(protocol['period']))
-#
-#         # update protocol
-#         if self.record == False:
-#             self.record = True
-#
-#             hrs = np.floor(self.n_captures * protocol['period']/60)
-#             minutes = np.floor((self.n_captures*protocol['period']/60-hrs)*60)
-#             hrs = '%02d' % hrs
-#             minutes = '%02d' % minutes
-#             self.ids['protocol_btn'].text = hrs+':'+minutes+' remaining'
-#
-#             self.dt = protocol['period']*60 # frame events are measured in seconds
-#             self.frame_event = Clock.schedule_interval(self.capture, self.dt)
-#         else:
-#             self.record = False
-#             self.ids['protocol_btn'].text = 'Run Protocol'
-#
-#             if self.frame_event:
-#                 Clock.unschedule(self.frame_event)
-#
-#     '''
-#     # One procotol capture event
-#     def capture(self, dt):
-#         global lumaview
-#         camera = lumaview.ids['viewer_id'].ids['microscope_camera']
-#         if camera == False:
-#             return
-#         try:
-#             self.n_captures = self.n_captures-1
-#         except:
-#             print('Capturing a Single Composite Image')
-#
-#         layers = ['BF', 'Blue', 'Green', 'Red']
-#         for layer in layers:
-#             if protocol[layer]['acquire'] == True:
-#                 # global lumaview
-#
-#                 # set the gain and exposure
-#                 gain = protocol[layer]['gain']
-#                 camera.gain(gain)
-#                 exposure = protocol[layer]['exp']
-#                 camera.exposure_t(exposure)
-#                 camera.update(0)
-#
-#                 # turn on the LED
-#                 # update illumination to currently selected settings
-#                 illumination = protocol[layer]['ill']
-#                 led_board = lumaview.led_board
-#                 led_board.led_on(led_board.color2ch(layer), illumination)
-#
-#                 # capture the image
-#                 save_folder = protocol[layer]['save_folder']
-#                 file_root = protocol[layer]['file_root']
-#                 lumaview.capture(0, save_folder, file_root, color = layer)
-#                 # turn off the LED
-#                 led_board.leds_off()
-#             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-#     '''
-#
-#     # def convert_to_avi(self):
-#     #
-#     #     # self.choose_folder()
-#     #     save_location = './capture/movie.avi'
-#     #
-#     #     img_array = []
-#     #     for filename in glob.glob('./capture/*.tiff'):
-#     #         img = cv2.imread(filename)
-#     #         height, width, layers = img.shape
-#     #         size = (width,height)
-#     #         img_array.append(img)
-#     #
-#     #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-#     #
-#     #     for i in range(len(img_array)):
-#     #         out.write(img_array[i])
-#     #     out.release()
-#
 
 class ZStack(CompositeCapture):
     def set_range(self):
@@ -1789,139 +1626,6 @@ class FileSaveBTN(Button):
         global lumaview
         lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(self.selection[0])
         print('Saving Protocol to File:', self.selection[0])
-
-# ------------------------------------------------------------------------
-# TOOLTIPS
-# ------------------------------------------------------------------------
-class Tooltip(HoverBehavior, TouchBehavior):
-    # Tooltip background color
-    tooltip_bg_color = ColorProperty(None)
-
-    # Tooltip text color
-    tooltip_text_color = ColorProperty(None)
-
-    # Tooltip text to display
-    tooltip_text = StringProperty(None)
-
-    # Radius of rounded rectangle's corner
-    tooltip_radius = ListProperty([dp(5),])
-
-    # Tooltip display delay, defaults to 0 and max of 4
-    tooltip_display_delay = BoundedNumericProperty(0, min=0, max=4)
-
-    # Y-offset of tooltip text, defaults to 0
-    shift_y = NumericProperty(0)
-
-    _tooltip = None
-
-
-    def delete_clock(self, widget, touch, *args):
-        if self.collide_point(touch.x, touch.y) and touch.grab_current:
-            try:
-                Clock.unschedule(touch.ud["event"])
-            except KeyError:
-                pass
-            self.on_leave()
-
-    # Returns the coordinates of the tooltio that fit in screen borders
-    def adjust_tooltip_position(self, x, y):
-        # If tooltip position is outside the right border of the screen:
-        if x + self._tooltip.width > Window.width:
-            x = Window.width - (self._tooltip.width + dp(10))
-        elif x < 0:
-            # If the tooltip position is outside the left boder of the screen
-            x = '10dp'
-
-        # If the tooltip position is below the bottom border:
-        if y < 0:
-            y = dp(10)
-        elif Window.height - self._tooltip.height < y:
-            y - Window.height - (self._tooltip.height + dp(10))
-
-        return x, y
-
-    # Display the tooltip using an animated routine after a display delay defined by user
-    def display_tooltip(self, interval):
-        if not self._tooltip:
-            return
-
-        Window.add_widget(self._tooltip)
-        pos = self.to_window(self.center_x, self.center_y)
-        x = pos[0] - self._tooltip.width / 2
-
-        if not self.shift_y:
-            y = pos[1] - self._tooltip.height / 2 - self.height / 2 - dp(20)
-        else:
-            y = pos[1] - self._tooltip.height / 2 - self.height + self.shift_y
-
-        x, y = self.adjust_tooltip_position(x, y)
-        self._tooltip.pos = (x, y)
-
-        Clock.schedule_once(self.animation_tooltip_show, self.tooltip_display_delay)
-
-    # Method that displays tooltip in an animated way
-    def animation_tooltip_show(self, interval):
-        if not self._tooltip:
-            return
-
-        (Animation(_scale_x = 1, _scale_y = 1, d = 0.1)
-                + Animation(opacity = 1, d = 0.2)).start(self._tooltip)
-
-    # Makes tooltip disappear
-    def remove_tooltip(self, *args):
-        Window.remove_widget(self._tooltip)
-
-    def on_long_touch(self, touch, *args):
-        return
-
-    def on_enter(self, *args):
-        if not self.tooltip_text:
-            return
-
-        self._tooltip = TooltipViewClass(
-                tooltip_bg_color = self.tooltip_bg_color,
-                tooltip_text_color = self.tooltip_text_color,
-                tooltip_text = self.tooltip_text,
-                tooltip_radius = self.tooltip_radius)
-        Clock.schedule_once(self.display_tooltip, -1)
-
-    def on_leave(self):
-        if self._tooltip:
-            Window.remove_widget(self._tooltip)
-            self._tooltip = None
-
-
-# Holder layout for the tooltip
-class TooltipViewClass(BoxLayout):
-    tooltip_bg_color = ColorProperty(None)
-    tooltip_text_color = ColorProperty(None)
-    tooltip_text = StringProperty()
-    tooltip_radius = ListProperty()
-
-    _scale_x = NumericProperty(0)
-    _scale_y = NumericProperty(0)
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.padding = [dp(8), dp(4), dp(8), dp(4)]
-
-
-# Button-derivative with tooltips
-class TooltipButton(Button, Tooltip):
-    def __init__(self, **kwargs):
-        super(TooltipButton, self).__init__(**kwargs)
-        self.tooltip_bg_color = (0.1, 0.1, 0.1, 0.7)
-        self.tooltip_display_delay = 0.
-        self.shift_y = dp(80)
-
-
-# Toggle Button-derivative with tooltips
-class TooltipToggleButton(ToggleButton, Tooltip):
-    def __init__(self, **kwargs):
-        super(TooltipToggleButton, self).__init__(**kwargs)
-        self.tooltip_bg_color = (0.1, 0.1, 0.1, 0.7)
-        self.tooltip_display_delay = 0.
-        self.shift_y = dp(80)
 
 
 # -------------------------------------------------------------------------
