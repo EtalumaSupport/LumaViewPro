@@ -152,7 +152,42 @@ class CompositeCapture(FloatLayout):
         self.save_image(save_folder, file_root, append, color)
 
     def multicolor_capture(self):
-        pass
+
+        if self.camera.active == False:
+            return
+
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            if protocol[layer]['acquire'] == True:
+
+                # Go to focus and wait for arrival
+                lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
+                while not lumaview.motion.target_status('Z'):
+                    time.sleep(.01)
+
+                # set the gain, exposure, illumination
+                gain = protocol[layer]['gain']
+                lumaview.camera.gain(gain)
+                exposure = protocol[layer]['exp']
+                lumaview.camera.exposure_t(exposure)
+                illumination = protocol[layer]['ill']
+
+                # Illuminate
+                self.led_board.led_on(self.led_board.color2ch(layer), illumination)
+                time.sleep(exposure/1000)  # Should be replaced with Clock
+
+                # Save
+                save_folder =  protocol[layer]['save_folder']
+                file_root = protocol[layer]['file_root']
+                append = 'ms'
+                color = layer
+
+                self.save_image(save_folder, file_root, append, color)
+
+                self.led_board.leds_off()
+
 
     # Save image from camera buffer to specified location
     def save_image(self, save_folder = './capture/', file_root = 'img_', append = 'ms', color = 'BF'):
