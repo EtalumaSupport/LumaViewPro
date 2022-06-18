@@ -115,11 +115,9 @@ class ScopeDisplay(Image):
     def start(self, fps = 10):
         self.fps = fps
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
-        # print('DEBUG: ScopeDisplay self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)')
 
     def stop(self):
         self.frame_event.cancel()
-        # print('DEBUG: ScopeDisplay self.frame_event.cancel()')
 
     def update(self, dt=0):
         global lumaview
@@ -134,44 +132,128 @@ class ScopeDisplay(Image):
             self.source = "./data/icons/camera to USB.png"
 
         if self.record == True:
-            lumaview.capture()
+            lumaview.live_capture()
 
 
 # -------------------------------------------------------------------------
 # COMPOSITE CAPTURE FloatLayout with shared capture capabilities
 # -------------------------------------------------------------------------
 class CompositeCapture(FloatLayout):
-    # One procotol capture event
-    def capture(self):
-        global lumaview
-        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        if lumaview.camera.active == False:
+
+    def live_capture(self):
+
+        save_folder = protocol['live_folder']
+        file_root = 'live_'
+        append = 'ms'
+        color = 'BF'
+        if self.ids['mainsettings_id'].currentLayer != 'protocol':
+            color = self.ids['mainsettings_id'].currentLayer
+
+        self.save_image(save_folder, file_root, append, color)
+
+    def multicolor_capture(self):
+        pass
+
+    # Save image from camera buffer to specified location
+    def save_image(self, save_folder = './capture/', file_root = 'img_', append = 'ms', color = 'BF'):
+        if self.camera.active == False:
             return
+
+        img = np.zeros((self.camera.array.shape[0], self.camera.array.shape[1], 3))
+
+        if color == 'Blue':
+            img[:,:,0] = self.camera.array
+        elif color == 'Green':
+            img[:,:,1] = self.camera.array
+        elif color == 'Red':
+            img[:,:,2] = self.camera.array
+        else:
+            img[:,:,0] = self.camera.array
+            img[:,:,1] = self.camera.array
+            img[:,:,2] = self.camera.array
+
+        img = np.flip(img, 0)
+
+        # set filename options
+        if append == 'ms':
+            append = str(int(round(time.time() * 1000)))
+        elif append == 'time':
+            append = time.strftime("%Y%m%d_%H%M%S")
+        else:
+            append =''
+
+        # generate filename string
+        filename =  file_root + append + '.tiff'
+
+        try:
+            cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
+        except:
+            print("Error: Unable to save. Perhaps save folder does not exist?")
+
+    # capture and save a composite image using the current settings
+    def composite_capture(self):
+
+        if self.camera.active == False:
+            return
+
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+
+        img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
 
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             if protocol[layer]['acquire'] == True:
+
+                # Go to focus and wait for arrival
+                lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
+                while not lumaview.motion.target_status('Z'):
+                    time.sleep(.01)
 
                 # set the gain and exposure
                 gain = protocol[layer]['gain']
                 lumaview.camera.gain(gain)
                 exposure = protocol[layer]['exp']
                 lumaview.camera.exposure_t(exposure)
-                scope_display.update()
 
                 # update illumination to currently selected settings
                 illumination = protocol[layer]['ill']
-                # turn on the LED
-                lumaview.led_board.led_on(lumaview.led_board.color2ch(layer), illumination)
 
-                # capture the image
-                save_folder = protocol[layer]['save_folder']
-                file_root = protocol[layer]['file_root']
-                lumaview.capture(0, save_folder, file_root, color = layer)
+                # Dark field capture
+                self.led_board.leds_off()
+                time.sleep(exposure/1000)  # Should be replaced with Clock
+                scope_display.update()
+                darkfield = lumaview.camera.array
 
-                # turn off the LED
-                lumaview.led_board.leds_off()
-        lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+                # Florescent capture
+                self.led_board.led_on(self.led_board.color2ch(layer), illumination)
+                time.sleep(exposure/1000)  # Should be replaced with Clock
+                scope_display.update()
+                corrected = lumaview.camera.array - np.minimum(lumaview.camera.array,darkfield)
+                # buffer the images
+                if layer == 'Blue':
+                    img[:,:,0] = corrected
+                elif layer == 'Green':
+                    img[:,:,1] = corrected
+                elif layer == 'Red':
+                    img[:,:,2] = corrected
+                # # if Brightfield is included
+                # else:
+                #     a = 0.3
+                #     img[:,:,0] = img[:,:,0]*a + corrected*(1-a)
+                #     img[:,:,1] = img[:,:,1]*a + corrected*(1-a)
+                #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
+
+            self.led_board.leds_off()
+            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+
+        img = np.flip(img, 0)
+
+        save_folder = protocol['live_folder']
+        file_root = 'composite_'
+        append = str(int(round(time.time() * 1000)))
+        filename =  file_root + append + '.tiff'
+        cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
+
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -202,113 +284,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         if self.camera.active == False:
             return
         scope_display.record = not scope_display.record
-
-    def capture(self, dt=0, save_folder = './capture/', file_root = 'live_', append = 'ms', color = 'BF'):
-        if self.camera.active == False:
-            return
-
-        img = np.zeros((self.camera.array.shape[0], self.camera.array.shape[1], 3))
-
-        if self.ids['mainsettings_id'].currentLayer != 'protocol':
-            color = self.ids['mainsettings_id'].currentLayer
-
-        if color == 'Blue':
-            img[:,:,0] = self.camera.array
-        elif color == 'Green':
-            img[:,:,1] = self.camera.array
-        elif color == 'Red':
-            img[:,:,2] = self.camera.array
-        else:
-            img[:,:,0] = self.camera.array
-            img[:,:,1] = self.camera.array
-            img[:,:,2] = self.camera.array
-
-        img = np.flip(img, 0)
-
-        folder = protocol['live_folder']
-
-        # set filename options
-        if append == 'time':
-            append = time.strftime("%Y%m%d_%H%M%S")
-        elif append == 'ms':
-            append = str(int(round(time.time() * 1000)))
-        else:
-            append =''
-
-        # generate filename string
-        filename =  file_root + append + '.tiff'
-
-        try:
-            cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
-        except:
-            print("Error: Unable to save. Perhaps save folder does not exist?")
-
-
-    # Save composite image to single file
-    def composite(self):
-        scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        if self.camera.active == False:
-            return
-
-        folder = protocol['live_folder']
-        img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
-
-        layers = ['BF', 'Blue', 'Green', 'Red']
-        for layer in layers:
-            # multicolor image stack
-
-            if protocol[layer]['acquire'] == True:
-                lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
-
-                # Wait for focus to be reached
-                set_value = lumaview.motion.target_pos('Z')   # Get target value
-                get_value = lumaview.motion.current_pos('Z')  # Get current value
-
-                while set_value != get_value:
-                    time.sleep(.01)
-                    get_value = lumaview.motion.current_pos('Z') # Get current value
-
-                # set the gain and exposure
-                gain = protocol[layer]['gain']
-                lumaview.camera.gain(gain)
-                exposure = protocol[layer]['exp']
-                lumaview.camera.exposure_t(exposure)
-                # turn on the LED
-                # update illumination to currently selected settings
-                illumination = protocol[layer]['ill']
-
-                # Dark field capture
-                self.led_board.leds_off()
-                time.sleep(exposure/1000)  # Should be replaced with Clock
-                scope_display.update()
-                darkfield = lumaview.camera.array
-                # Florescent capture
-                self.led_board.led_on(self.led_board.color2ch(layer), illumination) #self.layer??
-                time.sleep(exposure/1000)  # Should be replaced with Clock
-                scope_display.update()
-                #corrected = np.max(microscope.array - darkfield, np.zeros(like=darkfield))
-                corrected = lumaview.camera.array - np.minimum(lumaview.camera.array,darkfield)
-                # buffer the images
-                if layer == 'Blue':
-                    img[:,:,0] = corrected
-                elif layer == 'Green':
-                    img[:,:,1] = corrected
-                elif layer == 'Red':
-                    img[:,:,2] = corrected
-                # # if Brightfield is included
-                # else:
-                #     a = 0.3
-                #     img[:,:,0] = img[:,:,0]*a + corrected*(1-a)
-                #     img[:,:,1] = img[:,:,1]*a + corrected*(1-a)
-                #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
-
-            self.led_board.leds_off()
-            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-
-        img = np.flip(img, 0)
-
-        filename = 'composite_' + str(int(round(time.time() * 1000))) + '.tiff'
-        cv2.imwrite(folder+'/'+filename, img.astype(np.uint8))
 
     def fit_image(self):
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
@@ -634,7 +609,6 @@ class Histogram(Widget):
             self.bg_color = (1, 1, 1, 1)
 
         self.event = Clock.schedule_interval(self.histogram, 1)
-        #print('DEBUG: Histogram Clock.schedule_interval(self.histogram, 1)')
 
         self.hist_range_set = False
         self.edges = [0,255]
@@ -743,7 +717,7 @@ class VerticalControl(BoxLayout):
         self.update_gui()
 
     def set_position(self, pos):
-        lumaview.motion.move_abs_pos('Z', pos)
+        lumaview.motion.move_abs_pos('Z', float(pos))
         self.update_gui()
 
     def set_bookmark(self):
@@ -756,7 +730,6 @@ class VerticalControl(BoxLayout):
         self.update_gui()
 
     def home(self):
-        self.ids['home_id'].text = 'Homing...'
         lumaview.motion.zhome()
         self.update_gui()
 
@@ -1482,8 +1455,6 @@ class LayerControl(BoxLayout):
         # -----------------------------------------------------
         for i in np.arange(0.1, 2, 0.1):
             Clock.schedule_once(self.update_shader, i)
-            # print('DEBUG: Layer Control Clock.schedule_once(self.update_shader,', i, ')')
-
 
     def update_shader(self, dt):
         if self.ids['false_color'].active:
