@@ -167,7 +167,7 @@ class CompositeCapture(FloatLayout):
                 # Go to focus and wait for arrival
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
                 while not lumaview.motion.target_status('Z'):
-                    time.sleep(.01)
+                    time.sleep(.05)
 
                 # set the gain, exposure, illumination
                 gain = protocol[layer]['gain']
@@ -247,7 +247,7 @@ class CompositeCapture(FloatLayout):
                 # Go to focus and wait for arrival
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
                 while not lumaview.motion.target_status('Z'):
-                    time.sleep(.01)
+                    time.sleep(.05)
 
                 # set the gain and exposure
                 gain = protocol[layer]['gain']
@@ -284,7 +284,7 @@ class CompositeCapture(FloatLayout):
                 #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
 
             lumaview.led_board.leds_off()
-            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+        lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         img = np.flip(img, 0)
 
