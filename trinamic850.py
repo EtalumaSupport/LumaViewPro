@@ -165,7 +165,7 @@ class TrinamicBoard:
 
             # Schedule writing target and actual Z position to 0 after 4 seconds
             s = sched.scheduler()
-            zevent = s.enter(1, 1, self.zhome_write)
+            zevent = s.enter(3, 1, self.zhome_write)
             s.run()
 
     def zhome_write(self):
@@ -192,7 +192,7 @@ class TrinamicBoard:
 
             # Schedule writing target and actual XY positions to 0 after 8 seconds
             s = sched.scheduler()
-            xyevent = s.enter(3, 2, self.xyhome_write)
+            xyevent = s.enter(5, 2, self.xyhome_write)
             s.run()
 
     def xyhome_write(self):

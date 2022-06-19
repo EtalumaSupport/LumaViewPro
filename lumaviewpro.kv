@@ -250,7 +250,7 @@
 	BoxLayout:
 		orientation: 'horizontal'
 		size_hint_y: None
-		height: '180dp'
+		height: '205dp'
 		BoxLayout:
 		    orientation: 'vertical'
 		    size_hint_x: None
@@ -321,19 +321,12 @@
 		    orientation: 'vertical'
 		    padding: '5dp'
 			spacing: '5dp'
-			Label:
 		    Label:
 		        size_hint_y: None
 		        height: '15dp'
 				halign: 'center'
 		        font_size: '12sp'
-		        text: 'Z-Position'
-		    Label:
-		        size_hint_y: None
-		        height: '15dp'
-				halign: 'center'
-		        font_size: '12sp'
-		        text: 'Target (um)'
+		        text: 'Z-Position (um)'
 		    TextInput:
 				id: z_position_id
             	multiline: False
@@ -344,62 +337,32 @@
             	input_filter: 'float'
 		        text: format(obj_position.value, '.2f')
                 on_text_validate: root.set_position(self.text)
-			# Label:
-		    #     size_hint_y: None
-		    #     height: '10dp'
-		    # Label:
-		    #     size_hint_y: None
-		    #     height: '15dp'
-			# 	halign: 'center'
-		    #     font_size: '12sp'
-		    #     text: 'Z-Position'
-		    # Label:
-		    #     size_hint_y: None
-		    #     height: '15dp'
-			# 	halign: 'center'
-		    #     font_size: '12sp'
-		    #     text: 'Current (um)'
-		    # TextInput:
-			# 	id: get_position_id
-            # 	multiline: False
-		    #     size_hint_y: None
-		    #     height: '30dp'
-		    #     font_size: '12sp'
-			# 	halign: 'center'
-		    #     disabled: True
-			Label:
-	BoxLayout:
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '30dp'
-		spacing: '5dp'
-		Button:
-			text: 'Set Bookmark'
-			font_size: '12sp'
-			on_release: root.set_bookmark()
-		Button:
-			text: 'Go to Bookmark'
-			font_size: '12sp'
-			on_release: root.goto_bookmark()
-	BoxLayout:
-	    orientation: 'horizontal'
-	    size_hint_y: None
-	    height: '30dp'
-		spacing: '5dp'
-		Button:
-			id: home_id
-		    size_hint_y: None
-		    height: '30dp'
-			font_size: '12sp'
-			text: 'Home'
-			on_release: root.home()
-		Button:
-			id: autofocus_id
-		    size_hint_y: None
-		    height: '30dp'
-			font_size: '12sp'
-			text: 'Autofocus'
-			on_release: root.autofocus()
+    		Button:
+    			id: home_id
+    		    size_hint_y: None
+    		    height: '30dp'
+    			font_size: '12sp'
+    			text: 'Home'
+    			on_release: root.home()
+    		Button:
+    			text: 'Set Bookmark'
+    		    size_hint_y: None
+    		    height: '30dp'
+    			font_size: '12sp'
+    			on_release: root.set_bookmark()
+    		Button:
+    			text: 'Go to Bookmark'
+    		    size_hint_y: None
+    		    height: '30dp'
+    			font_size: '12sp'
+    			on_release: root.goto_bookmark()
+    		Button:
+    			id: autofocus_id
+    		    size_hint_y: None
+    		    height: '30dp'
+    			font_size: '12sp'
+    			text: 'Autofocus'
+    			on_release: root.autofocus()
 	Label:
 
 # Z-Stack Settings
@@ -433,29 +396,19 @@
 			spacing: '5dp'
 			Label:
 				font_size: '12sp'
-				text: '# of Steps'
-			Label:
-				font_size: '12sp'
 				text: 'Step size (um)'
 			Label:
 				font_size: '12sp'
 				text: 'Range'
+			Label:
+				font_size: '12sp'
+				text: '# of Steps'
 
 		BoxLayout:
 		    orientation: 'horizontal'
 		    size_hint_y: None
 		    height: '30dp'
 			spacing: '5dp'
-			TextInput:
-				id: zstack_steps_id
-	        	multiline: False
-		        size_hint_y: None
-		        height: '30dp'
-		        font_size: '12sp'
-				halign: 'center'
-	        	input_filter: 'int'
-				text: '0'
-	            on_text_validate: root.set_range()
 
 			TextInput:
 				id: zstack_stepsize_id
@@ -466,7 +419,7 @@
 				halign: 'center'
 	        	input_filter: 'float'
 				text: '0'
-	            on_text_validate: root.set_range()
+	            on_text_validate: root.set_steps()
 
 			TextInput:
 				id: zstack_range_id
@@ -475,9 +428,22 @@
 		        height: '30dp'
 		        font_size: '12sp'
 				halign: 'center'
+	        	input_filter: 'float'
+				text: '0'
+	            on_text_validate: root.set_steps()
+
+			TextInput:
+				id: zstack_steps_id
+	        	multiline: False
+		        size_hint_y: None
+		        height: '30dp'
+		        font_size: '12sp'
+				halign: 'center'
+	        	input_filter: 'int'
 				text: '0'
 		        disabled: True
-		Button:
+
+		ToggleButton:
 			id: ztack_aqr_btn
 			size_hint_y: None
 			height: '30dp'

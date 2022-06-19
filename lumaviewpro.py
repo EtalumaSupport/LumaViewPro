@@ -141,19 +141,21 @@ class ScopeDisplay(Image):
 class CompositeCapture(FloatLayout):
 
     def live_capture(self):
+        global lumaview
 
         save_folder = protocol['live_folder']
         file_root = 'live_'
         append = 'ms'
         color = 'BF'
-        if self.ids['mainsettings_id'].currentLayer != 'protocol':
-            color = self.ids['mainsettings_id'].currentLayer
+        if lumaview.ids['mainsettings_id'].currentLayer != 'protocol':
+            color = lumaview.ids['mainsettings_id'].currentLayer
 
-        self.save_image(save_folder, file_root, append, color)
+        lumaview.save_image(save_folder, file_root, append, color)
 
     def multicolor_capture(self):
+        global lumaview
 
-        if self.camera.active == False:
+        if lumaview.camera.active == False:
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
@@ -175,7 +177,7 @@ class CompositeCapture(FloatLayout):
                 illumination = protocol[layer]['ill']
 
                 # Illuminate
-                self.led_board.led_on(self.led_board.color2ch(layer), illumination)
+                lumaview.led_board.led_on(self.led_board.color2ch(layer), illumination)
                 time.sleep(exposure/1000)  # Should be replaced with Clock
 
                 # Save
@@ -184,28 +186,30 @@ class CompositeCapture(FloatLayout):
                 append = 'ms'
                 color = layer
 
-                self.save_image(save_folder, file_root, append, color)
+                lumaview.save_image(save_folder, file_root, append, color)
 
-                self.led_board.leds_off()
+                lumaview.led_board.leds_off()
 
 
     # Save image from camera buffer to specified location
     def save_image(self, save_folder = './capture/', file_root = 'img_', append = 'ms', color = 'BF'):
-        if self.camera.active == False:
+        global lumaview
+
+        if lumaview.camera.active == False:
             return
 
-        img = np.zeros((self.camera.array.shape[0], self.camera.array.shape[1], 3))
+        img = np.zeros((lumaview.camera.array.shape[0], lumaview.camera.array.shape[1], 3))
 
         if color == 'Blue':
-            img[:,:,0] = self.camera.array
+            img[:,:,0] = lumaview.camera.array
         elif color == 'Green':
-            img[:,:,1] = self.camera.array
+            img[:,:,1] = lumaview.camera.array
         elif color == 'Red':
-            img[:,:,2] = self.camera.array
+            img[:,:,2] = lumaview.camera.array
         else:
-            img[:,:,0] = self.camera.array
-            img[:,:,1] = self.camera.array
-            img[:,:,2] = self.camera.array
+            img[:,:,0] = lumaview.camera.array
+            img[:,:,1] = lumaview.camera.array
+            img[:,:,2] = lumaview.camera.array
 
         img = np.flip(img, 0)
 
@@ -227,6 +231,7 @@ class CompositeCapture(FloatLayout):
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
+        global lumaview
 
         if self.camera.active == False:
             return
@@ -254,13 +259,13 @@ class CompositeCapture(FloatLayout):
                 illumination = protocol[layer]['ill']
 
                 # Dark field capture
-                self.led_board.leds_off()
+                lumaview.led_board.leds_off()
                 time.sleep(exposure/1000)  # Should be replaced with Clock
                 scope_display.update()
                 darkfield = lumaview.camera.array
 
                 # Florescent capture
-                self.led_board.led_on(self.led_board.color2ch(layer), illumination)
+                lumaview.led_board.led_on(lumaview.led_board.color2ch(layer), illumination)
                 time.sleep(exposure/1000)  # Should be replaced with Clock
                 scope_display.update()
                 corrected = lumaview.camera.array - np.minimum(lumaview.camera.array,darkfield)
@@ -278,7 +283,7 @@ class CompositeCapture(FloatLayout):
                 #     img[:,:,1] = img[:,:,1]*a + corrected*(1-a)
                 #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
 
-            self.led_board.leds_off()
+            lumaview.led_board.leds_off()
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         img = np.flip(img, 0)
@@ -1087,7 +1092,7 @@ class ProtocolSettings(CompositeCapture):
             # scan labware should have a composite capture event
 
         else:
-            self.ids['scan_labware_btn'].text = 'Run One Scan' # 'normal'
+            self.ids['scan_labware_btn'].text = 'Run One Lap of Protocol' # 'normal'
             labware.autoscan_event.cancel()
 
     # Run protocol timing with no movement
@@ -1236,8 +1241,24 @@ class Labware(Widget):
             # take the images (and do all else)
             print('Position', i, ',', j,  'Reached')
 
-            # take a full composite (right now a single image)
-            lumaview.capture(file_root = 'protocol_')
+            # Update values from protocol into protocol variable for
+            #   gain
+            #   exposure
+            #   illumination
+            #   focus height
+
+            # "Blue": {
+            #     "ill": 225.0,
+            #     "gain": 13.9,
+            #     "gain_auto": false,
+            #     "exp": 325.31,
+            #     "false_color": false,
+            #     "acquire": true,
+            #     "focus": 3221.7820946739
+            # },
+
+            # capture images
+            lumaview.multicolor_capture()
 
 
             # increment to the next position
@@ -1499,26 +1520,34 @@ class LayerControl(BoxLayout):
 
 
 class ZStack(CompositeCapture):
-    def set_range(self):
-        n_steps = self.ids['zstack_steps_id'].text
-        n_steps = int(n_steps)
+    def set_steps(self):
 
         step_size = self.ids['zstack_stepsize_id'].text
         step_size = float(step_size)
 
-        range = n_steps * step_size
-        self.ids['zstack_range_id'].text = str(range)
+        range = self.ids['zstack_range_id'].text
+        range = float(range)
+
+        if step_size != 0:
+            n_steps = np.floor( range / step_size)
+            self.ids['zstack_steps_id'].text = str(int(n_steps))
+        else:
+            self.ids['zstack_steps_id'].text = '0'
 
     def aquire_zstack(self):
         global lumaview
 
-        n_steps = self.ids['zstack_steps_id'].text
-        n_steps = int(n_steps)
-
         step_size = self.ids['zstack_stepsize_id'].text
         step_size = float(step_size)
 
-        z_range = n_steps * step_size
+        range = self.ids['zstack_range_id'].text
+        range = float(range)
+
+        n_steps = self.ids['zstack_steps_id'].text
+        n_steps = int(n_steps)
+
+        if n_steps <= 0:
+            return False
 
         spinner_values = self.ids['zstack_spinner'].values
         spinner_value = self.ids['zstack_spinner'].text
@@ -1528,38 +1557,43 @@ class ZStack(CompositeCapture):
 
         # Set start position
         if spinner_value == spinner_values[0]:   # 'Current Position at Top'
-            start_pos = current_pos - z_range
+            start_pos = current_pos - range
         elif spinner_value == spinner_values[1]: # 'Current Position at Center'
-            start_pos = current_pos - z_range / 2
+            start_pos = current_pos - range / 2
         elif spinner_value == spinner_values[2]: # 'Current Position at Bottom'
             start_pos = current_pos
 
         # Make array of positions
-        positions = np.arange(n_steps)*step_size + start_pos
+        self.positions = np.arange(n_steps)*step_size + start_pos
 
-        # Acquire z-stack
-        for pos in positions:
-            # Move to position
-            lumaview.motion.move_abs_pos('Z', pos)
+        # begin moving to the first position
+        self.n_pos = 0
+        lumaview.motion.move_abs_pos('Z', self.positions[self.n_pos])
 
+        if self.ids['ztack_aqr_btn'].state == 'down':
+            self.zstack_event = Clock.schedule_interval(self.zstack_iterate, 0.01)
+            self.ids['ztack_aqr_btn'].text = 'Acquiring ZStack'
+            print('DEBUG: ZStack self.zstack_event = Clock.schedule_interval(self.zstack_iterate, 0.01)')
 
-            # REPLACE BELOW WITH:
-            # Schedule Regular Checks
-            # Use target_status
-            # If target_status is True capture image and unschedule
-            # Include a timeout
+        else:
+            self.ids['ztack_aqr_btn'].text = 'Acquire'
+            self.zstack_event.cancel()
+            print('cancel')
 
-            # Wait to arrive
-            set_value = lumaview.motion.target_pos('Z')   # Get target value
-            get_value = lumaview.motion.current_pos('Z')  # Get current value
+    def zstack_iterate(self, dt):
+        print('iterate')
 
-            while set_value != get_value:
-                time.sleep(.01)
-                get_value = lumaview.motion.current_pos('Z') # Get current value
+        if lumaview.motion.target_status('Z'):
+            print('at target')
+            self.live_capture()
+            self.n_pos += 1
 
-            # Capture image
-            # print(pos)
-
+            if self.n_pos < len(self.positions):
+                lumaview.motion.move_abs_pos('Z', self.positions[self.n_pos])
+            else:
+                self.ids['ztack_aqr_btn'].text = 'Acquire'
+                self.ids['ztack_aqr_btn'].state = 'normal'
+                self.zstack_event.cancel()
 
 # Button the triggers 'filechooser.open_file()' from plyer
 class FileChooseBTN(Button):
