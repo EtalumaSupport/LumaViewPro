@@ -21,19 +21,19 @@ Restart the computer
 
 Open a command prompt and type the following
 ```
-pip install --upgrade pip setuptools virtualenv
-pip install numpy
-pip install pyserial
-pip install Pillow
-pip install opencv-python
-pip install pypylon
-pip install docutils pygments pypiwin32
-pip install kivy.deps.sdl2
-pip install kivy.deps.glew
-pip install kivy
-pip install plyer
-pip install scipy
-pip install mcp2210-python
+python -m pip install --upgrade pip setuptools virtualenv
+python -m pip install numpy
+python -m pip install pyserial
+python -m pip install Pillow
+pyhton -m pip install opencv-python
+python -m pip install pypylon
+python -m pip install docutils pygments pypiwin32
+python -m pip install kivy.deps.sdl2
+python -m pip install kivy.deps.glew
+python -m pip install kivy
+python -m pip install plyer
+python -m pip install scipy
+python -m pip install mcp2210-python
 ```
 
 ## Installing dependencies on Mac OS X to run as a Python Script
