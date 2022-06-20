@@ -80,8 +80,6 @@ from kivy.uix.popup import Popup
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 
-# From KivyMD
-from kivymd.uix.behaviors import HoverBehavior, TouchBehavior
 
 # Video Related
 from kivy.graphics.texture import Texture
