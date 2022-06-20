@@ -25,7 +25,7 @@ python -m pip install --upgrade pip setuptools virtualenv
 python -m pip install numpy
 python -m pip install pyserial
 python -m pip install Pillow
-pyhton -m pip install opencv-python
+python -m pip install opencv-python
 python -m pip install pypylon
 python -m pip install docutils pygments pypiwin32
 python -m pip install kivy.deps.sdl2
