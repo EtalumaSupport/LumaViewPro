@@ -9,43 +9,32 @@ LumaViewPro is an open source fluorescence microscope control interface written 
 The most recent executable for Windows 10 can be retrieved from:
 https://drive.google.com/drive/folders/1vFG5wKAaB_DNMNctJCE5Sax5WXlNiw_3?usp=sharing
 
-To use, download 'LumaViewPro.zip' and extract file. First install the camera driver. Then you can run the executable by double-clicking with no further installation. Note that the code may be more current than the executable.
+To use, download 'LumaViewPro.zip' and extract file. First install the camera driver. Then you can run the executable by double-clicking with no further installation. Note that the code may be more current than the executable. This executable was designed for the LS720.
 
 ## Installing dependencies on Windows 10 to run as a Python Script
-Download and install Python 3.9 from python page https://www.python.org/downloads/ for ALL users into new folder at `C:\Program Files\Python39`. You will have to run the program in administrative mode.
+Download and install from the python page https://www.python.org/downloads/.
+- select "install now"
+- select "add python to PATH"
+- select "install launcher for all users"
 
-Run the command prompt as administrator, and enter each of the following commands. 
+Restart the computer
 
+Open a command prompt and type the following
 ```
-python3 -m pip install --upgrade pip setuptools virtualenv
-python3 -m pip install numpy
-python3 -m pip install pyserial
-python3 -m pip install Pillow
-python3 -m pip install opencv-python
-python3 -m pip install pypylon
-python3 -m pip install docutils pygments pypiwin32
-python3 -m pip install kivy.deps.sdl2
-python3 -m pip install kivy.deps.glew
-python3 -m pip install kivy
-python3 -m pip install kivymd
-python3 -m pip install plyer
-python3 -m pip install scipy
-python3 -m pip install mcp2210-python
+pip install --upgrade pip setuptools virtualenv
+pip install numpy
+pip install pyserial
+pip install Pillow
+pip install opencv-python
+pip install pypylon
+pip install docutils pygments pypiwin32
+pip install kivy.deps.sdl2
+pip install kivy.deps.glew
+pip install kivy
+pip install plyer
+pip install scipy
+pip install mcp2210-python
 ```
-
-The latest version of each are should be functional. However, the versions that were installed at the start of development were:
-* pip-21.0.1 setuptools-54.2.0 virtualenv-20.4.3
-* numpy-1.20.1
-* pyserial-3.5
-* Pillow-8.1.2
-* opencv-python-4.5.1.48
-* pypylon-1.7.2
-* docutils-0.16 pygments-2.8.1 pypiwin32-223 pywin32-300
-* kivy_deps.sdl2-0.3.1-cp39-cp39-win_amd64.whl
-* kivy_deps.glew-0.3.0-cp39-cp39-win_amd64.whl
-* kivy 2.0.0
-* kivymd-0.104.1
-
 
 ## Installing dependencies on Mac OS X to run as a Python Script
 Upgrade to the latest version of Mac OS X.  Also ensure you have the latest version of XCode installed from the [Mac App store](https://apps.apple.com/us/app/xcode/id497799835?mt=12).  Open XCode and let installation scripts download and run any additional tools needed.  Then open a terminal and enter the following command to install the XCode command line tools:
