@@ -94,8 +94,12 @@ from pyloncamera import *
 global lumaview
 global protocol
 
-with open('./data/current.json', "r") as read_file:
-    protocol = json.load(read_file)
+# try:
+#     with open('./data/current.json', "r") as read_file:
+#         protocol = json.load(read_file)
+# except:
+#     with open('./data/protocol.json', "r") as read_file:
+#         protocol = json.load(read_file)
 
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
@@ -1676,7 +1680,10 @@ class LumaViewProApp(App):
         global lumaview
         lumaview = MainDisplay()
 
-        lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol("./data/current.json")
+        try:
+            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol("./data/current.json")
+        except:
+            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol("./data/protocol.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
         lumaview.motion.xyhome()
