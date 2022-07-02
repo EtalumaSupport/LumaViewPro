@@ -1,3 +1,5 @@
 __pycache__/
 data/current.json
 LS850diagnostics.py
+todo.txt
+auxillary/image_stitcher.py
