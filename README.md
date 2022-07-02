@@ -13,13 +13,12 @@ To use, download 'LumaViewPro.zip' and extract file. First install the camera dr
 
 ## Installing dependencies on Windows 10 to run as a Python Script
 Download and install from the python page https://www.python.org/downloads/.
-- select "install now"
 - select "add python to PATH"
 - select "install launcher for all users"
+- select "install now"
+- restart the computer
 
-Restart the computer
-
-Open a command prompt and type the following
+Open a command prompt and paste the following
 ```
 python -m pip install --upgrade pip setuptools virtualenv
 python -m pip install numpy
