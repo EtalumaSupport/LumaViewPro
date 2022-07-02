@@ -20,7 +20,7 @@ class PylonCamera:
             self.active.GainAuto.SetValue('Off')
             self.active.ExposureAuto.SetValue('Off')
             self.active.ReverseX.SetValue(True);
-            # Grabbing Continusely (video) with minimal delay
+            # Grabbing Continously (video) with minimal delay
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             print("LumaViewPro compatible camera is now connected.")
 
