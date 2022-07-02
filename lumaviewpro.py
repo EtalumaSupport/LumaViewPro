@@ -94,13 +94,6 @@ from pyloncamera import *
 global lumaview
 global protocol
 
-# try:
-#     with open('./data/current.json', "r") as read_file:
-#         protocol = json.load(read_file)
-# except:
-#     with open('./data/protocol.json', "r") as read_file:
-#         protocol = json.load(read_file)
-
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
 # -------------------------------------------------------------------------
@@ -445,7 +438,7 @@ void main (void) {
         else:
             super(ShaderViewer, self).on_touch_down(touch)
 
-    def update_shader(self, false_color):
+    def update_shader(self, false_color='BF'):
 
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
@@ -526,7 +519,8 @@ class PostProcessing(BoxLayout):
             size = (width,height)
             img_array.append(img)
 
-        out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+        if len(img_array) > 0:
+            out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
 
         for i in range(len(img_array)):
             out.write(img_array[i])
@@ -1259,7 +1253,7 @@ class Labware(Widget):
             #     "focus": 3221.7820946739
             # },
 
-            # capture images
+            # capture images 
             lumaview.multicolor_capture()
 
 
@@ -1674,9 +1668,10 @@ class FileSaveBTN(Button):
 # RUN LUMAVIEWPRO APP
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
+
     def build(self):
-        Window.size = (1280, 800)
         self.icon = './data/icons/icon32x.png'
+        Window.maximize()
         global lumaview
         lumaview = MainDisplay()
 
