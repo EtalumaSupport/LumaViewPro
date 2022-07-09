@@ -1,6 +1,7 @@
 {
     "microscope": "LS850",
     "objective": {
+        "ID": "60x",
         "desc": "60x description",
         "magnification": 60,
         "aperture": 0.85,
@@ -9,8 +10,7 @@
         "AF_max": 6.0,
         "AF_range": 15.0,
         "step_fine": 0.2,
-        "step_course": 2.0,
-        "ID": "60x"
+        "step_course": 2.0
     },
     "frame_width": 1900,
     "frame_height": 1900,
@@ -21,6 +21,7 @@
     "z_bookmark": 3221.7820946739,
     "period": 0.1,
     "duration": 0.1,
+
     "BF": {
         "save_folder": "./capture",
         "file_root": "W_",
@@ -32,6 +33,7 @@
         "acquire": true,
         "focus": 0.0
     },
+
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
@@ -43,6 +45,7 @@
         "acquire": true,
         "focus": 3221.7820946739
     },
+
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
@@ -54,6 +57,7 @@
         "acquire": true,
         "focus": 3233.2010135931
     },
+
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
@@ -65,8 +69,6 @@
         "acquire": true,
         "focus": 0.0
     },
-    "Composite": {
-        "acquire": false
-    },
+    
     "labware": "Well plate"
 }
