@@ -652,15 +652,15 @@
 				font_size: '12sp'
 		        on_release: self.choose('save_protocol')
 
-		# Labware Display
+		# Stage Display
 		FloatLayout:
 			padding: '5dp'
 			size_hint_y: None
 			#height: '128dp'
 			#size_hint_y: None
 			height: self.width * 2 / 3
-			Labware:
-				id: labware_widget_id
+			Stage:
+				id: stage_widget_id
 				pos_hint:{'center_x':0.5, 'center_y':0.5}
 
 		# Time Settings
@@ -749,7 +749,6 @@
 		        width: '30dp'
 				font_size: '12sp'
 		    Label:
-		        id: protocol_btn
 		        text: 'of'
 		        size_hint_y: None
 		        height: '30dp'
@@ -762,7 +761,6 @@
 		        width: '30dp'
 				font_size: '12sp'
 		    Label:
-		        id: protocol_btn
 		        text: 'steps.'
 		        size_hint_y: None
 		        height: '30dp'
@@ -791,19 +789,21 @@
 	        height: '30dp'
 			spacing: '5dp'
 		    Button:
+		        id: delete_step_btn
 		        text: 'Delete'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
 		        on_release:
 		    Button:
+		        id: change_step_btn
 		        text: 'Change'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
 		        on_release:
 		    Button:
-		        id: protocol_btn
+		        id: add_step_btn
 		        text: 'Add'
 		        size_hint_y: None
 		        height: '30dp'
@@ -828,28 +828,28 @@
 			spacing: '5dp'
 
 	    ToggleButton:
-	        id: scan_labware_btn
+	        id: run_scan_btn
 	        text: 'Run One Scan'
 	        size_hint_y: None
 	        height: '30dp'
 			font_size: '12sp'
-			on_release: root.scan_labware()
+			on_release: root.run_scan()
+
+	    # ToggleButton:
+	    #     id: run_stationary_btn
+	    #     text: 'Run Stationary Protocol'
+	    #     size_hint_y: None
+	    #     height: '30dp'
+		# 	font_size: '12sp'
+		# 	on_release: root.run_stationary()
 
 	    ToggleButton:
-	        id: protocol_btn
-	        text: 'Run Stationary Protocol'
-	        size_hint_y: None
-	        height: '30dp'
-			font_size: '12sp'
-			on_release: root.run_stationary_protocol()
-
-	    ToggleButton:
-	        id: full_protocol_btn
+	        id: run_protocol_btn
 	        text: 'Run Full Protocol'
 	        size_hint_y: None
 	        height: '30dp'
 			font_size: '12sp'
-			on_release: root.run_full_protocol()
+			on_release: root.run_protocol()
 
 		Label:
 
@@ -1068,9 +1068,18 @@
             text: '1944'
             on_text_validate: root.frame_size()
 			font_size: '12sp'
-    # Image:
-    #     id: image_of_microscope
-    #     source: './data/scopes/LS620.png'
+	FileChooseBTN:
+		text: 'Load Settings'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: self.choose('load_settings')
+	FileSaveBTN:
+		text: 'Save Settings'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: self.choose('save_settings')
 
 	Label:
 

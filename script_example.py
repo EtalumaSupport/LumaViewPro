@@ -28,7 +28,8 @@ for i in range(6):
     led.led_on(i, 60000)  # turn on LED at channel 0 at 50mA
     time.sleep(1)       # wait one second
     led.leds_off()       # turn off all LEDs
-'''
+
+
 # ----------------------------------------------------
 # Controlling focus and XY stage
 # ----------------------------------------------------
@@ -46,10 +47,10 @@ if cam.active:
     cam.grab()
     img = Image.fromarray(cam.array)
     img.show()
-'''
 
 
-'''
+
+
 # ----------------------------------------------------
 # Example
 # ----------------------------------------------------
@@ -81,4 +82,3 @@ if cam.active:
     img.show()
 
     led.leds_off()       # turn off all LEDs
-'''

@@ -61,6 +61,16 @@ class LEDBoard:
         else: # BF
             return 3
 
+    def ch2color(self, channel):
+        if channel == 0:
+            return 'Blue'
+        elif channel == 1:
+            return 'Green'
+        elif channel == 2:
+            return 'Red'
+        else:
+            return 'BF'
+
     # interperet commands
     # ------------------------------------------
     # board status: 'STATUS' case insensitive

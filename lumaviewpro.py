@@ -39,8 +39,8 @@ May 19, 2022
 # General
 import sys
 import numpy as np
+import pandas as pd
 import time
-import os
 import json
 import glob
 import math
@@ -93,7 +93,7 @@ from pyloncamera import *
 from labware import *
 
 global lumaview
-global protocol
+global settings
 
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
@@ -139,56 +139,43 @@ class CompositeCapture(FloatLayout):
     def live_capture(self):
         global lumaview
 
-        save_folder = protocol['live_folder']
+        save_folder = settings['live_folder']
         file_root = 'live_'
         append = 'ms'
         color = 'BF'
-        if lumaview.ids['mainsettings_id'].currentLayer != 'protocol':
+        if lumaview.ids['mainsettings_id'].currentLayer != 'microscope':
             color = lumaview.ids['mainsettings_id'].currentLayer
 
-        lumaview.save_image(save_folder, file_root, append, color)
+        lumaview.camera.grab()
+        self.save_image(save_folder, file_root, append, color)
 
-    def multicolor_capture(self):
+    def custom_capture(self, channel, illumination, gain, exposure):
         global lumaview
+        global settings
+        
+        # Set gain and exposure
+        lumaview.camera.gain(gain)
+        lumaview.camera.exposure_t(exposure)
 
-        if lumaview.camera.active == False:
-            return
+ 
+        # Save Settings
+        color = lumaview.led_board.ch2color(channel)
+        save_folder =  settings[color]['save_folder']
+        file_root = settings[color]['file_root']
+        append = 'ms'
 
-        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+        # Illuminate
+        lumaview.led_board.led_on(channel, illumination)
 
-        layers = ['BF', 'Blue', 'Green', 'Red']
-        for layer in layers:
-            if protocol[layer]['acquire'] == True:
+        # Grab image and save
+        lumaview.camera.grab()
+        self.save_image(save_folder, file_root, append, color)
 
-                # Go to focus and wait for arrival
-                lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
-                while not lumaview.motion.target_status('Z'):
-                    time.sleep(.05)
-
-                # set the gain, exposure, illumination
-                gain = protocol[layer]['gain']
-                lumaview.camera.gain(gain)
-                exposure = protocol[layer]['exp']
-                lumaview.camera.exposure_t(exposure)
-                illumination = protocol[layer]['ill']
-
-                # Illuminate
-                lumaview.led_board.led_on(self.led_board.color2ch(layer), illumination)
-                time.sleep(exposure/1000)  # Should be replaced with Clock
-
-                # Save
-                save_folder =  protocol[layer]['save_folder']
-                file_root = protocol[layer]['file_root']
-                append = 'ms'
-                color = layer
-
-                lumaview.save_image(save_folder, file_root, append, color)
-
-                lumaview.led_board.leds_off()
-
+        # Turn off LEDs
+        lumaview.led_board.leds_off()
 
     # Save image from camera buffer to specified location
-    def save_image(self, save_folder = './capture/', file_root = 'img_', append = 'ms', color = 'BF'):
+    def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
         global lumaview
 
         if lumaview.camera.active == False:
@@ -222,6 +209,7 @@ class CompositeCapture(FloatLayout):
 
         try:
             cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
+            # cv2.imwrite(filename, img.astype(np.uint8))
         except:
             print("Error: Unable to save. Perhaps save folder does not exist?")
 
@@ -234,11 +222,11 @@ class CompositeCapture(FloatLayout):
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
 
-        img = np.zeros((protocol['frame_height'], protocol['frame_width'], 3))
+        img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
 
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
-            if protocol[layer]['acquire'] == True:
+            if settings[layer]['acquire'] == True:
 
                 # Go to focus and wait for arrival
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
@@ -246,13 +234,13 @@ class CompositeCapture(FloatLayout):
                     time.sleep(.05)
 
                 # set the gain and exposure
-                gain = protocol[layer]['gain']
+                gain = settings[layer]['gain']
                 lumaview.camera.gain(gain)
-                exposure = protocol[layer]['exp']
+                exposure = settings[layer]['exp']
                 lumaview.camera.exposure_t(exposure)
 
                 # update illumination to currently selected settings
-                illumination = protocol[layer]['ill']
+                illumination = settings[layer]['ill']
 
                 # Dark field capture
                 lumaview.led_board.leds_off()
@@ -262,7 +250,7 @@ class CompositeCapture(FloatLayout):
 
                 # Florescent capture
                 lumaview.led_board.led_on(lumaview.led_board.color2ch(layer), illumination)
-                time.sleep(exposure/1000)  # Should be replaced with Clock
+                lumaview.camera.grab()
                 scope_display.update()
                 corrected = lumaview.camera.array - np.minimum(lumaview.camera.array,darkfield)
                 # buffer the images
@@ -284,7 +272,7 @@ class CompositeCapture(FloatLayout):
 
         img = np.flip(img, 0)
 
-        save_folder = protocol['live_folder']
+        save_folder = settings['live_folder']
         file_root = 'composite_'
         append = str(int(round(time.time() * 1000)))
         filename =  file_root + append + '.tiff'
@@ -578,7 +566,6 @@ void main (void) {
 
     # Hide (and unhide) Shader settings
     def toggle_editor(self):
-        # update protocol
         if self.hide_editor == False:
             self.hide_editor = True
             self.pos = -285, 0
@@ -734,22 +721,22 @@ class VerticalControl(BoxLayout):
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
     def course_up(self):
-        course = protocol['objective']['step_course']
+        course = settings['objective']['step_course']
         lumaview.motion.move_rel_pos('Z', course)                  # Move UP
         self.update_gui()
 
     def fine_up(self):
-        fine = protocol['objective']['step_fine']
+        fine = settings['objective']['step_fine']
         lumaview.motion.move_rel_pos('Z', fine)                    # Move UP
         self.update_gui()
 
     def fine_down(self):
-        fine = protocol['objective']['step_fine']
+        fine = settings['objective']['step_fine']
         lumaview.motion.move_rel_pos('Z', -fine)                   # Move DOWN
         self.update_gui()
 
     def course_down(self):
-        course = protocol['objective']['step_course']
+        course = settings['objective']['step_course']
         lumaview.motion.move_rel_pos('Z', -course)                 # Move DOWN
         self.update_gui()
 
@@ -759,10 +746,10 @@ class VerticalControl(BoxLayout):
 
     def set_bookmark(self):
         height = lumaview.motion.current_pos('Z')  # Get current z height in um
-        protocol['z_bookmark'] = height
+        settings['bookmark']['z'] = height
 
     def goto_bookmark(self):
-        pos = protocol['z_bookmark']
+        pos = settings['bookmark']['z']
         lumaview.motion.move_abs_pos('Z', pos)
         self.update_gui()
 
@@ -779,10 +766,10 @@ class VerticalControl(BoxLayout):
             return
 
         # TODO Needs to be set by the user
-        center = protocol['z_bookmark']
-        range =  protocol['objective']['AF_range']
-        fine =   protocol['objective']['AF_min']
-        course = protocol['objective']['AF_max']
+        center = settings['bookmark']['z']
+        range =  settings['objective']['AF_range']
+        fine =   settings['objective']['AF_min']
+        course = settings['objective']['AF_max']
 
         self.z_min = center-range
         self.z_max = center+range
@@ -792,7 +779,7 @@ class VerticalControl(BoxLayout):
         layers = ['BF', 'Blue', 'Green', 'Red']
         #for layer in layers:
         #    if lumaview.ids['mainsettings_id'].ids[layer].collapse == False:
-        #        dt = protocol[layer]['exp']*2
+        #        dt = settings[layer]['exp']*2
         dt = 0.5
 
         self.positions = []
@@ -812,8 +799,8 @@ class VerticalControl(BoxLayout):
         self.positions.append(target)
         self.focus_measures.append(self.focus_function(image))
 
-        fine =   protocol['objective']['AF_min']
-        course = protocol['objective']['AF_max']
+        fine =   settings['objective']['AF_min']
+        course = settings['objective']['AF_max']
         #closeness = 1/(len(self.positions) + 1
         n = len(self.positions)
         closeness = 1/(n + 0.1)
@@ -981,22 +968,22 @@ class XYStageControl(BoxLayout):
     def set_xbookmark(self):
         global lumaview
         x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
-        protocol['x_bookmark'] = x_pos
+        settings['bookmark']['x'] = x_pos
 
     def set_ybookmark(self):
         global lumaview
         y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
-        protocol['y_bookmark'] = y_pos
+        settings['bookmark']['y'] = y_pos
 
     def goto_xbookmark(self):
         global lumaview
-        x_pos = protocol['x_bookmark']
+        x_pos = settings['bookmark']['x']
         lumaview.motion.move_abs_pos('X', x_pos)  # set current x position in um
         self.update_gui()
 
     def goto_ybookmark(self):
         global lumaview
-        y_pos = protocol['y_bookmark']
+        y_pos = settings['bookmark']['y']
         lumaview.motion.move_abs_pos('Y', y_pos)  # set current y position in um
         self.update_gui()
 
@@ -1008,123 +995,150 @@ class XYStageControl(BoxLayout):
 
 # Protocol settings tab
 class ProtocolSettings(CompositeCapture):
+    global settings
 
     def __init__(self, **kwargs):
+
         super(ProtocolSettings, self).__init__(**kwargs)
+        
+        # Load all Possible Labware from JSON
         with open('./data/labware.json', "r") as read_file:
             self.labware = json.load(read_file)
-
+        
     def load_labware(self):
         spinner = self.ids['labware_spinner']
-        spinner.values = self.labware['Wellplate']
-
+        spinner.values = list(self.labware['Wellplate'].keys())
+ 
     def select_labware(self):
         spinner = self.ids['labware_spinner']
-        protocol['labware'] = spinner.text
-        labware = self.ids['labware_widget_id']
-        labware.columns = self.labware['Wellplate'][spinner.text]['columns']
-        labware.rows = self.labware['Wellplate'][spinner.text]['rows']
-        labware.dimensions = self.labware['Wellplate'][spinner.text]['dimensions']
-        labware.spacing = self.labware['Wellplate'][spinner.text]['spacing']
-        labware.offset = self.labware['Wellplate'][spinner.text]['offset']
-        labware.draw_labware()
+        settings['protocol']['labware'] = spinner.text
 
-    # load protocol from JSON file
-    def load_protocol(self, file="./data/current.json"):
-        global lumaview
+    def load_protocol(self, file="./data/sample_protocol.csv"):
+        self.protocol = pd.read_csv(file)
+        print(self.protocol)
 
-        # load protocol JSON file
-        with open(file, "r") as read_file:
-            global protocol
-            protocol = json.load(read_file)
-            # update GUI values from JSON data:
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['scope_spinner'].text = protocol['microscope']
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['objective_spinner'].text = protocol['objective']['ID']
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['magnification_id'].text = str(protocol['objective']['magnification'])
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_width'].text = str(protocol['frame_width'])
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].ids['frame_height'].text = str(protocol['frame_height'])
-
-            self.ids['capture_period'].text = str(protocol['period'])
-            self.ids['capture_dur'].text = str(protocol['duration'])
-
-            layers = ['BF', 'Blue', 'Green', 'Red']
-            for layer in layers:
-                lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = protocol[layer]['ill']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = protocol[layer]['gain']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = protocol[layer]['exp']
-                # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(protocol[layer]['exp']))
-                lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = protocol[layer]['file_root']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = protocol[layer]['false_color']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = protocol[layer]['acquire']
-
-            lumaview.camera.frame_size(protocol['frame_width'], protocol['frame_height'])
-
-    # Save protocol to JSON file
-    def save_protocol(self, file="./data/current.json"):
-        global protocol
-        with open(file, "w") as write_file:
-            json.dump(protocol, write_file, indent = 4)
+    def save_protocol(self):
+        pass
 
     def update_period(self):
-        # if self.ids['capture_period'].text.isnumeric(): # Did not allow for floating point numbers
         try:
-            protocol['period'] = float(self.ids['capture_period'].text)
+            settings['protocol']['period'] = float(self.ids['capture_period'].text)
         except:
             print('Update Period is not an acceptable value')
 
     def update_duration(self):
-        # if self.ids['capture_dur'].text.isnumeric():  # Did not allow for floating point numbers
         try:
-            protocol['duration'] = float(self.ids['capture_dur'].text)
+            settings['protocol']['duration'] = float(self.ids['capture_dur'].text)
         except:
             print('Update Duration is not an acceptable value')
 
-    # Scan or Sweep through the protocol's XY positions
-    def scan_labware(self):
-        labware = self.ids['labware_widget_id']
+    # Run one scan of the protocol
+    def run_scan(self, protocol = False):
+ 
+        if self.ids['run_scan_btn'].state == 'down' or protocol == True:
+            self.ids['run_scan_btn'].text = 'Running Scan'
 
-        if self.ids['scan_labware_btn'].state == 'down':
-            self.ids['scan_labware_btn'].text = 'Scanning Labware'
-            labware.scan_labware() # Pass function to the Labware class
-            # scan labware should have a composite capture event
+            self.step = 0
 
+            x = self.protocol['X'].iloc[self.step]
+            y = self.protocol['Y'].iloc[self.step]
+            z = self.protocol['Z'].iloc[self.step]
+
+            lumaview.motion.move_abs_pos('X', x*1000)
+            lumaview.motion.move_abs_pos('Y', y*1000)
+            lumaview.motion.move_abs_pos('Z', z)
+
+            Clock.schedule_interval(self.scan_iterate, 0.1)
+
+        else:  # self.ids['run_scan_btn'].state =='normal'
+            self.ids['run_scan_btn'].text = 'Run One Scan'
+            Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+    
+    def scan_iterate(self, dt):
+        global lumaview
+        global settings
+
+        # # Draw the Labware on Stage
+        self.ids['stage_widget_id'].draw_labware()
+
+
+
+
+
+
+
+
+
+
+
+        # Check if at desired position
+        x_status = lumaview.motion.target_status('X')
+        y_status = lumaview.motion.target_status('Y')
+        z_status = lumaview.motion.target_status('Z')
+
+        # If target location has been reached
+        if x_status and y_status and z_status:
+            print('Scan Step:', self.protocol['Name'].iloc[self.step])
+
+            # identify image settings
+            channel = int(self.protocol['Channel'].iloc[self.step])
+            illumination = float(self.protocol['Illumination'].iloc[self.step])
+            gain = float(self.protocol['Gain'].iloc[self.step])
+            exposure = float(self.protocol['Exposure'].iloc[self.step])
+            print(channel, illumination, gain, exposure)
+            # capture image
+            self.custom_capture(channel, illumination, gain, exposure)
+
+            # increment to the next step
+            self.step += 1
+
+            if self.step < len(self.protocol):
+                x = self.protocol['X'].iloc[self.step]
+                y = self.protocol['Y'].iloc[self.step]
+                z = self.protocol['Z'].iloc[self.step]
+
+                lumaview.motion.move_abs_pos('X', x*1000)  # move to x
+                lumaview.motion.move_abs_pos('Y', y*1000)  # move to y
+                lumaview.motion.move_abs_pos('Z', z)       # move to z
+
+            # if all positions have already been reached
+            else:
+                print('Scan Complete')
+                self.ids['run_scan_btn'].state = 'normal'
+                self.ids['run_scan_btn'].text = 'Run One Scan'
+                Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+
+    # Run protocol without xy movement
+    def run_stationary(self):
+
+        if self.ids['run_stationary_btn'].state == 'down':
+            self.ids['run_stationary_btn'].text = 'State == Down'
         else:
-            self.ids['scan_labware_btn'].text = 'Run One Lap of Protocol' # 'normal'
-            labware.autoscan_event.cancel()
+            self.ids['run_stationary_btn'].text = 'Run Stationary Protocol' # 'normal'
 
-    # Run protocol timing with no movement
-    def run_stationary_protocol(self):
 
-        if self.ids['protocol_btn'].state == 'down':
-            self.ids['protocol_btn'].text = 'State == Down'
-            # Timer as in protocol_iterate without the scan labware
-            # self.capture
-        else:
-            self.ids['protocol_btn'].text = 'State == Up' # 'normal'
-
-    # Run the complete protocol at all locations
-    def run_full_protocol(self):
-        self.n_scans = int(float(protocol['duration'])*60 / float(protocol['period']))
+    # Run the complete protocol 
+    def run_protocol(self):
+        self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.start_t = time.time() # start of cycle in seconds
 
-        if self.ids['full_protocol_btn'].state == 'down':
+        if self.ids['run_protocol_btn'].state == 'down':
+            Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+            self.run_scan(protocol = True)
             self.protocol_event = Clock.schedule_interval(self.protocol_iterate, 1)
-            print('DEBUG: ProtocolSettings self.update_event.cancel()')
 
         else:
-            labware = self.ids['labware_widget_id']
-            labware.autoscan_event.cancel()
-
+            self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
+            Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
             self.protocol_event.cancel()
-            self.ids['full_protocol_btn'].text = 'Run Full Protocol' # 'normal'
-
+ 
     def protocol_iterate(self, dt):
 
-        # Easy variables
+        # Simplified variables
         start_t = self.start_t # start of cycle in seconds
-        curr_t = time.time()   # in seconds
+        curr_t = time.time()   # current time in seconds
         n_scans = self.n_scans # current number of scans left
-        period = protocol['period']*60 # length of cycle in seconds
+        period = settings['protocol']['period']*60 # length of cycle in seconds
 
         # compute time remaining
         sec_remaining = n_scans*period - (curr_t - start_t)
@@ -1139,20 +1153,20 @@ class ProtocolSettings(CompositeCapture):
 
         # Update Button
         # print(hrs + ':' + minutes + ' remaining')
-        # self.ids['full_protocol_btn'].text = hrs+':'+minutes+' remaining'
-        self.ids['full_protocol_btn'].text = str(n_scans)
+        # self.ids['run_protocol_btn'].text = hrs+':'+minutes+' remaining'
+        self.ids['run_protocol_btn'].text = str(n_scans)
 
         # Check if reached next Period
         if (time.time()-self.start_t) > period:
-            self.start_t = time.time() # reset the start time
-            print('Number of Scans Remaining:', self.n_scans)
-            labware = self.ids['labware_widget_id']
-            labware.scan_labware() # scan the labware
 
-            # Decrement the number of remaining scans
+            # reset the start time and update number of scane remaining
+            self.start_t = time.time()
             self.n_scans = self.n_scans - 1
 
-            if self.n_scans < 1:
+            if self.n_scans > 0:
+                print('Scans Remaining:', self.n_scans)
+                self.run_scan(protocol = True)
+            else:
                 self.protocol_event.cancel()
 
 class Stage(Widget):
@@ -1175,124 +1189,31 @@ class Stage(Widget):
             Color(r, b, g, a)
             Rectangle(pos=(x, y), size=(w, h))
 
-            d = w/self.columns
-            r = math.floor(d/2 - 0.5)
+    #         d = w/self.columns
+    #         r = math.floor(d/2 - 0.5)
 
-            for i in range(self.columns):
-                for j in range(self.rows):
-                    Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
+    #         for i in range(self.columns):
+    #             for j in range(self.rows):
+    #                 Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
 
-            # Green Circle
-            x_target = lumaview.motion.target_pos('X')/1000
-            y_target = lumaview.motion.target_pos('Y')/1000
-            i, j = self.get_well_numbers(x_target, y_target)
-            Color(0., 1., 0., 1.)
-            Line(circle=(x + d*i + d/2  , y + d*j + d/2  , r))
+    #         # Green Circle
+    #         x_target = lumaview.motion.target_pos('X')/1000
+    #         y_target = lumaview.motion.target_pos('Y')/1000
+    #         i, j = self.get_well_index(x_target, y_target)
+    #         Color(0., 1., 0., 1.)
+    #         Line(circle=(x + d*i + d/2  , y + d*j + d/2  , r))
 
-            # Red Crosshairs
-            x_current = lumaview.motion.current_pos('X')/1000
-            y_current= lumaview.motion.current_pos('Y')/1000
-            i, j = self.get_screen_position(x_current, y_current)
-            Color(1., 0., 0., 1.)
-            Line(points=(x + d*i      , y + d*j + d/2, x + d*i + d  , y + d*j + d/2), width = 1)
-            Line(points=(x + d*i + d/2, y + d*j      , x + d*i + d/2, y + d*j + d  ), width = 1)
+    #         # Red Crosshairs
+    #         x_current = lumaview.motion.current_pos('X')/1000
+    #         y_current= lumaview.motion.current_pos('Y')/1000
+    #         i, j = self.get_screen_position(x_current, y_current)
+    #         Color(1., 0., 0., 1.)
+    #         Line(points=(x + d*i      , y + d*j + d/2, x + d*i + d  , y + d*j + d/2), width = 1)
+    #         Line(points=(x + d*i + d/2, y + d*j      , x + d*i + d/2, y + d*j + d  ), width = 1)
 
-    def scan_labware(self):
-        global lumaview
-
-        # # Generate a list of well positions
-        # self.pos_list = []
-        # for j in range(self.rows):
-        #     for i in range(self.columns):
-        #         if j % 2 == 1:
-        #             i = self.columns - i - 1
-
-        #         self.pos_list.append([i, j])
-
-        # Begin Move to first position in the list
-        self.pos_index = 0
-        [i, j] = self.pos_list[self.pos_index]
-        x, y = self.get_well_position(i, j)
-        lumaview.motion.move_abs_pos('X', x*1000)
-        lumaview.motion.move_abs_pos('Y', y*1000)
-
-        # Iterate testing and movement through the list
-        self.autoscan_event = Clock.schedule_interval(self.scan_iterate, 0.1)
-        print('Stage: labware self.autoscan_event = Clock.schedule_interval(self.scan_iterate, 0.1)')
-
-    def scan_iterate(self, dt):
-        global lumaview
-
-        # identify desired position
-        [i, j] = self.pos_list[self.pos_index]
-
-        # Draw the Labware
-        self.draw_labware()
-
-        # Check if at desired position
-        x_status = lumaview.motion.target_status('X')
-        y_status = lumaview.motion.target_status('Y')
-
-        # If target location has been reached
-        if x_status and y_status:
-            # take the images (and do all else)
-            print('Position', i, ',', j,  'Reached')
-
-            # Update values from protocol into protocol variable for
-            #   gain
-            #   exposure
-            #   illumination
-            #   focus height
-
-            # "Blue": {
-            #     "ill": 225.0,
-            #     "gain": 13.9,
-            #     "gain_auto": false,
-            #     "exp": 325.31,
-            #     "false_color": false,
-            #     "acquire": true,
-            #     "focus": 3221.7820946739
-            # },
-
-            # capture images 
-            lumaview.multicolor_capture()
-
-
-            # increment to the next position
-            self.pos_index += 1
-            if self.pos_index < len(self.pos_list):
-                [i, j] = self.pos_list[self.pos_index]     # find i, j
-                x, y = self.get_well_position(i, j)        # compute x, y
-                lumaview.motion.move_abs_pos('X', x*1000)  # move to x
-                lumaview.motion.move_abs_pos('Y', y*1000)  # move to y
-
-            # if all positions have already been reached
-            else:
-                self.autoscan_event.cancel()
-
-    # # Get real well position in mm given its index
-    # def get_well_position(self, i, j):
-    #     x = self.offset['x'] + i*self.spacing['x']
-    #     y = self.offset['y'] + j*self.spacing['y']
-    #     return x, y
-
-    # # Figure out index of well based on position of xy
-    # def get_well_numbers(self, x, y):
-    #     i = (x - self.offset['x']) / self.spacing['x']
-    #     j = (y - self.offset['y']) / self.spacing['y']
-    #     i = round(i)
-    #     j = round(j)
-    #     i = np.clip(i, 0, self.columns-1)
-    #     j = np.clip(j, 0, self.rows-1)
-    #     return i, j
-
-    # # Figure out index of well based on position of xy
-    # def get_screen_position(self, x, y):
-    #     i = (x - self.offset['x']) / self.spacing['x']
-    #     j = (y - self.offset['y']) / self.spacing['y']
-    #     return i, j
 
 class MicroscopeSettings(BoxLayout):
+
     def __init__(self, **kwargs):
         super(MicroscopeSettings, self).__init__(**kwargs)
 
@@ -1302,19 +1223,55 @@ class MicroscopeSettings(BoxLayout):
         with open('./data/objectives.json', "r") as read_file:
             self.objectives = json.load(read_file)
 
+    # load settings from JSON file
+    def load_settings(self, file="./data/current.json"):
+        global lumaview
+
+        # load settings JSON file
+        with open(file, "r") as read_file:
+            global settings
+            settings = json.load(read_file)
+            # update GUI values from JSON data:
+            self.ids['scope_spinner'].text = settings['microscope']
+            self.ids['objective_spinner'].text = settings['objective']['ID']
+            self.ids['magnification_id'].text = str(settings['objective']['magnification'])
+            self.ids['frame_width'].text = str(settings['frame']['width'])
+            self.ids['frame_height'].text = str(settings['frame']['height'])
+
+            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+            protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
+            protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
+            protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
+
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
+                # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
+                lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = settings[layer]['file_root']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
+                lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
+
+            lumaview.camera.frame_size(settings['frame']['width'], settings['frame']['height'])
+
+    # Save settings to JSON file
+    def save_settings(self, file="./data/current.json"):
+        global settings
+        with open(file, "w") as write_file:
+            json.dump(settings, write_file, indent = 4)
+
     def load_scopes(self):
         spinner = self.ids['scope_spinner']
         spinner.values = list(self.scopes.keys())
 
     def select_scope(self):
         global lumaview
-        global protocol
+        global settings
 
         spinner = self.ids['scope_spinner']
         print(spinner.text)
-        protocol['microscope'] = spinner.text
-        microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
-        # microscope_settings_id.ids['image_of_microscope'].source = './data/scopes/'+spinner.text+'.png'
+        settings['microscope'] = spinner.text
 
     def load_ojectives(self):
         spinner = self.ids['objective_spinner']
@@ -1322,18 +1279,18 @@ class MicroscopeSettings(BoxLayout):
 
     def select_objective(self):
         global lumaview
-        global protocol
+        global settings
 
         spinner = self.ids['objective_spinner']
         print(spinner.text)
-        protocol['objective'] = self.objectives[spinner.text]
-        protocol['objective']['ID'] = spinner.text
+        settings['objective'] = self.objectives[spinner.text]
+        settings['objective']['ID'] = spinner.text
         microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
-        microscope_settings_id.ids['magnification_id'].text = str(protocol['objective']['magnification'])
+        microscope_settings_id.ids['magnification_id'].text = str(settings['objective']['magnification'])
 
     def frame_size(self):
         global lumaview
-        global protocol
+        global settings
 
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
@@ -1341,11 +1298,11 @@ class MicroscopeSettings(BoxLayout):
         width = int(min(int(w), lumaview.camera.active.Width.Max)/2)*2
         height = int(min(int(h), lumaview.camera.active.Height.Max)/2)*2
 
-        protocol['frame_width'] = width
-        protocol['frame_height'] = height
+        settings['frame']['width'] = width
+        settings['frame']['height'] = height
 
-        self.ids['frame_width'].text = str(width)
-        self.ids['frame_height'].text = str(height)
+        self.ids['frame']['width'].text = str(width)
+        self.ids['frame']['height'].text = str(height)
 
         lumaview.camera.frame_size(width, height)
 
@@ -1371,7 +1328,7 @@ class ModSlider(Slider):
 class LayerControl(BoxLayout):
     layer = StringProperty(None)
     bg_color = ObjectProperty(None)
-    global protocol
+    global settings
 
     def __init__(self, **kwargs):
         super(LayerControl, self).__init__(**kwargs)
@@ -1380,13 +1337,13 @@ class LayerControl(BoxLayout):
 
     def ill_slider(self):
         illumination = self.ids['ill_slider'].value
-        protocol[self.layer]['ill'] = illumination
+        settings[self.layer]['ill'] = illumination
         self.apply_settings()
 
     def ill_text(self):
         try:
             illumination = float(self.ids['ill_text'].text)
-            protocol[self.layer]['ill'] = illumination
+            settings[self.layer]['ill'] = illumination
             self.ids['ill_slider'].value = illumination
             self.apply_settings()
         except:
@@ -1397,18 +1354,18 @@ class LayerControl(BoxLayout):
             state = True
         else:
             state = False
-        protocol[self.layer]['gain_auto'] = state
+        settings[self.layer]['gain_auto'] = state
         self.apply_settings()
 
     def gain_slider(self):
         gain = self.ids['gain_slider'].value
-        protocol[self.layer]['gain'] = gain
+        settings[self.layer]['gain'] = gain
         self.apply_settings()
 
     def gain_text(self):
         try:
             gain = float(self.ids['gain_text'].text)
-            protocol[self.layer]['gain'] = gain
+            settings[self.layer]['gain'] = gain
             self.ids['gain_slider'].value = gain
             self.apply_settings()
         except:
@@ -1417,13 +1374,13 @@ class LayerControl(BoxLayout):
     def exp_slider(self):
         exposure = self.ids['exp_slider'].value
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
-        protocol[self.layer]['exp'] = exposure        # protocol is ms
+        settings[self.layer]['exp'] = exposure        # exposure in ms
         self.apply_settings()
 
     def exp_text(self):
         try:
             exposure = float(self.ids['exp_text'].text)
-            protocol[self.layer]['exp'] = exposure
+            settings[self.layer]['exp'] = exposure
             self.ids['exp_slider'].value = exposure
             # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
             self.apply_settings()
@@ -1431,23 +1388,23 @@ class LayerControl(BoxLayout):
             print('Exposure value is not in acceptable range of 0.01 to 1000ms.')
 
     def root_text(self):
-        protocol[self.layer]['file_root'] = self.ids['root_text'].text
+        settings[self.layer]['file_root'] = self.ids['root_text'].text
 
     def false_color(self):
-        protocol[self.layer]['false_color'] = self.ids['false_color'].active
+        settings[self.layer]['false_color'] = self.ids['false_color'].active
         self.apply_settings()
 
     def update_acquire(self):
-        protocol[self.layer]['acquire'] = self.ids['acquire'].active
+        settings[self.layer]['acquire'] = self.ids['acquire'].active
 
     def save_focus(self):
         global lumaview
         pos = lumaview.motion.current_pos('Z')
-        protocol[self.layer]['focus'] = pos
+        settings[self.layer]['focus'] = pos
 
     def goto_focus(self):
         global lumaview
-        pos = protocol[self.layer]['focus']
+        pos = settings[self.layer]['focus']
         lumaview.motion.move_abs_pos('Z', pos)  # set current z height in usteps
         control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
         control.update_gui()
@@ -1458,7 +1415,7 @@ class LayerControl(BoxLayout):
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
-        illumination = protocol[self.layer]['ill']
+        illumination = settings[self.layer]['ill']
         if self.ids['apply_btn'].state == 'down': # if the button is down
             # In active channel,turn on LED
             lumaview.led_board.led_on(lumaview.led_board.color2ch(self.layer), illumination)
@@ -1474,16 +1431,16 @@ class LayerControl(BoxLayout):
 
         # update gain to currently selected settings
         # -----------------------------------------------------
-        state = protocol[self.layer]['gain_auto']
+        state = settings[self.layer]['gain_auto']
         lumaview.camera.auto_gain(state)
 
         if not(state):
-            gain = protocol[self.layer]['gain']
+            gain = settings[self.layer]['gain']
             lumaview.camera.gain(gain)
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
-        exposure = protocol[self.layer]['exp']
+        exposure = settings[self.layer]['exp']
         lumaview.camera.exposure_t(exposure)
 
         # choose correct active toggle button image based on color
@@ -1606,9 +1563,13 @@ class FileChooseBTN(Button):
         self.selection = selection
 
     def on_selection(self, *a, **k):
-        if self.context == 'load_protocol':
-            global lumaview
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(self.selection[0])
+        global lumaview
+        
+        if self.context == 'load_settings':
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
+
+        elif self.context == 'load_protocol':
+            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(file = self.selection[0])
 
 # Button the triggers 'filechooser.choose_dir()' from plyer
 class FolderChooseBTN(Button):
@@ -1626,7 +1587,7 @@ class FolderChooseBTN(Button):
         path = self.selection[0]
 
         if self.context == 'live_folder':
-            protocol['live_folder'] = path
+            settings['live_folder'] = path
 
         elif self.context == 'movie_folder':
             save_location = path + '/movie.avi'
@@ -1645,7 +1606,7 @@ class FolderChooseBTN(Button):
             out.release()
 
         else: # Channel Save Folder selections
-            protocol[self.context]['save_folder'] = path
+            settings[self.context]['save_folder'] = path
 
 # Button the triggers 'filechooser.save_file()' from plyer
 class FileSaveBTN(Button):
@@ -1661,7 +1622,7 @@ class FileSaveBTN(Button):
 
     def on_selection(self, *a, **k):
         global lumaview
-        lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(self.selection[0])
+        lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
         print('Saving Protocol to File:', self.selection[0])
 
 
@@ -1677,9 +1638,9 @@ class LumaViewProApp(App):
         lumaview = MainDisplay()
 
         try:
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol("./data/current.json")
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
         except:
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol("./data/protocol.json")
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
         lumaview.motion.xyhome()
@@ -1688,6 +1649,6 @@ class LumaViewProApp(App):
     def on_stop(self):
         global lumaview
         lumaview.led_board.leds_off()
-        lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol("./data/current.json")
+        lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
 LumaViewProApp().run()
