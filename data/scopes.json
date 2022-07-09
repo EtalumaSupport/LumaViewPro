@@ -1,7 +1,22 @@
 {
+    "LS820": {
+        "Fl channels": 3,
+        "Focus": true,
+        "XYStage": false,
+        "Turret": false
+    },
+
     "LS850": {
         "Fl channels": 3,
         "Focus": true,
-        "XYStage": true
+        "XYStage": true,
+        "Turret": false
+    },
+
+    "LS850T": {
+        "Fl channels": 3,
+        "Focus": true,
+        "XYStage": true,
+        "Turret": true
     }
 }

@@ -90,6 +90,7 @@ from scipy import signal
 from trinamic850 import *
 from ledboard import *
 from pyloncamera import *
+from labware import *
 
 global lumaview
 global protocol
@@ -794,8 +795,8 @@ class VerticalControl(BoxLayout):
         #        dt = protocol[layer]['exp']*2
         dt = 0.5
 
-        self.positions = [0]
-        self.focus_measures = [0]
+        self.positions = []
+        self.focus_measures = []
 
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
@@ -1154,12 +1155,12 @@ class ProtocolSettings(CompositeCapture):
             if self.n_scans < 1:
                 self.protocol_event.cancel()
 
-class Labware(Widget):
+class Stage(Widget):
     bg_color = ObjectProperty(None)
     layer = ObjectProperty(None)
 
     def __init__(self, **kwargs):
-        super(Labware, self).__init__(**kwargs)
+        super(Stage, self).__init__(**kwargs)
 
     def draw_labware(self, *args):
         global lumaview
@@ -1199,14 +1200,14 @@ class Labware(Widget):
     def scan_labware(self):
         global lumaview
 
-        # Generate a list of well positions
-        self.pos_list = []
-        for j in range(self.rows):
-            for i in range(self.columns):
-                if j % 2 == 1:
-                    i = self.columns - i - 1
+        # # Generate a list of well positions
+        # self.pos_list = []
+        # for j in range(self.rows):
+        #     for i in range(self.columns):
+        #         if j % 2 == 1:
+        #             i = self.columns - i - 1
 
-                self.pos_list.append([i, j])
+        #         self.pos_list.append([i, j])
 
         # Begin Move to first position in the list
         self.pos_index = 0
@@ -1217,7 +1218,7 @@ class Labware(Widget):
 
         # Iterate testing and movement through the list
         self.autoscan_event = Clock.schedule_interval(self.scan_iterate, 0.1)
-        print('Labware: labware self.autoscan_event = Clock.schedule_interval(self.scan_iterate, 0.1)')
+        print('Stage: labware self.autoscan_event = Clock.schedule_interval(self.scan_iterate, 0.1)')
 
     def scan_iterate(self, dt):
         global lumaview
@@ -1269,27 +1270,27 @@ class Labware(Widget):
             else:
                 self.autoscan_event.cancel()
 
-    # Get real well position in mm given its index
-    def get_well_position(self, i, j):
-        x = self.offset['x'] + i*self.spacing['x']
-        y = self.offset['y'] + j*self.spacing['y']
-        return x, y
+    # # Get real well position in mm given its index
+    # def get_well_position(self, i, j):
+    #     x = self.offset['x'] + i*self.spacing['x']
+    #     y = self.offset['y'] + j*self.spacing['y']
+    #     return x, y
 
-    # Figure out index of well based on position of xy
-    def get_well_numbers(self, x, y):
-        i = (x - self.offset['x']) / self.spacing['x']
-        j = (y - self.offset['y']) / self.spacing['y']
-        i = round(i)
-        j = round(j)
-        i = np.clip(i, 0, self.columns-1)
-        j = np.clip(j, 0, self.rows-1)
-        return i, j
+    # # Figure out index of well based on position of xy
+    # def get_well_numbers(self, x, y):
+    #     i = (x - self.offset['x']) / self.spacing['x']
+    #     j = (y - self.offset['y']) / self.spacing['y']
+    #     i = round(i)
+    #     j = round(j)
+    #     i = np.clip(i, 0, self.columns-1)
+    #     j = np.clip(j, 0, self.rows-1)
+    #     return i, j
 
-    # Figure out index of well based on position of xy
-    def get_screen_position(self, x, y):
-        i = (x - self.offset['x']) / self.spacing['x']
-        j = (y - self.offset['y']) / self.spacing['y']
-        return i, j
+    # # Figure out index of well based on position of xy
+    # def get_screen_position(self, x, y):
+    #     i = (x - self.offset['x']) / self.spacing['x']
+    #     j = (y - self.offset['y']) / self.spacing['y']
+    #     return i, j
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
@@ -1303,7 +1304,7 @@ class MicroscopeSettings(BoxLayout):
 
     def load_scopes(self):
         spinner = self.ids['scope_spinner']
-        spinner.values = ['LS850']
+        spinner.values = list(self.scopes.keys())
 
     def select_scope(self):
         global lumaview
@@ -1317,7 +1318,7 @@ class MicroscopeSettings(BoxLayout):
 
     def load_ojectives(self):
         spinner = self.ids['objective_spinner']
-        spinner.values = ['4x phase', '4x other', '10x', '20x', '40x', '60x', '100x']
+        spinner.values = list(self.objectives.keys())
 
     def select_objective(self):
         global lumaview
