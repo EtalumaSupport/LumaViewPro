@@ -208,10 +208,10 @@
             collapse: False
 			VerticalControl:
 				id: verticalcontrol_id
-		AccordionItem:
-			title: 'Z Stack Acquire'
-			ZStack:
-				id: zstack_id
+		# AccordionItem:
+		# 	title: 'Z Stack Acquire'
+		# 	ZStack:
+		# 		id: zstack_id
 		AccordionItem:
 			title: 'XY Stage Control'
 			XYStageControl:
@@ -255,8 +255,8 @@
 		    orientation: 'vertical'
 		    size_hint_x: None
 		    width: '40dp'
-		    # padding: '5dp'
 		    spacing: '5dp'
+
 		    Label:
 		    Button:
 		        id: fast_up
@@ -363,6 +363,7 @@
     			font_size: '12sp'
     			text: 'Autofocus'
     			on_release: root.autofocus()
+	ZStack:
 	Label:
 
 # Z-Stack Settings
@@ -373,18 +374,19 @@
 	    spacing: '5dp'
 		pos_hint: {'x': 0.0, 'y': 0.0}
 
-		canvas:
-			Color:
-				rgba: 0.1, 0.1, 0.1, 0.7
-			Rectangle:
-				size: self.size
-				pos: self.pos
+		Label:
+			text:'Aqcuire Z Stack'
+			font_size: '14sp'
+	        size_hint_y: None
+	        height: '30dp'
+			spacing: '5dp'
 
 	    Spinner:
 			id: zstack_spinner
 			size_hint_y: None
 			height: '30dp'
 	        text: 'Z Stack'
+			font_size: '12dp'
 			text_autoupdate: True
 			values: ('Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 			# values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
@@ -448,6 +450,7 @@
 			size_hint_y: None
 			height: '30dp'
 			text: 'Acquire'
+			font_size: '12dp'
 			on_release: root.aquire_zstack()
 		Label:
 
@@ -455,157 +458,214 @@
 	orientation: 'vertical'
 	padding: '5dp'
 	spacing: '5dp'
+
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
         Rectangle:
             size: self.size
             pos: self.pos
-	RelativeLayout:
+
+	# HOME STAGE
+	Button: 
+		id: home_id
 		size_hint_y: None
-		# pos_hint: {'center_x': 0.5, 'center_y': 0.5}
-		height: '250dp'
+		height: '30dp'
+		font_size: '12sp'
+		text: 'Home Stage'
+		on_release: root.home()
 
-		Button: # HOME STAGE
-			id: home_id
-			border: 0, 0, 0, 0
-	        size_hint: None, None
-	        size: '80dp', '80dp'
-			pos_hint: {'center_x': 0.8, 'center_y': 0.8}
-	        font_size: '12sp'
-	        text: 'Home Stage'
-			on_release: root.home()
-
-
-	    Button: # COURSE BACK
-			border: 0, 0, 0, 0
-	        size_hint: None, None
-	        size: '30dp', '40dp'
-			pos_hint: {'center_x': 0.5, 'center_y': 0.85}
-			background_normal: './data/icons/UU_normal.png'
-			background_down: './data/icons/UU_down.png'
-			on_release: root.course_back()
-	    Button: # FINE BACK
-			border: 0, 0, 0, 0
-	        size_hint: None, None
-	        size: '30dp', '30dp'
-			pos_hint: {'center_x': 0.5, 'center_y': 0.65}
-			background_normal: './data/icons/U_normal.png'
-			background_down: './data/icons/U_down.png'
-			on_release: root.fine_back()
-	    Button: # FINE FORWARD
-			border: 0, 0, 0, 0
-	        size_hint: None, None
-	        size: '30dp', '30dp'
-			pos_hint: {'center_x': 0.5, 'center_y': 0.35}
-			background_normal: './data/icons/D_normal.png'
-			background_down: './data/icons/D_down.png'
-			on_release: root.fine_fwd()
-	    Button: # COURSE FORWARD
-	        id: fast_down
-			border: 0, 0, 0, 0
-	        size_hint: None, None
-	        size: '30dp', '40dp'
-			pos_hint: {'center_x': 0.5, 'center_y': 0.15}
-			background_normal: './data/icons/DD_normal.png'
-			background_down: './data/icons/DD_down.png'
-			on_release: root.course_fwd()
-
-
-	    Button: # COURSE LEFT
-			border: 0, 0, 0, 0
-	        size_hint: None, None
-	        size: '40dp', '30dp'
-			pos_hint: {'center_x': 0.2, 'center_y': 0.5}
-			background_normal: './data/icons/LL_normal.png'
-			background_down: './data/icons/LL_down.png'
-			on_release: root.course_left()
-	    Button: # FINE LEFT
-	        id: slow_up
-			border: 0, 0, 0, 0
-	        size_hint: None, None
-	        size: '30dp', '30dp'
-			pos_hint: {'center_x': 0.35, 'center_y': 0.5}
-			background_normal: './data/icons/L_normal.png'
-			background_down: './data/icons/L_down.png'
-			on_release: root.fine_left()
-	    Button: # FINE RIGHT
-	        id: slow_down
-			border: 0, 0, 0, 0
-	        size_hint: None, None
-	        size: '30dp', '30dp'
-			pos_hint: {'center_x': 0.65, 'center_y': 0.5}
-			background_normal: './data/icons/R_normal.png'
-			background_down: './data/icons/R_down.png'
-			on_release: root.fine_right()
-	    Button: # COURSE RIGHT
-	        id: fast_down
-			border: 0, 0, 0, 0
-	        size_hint: None, None
-	        size: '40dp', '30dp'
-			pos_hint: {'center_x': 0.8, 'center_y': 0.5}
-			background_normal: './data/icons/RR_normal.png'
-			background_down: './data/icons/RR_down.png'
-			on_release: root.course_right()
+	# Two Columns for X and Y Directions
 	BoxLayout:
 		orientation: 'horizontal'
 		spacing: '5dp'
 		size_hint_y: None
-		height: '30dp'
-		Label:
-	        height: '30dp'
-	        font_size: '12sp'
-			text: 'X: (mm)'
-		TextInput:
-			id: x_pos_id
-        	multiline: False
-	        size_hint_y: None
-	        height: '30dp'
-	        font_size: '12sp'
-			halign: 'center'
-        	input_filter: 'float'
-	        text: ''
-            on_text_validate: root.set_xposition(self.text)
-		Label:
-	        height: '30dp'
-	        font_size: '12sp'
-			text: 'Y: (mm)'
-		TextInput:
-			id: y_pos_id
-        	multiline: False
-	        size_hint_y: None
-	        height: '30dp'
-	        font_size: '12sp'
-			halign: 'center'
-        	input_filter: 'float'
-	        text: ''
-            on_text_validate: root.set_yposition(self.text)
+		height: '205dp'
+
+		# X Direction Controls
+		BoxLayout:
+			orientation: 'vertical'
+			spacing: '5dp'
+	
+			Label:
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				text: 'X: (mm)'
+
+			# Set and Display X Position	
+			TextInput:
+				id: x_pos_id
+				multiline: False
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				halign: 'center'
+				input_filter: 'float'
+				text: ''
+				on_text_validate: root.set_xposition(self.text)
+			
+			# Set X Bookmark
+			Button:
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				text: 'Set X'
+				on_release: root.set_xbookmark()
+
+			# Goto X Bookmark
+			Button:
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				text: 'Go to X'
+				on_release: root.goto_xbookmark()
+
+			# Fine X-Dir Controls
+			BoxLayout:
+				orientation: 'horizontal'
+				spacing: '5dp'
+				size_hint_y: None
+				height: '30dp'
+
+				Button: # FINE LEFT
+					id: slow_up
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '30dp', '30dp'
+					background_normal: './data/icons/L_normal.png'
+					background_down: './data/icons/L_down.png'
+					on_release: root.fine_left()
+
+				Button: # FINE RIGHT
+					id: slow_down
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '30dp', '30dp'
+					background_normal: './data/icons/R_normal.png'
+					background_down: './data/icons/R_down.png'
+					on_release: root.fine_right()
+			
+			# Course X-Dir Controls
+			BoxLayout:
+				orientation: 'horizontal'
+				spacing: '5dp'
+				size_hint_y: None
+				height: '30dp'
+
+				Button: # COURSE LEFT
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '40dp', '30dp'
+					background_normal: './data/icons/LL_normal.png'
+					background_down: './data/icons/LL_down.png'
+					on_release: root.course_left()
+				Button: # COURSE RIGHT
+					id: fast_down
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '40dp', '30dp'
+					background_normal: './data/icons/RR_normal.png'
+					background_down: './data/icons/RR_down.png'
+					on_release: root.course_right()
+
+		# Y Direction Controls
+		BoxLayout:
+			orientation: 'vertical'
+			spacing: '5dp'
+
+			Label:
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				text: 'Y: (mm)'
+
+			# Set and Display Y Position	
+			TextInput:
+				id: y_pos_id
+				multiline: False
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				halign: 'center'
+				input_filter: 'float'
+				text: ''
+				on_text_validate: root.set_yposition(self.text)
+
+			# Set Y Bookmark
+			Button:
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				text: 'Set Y'
+				on_release: root.set_ybookmark()
+
+			# Goto Y Bookmark
+			Button:
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				text: 'Go to Y'
+				on_release: root.goto_ybookmark()
+
+			# Fine Y-Dir Controls
+			BoxLayout:
+				orientation: 'horizontal'
+				spacing: '5dp'
+				size_hint_y: None
+				height: '30dp'
+
+				Button: # FINE BACK
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '30dp', '30dp'
+					background_normal: './data/icons/U_normal.png'
+					background_down: './data/icons/U_down.png'
+					on_release: root.fine_back()
+				Button: # FINE FORWARD
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '30dp', '30dp'
+					background_normal: './data/icons/D_normal.png'
+					background_down: './data/icons/D_down.png'
+					on_release: root.fine_fwd()
+
+			# Course Y-Dir Controls
+			BoxLayout:
+				orientation: 'horizontal'
+				spacing: '5dp'
+				size_hint_y: None
+				height: '30dp'
+
+				Button: # COURSE BACK
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '30dp', '40dp'
+					background_normal: './data/icons/UU_normal.png'
+					background_down: './data/icons/UU_down.png'
+					on_release: root.course_back()
+				Button: # COURSE FORWARD
+					id: fast_down
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '30dp', '40dp'
+					background_normal: './data/icons/DD_normal.png'
+					background_down: './data/icons/DD_down.png'
+					on_release: root.course_fwd()
+
+	# Stage Display
 	BoxLayout:
-		orientation: 'horizontal'
-		spacing: '5dp'
 		size_hint_y: None
-		height: '30dp'
-		Button:
-	        height: '30dp'
-	        font_size: '12sp'
-			text: 'Set X'
-			on_release: root.set_xbookmark()
-		Button:
-	        height: '30dp'
-	        font_size: '12sp'
-	        text: 'Go to X'
-			on_release: root.goto_xbookmark()
-		Button:
-	        height: '30dp'
-	        font_size: '12sp'
-			text: 'Set Y'
-			on_release: root.set_ybookmark()
-		Button:
-	        height: '30dp'
-	        font_size: '12sp'
-	        text: 'Go to Y'
-			on_release: root.goto_ybookmark()
-	Label:
+		height: '180dp'
+		padding: '5dp'
+
+		FloatLayout:
+			Stage:
+				id: stage_control_id
+				pos_hint:{'center_x':0.5, 'center_y':0.5}	
+
+	# Fill Space		
+	Label:	
 
 
 # ProtocolSettings - Settings for Labware within MainSettings
@@ -634,6 +694,7 @@
 				id: labware_spinner
 				sync_height: True
 		        text: 'New'
+				font_size: '12dp'
 		        size_hint_x: None
 		        width: '150dp'
 				text_autoupdate: True
@@ -656,8 +717,7 @@
 		FloatLayout:
 			padding: '5dp'
 			size_hint_y: None
-			#height: '128dp'
-			#size_hint_y: None
+			height: '128dp'
 			height: self.width * 2 / 3
 			Stage:
 				id: stage_widget_id
@@ -666,7 +726,7 @@
 		# Time Settings
 	    Label:
 	        text: 'Time Settings'
-			font_size: '12sp'
+			font_size: '14sp'
 	        size_hint_y: None
 	        height: '30dp'
 			spacing: '5dp'
@@ -726,7 +786,7 @@
 		# Verify / Iterate through protocol
 	    Label:
 	        text: 'Verify Protocol'
-			font_size: '12sp'
+			font_size: '14sp'
 	        size_hint_y: None
 	        height: '30dp'
 			spacing: '5dp'
@@ -822,7 +882,7 @@
 		# Verify / Iterate through protocol
 	    Label:
 	        text: 'Execute Protocol'
-			font_size: '12sp'
+			font_size: '14sp'
 	        size_hint_y: None
 	        height: '30dp'
 			spacing: '5dp'
@@ -976,6 +1036,7 @@
 			id: scope_spinner
 			sync_height: True
 	        text: 'Select'
+			font_size:'12dp'
 			text_autoupdate: True
 	        on_release: root.load_scopes()
 	        on_text: root.select_scope()
@@ -993,6 +1054,7 @@
 			id: objective_spinner
 			sync_height: True
 	        text: 'Select'
+			font_size:'12dp'
 			text_autoupdate: True
 	        on_release: root.load_ojectives()
 	        on_text: root.select_objective()

@@ -37,7 +37,7 @@ May 19, 2022
 '''
 
 # General
-import sys
+import os
 import numpy as np
 import pandas as pd
 import time
@@ -94,6 +94,7 @@ from labware import *
 
 global lumaview
 global settings
+home_wd = os.getcwd()
 
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
@@ -686,29 +687,6 @@ class Histogram(Widget):
                             counts = np.ceil(scale*hist[0][i])
                         self.pos = self.pos
                         self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
-        # else:
-        #     print("Can't find image.")
-
-    # def on_touch_down(self, touch):
-    #     x = touch.x - self.x
-    #     print(x)
-    #     if abs(x - self.edges[0]) < 20:
-    #         self.edges[0] = x
-    #         self.hist_range_set = True
-    #     if abs(x - self.edges[1]) < 20:
-    #         self.edges[1] = x
-    #         self.hist_range_set = True
-    #     '''if touch.is_mouse_scrolling:
-    #         if touch.button == 'scrolldown':
-    #             if self.scale < 100:
-    #                 self.scale = self.scale * 1.1
-    #         elif touch.button == 'scrollup':
-    #             if self.scale > 0.1:
-    #                 self.scale = self.scale * 0.8
-    #                 '''
-    #     # If some other kind of "touch": Fall back on Scatter's behavior
-    #     #else:
-    #         #super(ShaderViewer, self).on_touch_down(touch)
 
 
 class VerticalControl(BoxLayout):
@@ -915,11 +893,6 @@ class XYStageControl(BoxLayout):
         self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f')
         self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f')
 
-    def course_left(self):
-        global lumaview
-        lumaview.motion.move_rel_pos('X', -100)  # Move LEFT relative
-        self.update_gui()
-
     def fine_left(self):
         global lumaview
         lumaview.motion.move_rel_pos('X', -10)  # Move LEFT
@@ -930,14 +903,14 @@ class XYStageControl(BoxLayout):
         lumaview.motion.move_rel_pos('X', 10)  # Move RIGHT
         self.update_gui()
 
+    def course_left(self):
+        global lumaview
+        lumaview.motion.move_rel_pos('X', -100)  # Move LEFT relative
+        self.update_gui()
+
     def course_right(self):
         global lumaview
         lumaview.motion.move_rel_pos('X', 100)  # Move RIGHT
-        self.update_gui()
-
-    def course_back(self):
-        global lumaview
-        lumaview.motion.move_rel_pos('Y', -100)  # Move BACK relative by 10000
         self.update_gui()
 
     def fine_back(self):
@@ -950,6 +923,10 @@ class XYStageControl(BoxLayout):
         lumaview.motion.move_rel_pos('Y', 10)  # Move FORWARD by 1000
         self.update_gui()
 
+    def course_back(self):
+        global lumaview
+        lumaview.motion.move_rel_pos('Y', -100)  # Move BACK relative by 10000
+        self.update_gui()
     def course_fwd(self):
         global lumaview
         lumaview.motion.move_rel_pos('Y', 100)  # Move FORWARD by 10000
@@ -1000,8 +977,9 @@ class ProtocolSettings(CompositeCapture):
     def __init__(self, **kwargs):
 
         super(ProtocolSettings, self).__init__(**kwargs)
-        
+ 
         # Load all Possible Labware from JSON
+        os.chdir(home_wd)
         with open('./data/labware.json', "r") as read_file:
             self.labware = json.load(read_file)
         
@@ -1058,7 +1036,7 @@ class ProtocolSettings(CompositeCapture):
         global lumaview
         global settings
 
-        # # Draw the Labware on Stage
+        # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
 
 
@@ -1176,11 +1154,23 @@ class Stage(Widget):
     def __init__(self, **kwargs):
         super(Stage, self).__init__(**kwargs)
 
+
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            print('clicked on:', touch.pos)
+        
     def draw_labware(self, *args):
         global lumaview
+        global settings
+
+        # Create current labware instance
+        os.chdir(home_wd)
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
 
         self.canvas.clear()
         r, b, g, a = (0.5, 0.5, 0.5, 0.5)
+
         with self.canvas:
             w = 12 * math.floor(self.width/12)
             h = 12 * math.floor(self.height/12)
@@ -1189,27 +1179,28 @@ class Stage(Widget):
             Color(r, b, g, a)
             Rectangle(pos=(x, y), size=(w, h))
 
-    #         d = w/self.columns
-    #         r = math.floor(d/2 - 0.5)
 
-    #         for i in range(self.columns):
-    #             for j in range(self.rows):
-    #                 Line(circle=(x + d*i + d/2, y + d*j + d/2, r))
+            d = w/current_labware.plate['columns']
+            r = math.floor(d/2 - 0.5)
 
-    #         # Green Circle
-    #         x_target = lumaview.motion.target_pos('X')/1000
-    #         y_target = lumaview.motion.target_pos('Y')/1000
-    #         i, j = self.get_well_index(x_target, y_target)
-    #         Color(0., 1., 0., 1.)
-    #         Line(circle=(x + d*i + d/2  , y + d*j + d/2  , r))
+            for i in range(current_labware.plate['columns']):
+                for j in range(current_labware.plate['rows']):
+                    Line(circle=(x + d*i + r, y + d*j + r, r))
 
-    #         # Red Crosshairs
-    #         x_current = lumaview.motion.current_pos('X')/1000
-    #         y_current= lumaview.motion.current_pos('Y')/1000
-    #         i, j = self.get_screen_position(x_current, y_current)
-    #         Color(1., 0., 0., 1.)
-    #         Line(points=(x + d*i      , y + d*j + d/2, x + d*i + d  , y + d*j + d/2), width = 1)
-    #         Line(points=(x + d*i + d/2, y + d*j      , x + d*i + d/2, y + d*j + d  ), width = 1)
+            # Green Circle
+            x_target = lumaview.motion.target_pos('X')/1000
+            y_target = lumaview.motion.target_pos('Y')/1000
+            i, j = current_labware.get_well_index(x_target, y_target)
+            Color(0., 1., 0., 1.)
+            Line(circle=(x + d*i + r  , y + d*j + r  , r))
+
+            # Red Crosshairs
+            x_current = lumaview.motion.current_pos('X')/1000
+            y_current= lumaview.motion.current_pos('Y')/1000
+            i, j = current_labware.get_screen_position(x_current, y_current)
+            Color(1., 0., 0., 1.)
+            Line(points=(x + d*i      , y + d*j + d/2, x + d*i + d  , y + d*j + d/2), width = 1)
+            Line(points=(x + d*i + d/2, y + d*j      , x + d*i + d/2, y + d*j + d  ), width = 1)
 
 
 class MicroscopeSettings(BoxLayout):
@@ -1217,9 +1208,11 @@ class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
         super(MicroscopeSettings, self).__init__(**kwargs)
 
+        os.chdir(home_wd)
         with open('./data/scopes.json', "r") as read_file:
             self.scopes = json.load(read_file)
 
+        os.chdir(home_wd)
         with open('./data/objectives.json', "r") as read_file:
             self.objectives = json.load(read_file)
 
@@ -1228,6 +1221,7 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
 
         # load settings JSON file
+        os.chdir(home_wd)
         with open(file, "r") as read_file:
             global settings
             settings = json.load(read_file)
@@ -1242,6 +1236,8 @@ class MicroscopeSettings(BoxLayout):
             protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
             protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
             protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
+            #protocol_settings.ids['stage_widget_id'].draw_labware()
+
 
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
@@ -1258,6 +1254,7 @@ class MicroscopeSettings(BoxLayout):
     # Save settings to JSON file
     def save_settings(self, file="./data/current.json"):
         global settings
+        os.chdir(home_wd)
         with open(file, "w") as write_file:
             json.dump(settings, write_file, indent = 4)
 
@@ -1535,7 +1532,8 @@ class ZStack(CompositeCapture):
             print('cancel')
 
     def zstack_iterate(self, dt):
-        print('iterate')
+        print('Iterate at:', lumaview.motion.current_pos('Z'), lumaview.motion.target_pos('Z'))
+
 
         if lumaview.motion.target_status('Z'):
             print('at target')
