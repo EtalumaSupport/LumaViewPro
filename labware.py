@@ -77,9 +77,6 @@ class WellPlate(LabWare):
         j = (y - self.plate['offset']['y']) / self.plate['spacing']['y']
         return i, j
 
-    def new_protocol(self):
-        pass
-
 
 class PitriDish(LabWare):
     """A class that stores and computes actions for petri dish labware"""

@@ -990,13 +990,17 @@ class ProtocolSettings(CompositeCapture):
     def select_labware(self):
         spinner = self.ids['labware_spinner']
         settings['protocol']['labware'] = spinner.text
+        self.new_protocol()
+
+    def new_protocol(self):
+        pass
 
     def load_protocol(self, file="./data/sample_protocol.csv"):
         self.protocol = pd.read_csv(file)
         print(self.protocol)
 
-    def save_protocol(self):
-        pass
+    def save_protocol(self, file="./data/sample_protocol.csv"):
+        self.protocol.to_csv(file, index=False)
 
     def update_period(self):
         try:
@@ -1620,8 +1624,14 @@ class FileSaveBTN(Button):
 
     def on_selection(self, *a, **k):
         global lumaview
-        lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
-        print('Saving Protocol to File:', self.selection[0])
+        
+        if self.context == 'save_settings':
+            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
+            print('Saving Settings to File:', self.selection[0])
+
+        elif self.context == 'save_protocol':
+            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(file = self.selection[0])
+            print('Saving Protocol to File:', self.selection[0])
 
 
 # -------------------------------------------------------------------------
