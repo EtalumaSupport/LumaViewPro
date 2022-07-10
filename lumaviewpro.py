@@ -982,18 +982,44 @@ class ProtocolSettings(CompositeCapture):
         os.chdir(home_wd)
         with open('./data/labware.json', "r") as read_file:
             self.labware = json.load(read_file)
-        
-    def load_labware(self):
-        spinner = self.ids['labware_spinner']
-        spinner.values = list(self.labware['Wellplate'].keys())
- 
+       self.protocol = pd.DataFrame(columns=['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+
+         
     def select_labware(self):
         spinner = self.ids['labware_spinner']
+        spinner.values = list(self.labware['Wellplate'].keys())
         settings['protocol']['labware'] = spinner.text
-        self.new_protocol()
+ 
+    # def load_labware(self):
+    #     spinner = self.ids['labware_spinner']
+    #     settings['protocol']['labware'] = spinner.text
+    #     self.new_protocol()
 
     def new_protocol(self):
-        pass
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+        current_labware.set_positions()
+
+        self.protocol = pd.DataFrame(columns=['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+
+        # Iterate through all the positions in the scan
+        for pos in current_labware.pos_list:
+
+            # Iterate through all the colors to create the steps
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                if settings[layer]['acquire'] == True:
+                    gain = settings[layer]['gain']
+                    exp = settings[layer]['exp']
+                    ill = settings[layer]['ill']
+                    z = settings[layer]['focus']
+
+                    ch = lumaview.led_board.color2ch(layer)
+
+                    step = {'X': pos[0], 'Y':pos[1], 'Z':z, 'Channel':ch, 'Illumination':ill, 'Gain':gain, 'Exposure':exp}
+                    self.protocol = self.protocol.append(step,  ignore_index=True)
+                
+        print(self.protocol)
 
     def load_protocol(self, file="./data/sample_protocol.csv"):
         self.protocol = pd.read_csv(file)
@@ -1042,16 +1068,6 @@ class ProtocolSettings(CompositeCapture):
 
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
-
-
-
-
-
-
-
-
-
-
 
         # Check if at desired position
         x_status = lumaview.motion.target_status('X')

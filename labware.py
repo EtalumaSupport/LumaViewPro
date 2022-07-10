@@ -51,8 +51,13 @@ class WellPlate(LabWare):
     # set positions based on indices
     def set_positions(self): 
 
-        self.get_all_indices()
-        self.pos_list = get_well_position(self.ind_list[0], self.ind_list[1])
+        self.set_indices()
+        self.pos_list = []
+
+        for i in self.ind_list:
+            x, y = self.get_well_position(i[0], i[1])
+            self.pos_list.append([x, y])
+           
 
 
     # Figure out index of well based on position of xy

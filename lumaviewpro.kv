@@ -703,7 +703,7 @@
 	            text: format(5, '.3g')
 	            on_text_validate: root.update_period()
 	        Label:
-	            text: '(min)'
+	            text: 'minutes'
 	            size_hint_x: None
 	            width: '60dp'
 				font_size: '12sp'
@@ -730,7 +730,7 @@
 	            text: format(48, '.3g')
 	            on_text_validate: root.update_duration()
 	        Label:
-	            text: 'hrs'
+	            text: 'hours'
 	            size_hint_x: None
 	            width: '60dp'
 				font_size: '12sp'
@@ -744,24 +744,20 @@
 			spacing: '5dp'
 			color: [51/255, 181/255, 229/255, 1]
 
-		# Select Labware
-		Spinner:
-			id: labware_spinner
-			sync_height: True
-			text: 'New'
-			font_size: '12dp'
-			size_hint_y: None
-			height: '30dp'
-			text_autoupdate: True
-			on_release: root.load_labware()
-			on_text: root.select_labware()
-
 		# Load and Save Protocol
 		BoxLayout:
 			orientation: 'horizontal'
 	        size_hint_y: None
 	        height: '30dp'
 			spacing: '5dp'
+
+		    Button:
+		        text: 'New'
+		        size_hint_y: None
+		        height: '30dp'
+				font_size: '12sp'
+		        on_release: root.new_protocol()
+	
 		    FileChooseBTN:
 		        text: 'Load'
 		        size_hint_y: None
@@ -774,6 +770,17 @@
 		        height: '30dp'
 				font_size: '12sp'
 		        on_release: self.choose('save_protocol')
+
+		# Select Labware
+		Spinner:
+			id: labware_spinner
+			sync_height: True
+			text: 'New'
+			font_size: '12dp'
+			size_hint_y: None
+			height: '30dp'
+			text_autoupdate: True
+			on_text: root.select_labware()
 
 		# Stage Display
 		FloatLayout:
