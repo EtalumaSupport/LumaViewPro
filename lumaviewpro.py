@@ -982,19 +982,39 @@ class ProtocolSettings(CompositeCapture):
         os.chdir(home_wd)
         with open('./data/labware.json', "r") as read_file:
             self.labware = json.load(read_file)
-       self.protocol = pd.DataFrame(columns=['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+        
+        try:
+            self.load_protocol(file = settings['protocol']['location'])
+        except:
+            self.protocol = pd.DataFrame(columns=['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
 
-         
+        self.c_step = 0
+
+    # Update Protocol Period   
+    def update_period(self):
+        try:
+            settings['protocol']['period'] = float(self.ids['capture_period'].text)
+        except:
+            print('Update Period is not an acceptable value')
+
+    # Update Protocol Duration   
+    def update_duration(self):
+        try:
+            settings['protocol']['duration'] = float(self.ids['capture_dur'].text)
+        except:
+            print('Update Duration is not an acceptable value')
+
+    # Labware Selection
     def select_labware(self):
         spinner = self.ids['labware_spinner']
         spinner.values = list(self.labware['Wellplate'].keys())
         settings['protocol']['labware'] = spinner.text
- 
-    # def load_labware(self):
-    #     spinner = self.ids['labware_spinner']
-    #     settings['protocol']['labware'] = spinner.text
-    #     self.new_protocol()
+    
+        # Draw the Labware on Stage
+        self.ids['stage_widget_id'].draw_labware()
 
+ 
+    # Create New Protocol
     def new_protocol(self):
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
@@ -1009,40 +1029,115 @@ class ProtocolSettings(CompositeCapture):
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
                 if settings[layer]['acquire'] == True:
-                    gain = settings[layer]['gain']
-                    exp = settings[layer]['exp']
                     ill = settings[layer]['ill']
+                    gain = settings[layer]['gain']
+                    gain_auto = settings[layer]['gain_auto']
+                    exp = settings[layer]['exp']
                     z = settings[layer]['focus']
 
                     ch = lumaview.led_board.color2ch(layer)
 
-                    step = {'X': pos[0], 'Y':pos[1], 'Z':z, 'Channel':ch, 'Illumination':ill, 'Gain':gain, 'Exposure':exp}
+                    step = {'X': pos[0], 'Y':pos[1], 'Z':z, 'Channel':ch,'Illumination':ill, 'Gain':gain, 'Auto_Gain':gain_auto, 'Exposure':exp}
                     self.protocol = self.protocol.append(step,  ignore_index=True)
                 
+        # Update text with number of steps in protocol
+        self.ids['step_total_input'].text = str(len(self.protocol))
+
+        # Draw the Labware on Stage
+        self.ids['stage_widget_id'].draw_labware()
+
+        # Print Out
         print(self.protocol)
 
+    # Load Protocol from File
     def load_protocol(self, file="./data/sample_protocol.csv"):
         self.protocol = pd.read_csv(file)
+        self.ids['step_total_input'].text = str(len(self.protocol))
+
+        # Draw the Labware on Stage
+        self.ids['stage_widget_id'].draw_labware()
+
         print(self.protocol)
 
+    # Save Protocol to File
     def save_protocol(self, file="./data/sample_protocol.csv"):
         self.protocol.to_csv(file, index=False)
 
-    def update_period(self):
-        try:
-            settings['protocol']['period'] = float(self.ids['capture_period'].text)
-        except:
-            print('Update Period is not an acceptable value')
+    # Goto to Previous Step
+    def prev_step(self):
+        self.c_step = max(self.c_step - 1, 0)
+        self.ids['step_number_input'].text = str(self.c_step)
+        self.go_to_step()
+ 
+    # Go to Next Step
+    def next_step(self):
+        self.c_step = min(self.c_step + 1, len(self.protocol))
+        self.ids['step_number_input'].text = str(self.c_step)
+        self.go_to_step()
+    
+    # Go to Input Step
+    def go_to_step(self):
+        self.c_step = int(self.ids['step_number_input'].text)
 
-    def update_duration(self):
-        try:
-            settings['protocol']['duration'] = float(self.ids['capture_dur'].text)
-        except:
-            print('Update Duration is not an acceptable value')
+        step = self.protocol.index[self.c_step]
+
+        self.ids['step_name_input'] = step['Name']
+        lumaview.motion.move_abs_pos(step['X'])
+        lumaview.motion.move_abs_pos(step['Y'])
+        lumaview.motion.move_abs_pos(step['Z'])
+        # TODO
+        step['Channel'] # open accordian to correct channel
+        step['Illumination'] # set illumination 
+        step['Gain'] # set camera gain, slider, and text
+        step['Auto_Gain'] # set camera gain, and checkbox
+        step['Exposure'] # set camera exposure, slider, and text
+
+    # Delete Current Step of Protocol
+    def delete_step(self):
+
+        self.protocol = self.protocol.drop(self.protocol.index[self.c_step])
+        self.c_step = self.c_step - 1
+        self.next_step()
+
+    # Modify Current Step of Protocol
+    def modify_step(self):
+
+        step = {'Name': self.ids['step_name_input'].text,
+                'X': lumaview.motion.current_pos('X'),
+                'Y': lumaview.motion.current_pos('Y'),
+                'Z': lumaview.motion.current_pos('Z'),
+                'Channel': 0,       # TODO
+                'Illumination': 0,  # TODO
+                'Gain': 0,          # TODO
+                'Auto_Gain': 0,     # TODO
+                'Exposure': 0}      # TODO
+
+        self.protocol.index[self.c_step] = step
+
+    # Insert Current Step to Protocol at Current Position
+    def add_step(self):
+        step = {'Name': self.ids['step_name_input'].text,
+                'X': lumaview.motion.current_pos('X'),
+                'Y': lumaview.motion.current_pos('Y'),
+                'Z': lumaview.motion.current_pos('Z'),
+                'Channel': 0,       # TODO
+                'Illumination': 0,  # TODO
+                'Gain': 0,          # TODO
+                'Auto_Gain': 0,     # TODO
+                'Exposure': 0}      # TODO
+
+        # TODO Insert Step
+
 
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
  
+        if len(self.protocol) < 1:
+            print('Protocol has no steps.')
+            self.ids['run_scan_btn'].state =='normal'
+            self.ids['run_scan_btn'].text = 'Run One Scan'
+            return
+
         if self.ids['run_scan_btn'].state == 'down' or protocol == True:
             self.ids['run_scan_btn'].text = 'Running Scan'
 
@@ -1167,6 +1262,7 @@ class ProtocolSettings(CompositeCapture):
             else:
                 self.protocol_event.cancel()
 
+# Widget for displaying Microscope Stage area, labware, and current position 
 class Stage(Widget):
     bg_color = ObjectProperty(None)
     layer = ObjectProperty(None)

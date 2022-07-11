@@ -801,39 +801,39 @@
 			spacing: '5dp'
 			color: [51/255, 181/255, 229/255, 1]
 
+		TextInput:
+			id: step_name_input
+			text: ''
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			halign: 'center'
+			multiline: False
+
 		BoxLayout:
 			orientation: 'horizontal'
 	        size_hint_y: None
 	        height: '30dp'
 			spacing: '5dp'
-		    TextInput:
-				id: step_name_input
-		        text: ''
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-				halign: 'center'
-            	multiline: False
 		    Button:
+				id: prev_step_btn
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '30dp'
 				pos_hint: {'center_x': 0.35, 'center_y': 0.5}
 				background_normal: './data/icons/L_normal.png'
 				background_down: './data/icons/L_down.png'
-		        on_release:
+		        on_release: root.prev_step()
 		    TextInput:
 				id: step_number_input
 		        text: '0'
 		        size_hint_y: None
 		        height: '30dp'
-		        size_hint_x: None
-		        width: '30dp'
 				font_size: '12sp'
 				halign: 'center'
             	multiline: False
             	input_filter: 'int'
-                on_text_validate: root.set_position(self.text)
+                on_text_validate: root.go_to_step()
 		    Label:
 		        text: 'of'
 		        size_hint_x: None
@@ -846,19 +846,18 @@
 		        text: '0'
 		        size_hint_y: None
 		        height: '30dp'
-		        size_hint_x: None
-		        width: '30dp'
 				font_size: '12sp'
 				halign: 'center'
 				disabled: True
 		    Button:
+				id: next_step_btn
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '30dp'
 				pos_hint: {'center_x': 0.65, 'center_y': 0.5}
 				background_normal: './data/icons/R_normal.png'
 				background_down: './data/icons/R_down.png'
-		        on_release:
+		        on_release: root.next_step()
 
 		# Modify indivdual Steps in Protocol
 		BoxLayout:
@@ -872,21 +871,21 @@
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
-		        on_release:
+		        on_release: root.delete_step()
 		    Button:
 		        id: change_step_btn
 		        text: 'Change'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
-		        on_release:
+		        on_release: root.modify_step()
 		    Button:
 		        id: add_step_btn
 		        text: 'Add'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
-				on_release:
+				on_release: root.add_step()
 
 
 		# Run Protocol
