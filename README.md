@@ -22,6 +22,7 @@ Open a command prompt and paste the following
 ```
 python -m pip install --upgrade pip setuptools virtualenv
 python -m pip install numpy
+python -m pip install pandas
 python -m pip install pyserial
 python -m pip install Pillow
 python -m pip install opencv-python
