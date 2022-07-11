@@ -1071,7 +1071,7 @@ class ProtocolSettings(CompositeCapture):
  
     # Go to Next Step
     def next_step(self):
-        self.c_step = min(self.c_step + 1, len(self.protocol))
+        self.c_step = min(self.c_step + 1, len(self.protocol)-1)
         self.ids['step_number_input'].text = str(self.c_step)
         self.go_to_step()
     
@@ -1079,18 +1079,18 @@ class ProtocolSettings(CompositeCapture):
     def go_to_step(self):
         self.c_step = int(self.ids['step_number_input'].text)
 
-        step = self.protocol.index[self.c_step]
-
-        self.ids['step_name_input'] = step['Name']
-        lumaview.motion.move_abs_pos(step['X'])
-        lumaview.motion.move_abs_pos(step['Y'])
-        lumaview.motion.move_abs_pos(step['Z'])
-        # TODO
-        step['Channel'] # open accordian to correct channel
-        step['Illumination'] # set illumination 
-        step['Gain'] # set camera gain, slider, and text
-        step['Auto_Gain'] # set camera gain, and checkbox
-        step['Exposure'] # set camera exposure, slider, and text
+        step = self.protocol.iloc[[self.c_step]].squeeze()
+        print(step)
+        self.ids['step_name_input'].text = step['Name']
+        lumaview.motion.move_abs_pos('X', step['X']*1000)
+        lumaview.motion.move_abs_pos('Y', step['Y']*1000)
+        lumaview.motion.move_abs_pos('Z', step['Z'])
+        # # TODO
+        # step['Channel'] # open accordian to correct channel
+        # step['Illumination'] # set illumination 
+        # step['Gain'] # set camera gain, slider, and text
+        # step['Auto_Gain'] # set camera gain, and checkbox
+        # step['Exposure'] # set camera exposure, slider, and text
 
     # Delete Current Step of Protocol
     def delete_step(self):
