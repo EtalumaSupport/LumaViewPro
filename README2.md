@@ -10,7 +10,7 @@ Download and install from the python page https://www.python.org/downloads/.
 - select "install now"
 - restart the computer
 
-<img src="https://user-images.githubusercontent.com/108957480/178378391-fffaa372-6472-4022-88e4-571670b97fcd.png" width="800" height="400">
+<img src="https://user-images.githubusercontent.com/108957480/178378391-fffaa372-6472-4022-88e4-571670b97fcd.png" width="800" height="450">
 
 Download and unzip the LumaViewPro-master file 
 
