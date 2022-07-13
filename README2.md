@@ -73,8 +73,7 @@ Enter the following into the terminal to install the package dependencies
 pip3 install numpy plyer kivy kivymd opencv-python scipy pyserial pypylon mcp2210-python pandas
 ``
 
-![Screenshot from 2022-07-12 18-49-14](https://user-images.githubusercontent.com/108957480/178634971-3295a3e5-8a72-4105-9025-53466b62e7b8.png)
-
+![Screenshot from 2022-07-12 18-48-26 (1)](https://user-images.githubusercontent.com/108957480/178635382-b43c80f3-1c32-4e0f-bebf-7bc060824be5.png)
 
 Go to the location of the LumaViewPro-master folder in the terminal 
 
