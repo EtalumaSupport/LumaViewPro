@@ -43,6 +43,8 @@ Open LumaViewPro using the command prompt
 
 ## Installation Guide for Linux to run as Python Script
 
+Download and unzip the LumaViewPro-master file 
+
 To install Python open the terminal and enter the following 
 
 ``
@@ -50,7 +52,7 @@ sudo apt-get update
 ``
 
 ``
-sudo apt-get install python3.8
+sudo apt-get install python3.10
 ``
 
 ``
@@ -63,12 +65,20 @@ To check if Python works enter the following in the terminal
 python3 --version
 ``
 
+![Screenshot from 2022-07-12 18-49-14](https://user-images.githubusercontent.com/108957480/178634740-8e8f300d-d2b3-41c8-9e8b-c0db899af022.png)
+
 Enter the following into the terminal to install the package dependencies
 
 ``
 pip3 install numpy plyer kivy kivymd opencv-python scipy pyserial pypylon mcp2210-python pandas
 ``
 
+![Screenshot from 2022-07-12 18-49-14](https://user-images.githubusercontent.com/108957480/178634971-3295a3e5-8a72-4105-9025-53466b62e7b8.png)
+
+
 Go to the location of the LumaViewPro-master folder in the terminal 
 
 Open LumaViewPro using the terminal 
+
+![Screenshot from 2022-07-12 18-53-04](https://user-images.githubusercontent.com/108957480/178635069-8e45b9f7-479a-40f0-bc2e-67554b0ff49a.png)
+
