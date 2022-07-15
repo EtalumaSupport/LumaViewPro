@@ -986,7 +986,8 @@ class ProtocolSettings(CompositeCapture):
         try:
             self.load_protocol(file = settings['protocol']['location'])
         except:
-            self.protocol = pd.DataFrame(columns=['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+            self.step_names = list()
+            self.step_values = []
 
         self.c_step = 0
 
@@ -1016,123 +1017,213 @@ class ProtocolSettings(CompositeCapture):
  
     # Create New Protocol
     def new_protocol(self):
+        pass
+
+        os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
         current_labware.set_positions()
-
-        self.protocol = pd.DataFrame(columns=['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
-
-        # Iterate through all the positions in the scan
+        self.step_values = np.array([])
+ 
+         # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
 
             # Iterate through all the colors to create the steps
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
                 if settings[layer]['acquire'] == True:
+
+                    x = pos[0]
+                    y = pos[1]
+                    z = settings[layer]['focus']
+                    ch = lumaview.led_board.color2ch(layer)
                     ill = settings[layer]['ill']
                     gain = settings[layer]['gain']
-                    gain_auto = settings[layer]['gain_auto']
+                    gain_auto = int(settings[layer]['gain_auto'])
                     exp = settings[layer]['exp']
-                    z = settings[layer]['focus']
 
-                    ch = lumaview.led_board.color2ch(layer)
+                    step = np.array([[x, y, z, ch, ill, gain, gain_auto, exp]])
+ 
+                    if self.step_values.size == 0:
+                        self.step_values = step
+                    else:
+                        self.step_values = np.append(self.step_values, step, axis=0)
 
-                    step = {'X': pos[0], 'Y':pos[1], 'Z':z, 'Channel':ch,'Illumination':ill, 'Gain':gain, 'Auto_Gain':gain_auto, 'Exposure':exp}
-                    self.protocol = self.protocol.append(step,  ignore_index=True)
-                
-        # Update text with number of steps in protocol
-        self.ids['step_total_input'].text = str(len(self.protocol))
+        # Number of Steps
+
+        length =  self.step_values.shape[0]
+        # length = 1
+              
+        # Update text with current step and number of steps in protocol
+        self.c_step = -1
+        self.ids['step_number_input'].text = str(self.c_step+1)
+        self.ids['step_total_input'].text = str(length)
+
+        self.step_names = [self.ids['step_name_input'].text] * length
 
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
 
-        # Print Out
-        print(self.protocol)
+        # # Print Out
+        print(self.step_names)
+        print(self.step_values)
 
     # Load Protocol from File
     def load_protocol(self, file="./data/sample_protocol.csv"):
-        self.protocol = pd.read_csv(file)
-        self.ids['step_total_input'].text = str(len(self.protocol))
+
+        # Open protocol as DataFrame
+        protocol_df = pd.read_csv(file)
+        # Change columns to List and NPArray
+        self.step_names = list(protocol_df['Name'])
+        self.step_values = protocol_df[['X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure']].to_numpy()
+
+        self.c_step = -1
+        self.ids['step_number_input'].text = str(self.c_step+1)
+        self.ids['step_name_input'].text = ''
+
+        # Update total number of steps to GUI
+        self.ids['step_total_input'].text = str(len(self.step_names))
 
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
 
-        print(self.protocol)
+        print(protocol_df)
+        print(self.step_names)
+        print(self.step_values)
 
     # Save Protocol to File
     def save_protocol(self, file="./data/sample_protocol.csv"):
-        self.protocol.to_csv(file, index=False)
+
+        # Create Empty DataFrame
+        protocol_df = pd.DataFrame(columns=['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+        # Change columns to List and NPArray
+        protocol_df['Name'] = self.step_names
+        protocol_df[['X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure']] = self.step_values
+
+        protocol_df.to_csv(file, index=False)
 
     # Goto to Previous Step
     def prev_step(self):
         self.c_step = max(self.c_step - 1, 0)
-        self.ids['step_number_input'].text = str(self.c_step)
+        self.ids['step_number_input'].text = str(self.c_step+1)
         self.go_to_step()
  
     # Go to Next Step
     def next_step(self):
-        self.c_step = min(self.c_step + 1, len(self.protocol)-1)
-        self.ids['step_number_input'].text = str(self.c_step)
+        self.c_step = min(self.c_step + 1, len(self.step_names)-1)
+        self.ids['step_number_input'].text = str(self.c_step+1)
         self.go_to_step()
     
     # Go to Input Step
     def go_to_step(self):
-        self.c_step = int(self.ids['step_number_input'].text)
+        # Get the Current Step Number
+        self.c_step = int(self.ids['step_number_input'].text)-1
 
-        step = self.protocol.iloc[[self.c_step]].squeeze()
-        print(step)
-        self.ids['step_name_input'].text = step['Name']
-        lumaview.motion.move_abs_pos('X', step['X']*1000)
-        lumaview.motion.move_abs_pos('Y', step['Y']*1000)
-        lumaview.motion.move_abs_pos('Z', step['Z'])
-        # # TODO
-        # step['Channel'] # open accordian to correct channel
-        # step['Illumination'] # set illumination 
-        # step['Gain'] # set camera gain, slider, and text
-        # step['Auto_Gain'] # set camera gain, and checkbox
-        # step['Exposure'] # set camera exposure, slider, and text
+        # Extract Values from protocol list and array
+        name =      str(self.step_names[self.c_step])
+        x =         self.step_values[self.c_step, 0]
+        y =         self.step_values[self.c_step, 1]
+        z =         self.step_values[self.c_step, 2]
+        ch =        self.step_values[self.c_step, 3]
+        ill =       self.step_values[self.c_step, 4]
+        gain =      self.step_values[self.c_step, 5]
+        auto_gain = self.step_values[self.c_step, 6]
+        exp =       self.step_values[self.c_step, 7]
+
+        self.ids['step_name_input'].text = name
+        print(name)
+        lumaview.motion.move_abs_pos('X', x*1000)
+        lumaview.motion.move_abs_pos('Y', y*1000)
+        lumaview.motion.move_abs_pos('Z', z)
+
+        ch = lumaview.led_board.ch2color(ch)
+        layer  = lumaview.ids['mainsettings_id'].ids[ch]
+
+        # open accordian to correct channel
+        # lumaview.ids['mainsettings_id'].ids[accordion].ids[ch] # ... open
+        # accordion.select(ch)
+
+        # set illumination settings, text, and slider
+        print(ill, type(ill))
+        # settings[ch]['ill'] = ill
+        # layer.ids['ill_text'].text = str(ill)
+        # layer.ids['ill_slider'].value = ill
+
+        # set gain settings, text, and slider
+        print(gain, type(gain))
+        # settings[ch]['gain'] = gain
+        # layer.ids['gain_text'].text = str(gain)
+        # layer.ids['gain_slider'].value = gain
+
+        # set exposure settings, text, and slider
+        print(exp, type(exp))
+        # settings[ch]['exp'] = exp
+        # layer.ids['exp_text'].text = str(exp)
+        # layer.ids['exp_slider'].value = exp
+
+        # set auto-gain checkbox
+        print(auto_gain, type(auto_gain))
+        # settings[ch]['gain_auto'] = bool(auto_gain)
+
+        # self.ids['stage_widget_id'].draw_labware()
+
+        for i in range(10):
+            Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/2)
 
     # Delete Current Step of Protocol
     def delete_step(self):
-
-        self.protocol = self.protocol.drop(self.protocol.index[self.c_step])
+        
+        # self.step_names = del(self.step_names[self.c_step])
+        self.step_values = np.delete(self.step_values, self.c_step, axis = 0)
         self.c_step = self.c_step - 1
+
+        # Update total number of steps to GUI
+        self.ids['step_total_input'].text = str(len(self.step_names))
         self.next_step()
 
     # Modify Current Step of Protocol
     def modify_step(self):
 
-        step = {'Name': self.ids['step_name_input'].text,
-                'X': lumaview.motion.current_pos('X'),
-                'Y': lumaview.motion.current_pos('Y'),
-                'Z': lumaview.motion.current_pos('Z'),
-                'Channel': 0,       # TODO
-                'Illumination': 0,  # TODO
-                'Gain': 0,          # TODO
-                'Auto_Gain': 0,     # TODO
-                'Exposure': 0}      # TODO
+        self.step_names[self.c_step] = self.ids['step_name_input'].text
+        self.step_values[self.c_step, 0] = lumaview.motion.current_pos('X')/1000 # x
+        self.step_values[self.c_step, 1] = lumaview.motion.current_pos('Y')/1000 # y
+        self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')      # z
 
-        self.protocol.index[self.c_step] = step
+        # TODO
+        self.step_values[self.c_step, 3] = 0 # ch
+        self.step_values[self.c_step, 4] = 0 # ill
+        self.step_values[self.c_step, 5] = 0 # gain
+        self.step_values[self.c_step, 6] = 0 # auto_gain
+        self.step_values[self.c_step, 7] = 0 # exp
 
     # Insert Current Step to Protocol at Current Position
     def add_step(self):
-        step = {'Name': self.ids['step_name_input'].text,
-                'X': lumaview.motion.current_pos('X'),
-                'Y': lumaview.motion.current_pos('Y'),
-                'Z': lumaview.motion.current_pos('Z'),
-                'Channel': 0,       # TODO
-                'Illumination': 0,  # TODO
-                'Gain': 0,          # TODO
-                'Auto_Gain': 0,     # TODO
-                'Exposure': 0}      # TODO
 
-        # TODO Insert Step
+         # Determine Values
+        name = self.step_names[self.c_step]
+
+        # TODO
+        step = [lumaview.motion.current_pos('X')/1000, # x
+                lumaview.motion.current_pos('Y')/1000, # y
+                lumaview.motion.current_pos('Z'),      # z
+                0, # ch 
+                0, # ill
+                0, # gain
+                0, # auto_gain
+                0, # exp
+        ]
+
+        # Insert into List and Array
+        self.step_names.insert(self.c_step, name)
+        self.step_values = np.insert(self.step_values, self.c_step, step, axis=0)
+
+
 
 
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
  
-        if len(self.protocol) < 1:
+        if len(self.step_names) < 1:
             print('Protocol has no steps.')
             self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
@@ -1141,12 +1232,13 @@ class ProtocolSettings(CompositeCapture):
         if self.ids['run_scan_btn'].state == 'down' or protocol == True:
             self.ids['run_scan_btn'].text = 'Running Scan'
 
-            self.step = 0
+            self.c_step = 0
+            self.ids['step_number_input'].text = str(self.c_step+1)
 
-            x = self.protocol['X'].iloc[self.step]
-            y = self.protocol['Y'].iloc[self.step]
-            z = self.protocol['Z'].iloc[self.step]
-
+            x = self.step_values[self.c_step, 0]
+            y = self.step_values[self.c_step, 1]
+            z =  self.step_values[self.c_step, 2]
+ 
             lumaview.motion.move_abs_pos('X', x*1000)
             lumaview.motion.move_abs_pos('Y', y*1000)
             lumaview.motion.move_abs_pos('Z', z)
@@ -1163,6 +1255,7 @@ class ProtocolSettings(CompositeCapture):
 
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
+        self.ids['step_number_input'].text = str(self.c_step+1)
 
         # Check if at desired position
         x_status = lumaview.motion.target_status('X')
@@ -1171,24 +1264,27 @@ class ProtocolSettings(CompositeCapture):
 
         # If target location has been reached
         if x_status and y_status and z_status:
-            print('Scan Step:', self.protocol['Name'].iloc[self.step])
+            print('Scan Step:', self.step_names[self.c_step])
 
             # identify image settings
-            channel = int(self.protocol['Channel'].iloc[self.step])
-            illumination = float(self.protocol['Illumination'].iloc[self.step])
-            gain = float(self.protocol['Gain'].iloc[self.step])
-            exposure = float(self.protocol['Exposure'].iloc[self.step])
-            print(channel, illumination, gain, exposure)
+            ch =        self.step_values[self.c_step, 3]
+            ill =       self.step_values[self.c_step, 4]
+            gain =      self.step_values[self.c_step, 5]
+            auto_gain = self.step_values[self.c_step, 6]
+            exp =       self.step_values[self.c_step, 7]
+
+            print(ch, ill, gain, auto_gain, exp)
+
             # capture image
-            self.custom_capture(channel, illumination, gain, exposure)
+            self.custom_capture(ch, ill, gain, exp)
 
             # increment to the next step
-            self.step += 1
+            self.c_step += 1
 
-            if self.step < len(self.protocol):
-                x = self.protocol['X'].iloc[self.step]
-                y = self.protocol['Y'].iloc[self.step]
-                z = self.protocol['Z'].iloc[self.step]
+            if self.c_step < len(self.step_names):
+                x = self.step_values[self.c_step, 0]
+                y = self.step_values[self.c_step, 1]
+                z =  self.step_values[self.c_step, 2]
 
                 lumaview.motion.move_abs_pos('X', x*1000)  # move to x
                 lumaview.motion.move_abs_pos('Y', y*1000)  # move to y

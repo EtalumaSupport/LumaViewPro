@@ -977,6 +977,7 @@
 
         # BRIGHTFIELD SETTINGS
         AccordionItem:
+			id: BF_accordion
             title: 'Brightfield Channel Control'
 			on_collapse: root.accordion_collapse('BF')
             LayerControl:
@@ -986,8 +987,9 @@
 
         # BLUE SETTINGS
         AccordionItem:
+            id: Blue_accordion
             title: 'Blue Channel Control'
-			on_collapse: root.accordion_collapse('Blue')
+            on_collapse: root.accordion_collapse('Blue')
             LayerControl:
                 id: Blue
                 layer: 'Blue'
@@ -995,6 +997,7 @@
 
         # GREEN SETTINGS
         AccordionItem:
+            id: Green_accordion
             title: 'Green Channel Control'
 			on_collapse: root.accordion_collapse('Green')
             LayerControl:
@@ -1004,6 +1007,7 @@
 
         # RED SETTINGS
         AccordionItem:
+            id: Red_accordion
             title: 'Red Channel Control'
 			on_collapse: root.accordion_collapse('Red')
             LayerControl:
