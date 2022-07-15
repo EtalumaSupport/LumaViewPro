@@ -1173,7 +1173,7 @@ class ProtocolSettings(CompositeCapture):
     # Delete Current Step of Protocol
     def delete_step(self):
         
-        # self.step_names = del(self.step_names[self.c_step])
+        self.step_names.pop(self.c_step)
         self.step_values = np.delete(self.step_values, self.c_step, axis = 0)
         self.c_step = self.c_step - 1
 
@@ -1200,7 +1200,7 @@ class ProtocolSettings(CompositeCapture):
     def add_step(self):
 
          # Determine Values
-        name = self.step_names[self.c_step]
+        name = self.ids['step_name_input'].text
 
         # TODO
         step = [lumaview.motion.current_pos('X')/1000, # x
@@ -1217,6 +1217,7 @@ class ProtocolSettings(CompositeCapture):
         self.step_names.insert(self.c_step, name)
         self.step_values = np.insert(self.step_values, self.c_step, step, axis=0)
 
+        self.ids['step_total_input'].text = str(len(self.step_names))
 
 
 
