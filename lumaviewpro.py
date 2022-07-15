@@ -1139,6 +1139,7 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.led_board.ch2color(ch)
         layer  = lumaview.ids['mainsettings_id'].ids[ch]
 
+        # TODO
         # open accordian to correct channel
         # lumaview.ids['mainsettings_id'].ids[accordion].ids[ch] # ... open
         # accordion.select(ch)
@@ -1551,13 +1552,16 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def ill_text(self):
-        try:
-            illumination = float(self.ids['ill_text'].text)
-            settings[self.layer]['ill'] = illumination
-            self.ids['ill_slider'].value = illumination
-            self.apply_settings()
-        except:
-            print('Illumination value is not in acceptable range of 0 to 600 mA.')
+        ill_min = self.ids['ill_slider'].min
+        ill_max = self.ids['ill_slider'].max
+        ill_val = float(self.ids['ill_text'].text)
+        illumination = float(np.clip(ill_val, ill_min, ill_max))
+
+        settings[self.layer]['ill'] = illumination
+        self.ids['ill_slider'].value = illumination
+        self.ids['ill_text'].text = str(illumination)
+
+        self.apply_settings()
 
     def gain_auto(self):
         if self.ids['gain_auto'].state == 'down':
@@ -1573,13 +1577,17 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def gain_text(self):
-        try:
-            gain = float(self.ids['gain_text'].text)
-            settings[self.layer]['gain'] = gain
-            self.ids['gain_slider'].value = gain
-            self.apply_settings()
-        except:
-            print('Gain value is not in acceptable range of 0 to 24 dB.')
+
+        gain_min = self.ids['gain_slider'].min
+        gain_max = self.ids['gain_slider'].max
+        gain_val = float(self.ids['gain_text'].text)
+        gain = float(np.clip(gain_val, gain_min, gain_max))
+
+        settings[self.layer]['gain'] = gain
+        self.ids['gain_slider'].value = gain
+        self.ids['gain_text'].text = str(gain)
+
+        self.apply_settings()
 
     def exp_slider(self):
         exposure = self.ids['exp_slider'].value
@@ -1588,14 +1596,17 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def exp_text(self):
-        try:
-            exposure = float(self.ids['exp_text'].text)
-            settings[self.layer]['exp'] = exposure
-            self.ids['exp_slider'].value = exposure
-            # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
-            self.apply_settings()
-        except:
-            print('Exposure value is not in acceptable range of 0.01 to 1000ms.')
+        exp_min = self.ids['exp_slider'].min
+        exp_max = self.ids['exp_slider'].max
+        exp_val = float(self.ids['exp_text'].text)
+        exposure = float(np.clip(exp_val, exp_min, exp_max))
+
+        settings[self.layer]['exp'] = exposure
+        self.ids['exp_slider'].value = exposure
+        # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
+        self.ids['exp_text'].text = str(exposure)
+
+        self.apply_settings()
 
     def root_text(self):
         settings[self.layer]['file_root'] = self.ids['root_text'].text
