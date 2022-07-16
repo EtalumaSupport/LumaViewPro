@@ -114,7 +114,8 @@ class ScopeDisplay(Image):
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
 
     def stop(self):
-        self.frame_event.cancel()
+        # self.frame_event.cancel()
+        Clock.unschedule(self.update)
 
     def update(self, dt=0):
         global lumaview
@@ -414,6 +415,8 @@ void main (void) {
         super(ShaderViewer, self).__init__(**kwargs)
         self.canvas.shader.fs = fs_header + self.fs
         self.canvas.shader.vs = vs_header + self.vs
+        self.white = 1.
+        self.black = 0.
 
     def on_touch_down(self, touch):
         # Override Scatter's `on_touch_down` behavior for mouse scroll
@@ -653,8 +656,8 @@ class Histogram(Widget):
                 edges[1] = self.stablize*self.edges[1] + (1 - self.stablize)*edges[1]
 
             # mean = np.mean(hist[1],hist[0])
-            lumaview.ids['viewer_id'].black = float(edges[0])/255.
-            lumaview.ids['viewer_id'].white = float(edges[1])/255.
+            lumaview.ids['viewer_id'].black = 0.0 # float(edges[0])/255.
+            lumaview.ids['viewer_id'].white = 1.0 # float(edges[1])/255.
 
             # UPDATE SHADER
 
@@ -749,15 +752,11 @@ class VerticalControl(BoxLayout):
         fine =   settings['objective']['AF_min']
         course = settings['objective']['AF_max']
 
-        self.z_min = center-range
+        self.z_min = max(0, center-range)
         self.z_max = center+range
         self.z_step = course
 
-        # dt = 0.2 # TODO change this based on focus and exposure time
-        layers = ['BF', 'Blue', 'Green', 'Red']
-        #for layer in layers:
-        #    if lumaview.ids['mainsettings_id'].ids[layer].collapse == False:
-        #        dt = settings[layer]['exp']*2
+        # TODO change this based on focus and exposure time
         dt = 0.5
 
         self.positions = []
@@ -792,14 +791,14 @@ class VerticalControl(BoxLayout):
 
         if self.ids['autofocus_id'].state == 'normal':
             self.ids['autofocus_id'].text = 'Autofocus'
-            self.autofocus_event.cancel()
-            print('DEBUG: Vertical Control self.autofocus_event.cancel()')
+            # self.autofocus_event.cancel()
+            Clock.unschedule(self.focus_iterate)
 
         elif target >= self.z_max:
             self.ids['autofocus_id'].state = 'normal'
             self.ids['autofocus_id'].text = 'Autofocus'
-            self.autofocus_event.cancel()
-            print('DEBUG: Vertical Control self.autofocus_event.cancel()')
+            # self.autofocus_event.cancel()
+            Clock.unschedule(self.focus_iterate)
 
             focus = self.focus_best(self.positions, self.focus_measures)
             # print(self.positions, '\t', self.focus_measures)
@@ -1139,34 +1138,30 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.led_board.ch2color(ch)
         layer  = lumaview.ids['mainsettings_id'].ids[ch]
 
-        # TODO
-        # open accordian to correct channel
-        # lumaview.ids['mainsettings_id'].ids[accordion].ids[ch] # ... open
-        # accordion.select(ch)
+        # TODO: open accordian to correct channel or display channel in some way
 
         # set illumination settings, text, and slider
         print(ill, type(ill))
-        # settings[ch]['ill'] = ill
-        # layer.ids['ill_text'].text = str(ill)
-        # layer.ids['ill_slider'].value = ill
+        settings[ch]['ill'] = ill
+        layer.ids['ill_text'].text = str(ill)
+        layer.ids['ill_slider'].value = float(ill)
 
         # set gain settings, text, and slider
         print(gain, type(gain))
-        # settings[ch]['gain'] = gain
-        # layer.ids['gain_text'].text = str(gain)
-        # layer.ids['gain_slider'].value = gain
+        settings[ch]['gain'] = gain
+        layer.ids['gain_text'].text = str(gain)
+        layer.ids['gain_slider'].value = float(gain)
 
         # set exposure settings, text, and slider
         print(exp, type(exp))
-        # settings[ch]['exp'] = exp
-        # layer.ids['exp_text'].text = str(exp)
-        # layer.ids['exp_slider'].value = exp
+        settings[ch]['exp'] = exp
+        layer.ids['exp_text'].text = str(exp)
+        layer.ids['exp_slider'].value = float(exp)
 
         # set auto-gain checkbox
         print(auto_gain, type(auto_gain))
-        # settings[ch]['gain_auto'] = bool(auto_gain)
-
-        # self.ids['stage_widget_id'].draw_labware()
+        settings[ch]['gain_auto'] = bool(auto_gain)
+        layer.ids['gain_auto'].active = bool(auto_gain)
 
         for i in range(10):
             Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/2)
@@ -1191,27 +1186,32 @@ class ProtocolSettings(CompositeCapture):
         self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')      # z
 
         # TODO
-        self.step_values[self.c_step, 3] = 0 # ch
-        self.step_values[self.c_step, 4] = 0 # ill
-        self.step_values[self.c_step, 5] = 0 # gain
-        self.step_values[self.c_step, 6] = 0 # auto_gain
-        self.step_values[self.c_step, 7] = 0 # exp
+        ch = 0
+        layer  = lumaview.ids['mainsettings_id'].ids[ch]
+
+        self.step_values[self.c_step, 3] = ch # ch
+        self.step_values[self.c_step, 4] = layer.ids['ill_slider'].value # ill
+        self.step_values[self.c_step, 5] = layer.ids['gain_slider'].value # gain
+        self.step_values[self.c_step, 6] = int(layer.ids['gain_auto'].active) # auto_gain
+        self.step_values[self.c_step, 7] = layer.ids['exp_slider'].value # exp
 
     # Insert Current Step to Protocol at Current Position
     def add_step(self):
 
          # Determine Values
         name = self.ids['step_name_input'].text
+        ch = 0
+        layer  = lumaview.ids['mainsettings_id'].ids[ch]
 
         # TODO
         step = [lumaview.motion.current_pos('X')/1000, # x
                 lumaview.motion.current_pos('Y')/1000, # y
                 lumaview.motion.current_pos('Z'),      # z
-                0, # ch 
-                0, # ill
-                0, # gain
-                0, # auto_gain
-                0, # exp
+                ch, # ch 
+                layer.ids['ill_slider'].value, # ill
+                layer.ids['gain_slider'].value, # gain
+                int(layer.ids['gain_auto'].active), # auto_gain
+                layer.ids['exp_slider'].value, # exp
         ]
 
         # Insert into List and Array
@@ -1321,7 +1321,8 @@ class ProtocolSettings(CompositeCapture):
         else:
             self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
-            self.protocol_event.cancel()
+            Clock.unschedule(self.protocol_iterate) # unschedule all copies of scan iterate
+            # self.protocol_event.cancel()
  
     def protocol_iterate(self, dt):
 
@@ -1358,7 +1359,8 @@ class ProtocolSettings(CompositeCapture):
                 print('Scans Remaining:', self.n_scans)
                 self.run_scan(protocol = True)
             else:
-                self.protocol_event.cancel()
+                # self.protocol_event.cancel()
+                Clock.unschedule(self.protocol_iterate) # unschedule all copies of scan iterate
 
 # Widget for displaying Microscope Stage area, labware, and current position 
 class Stage(Widget):
@@ -1752,7 +1754,8 @@ class ZStack(CompositeCapture):
 
         else:
             self.ids['ztack_aqr_btn'].text = 'Acquire'
-            self.zstack_event.cancel()
+            # self.zstack_event.cancel()
+            Clock.unschedule(self.zstack_iterate)
             print('cancel')
 
     def zstack_iterate(self, dt):
@@ -1769,7 +1772,8 @@ class ZStack(CompositeCapture):
             else:
                 self.ids['ztack_aqr_btn'].text = 'Acquire'
                 self.ids['ztack_aqr_btn'].state = 'normal'
-                self.zstack_event.cancel()
+                # self.zstack_event.cancel()
+                Clock.unschedule(self.zstack_iterate)
 
 # Button the triggers 'filechooser.open_file()' from plyer
 class FileChooseBTN(Button):
