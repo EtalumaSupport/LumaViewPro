@@ -87,4 +87,11 @@ Open LumaViewPro using the terminal
 
 If having trouble with camera install the basler pylon driver at https://www.baslerweb.com/en/downloads/software-downloads/
 
+## Running from Code on Windows 10 and Linux
+* Download code from github as a .ZIP file
+* Unzip to your preferred folder
+* Open command prompt
+* Navigate to the folder containing lumaviewpro.py
+* type: python lumaviewpro.py
+
 
