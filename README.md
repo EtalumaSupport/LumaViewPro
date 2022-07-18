@@ -1,5 +1,5 @@
 # LumaViewPro (pre-release)
-LumaViewPro is an open source fluorescence microscope control interface written in Python.  It is sponsored by Etaluma, Inc. and includes an example of an interface to the Etaluma LED control board and an initial version of a Basler camera.  Multi-axis motion control is anticipated in 2021. It is intended to offer a multi OS functional GUI as well as a development tool for testing and building applications from.
+LumaViewPro is an open source fluorescence microscope control interface written in Python. It is sponsored by Etaluma, Inc. and includes an example of an interface to the Etaluma LED control board and an initial version of a Basler camera with Multi-axis motion control. It offers a multi OS functional GUI as well as a development tool for testing and building applications from.
 
 ![LVProScreenshotSept21](https://user-images.githubusercontent.com/74261093/132131289-ce4dce0b-3fcc-4d69-8dba-0862944329d9.png)
 
