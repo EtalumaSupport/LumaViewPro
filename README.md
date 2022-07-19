@@ -1,28 +1,28 @@
-# LumaViewPro (pre-release)
-LumaViewPro is an open source fluorescence microscope control interface written in Python. It is sponsored by Etaluma, Inc. and includes an example of an interface to the Etaluma LED control board and an initial version of a Basler camera with Multi-axis motion control. It offers a multi OS functional GUI as well as a development tool for testing and building applications from.
+# LumaViewPro (pre-release) 
+LumaViewPro is an open source fluorescence microscope control interface written in Python.  It is sponsored by Etaluma, Inc. and includes an example of an interface to the Etaluma LED control board with Multi-axis motion control. It offers multi OS functional GUI as well as a development tool for testing and building applications from.
 
-![LVProScreenshotSept21](https://user-images.githubusercontent.com/74261093/132131289-ce4dce0b-3fcc-4d69-8dba-0862944329d9.png)
+![lvpscreenshot2](https://user-images.githubusercontent.com/108957480/179601967-8c2f3be7-5371-4091-9f07-fd34e1c8f9bb.png)
 
 
-## Executable for Windows 10
-
-The most recent executable for Windows 10 can be retrieved from:
-https://drive.google.com/drive/folders/1vFG5wKAaB_DNMNctJCE5Sax5WXlNiw_3?usp=sharing
-
-To use, download 'LumaViewPro.zip' and extract file. First install the camera driver. Then you can run the executable by double-clicking with no further installation. Note that the code may be more current than the executable. This executable was designed for the LS720.
-
-## Installing dependencies on Windows 10 to run as a Python Script
+## Instalation Guide For Windows to run as Python Script 
 Download and install from the python page https://www.python.org/downloads/.
 - select "add python to PATH"
 - select "install launcher for all users"
 - select "install now"
 - restart the computer
 
-Open a command prompt and paste the following
+<img src="https://user-images.githubusercontent.com/108957480/178378391-fffaa372-6472-4022-88e4-571670b97fcd.png" width="800" height="450">
+
+Download and unzip the LumaViewPro-master file 
+
+Select to open all Python documents using the Python application 
+
+<img src="https://user-images.githubusercontent.com/108957480/178375526-ada1cade-14ee-4f9a-8695-8b55f698c4b0.png" width="800" height="400">
+
+Open a comand Prompt and enter the following 
 ```
 python -m pip install --upgrade pip setuptools virtualenv
 python -m pip install numpy
-python -m pip install pandas
 python -m pip install pyserial
 python -m pip install Pillow
 python -m pip install opencv-python
@@ -34,57 +34,60 @@ python -m pip install kivy
 python -m pip install plyer
 python -m pip install scipy
 python -m pip install mcp2210-python
+python -m pip install pandas 
 ```
+Go to the location of the LumaViewPro-master folder in the command prompt
 
-## Installing dependencies on Mac OS X to run as a Python Script
-Upgrade to the latest version of Mac OS X.  Also ensure you have the latest version of XCode installed from the [Mac App store](https://apps.apple.com/us/app/xcode/id497799835?mt=12).  Open XCode and let installation scripts download and run any additional tools needed.  Then open a terminal and enter the following command to install the XCode command line tools:
+Open LumaViewPro using the command prompt 
 
-```
-xcode-select --install
-```
+<img width="700" alt="Screen Shot 2022-07-11 at 4 47 24 PM" src="https://user-images.githubusercontent.com/108957480/178377130-e620e8a4-de45-4f6b-9031-8c1b18192164.png">
 
-Download and install Homebrew according to the instructions on the [Homebrew page](https://brew.sh).  Then open a terminal and download and install Python 3.9 using Homebrew:
-```
-brew install python3
-```
+If having trouble with camera install the basler pylon driver at https://www.baslerweb.com/en/downloads/software-downloads/
 
-Move the /usr/local/bin/pip binary to a temporary directory and create symlinks for pip3 and python3:
 
-```
-mkdir ~/temp
-sudo mv /usr/local/bin/pip ~/temp
-sudo ln -s /usr/local/bin/pip3.9 /usr/local/bin/pip
-sudo ln -s /usr/local/bin/python3 /usr/local/bin/python
-```
+## Installation Guide for Linux to run as Python Script
 
-Install python packages using pip:
-```
-python3 -m pip install --upgrade pip setuptools virtualenv
-python3 -m pip install numpy
-python3 -m pip install pyserial
-python3 -m pip install Pillow
-python3 -m pip install opencv-python
-python3 -m pip install pypylon
-python3 -m pip install docutils pygments pypi
-```
+Download and unzip the LumaViewPro-master file 
 
-Install dependencies using Homebrew:
-```
-brew install sdl2 sdl2_image sdl2_ttf sdl2_mixer
-brew install gstreamer gst-plugins-base
-brew install gst-plugins-good gst-plugins-bad gst-plugins-ugly
-brew install gst-libav
-brew install glew
-```
+To install Python open the terminal and enter the following 
 
-Install kivy using pip:
-```
-python -m pip install kivy
-python -m pip install kivymd
-```
+``
+sudo apt-get update 
+``
 
-## Running from Code on Windows 10 and MacOS
+``
+sudo apt-get install python3.10
+``
 
+``
+sudo apt-get install python3-pip        
+``
+
+To check if Python works enter the following in the terminal
+
+``
+python3 --version
+``
+
+![Screenshot from 2022-07-12 18-49-14](https://user-images.githubusercontent.com/108957480/178634740-8e8f300d-d2b3-41c8-9e8b-c0db899af022.png)
+
+Enter the following into the terminal to install the package dependencies
+
+``
+pip3 install numpy plyer kivy kivymd opencv-python scipy pyserial pypylon mcp2210-python pandas
+``
+
+![Screenshot from 2022-07-12 18-48-26 (1)](https://user-images.githubusercontent.com/108957480/178635382-b43c80f3-1c32-4e0f-bebf-7bc060824be5.png)
+
+Go to the location of the LumaViewPro-master folder in the terminal 
+
+Open LumaViewPro using the terminal 
+
+![Screenshot from 2022-07-12 18-53-04](https://user-images.githubusercontent.com/108957480/178635069-8e45b9f7-479a-40f0-bc2e-67554b0ff49a.png)
+
+If having trouble with camera install the basler pylon driver at https://www.baslerweb.com/en/downloads/software-downloads/
+
+## Running from Code on Windows 10 and Linux
 * Download code from github as a .ZIP file
 * Unzip to your preferred folder
 * Open command prompt
@@ -92,21 +95,3 @@ python -m pip install kivymd
 * type: python lumaviewpro.py
 
 
-## Creating your own scripts (without a GUI)
-
-Download the files for interacting with the hardware
-* trinamic.py
-* ledboard.py
-* pyloncamera.py
-* script_example.py
-
-Install the necessary libraries
-* numpy
-* pyserial
-* time
-* pypylon
-
-Download and install the Basler Camera Driver
-https://www.baslerweb.com/en/sales-support/downloads/software-downloads/
-
-Edit the sample script
