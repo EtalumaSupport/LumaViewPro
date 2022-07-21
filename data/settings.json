@@ -22,16 +22,16 @@
     "bookmark": {
       "x": 0,
       "y": 0,
-      "z": 3221.7820946739
+      "z": 0
     },
 
     "BF": {
         "save_folder": "./capture",
         "file_root": "W_",
-        "ill": 435.0,
-        "gain": 11.3,
+        "ill": 10.0,
+        "gain": 00,
         "gain_auto": false,
-        "exp": 253.02,
+        "exp": 40.0,
         "false_color": false,
         "acquire": true,
         "focus": 0.0
@@ -40,35 +40,35 @@
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 225.0,
-        "gain": 13.9,
+        "ill": 150.0,
+        "gain": 4,
         "gain_auto": false,
-        "exp": 325.31,
+        "exp": 100,
         "false_color": false,
         "acquire": true,
-        "focus": 3221.7820946739
+        "focus": 0.0
     },
 
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 310.0,
-        "gain": 13.200000000000001,
+        "ill": 150.0,
+        "gain": 4,
         "gain_auto": false,
-        "exp": 445.79,
+        "exp": 100,
         "false_color": false,
         "acquire": true,
-        "focus": 3233.2010135931
+        "focus": 0.0
     },
 
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 535.0,
-        "gain": 0.0,
+        "ill": 150.0,
+        "gain": 4,
         "gain_auto": false,
-        "exp": 100.0,
-        "false_color": true,
+        "exp": 100,
+        "false_color": false,
         "acquire": true,
         "focus": 0.0
     },
@@ -77,6 +77,6 @@
         "file": "protocol.csv",
         "period": 0.1,
         "duration": 0.1,
-        "labware": "1536 well microplate"
+        "labware": "96 well microplate"
     }
 }
