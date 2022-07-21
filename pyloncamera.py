@@ -88,7 +88,7 @@ class PylonCamera:
         if self.active != False:
             self.active.StopGrabbing()
             # (t*1000) in microseconds; therefore t  in milliseconds
-            self.active.ExposureTime.SetValue(t*1000)
+            self.active.ExposureTime.SetValue(max(t*1000, self.active.ExposureTime.Min))
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
 
     def auto_exposure_t(self, state = True):
