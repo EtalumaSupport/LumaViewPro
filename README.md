@@ -4,7 +4,7 @@ LumaViewPro is an open source fluorescence microscope control interface written 
 ![lvpscreenshot2](https://user-images.githubusercontent.com/108957480/179601967-8c2f3be7-5371-4091-9f07-fd34e1c8f9bb.png)
 
 
-## Instalation Guide For Windows to run as Python Script 
+## Installation Guide For Windows to run as Python Script 
 Download and install from the python page https://www.python.org/downloads/.
 - select "add python to PATH"
 - select "install launcher for all users"
