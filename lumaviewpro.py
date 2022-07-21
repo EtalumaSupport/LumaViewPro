@@ -1185,33 +1185,55 @@ class ProtocolSettings(CompositeCapture):
         self.step_values[self.c_step, 1] = lumaview.motion.current_pos('Y')/1000 # y
         self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')      # z
 
-        # TODO
-        ch = 0
-        layer  = lumaview.ids['mainsettings_id'].ids[ch]
+        c_layer = False
 
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            accordion = layer + '_accordion'
+            if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
+                c_layer = layer
+
+        if c_layer == False:
+            mssg = "No layer currently selected"
+            return mssg
+
+        ch = lumaview.led_board.color2ch(c_layer)
+
+        layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
         self.step_values[self.c_step, 3] = ch # ch
-        self.step_values[self.c_step, 4] = layer.ids['ill_slider'].value # ill
-        self.step_values[self.c_step, 5] = layer.ids['gain_slider'].value # gain
-        self.step_values[self.c_step, 6] = int(layer.ids['gain_auto'].active) # auto_gain
-        self.step_values[self.c_step, 7] = layer.ids['exp_slider'].value # exp
+        self.step_values[self.c_step, 4] = layer_id.ids['ill_slider'].value # ill
+        self.step_values[self.c_step, 5] = layer_id.ids['gain_slider'].value # gain
+        self.step_values[self.c_step, 6] = int(layer_id.ids['gain_auto'].active) # auto_gain
+        self.step_values[self.c_step, 7] = layer_id.ids['exp_slider'].value # exp
 
     # Insert Current Step to Protocol at Current Position
     def add_step(self):
 
          # Determine Values
         name = self.ids['step_name_input'].text
-        ch = 0
-        layer  = lumaview.ids['mainsettings_id'].ids[ch]
+        c_layer = False
 
-        # TODO
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            accordion = layer + '_accordion'
+            if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
+                c_layer = layer
+
+        if c_layer == False:
+            mssg = "No layer currently selected"
+            return mssg
+
+        ch = lumaview.led_board.color2ch(c_layer)
+        layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
+
         step = [lumaview.motion.current_pos('X')/1000, # x
                 lumaview.motion.current_pos('Y')/1000, # y
                 lumaview.motion.current_pos('Z'),      # z
                 ch, # ch 
-                layer.ids['ill_slider'].value, # ill
-                layer.ids['gain_slider'].value, # gain
-                int(layer.ids['gain_auto'].active), # auto_gain
-                layer.ids['exp_slider'].value, # exp
+                layer_id.ids['ill_slider'].value, # ill
+                layer_id.ids['gain_slider'].value, # gain
+                int(layer_id.ids['gain_auto'].active), # auto_gain
+                layer_id.ids['exp_slider'].value, # exp
         ]
 
         # Insert into List and Array
@@ -1219,7 +1241,6 @@ class ProtocolSettings(CompositeCapture):
         self.step_values = np.insert(self.step_values, self.c_step, step, axis=0)
 
         self.ids['step_total_input'].text = str(len(self.step_names))
-
 
 
     # Run one scan of the protocol

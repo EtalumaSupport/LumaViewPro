@@ -156,7 +156,7 @@ class TrinamicBoard:
         return um
 
     def z_um2ustep(self, um):
-        ustep = int( um / 0.0059 ) # 0.0059 um/ustep Olympus Z
+        ustep = int( um / 0.00586 ) # 0.00586 um/ustep Olympus Z
         return ustep
 
     def zhome(self):
