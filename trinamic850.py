@@ -71,7 +71,14 @@ class TrinamicBoard:
         'Z': 0xCD,
         'T': 0xAD
     }
-
+    limit_status = { # reference switch status
+        # bit 0, left status (1=active)
+        # bit 1, right status (1=active)
+        'X': 0x35,
+        'Y': 0x55,
+        'Z': 0x55,
+        'T': 0x35
+    }
 
     #----------------------------------------------------------
     # Initialize connection through SPI
@@ -205,20 +212,7 @@ class TrinamicBoard:
     #----------------------------------------------------------
     # Motion Functions
     #----------------------------------------------------------
-    # # Get reference switch status (True -> reference is currently being saught,
-    # #                              False -> reference is not currently being saught)
-    # # Modified for for any target (TMC5072 does not have a proper limit status)
-    # def limit_status(self, axis):
-    #     self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
-    #     status, target = self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
-    #
-    #     self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
-    #     status, actual = self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
-    #
-    #     ref_status = not(target == actual)
-    #     print('target status:', ref_status)
-    #     return ref_status
-
+ 
     # return True if current and target position are at home.
     def home_status(self, axis):
         if self.found:
@@ -248,16 +242,26 @@ class TrinamicBoard:
             self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
             status, actual = self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
 
-            #print(target == actual)
             return (target == actual)
         else:
             print('Motor control board is not connected')
             return False
 
-    # For backward compatibility
-    def limit_status(self, axis):
-        print("This board does not support 'limit_status'")
-        return False
+    # Get reference (limit) switch status (1=active)
+    def get_limit_status(self, axis):
+        if self.found:
+            self.SPI_write (self.chip_pin[axis], self.limit_status[axis], 0x00000000)
+            status, data = self.SPI_write (self.chip_pin[axis], self.limit_status[axis], 0x00000000)
+
+            # print('raw:', data)
+            # data = bin(data) # convert returned data to binary
+            # print('bin':, data)
+            left = False     # convert bit 0 to boolean
+            right = False    # convert bit 1 to boolean
+            return left, right    # return left and right limit switch status' 
+        else:
+            print('Motor control board is not connected')
+            return 0
 
     # Get target position
     def target_pos(self, axis):
