@@ -29,7 +29,7 @@
         "save_folder": "./capture",
         "file_root": "W_",
         "ill": 10.0,
-        "gain": 00,
+        "gain": 0.0,
         "gain_auto": false,
         "exp": 40.0,
         "false_color": false,

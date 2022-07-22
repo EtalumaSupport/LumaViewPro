@@ -1894,6 +1894,7 @@ class LumaViewProApp(App):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
         except:
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
+            
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
         lumaview.motion.xyhome()
