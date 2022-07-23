@@ -38,6 +38,8 @@ June 5, 2022
 from mcp2210 import Mcp2210, Mcp2210GpioDesignation, Mcp2210GpioDirection
 import struct    # For making c style data structures, and send them through the mcp chip
 import sched
+import os
+import pywinusb.hid as hid
 
 class TrinamicBoard:
 
@@ -88,8 +90,14 @@ class TrinamicBoard:
         self.found = False
 
         try:
-            # USB\VID_04D8&PID_00DE\0001006900
-            self.chip = Mcp2210('0001006900')  # the serial number of the chip. Can be determined by using dmesg after plugging in the device
+            if os.sys.platform == 'win32':
+                devices = hid.core.find_all_hid_devices()
+                for device in devices:
+                    if device.vendor_id == 0x04D8 and device.product_id == 0x00DE:
+                        SPI_serial = device.serial_number
+            else:
+                SPI_serial = '0001006900'
+            self.chip = Mcp2210(SPI_serial)  # the serial number of the chip. Can be determined by using dmesg after plugging in the device
             print ("Found Device", self.chip)
 
             # set all GPIO lines on the MCP2210 as General GPIO lines
