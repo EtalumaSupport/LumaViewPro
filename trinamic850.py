@@ -312,7 +312,7 @@ class TrinamicBoard:
                 steps = self.xy_um2ustep(pos)
             # signed to unsigned 32_bit integer
             if steps < 0:
-                return
+                steps = 4294967296+steps
 
             # print('steps:', steps, '\t pos:', pos)
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
@@ -329,8 +329,9 @@ class TrinamicBoard:
             else:
                 steps = self.xy_um2ustep(um+pos)
 
+             # signed to unsigned 32_bit integer
             if steps < 0:
-                return
+                steps = 4294967296+steps
 
             print('pos:', pos, 'um:', um, 'pos+um:', um+pos, 'steps:', steps)
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
