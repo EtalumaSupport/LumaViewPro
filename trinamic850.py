@@ -167,7 +167,7 @@ class TrinamicBoard:
     # Z (Focus) Functions
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
-        um = 0.0059 * ustep # 0.0059 um/ustep Olympus Z
+        um = 0.00586 * ustep # 0.00586 um/ustep Olympus Z
         return um
 
     def z_um2ustep(self, um):
@@ -312,7 +312,7 @@ class TrinamicBoard:
                 steps = self.xy_um2ustep(pos)
             # signed to unsigned 32_bit integer
             if steps < 0:
-                steps = 4294967296+steps
+                return
 
             # print('steps:', steps, '\t pos:', pos)
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
@@ -322,16 +322,17 @@ class TrinamicBoard:
         if self.found:
             # Read actual position in um
             pos = self.current_pos(axis)
+ 
             # Add relative motion and convert
             if axis == 'Z':
                 steps = self.z_um2ustep(um+pos)
             else:
                 steps = self.xy_um2ustep(um+pos)
-            # signed to unsigned 32_bit integer
-            if steps < 0:
-                steps = 4294967296+steps
 
-            # print('steps:', steps, '\t um:', um+pos)
+            if steps < 0:
+                return
+
+            print('pos:', pos, 'um:', um, 'pos+um:', um+pos, 'steps:', steps)
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
 
 
