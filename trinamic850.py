@@ -39,7 +39,12 @@ from mcp2210 import Mcp2210, Mcp2210GpioDesignation, Mcp2210GpioDirection
 import struct    # For making c style data structures, and send them through the mcp chip
 import sched
 import os
-import pywinusb.hid as hid
+
+if os.sys.platform == 'win32': # Windows
+    import pywinusb.hid as hid
+else: # Not Windows (linux+)
+    import usb.core # Access to USB functionality  from pyusb available at https://pyusb.github.io/pyusb
+    import usb.util
 
 class TrinamicBoard:
 
@@ -96,7 +101,9 @@ class TrinamicBoard:
                     if device.vendor_id == 0x04D8 and device.product_id == 0x00DE:
                         SPI_serial = device.serial_number
             else:
-                SPI_serial = '0001006900'
+                dev = usb.core.find(idVendor=0x04d8, idProduct=0x00de)  # find the mcp2210 USB device, idVendor=0x04d8, idProduct=0x00de is defaulted in the chip
+                SPI_serial = usb.util.get_string( dev, dev.iSerialNumber ) # find the serial number of the MCP device
+
             self.chip = Mcp2210(SPI_serial)  # the serial number of the chip. Can be determined by using dmesg after plugging in the device
             print ("Found Device", self.chip)
 
