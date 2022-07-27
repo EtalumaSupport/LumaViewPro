@@ -98,10 +98,11 @@ home_wd = os.getcwd()
 
 def error_log(mssg):
     # append = str(int(round(time.time() * 1000)))
-    os.chdir(home_wd)
-    file = open('LVP_log.txt', 'a')
-    file.write(mssg + '\n')
-    file.close()
+    if True:
+        os.chdir(home_wd)
+        file = open('LVP_log.txt', 'a')
+        file.write(mssg + '\n')
+        file.close()
 
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
@@ -120,11 +121,13 @@ class ScopeDisplay(Image):
     def start(self, fps = 10):
         error_log('ScopeDisplay.start()')
         self.fps = fps
+        error_log('self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)')
         self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
 
     def stop(self):
         error_log('ScopeDisplay.stop()')
         # self.frame_event.cancel()
+        error_log('Clock.unschedule(self.update)')
         Clock.unschedule(self.update)
 
     def update(self, dt=0):
@@ -168,24 +171,30 @@ class CompositeCapture(FloatLayout):
         global settings
         
         # Set gain and exposure
+        error_log('# Set gain and exposure')
         lumaview.camera.gain(gain)
         lumaview.camera.exposure_t(exposure)
 
  
         # Save Settings
+        error_log('# Save Settings')
         color = lumaview.led_board.ch2color(channel)
         save_folder =  settings[color]['save_folder']
         file_root = settings[color]['file_root']
         append = 'ms'
 
         # Illuminate
+        error_log('# Illuminate')
         lumaview.led_board.led_on(channel, illumination)
 
         # Grab image and save
+        error_log('# Grab image and ...')
         lumaview.camera.grab()
+        error_log('# ...save')
         self.save_image(save_folder, file_root, append, color)
 
         # Turn off LEDs
+        error_log('# Save Settings')
         lumaview.led_board.leds_off()
 
     # Save image from camera buffer to specified location
@@ -667,6 +676,7 @@ class Histogram(Widget):
         if self.bg_color is None:
             self.bg_color = (1, 1, 1, 1)
 
+        error_log('self.event = Clock.schedule_interval(self.histogram, 1)')
         self.event = Clock.schedule_interval(self.histogram, 1)
 
         self.hist_range_set = False
@@ -806,8 +816,8 @@ class VerticalControl(BoxLayout):
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
             lumaview.motion.move_abs_pos('Z', self.z_min) # Go to z_min
+            error_log('self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)')
             self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
-            print('DEBUG: Vertical Control self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)')
 
     def focus_iterate(self, dt):
         error_log('VerticalControl.focus_iterate()')
@@ -833,13 +843,13 @@ class VerticalControl(BoxLayout):
 
         if self.ids['autofocus_id'].state == 'normal':
             self.ids['autofocus_id'].text = 'Autofocus'
-            # self.autofocus_event.cancel()
+            error_log('Clock.unschedule(self.focus_iterate)')
             Clock.unschedule(self.focus_iterate)
 
         elif target >= self.z_max:
             self.ids['autofocus_id'].state = 'normal'
             self.ids['autofocus_id'].text = 'Autofocus'
-            # self.autofocus_event.cancel()
+            error_log('Clock.unschedule(self.focus_iterate)')
             Clock.unschedule(self.focus_iterate)
 
             focus = self.focus_best(self.positions, self.focus_measures)
@@ -1340,10 +1350,12 @@ class ProtocolSettings(CompositeCapture):
             lumaview.motion.move_abs_pos('Y', y*1000)
             lumaview.motion.move_abs_pos('Z', z)
 
+            error_log('Clock.schedule_interval(self.scan_iterate, 0.1)')
             Clock.schedule_interval(self.scan_iterate, 0.1)
 
         else:  # self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
+            error_log('Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
     
     def scan_iterate(self, dt):
@@ -1393,6 +1405,7 @@ class ProtocolSettings(CompositeCapture):
                 print('Scan Complete')
                 self.ids['run_scan_btn'].state = 'normal'
                 self.ids['run_scan_btn'].text = 'Run One Scan'
+                error_log('Clock.unschedule(self.scan_iterate)')
                 Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
 
     # Run protocol without xy movement
@@ -1412,13 +1425,17 @@ class ProtocolSettings(CompositeCapture):
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
+            error_log('Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
             self.run_scan(protocol = True)
+            error_log('self.protocol_event = Clock.schedule_interval(self.protocol_iterate, 1)')
             self.protocol_event = Clock.schedule_interval(self.protocol_iterate, 1)
 
         else:
             self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
+            error_log('Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+            error_log('Clock.unschedule(self.protocol_iterate)')
             Clock.unschedule(self.protocol_iterate) # unschedule all copies of scan iterate
             # self.protocol_event.cancel()
  
@@ -1459,6 +1476,7 @@ class ProtocolSettings(CompositeCapture):
                 self.run_scan(protocol = True)
             else:
                 # self.protocol_event.cancel()
+                error_log('Clock.unschedule(self.protocol_iterate)')
                 Clock.unschedule(self.protocol_iterate) # unschedule all copies of scan iterate
 
 # Widget for displaying Microscope Stage area, labware, and current position 
@@ -1875,6 +1893,7 @@ class ZStack(CompositeCapture):
         lumaview.motion.move_abs_pos('Z', self.positions[self.n_pos])
 
         if self.ids['ztack_aqr_btn'].state == 'down':
+            error_log('self.zstack_event = Clock.schedule_interval(self.zstack_iterate, 0.01)')
             self.zstack_event = Clock.schedule_interval(self.zstack_iterate, 0.01)
             self.ids['ztack_aqr_btn'].text = 'Acquiring ZStack'
             print('DEBUG: ZStack self.zstack_event = Clock.schedule_interval(self.zstack_iterate, 0.01)')
@@ -1882,6 +1901,7 @@ class ZStack(CompositeCapture):
         else:
             self.ids['ztack_aqr_btn'].text = 'Acquire'
             # self.zstack_event.cancel()
+            error_log('Clock.unschedule(self.zstack_iterate)')
             Clock.unschedule(self.zstack_iterate)
             print('cancel')
 
@@ -1901,6 +1921,7 @@ class ZStack(CompositeCapture):
                 self.ids['ztack_aqr_btn'].text = 'Acquire'
                 self.ids['ztack_aqr_btn'].state = 'normal'
                 # self.zstack_event.cancel()
+                error_log('Clock.unschedule(self.zstack_iterate)')
                 Clock.unschedule(self.zstack_iterate)
 
 # Button the triggers 'filechooser.open_file()' from plyer
@@ -2011,7 +2032,6 @@ class LumaViewProApp(App):
         global lumaview
         lumaview = MainDisplay()
         try:
-            
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
         except:
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")

@@ -1,11 +1,12 @@
 # Modified 5/21/2022
 
+from numpy import False_
 import serial
 import serial.tools.list_ports as list_ports
 
 class LEDBoard:
     def __init__(self, **kwargs):
-        ports = serial.tools.list_ports.comports(include_links = True)
+        ports = list_ports.comports(include_links = True)
 
         for port in ports:
             if (port.vid == 11914) and (port.pid == 5):
@@ -17,7 +18,8 @@ class LEDBoard:
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
         self.timeout=.5 # seconds
-        self.driver = True
+        self.write_timeout=.5 # seconds
+        self.driver = False
         self.connect()
 
     def __del__(self):
@@ -31,25 +33,39 @@ class LEDBoard:
                                         bytesize=self.bytesize,
                                         parity=self.parity,
                                         stopbits=self.stopbits,
-                                        timeout=self.timeout)
+                                        timeout=self.timeout,
+                                        write_timeout=self.write_timeout)
             self.driver.close()
             self.driver.open()
         except:
-            if self.driver != False:
-                print("It looks like a Lumaview compatible LED driver board is not plugged in.")
-                print("Error: LEDBoard.connect() exception")
             self.driver = False
+            print("It looks like a Lumaview compatible LED driver board is not plugged in.")
 
     def send_mssg(self, mssg):
         stream = mssg.encode('utf-8')+b"\r\n"
         if self.driver != False:
-            self.driver.write(stream)
+            try:
+                self.driver.close()
+                self.driver.open()
+                self.driver.write(stream)
+                return True
+            except serial.SerialTimeoutException:
+                print('LEDBoard.send_mssg() Serial Timeout Occurred')
+                return False
+        else:
+            self.connect()
+            return False
 
     def receive_mssg(self):
         if self.driver != False:
-            stream = self.driver.readline()
-            mssg = stream.decode("utf-8","ignore")
-            return mssg[:-2]
+            try:
+                self.driver.close()
+                self.driver.open()
+                stream = self.driver.readline()
+                mssg = stream.decode("utf-8","ignore")
+                return mssg[:-2]
+            except serial.SerialTimeoutException:
+                print('LEDBoard.receive_mssg() Serial Timeout Occurred')
 
     def color2ch(self, color):
         if color == 'Blue':
