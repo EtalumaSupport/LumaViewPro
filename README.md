@@ -35,6 +35,7 @@ python -m pip install plyer
 python -m pip install scipy
 python -m pip install mcp2210-python
 python -m pip install pandas 
+python -m pip install pywinusb
 ```
 Go to the location of the LumaViewPro-master folder in the command prompt
 
@@ -74,7 +75,7 @@ python3 --version
 Enter the following into the terminal to install the package dependencies
 
 ``
-pip3 install numpy plyer kivy kivymd opencv-python scipy pyserial pypylon mcp2210-python pandas
+pip3 install numpy plyer kivy kivymd opencv-python scipy pyserial pypylon mcp2210-python pandas pywinusb
 ``
 
 ![Screenshot from 2022-07-12 18-48-26 (1)](https://user-images.githubusercontent.com/108957480/178635382-b43c80f3-1c32-4e0f-bebf-7bc060824be5.png)
