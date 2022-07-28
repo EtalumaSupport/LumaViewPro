@@ -43,8 +43,6 @@ Open LumaViewPro using the command prompt
 
 <img width="700" alt="Screen Shot 2022-07-11 at 4 47 24 PM" src="https://user-images.githubusercontent.com/108957480/178377130-e620e8a4-de45-4f6b-9031-8c1b18192164.png">
 
-If having trouble with camera install the basler pylon driver at https://www.baslerweb.com/en/downloads/software-downloads/
-
 
 ## Installation Guide for Linux to run as Python Script
 
@@ -86,7 +84,6 @@ Open LumaViewPro using the terminal
 
 ![Screenshot from 2022-07-12 18-53-04](https://user-images.githubusercontent.com/108957480/178635069-8e45b9f7-479a-40f0-bc2e-67554b0ff49a.png)
 
-If having trouble with camera install the basler pylon driver at https://www.baslerweb.com/en/downloads/software-downloads/
 
 ## Running from Code on Windows 10 and Linux
 * Download code from github as a .ZIP file
