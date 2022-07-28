@@ -674,9 +674,6 @@ class Histogram(Widget):
         if self.bg_color is None:
             self.bg_color = (1, 1, 1, 1)
 
-        # error_log('Clock.schedule_interval(self.histogram, 1)')
-        # Clock.schedule_interval(self.histogram, 1)
-
         self.hist_range_set = False
         self.edges = [0,255]
         self.stablize = 0.3
@@ -2041,7 +2038,7 @@ class LumaViewProApp(App):
             
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
-        # lumaview.motion.xyhome()
+        lumaview.motion.xyhome()
         return lumaview
 
     def _on_resize(self, window, w, h):
