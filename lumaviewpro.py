@@ -80,7 +80,6 @@ from kivy.uix.popup import Popup
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 
-
 # Video Related
 from kivy.graphics.texture import Texture
 import cv2
@@ -91,6 +90,9 @@ from trinamic850 import *
 from ledboard import *
 from pyloncamera import *
 from labware import *
+
+from kivy.config import Config
+Config.set('input', 'mouse', 'mouse, disable_multitouch')
 
 global lumaview
 global settings
@@ -653,8 +655,6 @@ class MainSettings(BoxLayout):
             if self.currentLayer in layers:
                 error_log('Clock.schedule_interval(...histogram, 0.1)')
                 Clock.schedule_interval(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram, 0.1)
-
-
  
     def check_settings(self, *args):
         error_log('MainSettings.check_settings()')
@@ -2044,6 +2044,9 @@ class LumaViewProApp(App):
         Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
         Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
+
+        # Does not seem to be working ... slowing down even!
+        # Clock.schedule_once(lumaview.ids['viewer_id'].update, 0.1) # This will fix image size on resize issue
 
     def on_stop(self):
         error_log('LumaViewProApp.on_stop()')
