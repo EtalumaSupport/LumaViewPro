@@ -44,6 +44,7 @@ import time
 import json
 import glob
 import math
+import threading
 from plyer import filechooser
 # from scipy.optimized import curve_fit
 
@@ -1194,8 +1195,17 @@ class ProtocolSettings(CompositeCapture):
     # Go to Input Step
     def go_to_step(self):
         error_log('ProtocolSettings.go_to_step()')
+
+        if len(self.step_names) <= 0:
+            self.ids['step_number_input'].text = '0'
+            return
+        
         # Get the Current Step Number
         self.c_step = int(self.ids['step_number_input'].text)-1
+
+        if self.c_step < 1 or self.c_step > len(self.step_names):
+            self.ids['step_number_input'].text = '0'
+            return
 
         # Extract Values from protocol list and array
         name =      str(self.step_names[self.c_step])
@@ -2038,7 +2048,10 @@ class LumaViewProApp(App):
             
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
-        lumaview.motion.xyhome()
+
+        go_home = threading.Thread(target=lumaview.motion.xyhome) # threaded to help with loading
+        go_home.start()
+        
         return lumaview
 
     def _on_resize(self, window, w, h):
