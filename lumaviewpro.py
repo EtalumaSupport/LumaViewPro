@@ -1179,6 +1179,8 @@ class ProtocolSettings(CompositeCapture):
     # Goto to Previous Step
     def prev_step(self):
         error_log('ProtocolSettings.prev_step()')
+        if len(self.step_names) <= 0:
+            return
         self.c_step = max(self.c_step - 1, 0)
         self.ids['step_number_input'].text = str(self.c_step+1)
         self.go_to_step()
@@ -1186,6 +1188,8 @@ class ProtocolSettings(CompositeCapture):
     # Go to Next Step
     def next_step(self):
         error_log('ProtocolSettings.next_step()')
+        if len(self.step_names) <= 0:
+            return
         self.c_step = min(self.c_step + 1, len(self.step_names)-1)
         self.ids['step_number_input'].text = str(self.c_step+1)
         self.go_to_step()
