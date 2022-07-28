@@ -1032,7 +1032,9 @@ class XYStageControl(BoxLayout):
     def home(self):
         error_log('XYStageControl.home()')
         global lumaview
-        lumaview.motion.xyhome()
+
+        self.go_home = threading.Thread(target=lumaview.motion.xyhome) # threaded to prevent freezing
+        self.go_home.start()
         self.ids['x_pos_id'].text = '0.00'
         self.ids['y_pos_id'].text = '0.00'
 
@@ -2048,10 +2050,8 @@ class LumaViewProApp(App):
             
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
+        lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
 
-        go_home = threading.Thread(target=lumaview.motion.xyhome) # threaded to help with loading
-        go_home.start()
-        
         return lumaview
 
     def _on_resize(self, window, w, h):
