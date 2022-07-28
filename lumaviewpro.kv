@@ -71,7 +71,7 @@
         pos: root.width-30, 0
 
 
-    # Camera Controls
+    # Camera ControlscurrentLayer
     # ------------------------------
     BoxLayout:
         orientation: 'horizontal'
@@ -226,7 +226,7 @@
         border: 0, 0, 0, 0
         background_normal: './data/icons/right_arrow_right_arc.png' # right pointing (press to open)
         background_down: './data/icons/left_arrow_right_arc.png' # left pointing (press to close)
-        on_release: root.toggle_settings()
+        on_press: root.toggle_settings()
 
 
 <VerticalControl>:

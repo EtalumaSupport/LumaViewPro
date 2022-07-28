@@ -96,11 +96,13 @@ global lumaview
 global settings
 home_wd = os.getcwd()
 
+start_str = time.strftime("%Y %m %d %H_%M_%S")
+start_str = str(int(round(time.time() * 1000)))
+
 def error_log(mssg):
-    # append = str(int(round(time.time() * 1000)))
     if True:
         os.chdir(home_wd)
-        file = open('LVP_log.txt', 'a')
+        file = open('LVP_log '+start_str+'.txt', 'a')
         file.write(mssg + '\n')
         file.close()
 
@@ -121,8 +123,8 @@ class ScopeDisplay(Image):
     def start(self, fps = 10):
         error_log('ScopeDisplay.start()')
         self.fps = fps
-        error_log('self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)')
-        self.frame_event = Clock.schedule_interval(self.update, 1.0 / self.fps)
+        error_log('Clock.schedule_interval(self.update, 1.0 / self.fps)')
+        Clock.schedule_interval(self.update, 1.0 / self.fps)
 
     def stop(self):
         error_log('ScopeDisplay.stop()')
@@ -490,12 +492,10 @@ Factory.register('ShaderViewer', cls=ShaderViewer)
 
 class MotionSettings(BoxLayout):
     settings_width = dp(300)
-    isOpen = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         error_log('MotionSettings.__init__()')
-        Window.bind(on_draw=self.check_settings)
 
     # Hide (and unhide) motion settings
     def toggle_settings(self):
@@ -507,14 +507,10 @@ class MotionSettings(BoxLayout):
         self.ids['xy_stagecontrol_id'].update_gui()
 
         # move position of motion control
-        if self.isOpen:
-            self.ids['toggle_motionsettings'].state = 'normal'
+        if self.ids['toggle_motionsettings'].state == 'normal':
             self.pos = -self.settings_width+30, 0
-            self.isOpen = False
         else:
-            self.ids['toggle_motionsettings'].state = 'down'
             self.pos = 0, 0
-            self.isOpen = True
 
         if scope_display.play == True:
             scope_display.start()
@@ -522,11 +518,9 @@ class MotionSettings(BoxLayout):
     def check_settings(self, *args):
         error_log('MotionSettings.check_settings()')
         # global lumaview
-        if not self.isOpen:
-            self.ids['toggle_motionsettings'].state = 'normal'
+        if self.ids['toggle_motionsettings'].state == 'normal':
             self.pos = -self.settings_width+30, 0
         else:
-            self.ids['toggle_motionsettings'].state = 'down'
             self.pos = 0, 0
 
 class PostProcessing(BoxLayout):
@@ -614,14 +608,12 @@ void main (void) {
 
 class MainSettings(BoxLayout):
     settings_width = dp(300)
-    isOpen = BooleanProperty(False)
     notCollapsing = BooleanProperty(True)
     currentLayer = StringProperty('microscope')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         error_log('MainSettings.toggle_editor()')
-        Window.bind(on_draw=self.check_settings)
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
@@ -630,16 +622,15 @@ class MainSettings(BoxLayout):
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
 
-        # move position of settings
-        if self.isOpen:
-            self.ids['toggle_mainsettings'].state = 'normal'
+        # move position of settings and stop histogram if collapsed
+        if self.ids['toggle_mainsettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
-            self.isOpen = False
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
         else:
-            self.ids['toggle_mainsettings'].state = 'down'
             self.pos = lumaview.width - self.settings_width, 0
-            self.isOpen = True
-
+ 
         if scope_display.play == True:
             scope_display.start()
 
@@ -649,22 +640,29 @@ class MainSettings(BoxLayout):
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
         lumaview.led_board.leds_off()
-        self.currentLayer = layer
-        self.notCollapsing = not(self.notCollapsing)
-        if self.notCollapsing:
-            if scope_display.play == True:
-                scope_display.start()
 
+        self.currentLayer = layer
+ 
+        self.notCollapsing = not(self.notCollapsing)
+        if scope_display.play == True:
+            scope_display.start()
+
+        if self.notCollapsing:
+            print(self.currentLayer)
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            if self.currentLayer in layers:
+                error_log('Clock.schedule_interval(...histogram, 0.1)')
+                Clock.schedule_interval(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram, 0.1)
+
+
+ 
     def check_settings(self, *args):
         error_log('MainSettings.check_settings()')
         global lumaview
-        if not self.isOpen:
-            self.ids['toggle_mainsettings'].state = 'normal'
+        if self.ids['toggle_mainsettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
         else:
-            self.ids['toggle_mainsettings'].state = 'down'
             self.pos = lumaview.width - self.settings_width, 0
-
 
 class Histogram(Widget):
     bg_color = ObjectProperty(None)
@@ -676,15 +674,15 @@ class Histogram(Widget):
         if self.bg_color is None:
             self.bg_color = (1, 1, 1, 1)
 
-        error_log('self.event = Clock.schedule_interval(self.histogram, 1)')
-        self.event = Clock.schedule_interval(self.histogram, 1)
+        # error_log('Clock.schedule_interval(self.histogram, 1)')
+        # Clock.schedule_interval(self.histogram, 1)
 
         self.hist_range_set = False
         self.edges = [0,255]
         self.stablize = 0.3
 
     def histogram(self, *args):
-        error_log('Histogram.histogram()')
+        # error_log('Histogram.histogram()')
         global lumaview
 
         if lumaview.camera != False:
@@ -816,8 +814,8 @@ class VerticalControl(BoxLayout):
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
             lumaview.motion.move_abs_pos('Z', self.z_min) # Go to z_min
-            error_log('self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)')
-            self.autofocus_event = Clock.schedule_interval(self.focus_iterate, dt)
+            error_log('Clock.schedule_interval(self.focus_iterate, dt)')
+            Clock.schedule_interval(self.focus_iterate, dt)
 
     def focus_iterate(self, dt):
         error_log('VerticalControl.focus_iterate()')
@@ -1428,8 +1426,8 @@ class ProtocolSettings(CompositeCapture):
             error_log('Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
             self.run_scan(protocol = True)
-            error_log('self.protocol_event = Clock.schedule_interval(self.protocol_iterate, 1)')
-            self.protocol_event = Clock.schedule_interval(self.protocol_iterate, 1)
+            error_log('Clock.schedule_interval(self.protocol_iterate, 1)')
+            Clock.schedule_interval(self.protocol_iterate, 1)
 
         else:
             self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
@@ -1660,7 +1658,7 @@ class ModSlider(Slider):
 
     def on_touch_up(self, touch):
         super(ModSlider, self).on_touch_up(touch)
-        error_log('ModSlider.on_touch_up()')
+        # error_log('ModSlider.on_touch_up()')
         if touch.grab_current == self:
             self.dispatch('on_release')
             return True
@@ -1893,10 +1891,9 @@ class ZStack(CompositeCapture):
         lumaview.motion.move_abs_pos('Z', self.positions[self.n_pos])
 
         if self.ids['ztack_aqr_btn'].state == 'down':
-            error_log('self.zstack_event = Clock.schedule_interval(self.zstack_iterate, 0.01)')
-            self.zstack_event = Clock.schedule_interval(self.zstack_iterate, 0.01)
+            error_log('Clock.schedule_interval(self.zstack_iterate, 0.01)')
+            Clock.schedule_interval(self.zstack_iterate, 0.01)
             self.ids['ztack_aqr_btn'].text = 'Acquiring ZStack'
-            print('DEBUG: ZStack self.zstack_event = Clock.schedule_interval(self.zstack_iterate, 0.01)')
 
         else:
             self.ids['ztack_aqr_btn'].text = 'Acquire'
@@ -2029,6 +2026,8 @@ class LumaViewProApp(App):
         error_log('LumaViewProApp.build()')
         self.icon = './data/icons/icon32x.png'
         Window.maximize()
+        Window.bind(on_resize=self._on_resize)
+
         global lumaview
         lumaview = MainDisplay()
         try:
@@ -2038,8 +2037,13 @@ class LumaViewProApp(App):
             
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
-        lumaview.motion.xyhome()
+        # lumaview.motion.xyhome()
         return lumaview
+
+    def _on_resize(self, window, w, h):
+        Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
+        Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
+        Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
 
     def on_stop(self):
         error_log('LumaViewProApp.on_stop()')
