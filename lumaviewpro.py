@@ -108,6 +108,7 @@ def error_log(mssg):
         file = open('LVP_log '+start_str+'.txt', 'a')
         file.write(mssg + '\n')
         file.close()
+        print(mssg)
 
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
@@ -177,8 +178,8 @@ class CompositeCapture(FloatLayout):
         
         # Set gain and exposure
         error_log('# Set gain and exposure')
-        lumaview.camera.gain(gain)
-        lumaview.camera.exposure_t(exposure)
+        #lumaview.camera.gain(gain)
+        #lumaview.camera.exposure_t(exposure)
 
  
         # Save Settings
@@ -240,7 +241,7 @@ class CompositeCapture(FloatLayout):
             cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
             # cv2.imwrite(filename, img.astype(np.uint8))
         except:
-            print("Error: Unable to save. Perhaps save folder does not exist?")
+            error_log("Error: Unable to save. Perhaps save folder does not exist?")
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
@@ -482,8 +483,6 @@ void main (void) {
         else:
             c['white_point'] = (self.white, )*4
 
-        # print('b:', self.black, 'w:', self.white)
-
     def on_fs(self, instance, value):
         self.canvas.shader.fs = value
 
@@ -585,18 +584,15 @@ void main (void) {
 
     def compile_shaders(self, *largs):
         error_log('ShaderEditor.compile_shaders()')
-        print('ShaderEditor.compile_shaders()')
         if not self.viewer:
-            print('ShaderEditor.compile_shaders() Fail')
+            error_log('ShaderEditor.compile_shaders() Fail')
             return
 
         # we don't use str() here because it will crash with non-ascii char
         fs = fs_header + self.fs
         vs = vs_header + self.vs
 
-        print('-->', fs)
         self.viewer.fs = fs
-        print('-->', vs)
         self.viewer.vs = vs
 
     # Hide (and unhide) Shader settings
@@ -651,7 +647,7 @@ class MainSettings(BoxLayout):
             scope_display.start()
 
         if self.notCollapsing:
-            print(self.currentLayer)
+            error_log(self.currentLayer)
             layers = ['BF', 'Blue', 'Green', 'Red']
             if self.currentLayer in layers:
                 error_log('Clock.schedule_interval(...histogram, 0.1)')
@@ -790,7 +786,7 @@ class VerticalControl(BoxLayout):
         
         global lumaview
         if lumaview.camera.active == False:
-            print('Error: VerticalControl.autofocus()')
+            error_log('Error: VerticalControl.autofocus()')
             return
 
         # TODO Needs to be set by the user
@@ -829,11 +825,11 @@ class VerticalControl(BoxLayout):
         #closeness = 1/(len(self.positions) + 1
         n = len(self.positions)
         closeness = 1/(n + 0.1)
-        #print(closeness)
+
         step = course*closeness + fine*(1 - closeness)
-        print("fine: ", fine, end="")
-        print(" course: ", course, end="")
-        print(" step:", step)
+        error_log("fine: ", fine, end="")
+        error_log(" course: ", course, end="")
+        error_log(" step:", step)
 
         lumaview.motion.move_rel_pos('Z', step) # move by z_step
 
@@ -849,8 +845,7 @@ class VerticalControl(BoxLayout):
             Clock.unschedule(self.focus_iterate)
 
             focus = self.focus_best(self.positions, self.focus_measures)
-            # print(self.positions, '\t', self.focus_measures)
-            print("Focus Position:", -lumaview.motion.z_ustep2um(focus))
+            error_log("Focus Position:", -lumaview.motion.z_ustep2um(focus))
             lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
 
         self.update_gui()
@@ -866,7 +861,7 @@ class VerticalControl(BoxLayout):
             image = np.double(image)
             sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
             sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            print(sum_one - sum_two)
+            error_log('difference\t' + str(sum_one - sum_two))
             return sum_one - sum_two
 
         elif algorithm == 'skew':
@@ -878,14 +873,14 @@ class VerticalControl(BoxLayout):
             white_edge = edges[1]
 
             skew = white_edge-max_index
-            print(skew)
+            error_log('skew\t' + str(skew))
             return skew
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
             ssq = np.sum(np.square(image))
             var = ssq*w*h-sum**2
-            print('pixel_variation:', var)
+            error_log('pixel_variation\t' + str(var))
             return var
 
         elif algorithm == 'convolve2D':
@@ -900,10 +895,10 @@ class VerticalControl(BoxLayout):
                 for j in range(n):
                     r2 = ((i-(n-1)/2)**2 + (j-(n-1)/2)**2)/a**2
                     kernel[i,j] = 2*(1-r2)*np.exp(-0.5*r2)/np.sqrt(3*a)
-            print(kernel)
+            error_log('kernel\t' + str(kernel))
             convolve = signal.convolve2d(image, kernel, mode='valid')
             sum = np.sum(convolve)
-            print(sum)
+            error_log('sum\t' + str(sum))
             return sum
 
         else:
@@ -1066,7 +1061,7 @@ class ProtocolSettings(CompositeCapture):
         try:
             settings['protocol']['period'] = float(self.ids['capture_period'].text)
         except:
-            print('Update Period is not an acceptable value')
+            error_log('Update Period is not an acceptable value')
 
     # Update Protocol Duration   
     def update_duration(self):
@@ -1074,7 +1069,7 @@ class ProtocolSettings(CompositeCapture):
         try:
             settings['protocol']['duration'] = float(self.ids['capture_dur'].text)
         except:
-            print('Update Duration is not an acceptable value')
+            error_log('Update Duration is not an acceptable value')
 
     # Labware Selection
     def select_labware(self):
@@ -1136,10 +1131,6 @@ class ProtocolSettings(CompositeCapture):
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
 
-        # # Print Out
-        print(self.step_names)
-        print(self.step_values)
-
     # Load Protocol from File
     def load_protocol(self, file="./data/sample_protocol.csv"):
         error_log('ProtocolSettings.load_protocol()')
@@ -1159,10 +1150,6 @@ class ProtocolSettings(CompositeCapture):
 
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
-
-        print(protocol_df)
-        print(self.step_names)
-        print(self.step_values)
 
     # Save Protocol to File
     def save_protocol(self, file="./data/sample_protocol.csv"):
@@ -1221,7 +1208,6 @@ class ProtocolSettings(CompositeCapture):
         exp =       self.step_values[self.c_step, 7]
 
         self.ids['step_name_input'].text = name
-        print(name)
         lumaview.motion.move_abs_pos('X', x*1000)
         lumaview.motion.move_abs_pos('Y', y*1000)
         lumaview.motion.move_abs_pos('Z', z)
@@ -1232,25 +1218,25 @@ class ProtocolSettings(CompositeCapture):
         # TODO: open accordian to correct channel or display channel in some way
 
         # set illumination settings, text, and slider
-        print(ill, type(ill))
+        error_log('ill:     ' + str(ill))
         settings[ch]['ill'] = ill
         layer.ids['ill_text'].text = str(ill)
         layer.ids['ill_slider'].value = float(ill)
 
         # set gain settings, text, and slider
-        print(gain, type(gain))
+        error_log('gain:     ' + str(gain))
         settings[ch]['gain'] = gain
         layer.ids['gain_text'].text = str(gain)
         layer.ids['gain_slider'].value = float(gain)
 
         # set exposure settings, text, and slider
-        print(exp, type(exp))
+        error_log('exp:       ' + str(exp))
         settings[ch]['exp'] = exp
         layer.ids['exp_text'].text = str(exp)
         layer.ids['exp_slider'].value = float(exp)
 
         # set auto-gain checkbox
-        print(auto_gain, type(auto_gain))
+        error_log('auto_gain: ' + str(auto_gain))
         settings[ch]['gain_auto'] = bool(auto_gain)
         layer.ids['gain_auto'].active = bool(auto_gain)
 
@@ -1342,7 +1328,7 @@ class ProtocolSettings(CompositeCapture):
         error_log('ProtocolSettings.run_scan()')
  
         if len(self.step_names) < 1:
-            print('Protocol has no steps.')
+            error_log('Protocol has no steps.')
             self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
             return
@@ -1370,7 +1356,7 @@ class ProtocolSettings(CompositeCapture):
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
     
     def scan_iterate(self, dt):
-        error_log('ProtocolSettings.scan_iterate()')
+        # error_log('ProtocolSettings.scan_iterate()')
         global lumaview
         global settings
 
@@ -1385,7 +1371,7 @@ class ProtocolSettings(CompositeCapture):
 
         # If target location has been reached
         if x_status and y_status and z_status:
-            print('Scan Step:', self.step_names[self.c_step])
+            error_log('Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
             ch =        self.step_values[self.c_step, 3]
@@ -1393,8 +1379,6 @@ class ProtocolSettings(CompositeCapture):
             gain =      self.step_values[self.c_step, 5]
             auto_gain = self.step_values[self.c_step, 6]
             exp =       self.step_values[self.c_step, 7]
-
-            print(ch, ill, gain, auto_gain, exp)
 
             # capture image
             self.custom_capture(ch, ill, gain, exp)
@@ -1413,7 +1397,7 @@ class ProtocolSettings(CompositeCapture):
 
             # if all positions have already been reached
             else:
-                print('Scan Complete')
+                error_log('Scan Complete')
                 self.ids['run_scan_btn'].state = 'normal'
                 self.ids['run_scan_btn'].text = 'Run One Scan'
                 error_log('Clock.unschedule(self.scan_iterate)')
@@ -1471,7 +1455,6 @@ class ProtocolSettings(CompositeCapture):
         minutes = '%02d' % minutes
 
         # Update Button
-        # print(hrs + ':' + minutes + ' remaining')
         # self.ids['run_protocol_btn'].text = hrs+':'+minutes+' remaining'
         self.ids['run_protocol_btn'].text = str(n_scans)
 
@@ -1483,7 +1466,7 @@ class ProtocolSettings(CompositeCapture):
             self.n_scans = self.n_scans - 1
 
             if self.n_scans > 0:
-                print('Scans Remaining:', self.n_scans)
+                error_log('Scans Remaining: ' + str(self.n_scans))
                 self.run_scan(protocol = True)
             else:
                 # self.protocol_event.cancel()
@@ -1503,10 +1486,10 @@ class Stage(Widget):
     def on_touch_down(self, touch):
         error_log('Stage.on_touch_down()')
         if self.collide_point(*touch.pos):
-            print('clicked on:', touch.pos)
+            error_log('clicked on:', touch.pos)
         
     def draw_labware(self, *args):
-        error_log('Stage.draw_labware()')
+        # error_log('Stage.draw_labware()')
         global lumaview
         global settings
 
@@ -1619,7 +1602,6 @@ class MicroscopeSettings(BoxLayout):
         global settings
 
         spinner = self.ids['scope_spinner']
-        print(spinner.text)
         settings['microscope'] = spinner.text
 
     def load_ojectives(self):
@@ -1913,15 +1895,12 @@ class ZStack(CompositeCapture):
             # self.zstack_event.cancel()
             error_log('Clock.unschedule(self.zstack_iterate)')
             Clock.unschedule(self.zstack_iterate)
-            print('cancel')
 
     def zstack_iterate(self, dt):
         error_log('ZStack.zstack_iterate()')
-        print('Iterate at:', lumaview.motion.current_pos('Z'), lumaview.motion.target_pos('Z'))
-
 
         if lumaview.motion.target_status('Z'):
-            print('at target')
+            error_log('Z at target')
             self.live_capture()
             self.n_pos += 1
 
@@ -2019,11 +1998,11 @@ class FileSaveBTN(Button):
         
         if self.context == 'save_settings':
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
-            print('Saving Settings to File:', self.selection[0])
+            error_log('Saving Settings to File:' + self.selection[0])
 
         elif self.context == 'save_protocol':
             lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(file = self.selection[0])
-            print('Saving Protocol to File:', self.selection[0])
+            error_log('Saving Protocol to File:' + self.selection[0])
 
 
 # -------------------------------------------------------------------------
