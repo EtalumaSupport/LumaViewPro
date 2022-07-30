@@ -5,10 +5,16 @@ class PylonCamera:
 
     def __init__(self, **kwargs):
         self.active = False
-        self.error_report_count = 0;
+        self.error_report_count = 0
+        self.mssg = 'PylonCamera.__init__()'
         self.array = np.array([])
         self.connect()
 
+    def __delete__(self):
+        try:
+            self.active.close()
+        except:
+            print('exception')
     def connect(self):
         try:
             # Create an instant active object with the camera device found first.
@@ -20,15 +26,17 @@ class PylonCamera:
             self.active.GainAuto.SetValue('Off')
             self.active.ExposureAuto.SetValue('Off')
             self.active.ReverseX.SetValue(True);
-            # Grabbing Continously (video) with minimal delay
+            # Grabbing Continuously (video) with minimal delay
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-            print("LumaViewPro compatible camera is now connected.")
+            self.error_report_count = 0
+            self.mssg = 'PylonCamera.connect() succeeded'            
 
         except:
             self.active = False
             if (self.error_report_count < 6):
                 print('Error: Cannot connect to camera')
             self.error_report_count += 1
+            self.mssg = 'PylonCamera.connect() failed'            
 
     def grab(self):
         if self.active == False:
@@ -39,19 +47,18 @@ class PylonCamera:
 
                 if grabResult.GrabSucceeded():
                     self.array = grabResult.GetArray()
-                    # texture = Texture.create(size=(array.shape[1],array.shape[0]), colorfmt='luminance')
-                    # texture.blit_buffer(array.flatten(), colorfmt='luminance', bufferfmt='ubyte')
-                    # # display image from the texture
-                    # self.texture = texture
 
             grabResult.Release()
+            self.error_report_count = 0
+            self.mssg = 'PylonCamera.grab() succeeded'            
             return True
 
         except:
-            if self.error_report_count < 3:
+            if self.error_report_count < 6:
                 print('Error: Cannot grab texture from camera')
             self.error_report_count += 1
             self.active = False
+            self.mssg = 'PylonCamera.grab() failed'            
             return False
 
     def frame_size(self, w, h):
@@ -68,34 +75,43 @@ class PylonCamera:
             self.active.OffsetX.SetValue(offset_x)
             self.active.OffsetY.SetValue(offset_y)
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+            self.mssg = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded' 
+        else:
+            self.mssg = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive' 
+
 
     def gain(self, gain):
         if self.active != False:
-            self.active.StopGrabbing()
             self.active.Gain.SetValue(gain)
-            self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+            self.mssg = 'PylonCamera.gain('+str(gain)+')'+': succeeded' 
+        else:
+            self.mssg = 'PylonCamera.gain('+str(gain)+')'+': inactive camera' 
 
     def auto_gain(self, state = True):
         if self.active != False:
-            self.active.StopGrabbing()
             if state == True:
                 self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             else:
                 self.active.GainAuto.SetValue('Off')
-            self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-
+            self.mssg = 'PylonCamera.auto_gain('+str(state)+')'+': succeeded' 
+        else:
+            self.mssg = 'PylonCamera.auto_gain('+str(state)+')'+': inactive camera' 
+            
     def exposure_t(self, t):
         if self.active != False:
-            self.active.StopGrabbing()
             # (t*1000) in microseconds; therefore t  in milliseconds
             self.active.ExposureTime.SetValue(max(t*1000, self.active.ExposureTime.Min))
-            self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+            self.mssg = 'PylonCamera.exposure_t('+str(t)+')'+': succeeded' 
+        else:
+            self.mssg = 'PylonCamera.exposure_t('+str(t)+')'+': inactive camera' 
 
     def auto_exposure_t(self, state = True):
         if self.active != False:
-            self.active.StopGrabbing()
-        if state == True:
-            self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
+            if state == True:
+                self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
+            else:
+                self.active.ExposureAuto.SetValue('Off')
+            self.mssg = 'PylonCamera.auto_exposure_t('+str(state)+')'+': succeeded' 
         else:
-            self.active.ExposureAuto.SetValue('Off')
-        self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+            self.mssg = 'PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera' 
+

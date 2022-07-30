@@ -93,6 +93,7 @@ class TrinamicBoard:
     def __init__(self, **kwargs):
 
         self.found = False
+        self.mssg = 'TrinamicBoard.__init__()'
 
         try:
             if os.sys.platform == 'win32':
@@ -115,8 +116,10 @@ class TrinamicBoard:
 
             self.configure()
             self.found = True
+            self.mssg = 'TrinamicBoard.__init__() succeeded'            
+
         except:
-            print("Could not connect to Motor Control Board")
+            self.mssg = 'TrinamicBoard.__init__() failed'            
             self.found = False
 
 
@@ -125,6 +128,7 @@ class TrinamicBoard:
     #----------------------------------------------------------
 
     def SPI_write (self, pin_number: int, addr: int, data: int):
+        self.mssg = 'TrinamicBoard.SPI_write()'            
         # Set the correct pin as chip select. Only one chip select line at a time,
         # or else you will have data conflicts on receive.
         self.chip.set_gpio_designation(pin_number, Mcp2210GpioDesignation.CHIP_SELECT)
@@ -150,6 +154,7 @@ class TrinamicBoard:
     # Import motor configurations
     #----------------------------------------------------------
     def configure(self):
+        self.mssg = 'TrinamicBoard.configure()'            
         # Load settings for the xy motors from config file for 'XY' motor driver
         with open('./data/xymotorconfig.ini', 'r') as xyconfigFile:
             for line in xyconfigFile:                           # go through each line of the config file
@@ -174,14 +179,17 @@ class TrinamicBoard:
     # Z (Focus) Functions
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
+        self.mssg = 'TrinamicBoard.z_ustep2um('+str(ustep)+')'            
         um = 0.00586 * ustep # 0.00586 um/ustep Olympus Z
         return um
 
     def z_um2ustep(self, um):
+        self.mssg = 'TrinamicBoard.z_um2ustep('+str(um)+')'            
         ustep = int( um / 0.00586 ) # 0.00586 um/ustep Olympus Z
         return ustep
 
     def zhome(self):
+        self.mssg = 'TrinamicBoard.zhome()'            
         if self.found:
             self.move_abs_pos('Z', -1000000)
 
@@ -191,6 +199,7 @@ class TrinamicBoard:
             s.run()
 
     def zhome_write(self):
+        self.mssg = 'TrinamicBoard.zhome_write()'            
         self.SPI_write (self.chip_pin['Z'], self.write_actual['Z'], 0x00000000)
         self.SPI_write (self.chip_pin['Z'], self.write_target['Z'], 0x00000000)
 
@@ -198,14 +207,17 @@ class TrinamicBoard:
     # XY Stage Functions
     #----------------------------------------------------------
     def xy_ustep2um(self, ustep):
-        um = 0.0496 * ustep # 0.0496 um/ustep Heidstar XY
+        self.mssg = 'TrinamicBoard.xy_ustep2um('+str(ustep)+')'            
+        um = 0.0496 * ustep # 0.0496 um/ustep
         return um
 
     def xy_um2ustep(self, um):
-        ustep = int( um / 0.0496) # 0.0496 um/ustep Heidstar XY
+        self.mssg = 'TrinamicBoard.xy_um2ustep('+str(um)+')'            
+        ustep = int( um / 0.0496) # 0.0496 um/ustep
         return ustep
 
     def xyhome(self):
+        self.mssg = 'TrinamicBoard.xyhome()'            
         if self.found:
             self.zhome()
 
@@ -214,10 +226,11 @@ class TrinamicBoard:
 
             # Schedule writing target and actual XY positions to 0 after 8 seconds
             s = sched.scheduler()
-            xyevent = s.enter(5, 2, self.xyhome_write)
+            s.enter(5, 2, self.xyhome_write)
             s.run()
 
     def xyhome_write(self):
+        self.mssg = 'TrinamicBoard.xyhome_write()'            
         self.SPI_write(self.chip_pin['X'], self.write_actual['X'], 0x00000000)
         self.SPI_write(self.chip_pin['X'], self.write_target['X'], 0x00000000)
 
@@ -230,6 +243,7 @@ class TrinamicBoard:
  
     # return True if current and target position are at home.
     def home_status(self, axis):
+        self.mssg = 'TrinamicBoard.home_status('+axis+')'            
         if self.found:
             self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
             status, target = self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
@@ -241,15 +255,15 @@ class TrinamicBoard:
                 home_status = True
             else:
                 home_status = False
-
-            # print(home_status)
+            self.mssg = 'TrinamicBoard.home_status('+axis+') succeeded'            
             return home_status
         else:
-            print('Motor control board is not connected')
+            self.mssg = 'TrinamicBoard.home_status('+axis+') inactive'            
             return False
 
     # return True if current position and target position are the same
     def target_status(self, axis):
+        self.mssg = 'TrinamicBoard.target_status('+axis+')'            
         if self.found:
             self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
             status, target = self.SPI_write (self.chip_pin[axis], self.read_target[axis], 0x00000000)
@@ -257,9 +271,10 @@ class TrinamicBoard:
             self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
             status, actual = self.SPI_write (self.chip_pin[axis], self.read_actual[axis], 0x00000000)
 
+            self.mssg = 'TrinamicBoard.target_status('+axis+') succeeded'            
             return (target == actual)
         else:
-            print('Motor control board is not connected')
+            self.mssg = 'TrinamicBoard.target_status('+axis+') inactive'            
             return False
 
     # Get reference (limit) switch status (1=active)
@@ -275,7 +290,7 @@ class TrinamicBoard:
             right = False    # convert bit 1 to boolean
             return left, right    # return left and right limit switch status' 
         else:
-            print('Motor control board is not connected')
+            self.mssg = 'TrinamicBoard.get_limit_status('+axis+') inactive'            
             return 0
 
     # Get target position
@@ -289,9 +304,10 @@ class TrinamicBoard:
                 um = self.xy_ustep2um(pos)
 
             # print('read_target:', um)
+            self.mssg = 'TrinamicBoard.target_pos('+axis+') succeeded'            
             return um
         else:
-            print('Motor control board is not connected')
+            self.mssg = 'TrinamicBoard.target_pos('+axis+') inactive'            
             return 0
 
     # Get current position
@@ -305,13 +321,15 @@ class TrinamicBoard:
                     um = self.xy_ustep2um(pos)
 
                 # print('read_actual:', um)
+                self.mssg = 'TrinamicBoard.current_pos('+axis+') succeeded'            
                 return um
         else:
-            print('Motor control board is not connected')
+            self.mssg = 'TrinamicBoard.current_pos('+axis+') inactive'            
             return 0
 
     # Move to absolute position (in um)
     def move_abs_pos(self, axis, pos):
+        self.mssg = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+')'            
         if self.found:
             if axis == 'Z':
                 steps = self.z_um2ustep(pos)
@@ -323,6 +341,10 @@ class TrinamicBoard:
 
             # print('steps:', steps, '\t pos:', pos)
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
+            self.mssg = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') succeeded'
+        else:
+            self.mssg = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') inactive'
+
 
     # Move by relative distance (in um)
     def move_rel_pos(self, axis, um):
@@ -342,6 +364,9 @@ class TrinamicBoard:
 
             print('pos:', pos, 'um:', um, 'pos+um:', um+pos, 'steps:', steps)
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
+            self.mssg = 'TrinamicBoard.move_rel_pos('+axis+str(um)+') succeeded'
+        else:
+            self.mssg = 'TrinamicBoard.move_rel_pos('+axis+str(um)+') inactive'
 
 
 

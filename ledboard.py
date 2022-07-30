@@ -5,8 +5,10 @@ import serial
 import serial.tools.list_ports as list_ports
 
 class LEDBoard:
+    
     def __init__(self, **kwargs):
         ports = list_ports.comports(include_links = True)
+        self.mssg = 'LEDBoard.__init__()'
 
         for port in ports:
             if (port.vid == 11914) and (port.pid == 5):
@@ -37,9 +39,10 @@ class LEDBoard:
                                         write_timeout=self.write_timeout)
             self.driver.close()
             self.driver.open()
+            self.mssg = 'LEDBoard.connect() succeeded'
         except:
             self.driver = False
-            print("It looks like a Lumaview compatible LED driver board is not plugged in.")
+            self.mssg = 'LEDBoard.connect() failed'
 
     def send_mssg(self, mssg):
         stream = mssg.encode('utf-8')+b"\r\n"
@@ -48,9 +51,11 @@ class LEDBoard:
                 self.driver.close()
                 self.driver.open()
                 self.driver.write(stream)
+                self.mssg = 'LEDBoard.send_mssg('+mssg+') succeeded'
+                # self.mssg = mssg
                 return True
             except serial.SerialTimeoutException:
-                print('LEDBoard.send_mssg() Serial Timeout Occurred')
+                self.mssg = 'LEDBoard.send_mssg('+mssg+') Serial Timeout Occurred'
                 return False
         else:
             self.connect()
@@ -65,7 +70,7 @@ class LEDBoard:
                 mssg = stream.decode("utf-8","ignore")
                 return mssg[:-2]
             except serial.SerialTimeoutException:
-                print('LEDBoard.receive_mssg() Serial Timeout Occurred')
+                self.mssg = 'LEDBoard.receive_mssg('+mssg+') Serial Timeout Occurred'
 
     def color2ch(self, color):
         if color == 'Blue':
