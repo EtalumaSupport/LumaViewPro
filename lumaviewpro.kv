@@ -252,7 +252,7 @@
 	BoxLayout:
 		orientation: 'horizontal'
 		size_hint_y: None
-		height: '205dp'
+		height: '200dp'
 		BoxLayout:
 		    orientation: 'vertical'
 		    size_hint_x: None
@@ -346,18 +346,29 @@
     			font_size: '12sp'
     			text: 'Home'
     			on_release: root.home()
-    		Button:
-    			text: 'Set Bookmark'
-    		    size_hint_y: None
-    		    height: '30dp'
-    			font_size: '12sp'
-    			on_release: root.set_bookmark()
-    		Button:
-    			text: 'Go to Bookmark'
-    		    size_hint_y: None
-    		    height: '30dp'
-    			font_size: '12sp'
-    			on_release: root.goto_bookmark()
+			BoxLayout:
+				orientation:'horizontal'
+				padding: '0dp'
+				spacing: '5dp'
+				Button:
+					text: 'Set Z'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.set_bookmark()
+				Button:
+					text: 'Go to Set Z'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.goto_bookmark()
+			Button:
+				text: 'Set All Z'
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				on_release: root.set_all_bookmarks()
+
     		ToggleButton:
     			id: autofocus_id
     		    size_hint_y: None
@@ -366,7 +377,6 @@
     			text: 'Autofocus'
     			on_release: root.autofocus()
 	ZStack:
-	Label:
 
 # Z-Stack Settings
 <ZStack>:

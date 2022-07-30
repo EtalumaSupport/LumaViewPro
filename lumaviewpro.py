@@ -306,6 +306,7 @@ class CompositeCapture(FloatLayout):
             error_log(lumaview.led_board.mssg)
 
         lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+        lumaview.ids['composite_btn'].state = 'normal'
 
         img = np.flip(img, 0)
 
@@ -847,9 +848,7 @@ class VerticalControl(BoxLayout):
         closeness = 1/(n + 0.1)
 
         step = course*closeness + fine*(1 - closeness)
-        error_log("fine: ", fine, end="")
-        error_log(" course: ", course, end="")
-        error_log(" step:", step)
+        error_log('fine: ' + str(fine) + '; course: ' + str(course) + '; step' + str(step))
 
         lumaview.motion.move_rel_pos('Z', step) # move by z_step
         error_log(lumaview.motion.mssg)
@@ -1532,7 +1531,7 @@ class Stage(Widget):
     def on_touch_down(self, touch):
         error_log('Stage.on_touch_down()')
         if self.collide_point(*touch.pos):
-            error_log('clicked on:', touch.pos)
+            error_log('clicked on: ' + str(touch.pos))
         
     def draw_labware(self, *args):
         # error_log('Stage.draw_labware()')
