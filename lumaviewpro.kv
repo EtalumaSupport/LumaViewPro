@@ -869,7 +869,7 @@
 				background_down: './data/icons/R_down.png'
 		        on_release: root.next_step()
 		
-		# Modify indivdual Steps in Protocol
+		# Modify individual Steps in Protocol
 		BoxLayout:
 			orientation: 'horizontal'
 	        size_hint_y: None
@@ -896,7 +896,13 @@
 		        height: '30dp'
 				font_size: '12sp'
 				on_release: root.add_step()
-
+		ToggleButton:
+			id: run_autofocus_btn
+	        text: 'Scan and Autofocus All Steps'
+	        size_hint_y: None
+	        height: '30dp'
+			font_size: '12sp'
+			on_release: root.run_autofocus()
 
 		# Run Protocol
 	    Label:

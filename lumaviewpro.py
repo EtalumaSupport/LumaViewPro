@@ -1365,6 +1365,127 @@ class ProtocolSettings(CompositeCapture):
         self.ids['step_total_input'].text = str(len(self.step_names))
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+
+    def run_autofocus(self):
+        error_log('ProtocolSettings.run_autofocus()')
+
+        if len(self.step_names) < 1:
+            error_log('Protocol has no steps.')
+            self.ids['run_autofocus_btn'].state =='normal'
+            self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+            return
+
+        if self.ids['run_autofocus_btn'].state == 'down':
+            self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
+
+            self.c_step = 0
+            self.ids['step_number_input'].text = str(self.c_step+1)
+
+            x = self.step_values[self.c_step, 0]
+            y = self.step_values[self.c_step, 1]
+            z =  self.step_values[self.c_step, 2]
+ 
+            lumaview.motion.move_abs_pos('X', x*1000)
+            error_log(lumaview.motion.mssg)
+            lumaview.motion.move_abs_pos('Y', y*1000)
+            error_log(lumaview.motion.mssg)
+            lumaview.motion.move_abs_pos('Z', z)
+            error_log(lumaview.motion.mssg)
+
+            error_log('Clock.schedule_interval(self.autofocus_iterate, 0.1)')
+            Clock.schedule_interval(self.autofocus_iterate, 0.1)
+
+        else:  # self.ids['run_autofocus_btn'].state =='normal'
+            self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+            error_log('Clock.unschedule(self.autofocus_iterate)')
+            Clock.unschedule(self.autofocus_iterate) # unschedule all copies of scan iterate
+        
+    def autofocus_iterate(self, dt):
+        global lumaview
+        global settings
+
+        # Draw the Labware on Stage
+        self.ids['stage_widget_id'].draw_labware()
+        self.ids['step_number_input'].text = str(self.c_step+1)
+
+        # Check if at desired position
+        x_status = lumaview.motion.target_status('X')
+        y_status = lumaview.motion.target_status('Y')
+        z_status = lumaview.motion.target_status('Z')
+
+        # If target location has been reached
+        if x_status and y_status and z_status:
+            error_log('Scan Step:' + str(self.step_names[self.c_step]) )
+
+            # identify image settings
+            ch =        self.step_values[self.c_step, 3]
+            ill =       self.step_values[self.c_step, 4]
+            gain =      self.step_values[self.c_step, 5]
+            auto_gain = self.step_values[self.c_step, 6]
+            exp =       self.step_values[self.c_step, 7]
+
+
+            # increment to the next step
+            self.c_step += 1
+
+            if self.c_step < len(self.step_names):
+                x = self.step_values[self.c_step, 0]
+                y = self.step_values[self.c_step, 1]
+                z =  self.step_values[self.c_step, 2]
+
+                lumaview.motion.move_abs_pos('X', x*1000)  # move to x
+                lumaview.motion.move_abs_pos('Y', y*1000)  # move to y
+                lumaview.motion.move_abs_pos('Z', z)       # move to z
+
+            # if all positions have already been reached
+            else:
+                error_log('Scan Complete')
+                self.ids['run_autofocus_btn'].state = 'normal'
+                self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+                error_log('Clock.unschedule(self.autofocus_iterate)')
+                Clock.unschedule(self.autofocus_iterate) # unschedule all copies of scan iterate
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
         error_log('ProtocolSettings.run_scan()')
@@ -2097,7 +2218,7 @@ class LumaViewProApp(App):
         Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
 
         # Does not seem to be working ... slowing down even!
-        # Clock.schedule_once(lumaview.ids['viewer_id'].update, 0.1) # This will fix image size on resize issue
+        # Clock.schedule_once(lumaview.ids['viewer_id'].ids['scope_display_id'].update, 0.1) # This will fix image size on resize issue
 
     def on_stop(self):
         error_log('LumaViewProApp.on_stop()')
