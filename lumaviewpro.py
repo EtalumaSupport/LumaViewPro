@@ -784,6 +784,16 @@ class VerticalControl(BoxLayout):
         error_log(lumaview.motion.mssg)
         settings['bookmark']['z'] = height
 
+    def set_all_bookmarks(self):
+        error_log('VerticalControl.set_all_bookmarks()')
+        height = lumaview.motion.current_pos('Z')  # Get current z height in um
+        error_log(lumaview.motion.mssg)
+        settings['bookmark']['z'] = height
+        settings['BF']['focus'] = height
+        settings['Blue']['focus'] = height
+        settings['Green']['focus'] = height
+        settings['Red']['focus'] = height
+
     def goto_bookmark(self):
         error_log('VerticalControl.goto_bookmark()')
         pos = settings['bookmark']['z']
