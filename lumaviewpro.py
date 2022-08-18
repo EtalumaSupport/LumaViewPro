@@ -536,24 +536,25 @@ class MotionSettings(BoxLayout):
 class PostProcessing(BoxLayout):
 
     def convert_to_avi(self):
+
         error_log('PostProcessing.convert_to_avi()')
 
-        # self.choose_folder()
-        save_location = './capture/movie.avi'
+        # # self.choose_folder()
+        # save_location = './capture/movie.avi'
 
-        img_array = []
-        for filename in glob.glob('./capture/*.tiff'):
-            img = cv2.imread(filename)
-            height, width, layers = img.shape
-            size = (width,height)
-            img_array.append(img)
+        # img_array = []
+        # for filename in glob.glob('./capture/*.tiff'):
+        #     img = cv2.imread(filename)
+        #     height, width, layers = img.shape
+        #     size = (width,height)
+        #     img_array.append(img)
 
-        if len(img_array) > 0:
-            out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+        # if len(img_array) > 0:
+        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
 
-        for i in range(len(img_array)):
-            out.write(img_array[i])
-        out.release()
+        # for i in range(len(img_array)):
+        #     out.write(img_array[i])
+        # out.release()
 
 
 class ShaderEditor(BoxLayout):
@@ -2200,6 +2201,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
+        error_log('Latest Code Change: 8/18/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
