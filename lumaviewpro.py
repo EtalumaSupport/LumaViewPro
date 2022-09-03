@@ -2201,7 +2201,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 8/18/2022')
+        error_log('Latest Code Change: 9/3/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
