@@ -22,6 +22,8 @@ class PylonCamera:
             self.active.Open()
             self.active.Width.SetValue(self.active.Width.Max)
             self.active.Height.SetValue(self.active.Height.Max)
+            self.active.BslCenterX.Execute()
+            self.active.BslCenterY.Execute()
             # self.active.PixelFormat.SetValue('PixelFormat_Mono12')
             self.active.GainAuto.SetValue('Off')
             self.active.ExposureAuto.SetValue('Off')
@@ -64,16 +66,12 @@ class PylonCamera:
     def frame_size(self, w, h):
         if self.active != False:
 
-            width = int(min(int(w), self.active.Width.Max)/2)*2
-            height = int(min(int(h), self.active.Height.Max)/2)*2
-            offset_x = int((self.active.Width.Max-width)/4)*2
-            offset_y = int((self.active.Height.Max-height)/4)*2
+            width = int(min(int(w), self.active.Width.Max)/4)*4
+            height = int(min(int(h), self.active.Height.Max)/4)*4
 
             self.active.StopGrabbing()
             self.active.Width.SetValue(width)
             self.active.Height.SetValue(height)
-            self.active.OffsetX.SetValue(offset_x)
-            self.active.OffsetY.SetValue(offset_y)
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             self.mssg = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded' 
         else:

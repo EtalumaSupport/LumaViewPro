@@ -1801,8 +1801,8 @@ class MicroscopeSettings(BoxLayout):
         settings['frame']['width'] = width
         settings['frame']['height'] = height
 
-        self.ids['frame']['width'].text = str(width)
-        self.ids['frame']['height'].text = str(height)
+        self.ids['frame_width'].text = str(width)
+        self.ids['frame_height'].text = str(height)
 
         lumaview.camera.frame_size(width, height)
         error_log(lumaview.camera.mssg)
