@@ -1239,7 +1239,7 @@ class ProtocolSettings(CompositeCapture):
         # Get the Current Step Number
         self.c_step = int(self.ids['step_number_input'].text)-1
 
-        if self.c_step < 1 or self.c_step > len(self.step_names):
+        if self.c_step < 0 or self.c_step > len(self.step_names):
             self.ids['step_number_input'].text = '0'
             return
 
