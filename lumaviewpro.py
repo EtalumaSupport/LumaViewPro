@@ -1755,6 +1755,11 @@ class MicroscopeSettings(BoxLayout):
             protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
             #protocol_settings.ids['stage_widget_id'].draw_labware()
 
+            zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
+            zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
+            zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
+            zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
+
 
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
@@ -2033,15 +2038,20 @@ class ZStack(CompositeCapture):
 
         step_size = self.ids['zstack_stepsize_id'].text
         step_size = float(step_size)
+        settings['zstack']['step_size'] = step_size
 
         range = self.ids['zstack_range_id'].text
         range = float(range)
+        settings['zstack']['range'] = range
 
         if step_size != 0:
             n_steps = np.floor( range / step_size)
             self.ids['zstack_steps_id'].text = str(int(n_steps))
         else:
             self.ids['zstack_steps_id'].text = '0'
+
+    def set_position(self):
+        settings['zstack']['position'] = self.ids['zstack_spinner'].text
 
     def aquire_zstack(self):
         error_log('ZStack.aquire_zstack()')
@@ -2215,7 +2225,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 9/3/2022')
+        error_log('Latest Code Change: 9/4/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 

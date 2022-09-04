@@ -72,6 +72,12 @@
         "acquire": true,
         "focus": 0.0
     },
+    "zstack": {
+        "step_size": 0,
+        "range": 0,
+        "position": "Current Position at Center"
+    },
+    
     "protocol": {
         "save_folder": "./data",
         "file": "protocol.csv",

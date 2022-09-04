@@ -377,6 +377,7 @@
     			text: 'Autofocus'
     			on_release: root.autofocus()
 	ZStack:
+		id: zstack_id
 
 # Z-Stack Settings
 <ZStack>:
@@ -455,6 +456,7 @@
 			font_size: '12dp'
 			text_autoupdate: True
 			values: ('Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
+			on_text: root.set_position()
 			# values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 
 		ToggleButton:
@@ -1206,7 +1208,7 @@
                 value_track: True
                 value_track_color: root.bg_color
                 value_track_width: 5
-                on_release: root.ill_slider()
+                on_release: root.ill_slider() # on_touch_move
             TextInput:
                 id: ill_text
                 size_hint_x: None
