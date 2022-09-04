@@ -191,7 +191,8 @@ class TrinamicBoard:
     def zhome(self):
         self.mssg = 'TrinamicBoard.zhome()'            
         if self.found:
-            self.move_abs_pos('Z', -1000000)
+            # self.move_abs_pos('Z', -1000000)
+            self.SPI_write(self.chip_pin['Z'], self.write_target['Z'], 4294967296-2000000000)
 
             # Schedule writing target and actual Z position to 0 after 4 seconds
             s = sched.scheduler()
@@ -281,7 +282,7 @@ class TrinamicBoard:
     def get_limit_status(self, axis):
         if self.found:
             self.SPI_write (self.chip_pin[axis], self.limit_status[axis], 0x00000000)
-            status, data = self.SPI_write (self.chip_pin[axis], self.limit_status[axis], 0x00000000)
+            status, data = self.SPI_write(self.chip_pin[axis], self.limit_status[axis], 0x00000000)
 
             # print('raw:', data)
             # data = bin(data) # convert returned data to binary
@@ -332,6 +333,10 @@ class TrinamicBoard:
         self.mssg = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+')'            
         if self.found:
             if axis == 'Z':
+                if pos < 0:
+                    pos = 0.
+                elif pos > 12000:
+                    pos = 12000.
                 steps = self.z_um2ustep(pos)
             else:
                 steps = self.xy_um2ustep(pos)
@@ -354,7 +359,12 @@ class TrinamicBoard:
  
             # Add relative motion and convert
             if axis == 'Z':
-                steps = self.z_um2ustep(um+pos)
+                pos = um+pos
+                if pos < 0:
+                    pos = 0.
+                elif pos > 12000:
+                    pos = 12000.                
+                steps = self.z_um2ustep(pos)
             else:
                 steps = self.xy_um2ustep(um+pos)
 
@@ -364,9 +374,9 @@ class TrinamicBoard:
 
             print('pos:', pos, 'um:', um, 'pos+um:', um+pos, 'steps:', steps)
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
-            self.mssg = 'TrinamicBoard.move_rel_pos('+axis+str(um)+') succeeded'
+            self.mssg = 'TrinamicBoard.move_rel_pos('+axis+','+str(um)+') succeeded'
         else:
-            self.mssg = 'TrinamicBoard.move_rel_pos('+axis+str(um)+') inactive'
+            self.mssg = 'TrinamicBoard.move_rel_pos('+axis+','+str(um)+') inactive'
 
 
 
