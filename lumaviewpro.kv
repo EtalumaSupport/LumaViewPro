@@ -944,19 +944,19 @@
             size: self.size
     		pos: self.pos
 
-	Button:
+	FolderChooseBTN:
 		text: 'Create AVI'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
 		on_release: root.convert_to_avi()
 
-	Button:
+	FolderChooseBTN:
 		text: 'Stitch'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
-		on_release:
+		on_release:root.stitch()
 
 	Label:
 
@@ -1308,7 +1308,7 @@
         	size_hint_y: None
 			height: '30dp'
             Label:
-                id: false_color_label
+                id: LED_label
 				font_size: '12sp'
                 text: 'LED'
                 halign: 'left'

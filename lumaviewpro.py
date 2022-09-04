@@ -556,6 +556,10 @@ class PostProcessing(BoxLayout):
         #     out.write(img_array[i])
         # out.release()
 
+    def stitch(self):
+        error_log('PostProcessing.stitch()')
+
+
 
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
@@ -649,6 +653,10 @@ class MainSettings(BoxLayout):
         scope_display.stop()
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.mssg)
+        # turn off all toglles
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         self.currentLayer = layer
  
