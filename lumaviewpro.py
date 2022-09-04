@@ -2121,11 +2121,14 @@ class FileChooseBTN(Button):
         error_log('FileChooseBTN.on_selection()')
         global lumaview
         
-        if self.context == 'load_settings':
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
+        if self.selection:
+            if self.context == 'load_settings':
+                lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
 
-        elif self.context == 'load_protocol':
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(file = self.selection[0])
+            elif self.context == 'load_protocol':
+                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(file = self.selection[0])
+        else:
+            return
 
 # Button the triggers 'filechooser.choose_dir()' from plyer
 class FolderChooseBTN(Button):
@@ -2143,7 +2146,10 @@ class FolderChooseBTN(Button):
 
     def on_selection(self, *a, **k):
         error_log('FolderChooseBTN.on_selection()')
-        path = self.selection[0]
+        if self.selection:
+            path = self.selection[0]
+        else:
+            return
 
         if self.context == 'live_folder':
             settings['live_folder'] = path
