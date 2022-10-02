@@ -72,6 +72,8 @@ class PylonCamera:
             self.active.StopGrabbing()
             self.active.Width.SetValue(width)
             self.active.Height.SetValue(height)
+            self.active.BslCenterX.Execute()
+            self.active.BslCenterY.Execute()
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             self.mssg = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded' 
         else:

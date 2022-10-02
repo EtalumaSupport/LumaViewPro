@@ -867,7 +867,7 @@ class VerticalControl(BoxLayout):
         closeness = 1/(n + 0.1)
 
         step = course*closeness + fine*(1 - closeness)
-        error_log('fine: ' + str(fine) + '; course: ' + str(course) + '; step' + str(step))
+        error_log('fine: ' + str(fine) + '; course: ' + str(course) + '; step: ' + str(step))
 
         lumaview.motion.move_rel_pos('Z', step) # move by z_step
         error_log(lumaview.motion.mssg)
@@ -943,7 +943,7 @@ class VerticalControl(BoxLayout):
         else:
             return 0
 
-    def focus_best(self, positions, values, algorithm='mov_avg'):
+    def focus_best(self, positions, values, algorithm='direct'):
         error_log('VerticalControl.focus_best()')
         if algorithm == 'direct':
             max_value = max(values)

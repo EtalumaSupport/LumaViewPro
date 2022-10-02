@@ -38,6 +38,7 @@ June 5, 2022
 from mcp2210 import Mcp2210, Mcp2210GpioDesignation, Mcp2210GpioDirection
 import struct    # For making c style data structures, and send them through the mcp chip
 import sched
+import threading
 import os
 
 if os.sys.platform == 'win32': # Windows
@@ -203,6 +204,12 @@ class TrinamicBoard:
         self.mssg = 'TrinamicBoard.zhome_write()'            
         self.SPI_write (self.chip_pin['Z'], self.write_actual['Z'], 0x00000000)
         self.SPI_write (self.chip_pin['Z'], self.write_target['Z'], 0x00000000)
+
+    # TODO: access the information of a limit switch
+    def reference_status(self, axis):
+        status, data = self.SPI_write (self.chip_pin[axis], self.limit_status[axis], 0x00000000)
+        status, data = self.SPI_write (self.chip_pin[axis], self.limit_status[axis], 0x00000000)
+        return data
 
     #----------------------------------------------------------
     # XY Stage Functions
