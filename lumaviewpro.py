@@ -167,7 +167,7 @@ class CompositeCapture(FloatLayout):
         color = 'BF'
         if lumaview.ids['mainsettings_id'].currentLayer != 'microscope':
             color = lumaview.ids['mainsettings_id'].currentLayer
-
+            
         lumaview.camera.grab()
         error_log(lumaview.camera.mssg)
         self.save_image(save_folder, file_root, append, color)
@@ -647,18 +647,18 @@ class MainSettings(BoxLayout):
             scope_display.start()
 
     def accordion_collapse(self, layer):
+        self.currentLayer = layer
         error_log('MainSettings.accordion_collapse()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.mssg)
-        # turn off all toglles
+        # turn off all toggles
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
-        self.currentLayer = layer
  
         self.notCollapsing = not(self.notCollapsing)
         if scope_display.play == True:
