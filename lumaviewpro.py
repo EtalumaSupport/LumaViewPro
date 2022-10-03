@@ -105,7 +105,7 @@ start_str = str(int(round(time.time() * 1000)))
 def error_log(mssg):
     if True:
         os.chdir(home_wd)
-        file = open('LVP_log '+start_str+'.txt', 'a')
+        file = open('./logs/LVP_log '+start_str+'.txt', 'a')
         file.write(mssg + '\n')
         file.close()
         print(mssg)
