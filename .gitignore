@@ -2,5 +2,6 @@ __pycache__/
 data/current.json
 sandbox/
 .vscode/
+calls.txt
 logs/*
 capture/*.tiff
