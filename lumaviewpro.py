@@ -1411,8 +1411,8 @@ class ProtocolSettings(CompositeCapture):
 
 
         
-
-    def run_autofocus(self):
+    # Run one scan of protocol, autofocus at each step, and update protocol
+    def run_autofocus_scan(self):
         error_log('ProtocolSettings.run_autofocus()')
 
         if len(self.step_names) < 1:
@@ -1429,7 +1429,7 @@ class ProtocolSettings(CompositeCapture):
 
             x = self.step_values[self.c_step, 0]
             y = self.step_values[self.c_step, 1]
-            z =  self.step_values[self.c_step, 2]
+            z = self.step_values[self.c_step, 2]
  
             lumaview.motion.move_abs_pos('X', x*1000)
             error_log(lumaview.motion.mssg)
@@ -1438,15 +1438,15 @@ class ProtocolSettings(CompositeCapture):
             lumaview.motion.move_abs_pos('Z', z)
             error_log(lumaview.motion.mssg)
 
-            error_log('Clock.schedule_interval(self.autofocus_iterate, 0.1)')
-            Clock.schedule_interval(self.autofocus_iterate, 0.1)
+            error_log('Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
+            Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
 
         else:  # self.ids['run_autofocus_btn'].state =='normal'
             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-            error_log('Clock.unschedule(self.autofocus_iterate)')
-            Clock.unschedule(self.autofocus_iterate) # unschedule all copies of scan iterate
+            error_log('Clock.unschedule(self.autofocus_scan_iterate)')
+            Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
         
-    def autofocus_iterate(self, dt):
+    def autofocus_scan_iterate(self, dt):
         global lumaview
         global settings
 
@@ -1461,7 +1461,7 @@ class ProtocolSettings(CompositeCapture):
 
         # If target location has been reached
         if x_status and y_status and z_status:
-            error_log('Scan Step:' + str(self.step_names[self.c_step]) )
+            error_log('Autofocus Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
             ch =        self.step_values[self.c_step, 3]
@@ -1470,6 +1470,25 @@ class ProtocolSettings(CompositeCapture):
             auto_gain = self.step_values[self.c_step, 6]
             exp =       self.step_values[self.c_step, 7]
 
+            # set camera settings
+            lumaview.camera.gain(gain)
+            error_log(lumaview.camera.mssg)
+            lumaview.camera.exposure_t(exp)
+            error_log(lumaview.camera.mssg)
+
+            # Illuminate
+            lumaview.led_board.led_on(ch, ill)
+            error_log(lumaview.led_board.mssg)
+
+            # TODO: run autofocus and wait for autofocus to finish!!
+            error_log("Autofocus Scan Placeholder")
+           
+            # Turn off LEDs
+            lumaview.led_board.leds_off()
+            error_log(lumaview.led_board.mssg)
+
+            # update protocol 
+            self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')
 
             # increment to the next step
             self.c_step += 1
@@ -1485,11 +1504,11 @@ class ProtocolSettings(CompositeCapture):
 
             # if all positions have already been reached
             else:
-                error_log('Scan Complete')
+                error_log('Autofocus Scan Complete')
                 self.ids['run_autofocus_btn'].state = 'normal'
                 self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-                error_log('Clock.unschedule(self.autofocus_iterate)')
-                Clock.unschedule(self.autofocus_iterate) # unschedule all copies of scan iterate
+                error_log('Clock.unschedule(self.autofocus_scan_iterate)')
+                Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
 
 
 
@@ -1527,14 +1546,14 @@ class ProtocolSettings(CompositeCapture):
         if self.ids['run_scan_btn'].state == 'down' or protocol == True:
             self.ids['run_scan_btn'].text = 'Running Scan'
 
-            # TODO shut off live updates
+            # TODO: shut off live updates
 
             self.c_step = 0
             self.ids['step_number_input'].text = str(self.c_step+1)
 
             x = self.step_values[self.c_step, 0]
             y = self.step_values[self.c_step, 1]
-            z =  self.step_values[self.c_step, 2]
+            z = self.step_values[self.c_step, 2]
  
             lumaview.motion.move_abs_pos('X', x*1000)
             error_log(lumaview.motion.mssg)
@@ -1575,7 +1594,7 @@ class ProtocolSettings(CompositeCapture):
             auto_gain = self.step_values[self.c_step, 6]
             exp =       self.step_values[self.c_step, 7]
 
-            # Update display current capture
+            # TODO: Update display current capture
             
             # capture image
             self.custom_capture(ch, ill, gain, exp)
