@@ -194,6 +194,7 @@ class CompositeCapture(FloatLayout):
         error_log(lumaview.led_board.mssg)
 
         # Grab image and save
+        time.sleep(2*exposure/1000)
         lumaview.camera.grab()
         error_log(lumaview.camera.mssg)
         self.save_image(save_folder, file_root, append, color)
