@@ -654,10 +654,12 @@ class MainSettings(BoxLayout):
         scope_display.stop()
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.mssg)
+
         # turn off all toggles
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+            Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
 
  
         self.notCollapsing = not(self.notCollapsing)
@@ -1524,6 +1526,8 @@ class ProtocolSettings(CompositeCapture):
         if self.ids['run_scan_btn'].state == 'down' or protocol == True:
             self.ids['run_scan_btn'].text = 'Running Scan'
 
+            # TODO shut off live updates
+
             self.c_step = 0
             self.ids['step_number_input'].text = str(self.c_step+1)
 
@@ -1570,6 +1574,8 @@ class ProtocolSettings(CompositeCapture):
             auto_gain = self.step_values[self.c_step, 6]
             exp =       self.step_values[self.c_step, 7]
 
+            # Update display current capture
+            
             # capture image
             self.custom_capture(ch, ill, gain, exp)
 
@@ -1579,7 +1585,7 @@ class ProtocolSettings(CompositeCapture):
             if self.c_step < len(self.step_names):
                 x = self.step_values[self.c_step, 0]
                 y = self.step_values[self.c_step, 1]
-                z =  self.step_values[self.c_step, 2]
+                z = self.step_values[self.c_step, 2]
 
                 lumaview.motion.move_abs_pos('X', x*1000)  # move to x
                 lumaview.motion.move_abs_pos('Y', y*1000)  # move to y
@@ -1825,8 +1831,8 @@ class MicroscopeSettings(BoxLayout):
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
 
-        width = int(min(int(w), lumaview.camera.active.Width.Max)/2)*2
-        height = int(min(int(h), lumaview.camera.active.Height.Max)/2)*2
+        width = int(min(int(w), lumaview.camera.active.Width.Max)/4)*4
+        height = int(min(int(h), lumaview.camera.active.Height.Max)/4)*4
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
