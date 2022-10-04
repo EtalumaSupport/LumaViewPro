@@ -26,7 +26,7 @@ cam = PylonCamera()
 
 for i in range(6):
     print("testing LED ", i+1)
-    led.led_on(i, 600)  # turn on LED at channel 0 at 50mA
+    led.led_on(i, 600)  # turn on LED at channel i at 600mA
     time.sleep(1)       # wait one second
     led.leds_off()       # turn off all LEDs
 
