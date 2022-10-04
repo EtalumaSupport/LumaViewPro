@@ -10,17 +10,17 @@ You will also need to install the camera driver from Basler
 
 '''
 # Additional LumaViewPro files
-from trinamic850 import *
-from ledboard import *
+# from trinamic850 import *
+# from ledboard import *
 from pyloncamera import *
 import time
 from PIL import Image
 
-led = LEDBoard()
-xyz = TrinamicBoard()
+# led = LEDBoard()
+# xyz = TrinamicBoard()
 cam = PylonCamera()
 
-
+'''
 # ----------------------------------------------------
 # Controlling an LED
 # ----------------------------------------------------
@@ -38,19 +38,22 @@ xyz.xyhome()        # home position of xy stage
 xyz.move_abs_pos('X', 5800)    # move to absolute position in um
 xyz.move_abs_pos('Y', 3500)    # move to absolute position in um
 xyz.move_abs_pos('Z', 3270)    # move to absolute position in um
+'''
 
 # ----------------------------------------------------
 # Controlling the Camera
 # ----------------------------------------------------
 if cam.active:
-    cam.frame_size(1900,1900)
-    cam.grab()
-    img = Image.fromarray(cam.array)
-    img.show()
+    # cam.frame_size(1900,1900)
+    
+    for i in range(3):
+        cam.grab()
+        img = Image.fromarray(cam.array)
+        img.show()
 
 
 
-
+'''
 # ----------------------------------------------------
 # Example
 # ----------------------------------------------------
@@ -82,3 +85,4 @@ if cam.active:
     img.show()
 
     led.leds_off()       # turn off all LEDs
+'''

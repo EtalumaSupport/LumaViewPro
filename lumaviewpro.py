@@ -48,6 +48,10 @@ import threading
 from plyer import filechooser
 # from scipy.optimized import curve_fit
 
+# Profiling
+import cProfile
+import pstats
+
 # Kivy
 import kivy
 from kivy.app import App
@@ -1657,7 +1661,7 @@ class ProtocolSettings(CompositeCapture):
         # Check if reached next Period
         if (time.time()-self.start_t) > period:
 
-            # reset the start time and update number of scane remaining
+            # reset the start time and update number of scans remaining
             self.start_t = time.time()
             self.n_scans = self.n_scans - 1
 
@@ -2234,6 +2238,9 @@ class FileSaveBTN(Button):
 # RUN LUMAVIEWPRO APP
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
+    def on_start(self):
+        self.profile = cProfile.Profile()
+        self.profile.enable()
 
     def build(self):
         error_log('-----------------------------------------')
@@ -2270,6 +2277,12 @@ class LumaViewProApp(App):
 
     def on_stop(self):
         error_log('LumaViewProApp.on_stop()')
+        self.profile.disable()
+        self.profile.dump_stats('./logs/LumaViewProApp.profile')
+        stats = pstats.Stats('./logs/LumaViewProApp.profile')
+        stats.sort_stats('cumulative').print_stats(30)
+        stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
+
         global lumaview
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.mssg)

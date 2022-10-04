@@ -27,7 +27,7 @@ class PylonCamera:
             # self.active.PixelFormat.SetValue('PixelFormat_Mono12')
             self.active.GainAuto.SetValue('Off')
             self.active.ExposureAuto.SetValue('Off')
-            self.active.ReverseX.SetValue(True);
+            self.active.ReverseX.SetValue(True)
             # Grabbing Continuously (video) with minimal delay
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             self.error_report_count = 0
@@ -64,6 +64,7 @@ class PylonCamera:
             return False
 
     def frame_size(self, w, h):
+        print(self.active)
         if self.active != False:
 
             width = int(min(int(w), self.active.Width.Max)/4)*4
@@ -81,6 +82,7 @@ class PylonCamera:
 
 
     def gain(self, gain):
+        print(self.active)
         if self.active != False:
             self.active.Gain.SetValue(gain)
             self.mssg = 'PylonCamera.gain('+str(gain)+')'+': succeeded' 
@@ -88,6 +90,7 @@ class PylonCamera:
             self.mssg = 'PylonCamera.gain('+str(gain)+')'+': inactive camera' 
 
     def auto_gain(self, state = True):
+        print(self.active)
         if self.active != False:
             if state == True:
                 self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
