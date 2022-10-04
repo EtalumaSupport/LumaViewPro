@@ -1,26 +1,26 @@
 # Modified 5/21/2022
-
 from numpy import False_
 import serial
 import serial.tools.list_ports as list_ports
 
-class LEDBoard:
-    
+class LEDBoard:    
     def __init__(self, **kwargs):
         ports = list_ports.comports(include_links = True)
         self.mssg = 'LEDBoard.__init__()'
 
         for port in ports:
+            print("vid ", port.vid, " pid ", port.pid)
             if (port.vid == 11914) and (port.pid == 5):
                 print('LED Control Board v3 identified at', port.device)
                 self.port = port.device
+                break
 
         self.baudrate=115200
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
-        self.timeout=.5 # seconds
-        self.write_timeout=.5 # seconds
+        self.timeout=0.5 # seconds
+        self.write_timeout=0.5 # seconds
         self.driver = False
         self.connect()
 

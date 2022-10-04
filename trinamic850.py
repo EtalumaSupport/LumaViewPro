@@ -41,9 +41,11 @@ import sched
 import threading
 import os
 
-if os.sys.platform == 'win32': # Windows
+platform = os.sys.platform 
+
+if platform == 'win32': # Windows
     import pywinusb.hid as hid
-else: # Not Windows (linux+)
+else: # Not Windows (linux, MacOS)
     import usb.core # Access to USB functionality  from pyusb available at https://pyusb.github.io/pyusb
     import usb.util
 
@@ -97,14 +99,16 @@ class TrinamicBoard:
         self.mssg = 'TrinamicBoard.__init__()'
 
         try:
-            if os.sys.platform == 'win32':
+            if platform == 'win32':
                 devices = hid.core.find_all_hid_devices()
                 for device in devices:
                     if device.vendor_id == 0x04D8 and device.product_id == 0x00DE:
                         SPI_serial = device.serial_number
             else:
-                dev = usb.core.find(idVendor=0x04d8, idProduct=0x00de)  # find the mcp2210 USB device, idVendor=0x04d8, idProduct=0x00de is defaulted in the chip
-                SPI_serial = usb.util.get_string( dev, dev.iSerialNumber ) # find the serial number of the MCP device
+                device = usb.core.find(idVendor=0x04d8, idProduct=0x00de)  # find the mcp2210 USB device, idVendor=0x04d8, idProduct=0x00de is defaulted in the chip
+                SPI_serial = usb.util.get_string(device, device.iSerialNumber ) # find the serial number of the MCP device
+            
+            print("Found Trinamic board with SPI serial number ", SPI_serial)
 
             self.chip = Mcp2210(SPI_serial)  # the serial number of the chip. Can be determined by using dmesg after plugging in the device
             print ("Found Device", self.chip)
