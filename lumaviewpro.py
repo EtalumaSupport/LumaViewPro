@@ -837,9 +837,9 @@ class VerticalControl(BoxLayout):
 
         self.z_min = max(0, center-range)
         self.z_max = center+range
-        # self.dir = 1
-        # self.resolution = settings['objective']['AF_max']
+        self.resolution = settings['objective']['AF_max']
 
+        self.sweep = 0
         self.positions = []
         self.focus_measures = []
 
@@ -857,44 +857,84 @@ class VerticalControl(BoxLayout):
         error_log('VerticalControl.focus_iterate()')
         global lumaview
 
-        target = lumaview.motion.target_pos('Z')
+        # target = lumaview.motion.target_pos('Z')
 
-        # When target exceeds z_max
-        if target > self.z_max:
-            self.ids['autofocus_id'].state = 'normal'
-            self.ids['autofocus_id'].text = 'Autofocus'
-            error_log('Clock.unschedule(self.focus_iterate)')
-            Clock.unschedule(self.focus_iterate)
+        # # When target exceeds z_max
+        # if target > self.z_max:
+        #     self.ids['autofocus_id'].state = 'normal'
+        #     self.ids['autofocus_id'].text = 'Autofocus'
+        #     error_log('Clock.unschedule(self.focus_iterate)')
+        #     Clock.unschedule(self.focus_iterate)
 
-            final_focus = self.focus_best(self.positions, self.focus_measures)
-            lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
-            time.sleep(1)
-            lumaview.motion.move_abs_pos('Z', final_focus) # move to absolute target
-            error_log(lumaview.motion.mssg)
-            print(self.focus_measures)
-            print(self.positions)
-            error_log('Autofocus presumed complete')
+        #     final_focus = self.focus_best(self.positions, self.focus_measures)
+        #     lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
+        #     time.sleep(1)
+        #     lumaview.motion.move_abs_pos('Z', final_focus) # move to absolute target
+        #     error_log(lumaview.motion.mssg)
+        #     print(self.focus_measures)
+        #     print(self.positions)
+        #     error_log('Autofocus presumed complete')
 
         # When the z position has reached its target
         if lumaview.motion.target_status('Z'):
-            # observe the image (does this need to include a pause?)
-            time.sleep(0.5)
+            # observe the image (pause should be 2x exposure)
+            time.sleep(0.3)
             image = lumaview.camera.array
 
-            # calculate the position and focus function
+            # calculate the position and focus measure
             current = lumaview.motion.current_pos('Z')
             focus = self.focus_function(image)
             
-            # add to positions and focus function
+            # append to positions and focus measures
             self.positions.append(current)
             self.focus_measures.append(focus)
 
-             # select and move to next position
-            delta_z = settings['objective']['AF_max']/4
-            lumaview.motion.move_rel_pos('Z', delta_z)
-            error_log(lumaview.motion.mssg)
+            # decide next target position or end autofocus sequence
+            next_target = lumaview.motion.target_pos('Z') + self.resolution
+            if next_target > self.z_max:
+                if self.sweep == 0:
+                    # compute best focus
+                    focus = self.focus_best(self.positions, self.focus_measures)
 
-        # In case user cancels autofocus ...
+                    # assign new z_min, z_max, resolution, and sweep
+                    AF_max = settings['objective']['AF_max']
+                    self.z_min = focus-AF_max
+                    self.z_max = focus+AF_max
+                    self.resolution = settings['objective']['AF_min']
+                    self.sweep = 1
+
+                    # reset positions and focus measures
+                    self.positions = []
+                    self.focus_measures = []
+
+                    # go to new z_min
+                    lumaview.motion.move_abs_pos('Z', self.z_min)
+                    error_log(lumaview.motion.mssg)
+                    error_log('End Sweep 0')
+
+                else:
+                    # compute best focus
+                    focus = self.focus_best(self.positions, self.focus_measures)
+
+                    # go to best focus
+                    lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
+                    time.sleep(1)
+                    lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
+                    error_log(lumaview.motion.mssg)
+
+                    # end autofocus sequence
+                    error_log('Clock.unschedule(self.focus_iterate)')
+                    Clock.unschedule(self.focus_iterate)
+
+                    # update button status
+                    self.ids['autofocus_id'].state = 'normal'
+                    self.ids['autofocus_id'].text = 'Autofocus'
+            else:
+                # move to next position
+                lumaview.motion.move_rel_pos('Z', self.resolution)
+                error_log(lumaview.motion.mssg)
+
+        # In case user cancels autofocus, end autofocus sequence
         if self.ids['autofocus_id'].state == 'normal':
             self.ids['autofocus_id'].text = 'Autofocus'
             error_log('Clock.unschedule(self.focus_iterate)')
