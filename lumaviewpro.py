@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-May 19, 2022
+October 5, 2022
 '''
 
 # General
@@ -58,8 +58,8 @@ from kivy.app import App
 from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
-from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, NumericProperty
-from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, ListProperty
+from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
+from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
 from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.animation import Animation
@@ -282,7 +282,7 @@ class CompositeCapture(FloatLayout):
                 # Dark field capture
                 lumaview.led_board.leds_off()
                 error_log(lumaview.led_board.mssg)
-                time.sleep(exposure/1000)  # Should be replaced with Clock
+                time.sleep(2*exposure/1000)  # Should be replaced with Clock
                 scope_display.update()
                 darkfield = lumaview.camera.array
 
@@ -832,67 +832,73 @@ class VerticalControl(BoxLayout):
             error_log('Error: VerticalControl.autofocus()')
             return
 
-        # TODO Needs to be set by the user
-        center = settings['bookmark']['z']
+        center = lumaview.motion.current_pos('Z')
         range =  settings['objective']['AF_range']
-        fine =   settings['objective']['AF_min']
-        course = settings['objective']['AF_max']
 
         self.z_min = max(0, center-range)
         self.z_max = center+range
-        self.z_step = course
-
-        # TODO change this based on focus and exposure time
-        dt = 0.5
+        # self.dir = 1
+        # self.resolution = settings['objective']['AF_max']
 
         self.positions = []
         self.focus_measures = []
 
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
-            lumaview.motion.move_abs_pos('Z', self.z_min) # Go to z_min
+
+            # Start the autofocus process at z-minimum
+            lumaview.motion.move_abs_pos('Z', self.z_min)
             error_log(lumaview.motion.mssg)
 
-            error_log('Clock.schedule_interval(self.focus_iterate, dt)')
-            Clock.schedule_interval(self.focus_iterate, dt)
+            error_log('Clock.schedule_interval(self.focus_iterate, 0.1)')
+            Clock.schedule_interval(self.focus_iterate, 0.1)
 
     def focus_iterate(self, dt):
         error_log('VerticalControl.focus_iterate()')
         global lumaview
-        image = lumaview.camera.array
 
-        target = lumaview.motion.current_pos('Z') # Get current value
-        error_log(lumaview.motion.mssg)
+        target = lumaview.motion.target_pos('Z')
 
-        self.positions.append(target)
-        self.focus_measures.append(self.focus_function(image))
-
-        fine =   settings['objective']['AF_min']
-        course = settings['objective']['AF_max']
-        #closeness = 1/(len(self.positions) + 1
-        n = len(self.positions)
-        closeness = 1/(n + 0.1)
-
-        step = course*closeness + fine*(1 - closeness)
-        error_log('fine: ' + str(fine) + '; course: ' + str(course) + '; step: ' + str(step))
-
-        lumaview.motion.move_rel_pos('Z', step) # move by z_step
-        error_log(lumaview.motion.mssg)
-
-        if self.ids['autofocus_id'].state == 'normal':
-            self.ids['autofocus_id'].text = 'Autofocus'
-            error_log('Clock.unschedule(self.focus_iterate)')
-            Clock.unschedule(self.focus_iterate)
-
-        elif target >= self.z_max:
+        # When target exceeds z_max
+        if target > self.z_max:
             self.ids['autofocus_id'].state = 'normal'
             self.ids['autofocus_id'].text = 'Autofocus'
             error_log('Clock.unschedule(self.focus_iterate)')
             Clock.unschedule(self.focus_iterate)
 
-            focus = self.focus_best(self.positions, self.focus_measures)
-            lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
+            final_focus = self.focus_best(self.positions, self.focus_measures)
+            lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
+            time.sleep(1)
+            lumaview.motion.move_abs_pos('Z', final_focus) # move to absolute target
             error_log(lumaview.motion.mssg)
+            print(self.focus_measures)
+            print(self.positions)
+            error_log('Autofocus presumed complete')
+
+        # When the z position has reached its target
+        if lumaview.motion.target_status('Z'):
+            # observe the image (does this need to include a pause?)
+            time.sleep(0.5)
+            image = lumaview.camera.array
+
+            # calculate the position and focus function
+            current = lumaview.motion.current_pos('Z')
+            focus = self.focus_function(image)
+            
+            # add to positions and focus function
+            self.positions.append(current)
+            self.focus_measures.append(focus)
+
+             # select and move to next position
+            delta_z = settings['objective']['AF_max']/4
+            lumaview.motion.move_rel_pos('Z', delta_z)
+            error_log(lumaview.motion.mssg)
+
+        # In case user cancels autofocus ...
+        if self.ids['autofocus_id'].state == 'normal':
+            self.ids['autofocus_id'].text = 'Autofocus'
+            error_log('Clock.unschedule(self.focus_iterate)')
+            Clock.unschedule(self.focus_iterate)
 
         self.update_gui()
 
@@ -2264,7 +2270,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 10/2/2022')
+        error_log('Latest Code Change: 10/5/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
