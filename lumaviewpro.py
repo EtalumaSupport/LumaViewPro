@@ -639,8 +639,6 @@ void main (void) {
 
 class MainSettings(BoxLayout):
     settings_width = dp(300)
-    notCollapsing = BooleanProperty(True)
-    currentLayer = StringProperty('microscope')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -653,12 +651,13 @@ class MainSettings(BoxLayout):
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
 
-        # move position of settings and stop histogram if collapsed
+        # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_mainsettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
                 Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
+                error_log('Clock.unschedule(lumaview...histogram)')
         else:
             self.pos = lumaview.width - self.settings_width, 0
  
@@ -666,31 +665,26 @@ class MainSettings(BoxLayout):
             scope_display.start()
 
     def accordion_collapse(self, layer):
-        self.currentLayer = layer
         error_log('MainSettings.accordion_collapse()')
         global lumaview
+
+        # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.mssg)
 
-        # turn off all toggles
+        # turn off all LED toggle buttons and histograms
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
+            error_log('Clock.unschedule(lumaview...histogram)')
 
- 
-        self.notCollapsing = not(self.notCollapsing)
+        # Restart camera feed
         if scope_display.play == True:
             scope_display.start()
 
-        if self.notCollapsing:
-            layers = ['BF', 'Blue', 'Green', 'Red']
-            if self.currentLayer in layers:
-                error_log('Clock.schedule_interval(...histogram, 0.1)')
-                Clock.schedule_interval(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram, 0.1)
- 
     def check_settings(self, *args):
         error_log('MainSettings.check_settings()')
         global lumaview
@@ -2069,10 +2063,15 @@ class LayerControl(BoxLayout):
             # In active channel,turn on LED
             lumaview.led_board.led_on(lumaview.led_board.color2ch(self.layer), illumination)
             error_log(lumaview.led_board.mssg)
+
+            
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
-                if(layer != self.layer):
+                if layer == self.layer:
+                    Clock.schedule_interval(lumaview.ids['mainsettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
+                    error_log('Clock.schedule_interval(...[self.layer]...histogram, 0.1)')
+                else:
                     lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         else: # if the button is 'normal' meaning not active
