@@ -112,7 +112,21 @@ def error_log(mssg):
         file = open('./logs/LVP_log '+start_str+'.txt', 'a')
         file.write(mssg + '\n')
         file.close()
+
+
+global focus_round
+focus_round = 0
+def focus_log(positions, values):
+    global focus_round
+    if True:
+        os.chdir(home_wd)
+        file = open('./logs/focus_log.txt', 'a')
+        for i, p in enumerate(positions):
+            mssg = str(focus_round) + '\t' + str(p) + '\t' + str(values[i]) + '\n'
+            file.write(mssg)
+        file.close()
         print(mssg)
+        focus_round += 1
 
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
@@ -898,8 +912,8 @@ class VerticalControl(BoxLayout):
 
                     # assign new z_min, z_max, resolution, and sweep
                     AF_max = settings['objective']['AF_max']
-                    self.z_min = focus-AF_max
-                    self.z_max = focus+AF_max
+                    self.z_min = focus-AF_max/2
+                    self.z_max = focus+AF_max/2
                     self.resolution = settings['objective']['AF_min']
                     self.sweep = 1
 
@@ -1001,6 +1015,7 @@ class VerticalControl(BoxLayout):
         if algorithm == 'direct':
             max_value = max(values)
             max_index = values.index(max_value)
+            focus_log(positions, values)
             return positions[max_index]
 
         elif algorithm == 'mov_avg':
