@@ -10,10 +10,11 @@ class LEDBoard:
 
         for port in ports:
             print("vid ", port.vid, " pid ", port.pid)
-            if (port.vid == 11914) and (port.pid == 5):
+            #if (port.vid == 11914) and (port.pid == 5):
+            if (port.vid == 0x2E8A) and (port.pid == 0x0005):
                 print('LED Control Board v3 identified at', port.device)
                 self.port = port.device
-                break
+                # break
 
         self.baudrate=115200
         self.bytesize=serial.EIGHTBITS
@@ -40,10 +41,12 @@ class LEDBoard:
             self.driver.close()
             self.driver.open()
             self.mssg = 'LEDBoard.connect() succeeded'
+            print('LEDBoard.connect() succeeded')
         except:
             self.driver = False
             self.mssg = 'LEDBoard.connect() failed'
-
+            print('LEDBoard.connect() succeeded')
+            
     def send_mssg(self, mssg):
         stream = mssg.encode('utf-8')+b"\r\n"
         if self.driver != False:
