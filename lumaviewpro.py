@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-May 19, 2022
+October 5, 2022
 '''
 
 # General
@@ -58,8 +58,8 @@ from kivy.app import App
 from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
-from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, NumericProperty
-from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, ListProperty
+from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
+from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
 from kivy.clock import Clock
 from kivy.metrics import dp
 from kivy.animation import Animation
@@ -112,7 +112,21 @@ def error_log(mssg):
         file = open('./logs/LVP_log '+start_str+'.txt', 'a')
         file.write(mssg + '\n')
         file.close()
+
+
+global focus_round
+focus_round = 0
+def focus_log(positions, values):
+    global focus_round
+    if True:
+        os.chdir(home_wd)
+        file = open('./logs/focus_log.txt', 'a')
+        for i, p in enumerate(positions):
+            mssg = str(focus_round) + '\t' + str(p) + '\t' + str(values[i]) + '\n'
+            file.write(mssg)
+        file.close()
         print(mssg)
+        focus_round += 1
 
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
@@ -282,7 +296,7 @@ class CompositeCapture(FloatLayout):
                 # Dark field capture
                 lumaview.led_board.leds_off()
                 error_log(lumaview.led_board.mssg)
-                time.sleep(exposure/1000)  # Should be replaced with Clock
+                time.sleep(2*exposure/1000)  # Should be replaced with Clock
                 scope_display.update()
                 darkfield = lumaview.camera.array
 
@@ -625,8 +639,6 @@ void main (void) {
 
 class MainSettings(BoxLayout):
     settings_width = dp(300)
-    notCollapsing = BooleanProperty(True)
-    currentLayer = StringProperty('microscope')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -639,12 +651,13 @@ class MainSettings(BoxLayout):
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
 
-        # move position of settings and stop histogram if collapsed
+        # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_mainsettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
                 Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
+                error_log('Clock.unschedule(lumaview...histogram)')
         else:
             self.pos = lumaview.width - self.settings_width, 0
  
@@ -652,31 +665,26 @@ class MainSettings(BoxLayout):
             scope_display.start()
 
     def accordion_collapse(self, layer):
-        self.currentLayer = layer
         error_log('MainSettings.accordion_collapse()')
         global lumaview
+
+        # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.mssg)
 
-        # turn off all toggles
+        # turn off all LED toggle buttons and histograms
         layers = ['BF', 'Blue', 'Green', 'Red']
         for layer in layers:
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
+            error_log('Clock.unschedule(lumaview...histogram)')
 
- 
-        self.notCollapsing = not(self.notCollapsing)
+        # Restart camera feed
         if scope_display.play == True:
             scope_display.start()
 
-        if self.notCollapsing:
-            layers = ['BF', 'Blue', 'Green', 'Red']
-            if self.currentLayer in layers:
-                error_log('Clock.schedule_interval(...histogram, 0.1)')
-                Clock.schedule_interval(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram, 0.1)
- 
     def check_settings(self, *args):
         error_log('MainSettings.check_settings()')
         global lumaview
@@ -832,67 +840,113 @@ class VerticalControl(BoxLayout):
             error_log('Error: VerticalControl.autofocus()')
             return
 
-        # TODO Needs to be set by the user
-        center = settings['bookmark']['z']
+        center = lumaview.motion.current_pos('Z')
         range =  settings['objective']['AF_range']
-        fine =   settings['objective']['AF_min']
-        course = settings['objective']['AF_max']
 
         self.z_min = max(0, center-range)
         self.z_max = center+range
-        self.z_step = course
+        self.resolution = settings['objective']['AF_max']
 
-        # TODO change this based on focus and exposure time
-        dt = 0.5
-
+        self.sweep = 0
         self.positions = []
         self.focus_measures = []
 
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
-            lumaview.motion.move_abs_pos('Z', self.z_min) # Go to z_min
+
+            # Start the autofocus process at z-minimum
+            lumaview.motion.move_abs_pos('Z', self.z_min)
             error_log(lumaview.motion.mssg)
 
-            error_log('Clock.schedule_interval(self.focus_iterate, dt)')
-            Clock.schedule_interval(self.focus_iterate, dt)
+            error_log('Clock.schedule_interval(self.focus_iterate, 0.1)')
+            Clock.schedule_interval(self.focus_iterate, 0.1)
 
     def focus_iterate(self, dt):
         error_log('VerticalControl.focus_iterate()')
         global lumaview
-        image = lumaview.camera.array
 
-        target = lumaview.motion.current_pos('Z') # Get current value
-        error_log(lumaview.motion.mssg)
+        # target = lumaview.motion.target_pos('Z')
 
-        self.positions.append(target)
-        self.focus_measures.append(self.focus_function(image))
+        # # When target exceeds z_max
+        # if target > self.z_max:
+        #     self.ids['autofocus_id'].state = 'normal'
+        #     self.ids['autofocus_id'].text = 'Autofocus'
+        #     error_log('Clock.unschedule(self.focus_iterate)')
+        #     Clock.unschedule(self.focus_iterate)
 
-        fine =   settings['objective']['AF_min']
-        course = settings['objective']['AF_max']
-        #closeness = 1/(len(self.positions) + 1
-        n = len(self.positions)
-        closeness = 1/(n + 0.1)
+        #     final_focus = self.focus_best(self.positions, self.focus_measures)
+        #     lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
+        #     time.sleep(1)
+        #     lumaview.motion.move_abs_pos('Z', final_focus) # move to absolute target
+        #     error_log(lumaview.motion.mssg)
+        #     print(self.focus_measures)
+        #     print(self.positions)
+        #     error_log('Autofocus presumed complete')
 
-        step = course*closeness + fine*(1 - closeness)
-        error_log('fine: ' + str(fine) + '; course: ' + str(course) + '; step: ' + str(step))
+        # When the z position has reached its target
+        if lumaview.motion.target_status('Z'):
+            # observe the image (pause should be 2x exposure)
+            time.sleep(0.3)
+            image = lumaview.camera.array
 
-        lumaview.motion.move_rel_pos('Z', step) # move by z_step
-        error_log(lumaview.motion.mssg)
+            # calculate the position and focus measure
+            current = lumaview.motion.current_pos('Z')
+            focus = self.focus_function(image)
+            
+            # append to positions and focus measures
+            self.positions.append(current)
+            self.focus_measures.append(focus)
 
+            # decide next target position or end autofocus sequence
+            next_target = lumaview.motion.target_pos('Z') + self.resolution
+            if next_target > self.z_max:
+                if self.sweep == 0:
+                    # compute best focus
+                    focus = self.focus_best(self.positions, self.focus_measures)
+
+                    # assign new z_min, z_max, resolution, and sweep
+                    AF_max = settings['objective']['AF_max']
+                    self.z_min = focus-AF_max/2
+                    self.z_max = focus+AF_max/2
+                    self.resolution = settings['objective']['AF_min']
+                    self.sweep = 1
+
+                    # reset positions and focus measures
+                    self.positions = []
+                    self.focus_measures = []
+
+                    # go to new z_min
+                    lumaview.motion.move_abs_pos('Z', self.z_min)
+                    error_log(lumaview.motion.mssg)
+                    error_log('End Sweep 0')
+
+                else:
+                    # compute best focus
+                    focus = self.focus_best(self.positions, self.focus_measures)
+
+                    # go to best focus
+                    lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
+                    time.sleep(1)
+                    lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
+                    error_log(lumaview.motion.mssg)
+
+                    # end autofocus sequence
+                    error_log('Clock.unschedule(self.focus_iterate)')
+                    Clock.unschedule(self.focus_iterate)
+
+                    # update button status
+                    self.ids['autofocus_id'].state = 'normal'
+                    self.ids['autofocus_id'].text = 'Autofocus'
+            else:
+                # move to next position
+                lumaview.motion.move_rel_pos('Z', self.resolution)
+                error_log(lumaview.motion.mssg)
+
+        # In case user cancels autofocus, end autofocus sequence
         if self.ids['autofocus_id'].state == 'normal':
             self.ids['autofocus_id'].text = 'Autofocus'
             error_log('Clock.unschedule(self.focus_iterate)')
             Clock.unschedule(self.focus_iterate)
-
-        elif target >= self.z_max:
-            self.ids['autofocus_id'].state = 'normal'
-            self.ids['autofocus_id'].text = 'Autofocus'
-            error_log('Clock.unschedule(self.focus_iterate)')
-            Clock.unschedule(self.focus_iterate)
-
-            focus = self.focus_best(self.positions, self.focus_measures)
-            lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
-            error_log(lumaview.motion.mssg)
 
         self.update_gui()
 
@@ -955,6 +1009,7 @@ class VerticalControl(BoxLayout):
         if algorithm == 'direct':
             max_value = max(values)
             max_index = values.index(max_value)
+            focus_log(positions, values)
             return positions[max_index]
 
         elif algorithm == 'mov_avg':
@@ -2008,10 +2063,15 @@ class LayerControl(BoxLayout):
             # In active channel,turn on LED
             lumaview.led_board.led_on(lumaview.led_board.color2ch(self.layer), illumination)
             error_log(lumaview.led_board.mssg)
+
+            
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
             layers = ['BF', 'Blue', 'Green', 'Red']
             for layer in layers:
-                if(layer != self.layer):
+                if layer == self.layer:
+                    Clock.schedule_interval(lumaview.ids['mainsettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
+                    error_log('Clock.schedule_interval(...[self.layer]...histogram, 0.1)')
+                else:
                     lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         else: # if the button is 'normal' meaning not active
@@ -2264,7 +2324,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 10/2/2022')
+        error_log('Latest Code Change: 10/5/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
