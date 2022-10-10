@@ -844,7 +844,7 @@ class VerticalControl(BoxLayout):
         center = lumaview.motion.current_pos('Z')
         range =  settings['objective']['AF_range']
 
-        self.z_min = max(0, center-range*2)
+        self.z_min = max(0, center-range) #***************************
         self.z_max = center+range
         self.resolution = settings['objective']['AF_max']
         self.exposure = lumaview.camera.get_exposure_t()
@@ -893,8 +893,8 @@ class VerticalControl(BoxLayout):
                 # Calculate new step size for resolution
                 prev_resolution = self.resolution
                 self.resolution = prev_resolution / 2 #***************************
-                if self.resolution/2 < settings['objective']['AF_min']:
-                    self.resolution = settings['objective']['AF_min']
+                # if self.resolution/2 < settings['objective']['AF_min']:
+                #     self.resolution = settings['objective']['AF_min']
 
                 # As long as the step size is larger than the minimum
                 if self.resolution >= settings['objective']['AF_min']:
