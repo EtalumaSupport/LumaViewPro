@@ -108,6 +108,16 @@ class PylonCamera:
         else:
             self.mssg = 'PylonCamera.exposure_t('+str(t)+')'+': inactive camera' 
 
+    def get_exposure_t(self):
+        if self.active != False:
+            microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
+            millisec = microsec/1000 # convert exposure time to millisec
+            self.mssg = 'PylonCamera.get_exposure_t(): succeeded' 
+            return millisec
+        else:
+            self.mssg = 'PylonCamera.get_exposure_t(): inactive camera' 
+            return -1
+
     def auto_exposure_t(self, state = True):
         if self.active != False:
             if state == True:

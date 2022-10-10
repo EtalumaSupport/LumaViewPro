@@ -32,14 +32,13 @@ Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 
 MODIFIED:
-June 5, 2022
+October 8, 2022
 '''
-
 
 from mcp2210 import Mcp2210, Mcp2210GpioDesignation, Mcp2210GpioDirection
 import struct    # For making c style data structures, and send them through the mcp chip
 import sched
-#import threading
+import time
 import os
 
 platform = os.sys.platform 
@@ -99,8 +98,6 @@ class TrinamicBoard:
         self.found = False
         self.mssg = 'TrinamicBoard.__init__()'
 
-        print("TrinamicBoard.__init__()")
-        
         try:
             if platform == 'win32':
                 devices = hid.core.find_all_hid_devices()
@@ -108,19 +105,13 @@ class TrinamicBoard:
                     if device.vendor_id == 0x04D8 and device.product_id == 0x00DE:
                         SPI_serial = device.serial_number
             else:
-                print("TrinamicBoard.__init__(): trying for non WinOS device id")
                 device = usb.core.find(idVendor=0x04d8, idProduct=0x00de)  # find the mcp2210 USB device, idVendor=0x04d8, idProduct=0x00de is defaulted in the chip
-                if device is None:
-                    print('TrinamicBoard not found')
-                    raise ValueError('TrinamicBoard not found')
-                #print("TrinamicBoard.__init__(): trying for iSerialNumber")
-                #print("iSerialNumber ", device.serial_number)
                 SPI_serial = usb.util.get_string(device, device.iSerialNumber ) # find the serial number of the MCP device
-                #SPI_serial = "0001007761"
-                
-            #print("Trying to find MCP2210 with SPI serial number ", SPI_serial)
+            
+            print("Found Trinamic board with SPI serial number ", SPI_serial)
+
             self.chip = Mcp2210(SPI_serial)  # the serial number of the chip. Can be determined by using dmesg after plugging in the device
-            #print ("Found motor control device", self.chip)
+            print ("Found Device", self.chip)
 
             # set all GPIO lines on the MCP2210 as General GPIO lines
             # Tri-State all GPIO lines on the MCP2210
@@ -137,8 +128,6 @@ class TrinamicBoard:
             print("Trinamic setup failed")
             self.mssg = 'TrinamicBoard.__init__() failed'            
             self.found = False
-            
-
 
 
     #----------------------------------------------------------
@@ -214,7 +203,7 @@ class TrinamicBoard:
 
             # Schedule writing target and actual Z position to 0 after 4 seconds
             s = sched.scheduler()
-            zevent = s.enter(3, 1, self.zhome_write)
+            s.enter(3, 1, self.zhome_write)
             s.run()
 
     def zhome_write(self):
@@ -354,21 +343,38 @@ class TrinamicBoard:
 
     # Move to absolute position (in um)
     def move_abs_pos(self, axis, pos):
-        self.mssg = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+')'            
+
         if self.found:
+            
             if axis == 'Z':
+
+                # don't let it move out of bounds
                 if pos < 0:
                     pos = 0.
                 elif pos > 12000:
                     pos = 12000.
+
                 steps = self.z_um2ustep(pos)
             else:
                 steps = self.xy_um2ustep(pos)
+
             # signed to unsigned 32_bit integer
             if steps < 0:
                 steps = 4294967296+steps
 
-            # print('steps:', steps, '\t pos:', pos)
+            if axis=='Z': # perform overshoot to always come from one direction
+
+                # get current position
+                current = self.current_pos('Z')
+
+                # if the current position is above the new target position
+                if current > pos:
+                    # First overshoot downwards
+                    overshot = self.z_um2ustep(pos-30) # target minus 30 um
+                    self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshot)
+                    while not self.target_status('Z'):
+                        time.sleep(0.05)
+
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
             self.mssg = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') succeeded'
         else:
@@ -387,7 +393,8 @@ class TrinamicBoard:
                 if pos < 0:
                     pos = 0.
                 elif pos > 12000:
-                    pos = 12000.                
+                    pos = 12000.     
+
                 steps = self.z_um2ustep(pos)
             else:
                 steps = self.xy_um2ustep(um+pos)
@@ -396,7 +403,17 @@ class TrinamicBoard:
             if steps < 0:
                 steps = 4294967296+steps
 
-            print('pos:', pos, 'um:', um, 'pos+um:', um+pos, 'steps:', steps)
+            if axis=='Z': # perform overshoot to always come from one direction
+
+                # if the movement is downward or backward
+                if um < 0:
+                    # First overshoot downwards
+                    overshot = self.z_um2ustep(pos-30) # target minus 30 um
+                    self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshot)
+                    while not self.target_status('Z'):
+                        time.sleep(0.05)
+                        
+            # print('pos:', pos, 'um:', um, 'pos+um:', um+pos, 'steps:', steps)
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
             self.mssg = 'TrinamicBoard.move_rel_pos('+axis+','+str(um)+') succeeded'
         else:

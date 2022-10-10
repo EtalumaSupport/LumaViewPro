@@ -112,6 +112,7 @@ def error_log(mssg):
         file = open('./logs/LVP_log '+start_str+'.txt', 'a')
         file.write(mssg + '\n')
         file.close()
+        print(mssg)
 
 
 global focus_round
@@ -843,11 +844,10 @@ class VerticalControl(BoxLayout):
         center = lumaview.motion.current_pos('Z')
         range =  settings['objective']['AF_range']
 
-        self.z_min = max(0, center-range)
+        self.z_min = max(0, center-range*2)
         self.z_max = center+range
         self.resolution = settings['objective']['AF_max']
-
-        self.sweep = 0
+        self.exposure = lumaview.camera.get_exposure_t()
         self.positions = []
         self.focus_measures = []
 
@@ -865,29 +865,17 @@ class VerticalControl(BoxLayout):
         error_log('VerticalControl.focus_iterate()')
         global lumaview
 
-        # target = lumaview.motion.target_pos('Z')
-
-        # # When target exceeds z_max
-        # if target > self.z_max:
-        #     self.ids['autofocus_id'].state = 'normal'
-        #     self.ids['autofocus_id'].text = 'Autofocus'
-        #     error_log('Clock.unschedule(self.focus_iterate)')
-        #     Clock.unschedule(self.focus_iterate)
-
-        #     final_focus = self.focus_best(self.positions, self.focus_measures)
-        #     lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
-        #     time.sleep(1)
-        #     lumaview.motion.move_abs_pos('Z', final_focus) # move to absolute target
-        #     error_log(lumaview.motion.mssg)
-        #     print(self.focus_measures)
-        #     print(self.positions)
-        #     error_log('Autofocus presumed complete')
-
         # When the z position has reached its target
         if lumaview.motion.target_status('Z'):
-            # observe the image (pause should be 2x exposure)
-            time.sleep(0.3)
+
+            # Wait two exposure lengths
+            time.sleep(2*self.exposure/1000) # msec into sec
+
+            # observe the image and use center quarter
             image = lumaview.camera.array
+            rows, cols = image.shape
+
+            image = image[int(rows/4):int(3*rows/4),int(cols/4):int(3*cols/4)]
 
             # calculate the position and focus measure
             current = lumaview.motion.current_pos('Z')
@@ -899,17 +887,24 @@ class VerticalControl(BoxLayout):
 
             # decide next target position or end autofocus sequence
             next_target = lumaview.motion.target_pos('Z') + self.resolution
+
             if next_target > self.z_max:
-                if self.sweep == 0:
+
+                # Calculate new step size for resolution
+                prev_resolution = self.resolution
+                self.resolution = prev_resolution / 2 #***************************
+                if self.resolution/2 < settings['objective']['AF_min']:
+                    self.resolution = settings['objective']['AF_min']
+
+                # As long as the step size is larger than the minimum
+                if self.resolution >= settings['objective']['AF_min']:
+
                     # compute best focus
                     focus = self.focus_best(self.positions, self.focus_measures)
 
                     # assign new z_min, z_max, resolution, and sweep
-                    AF_max = settings['objective']['AF_max']
-                    self.z_min = focus-AF_max/2
-                    self.z_max = focus+AF_max/2
-                    self.resolution = settings['objective']['AF_min']
-                    self.sweep = 1
+                    self.z_min = focus-prev_resolution #***************************
+                    self.z_max = focus+prev_resolution #***************************
 
                     # reset positions and focus measures
                     self.positions = []
@@ -918,7 +913,6 @@ class VerticalControl(BoxLayout):
                     # go to new z_min
                     lumaview.motion.move_abs_pos('Z', self.z_min)
                     error_log(lumaview.motion.mssg)
-                    error_log('End Sweep 0')
 
                 else:
                     # compute best focus
@@ -926,7 +920,9 @@ class VerticalControl(BoxLayout):
 
                     # go to best focus
                     lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
-                    time.sleep(1)
+                    while not lumaview.motion.target_status('Z'):
+                        time.sleep(0.05)
+
                     lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
                     error_log(lumaview.motion.mssg)
 
@@ -2324,7 +2320,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 10/5/2022')
+        error_log('Latest Code Change: 10/9/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 

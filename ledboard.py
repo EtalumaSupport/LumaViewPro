@@ -14,7 +14,7 @@ class LEDBoard:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
                 print('LED Control Board v3 identified at', port.device)
                 self.port = port.device
-                # break
+                break
 
         self.baudrate=115200
         self.bytesize=serial.EIGHTBITS
@@ -113,11 +113,11 @@ class LEDBoard:
         self.send_mssg(command)
 
     def led_on(self, channel, mA):
-        command = 'LED' + str(channel) + '_' + str(int(mA))
+        command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         self.send_mssg(command)
 
     def led_off(self, channel):
-        command = 'LED' + str(channel) + '_OFF'
+        command = 'LED' + str(int(channel)) + '_OFF'
         self.send_mssg(command)
 
     def leds_off(self):
