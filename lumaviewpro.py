@@ -1371,9 +1371,6 @@ class ProtocolSettings(CompositeCapture):
     # Delete Current Step of Protocol
     def delete_step(self):
         error_log('ProtocolSettings.delete_step()')
-        
-        if self.c_step == 0:
-            return
 
         self.step_names.pop(self.c_step)
         self.step_values = np.delete(self.step_values, self.c_step, axis = 0)
@@ -1546,7 +1543,8 @@ class ProtocolSettings(CompositeCapture):
 
             # TODO: run autofocus and wait for autofocus to finish!!
             error_log("Autofocus Scan Placeholder")
-           
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
+
             # Turn off LEDs
             lumaview.led_board.leds_off()
             error_log(lumaview.led_board.mssg)
