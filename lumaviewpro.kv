@@ -989,7 +989,7 @@
         AccordionItem:
             title: 'Microscope Settings'
             collapse: False
-			on_collapse: root.accordion_collapse('microscope')
+			on_collapse: root.accordion_collapse()
             MicroscopeSettings:
                 id: microscope_settings_id
 
@@ -997,7 +997,7 @@
         AccordionItem:
 			id: BF_accordion
             title: 'Brightfield Channel Control'
-			on_collapse: root.accordion_collapse('BF')
+			on_collapse: root.accordion_collapse()
             LayerControl:
                 id: BF
                 layer: 'BF'
@@ -1007,7 +1007,7 @@
         AccordionItem:
             id: Blue_accordion
             title: 'Blue Channel Control'
-            on_collapse: root.accordion_collapse('Blue')
+            on_collapse: root.accordion_collapse()
             LayerControl:
                 id: Blue
                 layer: 'Blue'
@@ -1017,7 +1017,7 @@
         AccordionItem:
             id: Green_accordion
             title: 'Green Channel Control'
-			on_collapse: root.accordion_collapse('Green')
+			on_collapse: root.accordion_collapse()
             LayerControl:
                 id: Green
                 layer: 'Green'

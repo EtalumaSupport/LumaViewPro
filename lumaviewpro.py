@@ -184,10 +184,13 @@ class CompositeCapture(FloatLayout):
         file_root = 'live_'
         append = 'ms'
         color = 'BF'
-        # currentLayer = lumaview.ids['mainsettings_id'].currentLayer
-        # if currentLayer != 'microscope':
-        #     if lumaview.ids['mainsettings_id'].ids[currentLayer].ids['false_color'].active:
-        #         color = currentLayer
+
+        layers = ['BF', 'Blue', 'Green', 'Red']
+        for layer in layers:
+            accordion = layer + '_accordion'
+            if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
+                if lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active:
+                    color = layer
             
         lumaview.camera.grab()
         error_log(lumaview.camera.mssg)
@@ -327,7 +330,12 @@ class CompositeCapture(FloatLayout):
             lumaview.led_board.leds_off()
             error_log(lumaview.led_board.mssg)
 
-        lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+            # turn off all LED toggle buttons and histograms
+            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+            Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
+            error_log('Clock.unschedule(lumaview...histogram)')
+
+        # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
         lumaview.ids['composite_btn'].state = 'normal'
 
         img = np.flip(img, 0)
@@ -642,7 +650,6 @@ void main (void) {
 
 class MainSettings(BoxLayout):
     settings_width = dp(300)
-    # currentLayer = StringProperty('microscope')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -669,9 +676,8 @@ class MainSettings(BoxLayout):
         if scope_display.play == True:
             scope_display.start()
 
-    def accordion_collapse(self, layer):
+    def accordion_collapse(self):
         error_log('MainSettings.accordion_collapse()')
-        # self.currentLayer = layer
         global lumaview
 
         # turn off the camera update and all LEDs
@@ -1861,9 +1867,16 @@ class MicroscopeSettings(BoxLayout):
             #protocol_settings.ids['stage_widget_id'].draw_labware()
 
             zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
+            zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
             zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
             zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
-            zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
+
+            if settings['zstack']['step_size'] != 0:
+                n_steps = np.floor( settings['zstack']['range'] / settings['zstack']['step_size'])
+                zstack_settings.ids['zstack_steps_id'].text = str(int(n_steps))
+            else:
+                zstack_settings.ids['zstack_steps_id'].text = '0'
+
 
 
             layers = ['BF', 'Blue', 'Green', 'Red']
@@ -2143,6 +2156,7 @@ class LayerControl(BoxLayout):
 
 
 class ZStack(CompositeCapture):
+
     def set_steps(self):
         error_log('ZStack.set_steps()')
 
