@@ -844,13 +844,17 @@ class VerticalControl(BoxLayout):
         center = lumaview.motion.current_pos('Z')
         range =  settings['objective']['AF_range']
 
-        self.z_min = max(0, center-range) #***************************
-        self.z_max = center+range
-        self.resolution = settings['objective']['AF_max']
-        self.exposure = lumaview.camera.get_exposure_t()
+        self.z_min = max(0, center-range)                   # starting minimum z-height for autofocus
+        self.z_max = center+range                           # starting maximum z-height for autofocus
+        self.resolution = settings['objective']['AF_max']   # starting step size for autofocus
+        self.exposure = lumaview.camera.get_exposure_t()    # camera exposure to determine 'wait' time
+
         self.positions = []
         self.focus_measures = []
+        self.last_focus = 0
+        self.last = False
 
+        # set button text if button is pressed
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
 
@@ -858,53 +862,56 @@ class VerticalControl(BoxLayout):
             lumaview.motion.move_abs_pos('Z', self.z_min)
             error_log(lumaview.motion.mssg)
 
-            error_log('Clock.schedule_interval(self.focus_iterate, 0.1)')
-            Clock.schedule_interval(self.focus_iterate, 0.1)
+            # schedule focus iterate
+            error_log('Clock.schedule_interval(self.focus_iterate, 0.01)')
+            Clock.schedule_interval(self.focus_iterate, 0.01)
 
     def focus_iterate(self, dt):
+
         error_log('VerticalControl.focus_iterate()')
         global lumaview
 
-        # When the z position has reached its target
+        # If the z-height has reached its target
         if lumaview.motion.target_status('Z'):
 
             # Wait two exposure lengths
             time.sleep(2*self.exposure/1000) # msec into sec
 
-            # observe the image and use center quarter
+            # observe the image 
             image = lumaview.camera.array
             rows, cols = image.shape
 
+            # Use center quarter of image for focusing
             image = image[int(rows/4):int(3*rows/4),int(cols/4):int(3*cols/4)]
 
             # calculate the position and focus measure
             current = lumaview.motion.current_pos('Z')
             focus = self.focus_function(image)
-            
+            next_target = lumaview.motion.target_pos('Z') + self.resolution
+
             # append to positions and focus measures
             self.positions.append(current)
             self.focus_measures.append(focus)
 
-            # decide next target position or end autofocus sequence
-            next_target = lumaview.motion.target_pos('Z') + self.resolution
-
-            if next_target > self.z_max:
+            if (focus < self.last_focus) or (next_target > self.z_max):
 
                 # Calculate new step size for resolution
+                AF_min = settings['objective']['AF_min']
                 prev_resolution = self.resolution
-                self.resolution = prev_resolution / 2 #***************************
-                # if self.resolution/2 < settings['objective']['AF_min']:
-                #     self.resolution = settings['objective']['AF_min']
+                self.resolution = prev_resolution / 3 #*************************** SELECT DESIRED RESOLUTION FRACTION
 
-                # As long as the step size is larger than the minimum
-                if self.resolution >= settings['objective']['AF_min']:
+                if self.resolution < AF_min:
+                    self.resolution = AF_min
+
+                # As long as the step size is larger than or equal to the minimum and not the last pass
+                if self.resolution >= AF_min and not self.last:
 
                     # compute best focus
                     focus = self.focus_best(self.positions, self.focus_measures)
 
                     # assign new z_min, z_max, resolution, and sweep
-                    self.z_min = focus-prev_resolution #***************************
-                    self.z_max = focus+prev_resolution #***************************
+                    self.z_min = focus-prev_resolution 
+                    self.z_max = focus+prev_resolution 
 
                     # reset positions and focus measures
                     self.positions = []
@@ -914,6 +921,9 @@ class VerticalControl(BoxLayout):
                     lumaview.motion.move_abs_pos('Z', self.z_min)
                     error_log(lumaview.motion.mssg)
 
+                    if self.resolution == AF_min:
+                        self.last = True
+
                 else:
                     # compute best focus
                     focus = self.focus_best(self.positions, self.focus_measures)
@@ -921,7 +931,7 @@ class VerticalControl(BoxLayout):
                     # go to best focus
                     lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
                     while not lumaview.motion.target_status('Z'):
-                        time.sleep(0.05)
+                        time.sleep(0.01)
 
                     lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
                     error_log(lumaview.motion.mssg)
@@ -937,6 +947,9 @@ class VerticalControl(BoxLayout):
                 # move to next position
                 lumaview.motion.move_rel_pos('Z', self.resolution)
                 error_log(lumaview.motion.mssg)
+
+            # update last focus
+            self.last_focus = focus
 
         # In case user cancels autofocus, end autofocus sequence
         if self.ids['autofocus_id'].state == 'normal':
