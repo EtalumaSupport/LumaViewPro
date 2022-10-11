@@ -1629,7 +1629,7 @@ class ProtocolSettings(CompositeCapture):
 
         else:  # self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
-            
+
             error_log('Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
     
@@ -2116,7 +2116,7 @@ class LayerControl(BoxLayout):
             elif(self.layer) == 'Blue':
                 self.ids['apply_btn'].background_down = './data/icons/ToggleRB.png'
         else:
-            self.ids['apply_btn'].background_down = './data/icons/ToggleR.png'
+            self.ids['apply_btn'].background_down = './data/icons/ToggleRW.png'
 
         # Remove 'Colorize' option in brightfield control
         # -----------------------------------------------------
