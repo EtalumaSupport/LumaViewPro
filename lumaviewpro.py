@@ -1629,6 +1629,7 @@ class ProtocolSettings(CompositeCapture):
 
         else:  # self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
+            
             error_log('Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
     
@@ -1678,6 +1679,7 @@ class ProtocolSettings(CompositeCapture):
                 error_log('Scan Complete')
                 self.ids['run_scan_btn'].state = 'normal'
                 self.ids['run_scan_btn'].text = 'Run One Scan'
+
                 error_log('Clock.unschedule(self.scan_iterate)')
                 Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
 
@@ -1706,10 +1708,11 @@ class ProtocolSettings(CompositeCapture):
 
         else:
             self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
+
             error_log('Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
             error_log('Clock.unschedule(self.protocol_iterate)')
-            Clock.unschedule(self.protocol_iterate) # unschedule all copies of scan iterate
+            Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
             # self.protocol_event.cancel()
  
     def protocol_iterate(self, dt):
@@ -1749,8 +1752,11 @@ class ProtocolSettings(CompositeCapture):
             else:
                self.ids['run_protocol_btn'].state = 'normal' # 'normal'
                self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
+
+               error_log('Clock.unschedule(self.scan_iterate)')
+               Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
                error_log('Clock.unschedule(self.protocol_iterate)')
-               Clock.unschedule(self.protocol_iterate) # unschedule all copies of scan iterate
+               Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
 
 # Widget for displaying Microscope Stage area, labware, and current position 
 class Stage(Widget):
