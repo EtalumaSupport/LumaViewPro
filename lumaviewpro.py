@@ -872,7 +872,8 @@ class VerticalControl(BoxLayout):
         global lumaview
 
         # If the z-height has reached its target
-        if lumaview.motion.target_status('Z'):
+        # if lumaview.motion.target_status('Z'): # doesn't work because of back step!
+        if lumaview.motion.target_status('Z') and not lumaview.motion.overshoot:
 
             # Wait two exposure lengths
             time.sleep(2*self.exposure/1000) # msec into sec
@@ -929,10 +930,6 @@ class VerticalControl(BoxLayout):
                     focus = self.focus_best(self.positions, self.focus_measures)
 
                     # go to best focus
-                    lumaview.motion.move_abs_pos('Z', self.z_min) # move to z minimum
-                    while not lumaview.motion.target_status('Z'):
-                        time.sleep(0.01)
-
                     lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
                     error_log(lumaview.motion.mssg)
 
@@ -1034,7 +1031,6 @@ class VerticalControl(BoxLayout):
         # https://scikit-image.org/docs/dev/auto_examples/filters/
         # plot_deconvolution.html#sphx-glr-download-auto-examples-filters-plot-deconvolution-py
         pass
-
 
 
 class XYStageControl(BoxLayout):

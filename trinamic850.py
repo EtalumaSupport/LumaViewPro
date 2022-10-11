@@ -97,6 +97,7 @@ class TrinamicBoard:
 
         self.found = False
         self.mssg = 'TrinamicBoard.__init__()'
+        self.overshoot = False
 
         try:
             if platform == 'win32':
@@ -369,11 +370,13 @@ class TrinamicBoard:
 
                 # if the current position is above the new target position
                 if current > pos:
+                    self.overshoot = True
                     # First overshoot downwards
-                    overshot = self.z_um2ustep(pos-30) # target minus 30 um
-                    self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshot)
+                    overshoot = self.z_um2ustep(pos-30) # target minus 30 um
+                    self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                     while not self.target_status('Z'):
                         time.sleep(0.05)
+                    self.overshoot = False
 
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
             self.mssg = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') succeeded'
@@ -407,12 +410,14 @@ class TrinamicBoard:
 
                 # if the movement is downward or backward
                 if um < 0:
+                    self.overshoot = True
                     # First overshoot downwards
-                    overshot = self.z_um2ustep(pos-30) # target minus 30 um
-                    self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshot)
+                    overshoot = self.z_um2ustep(pos-30) # target minus 30 um
+                    self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                     while not self.target_status('Z'):
                         time.sleep(0.05)
-                        
+                    self.overshoot = False
+                    
             # print('pos:', pos, 'um:', um, 'pos+um:', um+pos, 'steps:', steps)
             self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
             self.mssg = 'TrinamicBoard.move_rel_pos('+axis+','+str(um)+') succeeded'
