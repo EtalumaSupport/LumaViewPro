@@ -184,8 +184,10 @@ class CompositeCapture(FloatLayout):
         file_root = 'live_'
         append = 'ms'
         color = 'BF'
-        if lumaview.ids['mainsettings_id'].currentLayer != 'microscope':
-            color = lumaview.ids['mainsettings_id'].currentLayer
+        # currentLayer = lumaview.ids['mainsettings_id'].currentLayer
+        # if currentLayer != 'microscope':
+        #     if lumaview.ids['mainsettings_id'].ids[currentLayer].ids['false_color'].active:
+        #         color = currentLayer
             
         lumaview.camera.grab()
         error_log(lumaview.camera.mssg)
@@ -640,10 +642,12 @@ void main (void) {
 
 class MainSettings(BoxLayout):
     settings_width = dp(300)
+    # currentLayer = StringProperty('microscope')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        error_log('MainSettings.toggle_editor()')
+        error_log('MainSettings.__init__()')
+
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
@@ -667,6 +671,7 @@ class MainSettings(BoxLayout):
 
     def accordion_collapse(self, layer):
         error_log('MainSettings.accordion_collapse()')
+        # self.currentLayer = layer
         global lumaview
 
         # turn off the camera update and all LEDs
