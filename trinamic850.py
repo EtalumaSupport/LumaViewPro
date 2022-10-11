@@ -372,7 +372,7 @@ class TrinamicBoard:
                 if current > pos:
                     self.overshoot = True
                     # First overshoot downwards
-                    overshoot = self.z_um2ustep(pos-30) # target minus 30 um
+                    overshoot = self.z_um2ustep(pos-7) # target minus 30 um
                     self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                     while not self.target_status('Z'):
                         time.sleep(0.05)
@@ -412,7 +412,7 @@ class TrinamicBoard:
                 if um < 0:
                     self.overshoot = True
                     # First overshoot downwards
-                    overshoot = self.z_um2ustep(pos-30) # target minus 30 um
+                    overshoot = self.z_um2ustep(pos-7) # target minus 30 um
                     self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                     while not self.target_status('Z'):
                         time.sleep(0.05)
