@@ -286,7 +286,7 @@ class CompositeCapture(FloatLayout):
                 # Go to focus and wait for arrival
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
                 while not lumaview.motion.target_status('Z'):
-                    time.sleep(.05)
+                    time.sleep(.001)
 
                 # set the gain and exposure
                 gain = settings[layer]['gain']
@@ -875,7 +875,7 @@ class VerticalControl(BoxLayout):
 
             # schedule focus iterate
             error_log('Clock.schedule_interval(self.focus_iterate, 0.01)')
-            Clock.schedule_interval(self.focus_iterate, 0.01)
+            Clock.schedule_interval(self.focus_iterate, 0.001)
 
     def focus_iterate(self, dt):
 
