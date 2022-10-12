@@ -98,6 +98,7 @@ class TrinamicBoard:
         self.found = False
         self.mssg = 'TrinamicBoard.__init__()'
         self.overshoot = False
+        self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
 
         try:
             if platform == 'win32':
@@ -372,7 +373,7 @@ class TrinamicBoard:
                 if current > pos:
                     self.overshoot = True
                     # First overshoot downwards
-                    overshoot = self.z_um2ustep(pos-7) # target minus 30 um
+                    overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
                     self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                     while not self.target_status('Z'):
                         time.sleep(0.001)
@@ -412,7 +413,7 @@ class TrinamicBoard:
                 if um < 0:
                     self.overshoot = True
                     # First overshoot downwards
-                    overshoot = self.z_um2ustep(pos-7) # target minus 30 um
+                    overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
                     self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                     while not self.target_status('Z'):
                         time.sleep(0.001)
