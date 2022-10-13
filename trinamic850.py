@@ -256,6 +256,39 @@ class TrinamicBoard:
         self.SPI_write(self.chip_pin['Y'], self.write_target['Y'], 0x00000000)
 
     #----------------------------------------------------------
+    # T (Turret) Functions
+    #----------------------------------------------------------
+    def t_ustep2deg(self, ustep):
+        self.mssg = 'TrinamicBoard.t_ustep2deg('+str(ustep)+')'            
+        um = 1. * ustep # needs correct value
+        return um
+
+    def t_deg2ustep(self, um):
+        self.mssg = 'TrinamicBoard.t_ustep2deg('+str(um)+')'            
+        ustep = int( um / 1.) # needs correct va
+        return ustep
+
+    def thome(self):
+        self.mssg = 'TrinamicBoard.thome()'            
+        if self.found:
+
+            # TODO enable home switch
+
+            # move to home and beyond
+            self.move_abs_pos('T', -1000000)
+
+            # Schedule writing target and actual T position to 0 after 5 seconds
+            s = sched.scheduler()
+            s.enter(5, 2, self.thome_write)
+            s.run()
+
+    def thome_write(self):
+        self.mssg = 'TrinamicBoard.xyhome_write()'            
+        self.SPI_write(self.chip_pin['X'], self.write_actual['T'], 0x00000000)
+        self.SPI_write(self.chip_pin['X'], self.write_target['T'], 0x00000000)
+        # TODO disable home switch
+
+    #----------------------------------------------------------
     # Motion Functions
     #----------------------------------------------------------
  

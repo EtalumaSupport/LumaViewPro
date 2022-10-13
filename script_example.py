@@ -33,11 +33,16 @@ for i in range(6):
 # ----------------------------------------------------
 # Controlling focus and XY stage
 # ----------------------------------------------------
-xyz.zhome()         # home position (retracted) objective
 xyz.xyhome()        # home position of xy stage
 xyz.move_abs_pos('X', 5800)    # move to absolute position in um
 xyz.move_abs_pos('Y', 3500)    # move to absolute position in um
 xyz.move_abs_pos('Z', 3270)    # move to absolute position in um
+
+# ----------------------------------------------------
+# Controlling the Turret
+# ----------------------------------------------------
+xyz.thome()
+xyz.move_abs_pos('T', 30.000) # move to absolute position in deg
 
 # ----------------------------------------------------
 # Controlling the Camera
