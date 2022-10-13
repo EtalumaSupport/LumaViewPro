@@ -4,3 +4,4 @@ data/current.json
 calls.txt
 logs/*
 capture/*.tiff
+script_testing.py

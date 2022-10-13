@@ -1268,9 +1268,12 @@ class ProtocolSettings(CompositeCapture):
     def load_protocol(self, file="./data/sample_protocol.csv"):
         error_log('ProtocolSettings.load_protocol()')
 
+        self.step_names = list()
+        self.step_values = []
         # Open protocol as DataFrame
         protocol_df = pd.read_csv(file)
         # Change columns to List and NPArray
+
         self.step_names = list(protocol_df['Name'])
         self.step_values = protocol_df[['X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure']].to_numpy()
 
@@ -1554,7 +1557,7 @@ class ProtocolSettings(CompositeCapture):
 
             # TODO: run autofocus and wait for autofocus to finish!!
             error_log("Autofocus Scan Placeholder")
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
+            # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
 
             # Turn off LEDs
             lumaview.led_board.leds_off()
@@ -1658,7 +1661,7 @@ class ProtocolSettings(CompositeCapture):
         z_status = lumaview.motion.target_status('Z')
 
         # If target location has been reached
-        if x_status and y_status and z_status:
+        if x_status and y_status and z_status and not lumaview.motion.overshoot:
             error_log('Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
