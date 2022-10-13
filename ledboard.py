@@ -9,7 +9,7 @@ class LEDBoard:
         self.mssg = 'LEDBoard.__init__()'
 
         for port in ports:
-            print("vid ", port.vid, " pid ", port.pid)
+            # print("vid ", port.vid, " pid ", port.pid)
             #if (port.vid == 11914) and (port.pid == 5):
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
                 print('LED Control Board v3 identified at', port.device)

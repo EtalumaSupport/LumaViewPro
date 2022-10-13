@@ -388,39 +388,41 @@ class TrinamicBoard:
     # Move by relative distance (in um)
     def move_rel_pos(self, axis, um):
         if self.found:
-            # Read actual position in um
-            pos = self.current_pos(axis)
+            # # Read actual position in um
+            # pos = self.current_pos(axis)
  
-            # Add relative motion and convert
-            if axis == 'Z':
-                pos = um+pos
-                if pos < 0:
-                    pos = 0.
-                elif pos > 12000:
-                    pos = 12000.     
+            # # Add relative motion and convert
+            # if axis == 'Z':
+            #     pos = um+pos
+            #     if pos < 0:
+            #         pos = 0.
+            #     elif pos > 12000:
+            #         pos = 12000.     
 
-                steps = self.z_um2ustep(pos)
-            else:
-                steps = self.xy_um2ustep(um+pos)
+            #     steps = self.z_um2ustep(pos)
+            # else:
+            #     steps = self.xy_um2ustep(um+pos)
 
-             # signed to unsigned 32_bit integer
-            if steps < 0:
-                steps = 4294967296+steps
+            #  # signed to unsigned 32_bit integer
+            # if steps < 0:
+            #     steps = 4294967296+steps
 
-            if axis=='Z': # perform overshoot to always come from one direction
+            # if axis=='Z': # perform overshoot to always come from one direction
 
-                # if the movement is downward or backward
-                if um < 0:
-                    self.overshoot = True
-                    # First overshoot downwards
-                    overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
-                    self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
-                    while not self.target_status('Z'):
-                        time.sleep(0.001)
-                    self.overshoot = False
+            #     # if the movement is downward or backward
+            #     if um < 0:
+            #         self.overshoot = True
+            #         # First overshoot downwards
+            #         overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
+            #         self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
+            #         while not self.target_status('Z'):
+            #             time.sleep(0.001)
+            #         self.overshoot = False
                     
-            # print('pos:', pos, 'um:', um, 'pos+um:', um+pos, 'steps:', steps)
-            self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
+            # # print('pos:', pos, 'um:', um, 'pos+um:', um+pos, 'steps:', steps)
+            # self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
+            pos = self.current_pos(axis)
+            self.move_abs_pos(axis, pos+um)
             self.mssg = 'TrinamicBoard.move_rel_pos('+axis+','+str(um)+') succeeded'
         else:
             self.mssg = 'TrinamicBoard.move_rel_pos('+axis+','+str(um)+') inactive'
