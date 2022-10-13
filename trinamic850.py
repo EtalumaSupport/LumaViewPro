@@ -110,8 +110,6 @@ class TrinamicBoard:
                 device = usb.core.find(idVendor=0x04d8, idProduct=0x00de)  # find the mcp2210 USB device, idVendor=0x04d8, idProduct=0x00de is defaulted in the chip
                 SPI_serial = usb.util.get_string(device, device.iSerialNumber ) # find the serial number of the MCP device
             
-            print("Found Trinamic board with SPI serial number ", SPI_serial)
-
             self.chip = Mcp2210(SPI_serial)  # the serial number of the chip. Can be determined by using dmesg after plugging in the device
             print ("Found Device", self.chip)
 
@@ -125,9 +123,13 @@ class TrinamicBoard:
             self.found = True
             self.mssg = 'TrinamicBoard.__init__() succeeded'            
 
-        except OSError as err:
-            print("OS error: {0}".format(err))
-            print("Trinamic setup failed")
+        # except OSError as err:
+        #     print("OS error: {0}".format(err))
+        #     print("Trinamic setup failed")
+        #     self.mssg = 'TrinamicBoard.__init__() failed'            
+        #     self.found = False
+
+        except:
             self.mssg = 'TrinamicBoard.__init__() failed'            
             self.found = False
 
