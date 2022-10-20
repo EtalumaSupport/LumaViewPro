@@ -39,7 +39,7 @@ October 5, 2022
 # General
 import os
 import numpy as np
-import pandas as pd
+import csv
 import time
 import json
 import glob
@@ -1268,21 +1268,38 @@ class ProtocolSettings(CompositeCapture):
     def load_protocol(self, file="./data/sample_protocol.csv"):
         error_log('ProtocolSettings.load_protocol()')
 
+        # Load protocol
+        file_pointer = open(file, 'r')                      # open the file
+        csvreader = csv.reader(file_pointer, delimiter=',') # access the file using the CSV library
+        period = next(csvreader)
+        period = float(period[1])
+        duration = next(csvreader)
+        duration = float(duration[1])
+        header = next(csvreader) # skip a line
+
         self.step_names = list()
         self.step_values = []
-        # Open protocol as DataFrame
-        protocol_df = pd.read_csv(file)
-        # Change columns to List and NPArray
 
-        self.step_names = list(protocol_df['Name'])
-        self.step_values = protocol_df[['X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure']].to_numpy()
+        for row in csvreader:
 
+            self.step_names.append(row[0])
+            self.step_values.append(row[1:])
+
+        file_pointer.close()
+        self.step_values = np.array(self.step_values)
+        self.step_values = self.step_values.astype(float)
+
+        # Update GUI
         self.c_step = -1
         self.ids['step_number_input'].text = str(self.c_step+1)
         self.ids['step_name_input'].text = ''
-
-        # Update total number of steps to GUI
         self.ids['step_total_input'].text = str(len(self.step_names))
+        self.ids['capture_period'].text = str(period)
+        self.ids['capture_dur'].text = str(duration)
+       
+        # Update Protocol
+        settings['protocol']['period'] = period
+        settings['protocol']['duration'] = duration
 
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
@@ -1291,13 +1308,30 @@ class ProtocolSettings(CompositeCapture):
     def save_protocol(self, file="./data/sample_protocol.csv"):
         error_log('ProtocolSettings.save_protocol()')
 
-        # Create Empty DataFrame
-        protocol_df = pd.DataFrame(columns=['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
-        # Change columns to List and NPArray
-        protocol_df['Name'] = self.step_names
-        protocol_df[['X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure']] = self.step_values
+        # Gather information
+        period = settings['protocol']['period']
+        duration = settings['protocol']['duration']
+        self.step_names
+        self.step_values
 
-        protocol_df.to_csv(file, index=False)
+        # Write a CSV file
+        file_pointer = open(file, 'w')                      # open the file
+        csvwriter = csv.writer(file_pointer, delimiter=',', lineterminator='\n') # access the file using the CSV library
+
+        csvwriter.writerow(['Period', period])
+        csvwriter.writerow(['Duration', duration])
+        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+
+        for i in range(len(self.step_names)):
+            c_name = self.step_names[i]
+            c_values = list(self.step_values[i])
+            c_values.insert(0, c_name)
+
+            # write the row
+            csvwriter.writerow(c_values)
+
+        # Write a CSV file
+        file_pointer.close()
 
     # Goto to Previous Step
     def prev_step(self):
