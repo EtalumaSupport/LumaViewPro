@@ -2386,6 +2386,8 @@ class LumaViewProApp(App):
     def on_start(self):
         self.profile = cProfile.Profile()
         self.profile.enable()
+        Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
+       
 
     def build(self):
         error_log('-----------------------------------------')
