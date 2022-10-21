@@ -285,6 +285,7 @@ class CompositeCapture(FloatLayout):
 
                 # Go to focus and wait for arrival
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
+
                 while not lumaview.motion.target_status('Z'):
                     time.sleep(.001)
 
@@ -874,7 +875,7 @@ class VerticalControl(BoxLayout):
             error_log(lumaview.motion.mssg)
 
             # schedule focus iterate
-            error_log('Clock.schedule_interval(self.focus_iterate, 0.01)')
+            error_log('Clock.schedule_interval(self.focus_iterate, 0.001)')
             Clock.schedule_interval(self.focus_iterate, 0.001)
 
     def focus_iterate(self, dt):
@@ -883,7 +884,6 @@ class VerticalControl(BoxLayout):
         global lumaview
 
         # If the z-height has reached its target
-        # if lumaview.motion.target_status('Z'): # doesn't work because of back step!
         if lumaview.motion.target_status('Z') and not lumaview.motion.overshoot:
 
             # Wait two exposure lengths
@@ -2277,7 +2277,6 @@ class ZStack(CompositeCapture):
             else:
                 self.ids['ztack_aqr_btn'].text = 'Acquire'
                 self.ids['ztack_aqr_btn'].state = 'normal'
-                # self.zstack_event.cancel()
                 error_log('Clock.unschedule(self.zstack_iterate)')
                 Clock.unschedule(self.zstack_iterate)
 
