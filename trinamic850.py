@@ -382,7 +382,10 @@ class TrinamicBoard:
             status, data = self.SPI_write(self.chip_pin[axis], self.ref_status[axis], 0x00000000)
 
             bits = format(data, 'b').zfill(32)
-            return bool(bits[31])
+            if bits[31] == '1':
+                return True
+            else:
+                return False
         else:
             self.mssg = 'TrinamicBoard.home_status('+axis+') inactive'            
             return False
@@ -391,13 +394,16 @@ class TrinamicBoard:
     def target_status(self, axis):
 
         self.mssg = 'TrinamicBoard.target_status('+axis+')'            
-        time.sleep(.01)
+        # time.sleep(.01)
         if self.found:
             self.SPI_write (self.chip_pin[axis], self.ref_status[axis], 0x00000000)
             status, data = self.SPI_write(self.chip_pin[axis], self.ref_status[axis], 0x00000000)
 
             bits = format(data, 'b').zfill(32)
-            return bool(bits[22])
+            if bits[22] == '1':
+                return True
+            else:
+                return False
   
         else:
             self.mssg = 'TrinamicBoard.get_limit_status('+axis+') inactive'            
