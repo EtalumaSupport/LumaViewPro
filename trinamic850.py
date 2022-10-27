@@ -37,7 +37,8 @@ October 8, 2022
 
 from mcp2210 import Mcp2210, Mcp2210GpioDesignation, Mcp2210GpioDirection
 import struct    # For making c style data structures, and send them through the mcp chip
-import sched
+# import sched
+import threading
 import time
 import os
 
@@ -207,15 +208,20 @@ class TrinamicBoard:
             # self.move_abs_pos('Z', -1000000)
             self.SPI_write(self.chip_pin['Z'], self.write_target['Z'], 4294967296-2000000000)
 
-            # Schedule writing target and actual Z position to 0 after 4 seconds
-            s = sched.scheduler()
-            s.enter(3, 1, self.zhome_write)
-            s.run()
+            # Start a thread to check if Z limit is active
+            z_thread = threading.Thread(target=self.zhome_write)
+            z_thread.start()
 
     def zhome_write(self):
-        self.mssg = 'TrinamicBoard.zhome_write()'            
-        self.SPI_write (self.chip_pin['Z'], self.write_actual['Z'], 0x00000000)
-        self.SPI_write (self.chip_pin['Z'], self.write_target['Z'], 0x00000000)
+        self.mssg = 'TrinamicBoard.zhome_write()'
+
+        for i in range(100):
+            time.sleep(0.1)       
+            if self.home_status('Z'):
+                self.SPI_write (self.chip_pin['Z'], self.write_actual['Z'], 0x00000000)
+                self.SPI_write (self.chip_pin['Z'], self.write_target['Z'], 0x00000000)
+                print('Z at Home')
+                return
 
     #----------------------------------------------------------
     # XY Stage Functions
@@ -230,26 +236,41 @@ class TrinamicBoard:
         ustep = int( um / 0.0496) # 0.0496 um/ustep
         return ustep
 
-    def xyhome(self):
+    def xyhome(self): # Must move zhome first but threading causes communication challenge
         self.mssg = 'TrinamicBoard.xyhome()'            
         if self.found:
-            self.zhome()
 
             self.move_abs_pos('X', -1000000)
             self.move_abs_pos('Y', -1000000)
+            self.SPI_write(self.chip_pin['Z'], self.write_target['Z'], 4294967296-2000000000)
 
-            # Schedule writing target and actual XY positions to 0 after 8 seconds
-            s = sched.scheduler()
-            s.enter(5, 2, self.xyhome_write)
-            s.run()
+            # Start a thread to check if XY limits are active
+            xy_thread = threading.Thread(target=self.xyhome_write)
+            xy_thread.start()
 
     def xyhome_write(self):
-        self.mssg = 'TrinamicBoard.xyhome_write()'            
-        self.SPI_write(self.chip_pin['X'], self.write_actual['X'], 0x00000000)
-        self.SPI_write(self.chip_pin['X'], self.write_target['X'], 0x00000000)
+        self.mssg = 'TrinamicBoard.xyhome_write()'
 
-        self.SPI_write(self.chip_pin['Y'], self.write_actual['Y'], 0x00000000)
-        self.SPI_write(self.chip_pin['Y'], self.write_target['Y'], 0x00000000)
+        # Home Z first
+        for i in range(100):
+            time.sleep(0.1) # in a thread therefore should not be disruptive       
+            if self.home_status('Z'):
+                self.SPI_write (self.chip_pin['Z'], self.write_actual['Z'], 0x00000000)
+                self.SPI_write (self.chip_pin['Z'], self.write_target['Z'], 0x00000000)
+                print('Z at Home')
+                break
+
+        # Home XY second
+        for i in range(200):
+            time.sleep(0.1) # in a thread therefore should not be disruptive
+            if self.home_status('X') and self.home_status('Y'):        
+                self.SPI_write(self.chip_pin['X'], self.write_actual['X'], 0x00000000)
+                self.SPI_write(self.chip_pin['X'], self.write_target['X'], 0x00000000)
+
+                self.SPI_write(self.chip_pin['Y'], self.write_actual['Y'], 0x00000000)
+                self.SPI_write(self.chip_pin['Y'], self.write_target['Y'], 0x00000000)
+                print('XY at Home')
+                return
 
     #----------------------------------------------------------
     # T (Turret) Functions
@@ -273,16 +294,20 @@ class TrinamicBoard:
             # move to home and beyond
             self.move_abs_pos('T', -1000000)
 
-            # Schedule writing target and actual T position to 0 after 5 seconds
-            s = sched.scheduler()
-            s.enter(5, 2, self.thome_write)
-            s.run()
+            # Start a thread to check if Z limit is active
+            t_thread = threading.Thread(target=self.thome_write)
+            t_thread.start()
 
     def thome_write(self):
-        self.mssg = 'TrinamicBoard.xyhome_write()'            
-        self.SPI_write(self.chip_pin['X'], self.write_actual['T'], 0x00000000)
-        self.SPI_write(self.chip_pin['X'], self.write_target['T'], 0x00000000)
-        # TODO disable home switch
+        self.mssg = 'TrinamicBoard.thome_write()'            
+
+        for i in range(100):
+            time.sleep(0.1) # in a thread therefore should not be disruptive       
+            if self.home_status('T'):
+                self.SPI_write (self.chip_pin['T'], self.write_actual['T'], 0x00000000)
+                self.SPI_write (self.chip_pin['T'], self.write_target['T'], 0x00000000)
+                # TODO disable home switch
+                return
 
     #----------------------------------------------------------
     # Motion Functions
@@ -393,8 +418,8 @@ class TrinamicBoard:
     # return True if current position and target position are the same
     def target_status(self, axis):
 
-        self.mssg = 'TrinamicBoard.target_status('+axis+')'            
-        # time.sleep(.01)
+        self.mssg = 'TrinamicBoard.target_status('+axis+')'  
+        
         if self.found:
             self.SPI_write (self.chip_pin[axis], self.ref_status[axis], 0x00000000)
             status, data = self.SPI_write(self.chip_pin[axis], self.ref_status[axis], 0x00000000)
