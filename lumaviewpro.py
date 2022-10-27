@@ -38,6 +38,7 @@ October 5, 2022
 
 # General
 import os
+from tracemalloc import StatisticDiff
 import numpy as np
 import csv
 import time
@@ -773,6 +774,10 @@ class Histogram(Widget):
 
 class VerticalControl(BoxLayout):
 
+    def __init__(self, **kwargs):
+        super(VerticalControl, self).__init__(**kwargs)
+        error_log('VerticalControl.__init__()')
+        
     def update_gui(self):
         error_log('VerticalControl.update_gui()')
         set_pos = lumaview.motion.target_pos('Z')  # Get target value
@@ -847,10 +852,11 @@ class VerticalControl(BoxLayout):
     # User selected the autofocus function
     def autofocus(self):
         error_log('VerticalControl.autofocus()')
-        
         global lumaview
+
         if lumaview.camera.active == False:
             error_log('Error: VerticalControl.autofocus()')
+            self.ids['autofocus_id'].state == 'normal'
             return
 
         center = lumaview.motion.current_pos('Z')
@@ -861,10 +867,10 @@ class VerticalControl(BoxLayout):
         self.resolution = settings['objective']['AF_max']   # starting step size for autofocus
         self.exposure = lumaview.camera.get_exposure_t()    # camera exposure to determine 'wait' time
 
-        self.positions = []
-        self.focus_measures = []
-        self.last_focus = 0
-        self.last = False
+        self.positions = []       # List of positions to step through
+        self.focus_measures = []  # Measure focus score at each position
+        self.last_focus = 0       # Last / Previous focus score
+        self.last = False         # Are we on the last scan for autofocus?
 
         # set button text if button is pressed
         if self.ids['autofocus_id'].state == 'down':
@@ -1524,6 +1530,8 @@ class ProtocolSettings(CompositeCapture):
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_autofocus_scan(self):
         error_log('ProtocolSettings.run_autofocus()')
+        # At each step in the scan, identify if the AF has started yet
+        self.new_AFscan_step = True
 
         if len(self.step_names) < 1:
             error_log('Protocol has no steps.')
@@ -1560,6 +1568,11 @@ class ProtocolSettings(CompositeCapture):
         global lumaview
         global settings
 
+        # If the autofocus is currently active, leave the function before continuing step
+        if lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state == 'down':
+            print('in autofocus')
+            return
+
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
         self.ids['step_number_input'].text = str(self.c_step+1)
@@ -1590,10 +1603,14 @@ class ProtocolSettings(CompositeCapture):
             lumaview.led_board.led_on(ch, ill)
             error_log(lumaview.led_board.mssg)
 
-            # TODO: run autofocus and wait for autofocus to finish!!
-            error_log("Autofocus Scan Placeholder")
-            # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
-
+            # Else, if the autofocus has not yet begun for the protocol step, begin autofocus
+            if self.new_AFscan_step:
+                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
+                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
+                print('started AF')
+                self.new_AFscan_step = False
+                return
+   
             # Turn off LEDs
             lumaview.led_board.leds_off()
             error_log(lumaview.led_board.mssg)
@@ -1603,6 +1620,8 @@ class ProtocolSettings(CompositeCapture):
 
             # increment to the next step
             self.c_step += 1
+            print('complete AF')
+            self.new_AFscan_step = True
 
             if self.c_step < len(self.step_names):
                 x = self.step_values[self.c_step, 0]
@@ -1620,8 +1639,6 @@ class ProtocolSettings(CompositeCapture):
                 self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
                 error_log('Clock.unschedule(self.autofocus_scan_iterate)')
                 Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
-
-
 
 
 
