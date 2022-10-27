@@ -2295,6 +2295,7 @@ class FileChooseBTN(Button):
     def handle_selection(self, selection):
         error_log('FileChooseBTN.handle_selection()')
         self.selection = selection
+        self.on_selection()
 
     def on_selection(self, *a, **k):
         error_log('FileChooseBTN.on_selection()')
@@ -2322,6 +2323,7 @@ class FolderChooseBTN(Button):
     def handle_selection(self, selection):
         error_log('FolderChooseBTN.handle_selection()')
         self.selection = selection
+        self.on_selection()
 
     def on_selection(self, *a, **k):
         error_log('FolderChooseBTN.on_selection()')
@@ -2365,6 +2367,7 @@ class FileSaveBTN(Button):
     def handle_selection(self, selection):
         error_log('FileSaveBTN.handle_selection()')
         self.selection = selection
+        self.on_selection()
 
     def on_selection(self, *a, **k):
         error_log('FileSaveBTN.on_selection()')
