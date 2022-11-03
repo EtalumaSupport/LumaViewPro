@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-
+Protocol
 '''
 MIT License
 
@@ -38,20 +38,20 @@ October 5, 2022
 
 # General
 import os
-from tracemalloc import StatisticDiff
 import numpy as np
 import csv
 import time
 import json
 import glob
 import math
-import threading
 from plyer import filechooser
-# from scipy.optimized import curve_fit
 
 # Profiling
 import cProfile
 import pstats
+
+#post processing
+from image_stitcher import image_stitcher
 
 # Kivy
 import kivy
@@ -567,6 +567,17 @@ class MotionSettings(BoxLayout):
 
 class PostProcessing(BoxLayout):
 
+    def __init__(self):
+        global settings
+        #stitching params (see more info in image_stitcher.py):
+        self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
+        self.ext = "tiff" #or read it from settings?
+        self.stitching_method = "features" # "features" - Low method, "position" - based on position information
+        self.stitched_save_name = "last_composite_img.tiff"
+        self.positions_file = None #relevant if stitching method is position, will read positions from that file
+        self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
+
     def convert_to_avi(self):
 
         error_log('PostProcessing.convert_to_avi()')
@@ -590,6 +601,9 @@ class PostProcessing(BoxLayout):
 
     def stitch(self):
         error_log('PostProcessing.stitch()')
+        self.stitched_image = image_stitcher(images_folder=self.raw_images_folder, combine_colors = self.combine_colors,  ext = self.ext, 
+                                             method = self.stitching_method,save_name = self.stitched_save_name,
+                                             positions_file = self.positions_file,pos2pix = self.pos2pix,post_process = False)
 
 
 
@@ -1802,8 +1816,8 @@ class ProtocolSettings(CompositeCapture):
         minutes = '%02d' % minutes
 
         # Update Button
-        # self.ids['run_protocol_btn'].text = hrs+':'+minutes+' remaining'
-        self.ids['run_protocol_btn'].text = str(n_scans)
+        self.ids['run_protocol_btn'].text = hrs+':'+minutes+' remaining'
+        # self.ids['run_protocol_btn'].text = str(n_scans)
 
         # Check if reached next Period
         if (time.time()-self.start_t) > period:
@@ -2411,7 +2425,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 10/26/2022')
+        error_log('Latest Code Change: 11/2/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
