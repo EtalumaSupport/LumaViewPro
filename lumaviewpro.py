@@ -1443,7 +1443,7 @@ class ProtocolSettings(CompositeCapture):
     def modify_step(self):
         error_log('ProtocolSettings.modify_step()')
 
-        if self.c_step == 0:
+        if self.c_step < 0:
             return
 
         self.step_names[self.c_step] = self.ids['step_name_input'].text
@@ -1912,44 +1912,46 @@ class MicroscopeSettings(BoxLayout):
         with open(file, "r") as read_file:
             global settings
             settings = json.load(read_file)
-            # update GUI values from JSON data:
-            self.ids['scope_spinner'].text = settings['microscope']
-            self.ids['objective_spinner'].text = settings['objective']['ID']
-            self.ids['magnification_id'].text = str(settings['objective']['magnification'])
-            self.ids['frame_width'].text = str(settings['frame']['width'])
-            self.ids['frame_height'].text = str(settings['frame']['height'])
 
-            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-            protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
-            protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
-            protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
-            #protocol_settings.ids['stage_widget_id'].draw_labware()
+            try:
+                # update GUI values from JSON data:
+                self.ids['scope_spinner'].text = settings['microscope']
+                self.ids['objective_spinner'].text = settings['objective']['ID']
+                self.ids['magnification_id'].text = str(settings['objective']['magnification'])
+                self.ids['frame_width'].text = str(settings['frame']['width'])
+                self.ids['frame_height'].text = str(settings['frame']['height'])
 
-            zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
-            zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
-            zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
-            zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
+                protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+                protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
+                protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
+                protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
+                #protocol_settings.ids['stage_widget_id'].draw_labware()
 
-            if settings['zstack']['step_size'] != 0:
-                n_steps = np.floor( settings['zstack']['range'] / settings['zstack']['step_size'])
-                zstack_settings.ids['zstack_steps_id'].text = str(int(n_steps))
-            else:
-                zstack_settings.ids['zstack_steps_id'].text = '0'
+                zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
+                zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
+                zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
+                zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
 
+                if settings['zstack']['step_size'] != 0:
+                    n_steps = np.floor( settings['zstack']['range'] / settings['zstack']['step_size'])
+                    zstack_settings.ids['zstack_steps_id'].text = str(int(n_steps))
+                else:
+                    zstack_settings.ids['zstack_steps_id'].text = '0'
 
+                layers = ['BF', 'Blue', 'Green', 'Red']
+                for layer in layers:
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
+                    # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = settings[layer]['file_root']
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
 
-            layers = ['BF', 'Blue', 'Green', 'Red']
-            for layer in layers:
-                lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
-                # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
-                lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = settings[layer]['file_root']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
-                lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
-
-            lumaview.camera.frame_size(settings['frame']['width'], settings['frame']['height'])
-            error_log(lumaview.camera.mssg)
+                lumaview.camera.frame_size(settings['frame']['width'], settings['frame']['height'])
+                error_log(lumaview.camera.mssg)
+            except:
+                error_log('Incompatible JSON file for Microscope Settings')
 
     # Save settings to JSON file
     def save_settings(self, file="./data/current.json"):
@@ -2311,7 +2313,10 @@ class FileChooseBTN(Button):
         error_log('FileChooseBTN.choose()')
         # Call plyer filechooser API to run a filechooser Activity.
         self.context = context
-        filechooser.open_file(on_selection=self.handle_selection)
+        if self.context == 'load_settings':
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"])   
+        elif self.context == 'load_protocol':
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
 
     def handle_selection(self, selection):
         error_log('FileChooseBTN.handle_selection()')
