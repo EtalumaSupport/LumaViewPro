@@ -8,6 +8,82 @@
 },
 
 "Wellplate": {
+  "Center Plate": {
+    "standard" : "",
+    "diameter" : -1,
+    "columns" : 1,
+    "rows" : 1,
+    "dimensions" : {
+      "x" : 127.76,
+      "y" : 85.48,
+      "z" : -1
+    },
+    "spacing" : {
+      "x" : 1,
+      "y" : 1
+    },
+    "offset" : {
+      "x" : 63.88,
+      "y" : 42.74
+    }
+  },
+  "6 well microplate": {
+    "standard" : "",
+    "diameter" : -1,
+    "columns" : 3,
+    "rows" : 2,
+    "dimensions" : {
+      "x" : 127.76,
+      "y" : 85.48,
+      "z" : -1
+    },
+    "spacing" : {
+      "x" : 39.2,
+      "y" : 39.2
+    },
+    "offset" : {
+      "x" : 24.55,
+      "y" : 23.01
+    }
+  },
+  "12 well microplate": {
+    "standard" : "",
+    "diameter" : -1,
+    "columns" : 4,
+    "rows" : 3,
+    "dimensions" : {
+      "x" : 127.76,
+      "y" : 85.48,
+      "z" : -1
+    },
+    "spacing" : {
+      "x" : 26,
+      "y" : 26
+    },
+    "offset" : {
+      "x" : 24.75,
+      "y" : 16.68
+    }
+  },
+  "24 well microplate": {
+    "standard" : "",
+    "diameter" : -1,
+    "columns" : 6,
+    "rows" : 4,
+    "dimensions" : {
+      "x" : 127.76,
+      "y" : 85.48,
+      "z" : -1
+    },
+    "spacing" : {
+      "x" : 18.9,
+      "y" : 18.9
+    },
+    "offset" : {
+      "x" : 16.5,
+      "y" : 14.4
+    }
+  },
   "96 well microplate": {
     "standard" : "ANSI SLAS 2004",
     "diameter" : -1,

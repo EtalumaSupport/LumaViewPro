@@ -1864,28 +1864,34 @@ class Stage(Widget):
             Color(r, b, g, a)
             Rectangle(pos=(x, y), size=(w, h))
 
-
-            d = w/current_labware.plate['columns']
+            cols = current_labware.plate['columns']
+            rows = current_labware.plate['rows']
+            dx = w/cols
+            dy = h/rows
+            d = min(dx, dy)
             r = math.floor(d/2 - 0.5)
 
-            for i in range(current_labware.plate['columns']):
-                for j in range(current_labware.plate['rows']):
-                    Line(circle=(x + d*i + r, y + d*j + r, r))
+            for i in range(cols):
+                for j in range(rows):
+                    Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
 
             # Green Circle
             x_target = lumaview.motion.target_pos('X')/1000
             y_target = lumaview.motion.target_pos('Y')/1000
             i, j = current_labware.get_well_index(x_target, y_target)
             Color(0., 1., 0., 1.)
-            Line(circle=(x + d*i + r  , y + d*j + r  , r))
+            Line(circle=(x+dx*i+r, y+dy*j+r, r))
+            Line(circle=(x+dx*i+r, y+dy*j+r, r))
 
             # Red Crosshairs
             x_current = lumaview.motion.current_pos('X')/1000
             y_current= lumaview.motion.current_pos('Y')/1000
             i, j = current_labware.get_screen_position(x_current, y_current)
             Color(1., 0., 0., 1.)
-            Line(points=(x + d*i      , y + d*j + d/2, x + d*i + d  , y + d*j + d/2), width = 1)
-            Line(points=(x + d*i + d/2, y + d*j      , x + d*i + d/2, y + d*j + d  ), width = 1)
+            Line(points=(x + dx*i       ,y + dy*(rows-j-1) + d/2, \
+                         x + dx*i + d   ,y + dy*(rows-j-1) + d/2), width = 1)
+            Line(points=(x + dx*i + d/2, y + dy*(rows-j-1)      , \
+                         x + dx*i + d/2, y + dy*(rows-j-1) + d  ), width = 1)
 
 
 class MicroscopeSettings(BoxLayout):

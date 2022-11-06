@@ -28,7 +28,9 @@ class WellPlate(LabWare):
 
     def __init__(self, *arg):
         super(WellPlate, self).__init__()
-        self.plate = []    # All pplate infor from JSON file
+        self.stage_x = 0   # offset from stage to bottom right corner of well plate
+        self.stage_y = 0   # offset from stage to bottom right corner of well plate
+        self.plate = []    # All plate information from JSON file
         self.ind_list = [] # ordered list of all well indices 
         self.pos_list = [] # ordered list of all well positions
         self.move = "S"    # scan pattern (S for snake)
@@ -58,28 +60,53 @@ class WellPlate(LabWare):
             x, y = self.get_well_position(i[0], i[1])
             self.pos_list.append([x, y])
            
-
-
     # Figure out index of well based on position of xy
     def get_well_index(self, x, y):
-        i = (x - self.plate['offset']['x']) / self.plate['spacing']['x']
-        j = (y - self.plate['offset']['y']) / self.plate['spacing']['y']
+
+        sx = self.stage_x
+        px = self.plate['dimensions']['x']
+        ox = self.plate['offset']['x']
+        dx = self.plate['spacing']['x']
+        i = -(x-sx-px+ox)/dx
+
+        sy = self.stage_y
+        py = self.plate['dimensions']['y']
+        oy = self.plate['offset']['y']
+        dy = self.plate['spacing']['y']
+        j = -(y-sy-py+oy)/dy
+
+        # i = (x - self.plate['offset']['x']) / self.plate['spacing']['x']
+        # j = (y - self.plate['offset']['y']) / self.plate['spacing']['y']
+
         i = round(i)
-        j = round(j)
         i = np.clip(i, 0, self.plate['columns']-1)
         j = np.clip(j, 0, self.plate['rows']-1)
         return i, j
 
     # Get real well position in mm given its index
     def get_well_position(self, i, j):
-        x = self.plate['offset']['x'] + i*self.plate['spacing']['x']
-        y = self.plate['offset']['y'] + j*self.plate['spacing']['y']
+        x = self.stage_x + self.plate['dimensions']['x'] - \
+            (self.plate['offset']['x'] + i*self.plate['spacing']['x'])
+        y = self.stage_y + self.plate['dimensions']['y'] - \
+            (self.plate['offset']['y'] + j*self.plate['spacing']['y'])
         return x, y
 
     # Figure out index of well based on position of xy
     def get_screen_position(self, x, y):
-        i = (x - self.plate['offset']['x']) / self.plate['spacing']['x']
-        j = (y - self.plate['offset']['y']) / self.plate['spacing']['y']
+        sx = self.stage_x
+        px = self.plate['dimensions']['x']
+        ox = self.plate['offset']['x']
+        dx = self.plate['spacing']['x']
+        i = -(x-sx-px+ox)/dx
+
+        sy = self.stage_y
+        py = self.plate['dimensions']['y']
+        oy = self.plate['offset']['y']
+        dy = self.plate['spacing']['y']
+        j = -(y-sy-py+oy)/dy
+        
+        # i = (x - self.plate['offset']['x']) / self.plate['spacing']['x']
+        # j = (y - self.plate['offset']['y']) / self.plate['spacing']['y']
         return i, j
 
 
