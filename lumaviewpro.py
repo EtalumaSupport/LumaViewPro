@@ -1880,8 +1880,8 @@ class Stage(Widget):
             y_target = lumaview.motion.target_pos('Y')/1000
             i, j = current_labware.get_well_index(x_target, y_target)
             Color(0., 1., 0., 1.)
-            Line(circle=(x+dx*i+r, y+dy*j+r, r))
-            Line(circle=(x+dx*i+r, y+dy*j+r, r))
+            Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
+            Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
 
             # Red Crosshairs
             x_current = lumaview.motion.current_pos('X')/1000
