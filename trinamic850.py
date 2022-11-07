@@ -187,7 +187,7 @@ class TrinamicBoard:
                     addr = int(0x80 | int(configLine[0], 16))
                     data = int(configLine[2], 16)
                     self.SPI_write(1, addr, data)
-        print ("Successfully loaded parameters to ZT motor driver from zmotorconfig.ini")
+        print ("Successfully loaded parameters to ZT motor driver from ztmotorconfig.ini")
 
     #----------------------------------------------------------
     # Z (Focus) Functions
