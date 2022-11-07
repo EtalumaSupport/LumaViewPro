@@ -1063,6 +1063,9 @@ class XYStageControl(BoxLayout):
         self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f')
         self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f')
 
+        for i in range(20):
+            Clock.schedule_once(self.ids['stage_control_id'].draw_stage, i/4)
+
     def fine_left(self):
         error_log('XYStageControl.fine_left()')
         fine = settings['objective']['xy_fine']
@@ -1115,7 +1118,7 @@ class XYStageControl(BoxLayout):
     def course_fwd(self):
         error_log('XYStageControl.course_fwd()')
         course = settings['objective']['xy_course']
-        lumaview.motion.move_rel_pos('Y', course)  # Move FORWARD by 10000
+        lumaview.motion.move_rel_pos('Y', course)  # Move FORWARD 
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
@@ -1892,7 +1895,7 @@ class Stage(Widget):
 
             # Red Crosshairs
             x_current = lumaview.motion.current_pos('X')/1000
-            y_current= lumaview.motion.current_pos('Y')/1000
+            y_current = lumaview.motion.current_pos('Y')/1000
             i, j = current_labware.get_screen_position(x_current, y_current)
             Color(1., 0., 0., 1.)
             if dr > 0:
@@ -1906,6 +1909,40 @@ class Stage(Widget):
                 Line(points=(x + dx*i + d/2    , y+abs(dr) + dy*(rows-j-1)      , \
                              x + dr+ dx*i + d/2, y+abs(dr) + dy*(rows-j-1) + d  ), width = 1)
 
+    def draw_stage(self, *args):
+        
+        self.canvas.clear()
+        r, b, g, a = (0.5, 0.5, 0.5, 0.5)
+
+        with self.canvas:
+            w = self.width
+            h = self.height
+            x = self.x
+            y = self.y
+
+            Color(r, b, g, a)
+            Rectangle(pos=(x, y), size=(w, h))
+
+            #  Crosshairs
+            x_current = lumaview.motion.current_pos('X')/1000
+            y_current = lumaview.motion.current_pos('Y')/1000
+            x_max = 130
+            y_max = 90
+
+            Color(0., 1., 0., 1.)
+            Line(circle = (x+x_current/x_max*w, y+y_current/y_max*h, 10), width=2)
+
+            
+
+        # Color(1., 0., 0., 1.)
+        # Line(points=(x + dr + dx*i       ,y + dy*(rows-j-1) + d/2, \
+        #                 x + dr + dx*i + d   ,y + dy*(rows-j-1) + d/2), width = 1)
+        # Line(points=(x + dr + dx*i + d/2, y + dy*(rows-j-1)      , \
+        #                 x + dr + dx*i + d/2, y + dy*(rows-j-1) + d  ), width = 1)
+        # Line(points=(x + dx*i          , y+abs(dr) + dy*(rows-j-1) + d/2, \
+        #                 x + dx*i + d      , y+abs(dr) + dy*(rows-j-1) + d/2), width = 1)
+        # Line(points=(x + dx*i + d/2    , y+abs(dr) + dy*(rows-j-1)      , \
+        #                 x + dr+ dx*i + d/2, y+abs(dr) + dy*(rows-j-1) + d  ), width = 1)
 
 
 class MicroscopeSettings(BoxLayout):
@@ -2459,7 +2496,6 @@ class LumaViewProApp(App):
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.mssg)
-        # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].home() # should be auto in xy
         lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
 
         return lumaview
@@ -2468,9 +2504,6 @@ class LumaViewProApp(App):
         Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
         Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
-
-        # Does not seem to be working ... slowing down even!
-        # Clock.schedule_once(lumaview.ids['viewer_id'].ids['scope_display_id'].update, 0.1) # This will fix image size on resize issue
 
     def on_stop(self):
         error_log('LumaViewProApp.on_stop()')
