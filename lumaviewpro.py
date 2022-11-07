@@ -1424,8 +1424,8 @@ class ProtocolSettings(CompositeCapture):
         settings[ch]['gain_auto'] = bool(auto_gain)
         layer.ids['gain_auto'].active = bool(auto_gain)
 
-        for i in range(10):
-            Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/2)
+        for i in range(20):
+            Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/4)
 
     # Delete Current Step of Protocol
     def delete_step(self):
@@ -1866,32 +1866,46 @@ class Stage(Widget):
 
             cols = current_labware.plate['columns']
             rows = current_labware.plate['rows']
-            dx = w/cols
-            dy = h/rows
+            dx = w/cols # spacing in the x direction in pixels
+            dy = h/rows # spacing in the y direction in pixels
             d = min(dx, dy)
+            dr = (dx-dy)/2 # half the difference in spacing in pixels
             r = math.floor(d/2 - 0.5)
 
             for i in range(cols):
                 for j in range(rows):
-                    Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
+                    if dr > 0:
+                        Line(circle=(x+dr+dx*i+r, y+dy*(rows-j-1)+r, r))
+                    else:
+                        Line(circle=(x+dr+dx*i+r, y+abs(dr)+dy*(rows-j-1)+r, r))
 
             # Green Circle
             x_target = lumaview.motion.target_pos('X')/1000
             y_target = lumaview.motion.target_pos('Y')/1000
             i, j = current_labware.get_well_index(x_target, y_target)
             Color(0., 1., 0., 1.)
-            Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
-            Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
+            if dr > 0:
+                Line(circle=(x+dr+dx*i+r, y+dy*(rows-j-1)+r, r))
+            else:
+                Line(circle=(x+dr+dx*i+r, y+abs(dr)+dy*(rows-j-1)+r, r))
+            # Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
 
             # Red Crosshairs
             x_current = lumaview.motion.current_pos('X')/1000
             y_current= lumaview.motion.current_pos('Y')/1000
             i, j = current_labware.get_screen_position(x_current, y_current)
             Color(1., 0., 0., 1.)
-            Line(points=(x + dx*i       ,y + dy*(rows-j-1) + d/2, \
-                         x + dx*i + d   ,y + dy*(rows-j-1) + d/2), width = 1)
-            Line(points=(x + dx*i + d/2, y + dy*(rows-j-1)      , \
-                         x + dx*i + d/2, y + dy*(rows-j-1) + d  ), width = 1)
+            if dr > 0:
+                Line(points=(x + dr + dx*i       ,y + dy*(rows-j-1) + d/2, \
+                             x + dr + dx*i + d   ,y + dy*(rows-j-1) + d/2), width = 1)
+                Line(points=(x + dr + dx*i + d/2, y + dy*(rows-j-1)      , \
+                             x + dr + dx*i + d/2, y + dy*(rows-j-1) + d  ), width = 1)
+            else:
+                Line(points=(x + dx*i          , y+abs(dr) + dy*(rows-j-1) + d/2, \
+                             x + dx*i + d      , y+abs(dr) + dy*(rows-j-1) + d/2), width = 1)
+                Line(points=(x + dx*i + d/2    , y+abs(dr) + dy*(rows-j-1)      , \
+                             x + dr+ dx*i + d/2, y+abs(dr) + dy*(rows-j-1) + d  ), width = 1)
+
 
 
 class MicroscopeSettings(BoxLayout):
@@ -1931,7 +1945,7 @@ class MicroscopeSettings(BoxLayout):
                 protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
                 protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
                 protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
-                #protocol_settings.ids['stage_widget_id'].draw_labware()
+                protocol_settings.ids['stage_widget_id'].draw_labware()
 
                 zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
                 zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
