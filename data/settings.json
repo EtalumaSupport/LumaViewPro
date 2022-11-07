@@ -8,8 +8,10 @@
         "AF_min": 0.5,
         "AF_max": 6.0,
         "AF_range": 15.0,
-        "step_fine": 0.2,
-        "step_course": 2.0,
+        "z_fine": 0.2,
+        "z_course": 2.0,
+        "xy_fine": 10.0,
+        "xy_course": 100.0,
         "ID": "60x"
     },
 

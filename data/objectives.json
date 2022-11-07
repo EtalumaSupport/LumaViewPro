@@ -7,8 +7,10 @@
       "AF_min": 20.0,
       "AF_max": 72.0,
       "AF_range": 150.0,
-      "step_fine": 27.75,
-      "step_course": 277.5
+      "z_fine": 27.75,
+      "z_course": 277.5,
+      "xy_fine": 10.0,
+      "xy_course": 100.0
   },
   "4x other": {
       "desc": "4x description",
@@ -18,8 +20,10 @@
       "AF_min": 20.0,
       "AF_max": 72.0,
       "AF_range": 150.0,
-      "step_fine": 27.75,
-      "step_course": 277.5
+      "z_fine": 27.75,
+      "z_course": 277.5,
+      "xy_fine": 10.0,
+      "xy_course": 100.0
   },
     "10x": {
         "desc": "10x description",
@@ -29,8 +33,10 @@
         "AF_min": 8.0,
         "AF_max": 36.0,
         "AF_range": 75.0,
-        "step_fine": 4.25,
-        "step_course": 42.5
+        "z_fine": 4.25,
+        "z_course": 42.5,
+        "xy_fine": 10.0,
+        "xy_course": 100.0
     },
     "20x": {
         "desc": "20x description",
@@ -40,8 +46,10 @@
         "AF_min": 2.0,
         "AF_max": 18.0,
         "AF_range": 40.0,
-        "step_fine": 2.9,
-        "step_course": 29.0
+        "z_fine": 2.9,
+        "z_course": 29.0,
+        "xy_fine": 10.0,
+        "xy_course": 100.0
     },
     "40x": {
         "desc": "40x description",
@@ -51,8 +59,10 @@
         "AF_min": 1.0,
         "AF_max": 9.0,
         "AF_range": 20.0,
-        "step_fine": 0.5,
-        "step_course": 5.0
+        "z_fine": 0.5,
+        "z_course": 5.0,
+        "xy_fine": 10.0,
+        "xy_course": 100.0
     },
     "60x": {
         "desc": "60x description",
@@ -62,8 +72,10 @@
         "AF_min": 0.5,
         "AF_max": 6.0,
         "AF_range": 15.0,
-        "step_fine": 0.2,
-        "step_course": 2.0
+        "z_fine": 0.2,
+        "z_course": 2.0,
+        "xy_fine": 10.0,
+        "xy_course": 100.0
     },
     "100x": {
         "desc": "100x description",
@@ -73,7 +85,9 @@
         "AF_min": 0.2,
         "AF_max": 4.0,
         "AF_range": 10.0,
-        "step_fine": 0.11,
-        "step_course": 1.1
+        "z_fine": 0.11,
+        "z_course": 1.1,
+        "xy_fine": 10.0,
+        "xy_course": 100.0
     }
 }

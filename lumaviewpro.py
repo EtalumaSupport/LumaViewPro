@@ -788,28 +788,28 @@ class VerticalControl(BoxLayout):
 
     def course_up(self):
         error_log('VerticalControl.course_up()')
-        course = settings['objective']['step_course']
+        course = settings['objective']['z_course']
         lumaview.motion.move_rel_pos('Z', course)                  # Move UP
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def fine_up(self):
         error_log('VerticalControl.fine_up()')
-        fine = settings['objective']['step_fine']
+        fine = settings['objective']['z_fine']
         lumaview.motion.move_rel_pos('Z', fine)                    # Move UP
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def fine_down(self):
         error_log('VerticalControl.fine_down()')
-        fine = settings['objective']['step_fine']
+        fine = settings['objective']['z_fine']
         lumaview.motion.move_rel_pos('Z', -fine)                   # Move DOWN
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def course_down(self):
         error_log('VerticalControl.course_down()')
-        course = settings['objective']['step_course']
+        course = settings['objective']['z_course']
         lumaview.motion.move_rel_pos('Z', -course)                 # Move DOWN
         error_log(lumaview.motion.mssg)
         self.update_gui()
@@ -1065,57 +1065,57 @@ class XYStageControl(BoxLayout):
 
     def fine_left(self):
         error_log('XYStageControl.fine_left()')
-        global lumaview
-        lumaview.motion.move_rel_pos('X', -10)  # Move LEFT
+        fine = settings['objective']['xy_fine']
+        lumaview.motion.move_rel_pos('X', -fine)  # Move LEFT fine step
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def fine_right(self):
         error_log('XYStageControl.fine_right()')
-        global lumaview
-        lumaview.motion.move_rel_pos('X', 10)  # Move RIGHT
+        fine = settings['objective']['xy_fine']
+        lumaview.motion.move_rel_pos('X', fine)  # Move RIGHT fine step
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def course_left(self):
         error_log('XYStageControl.course_left()')
-        global lumaview
-        lumaview.motion.move_rel_pos('X', -100)  # Move LEFT relative
+        course = settings['objective']['xy_course']
+        lumaview.motion.move_rel_pos('X', -course)  # Move LEFT course step
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def course_right(self):
         error_log('XYStageControl.course_right()')
-        global lumaview
-        lumaview.motion.move_rel_pos('X', 100)  # Move RIGHT
+        course = settings['objective']['xy_course']
+        lumaview.motion.move_rel_pos('X', course)  # Move RIGHT
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def fine_back(self):
         error_log('XYStageControl.fine_back()')
-        global lumaview
-        lumaview.motion.move_rel_pos('Y', -10)  # Move BACK by 1000
+        fine = settings['objective']['xy_fine']
+        lumaview.motion.move_rel_pos('Y', -fine)  # Move BACK 
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def fine_fwd(self):
         error_log('XYStageControl.fine_fwd()')
-        global lumaview
-        lumaview.motion.move_rel_pos('Y', 10)  # Move FORWARD by 1000
+        fine = settings['objective']['xy_fine']
+        lumaview.motion.move_rel_pos('Y', fine)  # Move FORWARD 
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def course_back(self):
         error_log('XYStageControl.course_back()')
-        global lumaview
-        lumaview.motion.move_rel_pos('Y', -100)  # Move BACK relative by 10000
+        course = settings['objective']['xy_course']
+        lumaview.motion.move_rel_pos('Y', -course)  # Move BACK
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
     def course_fwd(self):
         error_log('XYStageControl.course_fwd()')
-        global lumaview
-        lumaview.motion.move_rel_pos('Y', 100)  # Move FORWARD by 10000
+        course = settings['objective']['xy_course']
+        lumaview.motion.move_rel_pos('Y', course)  # Move FORWARD by 10000
         error_log(lumaview.motion.mssg)
         self.update_gui()
 
