@@ -36,7 +36,7 @@
         "exp": 40.0,
         "false_color": false,
         "acquire": true,
-        "focus": 0.0
+        "focus": 1000.0
     },
 
     "Blue": {
@@ -48,7 +48,7 @@
         "exp": 100,
         "false_color": false,
         "acquire": true,
-        "focus": 0.0
+        "focus": 1000.0
     },
 
     "Green": {
@@ -60,7 +60,7 @@
         "exp": 100,
         "false_color": false,
         "acquire": true,
-        "focus": 0.0
+        "focus": 1000.0
     },
 
     "Red": {
@@ -72,7 +72,7 @@
         "exp": 100,
         "false_color": false,
         "acquire": true,
-        "focus": 0.0
+        "focus": 1000.0
     },
     "zstack": {
         "step_size": 0,
