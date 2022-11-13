@@ -1897,17 +1897,19 @@ class Stage(Widget):
             x_current = lumaview.motion.current_pos('X')/1000
             y_current = lumaview.motion.current_pos('Y')/1000
             i, j = current_labware.get_screen_position(x_current, y_current)
+
             Color(1., 0., 0., 1.)
             if dr > 0:
-                Line(points=(x + dr + dx*i       ,y + dy*(rows-j-1) + d/2, \
-                             x + dr + dx*i + d   ,y + dy*(rows-j-1) + d/2), width = 1)
-                Line(points=(x + dr + dx*i + d/2, y + dy*(rows-j-1)      , \
-                             x + dr + dx*i + d/2, y + dy*(rows-j-1) + d  ), width = 1)
+                x_center = x + dr + dx*i + d/2 # on screen center
+                y_center = y + dy*(rows-j-1) + d/2 # on screen center
             else:
-                Line(points=(x + dx*i          , y+abs(dr) + dy*(rows-j-1) + d/2, \
-                             x + dx*i + d      , y+abs(dr) + dy*(rows-j-1) + d/2), width = 1)
-                Line(points=(x + dx*i + d/2    , y+abs(dr) + dy*(rows-j-1)      , \
-                             x + dr+ dx*i + d/2, y+abs(dr) + dy*(rows-j-1) + d  ), width = 1)
+                x_center = x + dr + dx*i + d/2 # on screen center
+                y_center = y + abs(dr) + dy*(rows-j-1) + d/2 # on screen center
+ 
+            # horizontal
+            Line(points=(x_center-d/2, y_center, x_center+d/2, y_center), width = 1)
+            # vertical
+            Line(points=(x_center, y_center-d/2, x_center, y_center+d/2), width = 1)
 
     def draw_stage(self, *args):
         
@@ -1928,23 +1930,14 @@ class Stage(Widget):
             y_current = lumaview.motion.current_pos('Y')/1000
             x_max = 130
             y_max = 90
+            x_center = x+x_current/x_max*w # on screen center
+            y_center = y+y_current/y_max*h # on screen center
 
-            Color(0., 1., 0., 1.)
-            Line(circle = (x+x_current/x_max*w, y+y_current/y_max*h, 10), width=2)
-
+            Color(1., 0., 0., 1.)
+            # Line(circle = (x_center, y_center, 5), width=1) # circle
+            Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 2) # horizontal line
+            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 2) # vertical line
             
-
-        # Color(1., 0., 0., 1.)
-        # Line(points=(x + dr + dx*i       ,y + dy*(rows-j-1) + d/2, \
-        #                 x + dr + dx*i + d   ,y + dy*(rows-j-1) + d/2), width = 1)
-        # Line(points=(x + dr + dx*i + d/2, y + dy*(rows-j-1)      , \
-        #                 x + dr + dx*i + d/2, y + dy*(rows-j-1) + d  ), width = 1)
-        # Line(points=(x + dx*i          , y+abs(dr) + dy*(rows-j-1) + d/2, \
-        #                 x + dx*i + d      , y+abs(dr) + dy*(rows-j-1) + d/2), width = 1)
-        # Line(points=(x + dx*i + d/2    , y+abs(dr) + dy*(rows-j-1)      , \
-        #                 x + dr+ dx*i + d/2, y+abs(dr) + dy*(rows-j-1) + d  ), width = 1)
-
-
 class MicroscopeSettings(BoxLayout):
 
     def __init__(self, **kwargs):
@@ -2373,7 +2366,7 @@ class FileChooseBTN(Button):
         if self.context == 'load_settings':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"])   
         elif self.context == 'load_protocol':
-            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv", "*"])
 
     def handle_selection(self, selection):
         error_log('FileChooseBTN.handle_selection()')
