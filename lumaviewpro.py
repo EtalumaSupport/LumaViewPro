@@ -1184,18 +1184,14 @@ class ProtocolSettings(CompositeCapture):
 
         super(ProtocolSettings, self).__init__(**kwargs)
         error_log('ProtocolSettings.__init__()')
- 
+
         # Load all Possible Labware from JSON
         os.chdir(home_wd)
         with open('./data/labware.json', "r") as read_file:
             self.labware = json.load(read_file)
-        
-        try:
-            self.load_protocol(file = settings['protocol']['location'])
-        except:
-            self.step_names = list()
-            self.step_values = []
 
+        self.step_names = list()
+        self.step_values = []
         self.c_step = 0
 
     # Update Protocol Period   
@@ -1224,7 +1220,6 @@ class ProtocolSettings(CompositeCapture):
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
 
- 
     # Create New Protocol
     def new_protocol(self):
         error_log('ProtocolSettings.new_protocol()')
@@ -1233,8 +1228,10 @@ class ProtocolSettings(CompositeCapture):
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
         current_labware.set_positions()
-        self.step_values = np.array([])
- 
+        
+        self.step_names = list()
+        self.step_values = []
+
          # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
 
@@ -1252,17 +1249,12 @@ class ProtocolSettings(CompositeCapture):
                     gain_auto = int(settings[layer]['gain_auto'])
                     exp = settings[layer]['exp']
 
-                    step = np.array([[x, y, z, ch, ill, gain, gain_auto, exp]])
- 
-                    if self.step_values.size == 0:
-                        self.step_values = step
-                    else:
-                        self.step_values = np.append(self.step_values, step, axis=0)
+                    self.step_values.append([x, y, z, ch, ill, gain, gain_auto, exp])
+
+        self.step_values = np.array(self.step_values)
 
         # Number of Steps
-
         length =  self.step_values.shape[0]
-        # length = 1
               
         # Update text with current step and number of steps in protocol
         self.c_step = -1
@@ -1275,7 +1267,7 @@ class ProtocolSettings(CompositeCapture):
         self.ids['stage_widget_id'].draw_labware()
 
     # Load Protocol from File
-    def load_protocol(self, file="./data/sample_protocol.csv"):
+    def load_protocol(self, file="./data/example_protocol.tsv"):
         error_log('ProtocolSettings.load_protocol()')
 
         # Load protocol
@@ -1288,6 +1280,8 @@ class ProtocolSettings(CompositeCapture):
         period = float(period[1])
         duration = next(csvreader)
         duration = float(duration[1])
+        labware = next(csvreader)
+        labware = labware[1]
         header = next(csvreader) # skip a line
 
         self.step_names = list()
@@ -1313,6 +1307,7 @@ class ProtocolSettings(CompositeCapture):
         # Update Protocol
         settings['protocol']['period'] = period
         settings['protocol']['duration'] = duration
+        settings['protocol']['labware'] = labware
 
         # Draw the Labware on Stage
         self.ids['stage_widget_id'].draw_labware()
@@ -2485,7 +2480,14 @@ class LumaViewProApp(App):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
         except:
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
-            
+
+        try:
+            folder = settings['protocol']['save_folder']
+            file = settings['protocol']['file']
+            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(file = folder+'/'+file)
+        except:
+            error_log('Unable to load protocol at startup')
+
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.mssg)

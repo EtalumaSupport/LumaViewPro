@@ -82,9 +82,9 @@
     
     "protocol": {
         "save_folder": "./data",
-        "file": "protocol.csv",
+        "file": "example_protocol.tsv",
         "period": 0.1,
         "duration": 0.1,
-        "labware": "96 well microplate"
+        "labware": "Center Plate"
     }
 }
