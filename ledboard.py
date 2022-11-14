@@ -6,7 +6,7 @@ import serial.tools.list_ports as list_ports
 class LEDBoard:    
     def __init__(self, **kwargs):
         ports = list_ports.comports(include_links = True)
-        self.mssg = 'LEDBoard.__init__()'
+        self.message = 'LEDBoard.__init__()'
 
         for port in ports:
             # print("vid ", port.vid, " pid ", port.pid)
@@ -40,11 +40,11 @@ class LEDBoard:
                                         write_timeout=self.write_timeout)
             self.driver.close()
             self.driver.open()
-            self.mssg = 'LEDBoard.connect() succeeded'
+            self.message = 'LEDBoard.connect() succeeded'
             print('LEDBoard.connect() succeeded')
         except:
             self.driver = False
-            self.mssg = 'LEDBoard.connect() failed'
+            self.message = 'LEDBoard.connect() failed'
             print('LEDBoard.connect() succeeded')
             
     def send_mssg(self, mssg):
@@ -54,11 +54,11 @@ class LEDBoard:
                 self.driver.close()
                 self.driver.open()
                 self.driver.write(stream)
-                self.mssg = 'LEDBoard.send_mssg('+mssg+') succeeded'
-                # self.mssg = mssg
+                self.message = 'LEDBoard.send_mssg('+mssg+') succeeded'
+                # self.message = mssg
                 return True
             except serial.SerialTimeoutException:
-                self.mssg = 'LEDBoard.send_mssg('+mssg+') Serial Timeout Occurred'
+                self.message = 'LEDBoard.send_mssg('+mssg+') Serial Timeout Occurred'
                 return False
         else:
             self.connect()
@@ -73,7 +73,7 @@ class LEDBoard:
                 mssg = stream.decode("utf-8","ignore")
                 return mssg[:-2]
             except serial.SerialTimeoutException:
-                self.mssg = 'LEDBoard.receive_mssg('+mssg+') Serial Timeout Occurred'
+                self.message = 'LEDBoard.receive_mssg('+mssg+') Serial Timeout Occurred'
 
     def color2ch(self, color):
         if color == 'Blue':

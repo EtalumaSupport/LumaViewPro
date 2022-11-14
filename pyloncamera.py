@@ -6,7 +6,7 @@ class PylonCamera:
     def __init__(self, **kwargs):
         self.active = False
         self.error_report_count = 0
-        self.mssg = 'PylonCamera.__init__()'
+        self.message = 'PylonCamera.__init__()'
         self.array = np.array([])
         self.connect()
 
@@ -31,14 +31,14 @@ class PylonCamera:
             # Grabbing Continuously (video) with minimal delay
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             self.error_report_count = 0
-            self.mssg = 'PylonCamera.connect() succeeded'            
+            self.message = 'PylonCamera.connect() succeeded'            
 
         except:
             self.active = False
             if (self.error_report_count < 6):
                 print('Error: Cannot connect to camera')
             self.error_report_count += 1
-            self.mssg = 'PylonCamera.connect() failed'            
+            self.message = 'PylonCamera.connect() failed'            
 
     def grab(self):
         if self.active == False:
@@ -52,7 +52,7 @@ class PylonCamera:
 
             grabResult.Release()
             self.error_report_count = 0
-            self.mssg = 'PylonCamera.grab() succeeded'            
+            self.message = 'PylonCamera.grab() succeeded'            
             return True
 
         except:
@@ -60,7 +60,7 @@ class PylonCamera:
                 print('Error: Cannot grab texture from camera')
             self.error_report_count += 1
             self.active = False
-            self.mssg = 'PylonCamera.grab() failed'            
+            self.message = 'PylonCamera.grab() failed'            
             return False
 
     def frame_size(self, w, h):
@@ -76,18 +76,18 @@ class PylonCamera:
             self.active.BslCenterX.Execute()
             self.active.BslCenterY.Execute()
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-            self.mssg = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded' 
+            self.message = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded' 
         else:
-            self.mssg = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive' 
+            self.message = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive' 
 
 
     def gain(self, gain):
         print(self.active)
         if self.active != False:
             self.active.Gain.SetValue(gain)
-            self.mssg = 'PylonCamera.gain('+str(gain)+')'+': succeeded' 
+            self.message = 'PylonCamera.gain('+str(gain)+')'+': succeeded' 
         else:
-            self.mssg = 'PylonCamera.gain('+str(gain)+')'+': inactive camera' 
+            self.message = 'PylonCamera.gain('+str(gain)+')'+': inactive camera' 
 
     def auto_gain(self, state = True):
         print(self.active)
@@ -96,26 +96,26 @@ class PylonCamera:
                 self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             else:
                 self.active.GainAuto.SetValue('Off')
-            self.mssg = 'PylonCamera.auto_gain('+str(state)+')'+': succeeded' 
+            self.message = 'PylonCamera.auto_gain('+str(state)+')'+': succeeded' 
         else:
-            self.mssg = 'PylonCamera.auto_gain('+str(state)+')'+': inactive camera' 
+            self.message = 'PylonCamera.auto_gain('+str(state)+')'+': inactive camera' 
             
     def exposure_t(self, t):
         if self.active != False:
             # (t*1000) in microseconds; therefore t  in milliseconds
             self.active.ExposureTime.SetValue(max(t*1000, self.active.ExposureTime.Min))
-            self.mssg = 'PylonCamera.exposure_t('+str(t)+')'+': succeeded' 
+            self.message = 'PylonCamera.exposure_t('+str(t)+')'+': succeeded' 
         else:
-            self.mssg = 'PylonCamera.exposure_t('+str(t)+')'+': inactive camera' 
+            self.message = 'PylonCamera.exposure_t('+str(t)+')'+': inactive camera' 
 
     def get_exposure_t(self):
         if self.active != False:
             microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
             millisec = microsec/1000 # convert exposure time to millisec
-            self.mssg = 'PylonCamera.get_exposure_t(): succeeded' 
+            self.message = 'PylonCamera.get_exposure_t(): succeeded' 
             return millisec
         else:
-            self.mssg = 'PylonCamera.get_exposure_t(): inactive camera' 
+            self.message = 'PylonCamera.get_exposure_t(): inactive camera' 
             return -1
 
     def auto_exposure_t(self, state = True):
@@ -124,7 +124,7 @@ class PylonCamera:
                 self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             else:
                 self.active.ExposureAuto.SetValue('Off')
-            self.mssg = 'PylonCamera.auto_exposure_t('+str(state)+')'+': succeeded' 
+            self.message = 'PylonCamera.auto_exposure_t('+str(state)+')'+': succeeded' 
         else:
-            self.mssg = 'PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera' 
+            self.message = 'PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera' 
 
