@@ -776,12 +776,20 @@
 		        height: '30dp'
 				font_size: '12sp'
 		        on_release: self.choose('load_protocol')
+
+		    # Button:
+		    #     text: 'Save'
+		    #     size_hint_y: None
+		    #     height: '30dp'
+			# 	  font_size: '12sp'
+		    #     on_release: root.save_protocol()
+
 		    FileSaveBTN:
-		        text: 'Save'
+		        text: 'Save As'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
-		        on_release: self.choose('save_protocol')
+		        on_release: self.choose('saveas_protocol')
 
 		# Select Labware
 		Spinner:

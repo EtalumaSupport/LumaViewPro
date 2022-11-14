@@ -1313,7 +1313,7 @@ class ProtocolSettings(CompositeCapture):
         self.ids['stage_widget_id'].draw_labware()
 
     # Save Protocol to File
-    def save_protocol(self, file="./data/sample_protocol.csv"):
+    def save_protocol(self, file='./data/example_protocol.tsv'):
         error_log('ProtocolSettings.save_protocol()')
 
         # Gather information
@@ -2445,12 +2445,14 @@ class FileSaveBTN(Button):
         global lumaview
         
         if self.context == 'save_settings':
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
-            error_log('Saving Settings to File:' + self.selection[0])
+            if self.selection:
+                lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
+                error_log('Saving Settings to File:' + self.selection[0])
 
-        elif self.context == 'save_protocol':
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(file = self.selection[0])
-            error_log('Saving Protocol to File:' + self.selection[0])
+        elif self.context == 'saveas_protocol':
+            if self.selection:
+                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(file = self.selection[0])
+                error_log('Saving Protocol to File:' + self.selection[0])
 
 
 # -------------------------------------------------------------------------
