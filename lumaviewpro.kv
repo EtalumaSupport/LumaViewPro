@@ -763,8 +763,27 @@
 	        height: '30dp'
 			spacing: '5dp'
 
+			# Select Labware
+			Spinner:
+				id: labware_spinner
+				sync_height: True
+				text: 'New'
+				font_size: '12dp'
+				size_hint_y: None
+				height: '30dp'
+				text_autoupdate: True
+				on_text: root.select_labware()
+
+
+		# Load and Save Protocol
+		BoxLayout:
+			orientation: 'horizontal'
+	        size_hint_y: None
+	        height: '30dp'
+			spacing: '5dp'
+
 		    Button:
-		        text: 'New'
+		        text: 'Generate'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
@@ -781,7 +800,8 @@
 		    #     text: 'Save'
 		    #     size_hint_y: None
 		    #     height: '30dp'
-			# 	  font_size: '12sp'
+			# 	font_size: '12sp'
+			# 	disabled: True
 		    #     on_release: root.save_protocol()
 
 		    FileSaveBTN:
@@ -790,17 +810,6 @@
 		        height: '30dp'
 				font_size: '12sp'
 		        on_release: self.choose('saveas_protocol')
-
-		# Select Labware
-		Spinner:
-			id: labware_spinner
-			sync_height: True
-			text: 'New'
-			font_size: '12dp'
-			size_hint_y: None
-			height: '30dp'
-			text_autoupdate: True
-			on_text: root.select_labware()
 
 		# Stage Display
 		FloatLayout:
