@@ -1923,8 +1923,8 @@ class Stage(Widget):
             #  Crosshairs
             x_current = lumaview.motion.current_pos('X')/1000
             y_current = lumaview.motion.current_pos('Y')/1000
-            x_max = 130
-            y_max = 90
+            x_max = 120
+            y_max = 80
             x_center = x+x_current/x_max*w # on screen center
             y_center = y+y_current/y_max*h # on screen center
 

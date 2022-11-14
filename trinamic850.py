@@ -240,8 +240,12 @@ class TrinamicBoard:
         self.mssg = 'TrinamicBoard.xyhome()'            
         if self.found:
 
-            self.move_abs_pos('X', -1000000)
-            self.move_abs_pos('Y', -1000000)
+            # self.move_abs_pos('X', -1000000)
+            # self.move_abs_pos('Y', -1000000)
+            self.SPI_write(self.chip_pin['X'], self.write_target['X'], 4294967296-2000000000)
+            time.sleep(0.1)
+            self.SPI_write(self.chip_pin['Y'], self.write_target['Y'], 4294967296-2000000000)
+            time.sleep(0.1)
             self.SPI_write(self.chip_pin['Z'], self.write_target['Z'], 4294967296-2000000000)
 
             # Start a thread to check if XY limits are active
@@ -270,7 +274,7 @@ class TrinamicBoard:
                 self.SPI_write(self.chip_pin['Y'], self.write_actual['Y'], 0x00000000)
                 self.SPI_write(self.chip_pin['Y'], self.write_target['Y'], 0x00000000)
                 print('XY at Home')
-                return
+                break
 
     #----------------------------------------------------------
     # T (Turret) Functions
@@ -348,17 +352,24 @@ class TrinamicBoard:
     # Move to absolute position (in um)
     def move_abs_pos(self, axis, pos):
         if self.found:
-            if axis == 'Z':
-                # don't let it move out of bounds
+            if axis == 'Z': # Z bound 0 to 14mm
                 if pos < 0:
                     pos = 0.
-                elif pos > 12000:
-                    pos = 12000.
-
+                elif pos > 14000:
+                    pos = 14000.
                 steps = self.z_um2ustep(pos)
-            else:
+            elif axis == 'X': # X bound 0 to 120mm
+                if pos < 0:
+                    pos = 0.
+                elif pos > 120000:
+                    pos = 120000.
                 steps = self.xy_um2ustep(pos)
-
+            elif axis == 'Y': # y bound 0 to 80mm
+                if pos < 0:
+                    pos = 0.
+                elif pos > 80000:
+                    pos = 80000.
+                steps = self.xy_um2ustep(pos)
             # signed to unsigned 32_bit integer
             if steps < 0:
                 steps = 4294967296+steps
