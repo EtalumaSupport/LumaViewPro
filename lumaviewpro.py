@@ -110,10 +110,16 @@ start_str = str(int(round(time.time() * 1000)))
 def error_log(mssg):
     if True:
         os.chdir(home_wd)
-        file = open('./logs/LVP_log '+start_str+'.txt', 'a')
-        file.write(mssg + '\n')
-        file.close()
-        print(mssg)
+        try:
+            file = open('./logs/LVP_log '+start_str+'.txt', 'a')
+        except:
+            if not os.path.isdir('./logs'):
+                print("Cound't find 'logs' directory. Maybe not in the correct base directry?")
+        else:
+            file.write(mssg + '\n')
+            file.close()
+        finally:
+            print(mssg)
 
 
 global focus_round
@@ -1187,8 +1193,16 @@ class ProtocolSettings(CompositeCapture):
 
         # Load all Possible Labware from JSON
         os.chdir(home_wd)
-        with open('./data/labware.json', "r") as read_file:
+        try:
+            read_file = open('./data/labware.json', "r"):
+        except:
+            print("Error reading labware definition file 'data/labware.json'")
+            if not os.path.isdir('./data'):
+                print("Cound't find 'data' directory.")
+            self.labware = False
+        else:
             self.labware = json.load(read_file)
+            read_file.close()
 
         self.step_names = list()
         self.step_values = []
