@@ -384,7 +384,7 @@ class TrinamicBoard:
                     self.overshoot = True
                     # First overshoot downwards
                     overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
-                    overshoot = max(0, overshoot)
+                    overshoot = max(1, overshoot)
                     self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                     while not self.target_status('Z'):
                         time.sleep(0.001)
