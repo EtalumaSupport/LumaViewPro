@@ -252,7 +252,8 @@
 	BoxLayout:
 		orientation: 'horizontal'
 		size_hint_y: None
-		height: '200dp'
+		height: '170dp'
+
 		BoxLayout:
 		    orientation: 'vertical'
 		    size_hint_x: None
@@ -293,6 +294,7 @@
 				background_down: './data/icons/DD_down.png'
 				on_release: root.course_down()
 		    Label:
+
 		BoxLayout:
 			orientation: 'vertical'
 			size_hint_x: None
@@ -306,7 +308,7 @@
 		        min: 0.
 		        max: 14000.
 		        value: 0.
-				step: 0.01
+				step: 0.1
 		        cursor_size: '30dp','40dp'
 		        cursor_image: './data/icons/objective.png'
 		        cursor_disabled_image: './data/icons/objective.png'
@@ -323,12 +325,14 @@
 		    orientation: 'vertical'
 		    padding: '5dp'
 			spacing: '5dp'
+
 		    Label:
 		        size_hint_y: None
-		        height: '15dp'
+		        height: '20dp'
 				halign: 'center'
 		        font_size: '12sp'
 		        text: 'Z-Position (um)'
+
 		    TextInput:
 				id: z_position_id
             	multiline: False
@@ -339,17 +343,19 @@
             	input_filter: 'float'
 		        text: format(obj_position.value, '.2f')
                 on_text_validate: root.set_position(self.text)
-    		Button:
-    			id: home_id
-    		    size_hint_y: None
-    		    height: '30dp'
-    			font_size: '12sp'
-    			text: 'Home'
-    			on_release: root.home()
+
 			BoxLayout:
 				orientation:'horizontal'
 				padding: '0dp'
 				spacing: '5dp'
+
+				Button:
+					id: home_id
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					text: 'Home'
+					on_release: root.home()
 				Button:
 					text: 'Set Z'
 					size_hint_y: None
@@ -357,17 +363,17 @@
 					font_size: '12sp'
 					on_release: root.set_bookmark()
 				Button:
-					text: 'Go to Set Z'
+					text: 'Set All Z'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
-					on_release: root.goto_bookmark()
+					on_release: root.set_all_bookmarks()
 			Button:
-				text: 'Set All Z'
+				text: 'Go to Set Z'
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
-				on_release: root.set_all_bookmarks()
+				on_release: root.goto_bookmark()
 
     		ToggleButton:
     			id: autofocus_id
@@ -376,6 +382,7 @@
     			font_size: '12sp'
     			text: 'Autofocus'
     			on_release: root.autofocus()
+
 	ZStack:
 		id: zstack_id
 
