@@ -174,24 +174,38 @@ class TrinamicBoard:
     def configure(self):
         self.message = 'TrinamicBoard.configure()'            
         # Load settings for the xy motors from config file for 'XY' motor driver
-        with open('./data/xymotorconfig.ini', 'r') as xyconfigFile:
-            for line in xyconfigFile:                           # go through each line of the config file
-                if 'writing' in line:                           # if the line has the word "writing" in it (all the right lines have this)
-                    configLine = line.split()                   # split the line into an indexable list
-                    addr = int(0x80 | int(configLine[0], 16))   # take the address field, format it, add 80 to it (to make it a write operation to the trinamic chip), throw it into the 'address' variable
-                    data = int(configLine[2], 16)               # take the data field, format it, and put it into the 'data' variable
-                    self.SPI_write(0, addr, data)                # call SPI Writer. right now were writing to chip 0
-        print ("Successfully loaded parameters to XY motor driver from xymotorconfig.ini")
+        try:
+            with open('./data/xymotorconfig.ini', 'r') as xyconfigFile:
+                for line in xyconfigFile:                           # go through each line of the config file
+                    if 'writing' in line:                           # if the line has the word "writing" in it (all the right lines have this)
+                        configLine = line.split()                   # split the line into an indexable list
+                        addr = int(0x80 | int(configLine[0], 16))   # take the address field, format it, add 80 to it (to make it a write operation to the trinamic chip), throw it into the 'address' variable
+                        data = int(configLine[2], 16)               # take the data field, format it, and put it into the 'data' variable
+                        self.SPI_write(0, addr, data)                # call SPI Writer. right now were writing to chip 0
+        except:
+            print ("Unable to load parameters to XY motor driver from file xymotorconfig.ini")
+        else:
+            print ("Successfully loaded parameters to XY motor driver from xymotorconfig.ini")
 
         # Load settings for the z motor
-        with open('./data/ztmotorconfig.ini', 'r') as ztconfigFile:
-            for line in ztconfigFile:
-                if 'writing' in line:
-                    configLine = line.split()
-                    addr = int(0x80 | int(configLine[0], 16))
-                    data = int(configLine[2], 16)
-                    self.SPI_write(1, addr, data)
-        print ("Successfully loaded parameters to ZT motor driver from ztmotorconfig.ini")
+        try:
+            with open('./data/ztmotorconfig.ini', 'r') as ztconfigFile:
+                for line in ztconfigFile:
+                    if 'writing' in line:
+                        configLine = line.split()
+                        addr = int(0x80 | int(configLine[0], 16))
+                        data = int(configLine[2], 16)
+                        self.SPI_write(1, addr, data)
+        except:
+            print ("Unable to load parameters to ZT motor driver from file ztmotorconfig.ini")
+        else:
+            print ("Successfully loaded parameters to ZT motor driver from ztmotorconfig.ini")
+
+    def move(self, axis, steps):
+        if steps < 0:
+            steps += 0x100000000
+        self.SPI_write(self.chip_pin[axis], self.write_target[axis], steps)
+        time.sleep(0.1)
 
     #----------------------------------------------------------
     # Z (Focus) Functions
@@ -210,7 +224,8 @@ class TrinamicBoard:
         self.message = 'TrinamicBoard.zhome()'            
         if self.found:
             # self.move_abs_pos('Z', -1000000)
-            self.SPI_write(self.chip_pin['Z'], self.write_target['Z'], 4294967296-2000000000)
+            # self.SPI_write(self.chip_pin['Z'], self.write_target['Z'], 4294967296-2000000000)
+            self.move('Z', -2000000000)
 
             # Start a thread to check if Z limit is active
             z_thread = threading.Thread(target=self.zhome_write)
@@ -246,14 +261,15 @@ class TrinamicBoard:
 
             # self.move_abs_pos('X', -1000000)
             # self.move_abs_pos('Y', -1000000)
-            self.SPI_write(self.chip_pin['X'], self.write_target['X'], 4294967296-2000000000)
-            time.sleep(0.1)
-            self.SPI_write(self.chip_pin['Y'], self.write_target['Y'], 4294967296-2000000000)
-            time.sleep(0.1)
-            self.SPI_write(self.chip_pin['Z'], self.write_target['Z'], 4294967296-2000000000)
+            #self.SPI_write(self.chip_pin['X'], self.write_target['X'], 4294967296-2000000000)
+            #self.SPI_write(self.chip_pin['Y'], self.write_target['Y'], 4294967296-2000000000)
+            #self.SPI_write(self.chip_pin['Z'], self.write_target['Z'], 4294967296-2000000000)
+            self.move('X', -2000000000)
+            self.move('Y', -2000000000)
+            self.move('Z', -2000000000)
 
             # Start a thread to check if XY limits are active
-            xy_thread = threading.Thread(target=self.xyhome_write)
+            xy_thread = threading.Thread(target=self.xyhome_write) 
             xy_thread.start()
 
     def xyhome_write(self):
@@ -376,7 +392,8 @@ class TrinamicBoard:
                 steps = self.xy_um2ustep(pos)
             # signed to unsigned 32_bit integer
             if steps < 0:
-                steps = 4294967296+steps
+                #steps = 4294967296+steps # TODO change to correct casting operation
+                steps = 0x100000000+steps # TODO REMOVE this code block should no longer be nessesary and shoudl be removed after testing
 
             if axis=='Z': # perform overshoot to always come from one direction
                 # get current position
@@ -389,13 +406,15 @@ class TrinamicBoard:
                     # First overshoot downwards
                     overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
                     overshoot = max(1, overshoot)
-                    self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
+                    #self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
+                    self.move(axis, overshoot)
                     while not self.target_status('Z'):
                         time.sleep(0.001)
                     # complete overshoot
                     self.overshoot = False
 
-            self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
+            #self.SPI_write (self.chip_pin[axis], self.write_target[axis], steps)
+            self.move(axis, steps)
             self.message = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') succeeded'
         else:
             self.message = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') inactive'

@@ -282,6 +282,9 @@ class CompositeCapture(FloatLayout):
         if self.camera.active == False:
             return
 
+        # if lumaview.motion.found == False:
+        #    return
+
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
 
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
