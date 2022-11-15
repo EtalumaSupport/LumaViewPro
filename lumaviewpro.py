@@ -1956,26 +1956,38 @@ class MicroscopeSettings(BoxLayout):
         super(MicroscopeSettings, self).__init__(**kwargs)
         error_log('MicroscopeSettings.__init__()')
 
-        os.chdir(home_wd)
-        with open('./data/scopes.json', "r") as read_file:
-            self.scopes = json.load(read_file)
+        try:
+            os.chdir(home_wd)
+            with open('./data/scopes.json', "r") as read_file:
+                self.scopes = json.load(read_file)
+        except:
+            self.scopes = False
+            print("Unable to open scopes.json.")
 
-        os.chdir(home_wd)
-        with open('./data/objectives.json', "r") as read_file:
-            self.objectives = json.load(read_file)
+        try:
+            os.chdir(home_wd)
+            with open('./data/objectives.json', "r") as read_file:
+                self.objectives = json.load(read_file)
+        except:
+            self.objectives = False
+            print("Unable to open objectives.json.")
 
     # load settings from JSON file
-    def load_settings(self, file="./data/current.json"):
+    def load_settings(self, filename="./data/current.json"):
         error_log('MicroscopeSettings.load_settings()')
         global lumaview
+        global settings
 
         # load settings JSON file
-        os.chdir(home_wd)
-        with open(file, "r") as read_file:
-            global settings
-            settings = json.load(read_file)
-
+        try:
+            os.chdir(home_wd)
+            read_file = open(filename, "r")
+        except:
+            error_log("Unable to open file "+filename)
+            settings = []
+        else:
             try:
+                settings = json.load(read_file)
                 # update GUI values from JSON data:
                 self.ids['scope_spinner'].text = settings['microscope']
                 self.ids['objective_spinner'].text = settings['objective']['ID']
