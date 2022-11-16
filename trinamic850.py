@@ -94,6 +94,7 @@ class TrinamicBoard:
         'T': 0x35
     }
 
+
     #----------------------------------------------------------
     # Initialize connection through SPI
     #----------------------------------------------------------
@@ -136,7 +137,7 @@ class TrinamicBoard:
     #----------------------------------------------------------
     # Define SPI communication
     #----------------------------------------------------------
-    def SPI_put (self, pin: int, address: int, data: int):
+    def SPI_put (self, pin: int, address: int, data: int, callback):
         if self.buffer == False:
             self.buffer = queue.Queue(1024)  # could add buffer size to settings someday
         
@@ -145,9 +146,10 @@ class TrinamicBoard:
            return
         
         self.buffer.put({
-                pin:     pin,
-                address: address,
-                data:    data
+                pin:      pin,
+                address:  address,
+                data:     data,
+                callback: callback
             })
 
 
@@ -156,7 +158,8 @@ class TrinamicBoard:
             return
         
         cmd = self.buffer.get()
-        self.SPI_write(cmd.pin, cmd.address, cmd.data)
+        spi_status, data = self.SPI_write(cmd.pin, cmd.address, cmd.data)
+        cmd.callback(spi_status = spi_status, data = data)
 
 
     def SPI_write (self, pin: int, address: int, data: int):
