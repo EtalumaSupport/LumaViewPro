@@ -1903,7 +1903,7 @@ class Stage(Widget):
                 Line(circle=(x+dr+dx*i+r, y+dy*(rows-j-1)+r, r))
             else:
                 Line(circle=(x+dr+dx*i+r, y+abs(dr)+dy*(rows-j-1)+r, r))
-            # Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
+           # Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
 
             # Red Crosshairs
             x_current = lumaview.motion.current_pos('X')/1000
@@ -1947,8 +1947,8 @@ class Stage(Widget):
 
             Color(1., 0., 0., 1.)
             # Line(circle = (x_center, y_center, 5), width=1) # circle
-            Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 2) # horizontal line
-            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 2) # vertical line
+            Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
+            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
             
 class MicroscopeSettings(BoxLayout):
 
@@ -2021,6 +2021,7 @@ class MicroscopeSettings(BoxLayout):
                     lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = settings[layer]['file_root']
                     lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
                     lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
                 lumaview.camera.frame_size(settings['frame']['width'], settings['frame']['height'])
                 error_log(lumaview.camera.message)
@@ -2196,6 +2197,10 @@ class LayerControl(BoxLayout):
     def update_acquire(self):
         error_log('LayerControl.update_acquire()')
         settings[self.layer]['acquire'] = self.ids['acquire'].active
+
+    def update_autofocus(self):
+        error_log('LayerControl.update_autofocus()')
+        settings[self.layer]['autofocus'] = self.ids['autofocus'].active
 
     def save_focus(self):
         error_log('LayerControl.save_focus()')

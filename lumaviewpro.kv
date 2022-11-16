@@ -32,7 +32,7 @@
 # Anna Iwaniec Hickerson, Keck Graduate Institute
 #
 # MODIFIED:
-# June 2022
+# November 2022
 #-------------------------------------------------------------------------------
 
 # -----------------------
@@ -57,13 +57,6 @@
         size: self.settings_width, root.height
         pos: -self.settings_width+30, 0
 
-    # ShaderEditor:
-    #     viewer: viewer_id
-    #     size_hint: None, None
-    #     size: 300, root.height
-    #     pos: -285, 0
-    #
-
     MainSettings:
         id: mainsettings_id
         size_hint: None, None
@@ -71,7 +64,7 @@
         pos: root.width-30, 0
 
 
-    # Camera ControlscurrentLayer
+    # Camera Controls
     # ------------------------------
     BoxLayout:
         orientation: 'horizontal'
@@ -201,10 +194,6 @@
             collapse: False
 			VerticalControl:
 				id: verticalcontrol_id
-		# AccordionItem:
-		# 	title: 'Z Stack Acquire'
-		# 	ZStack:
-		# 		id: zstack_id
 		AccordionItem:
 			title: 'XY Stage Control'
 			XYStageControl:
@@ -228,7 +217,6 @@
         background_down: './data/icons/left_arrow_right_arc.png' # left pointing (press to close)
         on_press: root.toggle_settings()
 
-
 <VerticalControl>:
 	orientation: 'vertical'
 	padding: '5dp'
@@ -237,10 +225,9 @@
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
-        Rectangle:
-            size: self.size
-            pos: self.pos
-
+		Rectangle:
+			size: self.size
+			pos: self.pos
 	Label:
 		text:'Adjust Focus'
 		font_size: '16sp'
@@ -1025,7 +1012,7 @@
             LayerControl:
                 id: BF
                 layer: 'BF'
-                bg_color: 0.3, 0.3, 0.3,  1
+                bg_color: 0.5, 0.5, 0.5,  1
 
         # BLUE SETTINGS
         AccordionItem:
@@ -1145,47 +1132,56 @@
 			disabled: True
 			font_size: '12sp'
 
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Frame Size'
-            size_hint_x: None
-            width: '120dp'
+	# Frame Size
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
+		Label:
+			text: 'Frame Size'
+			halign: 'left'
+			valign: 'middle'
 			font_size: '12sp'
-        TextInput:
-            id: frame_width
-            multiline: False
-            padding: ['5dp', (self.height-self.line_height)/2]
-            halign: 'center'
-            input_filter: 'int'
-            text: '2592'
-            on_text_validate: root.frame_size()
+			size_hint_x: None
+			width: '80dp'
+			text_size: self.size
+
+		TextInput:
+			id: frame_width
+			multiline: False
+			padding: ['2dp', (self.height-self.line_height)/2]
+			halign: 'center'
+			input_filter: 'int'
+			text: '1900'
+			on_text_validate: root.frame_size()
 			font_size: '12sp'
-        Label:
-            text: 'x'
-            size_hint_x: None
-            width: '15dp'
+		Label:
+			text: 'x'
+			size_hint_x: None
+			width: '15dp'
 			font_size: '12sp'
 			halign: 'center'
-        TextInput:
-            id: frame_height
-            multiline: False
-            padding: ['5dp', (self.height-self.line_height)/2]
-            halign: 'center'
-            input_filter: 'int'
-            text: '1944'
-            on_text_validate: root.frame_size()
+		TextInput:
+			id: frame_height
+			multiline: False
+			padding: ['5dp', (self.height-self.line_height)/2]
+			halign: 'center'
+			input_filter: 'int'
+			text: '1900'
+			on_text_validate: root.frame_size()
 			font_size: '12sp'
+
 	FileChooseBTN:
-		text: 'Load Settings'
+		text: 'Load'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
 		on_release: self.choose('load_settings')
 	FileSaveBTN:
-		text: 'Save Settings'
+		text: 'Save'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
@@ -1196,7 +1192,7 @@
 # LayerControl - Settings for Layers within MainSettings
 # ------------------------------------------
 <LayerControl>:
-    padding: '5dp'
+    padding: '10dp'
     spacing: '5dp'
     orientation: 'vertical'
     canvas:
@@ -1206,244 +1202,363 @@
             size: self.size
             pos: self.pos
 
-    BoxLayout:
-        orientation: 'vertical'
-        spacing: '5dp'
-        # Illumination
-        BoxLayout:
-            orientation: 'horizontal'
-        	size_hint_y: None
-			height: '30dp'
-            Label:
-                text: 'Illumination (mA)'
-                halign: 'left'
-                valign: 'middle'
-                font_size: '12sp'
-                size_hint_x: None
-                width: '100dp'
-            ModSlider:
-                id: ill_slider
-                min: 0.
-                max: 600.
-                value: 100.
-				step: 5.
-                cursor_size: '20dp','20dp'
-                cursor_image: './data/icons/slider_cursor.png'
-                value_track: True
-                value_track_color: root.bg_color
-                value_track_width: 5
-                on_release: root.ill_slider() # on_touch_move # on_release
-            TextInput:
-                id: ill_text
-                size_hint_x: None
-                width: '45dp'
-                multiline: False
-                font_size: '12sp'
-                padding: ['4dp', (self.height-self.line_height)/2]
-                halign: 'right'
-                input_filter: 'float'
-                text: format(ill_slider.value, '.3g')
-                on_text_validate: root.ill_text()
-        # Gain
-        BoxLayout:
-            orientation: 'horizontal'
-        	size_hint_y: None
-			height: '30dp'
-            Label:
-                text: 'Gain (dB)'
-                halign: 'left'
-                valign: 'middle'
-                font_size: '12sp'
-                size_hint_x: None
-                width: '100dp'
-            CheckBox:
-                id: gain_auto
-                size_hint_x: None
-                width: '25dp'
-                active: False
-                on_release: root.gain_auto()
-            ModSlider:
-                id: gain_slider # 0 to 24, default 0, based on camera limits
-                min: 0.
-                max: 24.
-                value: 0.
-				step: 0.1
-                cursor_size: '20dp','20dp'
-                cursor_image: './data/icons/slider_cursor.png'
-                value_track: True
-                value_track_color: root.bg_color
-                value_track_width: 5
-                on_release: root.gain_slider()
-            TextInput:
-                id: gain_text
-                size_hint_x: None
-                width: '45dp'
-                multiline: False
-                font_size: '12sp'
-                padding: ['4dp', (self.height-self.line_height)/2]
-                halign: 'right'
-                input_filter: 'float'
-                text: format(gain_slider.value, '.3g')
-                on_text_validate: root.gain_text()
-        # Exposure
-        BoxLayout:
-            orientation: 'horizontal'
-        	size_hint_y: None
-			height: '30dp'
-            Label:
-                text: 'Exposure (ms)'
-                halign: 'left'
-                valign: 'middle'
-                font_size: '12sp'
-                size_hint_x: None
-                width: '100dp'
-            ModSlider:
-                id: exp_slider
-                min: 0.01
-                max: 200. # values are in ms
-                value: 100.
-				step: 0.01
-				# # This was to create a log scale
-                # min: -2. # minimum allowable by camera 10.0 us = 0.01 ms -> 10^-2 log-10 scale
-                # max: 3. # maximum, allowable by camera 1000000.0 us = 1000.0 ms -> 10^3 -> 10^-2 log-10 scale
-                # value: 2. # 10^2 -> 100 ms exposure
-				# step: 0.01
-                cursor_size: '20dp','20dp'
-                cursor_image: './data/icons/slider_cursor.png'
-				track_width: 5
-				value_track: True
-                value_track_color: root.bg_color
-                value_track_width: 5
-                on_release: root.exp_slider()
-            TextInput:
-                id: exp_text
-                size_hint_x: None
-                width: '45dp'
-                multiline: False
-                font_size: '12sp'
-                padding: ['4dp', (self.height-self.line_height)/2]
-                halign: 'right'
-                input_filter: 'float'
-                text: format(exp_slider.value, '.4g')
-                # text: format(10 ** exp_slider.value, '.3g')
-                on_text_validate: root.exp_text()
 
-        # bulk settings
-        BoxLayout:
-            orientation: 'horizontal'
-        	size_hint_y: None
-			height: '30dp'
-            Label:
-                id: LED_label
-				font_size: '12sp'
-                text: 'LED'
-                halign: 'left'
-                valign: 'middle'
-			BoxLayout:
-				orientation: 'vertical'
-				Label:
-	            ToggleButton:
-	                id: apply_btn
-					size_hint: None, None
-					size: '33dp', '20dp'
-					border: 0, 0, 0, 0
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleR.png'
-	                on_release: root.apply_settings()
-				Label:
-            Label:
-                id: false_color_label
-				font_size: '12sp'
-                text: 'Colorize'
-                halign: 'center'
-                valign: 'middle'
-            CheckBox:
-                id: false_color
-                size_hint_x: None
-                width: '30dp'
-                active: True
-                on_release: root.false_color()
-            Label:
-                text: 'Acquire'
-				font_size: '12sp'
-                halign: 'center'
-                valign: 'middle'
-            CheckBox:
-                id: acquire
-                size_hint_x: None
-                width: '30dp'
-                active: True
-                on_release: root.update_acquire()
-		# Focus Settings
-        BoxLayout:
-            orientation: 'horizontal'
-        	size_hint_y: None
-			height: '30dp'
-			spacing: '5dp'
-			Button:
-	        	size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Save Focus'
-				on_release: root.save_focus()
-			Button:
-	        	size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				text: 'Go to Focus'
-				on_release: root.goto_focus()
-		BoxLayout:
-			orientation: 'horizontal'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
-	        FolderChooseBTN:
-	            id: folder_btn
-	        	# size_hint_y: None
-				# height: '30dp'
-				# font_size: '12sp'
-	            # text: 'Folder'
-		        border: 0, 0, 0, 0
-				background_normal: './data/icons/folder.png' # Press to Select Folder
-				background_down: './data/icons/folder_down.png'
-				size_hint: None, None
-				size: '30dp', '30dp'
-	            on_release: self.choose(root.layer)
-	        TextInput:
-	            id: root_text
-	        	# size_hint_y: None
-				# height: '30dp'
-				font_size: '12sp'
-	            multiline: False
-	            text: 'File Root'
-	            padding: ['5dp', (self.height-self.line_height)/2]
-	            on_text: root.root_text()
+	# Illumination
+	Label:
+		canvas:
+			Color:
+				rgba: root.bg_color
+			Rectangle:
+				size: self.width, 1
+				pos: self.x, self.y+self.height
 
-		FloatLayout:
-			padding: '5dp'
-			size_hint_y: None
-			height: '128dp'
-			Label:
-				size_hint: None, None
-				width: '30dp'
-				height: '20dp'
-				font_size: '12sp'
-				pos_hint:{"right":0.9,"top":0.95}
-				text: 'Log'
-			CheckBox:
-				id: logHistogram_id
-				size_hint: None, None
-				width: '30dp'
-				height: '20dp'
-				pos_hint:{"right":1,"top":0.95}
-				state: 'normal'
-			Histogram:
-				id: histo_id
-				pos_hint:{'center_x':0.5, 'center_y':0.5}
-				bg_color: root.bg_color
-				layer: root.layer
-			# on_touch_move: root.on_touch_move()
+		text:'Illumination'
+		font_size: '16sp'
+		size_hint_y: None
+		height: '30dp'
+		# spacing: '5dp'
+		color: root.bg_color
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
 		Label:
+			id: LED_label
+			font_size: '12sp'
+			text: 'Enable LED'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		ToggleButton:
+			id: apply_btn
+			size_hint: None, None
+			size: '45dp', '30dp'
+			border: 0, 0, 0, 0
+			valign: 'middle'
+			background_normal: './data/icons/ToggleL.png'
+			background_down: './data/icons/ToggleR.png'
+			on_release: root.apply_settings()
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
+		Label:
+			text: 'Intensity (mA)'
+			halign: 'left'
+			valign: 'middle'
+			font_size: '12sp'
+			size_hint_x: None
+			width: '80dp'
+			text_size: self.size
+		ModSlider:
+			id: ill_slider
+			min: 0.
+			max: 600.
+			value: 100.
+			step: 5.
+			cursor_size: '20dp','20dp'
+			cursor_image: './data/icons/slider_cursor.png'
+			value_track: True
+			value_track_color: root.bg_color
+			value_track_width: 5
+			on_release: root.ill_slider() # on_touch_move # on_release
+		TextInput:
+			id: ill_text
+			size_hint_x: None
+			width: '45dp'
+			multiline: False
+			font_size: '12sp'
+			padding: ['4dp', (self.height-self.line_height)/2]
+			halign: 'right'
+			input_filter: 'float'
+			text: format(ill_slider.value, '.3g')
+			on_text_validate: root.ill_text()
+
+	# Camera
+	Label:
+		canvas:
+			Color:
+				rgba: root.bg_color
+			Rectangle:
+				size: self.width, 1
+				pos: self.x, self.y+self.height
+		text:'Camera'
+		font_size: '16sp'
+		size_hint_y: None
+		height: '30dp'
+		# spacing: '5dp'
+		color: root.bg_color
+
+	# Gain
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
+		Label:
+			text: 'Gain (dB)'
+			halign: 'left'
+			valign: 'middle'
+			font_size: '12sp'
+			size_hint_x: None
+			width: '50dp'
+			text_size: self.size
+		CheckBox:
+			id: gain_auto
+			size_hint_x: None
+			width: '25dp'
+			active: False
+			on_release: root.gain_auto()
+		ModSlider:
+			id: gain_slider # 0 to 24, default 0, based on camera limits
+			min: 0.
+			max: 24.
+			value: 0.
+			step: 0.1
+			cursor_size: '20dp','20dp'
+			cursor_image: './data/icons/slider_cursor.png'
+			value_track: True
+			value_track_color: root.bg_color
+			value_track_width: 5
+			on_release: root.gain_slider()
+		TextInput:
+			id: gain_text
+			size_hint_x: None
+			width: '45dp'
+			multiline: False
+			font_size: '12sp'
+			padding: ['4dp', (self.height-self.line_height)/2]
+			halign: 'right'
+			input_filter: 'float'
+			text: format(gain_slider.value, '.3g')
+			on_text_validate: root.gain_text()
+
+	# Exposure
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
+		Label:
+			text: 'Exposure (ms)'
+			halign: 'left'
+			valign: 'middle'
+			font_size: '12sp'
+			size_hint_x: None
+			width: '80dp'
+			text_size: self.size
+		ModSlider:
+			id: exp_slider
+			min: 0.01
+			max: 200. # values are in ms
+			value: 100.
+			step: 0.01
+			# # This was to create a log scale
+			# min: -2. # minimum allowable by camera 10.0 us = 0.01 ms -> 10^-2 log-10 scale
+			# max: 3. # maximum, allowable by camera 1000000.0 us = 1000.0 ms -> 10^3 -> 10^-2 log-10 scale
+			# value: 2. # 10^2 -> 100 ms exposure
+			# step: 0.01
+			cursor_size: '20dp','20dp'
+			cursor_image: './data/icons/slider_cursor.png'
+			track_width: 5
+			value_track: True
+			value_track_color: root.bg_color
+			value_track_width: 5
+			on_release: root.exp_slider()
+		TextInput:
+			id: exp_text
+			size_hint_x: None
+			width: '45dp'
+			multiline: False
+			font_size: '12sp'
+			padding: ['4dp', (self.height-self.line_height)/2]
+			halign: 'right'
+			input_filter: 'float'
+			text: format(exp_slider.value, '.4g')
+			# text: format(10 ** exp_slider.value, '.3g')
+			on_text_validate: root.exp_text()
+
+
+	# Focus
+	Label:
+		canvas:
+			Color:
+				rgba: root.bg_color
+			Rectangle:
+				size: self.width, 1
+				pos: self.x, self.y+self.height
+		text:'Focus'
+		font_size: '16sp'
+		size_hint_y: None
+		height: '30dp'
+		color: root.bg_color
+	
+	# Focus Settings
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
+		Button:
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			text: 'Save Focus'
+			on_release: root.save_focus()
+		Button:
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			text: 'Go to Focus'
+			on_release: root.goto_focus()
+
+	# Display Properties
+	Label:
+		canvas:
+			Color:
+				rgba: root.bg_color
+			Rectangle:
+				size: self.width, 1
+				pos: self.x, self.y+self.height
+		text:'Display Properties'
+		font_size: '16sp'
+		size_hint_y: None
+		height: '30dp'
+		color: root.bg_color
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
+		CheckBox:
+			id: false_color
+			size_hint_x: None
+			width: '30dp'
+			active: True
+			on_release: root.false_color()
+		Label:		
+			id: false_color_label
+			font_size: '12sp'
+			text: 'False Color'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		CheckBox:
+			id: logHistogram_id
+			size_hint_x: None
+			width: '30dp'
+			active: True
+			state: 'normal'
+		Label:
+			text: 'Log'
+			font_size: '12sp'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		
+	FloatLayout:
+		padding: '0dp'
+		spacing: '5dp'
+		size_hint_y: None
+		height: '128dp'
+
+		Histogram:
+			id: histo_id
+			pos_hint:{'center_x':0.5, 'center_y':0.5}
+			bg_color: root.bg_color
+			layer: root.layer
+
+	# Protocol Settings
+	Label:
+		canvas:
+			Color:
+				rgba: root.bg_color
+			Rectangle:
+				size: self.width, 1
+				pos: self.x, self.y+self.height
+		text:'Protocol Settings'
+		font_size: '16sp'
+		size_hint_y: None
+		height: '30dp'
+		color: root.bg_color
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
+		CheckBox:
+			id: autofocus
+			size_hint_x: None
+			width: '30dp'
+			active: True
+			on_release: root.update_autofocus()
+		Label:
+			text: 'Autofocus'
+			font_size: '12sp'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		CheckBox:
+			id: acquire
+			size_hint_x: None
+			width: '30dp'
+			active: True
+			on_release: root.update_acquire()
+		Label:
+			text: 'Acquire'
+			font_size: '12sp'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		spacing: '5dp'
+		FolderChooseBTN:
+			id: folder_btn
+			# size_hint_y: None
+			# height: '30dp'
+			# font_size: '12sp'
+			# text: 'Folder'
+			border: 0, 0, 0, 0
+			background_normal: './data/icons/folder.png' # Press to Select Folder
+			background_down: './data/icons/folder_down.png'
+			size_hint: None, None
+			size: '30dp', '30dp'
+			on_release: self.choose(root.layer)
+		TextInput:
+			id: root_text
+			# size_hint_y: None
+			# height: '30dp'
+			font_size: '12sp'
+			multiline: False
+			text: 'File Root'
+			padding: ['5dp', (self.height-self.line_height)/2]
+			on_text: root.root_text()
+
+	Label:
 
 <Histogram>:
 	canvas:
