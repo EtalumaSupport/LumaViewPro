@@ -1903,7 +1903,7 @@ class Stage(Widget):
                 Line(circle=(x+dr+dx*i+r, y+dy*(rows-j-1)+r, r))
             else:
                 Line(circle=(x+dr+dx*i+r, y+abs(dr)+dy*(rows-j-1)+r, r))
-            # Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
+           # Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
 
             # Red Crosshairs
             x_current = lumaview.motion.current_pos('X')/1000
@@ -1947,8 +1947,8 @@ class Stage(Widget):
 
             Color(1., 0., 0., 1.)
             # Line(circle = (x_center, y_center, 5), width=1) # circle
-            Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 2) # horizontal line
-            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 2) # vertical line
+            Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
+            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
             
 class MicroscopeSettings(BoxLayout):
 

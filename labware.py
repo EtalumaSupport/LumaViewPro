@@ -79,6 +79,7 @@ class WellPlate(LabWare):
         # j = (y - self.plate['offset']['y']) / self.plate['spacing']['y']
 
         i = round(i)
+        j = round(j)
         i = np.clip(i, 0, self.plate['columns']-1)
         j = np.clip(j, 0, self.plate['rows']-1)
         return i, j
