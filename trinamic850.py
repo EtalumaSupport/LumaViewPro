@@ -39,6 +39,7 @@ from mcp2210 import Mcp2210, Mcp2210GpioDesignation, Mcp2210GpioDirection
 import struct    # For making c style data structures, and send them through the mcp chip
 # import sched
 import threading
+import queue
 import time
 import os
 
@@ -64,7 +65,7 @@ class TrinamicBoard:
         'Z': 0x41,
         'T': 0x21
     }
-    write_actual = { # Added 0x80 to the address for write access
+    write_actual = { # Added 0x80 to the addressess for write access
         'X': 0xA1,
         'Y': 0xC1,
         'Z': 0xC1,
@@ -76,7 +77,7 @@ class TrinamicBoard:
         'Z': 0x4D,
         'T': 0x2D
     }
-    write_target = { # Added 0x80 to the address for write access
+    write_target = { # Added 0x80 to the addressess for write access
         'X': 0xAD,
         'Y': 0xCD,
         'Z': 0xCD,
@@ -135,22 +136,44 @@ class TrinamicBoard:
     #----------------------------------------------------------
     # Define SPI communication
     #----------------------------------------------------------
+    def SPI_put (self, pin: int, address: int, data: int):
+        if self.buffer == False:
+            self.buffer = queue.Queue(1024)  # could add buffer size to settings someday
+        
+        if self.buffer.full():
+           print("Trinamic SPI write buffer size is "+self.buffer.qsize()+" and is full.")
+           return
+        
+        self.buffer.put({
+                pin:     pin,
+                address: address,
+                data:    data
+            })
 
-    def SPI_write (self, pin_number: int, addr: int, data: int):
+
+    def SPI_get (self):
+        if self.buffer == False:
+            return
+        
+        cmd = self.buffer.get()
+        self.SPI_write(cmd.pin, cmd.address, cmd.data)
+
+
+    def SPI_write (self, pin: int, address: int, data: int):
         try:   
             # Set the correct pin as chip select. Only one chip select line at a time,
             # or else you will have data conflicts on receive.
-            self.chip.set_gpio_designation(pin_number, Mcp2210GpioDesignation.CHIP_SELECT)
+            self.chip.set_gpio_designation(pin, Mcp2210GpioDesignation.CHIP_SELECT)
 
-            # glue the address and data lines together.  make it big-endian.
-            tx_data = struct.pack('>BI', addr, data)
+            # glue the addressess and data lines together.  make it big-endian.
+            tx_data = struct.pack('>BI', address, data)
 
             # squirt the config word down to the correct chip,
             # put anything coming back from the previous write cycle into rx_data
-            rx_data = self.chip.spi_exchange(tx_data, cs_pin_number=pin_number)
+            rx_data = self.chip.spi_exchange(tx_data, cs_pin=pin)
 
             # turn the Chip Select pin back to a Tri-state input pin.
-            self.chip.set_gpio_designation(pin_number, Mcp2210GpioDesignation.GPIO)
+            self.chip.set_gpio_designation(pin, Mcp2210GpioDesignation.GPIO)
 
         except:
             self.message = 'TrinamicBoard.SPI_write() unsuccesful'
@@ -179,9 +202,9 @@ class TrinamicBoard:
                 for line in xyconfigFile:                           # go through each line of the config file
                     if 'writing' in line:                           # if the line has the word "writing" in it (all the right lines have this)
                         configLine = line.split()                   # split the line into an indexable list
-                        addr = int(0x80 | int(configLine[0], 16))   # take the address field, format it, add 80 to it (to make it a write operation to the trinamic chip), throw it into the 'address' variable
+                        address = int(0x80 | int(configLine[0], 16))   # take the addressess field, format it, add 80 to it (to make it a write operation to the trinamic chip), throw it into the 'addressess' variable
                         data = int(configLine[2], 16)               # take the data field, format it, and put it into the 'data' variable
-                        self.SPI_write(0, addr, data)                # call SPI Writer. right now were writing to chip 0
+                        self.SPI_write(0, address, data)                # call SPI Writer. right now were writing to chip 0
         except:
             print ("Unable to load parameters to XY motor driver from file xymotorconfig.ini")
         else:
@@ -193,9 +216,9 @@ class TrinamicBoard:
                 for line in ztconfigFile:
                     if 'writing' in line:
                         configLine = line.split()
-                        addr = int(0x80 | int(configLine[0], 16))
+                        address = int(0x80 | int(configLine[0], 16))
                         data = int(configLine[2], 16)
-                        self.SPI_write(1, addr, data)
+                        self.SPI_write(1, address, data)
         except:
             print ("Unable to load parameters to ZT motor driver from file ztmotorconfig.ini")
         else:
