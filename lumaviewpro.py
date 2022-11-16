@@ -2021,6 +2021,7 @@ class MicroscopeSettings(BoxLayout):
                     lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = settings[layer]['file_root']
                     lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
                     lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
+                    lumaview.ids['mainsettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
                 lumaview.camera.frame_size(settings['frame']['width'], settings['frame']['height'])
                 error_log(lumaview.camera.message)
@@ -2196,6 +2197,10 @@ class LayerControl(BoxLayout):
     def update_acquire(self):
         error_log('LayerControl.update_acquire()')
         settings[self.layer]['acquire'] = self.ids['acquire'].active
+
+    def update_autofocus(self):
+        error_log('LayerControl.update_autofocus()')
+        settings[self.layer]['autofocus'] = self.ids['autofocus'].active
 
     def save_focus(self):
         error_log('LayerControl.save_focus()')

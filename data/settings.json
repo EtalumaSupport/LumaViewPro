@@ -14,64 +14,62 @@
         "xy_course": 100.0,
         "ID": "60x"
     },
-
     "frame": {
-      "width": 1900,
-      "height": 1900
+        "width": 1900,
+        "height": 1900
     },
-
     "live_folder": "./capture",
     "bookmark": {
-      "x": 0,
-      "y": 0,
-      "z": 0
+        "x": 1000.0,
+        "y": 1000.0,
+        "z": 1000.0
     },
-
     "BF": {
         "save_folder": "./capture",
         "file_root": "W_",
-        "ill": 10.0,
-        "gain": 0.0,
+        "ill": 100.0,
+        "gain": 1.0,
         "gain_auto": false,
-        "exp": 40.0,
+        "exp": 30.0,
         "false_color": false,
         "acquire": true,
+        "autofocus": false,
         "focus": 1000.0
     },
-
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 150.0,
-        "gain": 4,
+        "ill": 100.0,
+        "gain": 1.2,
         "gain_auto": false,
-        "exp": 100,
-        "false_color": false,
+        "exp": 30.0,
+        "false_color": true,
         "acquire": true,
+        "autofocus": false,
         "focus": 1000.0
     },
-
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 150.0,
-        "gain": 4,
+        "ill": 100.0,
+        "gain": 1.0,
         "gain_auto": false,
-        "exp": 100,
-        "false_color": false,
+        "exp": 30.0,
+        "false_color": true,
         "acquire": true,
+        "autofocus": false,
         "focus": 1000.0
     },
-
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 150.0,
-        "gain": 4,
+        "ill": 100.0,
+        "gain": 1.0,
         "gain_auto": false,
-        "exp": 100,
-        "false_color": false,
+        "exp": 30.0,
+        "false_color": true,
         "acquire": true,
+        "autofocus": false,
         "focus": 1000.0
     },
     "zstack": {
@@ -79,12 +77,11 @@
         "range": 0,
         "position": "Current Position at Center"
     },
-    
     "protocol": {
         "save_folder": "./data",
         "file": "example_protocol.tsv",
         "period": 1.0,
         "duration": 1.0,
-        "labware": "Center Plate"
+        "labware": "12 well microplate"
     }
 }
