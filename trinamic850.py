@@ -65,7 +65,7 @@ class TrinamicBoard:
         'Z': 0x41,
         'T': 0x21
     }
-    write_actual = { # Added 0x80 to the addressess for write access
+    write_actual = { # Added 0x80 to the address for write access
         'X': 0xA1,
         'Y': 0xC1,
         'Z': 0xC1,
@@ -77,7 +77,7 @@ class TrinamicBoard:
         'Z': 0x4D,
         'T': 0x2D
     }
-    write_target = { # Added 0x80 to the addressess for write access
+    write_target = { # Added 0x80 to the address for write access
         'X': 0xAD,
         'Y': 0xCD,
         'Z': 0xCD,
@@ -165,12 +165,12 @@ class TrinamicBoard:
             # or else you will have data conflicts on receive.
             self.chip.set_gpio_designation(pin, Mcp2210GpioDesignation.CHIP_SELECT)
 
-            # glue the addressess and data lines together.  make it big-endian.
+            # glue the address and data lines together.  make it big-endian.
             tx_data = struct.pack('>BI', address, data)
 
             # squirt the config word down to the correct chip,
             # put anything coming back from the previous write cycle into rx_data
-            rx_data = self.chip.spi_exchange(tx_data, cs_pin=pin)
+            rx_data = self.chip.spi_exchange(tx_data, cs_pin_number=pin)
 
             # turn the Chip Select pin back to a Tri-state input pin.
             self.chip.set_gpio_designation(pin, Mcp2210GpioDesignation.GPIO)
@@ -202,7 +202,7 @@ class TrinamicBoard:
                 for line in xyconfigFile:                           # go through each line of the config file
                     if 'writing' in line:                           # if the line has the word "writing" in it (all the right lines have this)
                         configLine = line.split()                   # split the line into an indexable list
-                        address = int(0x80 | int(configLine[0], 16))   # take the addressess field, format it, add 80 to it (to make it a write operation to the trinamic chip), throw it into the 'addressess' variable
+                        address = int(0x80 | int(configLine[0], 16))   # take the address field, format it, add 80 to it (to make it a write operation to the trinamic chip), throw it into the 'address' variable
                         data = int(configLine[2], 16)               # take the data field, format it, and put it into the 'data' variable
                         self.SPI_write(0, address, data)                # call SPI Writer. right now were writing to chip 0
         except:
