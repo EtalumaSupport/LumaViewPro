@@ -1985,6 +1985,7 @@ class MicroscopeSettings(BoxLayout):
         except:
             error_log("Unable to open file "+filename)
             settings = []
+            
         else:
             try:
                 settings = json.load(read_file)
@@ -2500,7 +2501,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 10/26/2022')
+        error_log('Latest Code Change: 11/17/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
@@ -2511,10 +2512,13 @@ class LumaViewProApp(App):
 
         global lumaview
         lumaview = MainDisplay()
-        try:
+
+        if os.path.exists("./data/current.json"):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
-        except:
+        elif os.path.exists("./data/settings.json"):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
+        else:
+            print('No settings found.')
 
         try:
             folder = settings['protocol']['save_folder']

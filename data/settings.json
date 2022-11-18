@@ -39,10 +39,10 @@
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 100.0,
+        "ill": 30.0,
         "gain": 1.2,
         "gain_auto": false,
-        "exp": 30.0,
+        "exp": 100.0,
         "false_color": true,
         "acquire": true,
         "autofocus": false,
@@ -51,10 +51,10 @@
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 100.0,
-        "gain": 1.0,
+        "ill": 30.0,
+        "gain": 1.2,
         "gain_auto": false,
-        "exp": 30.0,
+        "exp": 100.0,
         "false_color": true,
         "acquire": true,
         "autofocus": false,
@@ -63,10 +63,10 @@
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 100.0,
-        "gain": 1.0,
+        "ill": 30.0,
+        "gain": 1.2,
         "gain_auto": false,
-        "exp": 30.0,
+        "exp": 100.0,
         "false_color": true,
         "acquire": true,
         "autofocus": false,
@@ -80,8 +80,8 @@
     "protocol": {
         "save_folder": "./data",
         "file": "example_protocol.tsv",
-        "period": 1.0,
-        "duration": 1.0,
+        "period": 0.1,
+        "duration": 0.1,
         "labware": "12 well microplate"
     }
 }
