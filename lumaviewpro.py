@@ -1420,7 +1420,13 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.led_board.ch2color(ch)
         layer  = lumaview.ids['mainsettings_id'].ids[ch]
 
-        # TODO: open accordian to correct channel or display channel in some way
+        # open MainSettings
+        lumaview.ids['mainsettings_id'].ids['toggle_mainsettings'].state = 'down'
+        lumaview.ids['mainsettings_id'].toggle_settings()
+        
+        # set accordion item to corresponding channel
+        id = ch + '_accordion'
+        lumaview.ids['mainsettings_id'].ids[id].collapse = False
 
         # set autofocus checkbox
         error_log('autofocus: ' + str(af))
