@@ -20,57 +20,57 @@
     },
     "live_folder": "./capture",
     "bookmark": {
-        "x": 1000.0,
-        "y": 1000.0,
-        "z": 1000.0
+        "x": 50000.0,
+        "y": 75000.0,
+        "z": 4950.0
     },
     "BF": {
         "save_folder": "./capture",
         "file_root": "W_",
+        "focus": 4950.0,
+        "autofocus": false,
+        "false_color": false,
         "ill": 100.0,
         "gain": 1.0,
-        "gain_auto": false,
+        "auto_gain": false,
         "exp": 30.0,
-        "false_color": false,
-        "acquire": true,
-        "autofocus": false,
-        "focus": 1000.0
+        "acquire": true
     },
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
+        "focus": 4950.0,
+        "autofocus": false,
+        "false_color": true,
         "ill": 30.0,
         "gain": 1.2,
-        "gain_auto": false,
+        "auto_gain": false,
         "exp": 100.0,
-        "false_color": true,
-        "acquire": true,
-        "autofocus": false,
-        "focus": 1000.0
+        "acquire": true
     },
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
+        "focus": 4950.0,
+        "autofocus": false,
+        "false_color": true,
         "ill": 30.0,
         "gain": 1.2,
-        "gain_auto": false,
+        "auto_gain": false,
         "exp": 100.0,
-        "false_color": true,
-        "acquire": true,
-        "autofocus": false,
-        "focus": 1000.0
+        "acquire": true
     },
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
+        "focus": 4950.0,
+        "autofocus": false,
+        "false_color": true,
         "ill": 30.0,
         "gain": 1.2,
-        "gain_auto": false,
+        "auto_gain": false,
         "exp": 100.0,
-        "false_color": true,
-        "acquire": true,
-        "autofocus": false,
-        "focus": 1000.0
+        "acquire": true
     },
     "zstack": {
         "step_size": 0,
@@ -80,8 +80,8 @@
     "protocol": {
         "save_folder": "./data",
         "file": "example_protocol.tsv",
-        "period": 0.1,
-        "duration": 0.1,
-        "labware": "12 well microplate"
+        "period": 1.2,
+        "duration": 1.2,
+        "labware": "96 well microplate"
     }
 }

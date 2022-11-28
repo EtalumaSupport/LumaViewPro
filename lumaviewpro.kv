@@ -1314,11 +1314,11 @@
 			width: '50dp'
 			text_size: self.size
 		CheckBox:
-			id: gain_auto
+			id: auto_gain
 			size_hint_x: None
 			width: '25dp'
 			active: False
-			on_release: root.gain_auto()
+			on_release: root.auto_gain()
 		ModSlider:
 			id: gain_slider # 0 to 24, default 0, based on camera limits
 			min: 0.
@@ -1513,7 +1513,7 @@
 			active: True
 			on_release: root.update_autofocus()
 		Label:
-			text: 'Autofocus'
+			text: 'Auto Focus'
 			font_size: '12sp'
 			halign: 'left'
 			valign: 'middle'

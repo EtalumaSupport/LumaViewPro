@@ -45,7 +45,7 @@ import time
 import json
 import glob
 import math
-import threading
+# import threading
 from plyer import filechooser
 # from scipy.optimized import curve_fit
 
@@ -1260,13 +1260,15 @@ class ProtocolSettings(CompositeCapture):
                     x = pos[0]
                     y = pos[1]
                     z = settings[layer]['focus']
+                    af = settings[layer]['autofocus']
                     ch = lumaview.led_board.color2ch(layer)
+                    fc = settings[layer]['false_color']
                     ill = settings[layer]['ill']
                     gain = settings[layer]['gain']
-                    gain_auto = int(settings[layer]['gain_auto'])
+                    auto_gain = int(settings[layer]['auto_gain'])
                     exp = settings[layer]['exp']
 
-                    self.step_values.append([x, y, z, ch, ill, gain, gain_auto, exp])
+                    self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp])
 
         self.step_values = np.array(self.step_values)
 
@@ -1336,17 +1338,19 @@ class ProtocolSettings(CompositeCapture):
         # Gather information
         period = settings['protocol']['period']
         duration = settings['protocol']['duration']
+        labware = settings['protocol']['labware'] 
         self.step_names
         self.step_values
 
-        # Write a CSV file
+        # Write a TSV file
         file_pointer = open(file, 'w')                      # open the file
         csvwriter = csv.writer(file_pointer, delimiter='\t', lineterminator='\n') # access the file using the CSV library
 
         csvwriter.writerow(['LumaViewPro Protocol'])
         csvwriter.writerow(['Period', period])
         csvwriter.writerow(['Duration', duration])
-        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+        csvwriter.writerow(['Labware', labware])
+        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
 
         for i in range(len(self.step_names)):
             c_name = self.step_names[i]
@@ -1356,7 +1360,7 @@ class ProtocolSettings(CompositeCapture):
             # write the row
             csvwriter.writerow(c_values)
 
-        # Write a CSV file
+        # Close the TSV file
         file_pointer.close()
 
     # Goto to Previous Step
@@ -1397,11 +1401,13 @@ class ProtocolSettings(CompositeCapture):
         x =         self.step_values[self.c_step, 0]
         y =         self.step_values[self.c_step, 1]
         z =         self.step_values[self.c_step, 2]
-        ch =        self.step_values[self.c_step, 3]
-        ill =       self.step_values[self.c_step, 4]
-        gain =      self.step_values[self.c_step, 5]
-        auto_gain = self.step_values[self.c_step, 6]
-        exp =       self.step_values[self.c_step, 7]
+        af =        self.step_values[self.c_step, 3]
+        ch =        self.step_values[self.c_step, 4]
+        fc =        self.step_values[self.c_step, 5]
+        ill =       self.step_values[self.c_step, 6]
+        gain =      self.step_values[self.c_step, 7]
+        auto_gain = self.step_values[self.c_step, 8]
+        exp =       self.step_values[self.c_step, 9]
 
         self.ids['step_name_input'].text = name
         lumaview.motion.move_abs_pos('X', x*1000)
@@ -1416,6 +1422,16 @@ class ProtocolSettings(CompositeCapture):
 
         # TODO: open accordian to correct channel or display channel in some way
 
+        # set autofocus checkbox
+        error_log('autofocus: ' + str(af))
+        settings[ch]['autofocus'] = bool(af)
+        layer.ids['autofocus'].active = bool(af)
+        
+        # set false_color checkbox
+        error_log('false_color: ' + str(fc))
+        settings[ch]['false_color'] = bool(fc)
+        layer.ids['false_color'].active = bool(fc)
+
         # set illumination settings, text, and slider
         error_log('ill:     ' + str(ill))
         settings[ch]['ill'] = ill
@@ -1428,16 +1444,17 @@ class ProtocolSettings(CompositeCapture):
         layer.ids['gain_text'].text = str(gain)
         layer.ids['gain_slider'].value = float(gain)
 
+        # set auto_gain checkbox
+        error_log('auto_gain: ' + str(auto_gain))
+        settings[ch]['auto_gain'] = bool(auto_gain)
+        layer.ids['auto_gain'].active = bool(auto_gain)
+
         # set exposure settings, text, and slider
         error_log('exp:       ' + str(exp))
         settings[ch]['exp'] = exp
         layer.ids['exp_text'].text = str(exp)
         layer.ids['exp_slider'].value = float(exp)
 
-        # set auto-gain checkbox
-        error_log('auto_gain: ' + str(auto_gain))
-        settings[ch]['gain_auto'] = bool(auto_gain)
-        layer.ids['gain_auto'].active = bool(auto_gain)
 
         for i in range(20):
             Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/4)
@@ -1484,11 +1501,13 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.led_board.color2ch(c_layer)
 
         layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
-        self.step_values[self.c_step, 3] = ch # ch
-        self.step_values[self.c_step, 4] = layer_id.ids['ill_slider'].value # ill
-        self.step_values[self.c_step, 5] = layer_id.ids['gain_slider'].value # gain
-        self.step_values[self.c_step, 6] = int(layer_id.ids['gain_auto'].active) # auto_gain
-        self.step_values[self.c_step, 7] = layer_id.ids['exp_slider'].value # exp
+        self.step_values[self.c_step, 3] = int(layer_id.ids['autofocus'].active) # autofocus
+        self.step_values[self.c_step, 4] = ch # channel
+        self.step_values[self.c_step, 5] = int(layer_id.ids['false_color'].active) # false color
+        self.step_values[self.c_step, 6] = layer_id.ids['ill_slider'].value # ill
+        self.step_values[self.c_step, 7] = layer_id.ids['gain_slider'].value # gain
+        self.step_values[self.c_step, 8] = int(layer_id.ids['auto_gain'].active) # auto_gain
+        self.step_values[self.c_step, 9] = layer_id.ids['exp_slider'].value # exp
 
     # Insert Current Step to Protocol at Current Position
     def add_step(self):
@@ -1511,14 +1530,16 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.led_board.color2ch(c_layer)
         layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
 
-        step = [lumaview.motion.current_pos('X')/1000, # x
-                lumaview.motion.current_pos('Y')/1000, # y
-                lumaview.motion.current_pos('Z'),      # z
-                ch, # ch 
-                layer_id.ids['ill_slider'].value, # ill
-                layer_id.ids['gain_slider'].value, # gain
-                int(layer_id.ids['gain_auto'].active), # auto_gain
-                layer_id.ids['exp_slider'].value, # exp
+        step = [lumaview.motion.current_pos('X')/1000,   # x
+                lumaview.motion.current_pos('Y')/1000,   # y
+                lumaview.motion.current_pos('Z'),        # z
+                int(layer_id.ids['autofocus'].active),   # autofocus
+                ch,                                      # ch 
+                int(layer_id.ids['false_color'].active), # false color
+                layer_id.ids['ill_slider'].value,        # ill
+                layer_id.ids['gain_slider'].value,       # gain
+                int(layer_id.ids['auto_gain'].active),   # auto_gain
+                layer_id.ids['exp_slider'].value,        # exp
         ]
 
         # Insert into List and Array
@@ -2137,13 +2158,13 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
-    def gain_auto(self):
-        error_log('LayerControl.gain_auto()')
-        if self.ids['gain_auto'].state == 'down':
+    def auto_gain(self):
+        error_log('LayerControl.auto_gain()')
+        if self.ids['auto_gain'].state == 'down':
             state = True
         else:
             state = False
-        settings[self.layer]['gain_auto'] = state
+        settings[self.layer]['auto_gain'] = state
         self.apply_settings()
 
     def gain_slider(self):
@@ -2249,7 +2270,7 @@ class LayerControl(BoxLayout):
 
         # update gain to currently selected settings
         # -----------------------------------------------------
-        state = settings[self.layer]['gain_auto']
+        state = settings[self.layer]['auto_gain']
         lumaview.camera.auto_gain(state)
         error_log(lumaview.camera.message)
 
@@ -2501,7 +2522,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 11/17/2022')
+        error_log('Latest Code Change: 11/27/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
