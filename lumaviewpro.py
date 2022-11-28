@@ -203,7 +203,7 @@ class CompositeCapture(FloatLayout):
         error_log(lumaview.camera.message)
         self.save_image(save_folder, file_root, append, color)
 
-    def custom_capture(self, channel, illumination, gain, exposure):
+    def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
         error_log('CompositeCapture.custom_capture()')
         global lumaview
         global settings
@@ -228,7 +228,11 @@ class CompositeCapture(FloatLayout):
         time.sleep(2*exposure/1000)
         lumaview.camera.grab()
         error_log(lumaview.camera.message)
-        self.save_image(save_folder, file_root, append, color)
+        
+        if false_color: 
+            self.save_image(save_folder, file_root, append, color)
+        else:
+            self.save_image(save_folder, file_root, append, 'BF')
 
         # Turn off LEDs
         lumaview.led_board.leds_off()
@@ -1763,18 +1767,18 @@ class ProtocolSettings(CompositeCapture):
             error_log('Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
-            af =        self.step_values[self.c_step, 3]
+            af =        self.step_values[self.c_step, 3] # TODO
             ch =        self.step_values[self.c_step, 4]
-            fc =        self.step_values[self.c_step, 5]
+            fc =        self.step_values[self.c_step, 5] # TODO
             ill =       self.step_values[self.c_step, 6]
             gain =      self.step_values[self.c_step, 7]
-            auto_gain = self.step_values[self.c_step, 8]
+            auto_gain = self.step_values[self.c_step, 8] # TODO
             exp =       self.step_values[self.c_step, 9]
             
             # TODO: Update display current capture
             
             # capture image
-            self.custom_capture(ch, ill, gain, exp)
+            self.custom_capture(ch, ill, gain, exp, bool(fc))
 
             # increment to the next step
             self.c_step += 1
