@@ -1763,12 +1763,14 @@ class ProtocolSettings(CompositeCapture):
             error_log('Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
-            ch =        self.step_values[self.c_step, 3]
-            ill =       self.step_values[self.c_step, 4]
-            gain =      self.step_values[self.c_step, 5]
-            auto_gain = self.step_values[self.c_step, 6]
-            exp =       self.step_values[self.c_step, 7]
-
+            af =        self.step_values[self.c_step, 3]
+            ch =        self.step_values[self.c_step, 4]
+            fc =        self.step_values[self.c_step, 5]
+            ill =       self.step_values[self.c_step, 6]
+            gain =      self.step_values[self.c_step, 7]
+            auto_gain = self.step_values[self.c_step, 8]
+            exp =       self.step_values[self.c_step, 9]
+            
             # TODO: Update display current capture
             
             # capture image
