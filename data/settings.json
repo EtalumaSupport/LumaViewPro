@@ -28,7 +28,7 @@
         "save_folder": "./capture",
         "file_root": "W_",
         "focus": 4950.0,
-        "autofocus": false,
+        "autofocus": true,
         "false_color": false,
         "ill": 100.0,
         "gain": 1.0,
@@ -54,7 +54,7 @@
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill": 30.0,
+        "ill": 60.0,
         "gain": 1.2,
         "auto_gain": false,
         "exp": 100.0,
@@ -78,11 +78,9 @@
         "position": "Current Position at Center"
     },
     "protocol": {
-        // "save_folder": "./data",
-        // "file": "example_protocol.tsv",
-        "filepath": "./data/example_protocol.tsv",
         "period": 1.2,
         "duration": 1.2,
-        "labware": "96 well microplate"
+        "labware": "96 well microplate",
+        "filepath": "./data/example_protocol.tsv"
     }
 }
