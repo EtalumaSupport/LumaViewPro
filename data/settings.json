@@ -78,8 +78,9 @@
         "position": "Current Position at Center"
     },
     "protocol": {
-        "save_folder": "./data",
-        "file": "example_protocol.tsv",
+        // "save_folder": "./data",
+        // "file": "example_protocol.tsv",
+        "filepath": "./data/example_protocol.tsv",
         "period": 1.2,
         "duration": 1.2,
         "labware": "96 well microplate"

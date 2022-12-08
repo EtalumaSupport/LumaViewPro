@@ -777,7 +777,7 @@
 			spacing: '5dp'
 
 		    Button:
-		        text: 'Generate'
+		        text: 'New'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
@@ -815,29 +815,65 @@
 				id: stage_widget_id
 				pos_hint:{'center_x':0.5, 'center_y':0.5}
 
-		# Edit and Verify Protocol
-	    Label:
-	        text: 'Edit and Verify Protocol'
-			font_size: '16sp'
+		# Protocol Name
+		BoxLayout:
+			orientation: 'horizontal'
 	        size_hint_y: None
 	        height: '30dp'
 			spacing: '5dp'
-			color: [51/255, 181/255, 229/255, 1]
 
-		TextInput:
-			id: step_name_input
-			text: ''
-			size_hint_y: None
-			height: '30dp'
-			font_size: '12sp'
-			halign: 'center'
-			multiline: False
+			Label:
+				text: 'Protocol'
+				size_hint_x: None
+				width: '75dp'
+				font_size: '12sp'
+
+			TextInput:
+				id: protocol_filename
+				text: ''
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				halign: 'center'
+				multiline: False
+				disabled: True
+				hint_text: 'Protocol Filename'
+			
+
+		# Step Name
+		BoxLayout:
+			orientation: 'horizontal'
+	        size_hint_y: None
+	        height: '30dp'
+			spacing: '5dp'
+
+			Label:
+				text: 'Step Name'
+				size_hint_x: None
+				width: '75dp'
+				font_size: '12sp'
+
+			TextInput:
+				id: step_name_input
+				text: ''
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				halign: 'center'
+				multiline: False
+				hint_text: 'Step Name'
 
 		BoxLayout:
 			orientation: 'horizontal'
 	        size_hint_y: None
 	        height: '30dp'
 			spacing: '5dp'
+			Label:
+				text: 'Step'
+				size_hint_x: None
+				width: '75dp'
+				font_size: '12sp'
+
 		    Button:
 				id: prev_step_btn
 				border: 0, 0, 0, 0
@@ -860,7 +896,7 @@
 		    Label:
 		        text: 'of'
 		        size_hint_x: None
-		        width: '30dp'
+		        width: '20dp'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
@@ -1557,6 +1593,7 @@
 			text: 'File Root'
 			padding: ['5dp', (self.height-self.line_height)/2]
 			on_text: root.root_text()
+			hint_text: 'Filename Root'
 
 	Label:
 

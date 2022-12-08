@@ -1290,11 +1290,11 @@ class ProtocolSettings(CompositeCapture):
         self.ids['stage_widget_id'].draw_labware()
 
     # Load Protocol from File
-    def load_protocol(self, file="./data/example_protocol.tsv"):
+    def load_protocol(self, filepath="./data/example_protocol.tsv"):
         error_log('ProtocolSettings.load_protocol()')
 
         # Load protocol
-        file_pointer = open(file, 'r')                      # open the file
+        file_pointer = open(filepath, 'r')                      # open the file
         csvreader = csv.reader(file_pointer, delimiter='\t') # access the file using the CSV library
         verify = next(csvreader)
         if not (verify[0] == 'LumaViewPro Protocol'):
@@ -1319,6 +1319,10 @@ class ProtocolSettings(CompositeCapture):
         self.step_values = np.array(self.step_values)
         self.step_values = self.step_values.astype(float)
 
+        # settings['protocol']['save_folder'] = ''
+        settings['protocol']['filepath'] = filepath
+        self.ids['protocol_filename'].text = os.path.basename(filepath)
+
         # Update GUI
         self.c_step = -1
         self.ids['step_number_input'].text = str(self.c_step+1)
@@ -1336,7 +1340,7 @@ class ProtocolSettings(CompositeCapture):
         self.ids['stage_widget_id'].draw_labware()
 
     # Save Protocol to File
-    def save_protocol(self, file='./data/example_protocol.tsv'):
+    def save_protocol(self, filepath='./data/example_protocol.tsv'):
         error_log('ProtocolSettings.save_protocol()')
 
         # Gather information
@@ -1345,9 +1349,11 @@ class ProtocolSettings(CompositeCapture):
         labware = settings['protocol']['labware'] 
         self.step_names
         self.step_values
+        settings['protocol']['filepath'] = filepath
+        self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         # Write a TSV file
-        file_pointer = open(file, 'w')                      # open the file
+        file_pointer = open(filepath, 'w')                      # open the file
         csvwriter = csv.writer(file_pointer, delimiter='\t', lineterminator='\n') # access the file using the CSV library
 
         csvwriter.writerow(['LumaViewPro Protocol'])
@@ -2444,7 +2450,7 @@ class FileChooseBTN(Button):
                 lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
 
             elif self.context == 'load_protocol':
-                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(file = self.selection[0])
+                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
         else:
             return
 
@@ -2518,7 +2524,7 @@ class FileSaveBTN(Button):
 
         elif self.context == 'saveas_protocol':
             if self.selection:
-                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(file = self.selection[0])
+                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
                 error_log('Saving Protocol to File:' + self.selection[0])
 
 
@@ -2554,9 +2560,8 @@ class LumaViewProApp(App):
             print('No settings found.')
 
         try:
-            folder = settings['protocol']['save_folder']
-            file = settings['protocol']['file']
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(file = folder+'/'+file)
+            filepath = settings['protocol']['filepath']
+            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
         except:
             error_log('Unable to load protocol at startup')
 
