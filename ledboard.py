@@ -9,10 +9,8 @@ class LEDBoard:
         self.message = 'LEDBoard.__init__()'
 
         for port in ports:
-            # print("vid ", port.vid, " pid ", port.pid)
-            #if (port.vid == 11914) and (port.pid == 5):
-            if (port.vid == 0x2E8A) and (port.pid == 0x0005):
-                print('LED Control Board v3 identified at', port.device)
+            if (port.vid == 0x0424) and (port.pid == 0x704C):
+                print('LED Controller at', port.device)
                 self.port = port.device
                 break
 
@@ -47,33 +45,33 @@ class LEDBoard:
             self.message = 'LEDBoard.connect() failed'
             print('LEDBoard.connect() succeeded')
             
-    def send_mssg(self, mssg):
-        stream = mssg.encode('utf-8')+b"\r\n"
+    def send_command(self, command):
+        stream = command.encode('utf-8')+b"\r\n"
         if self.driver != False:
             try:
                 self.driver.close()
                 self.driver.open()
                 self.driver.write(stream)
-                self.message = 'LEDBoard.send_mssg('+mssg+') succeeded'
-                # self.message = mssg
+                self.message = 'LEDBoard.send_command('+command+') succeeded'
+                # self.message = command
                 return True
             except serial.SerialTimeoutException:
-                self.message = 'LEDBoard.send_mssg('+mssg+') Serial Timeout Occurred'
+                self.message = 'LEDBoard.send_command('+command+') Serial Timeout Occurred'
                 return False
         else:
             self.connect()
             return False
 
-    def receive_mssg(self):
+    def receive_command(self):
         if self.driver != False:
             try:
                 self.driver.close()
                 self.driver.open()
                 stream = self.driver.readline()
-                mssg = stream.decode("utf-8","ignore")
-                return mssg[:-2]
+                command = stream.decode("utf-8","ignore")
+                return command[:-2]
             except serial.SerialTimeoutException:
-                self.message = 'LEDBoard.receive_mssg('+mssg+') Serial Timeout Occurred'
+                self.message = 'LEDBoard.receive_command('+command+') Serial Timeout Occurred'
 
     def color2ch(self, color):
         if color == 'Blue':
@@ -106,20 +104,20 @@ class LEDBoard:
 
     def leds_enable(self):
         command = 'LEDS_ENT'
-        self.send_mssg(command)
+        self.send_command(command)
 
     def leds_disable(self):
         command = 'LEDS_ENF'
-        self.send_mssg(command)
+        self.send_command(command)
 
     def led_on(self, channel, mA):
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
-        self.send_mssg(command)
+        self.send_command(command)
 
     def led_off(self, channel):
         command = 'LED' + str(int(channel)) + '_OFF'
-        self.send_mssg(command)
+        self.send_command(command)
 
     def leds_off(self):
         command = 'LEDS_OFF'
-        self.send_mssg(command)
+        self.send_command(command)

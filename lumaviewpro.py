@@ -903,7 +903,8 @@ class VerticalControl(BoxLayout):
         global lumaview
 
         # If the z-height has reached its target
-        if lumaview.motion.target_status('Z') and not lumaview.motion.overshoot:
+        # if lumaview.motion.target_status('Z') and not lumaview.motion.overshoot:
+        if lumaview.motion.target_status('Z'):
 
             # Wait two exposure lengths
             time.sleep(2*self.exposure/1000) # msec into sec
@@ -1769,7 +1770,8 @@ class ProtocolSettings(CompositeCapture):
         z_status = lumaview.motion.target_status('Z')
 
         # If target location has been reached
-        if x_status and y_status and z_status and not lumaview.motion.overshoot:
+        # if x_status and y_status and z_status and not lumaview.motion.overshoot:
+        if x_status and y_status and z_status:
             error_log('Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
@@ -2568,7 +2570,7 @@ class LumaViewProApp(App):
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.message)
-        lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
+        # lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
 
         return lumaview
 
