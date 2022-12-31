@@ -903,8 +903,8 @@ class VerticalControl(BoxLayout):
         global lumaview
 
         # If the z-height has reached its target
-        # if lumaview.motion.target_status('Z') and not lumaview.motion.overshoot:
-        if lumaview.motion.target_status('Z'):
+        if lumaview.motion.target_status('Z') and not lumaview.motion.overshoot:
+        # if lumaview.motion.target_status('Z'):
 
             # Wait two exposure lengths
             time.sleep(2*self.exposure/1000) # msec into sec
@@ -930,7 +930,7 @@ class VerticalControl(BoxLayout):
                 # Calculate new step size for resolution
                 AF_min = settings['objective']['AF_min']
                 prev_resolution = self.resolution
-                self.resolution = prev_resolution / 3 #*************************** SELECT DESIRED RESOLUTION FRACTION
+                self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
 
                 if self.resolution < AF_min:
                     self.resolution = AF_min
@@ -1770,8 +1770,8 @@ class ProtocolSettings(CompositeCapture):
         z_status = lumaview.motion.target_status('Z')
 
         # If target location has been reached
-        # if x_status and y_status and z_status and not lumaview.motion.overshoot:
-        if x_status and y_status and z_status:
+        if x_status and y_status and z_status and not lumaview.motion.overshoot:
+        # if x_status and y_status and z_status:
             error_log('Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
@@ -2542,7 +2542,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 11/27/2022')
+        error_log('Latest Code Change: 12/27/2022')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 

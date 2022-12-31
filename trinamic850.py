@@ -50,6 +50,8 @@ class TrinamicBoard:
         ports = list_ports.comports(include_links = True)
         self.message = 'TrinamicBoard.__init__()'
         self.found = False
+        self.overshoot = False
+        self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
@@ -250,6 +252,24 @@ class TrinamicBoard:
                 elif pos > 80000:
                     pos = 80000.
                 steps = self.xy_um2ustep(pos)
+
+            if axis=='Z': # perform overshoot to always come from one direction
+                # get current position
+                current = self.current_pos('Z')
+
+                # if the current position is above the new target position
+                if current > pos:
+                    # In process of overshoot
+                    self.overshoot = True
+                    # First overshoot downwards
+                    overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
+                    overshoot = max(1, overshoot)
+                    #self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
+                    self.move(axis, overshoot)
+                    while not self.target_status('Z'):
+                        time.sleep(0.001)
+                    # complete overshoot
+                    self.overshoot = False
 
             # TODO REMOVE this code block should no longer be nessesary
             #      and should be removed after testing
