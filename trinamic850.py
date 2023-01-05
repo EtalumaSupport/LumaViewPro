@@ -190,13 +190,19 @@ class TrinamicBoard:
         if self.found:
             self.exchange_command('THOME')
 
+    def tmove(self, degrees):
+        self.message = 'TrinamicBoard.thome()'
+        steps = self.t_deg2ustep(degrees)         
+        if self.found:
+            self.exchange_command('TMOVE' + steps)
+
     #----------------------------------------------------------
     # Motion Functions
     #----------------------------------------------------------
  
     def move(self, axis, steps):
         if steps < 0:
-            steps += 0x100000000 # twos
+            steps += 0x100000000 # twos compliment
         self.exchange_command('TARGET_W' + axis + str(steps))
 
     # Get target position
@@ -215,7 +221,7 @@ class TrinamicBoard:
             self.message = 'TrinamicBoard.target_pos('+axis+') inactive'            
             return 0
 
-    # Get current position
+    # Get current position (in um)
     def current_pos(self, axis):
         if self.found:
             pos = int( self.exchange_command('ACTUAL_R' + axis) )
@@ -270,12 +276,6 @@ class TrinamicBoard:
                         time.sleep(0.001)
                     # complete overshoot
                     self.overshoot = False
-
-            # TODO REMOVE this code block should no longer be nessesary
-            #      and should be removed after testing
-            # signed to unsigned 32_bit integer
-            if steps < 0:
-                steps = 0x100000000+steps
 
             self.move(axis, steps)
             self.message = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') succeeded'
