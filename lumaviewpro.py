@@ -50,8 +50,10 @@ from plyer import filechooser
 # from scipy.optimized import curve_fit
 
 # Profiling
-import cProfile
-import pstats
+profiling = False
+if profiling:
+    import cProfile
+    import pstats
 
 # Kivy
 import kivy
@@ -2535,8 +2537,9 @@ class FileSaveBTN(Button):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def on_start(self):
-        self.profile = cProfile.Profile()
-        self.profile.enable()
+        if profiling:
+            self.profile = cProfile.Profile()
+            self.profile.enable()
         Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
        
 
@@ -2581,11 +2584,12 @@ class LumaViewProApp(App):
 
     def on_stop(self):
         error_log('LumaViewProApp.on_stop()')
-        self.profile.disable()
-        self.profile.dump_stats('./logs/LumaViewProApp.profile')
-        stats = pstats.Stats('./logs/LumaViewProApp.profile')
-        stats.sort_stats('cumulative').print_stats(30)
-        stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
+        if profiling:
+            self.profile.disable()
+            self.profile.dump_stats('./logs/LumaViewProApp.profile')
+            stats = pstats.Stats('./logs/LumaViewProApp.profile')
+            stats.sort_stats('cumulative').print_stats(30)
+            stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
 
         global lumaview
         lumaview.led_board.leds_off()
