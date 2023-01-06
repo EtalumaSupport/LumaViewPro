@@ -28,8 +28,11 @@ class WellPlate(LabWare):
 
     def __init__(self, *arg):
         super(WellPlate, self).__init__()
-        self.stage_x = 0   # offset from stage to bottom right corner of well plate
-        self.stage_y = 0   # offset from stage to bottom right corner of well plate
+ 
+        # PLATE SPECIFIC
+        self.stage_x = 4.5-11.005 # offset from stage to bottom right corner of well plate
+        self.stage_y = 1.5-7.865  # offset from stage to bottom right corner of well plate
+
         self.plate = []    # All plate information from JSON file
         self.ind_list = [] # ordered list of all well indices 
         self.pos_list = [] # ordered list of all well positions
