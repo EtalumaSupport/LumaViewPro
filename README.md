@@ -24,18 +24,11 @@ Open a comand Prompt and enter the following
 python -m pip install --upgrade pip setuptools virtualenv
 python -m pip install numpy
 python -m pip install pyserial
-python -m pip install Pillow
 python -m pip install opencv-python
 python -m pip install pypylon
-python -m pip install docutils pygments pypiwin32
-python -m pip install kivy.deps.sdl2
-python -m pip install kivy.deps.glew
 python -m pip install kivy
 python -m pip install plyer
 python -m pip install scipy
-python -m pip install mcp2210-python
-python -m pip install pandas 
-python -m pip install pywinusb
 ```
 Go to the location of the LumaViewPro-master folder in the command prompt
 
