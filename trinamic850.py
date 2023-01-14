@@ -115,6 +115,20 @@ class TrinamicBoard:
             self.connect()
             return False
 
+    # Firmware 1-14-2023 commands include
+    # 'QUIT'
+    # 'INFO'
+    # 'HOME'
+    # 'ZHOME'
+    # 'THOME'
+    # 'ACTUAL_R'
+    # 'ACTUAL_W'
+    # 'TARGET_R'
+    # 'TARGET_W'
+    # 'STATUS_R'
+    # 'SPI'
+
+    
     # def SPI_put (self, pin: int, address: int, data: int):
     #     if self.buffer == False:
     #         self.buffer = queue.Queue(1024)  # could add buffer size to settings someday

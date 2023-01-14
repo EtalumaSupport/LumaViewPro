@@ -2579,7 +2579,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 1/9/2023')
+        error_log('Latest Code Change: 1/14/2023')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
@@ -2607,7 +2607,7 @@ class LumaViewProApp(App):
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
         lumaview.led_board.leds_off()
         error_log(lumaview.led_board.message)
-        # lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
+        lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
 
         return lumaview
 
