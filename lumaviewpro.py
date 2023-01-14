@@ -33,12 +33,11 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-October 5, 2022
+January 9, 2023
 '''
 
 # General
 import os
-from tracemalloc import StatisticDiff
 import numpy as np
 import csv
 import time
@@ -49,11 +48,11 @@ import math
 from plyer import filechooser
 # from scipy.optimized import curve_fit
 
-# Profiling
-profiling = False
-if profiling:
-    import cProfile
-    import pstats
+# # Profiling
+# profiling = False
+# if profiling:
+#     import cProfile
+#     import pstats
 
 # Kivy
 import kivy
@@ -226,11 +225,17 @@ class CompositeCapture(FloatLayout):
         lumaview.led_board.led_on(channel, illumination)
         error_log(lumaview.led_board.message)
 
+
+
+
         # Grab image and save
-        time.sleep(2*exposure/1000)
+        time.sleep(2*exposure/1000+0.1)
         lumaview.camera.grab()
         error_log(lumaview.camera.message)
-        
+
+
+
+
         if false_color: 
             self.save_image(save_folder, file_root, append, color)
         else:
@@ -319,14 +324,29 @@ class CompositeCapture(FloatLayout):
                 # Dark field capture
                 lumaview.led_board.leds_off()
                 error_log(lumaview.led_board.message)
+
+
+
                 time.sleep(2*exposure/1000)  # Should be replaced with Clock
                 scope_display.update()
                 darkfield = lumaview.camera.array
 
+
+
+
                 # Florescent capture
                 lumaview.led_board.led_on(lumaview.led_board.color2ch(layer), illumination)
                 error_log(lumaview.led_board.message)
+
+
+
+
+                time.sleep(2*exposure/1000)  # Should be replaced with Clock
                 lumaview.camera.grab()
+
+
+
+
                 error_log(lumaview.camera.message)
                 scope_display.update()
                 corrected = lumaview.camera.array - np.minimum(lumaview.camera.array,darkfield)
@@ -1182,12 +1202,26 @@ class XYStageControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
+    def calibrate_x(self):
+        error_log('XYStageControl.calibrate_x()')
+        global lumaview
+        x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
+        error_log(lumaview.motion.message)
+        settings['stage_offset']['x'] = x_pos
+        self.update_gui()
+
+    def calibrate_y(self):
+        error_log('XYStageControl.calibrate_y()')
+        global lumaview
+        y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
+        error_log(lumaview.motion.message)
+        settings['stage_offset']['y'] = y_pos
+        self.update_gui()
+
     def home(self):
         error_log('XYStageControl.home()')
         global lumaview
 
-        # self.go_home = threading.Thread(target=lumaview.motion.xyhome) # threaded to prevent freezing
-        # self.go_home.start()
         lumaview.motion.xyhome()
         self.ids['x_pos_id'].text = '0.00'
         self.ids['y_pos_id'].text = '0.00'
@@ -2537,15 +2571,15 @@ class FileSaveBTN(Button):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def on_start(self):
-        if profiling:
-            self.profile = cProfile.Profile()
-            self.profile.enable()
+        # if profiling:
+        #     self.profile = cProfile.Profile()
+        #     self.profile.enable()
         Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
        
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 12/27/2022')
+        error_log('Latest Code Change: 1/9/2023')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
@@ -2584,12 +2618,12 @@ class LumaViewProApp(App):
 
     def on_stop(self):
         error_log('LumaViewProApp.on_stop()')
-        if profiling:
-            self.profile.disable()
-            self.profile.dump_stats('./logs/LumaViewProApp.profile')
-            stats = pstats.Stats('./logs/LumaViewProApp.profile')
-            stats.sort_stats('cumulative').print_stats(30)
-            stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
+        # if profiling:
+        #     self.profile.disable()
+        #     self.profile.dump_stats('./logs/LumaViewProApp.profile')
+        #     stats = pstats.Stats('./logs/LumaViewProApp.profile')
+        #     stats.sort_stats('cumulative').print_stats(30)
+        #     stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
 
         global lumaview
         lumaview.led_board.leds_off()

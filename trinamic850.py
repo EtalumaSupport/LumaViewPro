@@ -192,9 +192,9 @@ class TrinamicBoard:
 
     def tmove(self, degrees):
         self.message = 'TrinamicBoard.thome()'
-        steps = self.t_deg2ustep(degrees)         
+        steps = self.t_deg2ustep(degrees)
         if self.found:
-            self.exchange_command('TMOVE' + steps)
+            self.move('T', steps)
 
     #----------------------------------------------------------
     # Motion Functions
