@@ -600,6 +600,11 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
+    def accordion_collapse(self):
+        error_log('MotionSettings.accordion_collapse()')
+        global lumaview
+        self.ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage()
+
 class PostProcessing(BoxLayout):
 
     def convert_to_avi(self):
@@ -821,10 +826,10 @@ class VerticalControl(BoxLayout):
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
-    def course_up(self):
-        error_log('VerticalControl.course_up()')
-        course = settings['objective']['z_course']
-        lumaview.motion.move_rel_pos('Z', course)                  # Move UP
+    def coarse_up(self):
+        error_log('VerticalControl.coarse_up()')
+        coarse = settings['objective']['z_coarse']
+        lumaview.motion.move_rel_pos('Z', coarse)                  # Move UP
         error_log(lumaview.motion.message)
         self.update_gui()
 
@@ -842,10 +847,10 @@ class VerticalControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_down(self):
-        error_log('VerticalControl.course_down()')
-        course = settings['objective']['z_course']
-        lumaview.motion.move_rel_pos('Z', -course)                 # Move DOWN
+    def coarse_down(self):
+        error_log('VerticalControl.coarse_down()')
+        coarse = settings['objective']['z_coarse']
+        lumaview.motion.move_rel_pos('Z', -coarse)                 # Move DOWN
         error_log(lumaview.motion.message)
         self.update_gui()
 
@@ -1116,17 +1121,17 @@ class XYStageControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_left(self):
-        error_log('XYStageControl.course_left()')
-        course = settings['objective']['xy_course']
-        lumaview.motion.move_rel_pos('X', -course)  # Move LEFT course step
+    def coarse_left(self):
+        error_log('XYStageControl.coarse_left()')
+        coarse = settings['objective']['xy_coarse']
+        lumaview.motion.move_rel_pos('X', -coarse)  # Move LEFT coarse step
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_right(self):
-        error_log('XYStageControl.course_right()')
-        course = settings['objective']['xy_course']
-        lumaview.motion.move_rel_pos('X', course)  # Move RIGHT
+    def coarse_right(self):
+        error_log('XYStageControl.coarse_right()')
+        coarse = settings['objective']['xy_coarse']
+        lumaview.motion.move_rel_pos('X', coarse)  # Move RIGHT
         error_log(lumaview.motion.message)
         self.update_gui()
 
@@ -1144,17 +1149,17 @@ class XYStageControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_back(self):
-        error_log('XYStageControl.course_back()')
-        course = settings['objective']['xy_course']
-        lumaview.motion.move_rel_pos('Y', -course)  # Move BACK
+    def coarse_back(self):
+        error_log('XYStageControl.coarse_back()')
+        coarse = settings['objective']['xy_coarse']
+        lumaview.motion.move_rel_pos('Y', -coarse)  # Move BACK
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_fwd(self):
-        error_log('XYStageControl.course_fwd()')
-        course = settings['objective']['xy_course']
-        lumaview.motion.move_rel_pos('Y', course)  # Move FORWARD 
+    def coarse_fwd(self):
+        error_log('XYStageControl.coarse_fwd()')
+        coarse = settings['objective']['xy_coarse']
+        lumaview.motion.move_rel_pos('Y', coarse)  # Move FORWARD 
         error_log(lumaview.motion.message)
         self.update_gui()
 
@@ -1202,19 +1207,13 @@ class XYStageControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def calibrate_x(self):
+    def calibrate(self):
         error_log('XYStageControl.calibrate_x()')
         global lumaview
         x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
-        error_log(lumaview.motion.message)
-        settings['stage_offset']['x'] = x_pos
-        self.update_gui()
-
-    def calibrate_y(self):
-        error_log('XYStageControl.calibrate_y()')
-        global lumaview
         y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
         error_log(lumaview.motion.message)
+        settings['stage_offset']['x'] = x_pos
         settings['stage_offset']['y'] = y_pos
         self.update_gui()
 
@@ -1946,64 +1945,6 @@ class Stage(Widget):
         current_labware.load_plate(settings['protocol']['labware'])
 
         self.canvas.clear()
-        r, b, g, a = (0.5, 0.5, 0.5, 0.5)
-
-        with self.canvas:
-            w = 12 * math.floor(self.width/12)
-            h = 12 * math.floor(self.height/12)
-            x = self.x + (self.width - w)/2
-            y = self.y + (self.height - h)/2
-            Color(r, b, g, a)
-            Rectangle(pos=(x, y), size=(w, h))
-
-            cols = current_labware.plate['columns']
-            rows = current_labware.plate['rows']
-            dx = w/cols # spacing in the x direction in pixels
-            dy = h/rows # spacing in the y direction in pixels
-            d = min(dx, dy)
-            dr = (dx-dy)/2 # half the difference in spacing in pixels
-            r = math.floor(d/2 - 0.5)
-
-            for i in range(cols):
-                for j in range(rows):
-                    if dr > 0:
-                        Line(circle=(x+dr+dx*i+r, y+dy*(rows-j-1)+r, r))
-                    else:
-                        Line(circle=(x+dr+dx*i+r, y+abs(dr)+dy*(rows-j-1)+r, r))
-
-            # Green Circle
-            x_target = lumaview.motion.target_pos('X')/1000
-            y_target = lumaview.motion.target_pos('Y')/1000
-            i, j = current_labware.get_well_index(x_target, y_target)
-            Color(0., 1., 0., 1.)
-            if dr > 0:
-                Line(circle=(x+dr+dx*i+r, y+dy*(rows-j-1)+r, r))
-            else:
-                Line(circle=(x+dr+dx*i+r, y+abs(dr)+dy*(rows-j-1)+r, r))
-           # Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
-
-            # Red Crosshairs
-            x_current = lumaview.motion.current_pos('X')/1000
-            y_current = lumaview.motion.current_pos('Y')/1000
-            i, j = current_labware.get_screen_position(x_current, y_current)
-
-            Color(1., 0., 0., 1.)
-            if dr > 0:
-                x_center = x + dr + dx*i + d/2 # on screen center
-                y_center = y + dy*(rows-j-1) + d/2 # on screen center
-            else:
-                x_center = x + dr + dx*i + d/2 # on screen center
-                y_center = y + abs(dr) + dy*(rows-j-1) + d/2 # on screen center
- 
-            # horizontal
-            Line(points=(x_center-d/2, y_center, x_center+d/2, y_center), width = 1)
-            # vertical
-            Line(points=(x_center, y_center-d/2, x_center, y_center+d/2), width = 1)
-
-    def draw_stage(self, *args):
-        
-        self.canvas.clear()
-        r, b, g, a = (0.5, 0.5, 0.5, 0.5)
 
         with self.canvas:
             w = self.width
@@ -2011,22 +1952,117 @@ class Stage(Widget):
             x = self.x
             y = self.y
 
-            Color(r, b, g, a)
-            Rectangle(pos=(x, y), size=(w, h))
+            # Get labware dimensions
+            x_max = current_labware.plate['dimensions']['x']
+            y_max = current_labware.plate['dimensions']['y']
 
-            #  Crosshairs
-            x_current = lumaview.motion.current_pos('X')/1000
-            y_current = lumaview.motion.current_pos('Y')/1000
-            x_max = 120
-            y_max = 80
-            x_center = x+x_current/x_max*w # on screen center
-            y_center = y+y_current/y_max*h # on screen center
+            # Stage Coordinates (120x80 mm)
+            stage_w = 120
+            stage_h = 80
+            stage_x = current_labware.stage_x
+            stage_y = current_labware.stage_y
+
+            # Outline of Stage Area from Above
+            Color(.2, .2, .2 , 0.5)                # dark grey
+            Rectangle(pos=(x+stage_x/x_max*w, y+stage_y/y_max*h),
+                           size=(stage_w/x_max*w, stage_h/y_max*h))
+
+            # Outline of Plate from Above
+            Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
+            Line(points=(x, y, x, y+h-15), width = 1)          # Left
+            Line(points=(x+w, y, x+w, y+h), width = 1)         # Right
+            Line(points=(x, y, x+w, y), width = 1)             # Bottom
+            Line(points=(x+15, y+h, x+w, y+h), width = 1)      # Top
+            Line(points=(x, y+h-15, x+15, y+h), width = 1)     # Diagonal
+
+            # Draw all wells
+            cols = current_labware.plate['columns']
+            rows = current_labware.plate['rows']
+
+            Color(0.4, 0.4, 0.4, 0.5)
+            rx = current_labware.plate['spacing']['x']
+            ry = current_labware.plate['spacing']['y']
+            for i in range(cols):
+                for j in range(rows):
+                    well_x, well_y = current_labware.get_plate_position(i, j)
+                    x_center = int(x+well_x/x_max*w) # on screen center
+                    y_center = int(y+well_y/y_max*h) # on screen center
+                    Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
+
+            # Green Circle
+            x_target = lumaview.motion.target_pos('X')/1000
+            y_target = lumaview.motion.target_pos('Y')/1000
+
+            i, j = current_labware.get_well_index(x_target, y_target)
+            well_x, well_y = current_labware.get_plate_position(i, j)
+
+            x_center = int(x+well_x/x_max*w) # on screen center
+            y_center = int(y+well_y/y_max*h) # on screen center
+
+            Color(0., 1., 0., 1.)
+            Line(circle=(x_center, y_center, rx))
+            
+            #  Red Crosshairs
+            x_current = lumaview.motion.current_pos('X')/1000 # mm
+            y_current = lumaview.motion.current_pos('Y')/1000 # mm
+
+            x_center = x + w - (stage_x/x_max*w+x_current/x_max*w) # on screen center
+            y_center = y +     (stage_y/y_max*h+y_current/y_max*h) # on screen center
 
             Color(1., 0., 0., 1.)
-            # Line(circle = (x_center, y_center, 5), width=1) # circle
             Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
             Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
-            
+
+    def draw_stage(self, *args):
+        
+        # Create current labware instance
+        os.chdir(home_wd)
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+
+        self.canvas.clear()
+
+        with self.canvas:
+            w = self.width
+            h = self.height
+            x = self.x
+            y = self.y
+
+            # Get labware dimensions
+            x_max = current_labware.plate['dimensions']['x']
+            y_max = current_labware.plate['dimensions']['y']
+
+            # Stage Coordinates (120x80 mm)
+            stage_w = 120
+            stage_h = 80
+            stage_x = x_max-stage_w-current_labware.stage_x
+            stage_y = y_max-stage_h-current_labware.stage_y
+
+            # Outline of Stage Area from Above
+            Color(.2, .2, .2 , 0.5)                # dark grey
+            Rectangle(pos=(x+stage_x/x_max*w, y+stage_y/y_max*h),
+                           size=(stage_w/x_max*w, stage_h/y_max*h))
+                           
+            # Outline from Below
+            Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
+            Line(points=(x, y, x, y+h), width = 1)             # Left
+            Line(points=(x+w, y, x+w, y+h-15), width = 1)      # Right
+            Line(points=(x, y, x+w, y), width = 1)             # Bottom
+            Line(points=(x, y+h, x+w-15, y+h), width = 1)      # Top
+            Line(points=(x+w-15, y+h, x+w, y+h-15), width = 1) # Diagonal
+
+            #  Crosshairs
+            x_current = lumaview.motion.current_pos('X')/1000 # mm
+            y_current = lumaview.motion.current_pos('Y')/1000 # mm
+
+            x_center = x+stage_x/x_max*w+x_current/x_max*w # on screen center
+            y_center = y+stage_y/y_max*h+y_current/y_max*h # on screen center
+
+            Color(1., 0., 0., 1.)
+            Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
+            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
+
+
 class MicroscopeSettings(BoxLayout):
 
     def __init__(self, **kwargs):

@@ -192,18 +192,22 @@
 		AccordionItem:
 			title: 'Focus'
             collapse: False
+			on_collapse: root.accordion_collapse()
 			VerticalControl:
 				id: verticalcontrol_id
 		AccordionItem:
 			title: 'XY Stage Control'
+			on_collapse: root.accordion_collapse()
 			XYStageControl:
 				id: xy_stagecontrol_id
 		AccordionItem:
 			title: 'Protocol'
+			on_collapse: root.accordion_collapse()
 			ProtocolSettings:
                 id: protocol_settings_id
 		AccordionItem:
 			title: 'Post Processing'
+			on_collapse: root.accordion_collapse()
 			PostProcessing:
                 id: post_processing_id
 
@@ -255,7 +259,7 @@
 		        size: '30dp', '40dp'
 				background_normal: './data/icons/UU_normal.png'
 				background_down: './data/icons/UU_down.png'
-				on_release: root.course_up()
+				on_release: root.coarse_up()
 		    Button:
 		        id: slow_up
 				border: 0, 0, 0, 0
@@ -279,7 +283,7 @@
 		        size: '30dp', '40dp'
 				background_normal: './data/icons/DD_normal.png'
 				background_down: './data/icons/DD_down.png'
-				on_release: root.course_down()
+				on_release: root.coarse_down()
 		    Label:
 
 		BoxLayout:
@@ -474,14 +478,23 @@
             size: self.size
             pos: self.pos
 
-	# HOME STAGE
-	Button: 
-		id: home_id
+	# HOME and CALIBRATE STAGE
+	BoxLayout:
+		orientation: 'horizontal'
 		size_hint_y: None
 		height: '30dp'
-		font_size: '12sp'
-		text: 'Home Stage'
-		on_release: root.home()
+		spacing: '5dp'
+
+		# HOME STAGE
+		Button: 
+			id: home_id
+			font_size: '12sp'
+			text: 'Home Stage'
+			on_release: root.home()
+		Button:
+			text: 'Calibrate'
+			font_size: '12dp'
+			on_release: root.calibrate()
 
 	# Two Columns for X and Y Directions
 	BoxLayout:
@@ -536,13 +549,13 @@
 				size_hint_y: None
 				height: '30dp'
 
-				Button: # COURSE LEFT
+				Button: # COARSE LEFT
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', '30dp'
 					background_normal: './data/icons/LL_normal.png'
 					background_down: './data/icons/LL_down.png'
-					on_release: root.course_left()
+					on_release: root.coarse_left()
 
 				Button: # FINE LEFT
 					id: slow_up
@@ -562,14 +575,14 @@
 					background_down: './data/icons/R_down.png'
 					on_release: root.fine_right()
 			
-				Button: # COURSE RIGHT
+				Button: # COARSE RIGHT
 					id: fast_down
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', '30dp'
 					background_normal: './data/icons/RR_normal.png'
 					background_down: './data/icons/RR_down.png'
-					on_release: root.course_right()
+					on_release: root.coarse_right()
 
 		# Y Direction Controls
 		BoxLayout:
@@ -617,35 +630,35 @@
 				size_hint_y: None
 				height: '30dp'
 
-				Button: # COURSE FORWARD
+				Button: # COARSE FORWARD
 					id: fast_down
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', ' 30dp'
 					background_normal: './data/icons/DD_normal.png'
 					background_down: './data/icons/DD_down.png'
-					on_release: root.course_fwd()
+					on_release: root.coarse_back()
 				Button: # FINE FORWARD
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '25dp', '30dp'
 					background_normal: './data/icons/D_normal.png'
 					background_down: './data/icons/D_down.png'
-					on_release: root.fine_fwd()
+					on_release: root.fine_back()
 				Button: # FINE BACK
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '25dp', '30dp'
 					background_normal: './data/icons/U_normal.png'
 					background_down: './data/icons/U_down.png'
-					on_release: root.fine_back()
-				Button: # COURSE BACK
+					on_release: root.fine_fwd()
+				Button: # COARSE BACK
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', '30dp'
 					background_normal: './data/icons/UU_normal.png'
 					background_down: './data/icons/UU_down.png'
-					on_release: root.course_back()
+					on_release: root.coarse_fwd()
 
 	# Select Labware
 	Spinner:
@@ -657,26 +670,6 @@
 		height: '30dp'
 		text_autoupdate: True
 		# on_text: root.select_labware()
-
-	# Two Columns for X and Y Directions
-	BoxLayout:
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
-		spacing: '5dp'
-
-		Button:
-			text: 'Calibrate X'
-			font_size: '12dp'
-			on_release: root.calibrate_x()
-		Button:
-			text: 'Calibrate Y'
-			font_size: '12dp'
-			on_release: root.calibrate_y()
-	# BoxLayout:
-	# 	size_hint_y: None
-	# 	height: '180dp'
-	# 	padding: '0dp'
 
 	# Stage Display
 	FloatLayout:
