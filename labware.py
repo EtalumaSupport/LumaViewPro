@@ -29,12 +29,6 @@ class WellPlate(LabWare):
     def __init__(self, *arg):
         super(WellPlate, self).__init__()
  
-        # SCOPE and PLATE SPECIFIC
-        # self.stage_x = 0 # offset from stage to bottom right corner of well plate
-        # self.stage_y = 0  # offset from stage to bottom right corner of well plate
-        self.stage_x = 11.005-7 # offset from stage to bottom right corner of well plate
-        self.stage_y = 7.865-5.5  # offset from stage to bottom right corner of well plate
-
         self.plate = []    # All plate information from JSON file
         self.ind_list = [] # ordered list of all well indices 
         self.pos_list = [] # ordered list of all well positions
@@ -62,20 +56,19 @@ class WellPlate(LabWare):
         self.pos_list = []
 
         for i in self.ind_list:
-            x, y = self.get_well_position(i[0], i[1])
+            x, y = self.get_plate_position(i[0], i[1])
             self.pos_list.append([x, y])
            
     # Figure out index of well based on stage position of xy
     def get_well_index(self, x, y):
 
-        sx = self.stage_x
+        sx = 0 # self.stage_x
         px = self.plate['dimensions']['x']
         ox = self.plate['offset']['x']
         dx = self.plate['spacing']['x']
-        # i = -(x+sx-px+ox)/dx
         i = (x+sx-ox)/dx
 
-        sy = self.stage_y
+        sy = 0 # self.stage_y
         py = self.plate['dimensions']['y']
         oy = self.plate['offset']['y']
         dy = self.plate['spacing']['y']
@@ -87,19 +80,7 @@ class WellPlate(LabWare):
         j = np.clip(j, 0, self.plate['rows']-1)
         return i, j
 
-    # Get well position relative to stage in mm given its index
-    def get_well_position(self, i, j):
-
-        x = self.plate['dimensions']['x'] - \
-            (self.plate['offset']['x'] + i*self.plate['spacing']['x']) - \
-            self.stage_x
-        y = self.plate['dimensions']['y'] - \
-            (self.plate['offset']['y'] + j*self.plate['spacing']['y']) -\
-            self.stage_y
-
-        return x, y
-
-    # Get well position relative to plate in mm given its index
+    # Get well position in mm given its index
     def get_plate_position(self, i, j):
 
         x = self.plate['dimensions']['x'] - \

@@ -1208,13 +1208,19 @@ class XYStageControl(BoxLayout):
         self.update_gui()
 
     def calibrate(self):
-        error_log('XYStageControl.calibrate_x()')
+        error_log('XYStageControl.calibrate()')
         global lumaview
         x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
         y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
         error_log(lumaview.motion.message)
-        settings['stage_offset']['x'] = x_pos
-        settings['stage_offset']['y'] = y_pos
+
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+        x_plate_offset = current_labware.plate['offset']['x']*1000
+        y_plate_offset = current_labware.plate['offset']['y']*1000
+
+        settings['stage_offset']['x'] = x_plate_offset-x_pos
+        settings['stage_offset']['y'] = y_plate_offset-y_pos
         self.update_gui()
 
     def home(self):
@@ -1297,8 +1303,8 @@ class ProtocolSettings(CompositeCapture):
             for layer in layers:
                 if settings[layer]['acquire'] == True:
 
-                    x = pos[0]
-                    y = pos[1]
+                    x = pos[0] - settings['stage_offset']['x']/1000
+                    y = pos[1] - settings['stage_offset']['y']/1000
                     z = settings[layer]['focus']
                     af = settings[layer]['autofocus']
                     ch = lumaview.led_board.color2ch(layer)
@@ -1959,8 +1965,11 @@ class Stage(Widget):
             # Stage Coordinates (120x80 mm)
             stage_w = 120
             stage_h = 80
-            stage_x = current_labware.stage_x
-            stage_y = current_labware.stage_y
+
+            offset_x = settings['stage_offset']['x']
+            offset_y = settings['stage_offset']['y']
+            stage_x = x_max-stage_w-offset_x/1000
+            stage_y = y_max-stage_h-offset_y/1000
 
             # Outline of Stage Area from Above
             Color(.2, .2, .2 , 0.5)                # dark grey
@@ -1984,16 +1993,18 @@ class Stage(Widget):
             ry = current_labware.plate['spacing']['y']
             for i in range(cols):
                 for j in range(rows):
+                    #  THIS ONE
                     well_x, well_y = current_labware.get_plate_position(i, j)
                     x_center = int(x+well_x/x_max*w) # on screen center
                     y_center = int(y+well_y/y_max*h) # on screen center
                     Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
 
             # Green Circle
-            x_target = lumaview.motion.target_pos('X')/1000
-            y_target = lumaview.motion.target_pos('Y')/1000
+            x_target = lumaview.motion.target_pos('X')
+            y_target = lumaview.motion.target_pos('Y')
 
-            i, j = current_labware.get_well_index(x_target, y_target)
+            i, j = current_labware.get_well_index((x_target+offset_x)/1000,
+                                                  (y_target+offset_y)/1000)
             well_x, well_y = current_labware.get_plate_position(i, j)
 
             x_center = int(x+well_x/x_max*w) # on screen center
@@ -2006,9 +2017,9 @@ class Stage(Widget):
             x_current = lumaview.motion.current_pos('X')/1000 # mm
             y_current = lumaview.motion.current_pos('Y')/1000 # mm
 
-            x_center = x + w - (stage_x/x_max*w+x_current/x_max*w) # on screen center
-            y_center = y +     (stage_y/y_max*h+y_current/y_max*h) # on screen center
-
+            x_center = x + w - (stage_x+x_current)/x_max*w # on screen center
+            y_center = y +     (stage_y+y_current)/y_max*h # on screen center
+ 
             Color(1., 0., 0., 1.)
             Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
             Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
@@ -2035,8 +2046,10 @@ class Stage(Widget):
             # Stage Coordinates (120x80 mm)
             stage_w = 120
             stage_h = 80
-            stage_x = x_max-stage_w-current_labware.stage_x
-            stage_y = y_max-stage_h-current_labware.stage_y
+            # stage_x = x_max-stage_w-settings['stage_offset']['x']/1000
+            # stage_y = y_max-stage_h-settings['stage_offset']['y']/1000
+            stage_x = settings['stage_offset']['x']/1000
+            stage_y = settings['stage_offset']['y']/1000
 
             # Outline of Stage Area from Above
             Color(.2, .2, .2 , 0.5)                # dark grey
