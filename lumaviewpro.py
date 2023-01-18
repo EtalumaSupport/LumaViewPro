@@ -1379,9 +1379,9 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['labware'] = labware
 
         # # Draw the Labware on Stage
-        # self.ids['labware_spinner'].text = settings['protocol']['labware']
         # self.ids['stage_widget_id'].draw_labware()
-
+        self.ids['labware_spinner'].text = settings['protocol']['labware']
+    
     # Save Protocol to File
     def save_protocol(self, filepath='./data/example_protocol.tsv'):
         error_log('ProtocolSettings.save_protocol()')
