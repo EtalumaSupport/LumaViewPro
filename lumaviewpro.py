@@ -1736,6 +1736,8 @@ class ProtocolSettings(CompositeCapture):
                 error_log('Autofocus Scan Complete')
                 self.ids['run_autofocus_btn'].state = 'normal'
                 self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+
+
                 error_log('Clock.unschedule(self.autofocus_scan_iterate)')
                 Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
 
@@ -1794,6 +1796,12 @@ class ProtocolSettings(CompositeCapture):
 
         else:  # self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
+
+            # toggle all LEDs AND TOGGLE BUTTONS ofF
+            lumaview.led_board.leds_off()
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
             error_log('Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
