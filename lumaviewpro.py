@@ -1280,8 +1280,8 @@ class ProtocolSettings(CompositeCapture):
         spinner.values = list(self.labware['Wellplate'].keys())
         settings['protocol']['labware'] = spinner.text
     
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
+        # # Draw the Labware on Stage
+        # self.ids['stage_widget_id'].draw_labware()
 
     # Create New Protocol
     def new_protocol(self):
@@ -1328,8 +1328,8 @@ class ProtocolSettings(CompositeCapture):
 
         self.step_names = [self.ids['step_name_input'].text] * length
 
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
+        # # Draw the Labware on Stage
+        # self.ids['stage_widget_id'].draw_labware()
 
     # Load Protocol from File
     def load_protocol(self, filepath="./data/example_protocol.tsv"):
@@ -1378,8 +1378,9 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['duration'] = duration
         settings['protocol']['labware'] = labware
 
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
+        # # Draw the Labware on Stage
+        # self.ids['labware_spinner'].text = settings['protocol']['labware']
+        # self.ids['stage_widget_id'].draw_labware()
 
     # Save Protocol to File
     def save_protocol(self, filepath='./data/example_protocol.tsv'):
@@ -1514,8 +1515,8 @@ class ProtocolSettings(CompositeCapture):
         layer.ids['exp_slider'].value = float(exp)
 
 
-        for i in range(20):
-            Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/4)
+        # for i in range(20):
+        #     Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/4)
 
     # Delete Current Step of Protocol
     def delete_step(self):
@@ -1671,8 +1672,8 @@ class ProtocolSettings(CompositeCapture):
             print('in autofocus')
             return
 
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
+        # # Draw the Labware on Stage
+        # self.ids['stage_widget_id'].draw_labware()
         self.ids['step_number_input'].text = str(self.c_step+1)
 
         # Check if at desired position
@@ -1801,8 +1802,8 @@ class ProtocolSettings(CompositeCapture):
         global lumaview
         global settings
 
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
+        # # Draw the Labware on Stage
+        # self.ids['stage_widget_id'].draw_labware()
         self.ids['step_number_input'].text = str(self.c_step+1)
 
         # Check if at desired position
@@ -1946,7 +1947,6 @@ class Stage(Widget):
         global settings
 
         # Create current labware instance
-        os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -2126,7 +2126,7 @@ class MicroscopeSettings(BoxLayout):
                 protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
                 protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
                 protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
-                protocol_settings.ids['stage_widget_id'].draw_labware()
+                protocol_settings.select_labware()
 
                 zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
                 zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
@@ -2623,8 +2623,8 @@ class LumaViewProApp(App):
         # if profiling:
         #     self.profile = cProfile.Profile()
         #     self.profile.enable()
-        Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
-       
+        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
+        pass
 
     def build(self):
         error_log('-----------------------------------------')
@@ -2646,6 +2646,12 @@ class LumaViewProApp(App):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
         else:
             print('No settings found.')
+        
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage, 0.1)
+
+        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 2)
+        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage, 2)
 
         try:
             filepath = settings['protocol']['filepath']
@@ -2662,7 +2668,8 @@ class LumaViewProApp(App):
 
     def _on_resize(self, window, w, h):
         Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
-        Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
+        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage, 0.1)
+        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
 
     def on_stop(self):
