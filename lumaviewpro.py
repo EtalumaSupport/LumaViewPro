@@ -1327,9 +1327,7 @@ class ProtocolSettings(CompositeCapture):
         self.ids['step_total_input'].text = str(length)
 
         self.step_names = [self.ids['step_name_input'].text] * length
-
-        # # Draw the Labware on Stage
-        # self.ids['stage_widget_id'].draw_labware()
+        self.ids['protocol_filename'].text = ''
 
     # Load Protocol from File
     def load_protocol(self, filepath="./data/example_protocol.tsv"):
@@ -1378,8 +1376,7 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['duration'] = duration
         settings['protocol']['labware'] = labware
 
-        # # Draw the Labware on Stage
-        # self.ids['stage_widget_id'].draw_labware()
+        # Update Labware Selection in Spinner
         self.ids['labware_spinner'].text = settings['protocol']['labware']
     
     # Save Protocol to File
@@ -1830,9 +1827,10 @@ class ProtocolSettings(CompositeCapture):
             fc =        self.step_values[self.c_step, 5] # TODO
             ill =       self.step_values[self.c_step, 6]
             gain =      self.step_values[self.c_step, 7]
-            auto_gain = self.step_values[self.c_step, 8] # TODO
+            auto_gain = self.step_values[self.c_step, 8]
             exp =       self.step_values[self.c_step, 9]
             
+            lumaview.camera.auto_gain(bool(auto_gain))
             # TODO: Update display current capture
             
             # capture image
@@ -2655,11 +2653,9 @@ class LumaViewProApp(App):
         else:
             print('No settings found.')
         
+        # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage, 0.1)
-
-        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 2)
-        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage, 2)
 
         try:
             filepath = settings['protocol']['filepath']
@@ -2676,8 +2672,6 @@ class LumaViewProApp(App):
 
     def _on_resize(self, window, w, h):
         Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
-        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage, 0.1)
-        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
 
     def on_stop(self):
