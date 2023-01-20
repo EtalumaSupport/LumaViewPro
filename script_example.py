@@ -5,6 +5,7 @@ To run, you will need to install the following packages:
     pyserial
     pypylon
     time
+    Pillow
 
 You will also need to install the camera driver from Basler
 
@@ -38,17 +39,17 @@ xyz.move_abs_pos('X', 5800)    # move to absolute position in um
 xyz.move_abs_pos('Y', 3500)    # move to absolute position in um
 xyz.move_abs_pos('Z', 3270)    # move to absolute position in um
 
-# ----------------------------------------------------
-# Controlling the Turret
-# ----------------------------------------------------
-xyz.thome()
-xyz.move_abs_pos('T', 30.000) # move to absolute position in deg
+# # ----------------------------------------------------
+# # Controlling the Turret
+# # ----------------------------------------------------
+# xyz.thome()
+# xyz.move_abs_pos('T', 30.000) # move to absolute position in deg
 
 # ----------------------------------------------------
 # Controlling the Camera
 # ----------------------------------------------------
 if cam.active:
-    # cam.frame_size(1900,1900)
+    cam.frame_size(1900,1900)
     
     for i in range(3):
         cam.grab()
