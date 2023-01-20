@@ -1,5 +1,9 @@
 {
     "microscope": "LS850",
+    "stage_offset": {
+        "x": 0.0,
+        "y": 0.0
+    },
     "objective": {
         "desc": "60x description",
         "magnification": 60,
@@ -9,9 +13,9 @@
         "AF_max": 6.0,
         "AF_range": 15.0,
         "z_fine": 0.2,
-        "z_course": 2.0,
+        "z_coarse": 2.0,
         "xy_fine": 10.0,
-        "xy_course": 100.0,
+        "xy_coarse": 100.0,
         "ID": "60x"
     },
     "frame": {
@@ -20,57 +24,57 @@
     },
     "live_folder": "./capture",
     "bookmark": {
-        "x": 1000.0,
-        "y": 1000.0,
-        "z": 1000.0
+        "x": 50000.0,
+        "y": 75000.0,
+        "z": 4950.0
     },
     "BF": {
         "save_folder": "./capture",
         "file_root": "W_",
+        "focus": 4950.0,
+        "autofocus": true,
+        "false_color": false,
         "ill": 100.0,
         "gain": 1.0,
-        "gain_auto": false,
+        "auto_gain": false,
         "exp": 30.0,
-        "false_color": false,
-        "acquire": true,
-        "autofocus": false,
-        "focus": 1000.0
+        "acquire": true
     },
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",
-        "ill": 100.0,
-        "gain": 1.2,
-        "gain_auto": false,
-        "exp": 30.0,
-        "false_color": true,
-        "acquire": true,
+        "focus": 4950.0,
         "autofocus": false,
-        "focus": 1000.0
+        "false_color": true,
+        "ill": 30.0,
+        "gain": 1.2,
+        "auto_gain": false,
+        "exp": 100.0,
+        "acquire": true
     },
     "Green": {
         "save_folder": "./capture",
         "file_root": "G_",
-        "ill": 100.0,
-        "gain": 1.0,
-        "gain_auto": false,
-        "exp": 30.0,
-        "false_color": true,
-        "acquire": true,
+        "focus": 4950.0,
         "autofocus": false,
-        "focus": 1000.0
+        "false_color": true,
+        "ill": 60.0,
+        "gain": 1.2,
+        "auto_gain": false,
+        "exp": 100.0,
+        "acquire": true
     },
     "Red": {
         "save_folder": "./capture",
         "file_root": "R_",
-        "ill": 100.0,
-        "gain": 1.0,
-        "gain_auto": false,
-        "exp": 30.0,
-        "false_color": true,
-        "acquire": true,
+        "focus": 4950.0,
         "autofocus": false,
-        "focus": 1000.0
+        "false_color": true,
+        "ill": 30.0,
+        "gain": 1.2,
+        "auto_gain": false,
+        "exp": 100.0,
+        "acquire": true
     },
     "zstack": {
         "step_size": 0,
@@ -78,10 +82,9 @@
         "position": "Current Position at Center"
     },
     "protocol": {
-        "save_folder": "./data",
-        "file": "example_protocol.tsv",
-        "period": 1.0,
-        "duration": 1.0,
-        "labware": "12 well microplate"
+        "period": 1.2,
+        "duration": 1.2,
+        "labware": "96 well microplate",
+        "filepath": "./data/example_protocol.tsv"
     }
 }

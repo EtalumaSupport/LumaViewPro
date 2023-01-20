@@ -8,9 +8,9 @@
       "AF_max": 72.0,
       "AF_range": 150.0,
       "z_fine": 27.75,
-      "z_course": 277.5,
-      "xy_fine": 10.0,
-      "xy_course": 100.0
+      "z_coarse": 277.5,
+      "xy_fine": 100.0,
+      "xy_coarse": 1000.0
   },
   "4x other": {
       "desc": "4x description",
@@ -21,9 +21,9 @@
       "AF_max": 72.0,
       "AF_range": 150.0,
       "z_fine": 27.75,
-      "z_course": 277.5,
-      "xy_fine": 10.0,
-      "xy_course": 100.0
+      "z_coarse": 277.5,
+      "xy_fine": 100.0,
+      "xy_coarse": 1000.0
   },
     "10x": {
         "desc": "10x description",
@@ -34,9 +34,9 @@
         "AF_max": 36.0,
         "AF_range": 75.0,
         "z_fine": 4.25,
-        "z_course": 42.5,
-        "xy_fine": 10.0,
-        "xy_course": 100.0
+        "z_coarse": 42.5,
+        "xy_fine": 40.0,
+        "xy_coarse": 400.0
     },
     "20x": {
         "desc": "20x description",
@@ -47,9 +47,9 @@
         "AF_max": 18.0,
         "AF_range": 40.0,
         "z_fine": 2.9,
-        "z_course": 29.0,
-        "xy_fine": 10.0,
-        "xy_course": 100.0
+        "z_coarse": 29.0,
+        "xy_fine": 20.0,
+        "xy_coarse": 200.0
     },
     "40x": {
         "desc": "40x description",
@@ -60,9 +60,9 @@
         "AF_max": 9.0,
         "AF_range": 20.0,
         "z_fine": 0.5,
-        "z_course": 5.0,
+        "z_coarse": 5.0,
         "xy_fine": 10.0,
-        "xy_course": 100.0
+        "xy_coarse": 100.0
     },
     "60x": {
         "desc": "60x description",
@@ -73,9 +73,9 @@
         "AF_max": 6.0,
         "AF_range": 15.0,
         "z_fine": 0.2,
-        "z_course": 2.0,
-        "xy_fine": 10.0,
-        "xy_course": 100.0
+        "z_coarse": 2.0,
+        "xy_fine": 5.0,
+        "xy_coarse": 50.0
     },
     "100x": {
         "desc": "100x description",
@@ -86,8 +86,8 @@
         "AF_max": 4.0,
         "AF_range": 10.0,
         "z_fine": 0.11,
-        "z_course": 1.1,
-        "xy_fine": 10.0,
-        "xy_course": 100.0
+        "z_coarse": 1.1,
+        "xy_fine": 2.0,
+        "xy_coarse": 20.0
     }
 }

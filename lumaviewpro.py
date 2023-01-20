@@ -33,25 +33,26 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-October 5, 2022
+January 9, 2023
 '''
 
 # General
 import os
-from tracemalloc import StatisticDiff
 import numpy as np
 import csv
 import time
 import json
 import glob
 import math
-import threading
+# import threading
 from plyer import filechooser
 # from scipy.optimized import curve_fit
 
-# Profiling
-import cProfile
-import pstats
+# # Profiling
+# profiling = False
+# if profiling:
+#     import cProfile
+#     import pstats
 
 # Kivy
 import kivy
@@ -203,7 +204,7 @@ class CompositeCapture(FloatLayout):
         error_log(lumaview.camera.message)
         self.save_image(save_folder, file_root, append, color)
 
-    def custom_capture(self, channel, illumination, gain, exposure):
+    def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
         error_log('CompositeCapture.custom_capture()')
         global lumaview
         global settings
@@ -224,11 +225,21 @@ class CompositeCapture(FloatLayout):
         lumaview.led_board.led_on(channel, illumination)
         error_log(lumaview.led_board.message)
 
+
+
+
         # Grab image and save
-        time.sleep(2*exposure/1000)
+        time.sleep(2*exposure/1000+0.1)
         lumaview.camera.grab()
         error_log(lumaview.camera.message)
-        self.save_image(save_folder, file_root, append, color)
+
+
+
+
+        if false_color: 
+            self.save_image(save_folder, file_root, append, color)
+        else:
+            self.save_image(save_folder, file_root, append, 'BF')
 
         # Turn off LEDs
         lumaview.led_board.leds_off()
@@ -313,14 +324,29 @@ class CompositeCapture(FloatLayout):
                 # Dark field capture
                 lumaview.led_board.leds_off()
                 error_log(lumaview.led_board.message)
+
+
+
                 time.sleep(2*exposure/1000)  # Should be replaced with Clock
                 scope_display.update()
                 darkfield = lumaview.camera.array
 
+
+
+
                 # Florescent capture
                 lumaview.led_board.led_on(lumaview.led_board.color2ch(layer), illumination)
                 error_log(lumaview.led_board.message)
+
+
+
+
+                time.sleep(2*exposure/1000)  # Should be replaced with Clock
                 lumaview.camera.grab()
+
+
+
+
                 error_log(lumaview.camera.message)
                 scope_display.update()
                 corrected = lumaview.camera.array - np.minimum(lumaview.camera.array,darkfield)
@@ -574,6 +600,11 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
+    def accordion_collapse(self):
+        error_log('MotionSettings.accordion_collapse()')
+        global lumaview
+        self.ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage()
+
 class PostProcessing(BoxLayout):
 
     def convert_to_avi(self):
@@ -795,10 +826,10 @@ class VerticalControl(BoxLayout):
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
-    def course_up(self):
-        error_log('VerticalControl.course_up()')
-        course = settings['objective']['z_course']
-        lumaview.motion.move_rel_pos('Z', course)                  # Move UP
+    def coarse_up(self):
+        error_log('VerticalControl.coarse_up()')
+        coarse = settings['objective']['z_coarse']
+        lumaview.motion.move_rel_pos('Z', coarse)                  # Move UP
         error_log(lumaview.motion.message)
         self.update_gui()
 
@@ -816,10 +847,10 @@ class VerticalControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_down(self):
-        error_log('VerticalControl.course_down()')
-        course = settings['objective']['z_course']
-        lumaview.motion.move_rel_pos('Z', -course)                 # Move DOWN
+    def coarse_down(self):
+        error_log('VerticalControl.coarse_down()')
+        coarse = settings['objective']['z_coarse']
+        lumaview.motion.move_rel_pos('Z', -coarse)                 # Move DOWN
         error_log(lumaview.motion.message)
         self.update_gui()
 
@@ -900,6 +931,7 @@ class VerticalControl(BoxLayout):
 
         # If the z-height has reached its target
         if lumaview.motion.target_status('Z') and not lumaview.motion.overshoot:
+        # if lumaview.motion.target_status('Z'):
 
             # Wait two exposure lengths
             time.sleep(2*self.exposure/1000) # msec into sec
@@ -925,7 +957,7 @@ class VerticalControl(BoxLayout):
                 # Calculate new step size for resolution
                 AF_min = settings['objective']['AF_min']
                 prev_resolution = self.resolution
-                self.resolution = prev_resolution / 3 #*************************** SELECT DESIRED RESOLUTION FRACTION
+                self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
 
                 if self.resolution < AF_min:
                     self.resolution = AF_min
@@ -1089,17 +1121,17 @@ class XYStageControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_left(self):
-        error_log('XYStageControl.course_left()')
-        course = settings['objective']['xy_course']
-        lumaview.motion.move_rel_pos('X', -course)  # Move LEFT course step
+    def coarse_left(self):
+        error_log('XYStageControl.coarse_left()')
+        coarse = settings['objective']['xy_coarse']
+        lumaview.motion.move_rel_pos('X', -coarse)  # Move LEFT coarse step
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_right(self):
-        error_log('XYStageControl.course_right()')
-        course = settings['objective']['xy_course']
-        lumaview.motion.move_rel_pos('X', course)  # Move RIGHT
+    def coarse_right(self):
+        error_log('XYStageControl.coarse_right()')
+        coarse = settings['objective']['xy_coarse']
+        lumaview.motion.move_rel_pos('X', coarse)  # Move RIGHT
         error_log(lumaview.motion.message)
         self.update_gui()
 
@@ -1117,17 +1149,17 @@ class XYStageControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_back(self):
-        error_log('XYStageControl.course_back()')
-        course = settings['objective']['xy_course']
-        lumaview.motion.move_rel_pos('Y', -course)  # Move BACK
+    def coarse_back(self):
+        error_log('XYStageControl.coarse_back()')
+        coarse = settings['objective']['xy_coarse']
+        lumaview.motion.move_rel_pos('Y', -coarse)  # Move BACK
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def course_fwd(self):
-        error_log('XYStageControl.course_fwd()')
-        course = settings['objective']['xy_course']
-        lumaview.motion.move_rel_pos('Y', course)  # Move FORWARD 
+    def coarse_fwd(self):
+        error_log('XYStageControl.coarse_fwd()')
+        coarse = settings['objective']['xy_coarse']
+        lumaview.motion.move_rel_pos('Y', coarse)  # Move FORWARD 
         error_log(lumaview.motion.message)
         self.update_gui()
 
@@ -1175,12 +1207,26 @@ class XYStageControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
+    def calibrate(self):
+        error_log('XYStageControl.calibrate()')
+        global lumaview
+        x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
+        y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
+        error_log(lumaview.motion.message)
+
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+        x_plate_offset = current_labware.plate['offset']['x']*1000
+        y_plate_offset = current_labware.plate['offset']['y']*1000
+
+        settings['stage_offset']['x'] = x_plate_offset-x_pos
+        settings['stage_offset']['y'] = y_plate_offset-y_pos
+        self.update_gui()
+
     def home(self):
         error_log('XYStageControl.home()')
         global lumaview
 
-        # self.go_home = threading.Thread(target=lumaview.motion.xyhome) # threaded to prevent freezing
-        # self.go_home.start()
         lumaview.motion.xyhome()
         self.ids['x_pos_id'].text = '0.00'
         self.ids['y_pos_id'].text = '0.00'
@@ -1234,8 +1280,8 @@ class ProtocolSettings(CompositeCapture):
         spinner.values = list(self.labware['Wellplate'].keys())
         settings['protocol']['labware'] = spinner.text
     
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
+        # # Draw the Labware on Stage
+        # self.ids['stage_widget_id'].draw_labware()
 
     # Create New Protocol
     def new_protocol(self):
@@ -1257,16 +1303,18 @@ class ProtocolSettings(CompositeCapture):
             for layer in layers:
                 if settings[layer]['acquire'] == True:
 
-                    x = pos[0]
-                    y = pos[1]
+                    x = pos[0] - settings['stage_offset']['x']/1000
+                    y = pos[1] - settings['stage_offset']['y']/1000
                     z = settings[layer]['focus']
+                    af = settings[layer]['autofocus']
                     ch = lumaview.led_board.color2ch(layer)
+                    fc = settings[layer]['false_color']
                     ill = settings[layer]['ill']
                     gain = settings[layer]['gain']
-                    gain_auto = int(settings[layer]['gain_auto'])
+                    auto_gain = int(settings[layer]['auto_gain'])
                     exp = settings[layer]['exp']
 
-                    self.step_values.append([x, y, z, ch, ill, gain, gain_auto, exp])
+                    self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp])
 
         self.step_values = np.array(self.step_values)
 
@@ -1279,16 +1327,14 @@ class ProtocolSettings(CompositeCapture):
         self.ids['step_total_input'].text = str(length)
 
         self.step_names = [self.ids['step_name_input'].text] * length
-
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
+        self.ids['protocol_filename'].text = ''
 
     # Load Protocol from File
-    def load_protocol(self, file="./data/example_protocol.tsv"):
+    def load_protocol(self, filepath="./data/example_protocol.tsv"):
         error_log('ProtocolSettings.load_protocol()')
 
         # Load protocol
-        file_pointer = open(file, 'r')                      # open the file
+        file_pointer = open(filepath, 'r')                      # open the file
         csvreader = csv.reader(file_pointer, delimiter='\t') # access the file using the CSV library
         verify = next(csvreader)
         if not (verify[0] == 'LumaViewPro Protocol'):
@@ -1313,6 +1359,10 @@ class ProtocolSettings(CompositeCapture):
         self.step_values = np.array(self.step_values)
         self.step_values = self.step_values.astype(float)
 
+        # settings['protocol']['save_folder'] = ''
+        settings['protocol']['filepath'] = filepath
+        self.ids['protocol_filename'].text = os.path.basename(filepath)
+
         # Update GUI
         self.c_step = -1
         self.ids['step_number_input'].text = str(self.c_step+1)
@@ -1326,27 +1376,31 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['duration'] = duration
         settings['protocol']['labware'] = labware
 
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
-
+        # Update Labware Selection in Spinner
+        self.ids['labware_spinner'].text = settings['protocol']['labware']
+    
     # Save Protocol to File
-    def save_protocol(self, file='./data/example_protocol.tsv'):
+    def save_protocol(self, filepath='./data/example_protocol.tsv'):
         error_log('ProtocolSettings.save_protocol()')
 
         # Gather information
         period = settings['protocol']['period']
         duration = settings['protocol']['duration']
+        labware = settings['protocol']['labware'] 
         self.step_names
         self.step_values
+        settings['protocol']['filepath'] = filepath
+        self.ids['protocol_filename'].text = os.path.basename(filepath)
 
-        # Write a CSV file
-        file_pointer = open(file, 'w')                      # open the file
+        # Write a TSV file
+        file_pointer = open(filepath, 'w')                      # open the file
         csvwriter = csv.writer(file_pointer, delimiter='\t', lineterminator='\n') # access the file using the CSV library
 
         csvwriter.writerow(['LumaViewPro Protocol'])
         csvwriter.writerow(['Period', period])
         csvwriter.writerow(['Duration', duration])
-        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Channel', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+        csvwriter.writerow(['Labware', labware])
+        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
 
         for i in range(len(self.step_names)):
             c_name = self.step_names[i]
@@ -1356,7 +1410,7 @@ class ProtocolSettings(CompositeCapture):
             # write the row
             csvwriter.writerow(c_values)
 
-        # Write a CSV file
+        # Close the TSV file
         file_pointer.close()
 
     # Goto to Previous Step
@@ -1397,11 +1451,13 @@ class ProtocolSettings(CompositeCapture):
         x =         self.step_values[self.c_step, 0]
         y =         self.step_values[self.c_step, 1]
         z =         self.step_values[self.c_step, 2]
-        ch =        self.step_values[self.c_step, 3]
-        ill =       self.step_values[self.c_step, 4]
-        gain =      self.step_values[self.c_step, 5]
-        auto_gain = self.step_values[self.c_step, 6]
-        exp =       self.step_values[self.c_step, 7]
+        af =        self.step_values[self.c_step, 3]
+        ch =        self.step_values[self.c_step, 4]
+        fc =        self.step_values[self.c_step, 5]
+        ill =       self.step_values[self.c_step, 6]
+        gain =      self.step_values[self.c_step, 7]
+        auto_gain = self.step_values[self.c_step, 8]
+        exp =       self.step_values[self.c_step, 9]
 
         self.ids['step_name_input'].text = name
         lumaview.motion.move_abs_pos('X', x*1000)
@@ -1414,7 +1470,23 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.led_board.ch2color(ch)
         layer  = lumaview.ids['mainsettings_id'].ids[ch]
 
-        # TODO: open accordian to correct channel or display channel in some way
+        # open MainSettings
+        lumaview.ids['mainsettings_id'].ids['toggle_mainsettings'].state = 'down'
+        lumaview.ids['mainsettings_id'].toggle_settings()
+        
+        # set accordion item to corresponding channel
+        id = ch + '_accordion'
+        lumaview.ids['mainsettings_id'].ids[id].collapse = False
+
+        # set autofocus checkbox
+        error_log('autofocus: ' + str(af))
+        settings[ch]['autofocus'] = bool(af)
+        layer.ids['autofocus'].active = bool(af)
+        
+        # set false_color checkbox
+        error_log('false_color: ' + str(fc))
+        settings[ch]['false_color'] = bool(fc)
+        layer.ids['false_color'].active = bool(fc)
 
         # set illumination settings, text, and slider
         error_log('ill:     ' + str(ill))
@@ -1428,19 +1500,20 @@ class ProtocolSettings(CompositeCapture):
         layer.ids['gain_text'].text = str(gain)
         layer.ids['gain_slider'].value = float(gain)
 
+        # set auto_gain checkbox
+        error_log('auto_gain: ' + str(auto_gain))
+        settings[ch]['auto_gain'] = bool(auto_gain)
+        layer.ids['auto_gain'].active = bool(auto_gain)
+
         # set exposure settings, text, and slider
         error_log('exp:       ' + str(exp))
         settings[ch]['exp'] = exp
         layer.ids['exp_text'].text = str(exp)
         layer.ids['exp_slider'].value = float(exp)
 
-        # set auto-gain checkbox
-        error_log('auto_gain: ' + str(auto_gain))
-        settings[ch]['gain_auto'] = bool(auto_gain)
-        layer.ids['gain_auto'].active = bool(auto_gain)
 
-        for i in range(20):
-            Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/4)
+        # for i in range(20):
+        #     Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/4)
 
     # Delete Current Step of Protocol
     def delete_step(self):
@@ -1484,11 +1557,13 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.led_board.color2ch(c_layer)
 
         layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
-        self.step_values[self.c_step, 3] = ch # ch
-        self.step_values[self.c_step, 4] = layer_id.ids['ill_slider'].value # ill
-        self.step_values[self.c_step, 5] = layer_id.ids['gain_slider'].value # gain
-        self.step_values[self.c_step, 6] = int(layer_id.ids['gain_auto'].active) # auto_gain
-        self.step_values[self.c_step, 7] = layer_id.ids['exp_slider'].value # exp
+        self.step_values[self.c_step, 3] = int(layer_id.ids['autofocus'].active) # autofocus
+        self.step_values[self.c_step, 4] = ch # channel
+        self.step_values[self.c_step, 5] = int(layer_id.ids['false_color'].active) # false color
+        self.step_values[self.c_step, 6] = layer_id.ids['ill_slider'].value # ill
+        self.step_values[self.c_step, 7] = layer_id.ids['gain_slider'].value # gain
+        self.step_values[self.c_step, 8] = int(layer_id.ids['auto_gain'].active) # auto_gain
+        self.step_values[self.c_step, 9] = layer_id.ids['exp_slider'].value # exp
 
     # Insert Current Step to Protocol at Current Position
     def add_step(self):
@@ -1511,14 +1586,16 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.led_board.color2ch(c_layer)
         layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
 
-        step = [lumaview.motion.current_pos('X')/1000, # x
-                lumaview.motion.current_pos('Y')/1000, # y
-                lumaview.motion.current_pos('Z'),      # z
-                ch, # ch 
-                layer_id.ids['ill_slider'].value, # ill
-                layer_id.ids['gain_slider'].value, # gain
-                int(layer_id.ids['gain_auto'].active), # auto_gain
-                layer_id.ids['exp_slider'].value, # exp
+        step = [lumaview.motion.current_pos('X')/1000,   # x
+                lumaview.motion.current_pos('Y')/1000,   # y
+                lumaview.motion.current_pos('Z'),        # z
+                int(layer_id.ids['autofocus'].active),   # autofocus
+                ch,                                      # ch 
+                int(layer_id.ids['false_color'].active), # false color
+                layer_id.ids['ill_slider'].value,        # ill
+                layer_id.ids['gain_slider'].value,       # gain
+                int(layer_id.ids['auto_gain'].active),   # auto_gain
+                layer_id.ids['exp_slider'].value,        # exp
         ]
 
         # Insert into List and Array
@@ -1592,8 +1669,8 @@ class ProtocolSettings(CompositeCapture):
             print('in autofocus')
             return
 
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
+        # # Draw the Labware on Stage
+        # self.ids['stage_widget_id'].draw_labware()
         self.ids['step_number_input'].text = str(self.c_step+1)
 
         # Check if at desired position
@@ -1656,6 +1733,8 @@ class ProtocolSettings(CompositeCapture):
                 error_log('Autofocus Scan Complete')
                 self.ids['run_autofocus_btn'].state = 'normal'
                 self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+
+
                 error_log('Clock.unschedule(self.autofocus_scan_iterate)')
                 Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
 
@@ -1715,6 +1794,12 @@ class ProtocolSettings(CompositeCapture):
         else:  # self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
+            # toggle all LEDs AND TOGGLE BUTTONS ofF
+            lumaview.led_board.leds_off()
+            layers = ['BF', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+
             error_log('Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
     
@@ -1722,8 +1807,8 @@ class ProtocolSettings(CompositeCapture):
         global lumaview
         global settings
 
-        # Draw the Labware on Stage
-        self.ids['stage_widget_id'].draw_labware()
+        # # Draw the Labware on Stage
+        # self.ids['stage_widget_id'].draw_labware()
         self.ids['step_number_input'].text = str(self.c_step+1)
 
         # Check if at desired position
@@ -1733,19 +1818,23 @@ class ProtocolSettings(CompositeCapture):
 
         # If target location has been reached
         if x_status and y_status and z_status and not lumaview.motion.overshoot:
+        # if x_status and y_status and z_status:
             error_log('Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
-            ch =        self.step_values[self.c_step, 3]
-            ill =       self.step_values[self.c_step, 4]
-            gain =      self.step_values[self.c_step, 5]
-            auto_gain = self.step_values[self.c_step, 6]
-            exp =       self.step_values[self.c_step, 7]
-
+            af =        self.step_values[self.c_step, 3] # TODO
+            ch =        self.step_values[self.c_step, 4]
+            fc =        self.step_values[self.c_step, 5] # TODO
+            ill =       self.step_values[self.c_step, 6]
+            gain =      self.step_values[self.c_step, 7]
+            auto_gain = self.step_values[self.c_step, 8]
+            exp =       self.step_values[self.c_step, 9]
+            
+            lumaview.camera.auto_gain(bool(auto_gain))
             # TODO: Update display current capture
             
             # capture image
-            self.custom_capture(ch, ill, gain, exp)
+            self.custom_capture(ch, ill, gain, exp, bool(fc))
 
             # increment to the next step
             self.c_step += 1
@@ -1864,69 +1953,10 @@ class Stage(Widget):
         global settings
 
         # Create current labware instance
-        os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
         self.canvas.clear()
-        r, b, g, a = (0.5, 0.5, 0.5, 0.5)
-
-        with self.canvas:
-            w = 12 * math.floor(self.width/12)
-            h = 12 * math.floor(self.height/12)
-            x = self.x + (self.width - w)/2
-            y = self.y + (self.height - h)/2
-            Color(r, b, g, a)
-            Rectangle(pos=(x, y), size=(w, h))
-
-            cols = current_labware.plate['columns']
-            rows = current_labware.plate['rows']
-            dx = w/cols # spacing in the x direction in pixels
-            dy = h/rows # spacing in the y direction in pixels
-            d = min(dx, dy)
-            dr = (dx-dy)/2 # half the difference in spacing in pixels
-            r = math.floor(d/2 - 0.5)
-
-            for i in range(cols):
-                for j in range(rows):
-                    if dr > 0:
-                        Line(circle=(x+dr+dx*i+r, y+dy*(rows-j-1)+r, r))
-                    else:
-                        Line(circle=(x+dr+dx*i+r, y+abs(dr)+dy*(rows-j-1)+r, r))
-
-            # Green Circle
-            x_target = lumaview.motion.target_pos('X')/1000
-            y_target = lumaview.motion.target_pos('Y')/1000
-            i, j = current_labware.get_well_index(x_target, y_target)
-            Color(0., 1., 0., 1.)
-            if dr > 0:
-                Line(circle=(x+dr+dx*i+r, y+dy*(rows-j-1)+r, r))
-            else:
-                Line(circle=(x+dr+dx*i+r, y+abs(dr)+dy*(rows-j-1)+r, r))
-           # Line(circle=(x+dx*i+r, y+dy*(rows-j-1)+r, r))
-
-            # Red Crosshairs
-            x_current = lumaview.motion.current_pos('X')/1000
-            y_current = lumaview.motion.current_pos('Y')/1000
-            i, j = current_labware.get_screen_position(x_current, y_current)
-
-            Color(1., 0., 0., 1.)
-            if dr > 0:
-                x_center = x + dr + dx*i + d/2 # on screen center
-                y_center = y + dy*(rows-j-1) + d/2 # on screen center
-            else:
-                x_center = x + dr + dx*i + d/2 # on screen center
-                y_center = y + abs(dr) + dy*(rows-j-1) + d/2 # on screen center
- 
-            # horizontal
-            Line(points=(x_center-d/2, y_center, x_center+d/2, y_center), width = 1)
-            # vertical
-            Line(points=(x_center, y_center-d/2, x_center, y_center+d/2), width = 1)
-
-    def draw_stage(self, *args):
-        
-        self.canvas.clear()
-        r, b, g, a = (0.5, 0.5, 0.5, 0.5)
 
         with self.canvas:
             w = self.width
@@ -1934,22 +1964,124 @@ class Stage(Widget):
             x = self.x
             y = self.y
 
-            Color(r, b, g, a)
-            Rectangle(pos=(x, y), size=(w, h))
+            # Get labware dimensions
+            x_max = current_labware.plate['dimensions']['x']
+            y_max = current_labware.plate['dimensions']['y']
 
-            #  Crosshairs
-            x_current = lumaview.motion.current_pos('X')/1000
-            y_current = lumaview.motion.current_pos('Y')/1000
-            x_max = 120
-            y_max = 80
-            x_center = x+x_current/x_max*w # on screen center
-            y_center = y+y_current/y_max*h # on screen center
+            # Stage Coordinates (120x80 mm)
+            stage_w = 120
+            stage_h = 80
 
+            offset_x = settings['stage_offset']['x']
+            offset_y = settings['stage_offset']['y']
+            stage_x = x_max-stage_w-offset_x/1000
+            stage_y = y_max-stage_h-offset_y/1000
+
+            # Outline of Stage Area from Above
+            Color(.2, .2, .2 , 0.5)                # dark grey
+            Rectangle(pos=(x+stage_x/x_max*w, y+stage_y/y_max*h),
+                           size=(stage_w/x_max*w, stage_h/y_max*h))
+
+            # Outline of Plate from Above
+            Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
+            Line(points=(x, y, x, y+h-15), width = 1)          # Left
+            Line(points=(x+w, y, x+w, y+h), width = 1)         # Right
+            Line(points=(x, y, x+w, y), width = 1)             # Bottom
+            Line(points=(x+15, y+h, x+w, y+h), width = 1)      # Top
+            Line(points=(x, y+h-15, x+15, y+h), width = 1)     # Diagonal
+
+            # Draw all wells
+            cols = current_labware.plate['columns']
+            rows = current_labware.plate['rows']
+
+            Color(0.4, 0.4, 0.4, 0.5)
+            rx = current_labware.plate['spacing']['x']
+            ry = current_labware.plate['spacing']['y']
+            for i in range(cols):
+                for j in range(rows):
+                    #  THIS ONE
+                    well_x, well_y = current_labware.get_plate_position(i, j)
+                    x_center = int(x+well_x/x_max*w) # on screen center
+                    y_center = int(y+well_y/y_max*h) # on screen center
+                    Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
+
+            # Green Circle
+            x_target = lumaview.motion.target_pos('X')
+            y_target = lumaview.motion.target_pos('Y')
+
+            i, j = current_labware.get_well_index((x_target+offset_x)/1000,
+                                                  (y_target+offset_y)/1000)
+            well_x, well_y = current_labware.get_plate_position(i, j)
+
+            x_center = int(x+well_x/x_max*w) # on screen center
+            y_center = int(y+well_y/y_max*h) # on screen center
+
+            Color(0., 1., 0., 1.)
+            Line(circle=(x_center, y_center, rx))
+            
+            #  Red Crosshairs
+            x_current = lumaview.motion.current_pos('X')/1000 # mm
+            y_current = lumaview.motion.current_pos('Y')/1000 # mm
+
+            x_center = x + w - (stage_x+x_current)/x_max*w # on screen center
+            y_center = y +     (stage_y+y_current)/y_max*h # on screen center
+ 
             Color(1., 0., 0., 1.)
-            # Line(circle = (x_center, y_center, 5), width=1) # circle
             Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
             Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
-            
+
+    def draw_stage(self, *args):
+        
+        # Create current labware instance
+        os.chdir(home_wd)
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+
+        self.canvas.clear()
+
+        with self.canvas:
+            w = self.width
+            h = self.height
+            x = self.x
+            y = self.y
+
+            # Get labware dimensions
+            x_max = current_labware.plate['dimensions']['x']
+            y_max = current_labware.plate['dimensions']['y']
+
+            # Stage Coordinates (120x80 mm)
+            stage_w = 120
+            stage_h = 80
+            # stage_x = x_max-stage_w-settings['stage_offset']['x']/1000
+            # stage_y = y_max-stage_h-settings['stage_offset']['y']/1000
+            stage_x = settings['stage_offset']['x']/1000
+            stage_y = settings['stage_offset']['y']/1000
+
+            # Outline of Stage Area from Above
+            Color(.2, .2, .2 , 0.5)                # dark grey
+            Rectangle(pos=(x+stage_x/x_max*w, y+stage_y/y_max*h),
+                           size=(stage_w/x_max*w, stage_h/y_max*h))
+                           
+            # Outline from Below
+            Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
+            Line(points=(x, y, x, y+h), width = 1)             # Left
+            Line(points=(x+w, y, x+w, y+h-15), width = 1)      # Right
+            Line(points=(x, y, x+w, y), width = 1)             # Bottom
+            Line(points=(x, y+h, x+w-15, y+h), width = 1)      # Top
+            Line(points=(x+w-15, y+h, x+w, y+h-15), width = 1) # Diagonal
+
+            #  Crosshairs
+            x_current = lumaview.motion.current_pos('X')/1000 # mm
+            y_current = lumaview.motion.current_pos('Y')/1000 # mm
+
+            x_center = x+stage_x/x_max*w+x_current/x_max*w # on screen center
+            y_center = y+stage_y/y_max*h+y_current/y_max*h # on screen center
+
+            Color(1., 0., 0., 1.)
+            Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
+            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
+
+
 class MicroscopeSettings(BoxLayout):
 
     def __init__(self, **kwargs):
@@ -1985,6 +2117,7 @@ class MicroscopeSettings(BoxLayout):
         except:
             error_log("Unable to open file "+filename)
             settings = []
+            
         else:
             try:
                 settings = json.load(read_file)
@@ -1999,7 +2132,7 @@ class MicroscopeSettings(BoxLayout):
                 protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
                 protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
                 protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
-                protocol_settings.ids['stage_widget_id'].draw_labware()
+                protocol_settings.select_labware()
 
                 zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
                 zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
@@ -2136,13 +2269,13 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
-    def gain_auto(self):
-        error_log('LayerControl.gain_auto()')
-        if self.ids['gain_auto'].state == 'down':
+    def auto_gain(self):
+        error_log('LayerControl.auto_gain()')
+        if self.ids['auto_gain'].state == 'down':
             state = True
         else:
             state = False
-        settings[self.layer]['gain_auto'] = state
+        settings[self.layer]['auto_gain'] = state
         self.apply_settings()
 
     def gain_slider(self):
@@ -2248,7 +2381,7 @@ class LayerControl(BoxLayout):
 
         # update gain to currently selected settings
         # -----------------------------------------------------
-        state = settings[self.layer]['gain_auto']
+        state = settings[self.layer]['auto_gain']
         lumaview.camera.auto_gain(state)
         error_log(lumaview.camera.message)
 
@@ -2410,7 +2543,7 @@ class FileChooseBTN(Button):
                 lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
 
             elif self.context == 'load_protocol':
-                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(file = self.selection[0])
+                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
         else:
             return
 
@@ -2484,7 +2617,7 @@ class FileSaveBTN(Button):
 
         elif self.context == 'saveas_protocol':
             if self.selection:
-                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(file = self.selection[0])
+                lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
                 error_log('Saving Protocol to File:' + self.selection[0])
 
 
@@ -2493,14 +2626,15 @@ class FileSaveBTN(Button):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def on_start(self):
-        self.profile = cProfile.Profile()
-        self.profile.enable()
-        Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
-       
+        # if profiling:
+        #     self.profile = cProfile.Profile()
+        #     self.profile.enable()
+        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
+        pass
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 10/26/2022')
+        error_log('Latest Code Change: 1/14/2023')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
@@ -2511,15 +2645,21 @@ class LumaViewProApp(App):
 
         global lumaview
         lumaview = MainDisplay()
-        try:
+
+        if os.path.exists("./data/current.json"):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
-        except:
+        elif os.path.exists("./data/settings.json"):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
+        else:
+            print('No settings found.')
+        
+        # Continuously update image of stage and protocol
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage, 0.1)
 
         try:
-            folder = settings['protocol']['save_folder']
-            file = settings['protocol']['file']
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(file = folder+'/'+file)
+            filepath = settings['protocol']['filepath']
+            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
         except:
             error_log('Unable to load protocol at startup')
 
@@ -2532,16 +2672,16 @@ class LumaViewProApp(App):
 
     def _on_resize(self, window, w, h):
         Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
-        Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
 
     def on_stop(self):
         error_log('LumaViewProApp.on_stop()')
-        self.profile.disable()
-        self.profile.dump_stats('./logs/LumaViewProApp.profile')
-        stats = pstats.Stats('./logs/LumaViewProApp.profile')
-        stats.sort_stats('cumulative').print_stats(30)
-        stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
+        # if profiling:
+        #     self.profile.disable()
+        #     self.profile.dump_stats('./logs/LumaViewProApp.profile')
+        #     stats = pstats.Stats('./logs/LumaViewProApp.profile')
+        #     stats.sort_stats('cumulative').print_stats(30)
+        #     stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
 
         global lumaview
         lumaview.led_board.leds_off()

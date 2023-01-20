@@ -32,7 +32,7 @@
 # Anna Iwaniec Hickerson, Keck Graduate Institute
 #
 # MODIFIED:
-# November 2022
+# December 2022
 #-------------------------------------------------------------------------------
 
 # -----------------------
@@ -192,18 +192,22 @@
 		AccordionItem:
 			title: 'Focus'
             collapse: False
+			on_collapse: root.accordion_collapse()
 			VerticalControl:
 				id: verticalcontrol_id
 		AccordionItem:
 			title: 'XY Stage Control'
+			on_collapse: root.accordion_collapse()
 			XYStageControl:
 				id: xy_stagecontrol_id
 		AccordionItem:
 			title: 'Protocol'
+			on_collapse: root.accordion_collapse()
 			ProtocolSettings:
                 id: protocol_settings_id
 		AccordionItem:
 			title: 'Post Processing'
+			on_collapse: root.accordion_collapse()
 			PostProcessing:
                 id: post_processing_id
 
@@ -255,7 +259,7 @@
 		        size: '30dp', '40dp'
 				background_normal: './data/icons/UU_normal.png'
 				background_down: './data/icons/UU_down.png'
-				on_release: root.course_up()
+				on_release: root.coarse_up()
 		    Button:
 		        id: slow_up
 				border: 0, 0, 0, 0
@@ -279,7 +283,7 @@
 		        size: '30dp', '40dp'
 				background_normal: './data/icons/DD_normal.png'
 				background_down: './data/icons/DD_down.png'
-				on_release: root.course_down()
+				on_release: root.coarse_down()
 		    Label:
 
 		BoxLayout:
@@ -474,14 +478,23 @@
             size: self.size
             pos: self.pos
 
-	# HOME STAGE
-	Button: 
-		id: home_id
+	# HOME and CALIBRATE STAGE
+	BoxLayout:
+		orientation: 'horizontal'
 		size_hint_y: None
 		height: '30dp'
-		font_size: '12sp'
-		text: 'Home Stage'
-		on_release: root.home()
+		spacing: '5dp'
+
+		# HOME STAGE
+		Button: 
+			id: home_id
+			font_size: '12sp'
+			text: 'Home Stage'
+			on_release: root.home()
+		Button:
+			text: 'Calibrate'
+			font_size: '12dp'
+			on_release: root.calibrate()
 
 	# Two Columns for X and Y Directions
 	BoxLayout:
@@ -536,13 +549,13 @@
 				size_hint_y: None
 				height: '30dp'
 
-				Button: # COURSE LEFT
+				Button: # COARSE LEFT
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', '30dp'
 					background_normal: './data/icons/LL_normal.png'
 					background_down: './data/icons/LL_down.png'
-					on_release: root.course_left()
+					on_release: root.coarse_left()
 
 				Button: # FINE LEFT
 					id: slow_up
@@ -562,14 +575,14 @@
 					background_down: './data/icons/R_down.png'
 					on_release: root.fine_right()
 			
-				Button: # COURSE RIGHT
+				Button: # COARSE RIGHT
 					id: fast_down
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', '30dp'
 					background_normal: './data/icons/RR_normal.png'
 					background_down: './data/icons/RR_down.png'
-					on_release: root.course_right()
+					on_release: root.coarse_right()
 
 		# Y Direction Controls
 		BoxLayout:
@@ -617,46 +630,55 @@
 				size_hint_y: None
 				height: '30dp'
 
-				Button: # COURSE FORWARD
+				Button: # COARSE FORWARD
 					id: fast_down
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', ' 30dp'
 					background_normal: './data/icons/DD_normal.png'
 					background_down: './data/icons/DD_down.png'
-					on_release: root.course_fwd()
+					on_release: root.coarse_back()
 				Button: # FINE FORWARD
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '25dp', '30dp'
 					background_normal: './data/icons/D_normal.png'
 					background_down: './data/icons/D_down.png'
-					on_release: root.fine_fwd()
+					on_release: root.fine_back()
 				Button: # FINE BACK
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '25dp', '30dp'
 					background_normal: './data/icons/U_normal.png'
 					background_down: './data/icons/U_down.png'
-					on_release: root.fine_back()
-				Button: # COURSE BACK
+					on_release: root.fine_fwd()
+				Button: # COARSE BACK
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', '30dp'
 					background_normal: './data/icons/UU_normal.png'
 					background_down: './data/icons/UU_down.png'
-					on_release: root.course_back()
+					on_release: root.coarse_fwd()
+
+	# Select Labware
+	Spinner:
+		id: labware_spinner
+		sync_height: True
+		text: 'New'
+		font_size: '12dp'
+		size_hint_y: None
+		height: '30dp'
+		text_autoupdate: True
+		# on_text: root.select_labware()
 
 	# Stage Display
-	BoxLayout:
-		size_hint_y: None
-		height: '180dp'
+	FloatLayout:
 		padding: '5dp'
-
-		FloatLayout:
-			Stage:
-				id: stage_control_id
-				pos_hint:{'center_x':0.5, 'center_y':0.5}	
+		size_hint_y: None
+		height: self.width * 2 / 3
+		Stage:
+			id: stage_control_id
+			pos_hint:{'center_x':0.5, 'center_y':0.5}	
 
 	# Fill Space		
 	Label:	
@@ -750,23 +772,23 @@
 			spacing: '5dp'
 			color: [51/255, 181/255, 229/255, 1]
 
-		# Load and Save Protocol
-		BoxLayout:
-			orientation: 'horizontal'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
+		# # Select Labware Box
+		# BoxLayout:
+		# 	orientation: 'horizontal'
+	    #     size_hint_y: None
+	    #     height: '30dp'
+		# 	spacing: '5dp'
 
-			# Select Labware
-			Spinner:
-				id: labware_spinner
-				sync_height: True
-				text: 'New'
-				font_size: '12dp'
-				size_hint_y: None
-				height: '30dp'
-				text_autoupdate: True
-				on_text: root.select_labware()
+		# Select Labware
+		Spinner:
+			id: labware_spinner
+			sync_height: True
+			text: 'New'
+			font_size: '12dp'
+			size_hint_y: None
+			height: '30dp'
+			text_autoupdate: True
+			on_text: root.select_labware()
 
 
 		# Load and Save Protocol
@@ -777,7 +799,7 @@
 			spacing: '5dp'
 
 		    Button:
-		        text: 'Generate'
+		        text: 'New'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
@@ -815,29 +837,65 @@
 				id: stage_widget_id
 				pos_hint:{'center_x':0.5, 'center_y':0.5}
 
-		# Edit and Verify Protocol
-	    Label:
-	        text: 'Edit and Verify Protocol'
-			font_size: '16sp'
+		# Protocol Name
+		BoxLayout:
+			orientation: 'horizontal'
 	        size_hint_y: None
 	        height: '30dp'
 			spacing: '5dp'
-			color: [51/255, 181/255, 229/255, 1]
 
-		TextInput:
-			id: step_name_input
-			text: ''
-			size_hint_y: None
-			height: '30dp'
-			font_size: '12sp'
-			halign: 'center'
-			multiline: False
+			Label:
+				text: 'Protocol'
+				size_hint_x: None
+				width: '75dp'
+				font_size: '12sp'
+
+			TextInput:
+				id: protocol_filename
+				text: ''
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				halign: 'center'
+				multiline: False
+				disabled: True
+				hint_text: 'Protocol Filename'
+			
+
+		# Step Name
+		BoxLayout:
+			orientation: 'horizontal'
+	        size_hint_y: None
+	        height: '30dp'
+			spacing: '5dp'
+
+			Label:
+				text: 'Step Name'
+				size_hint_x: None
+				width: '75dp'
+				font_size: '12sp'
+
+			TextInput:
+				id: step_name_input
+				text: ''
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				halign: 'center'
+				multiline: False
+				hint_text: 'Step Name'
 
 		BoxLayout:
 			orientation: 'horizontal'
 	        size_hint_y: None
 	        height: '30dp'
 			spacing: '5dp'
+			Label:
+				text: 'Step'
+				size_hint_x: None
+				width: '75dp'
+				font_size: '12sp'
+
 		    Button:
 				id: prev_step_btn
 				border: 0, 0, 0, 0
@@ -860,7 +918,7 @@
 		    Label:
 		        text: 'of'
 		        size_hint_x: None
-		        width: '30dp'
+		        width: '20dp'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
@@ -1314,11 +1372,11 @@
 			width: '50dp'
 			text_size: self.size
 		CheckBox:
-			id: gain_auto
+			id: auto_gain
 			size_hint_x: None
 			width: '25dp'
 			active: False
-			on_release: root.gain_auto()
+			on_release: root.auto_gain()
 		ModSlider:
 			id: gain_slider # 0 to 24, default 0, based on camera limits
 			min: 0.
@@ -1513,7 +1571,7 @@
 			active: True
 			on_release: root.update_autofocus()
 		Label:
-			text: 'Autofocus'
+			text: 'Auto Focus'
 			font_size: '12sp'
 			halign: 'left'
 			valign: 'middle'
@@ -1557,6 +1615,7 @@
 			text: 'File Root'
 			padding: ['5dp', (self.height-self.line_height)/2]
 			on_text: root.root_text()
+			hint_text: 'Filename Root'
 
 	Label:
 
