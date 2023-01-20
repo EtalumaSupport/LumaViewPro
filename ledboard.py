@@ -1,4 +1,4 @@
-# Modified 5/21/2022
+# Modified 1/19/2023
 from numpy import False_
 import serial
 import serial.tools.list_ports as list_ports
@@ -43,7 +43,7 @@ class LEDBoard:
         except:
             self.driver = False
             self.message = 'LEDBoard.connect() failed'
-            print('LEDBoard.connect() succeeded')
+            print('LEDBoard.connect() failed')
             
     def send_command(self, command):
         stream = command.encode('utf-8')+b"\r\n"
