@@ -603,7 +603,7 @@ class MotionSettings(BoxLayout):
     def accordion_collapse(self):
         error_log('MotionSettings.accordion_collapse()')
         global lumaview
-        self.ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage()
+        # self.ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage()
 
 class PostProcessing(BoxLayout):
 
@@ -1104,8 +1104,8 @@ class XYStageControl(BoxLayout):
         self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f')
         self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f')
 
-        for i in range(20):
-            Clock.schedule_once(self.ids['stage_control_id'].draw_stage, i/4)
+        # for i in range(20):
+        #     Clock.schedule_once(self.ids['stage_control_id'].draw_stage, i/4)
 
     def fine_left(self):
         error_log('XYStageControl.fine_left()')
@@ -1807,8 +1807,8 @@ class ProtocolSettings(CompositeCapture):
         global lumaview
         global settings
 
-        # # Draw the Labware on Stage
-        # self.ids['stage_widget_id'].draw_labware()
+        lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+
         self.ids['step_number_input'].text = str(self.c_step+1)
 
         # Check if at desired position
@@ -1822,13 +1822,13 @@ class ProtocolSettings(CompositeCapture):
             error_log('Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
-            af =        self.step_values[self.c_step, 3] # TODO
-            ch =        self.step_values[self.c_step, 4]
-            fc =        self.step_values[self.c_step, 5] # TODO
-            ill =       self.step_values[self.c_step, 6]
-            gain =      self.step_values[self.c_step, 7]
-            auto_gain = self.step_values[self.c_step, 8]
-            exp =       self.step_values[self.c_step, 9]
+            af =        self.step_values[self.c_step, 3] # TODO, autofocus
+            ch =        self.step_values[self.c_step, 4] # LED channel
+            fc =        self.step_values[self.c_step, 5] # image false color
+            ill =       self.step_values[self.c_step, 6] # LED illumination
+            gain =      self.step_values[self.c_step, 7] # camera gain
+            auto_gain = self.step_values[self.c_step, 8] # camera autogain
+            exp =       self.step_values[self.c_step, 9] # camera exposure
             
             lumaview.camera.auto_gain(bool(auto_gain))
             # TODO: Update display current capture
@@ -1941,11 +1941,33 @@ class Stage(Widget):
         super(Stage, self).__init__(**kwargs)
         error_log('Stage.__init__()')
 
-
     def on_touch_down(self, touch):
         error_log('Stage.on_touch_down()')
+
         if self.collide_point(*touch.pos):
-            error_log('clicked on: ' + str(touch.pos))
+
+            # Create current labware instance
+            current_labware = WellPlate()
+            current_labware.load_plate(settings['protocol']['labware'])
+
+            # Get labware dimensions
+            x_max = current_labware.plate['dimensions']['x']
+            y_max = current_labware.plate['dimensions']['y']
+
+            # pixels to mm scale
+            sx = x_max / self.width
+            sy = y_max / self.height
+
+            # convert pixel location to objective location in mm
+            (mouse_x, mouse_y) = touch.pos
+            x_pos = (mouse_x-self.x)*sx-settings['stage_offset']['x']
+            y_pos = (mouse_y-self.y)*sy-settings['stage_offset']['y']
+
+            lumaview.motion.move_abs_pos('X', x_pos*1000)  # set current x position in um
+            error_log(lumaview.motion.message)
+            lumaview.motion.move_abs_pos('Y', y_pos*1000)  # set current y position in um
+            error_log(lumaview.motion.message)
+            lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
         
     def draw_labware(self, *args):
         # error_log('Stage.draw_labware()')
@@ -1968,19 +1990,21 @@ class Stage(Widget):
             x_max = current_labware.plate['dimensions']['x']
             y_max = current_labware.plate['dimensions']['y']
 
+            # mm to pixels scale
+            sx = w/x_max
+            sy = h/y_max
+
             # Stage Coordinates (120x80 mm)
             stage_w = 120
             stage_h = 80
 
-            offset_x = settings['stage_offset']['x']
-            offset_y = settings['stage_offset']['y']
-            stage_x = x_max-stage_w-offset_x/1000
-            stage_y = y_max-stage_h-offset_y/1000
+            stage_x = settings['stage_offset']['x']
+            stage_y = settings['stage_offset']['y']
 
             # Outline of Stage Area from Above
             Color(.2, .2, .2 , 0.5)                # dark grey
-            Rectangle(pos=(x+stage_x/x_max*w, y+stage_y/y_max*h),
-                           size=(stage_w/x_max*w, stage_h/y_max*h))
+            Rectangle(pos=(x+(x_max-stage_w-stage_x)*sx, y+stage_y*sy),
+                           size=(stage_w*sx, stage_h*sy))
 
             # Outline of Plate from Above
             Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
@@ -2001,20 +2025,20 @@ class Stage(Widget):
                 for j in range(rows):
                     #  THIS ONE
                     well_x, well_y = current_labware.get_plate_position(i, j)
-                    x_center = int(x+well_x/x_max*w) # on screen center
-                    y_center = int(y+well_y/y_max*h) # on screen center
+                    x_center = int(x+well_x*sx) # on screen center
+                    y_center = int(y+well_y*sy) # on screen center
                     Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
 
             # Green Circle
             x_target = lumaview.motion.target_pos('X')
             y_target = lumaview.motion.target_pos('Y')
 
-            i, j = current_labware.get_well_index((x_target+offset_x)/1000,
-                                                  (y_target+offset_y)/1000)
+            i, j = current_labware.get_well_index((x_target+stage_x)/1000,
+                                                  (y_target+stage_y)/1000)
             well_x, well_y = current_labware.get_plate_position(i, j)
 
-            x_center = int(x+well_x/x_max*w) # on screen center
-            y_center = int(y+well_y/y_max*h) # on screen center
+            x_center = int(x+well_x*sx) # on screen center
+            y_center = int(y+well_y*sy) # on screen center
 
             Color(0., 1., 0., 1.)
             Line(circle=(x_center, y_center, rx))
@@ -2023,8 +2047,8 @@ class Stage(Widget):
             x_current = lumaview.motion.current_pos('X')/1000 # mm
             y_current = lumaview.motion.current_pos('Y')/1000 # mm
 
-            x_center = x + w - (stage_x+x_current)/x_max*w # on screen center
-            y_center = y +     (stage_y+y_current)/y_max*h # on screen center
+            x_center = x + w - (stage_x+x_current)*sx # on screen center
+            y_center = y +     (stage_y+y_current)*sy # on screen center
  
             Color(1., 0., 0., 1.)
             Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
@@ -2049,18 +2073,21 @@ class Stage(Widget):
             x_max = current_labware.plate['dimensions']['x']
             y_max = current_labware.plate['dimensions']['y']
 
+            # mm to pixels scale
+            sx = w/x_max
+            sy = h/y_max
+
             # Stage Coordinates (120x80 mm)
             stage_w = 120
             stage_h = 80
-            # stage_x = x_max-stage_w-settings['stage_offset']['x']/1000
-            # stage_y = y_max-stage_h-settings['stage_offset']['y']/1000
-            stage_x = settings['stage_offset']['x']/1000
-            stage_y = settings['stage_offset']['y']/1000
 
-            # Outline of Stage Area from Above
+            stage_x = settings['stage_offset']['x']
+            stage_y = settings['stage_offset']['y']
+
+            # Outline of Stage Area from below
             Color(.2, .2, .2 , 0.5)                # dark grey
-            Rectangle(pos=(x+stage_x/x_max*w, y+stage_y/y_max*h),
-                           size=(stage_w/x_max*w, stage_h/y_max*h))
+            Rectangle(pos=(x+stage_x*sx, y+stage_y*sy),
+                           size=(stage_w*sx, stage_h*sy))
                            
             # Outline from Below
             Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
@@ -2070,12 +2097,27 @@ class Stage(Widget):
             Line(points=(x, y+h, x+w-15, y+h), width = 1)      # Top
             Line(points=(x+w-15, y+h, x+w, y+h-15), width = 1) # Diagonal
 
+            # Draw all wells
+            cols = current_labware.plate['columns']
+            rows = current_labware.plate['rows']
+
+            Color(0.4, 0.4, 0.4, 0.5)
+            rx = current_labware.plate['spacing']['x']
+            ry = current_labware.plate['spacing']['y']
+            for i in range(cols):
+                for j in range(rows):
+                    #  THIS ONE
+                    well_x, well_y = current_labware.get_plate_position(i, j)
+                    x_center = int(x+(x_max-well_x)*sx) # on screen center
+                    y_center = int(y+(y_max-well_y)*sy) # on screen center
+                    Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
+
             #  Crosshairs
             x_current = lumaview.motion.current_pos('X')/1000 # mm
             y_current = lumaview.motion.current_pos('Y')/1000 # mm
 
-            x_center = x+stage_x/x_max*w+x_current/x_max*w # on screen center
-            y_center = y+stage_y/y_max*h+y_current/y_max*h # on screen center
+            x_center = x+stage_x*sx+x_current*sx # on screen center
+            y_center = y+stage_y*sy+y_current*sy # on screen center
 
             Color(1., 0., 0., 1.)
             Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line

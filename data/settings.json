@@ -1,8 +1,8 @@
 {
     "microscope": "LS850",
     "stage_offset": {
-        "x": 0.0,
-        "y": 0.0
+        "x": 3.88,
+        "y": 2.74
     },
     "objective": {
         "desc": "60x description",
