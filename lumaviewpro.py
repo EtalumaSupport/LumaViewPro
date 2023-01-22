@@ -895,8 +895,8 @@ class VerticalControl(BoxLayout):
             error_log(lumaview.motion.message)
 
             # schedule focus iterate
-            error_log('Clock.schedule_interval(self.focus_iterate, 0.001)')
-            Clock.schedule_interval(self.focus_iterate, 0.001)
+            error_log('Clock.schedule_interval(self.focus_iterate, 0.01)')
+            Clock.schedule_interval(self.focus_iterate, 0.01)
 
     def focus_iterate(self, dt):
 
