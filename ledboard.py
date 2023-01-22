@@ -1,4 +1,40 @@
-# Modified 1/19/2023
+#!/usr/bin/python3
+
+'''
+MIT License
+
+Copyright (c) 2020 Etaluma, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyribackground_downght notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+```
+This open source software was developed for use with Etaluma microscopes.
+
+AUTHORS:
+Kevin Peter Hickerson, The Earthineering Company
+Anna Iwaniec Hickerson, Keck Graduate Institute
+
+MODIFIED:
+January 22, 2023
+'''
+
 from numpy import False_
 import serial
 import serial.tools.list_ports as list_ports
@@ -28,6 +64,7 @@ class LEDBoard:
     #         self.driver.close()
 
     def connect(self):
+        """ Try to connect to the motor controller based on the known VID/PID"""
         try:
             self.driver = serial.Serial(port=self.port,
                                         baudrate=self.baudrate,
@@ -47,6 +84,9 @@ class LEDBoard:
             print('LEDBoard.connect() failed')
             
     def send_command(self, command):
+        """ Send command through serial to LED board
+        This should NOT be used in a script. It is intended for other functions to access"""
+
         stream = command.encode('utf-8')+b"\r\n"
         if self.driver != False:
             try:
@@ -64,6 +104,7 @@ class LEDBoard:
             return False
 
     def receive_command(self):
+
         if self.driver != False:
             try:
                 self.driver.close()
@@ -75,6 +116,7 @@ class LEDBoard:
                 self.message = 'LEDBoard.receive_command('+command+') Serial Timeout Occurred'
 
     def color2ch(self, color):
+        """ Convert color name to numerical channel """
         if color == 'Blue':
             return 0
         elif color == 'Green':
@@ -85,6 +127,7 @@ class LEDBoard:
             return 3
 
     def ch2color(self, channel):
+        """ Convert numerical channel to color name """
         if channel == 0:
             return 'Blue'
         elif channel == 1:
@@ -112,13 +155,16 @@ class LEDBoard:
         self.send_command(command)
 
     def led_on(self, channel, mA):
+        """ Turn on LED at channel number at mA power """
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         self.send_command(command)
 
     def led_off(self, channel):
+        """ Turn off LED at channel number """
         command = 'LED' + str(int(channel)) + '_OFF'
         self.send_command(command)
 
     def leds_off(self):
+        """ Turn off all LEDs """
         command = 'LEDS_OFF'
         self.send_command(command)

@@ -1,3 +1,38 @@
+'''
+MIT License
+
+Copyright (c) 2020 Etaluma, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyribackground_downght notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+```
+This open source software was developed for use with Etaluma microscopes.
+
+AUTHORS:
+Kevin Peter Hickerson, The Earthineering Company
+Anna Iwaniec Hickerson, Keck Graduate Institute
+
+MODIFIED:
+January 22, 2023
+'''
+
 import numpy as np
 from pypylon import pylon
 
@@ -15,7 +50,9 @@ class PylonCamera:
             self.active.close()
         except:
             print('exception')
+
     def connect(self):
+        """ Try to connect to the first available basler camera"""
         try:
             # Create an instant active object with the camera device found first.
             self.active = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
@@ -41,6 +78,11 @@ class PylonCamera:
             self.message = 'PylonCamera.connect() failed'            
 
     def grab(self):
+        """ Grab last available frame from camera and save it to self.array
+        returns True if successful
+        returns False if unsuccessful
+        access the image using camera.array where camera is the instance of the class"""
+
         if self.active == False:
             self.connect()
         try:
@@ -64,6 +106,8 @@ class PylonCamera:
             return False
 
     def frame_size(self, w, h):
+        """ Set camera frame size to w by h and keep centered """
+
         print(self.active)
         if self.active != False:
 
@@ -82,6 +126,8 @@ class PylonCamera:
 
 
     def gain(self, gain):
+        """ Set gain value in the camera hardware"""
+
         print(self.active)
         if self.active != False:
             self.active.Gain.SetValue(gain)
@@ -90,6 +136,9 @@ class PylonCamera:
             self.message = 'PylonCamera.gain('+str(gain)+')'+': inactive camera' 
 
     def auto_gain(self, state = True):
+        """ Enable / Disable camera auto_gain with the value of 'state'
+        It will be continueously updating based on the current image """
+
         print(self.active)
         if self.active != False:
             if state == True:
@@ -101,6 +150,8 @@ class PylonCamera:
             self.message = 'PylonCamera.auto_gain('+str(state)+')'+': inactive camera' 
             
     def exposure_t(self, t):
+        """ Set exposure time in the camera hardware t (msec)"""
+
         if self.active != False:
             # (t*1000) in microseconds; therefore t  in milliseconds
             self.active.ExposureTime.SetValue(max(t*1000, self.active.ExposureTime.Min))
@@ -109,6 +160,9 @@ class PylonCamera:
             self.message = 'PylonCamera.exposure_t('+str(t)+')'+': inactive camera' 
 
     def get_exposure_t(self):
+        """ Set exposure time in the camera hardware
+         Returns t (msec), or -1 if the camera is inactive"""
+
         if self.active != False:
             microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
             millisec = microsec/1000 # convert exposure time to millisec
@@ -119,6 +173,9 @@ class PylonCamera:
             return -1
 
     def auto_exposure_t(self, state = True):
+        """ Enable / Disable camera auto_exposure with the value of 'state'
+        It will be continueously updating based on the current image """
+
         if self.active != False:
             if state == True:
                 self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'

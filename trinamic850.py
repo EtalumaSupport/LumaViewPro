@@ -32,7 +32,7 @@ Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 
 MODIFIED:
-December 26, 2022
+January 22, 2023
 '''
 
 import threading
@@ -74,6 +74,7 @@ class TrinamicBoard:
     #         self.driver.close()
 
     def connect(self):
+        """ Try to connect to the motor controller based on the known VID/PID"""
         try:
             self.driver = serial.Serial(port=self.port,
                                         baudrate=self.baudrate,
@@ -98,6 +99,9 @@ class TrinamicBoard:
     # Define Communication
     #----------------------------------------------------------
     def exchange_command(self, command):
+        """ Exchange command through serial to SPI to the Trinamic boards
+        This should NOT be used in a script. It is intended for other functions to access"""
+
         if self.driver != False:
             try:
                 self.driver.close()
@@ -164,6 +168,7 @@ class TrinamicBoard:
         return ustep
 
     def zhome(self):
+        """ Home the objective """
         self.message = 'TrinamicBoard.zhome()'            
         if self.found:
             self.exchange_command('ZHOME')
@@ -182,6 +187,7 @@ class TrinamicBoard:
         return ustep
 
     def xyhome(self):
+        """ Home the stage which also homes the objective first """
         self.message = 'TrinamicBoard.xyhome()'            
         if self.found:
             self.exchange_command('HOME')
@@ -200,11 +206,13 @@ class TrinamicBoard:
         return ustep
 
     def thome(self):
+        """ Home the turret, not yet functional in hardware"""
         self.message = 'TrinamicBoard.thome()'            
         if self.found:
             self.exchange_command('THOME')
 
     def tmove(self, degrees):
+        """ Move the turret, not yet functional in hardware"""
         self.message = 'TrinamicBoard.thome()'
         steps = self.t_deg2ustep(degrees)
         if self.found:
@@ -215,12 +223,17 @@ class TrinamicBoard:
     #----------------------------------------------------------
  
     def move(self, axis, steps):
+        """ Move the axis to an absolute position (in usteps)
+        compared to Home """
+
         if steps < 0:
             steps += 0x100000000 # twos compliment
         self.exchange_command('TARGET_W' + axis + str(steps))
 
     # Get target position
     def target_pos(self, axis):
+        """ Get the target position of an axis"""
+
         if self.found:
             pos = int( self.exchange_command('TARGET_R' + axis ) )
 
@@ -237,6 +250,8 @@ class TrinamicBoard:
 
     # Get current position (in um)
     def current_pos(self, axis):
+        """Get current position (in um) of axis"""
+        
         if self.found:
             pos = int( self.exchange_command('ACTUAL_R' + axis) )
 
@@ -253,6 +268,8 @@ class TrinamicBoard:
 
     # Move to absolute position (in um)
     def move_abs_pos(self, axis, pos):
+        """ Move to absolute position (in um) of axis"""
+
         if self.found:
             if axis == 'Z': # Z bound between 0 to 14mm
                 if pos < 0:
@@ -298,6 +315,8 @@ class TrinamicBoard:
 
     # Move by relative distance (in um)
     def move_rel_pos(self, axis, um):
+        """ Move by relative distance (in um) of axis """
+
         if self.found:
             # Read target position in um
             pos = self.target_pos(axis)
@@ -312,6 +331,8 @@ class TrinamicBoard:
 
     # return True if current and target position are at home.
     def home_status(self, axis):
+        """ Return True if axis is in home position"""
+
         self.message = 'TrinamicBoard.home_status('+axis+')'            
         if self.found:
             data = int( self.exchange_command('STATUS_R' + axis) )
@@ -327,6 +348,7 @@ class TrinamicBoard:
 
     # return True if current position and target position are the same
     def target_status(self, axis):
+        """ Return True if axis is at target position"""
 
         self.message = 'TrinamicBoard.target_status('+axis+')'  
         
@@ -346,6 +368,7 @@ class TrinamicBoard:
 
     # Get all reference status register bits as 32 character string (32-> 0)
     def reference_status(self, axis):
+        """ Get all reference status register bits as 32 character string (32-> 0) """
         if self.found:
 
             data = int( self.exchange_command('STATUS_R' + axis) )
