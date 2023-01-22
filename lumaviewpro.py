@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-January 9, 2023
+January 21, 2023
 '''
 
 # General
@@ -97,12 +97,15 @@ from trinamic850 import *
 from ledboard import *
 from pyloncamera import *
 from labware import *
+# import coordinate_system
 
 from kivy.config import Config
 Config.set('input', 'mouse', 'mouse, disable_multitouch')
 
 global lumaview
 global settings
+# global coordinates
+
 home_wd = os.getcwd()
 
 start_str = time.strftime("%Y %m %d %H_%M_%S")
@@ -115,7 +118,7 @@ def error_log(mssg):
             file = open('./logs/LVP_log '+start_str+'.txt', 'a')
         except:
             if not os.path.isdir('./logs'):
-                print("Cound't find 'logs' directory. Maybe not in the correct base directry?")
+                print("Couldn't find 'logs' directory. Maybe not in the correct base directory?")
         else:
             file.write(mssg + '\n')
             file.close()
@@ -159,7 +162,6 @@ class ScopeDisplay(Image):
 
     def stop(self):
         error_log('ScopeDisplay.stop()')
-        # self.frame_event.cancel()
         error_log('Clock.unschedule(self.update)')
         Clock.unschedule(self.update)
 
@@ -225,16 +227,10 @@ class CompositeCapture(FloatLayout):
         lumaview.led_board.led_on(channel, illumination)
         error_log(lumaview.led_board.message)
 
-
-
-
         # Grab image and save
         time.sleep(2*exposure/1000+0.1)
         lumaview.camera.grab()
         error_log(lumaview.camera.message)
-
-
-
 
         if false_color: 
             self.save_image(save_folder, file_root, append, color)
@@ -293,11 +289,7 @@ class CompositeCapture(FloatLayout):
         if self.camera.active == False:
             return
 
-        # if lumaview.motion.found == False:
-        #    return
-
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
-
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
 
         layers = ['BF', 'Blue', 'Green', 'Red']
@@ -325,27 +317,16 @@ class CompositeCapture(FloatLayout):
                 lumaview.led_board.leds_off()
                 error_log(lumaview.led_board.message)
 
-
-
-                time.sleep(2*exposure/1000)  # Should be replaced with Clock
+                time.sleep(2*exposure/1000+0.1)  # Should be replaced with Clock
                 scope_display.update()
                 darkfield = lumaview.camera.array
-
-
-
 
                 # Florescent capture
                 lumaview.led_board.led_on(lumaview.led_board.color2ch(layer), illumination)
                 error_log(lumaview.led_board.message)
 
-
-
-
-                time.sleep(2*exposure/1000)  # Should be replaced with Clock
+                time.sleep(2*exposure/1000+0.1)  # Should be replaced with Clock
                 lumaview.camera.grab()
-
-
-
 
                 error_log(lumaview.camera.message)
                 scope_display.update()
@@ -382,7 +363,6 @@ class CompositeCapture(FloatLayout):
         append = str(int(round(time.time() * 1000)))
         filename =  file_root + append + '.tiff'
         cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
-
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -594,7 +574,6 @@ class MotionSettings(BoxLayout):
 
     def check_settings(self, *args):
         error_log('MotionSettings.check_settings()')
-        # global lumaview
         if self.ids['toggle_motionsettings'].state == 'normal':
             self.pos = -self.settings_width+30, 0
         else:
@@ -603,13 +582,11 @@ class MotionSettings(BoxLayout):
     def accordion_collapse(self):
         error_log('MotionSettings.accordion_collapse()')
         global lumaview
-        # self.ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage()
 
 class PostProcessing(BoxLayout):
 
     def convert_to_avi(self):
-
-        error_log('PostProcessing.convert_to_avi()')
+        error_log('PostProcessing.convert_to_avi() not yet implemented')
 
         # # self.choose_folder()
         # save_location = './capture/movie.avi'
@@ -629,8 +606,7 @@ class PostProcessing(BoxLayout):
         # out.release()
 
     def stitch(self):
-        error_log('PostProcessing.stitch()')
-
+        error_log('PostProcessing.stitch() not yet implemented')
 
 
 class ShaderEditor(BoxLayout):
@@ -696,7 +672,6 @@ class MainSettings(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         error_log('MainSettings.__init__()')
-
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
@@ -780,7 +755,6 @@ class Histogram(Widget):
             lumaview.ids['viewer_id'].white = 1.0 # float(edges[1])/255.
 
             # UPDATE SHADER
-
             self.canvas.clear()
             r, b, g, a = self.bg_color
             self.hist = hist
@@ -934,7 +908,7 @@ class VerticalControl(BoxLayout):
         # if lumaview.motion.target_status('Z'):
 
             # Wait two exposure lengths
-            time.sleep(2*self.exposure/1000) # msec into sec
+            time.sleep(2*self.exposure/1000+0.1) # msec into sec
 
             # observe the image 
             image = lumaview.camera.array
@@ -1096,16 +1070,13 @@ class XYStageControl(BoxLayout):
     def update_gui(self):
         error_log('XYStageControl.update_gui()')
         global lumaview
-        x_target = lumaview.motion.target_pos('X')  # Get target value
+        x_target = lumaview.motion.target_pos('X')  # Get target value in um
         error_log(lumaview.motion.message)
-        y_target = lumaview.motion.target_pos('Y')  # Get target value
+        y_target = lumaview.motion.target_pos('Y')  # Get target value in um
         error_log(lumaview.motion.message)
 
-        self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f')
-        self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f')
-
-        # for i in range(20):
-        #     Clock.schedule_once(self.ids['stage_control_id'].draw_stage, i/4)
+        self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f') # display coordinate in mm
+        self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f') # display coordinate in mm
 
     def fine_left(self):
         error_log('XYStageControl.fine_left()')
@@ -1207,21 +1178,21 @@ class XYStageControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def calibrate(self):
-        error_log('XYStageControl.calibrate()')
-        global lumaview
-        x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
-        y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
-        error_log(lumaview.motion.message)
+    # def calibrate(self):
+    #     error_log('XYStageControl.calibrate()')
+    #     global lumaview
+    #     x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
+    #     y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
+    #     error_log(lumaview.motion.message)
 
-        current_labware = WellPlate()
-        current_labware.load_plate(settings['protocol']['labware'])
-        x_plate_offset = current_labware.plate['offset']['x']*1000
-        y_plate_offset = current_labware.plate['offset']['y']*1000
+    #     current_labware = WellPlate()
+    #     current_labware.load_plate(settings['protocol']['labware'])
+    #     x_plate_offset = current_labware.plate['offset']['x']*1000
+    #     y_plate_offset = current_labware.plate['offset']['y']*1000
 
-        settings['stage_offset']['x'] = x_plate_offset-x_pos
-        settings['stage_offset']['y'] = y_plate_offset-y_pos
-        self.update_gui()
+    #     settings['stage_offset']['x'] = x_plate_offset-x_pos
+    #     settings['stage_offset']['y'] = y_plate_offset-y_pos
+    #     self.update_gui()
 
     def home(self):
         error_log('XYStageControl.home()')
@@ -1280,8 +1251,73 @@ class ProtocolSettings(CompositeCapture):
         spinner.values = list(self.labware['Wellplate'].keys())
         settings['protocol']['labware'] = spinner.text
     
-        # # Draw the Labware on Stage
-        # self.ids['stage_widget_id'].draw_labware()
+    def plate_to_stage(self, px, py):
+        # plate coordinates in mm from top left
+        # stage coordinates in um from bottom right
+
+        # Determine current labware
+        os.chdir(home_wd)
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+
+        # Get labware dimensions
+        x_max = current_labware.plate['dimensions']['x']
+        y_max = current_labware.plate['dimensions']['y']
+
+        # Convert coordinates
+        sx = x_max - settings['stage_offset']['x']/1000 - px
+        sy = y_max - settings['stage_offset']['y']/1000 - py
+        sx = sx*1000
+        sy = sy*1000
+
+        return sx, sy
+    
+    def stage_to_plate(self, sx, sy):
+        # plate coordinates in mm from top left
+        # stage coordinates in um from bottom right
+
+        # Determine current labware
+        os.chdir(home_wd)
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+
+        # Get labware dimensions
+        x_max = current_labware.plate['dimensions']['x']
+        y_max = current_labware.plate['dimensions']['y']
+
+        # Convert coordinates
+        sx = sx/1000
+        sy = sy/1000
+
+        px = x_max - settings['stage_offset']['x']/1000 - sx
+        py = y_max - settings['stage_offset']['y']/1000 - sy
+ 
+        return px, py
+    
+    def plate_to_pixel(self, px, py, scale_x, scale_y):
+
+        # Determine current labware
+        os.chdir(home_wd)
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+
+        # Get labware dimensions
+        x_max = current_labware.plate['dimensions']['x']
+        y_max = current_labware.plate['dimensions']['y']
+
+        # Convert coordinates
+        pixel_x = px*scale_x
+        pixel_y = (y_max-py)*scale_y
+
+        return pixel_x, pixel_y
+
+    def stage_to_pixel(self, sx, sy, scale_x, scale_y):
+
+        px, py = self.stage_to_plate(sx, sy)
+        pixel_x, pixel_y = self.plate_to_pixel(px, py, scale_x, scale_y)
+
+        return pixel_x, pixel_y
+
 
     # Create New Protocol
     def new_protocol(self):
@@ -1303,8 +1339,8 @@ class ProtocolSettings(CompositeCapture):
             for layer in layers:
                 if settings[layer]['acquire'] == True:
 
-                    x = pos[0] - settings['stage_offset']['x']/1000
-                    y = pos[1] - settings['stage_offset']['y']/1000
+                    x = pos[0] # in 'plate' coordinates
+                    y = pos[1] # in 'plate' coordinates
                     z = settings[layer]['focus']
                     af = settings[layer]['autofocus']
                     ch = lumaview.led_board.color2ch(layer)
@@ -1359,7 +1395,6 @@ class ProtocolSettings(CompositeCapture):
         self.step_values = np.array(self.step_values)
         self.step_values = self.step_values.astype(float)
 
-        # settings['protocol']['save_folder'] = ''
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
@@ -1460,9 +1495,14 @@ class ProtocolSettings(CompositeCapture):
         exp =       self.step_values[self.c_step, 9]
 
         self.ids['step_name_input'].text = name
-        lumaview.motion.move_abs_pos('X', x*1000)
+
+        # Convert plate coordinates to stage coordinates
+        sx, sy = self.plate_to_stage(x, y)
+
+        # Move into position
+        lumaview.motion.move_abs_pos('X', sx)
         error_log(lumaview.motion.message)
-        lumaview.motion.move_abs_pos('Y', y*1000)
+        lumaview.motion.move_abs_pos('Y', sy)
         error_log(lumaview.motion.message)
         lumaview.motion.move_abs_pos('Z', z)
         error_log(lumaview.motion.message)
@@ -1511,10 +1551,6 @@ class ProtocolSettings(CompositeCapture):
         layer.ids['exp_text'].text = str(exp)
         layer.ids['exp_slider'].value = float(exp)
 
-
-        # for i in range(20):
-        #     Clock.schedule_once(self.ids['stage_widget_id'].draw_labware, i/4)
-
     # Delete Current Step of Protocol
     def delete_step(self):
         error_log('ProtocolSettings.delete_step()')
@@ -1535,9 +1571,15 @@ class ProtocolSettings(CompositeCapture):
             return
 
         self.step_names[self.c_step] = self.ids['step_name_input'].text
-        self.step_values[self.c_step, 0] = lumaview.motion.current_pos('X')/1000 # x
+
+        # Determine and update plate position
+        sx = lumaview.motion.current_pos('X')
+        sy = lumaview.motion.current_pos('Y')
+        px, py = self.stage_to_plate(sx, sy)
+
+        self.step_values[self.c_step, 0] = px # x
         error_log(lumaview.motion.message)
-        self.step_values[self.c_step, 1] = lumaview.motion.current_pos('Y')/1000 # y
+        self.step_values[self.c_step, 1] = py # y
         error_log(lumaview.motion.message)
         self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')      # z
         error_log(lumaview.motion.message)
@@ -1586,8 +1628,13 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.led_board.color2ch(c_layer)
         layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
 
-        step = [lumaview.motion.current_pos('X')/1000,   # x
-                lumaview.motion.current_pos('Y')/1000,   # y
+        # Determine and update plate position
+        sx = lumaview.motion.current_pos('X')
+        sy = lumaview.motion.current_pos('Y')
+        px, py = self.stage_to_plate(sx, sy)
+
+        step = [px,                                      # x
+                py,                                      # y
                 lumaview.motion.current_pos('Z'),        # z
                 int(layer_id.ids['autofocus'].active),   # autofocus
                 ch,                                      # ch 
@@ -1604,160 +1651,121 @@ class ProtocolSettings(CompositeCapture):
 
         self.ids['step_total_input'].text = str(len(self.step_names))
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         
-    # Run one scan of protocol, autofocus at each step, and update protocol
-    def run_autofocus_scan(self):
-        error_log('ProtocolSettings.run_autofocus()')
-        # At each step in the scan, identify if the AF has started yet
-        self.new_AFscan_step = True
+    # # Run one scan of protocol, autofocus at each step, and update protocol
+    # def run_autofocus_scan(self):
+    #     error_log('ProtocolSettings.run_autofocus()')
+    #     # At each step in the scan, identify if the AF has started yet
+    #     self.new_AFscan_step = True
 
-        if len(self.step_names) < 1:
-            error_log('Protocol has no steps.')
-            self.ids['run_autofocus_btn'].state =='normal'
-            self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-            return
+    #     if len(self.step_names) < 1:
+    #         error_log('Protocol has no steps.')
+    #         self.ids['run_autofocus_btn'].state =='normal'
+    #         self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+    #         return
 
-        if self.ids['run_autofocus_btn'].state == 'down':
-            self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
+    #     if self.ids['run_autofocus_btn'].state == 'down':
+    #         self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
 
-            self.c_step = 0
-            self.ids['step_number_input'].text = str(self.c_step+1)
+    #         self.c_step = 0
+    #         self.ids['step_number_input'].text = str(self.c_step+1)
 
-            x = self.step_values[self.c_step, 0]
-            y = self.step_values[self.c_step, 1]
-            z = self.step_values[self.c_step, 2]
+    #         x = self.step_values[self.c_step, 0]
+    #         y = self.step_values[self.c_step, 1]
+    #         z = self.step_values[self.c_step, 2]
  
-            lumaview.motion.move_abs_pos('X', x*1000)
-            error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Y', y*1000)
-            error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Z', z)
-            error_log(lumaview.motion.message)
+    #         lumaview.motion.move_abs_pos('X', x*1000)
+    #         error_log(lumaview.motion.message)
+    #         lumaview.motion.move_abs_pos('Y', y*1000)
+    #         error_log(lumaview.motion.message)
+    #         lumaview.motion.move_abs_pos('Z', z)
+    #         error_log(lumaview.motion.message)
 
-            error_log('Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
-            Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
+    #         error_log('Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
+    #         Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
 
-        else:  # self.ids['run_autofocus_btn'].state =='normal'
-            self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-            error_log('Clock.unschedule(self.autofocus_scan_iterate)')
-            Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
+    #     else:  # self.ids['run_autofocus_btn'].state =='normal'
+    #         self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+    #         error_log('Clock.unschedule(self.autofocus_scan_iterate)')
+    #         Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
         
-    def autofocus_scan_iterate(self, dt):
-        global lumaview
-        global settings
+    # def autofocus_scan_iterate(self, dt):
+    #     global lumaview
+    #     global settings
 
-        # If the autofocus is currently active, leave the function before continuing step
-        if lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state == 'down':
-            print('in autofocus')
-            return
+    #     # If the autofocus is currently active, leave the function before continuing step
+    #     if lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state == 'down':
+    #         print('in autofocus')
+    #         return
 
-        # # Draw the Labware on Stage
-        # self.ids['stage_widget_id'].draw_labware()
-        self.ids['step_number_input'].text = str(self.c_step+1)
+    #     # # Draw the Labware on Stage
+    #     # self.ids['stage_widget_id'].draw_labware()
+    #     self.ids['step_number_input'].text = str(self.c_step+1)
 
-        # Check if at desired position
-        x_status = lumaview.motion.target_status('X')
-        y_status = lumaview.motion.target_status('Y')
-        z_status = lumaview.motion.target_status('Z')
+    #     # Check if at desired position
+    #     x_status = lumaview.motion.target_status('X')
+    #     y_status = lumaview.motion.target_status('Y')
+    #     z_status = lumaview.motion.target_status('Z')
 
-        # If target location has been reached
-        if x_status and y_status and z_status:
-            error_log('Autofocus Scan Step:' + str(self.step_names[self.c_step]) )
+    #     # If target location has been reached
+    #     if x_status and y_status and z_status:
+    #         error_log('Autofocus Scan Step:' + str(self.step_names[self.c_step]) )
 
-            # identify image settings
-            ch =        self.step_values[self.c_step, 3]
-            ill =       self.step_values[self.c_step, 4]
-            gain =      self.step_values[self.c_step, 5]
-            auto_gain = self.step_values[self.c_step, 6]
-            exp =       self.step_values[self.c_step, 7]
+    #         # identify image settings
+    #         ch =        self.step_values[self.c_step, 3]
+    #         ill =       self.step_values[self.c_step, 4]
+    #         gain =      self.step_values[self.c_step, 5]
+    #         auto_gain = self.step_values[self.c_step, 6]
+    #         exp =       self.step_values[self.c_step, 7]
 
-            # set camera settings
-            lumaview.camera.gain(gain)
-            error_log(lumaview.camera.message)
-            lumaview.camera.exposure_t(exp)
-            error_log(lumaview.camera.message)
+    #         # set camera settings
+    #         lumaview.camera.gain(gain)
+    #         error_log(lumaview.camera.message)
+    #         lumaview.camera.exposure_t(exp)
+    #         error_log(lumaview.camera.message)
 
-            # Illuminate
-            lumaview.led_board.led_on(ch, ill)
-            error_log(lumaview.led_board.message)
+    #         # Illuminate
+    #         lumaview.led_board.led_on(ch, ill)
+    #         error_log(lumaview.led_board.message)
 
-            # Else, if the autofocus has not yet begun for the protocol step, begin autofocus
-            if self.new_AFscan_step:
-                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
-                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
-                print('started AF')
-                self.new_AFscan_step = False
-                return
+    #         # Else, if the autofocus has not yet begun for the protocol step, begin autofocus
+    #         if self.new_AFscan_step:
+    #             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
+    #             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
+    #             print('started AF')
+    #             self.new_AFscan_step = False
+    #             return
    
-            # Turn off LEDs
-            lumaview.led_board.leds_off()
-            error_log(lumaview.led_board.message)
+    #         # Turn off LEDs
+    #         lumaview.led_board.leds_off()
+    #         error_log(lumaview.led_board.message)
 
-            # update protocol 
-            self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')
+    #         # update protocol 
+    #         self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')
 
-            # increment to the next step
-            self.c_step += 1
-            print('complete AF')
-            self.new_AFscan_step = True
+    #         # increment to the next step
+    #         self.c_step += 1
+    #         print('complete AF')
+    #         self.new_AFscan_step = True
 
-            if self.c_step < len(self.step_names):
-                x = self.step_values[self.c_step, 0]
-                y = self.step_values[self.c_step, 1]
-                z =  self.step_values[self.c_step, 2]
+    #         if self.c_step < len(self.step_names):
+    #             x = self.step_values[self.c_step, 0]
+    #             y = self.step_values[self.c_step, 1]
+    #             z =  self.step_values[self.c_step, 2]
 
-                lumaview.motion.move_abs_pos('X', x*1000)  # move to x
-                lumaview.motion.move_abs_pos('Y', y*1000)  # move to y
-                lumaview.motion.move_abs_pos('Z', z)       # move to z
+    #             lumaview.motion.move_abs_pos('X', x*1000)  # move to x
+    #             lumaview.motion.move_abs_pos('Y', y*1000)  # move to y
+    #             lumaview.motion.move_abs_pos('Z', z)       # move to z
 
-            # if all positions have already been reached
-            else:
-                error_log('Autofocus Scan Complete')
-                self.ids['run_autofocus_btn'].state = 'normal'
-                self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-
-
-                error_log('Clock.unschedule(self.autofocus_scan_iterate)')
-                Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
+    #         # if all positions have already been reached
+    #         else:
+    #             error_log('Autofocus Scan Complete')
+    #             self.ids['run_autofocus_btn'].state = 'normal'
+    #             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    #             error_log('Clock.unschedule(self.autofocus_scan_iterate)')
+    #             Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
 
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
@@ -1781,9 +1789,13 @@ class ProtocolSettings(CompositeCapture):
             y = self.step_values[self.c_step, 1]
             z = self.step_values[self.c_step, 2]
  
-            lumaview.motion.move_abs_pos('X', x*1000)
+            # Convert plate coordinates to stage coordinates
+            sx, sy = self.plate_to_stage(x, y)
+
+            # Move into position
+            lumaview.motion.move_abs_pos('X', sx)
             error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Y', y*1000)
+            lumaview.motion.move_abs_pos('Y', sy)
             error_log(lumaview.motion.message)
             lumaview.motion.move_abs_pos('Z', z)
             error_log(lumaview.motion.message)
@@ -1840,13 +1852,21 @@ class ProtocolSettings(CompositeCapture):
             self.c_step += 1
 
             if self.c_step < len(self.step_names):
-                x = self.step_values[self.c_step, 0]
-                y = self.step_values[self.c_step, 1]
+
+                x = self.step_values[self.c_step, 0]-settings['stage_offset']['x']
+                y = self.step_values[self.c_step, 1]-settings['stage_offset']['y']
                 z = self.step_values[self.c_step, 2]
 
-                lumaview.motion.move_abs_pos('X', x*1000)  # move to x
-                lumaview.motion.move_abs_pos('Y', y*1000)  # move to y
-                lumaview.motion.move_abs_pos('Z', z)       # move to z
+                # Convert plate coordinates to stage coordinates
+                sx, sy = self.plate_to_stage(x, y)
+
+                # Move into position
+                lumaview.motion.move_abs_pos('X', sx)
+                error_log(lumaview.motion.message)
+                lumaview.motion.move_abs_pos('Y', sy)
+                error_log(lumaview.motion.message)
+                lumaview.motion.move_abs_pos('Z', z)
+                error_log(lumaview.motion.message)
 
             # if all positions have already been reached
             else:
@@ -1946,6 +1966,13 @@ class Stage(Widget):
 
         if self.collide_point(*touch.pos):
 
+            # Get mouse position in pixels
+            (mouse_x, mouse_y) = touch.pos
+
+            # Convert to relative mouse position in pixels
+            mouse_x = mouse_x-self.x
+            mouse_y = mouse_y-self.y
+           
             # Create current labware instance
             current_labware = WellPlate()
             current_labware.load_plate(settings['protocol']['labware'])
@@ -1954,22 +1981,24 @@ class Stage(Widget):
             x_max = current_labware.plate['dimensions']['x']
             y_max = current_labware.plate['dimensions']['y']
 
-            # pixels to mm scale
-            sx = x_max / self.width
-            sy = y_max / self.height
+            # Scale from pixels to mm (from the bottom left)
+            scale_x = x_max / self.width
+            scale_y = y_max / self.height
 
-            # convert pixel location to objective location in mm
-            (mouse_x, mouse_y) = touch.pos
-            x_pos = (mouse_x-self.x)*sx-settings['stage_offset']['x']
-            y_pos = (mouse_y-self.y)*sy-settings['stage_offset']['y']
+            # Convert to plate position in mm (from the top left)
+            plate_x = mouse_x*scale_x
+            plate_y = y_max- mouse_y*scale_y
 
-            lumaview.motion.move_abs_pos('X', x_pos*1000)  # set current x position in um
+            # Convert from plate position to stage position
+            stage_x, stage_y =  lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].plate_to_stage(plate_x, plate_y)
+
+            lumaview.motion.move_abs_pos('X', stage_x)
             error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Y', y_pos*1000)  # set current y position in um
+            lumaview.motion.move_abs_pos('Y', stage_y)
             error_log(lumaview.motion.message)
             lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
-        
-    def draw_labware(self, *args):
+
+    def draw_labware(self, *args): # View the labware from front and above
         # error_log('Stage.draw_labware()')
         global lumaview
         global settings
@@ -1991,22 +2020,25 @@ class Stage(Widget):
             y_max = current_labware.plate['dimensions']['y']
 
             # mm to pixels scale
-            sx = w/x_max
-            sy = h/y_max
+            scale_x = w/x_max
+            scale_y = h/y_max
 
             # Stage Coordinates (120x80 mm)
             stage_w = 120
             stage_h = 80
 
-            stage_x = settings['stage_offset']['x']
-            stage_y = settings['stage_offset']['y']
+            stage_x = settings['stage_offset']['x']/1000
+            stage_y = settings['stage_offset']['y']/1000
 
             # Outline of Stage Area from Above
+            # ------------------
+            
             Color(.2, .2, .2 , 0.5)                # dark grey
-            Rectangle(pos=(x+(x_max-stage_w-stage_x)*sx, y+stage_y*sy),
-                           size=(stage_w*sx, stage_h*sy))
+            Rectangle(pos=(x+(x_max-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
+                           size=(stage_w*scale_x, stage_h*scale_y))
 
             # Outline of Plate from Above
+            # ------------------
             Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
             Line(points=(x, y, x, y+h-15), width = 1)          # Left
             Line(points=(x+w, y, x+w, y+h), width = 1)         # Right
@@ -2015,6 +2047,7 @@ class Stage(Widget):
             Line(points=(x, y+h-15, x+15, y+h), width = 1)     # Diagonal
 
             # Draw all wells
+            # ------------------
             cols = current_labware.plate['columns']
             rows = current_labware.plate['rows']
 
@@ -2024,105 +2057,40 @@ class Stage(Widget):
             for i in range(cols):
                 for j in range(rows):
                     #  THIS ONE
-                    well_x, well_y = current_labware.get_plate_position(i, j)
-                    x_center = int(x+well_x*sx) # on screen center
-                    y_center = int(y+well_y*sy) # on screen center
+                    well_x, well_y = current_labware.get_well_position(i, j)
+                    x_center = int(x+well_x*scale_x) # on screen center
+                    y_center = int(y+well_y*scale_y) # on screen center
                     Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
 
             # Green Circle
+            # ------------------
+            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+
+            # Get target position
             x_target = lumaview.motion.target_pos('X')
             y_target = lumaview.motion.target_pos('Y')
+            x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
-            i, j = current_labware.get_well_index((x_target+stage_x)/1000,
-                                                  (y_target+stage_y)/1000)
-            well_x, well_y = current_labware.get_plate_position(i, j)
+            i, j = current_labware.get_well_index(x_target, y_target)
+            well_x, well_y = current_labware.get_well_position(i, j)
 
-            x_center = int(x+well_x*sx) # on screen center
-            y_center = int(y+well_y*sy) # on screen center
+            # Convert plate coordinates to relative pixel coordinates
+            sx, sy = protocol_settings.plate_to_pixel(well_x, well_y, scale_x, scale_y)
 
             Color(0., 1., 0., 1.)
-            Line(circle=(x_center, y_center, rx))
+            Line(circle=(x+sx, y+sy, rx))
             
             #  Red Crosshairs
-            x_current = lumaview.motion.current_pos('X')/1000 # mm
-            y_current = lumaview.motion.current_pos('Y')/1000 # mm
+            # ------------------
+            x_current = lumaview.motion.current_pos('X')
+            y_current = lumaview.motion.current_pos('Y')
 
-            x_center = x + w - (stage_x+x_current)*sx # on screen center
-            y_center = y +     (stage_y+y_current)*sy # on screen center
- 
-            Color(1., 0., 0., 1.)
-            Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
-            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
-
-    def draw_stage(self, *args):
-        
-        # Create current labware instance
-        os.chdir(home_wd)
-        current_labware = WellPlate()
-        current_labware.load_plate(settings['protocol']['labware'])
-
-        self.canvas.clear()
-
-        with self.canvas:
-            w = self.width
-            h = self.height
-            x = self.x
-            y = self.y
-
-            # Get labware dimensions
-            x_max = current_labware.plate['dimensions']['x']
-            y_max = current_labware.plate['dimensions']['y']
-
-            # mm to pixels scale
-            sx = w/x_max
-            sy = h/y_max
-
-            # Stage Coordinates (120x80 mm)
-            stage_w = 120
-            stage_h = 80
-
-            stage_x = settings['stage_offset']['x']
-            stage_y = settings['stage_offset']['y']
-
-            # Outline of Stage Area from below
-            Color(.2, .2, .2 , 0.5)                # dark grey
-            Rectangle(pos=(x+stage_x*sx, y+stage_y*sy),
-                           size=(stage_w*sx, stage_h*sy))
-                           
-            # Outline from Below
-            Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
-            Line(points=(x, y, x, y+h), width = 1)             # Left
-            Line(points=(x+w, y, x+w, y+h-15), width = 1)      # Right
-            Line(points=(x, y, x+w, y), width = 1)             # Bottom
-            Line(points=(x, y+h, x+w-15, y+h), width = 1)      # Top
-            Line(points=(x+w-15, y+h, x+w, y+h-15), width = 1) # Diagonal
-
-            # Draw all wells
-            cols = current_labware.plate['columns']
-            rows = current_labware.plate['rows']
-
-            Color(0.4, 0.4, 0.4, 0.5)
-            rx = current_labware.plate['spacing']['x']
-            ry = current_labware.plate['spacing']['y']
-            for i in range(cols):
-                for j in range(rows):
-                    #  THIS ONE
-                    well_x, well_y = current_labware.get_plate_position(i, j)
-                    x_center = int(x+(x_max-well_x)*sx) # on screen center
-                    y_center = int(y+(y_max-well_y)*sy) # on screen center
-                    Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
-
-            #  Crosshairs
-            x_current = lumaview.motion.current_pos('X')/1000 # mm
-            y_current = lumaview.motion.current_pos('Y')/1000 # mm
-
-            x_center = x+stage_x*sx+x_current*sx # on screen center
-            y_center = y+stage_y*sy+y_current*sy # on screen center
+            # Convert stage coordinates to relative pixel coordinates
+            pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
 
             Color(1., 0., 0., 1.)
-            Line(points=(x_center-10, y_center, x_center+10 ,y_center), width = 1) # horizontal line
-            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
-
+            Line(points=(x+pixel_x-10, y+pixel_y, x+pixel_x+10, y+pixel_y), width = 1) # horizontal line
+            Line(points=(x+pixel_x, y+pixel_y-10, x+pixel_x, y+pixel_y+10), width = 1) # vertical line
 
 class MicroscopeSettings(BoxLayout):
 
@@ -2688,6 +2656,7 @@ class LumaViewProApp(App):
         global lumaview
         lumaview = MainDisplay()
 
+        # load settings file
         if os.path.exists("./data/current.json"):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
         elif os.path.exists("./data/settings.json"):
@@ -2695,9 +2664,15 @@ class LumaViewProApp(App):
         else:
             print('No settings found.')
         
+        # # initialize global coordinate class
+        # global cordinates
+        # cordinates = coordinate_system()
+        # cordinates.offset_x = settings['stage_offset']['x']*1000
+        # cordinates.offset_y = settings['stage_offset']['y']*1000
+
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
-        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_stage, 0.1)
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_labware, 0.1)
 
         try:
             filepath = settings['protocol']['filepath']

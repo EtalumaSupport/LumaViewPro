@@ -32,7 +32,6 @@ class WellPlate(LabWare):
         self.plate = []    # All plate information from JSON file
         self.ind_list = [] # ordered list of all well indices 
         self.pos_list = [] # ordered list of all well positions
-        self.move = "S"    # scan pattern (S for snake)
 
     def load_plate(self, plate_key):
         self.plate = self.labware['Wellplate'][plate_key]
@@ -41,13 +40,16 @@ class WellPlate(LabWare):
     def set_indices(self):
 
         self.ind_list = []
+        # 'i' represents column index (x-direction)
+        # 'j' represents row index (y-direction)
+        # (0, 0) on the bottom left looking from above
 
-        for j in range(self.plate['rows']):
+        # start at the top-left when looking from above
+        for j in range(self.plate['rows']):            
             for i in range(self.plate['columns']):
                 if j % 2 == 1:
                     i = self.plate['columns'] - i - 1
-
-                self.ind_list.append([i, j])
+                self.ind_list.append([i,j])
 
     # set positions based on indices
     def set_positions(self): 
@@ -56,39 +58,39 @@ class WellPlate(LabWare):
         self.pos_list = []
 
         for i in self.ind_list:
-            x, y = self.get_plate_position(i[0], i[1])
+            x, y = self.get_well_position(i[0], i[1])
             self.pos_list.append([x, y])
-           
-    # Figure out index of well based on stage position of xy
+
+    # Get center position of well on plate in mm given its index (i, j)
+    def get_well_position(self, i, j):
+
+        dx = self.plate['spacing']['x'] # distance b/w wells x-dir
+        ox = self.plate['offset']['x']  # offset to first well x-dir
+        x = ox+i*dx                     # x position in mm of well
+        
+        dy = self.plate['spacing']['y']    # distance b/w wells y-dir
+        oy = self.plate['offset']['y']     # offset to top well y-dir
+        y = oy+j*dy
+            
+        return x, y
+    
+    # Get index of closest well based on plate position (x, y) in mm
     def get_well_index(self, x, y):
 
-        sx = 0 # self.stage_x
-        px = self.plate['dimensions']['x']
-        ox = self.plate['offset']['x']
-        dx = self.plate['spacing']['x']
-        i = (x+sx-ox)/dx
+        ox = self.plate['offset']['x']     # offset to first well x-dir
+        dx = self.plate['spacing']['x']    # distance b/w wells x-dir
+        i = (x-ox)/dx
 
-        sy = 0 # self.stage_y
-        py = self.plate['dimensions']['y']
-        oy = self.plate['offset']['y']
-        dy = self.plate['spacing']['y']
-        j = -(y+sy-py+oy)/dy
-
+        dy = self.plate['spacing']['y']    # distance b/w wells y-dir
+        oy = self.plate['offset']['y']     # offset to top well y-dir
+        j = (y-oy)/dy
+        
         i = round(i)
         j = round(j)
         i = np.clip(i, 0, self.plate['columns']-1)
         j = np.clip(j, 0, self.plate['rows']-1)
         return i, j
 
-    # Get well position in mm given its index
-    def get_plate_position(self, i, j):
-
-        x = self.plate['dimensions']['x'] - \
-            (self.plate['offset']['x'] + i*self.plate['spacing']['x'])
-        y = self.plate['dimensions']['y'] - \
-            (self.plate['offset']['y'] + j*self.plate['spacing']['y'])
-            
-        return x, y
 
 class PitriDish(LabWare):
     """A class that stores and computes actions for petri dish labware"""
