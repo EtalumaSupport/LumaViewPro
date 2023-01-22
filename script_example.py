@@ -35,12 +35,15 @@ for i in range(6):
 # Controlling focus and XY stage
 # ----------------------------------------------------
 xyz.xyhome()        # home position of xy stage
-xyz.move_abs_pos('X', 5800)    # move to absolute position in um
-xyz.move_abs_pos('Y', 3500)    # move to absolute position in um
-xyz.move_abs_pos('Z', 3270)    # move to absolute position in um
+for t in range(5):
+    time.sleep(1)              # cannot send it new commands to move while its homing
+    print(5-t)
+xyz.move_abs_pos('X', 60000)    # move to absolute position in um
+xyz.move_abs_pos('Y', 40000)    # move to absolute position in um
+xyz.move_abs_pos('Z', 7000)     # move to absolute position in um
 
 # # ----------------------------------------------------
-# # Controlling the Turret
+# # Controlling the Turret (Not Yet Functional)
 # # ----------------------------------------------------
 # xyz.thome()
 # xyz.move_abs_pos('T', 30.000) # move to absolute position in deg
@@ -62,28 +65,36 @@ if cam.active:
 # ----------------------------------------------------
 xyz.xyhome()
 
-xyz.move_abs_pos('X', 5000)    # move to absolute position in um
-xyz.move_abs_pos('Y', 5000)    # move to absolute position in um
-xyz.move_abs_pos('Z', 3000)    # move to absolute position in um
-time.sleep(2)       # wait 1 sec
+# Homing needs 5 seconds. Test LEDs while homing.
+for i in range(6):
+    print("testing LED ", i+1)
+    led.led_on(i, 600)  # turn on LED at channel i at 600mA
+    time.sleep(1)
+
+led.leds_off()
+
+xyz.move_abs_pos('X', 60000)    # move to absolute position in um
+xyz.move_abs_pos('Y', 40000)    # move to absolute position in um
+xyz.move_abs_pos('Z', 7000)     # move to absolute position in um
+time.sleep(2)                   # wait to arrive
 
 if cam.active:
     cam.frame_size(1900,1900)
 
-    led.led_on(0, 50)  # turn on LED at channel 0 at 50mA
-    time.sleep(1)      # wait 1 sec
+    led.led_on(0, 600)
+    time.sleep(1)
     cam.grab()
     img = Image.fromarray(cam.array)
     img.show()
 
-    led.led_on(1, 100)  # turn on LED at channel 0 at 50mA
-    time.sleep(1)       # wait 1 sec
+    led.led_on(1, 600)
+    time.sleep(1)
     cam.grab()
-    #img = Image.fromarray(cam.array)
-    #img.show()
+    img = Image.fromarray(cam.array)
+    img.show()
 
-    led.led_on(2, 150)  # turn on LED at channel 0 at 50mA
-    time.sleep(1)       # wait 1 sec
+    led.led_on(2, 600)
+    time.sleep(1)
     cam.grab()
     img = Image.fromarray(cam.array)
     img.show()

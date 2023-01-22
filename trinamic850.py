@@ -69,9 +69,9 @@ class TrinamicBoard:
         self.driver = False
         self.connect()
 
-    def __del__(self):
-        if self.driver != False:
-            self.driver.close()
+    # def __del__(self):
+    #     if self.driver != False:
+    #         self.driver.close()
 
     def connect(self):
         try:

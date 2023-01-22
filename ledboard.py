@@ -23,9 +23,9 @@ class LEDBoard:
         self.driver = False
         self.connect()
 
-    def __del__(self):
-        if self.driver != False:
-            self.driver.close()
+    # def __del__(self):
+    #     if self.driver != False:
+    #         self.driver.close()
 
     def connect(self):
         try:
@@ -38,8 +38,9 @@ class LEDBoard:
                                         write_timeout=self.write_timeout)
             self.driver.close()
             self.driver.open()
+            # self.send_command ('import main.py')         
+            # self.send_command ('import main.py') 
             self.message = 'LEDBoard.connect() succeeded'
-            print('LEDBoard.connect() succeeded')
         except:
             self.driver = False
             self.message = 'LEDBoard.connect() failed'
