@@ -1853,10 +1853,10 @@ class ProtocolSettings(CompositeCapture):
 
             if self.c_step < len(self.step_names):
 
-                x = self.step_values[self.c_step, 0]-settings['stage_offset']['x']
-                y = self.step_values[self.c_step, 1]-settings['stage_offset']['y']
+                x = self.step_values[self.c_step, 0]
+                y = self.step_values[self.c_step, 1]
                 z = self.step_values[self.c_step, 2]
-
+    
                 # Convert plate coordinates to stage coordinates
                 sx, sy = self.plate_to_stage(x, y)
 
@@ -1867,6 +1867,7 @@ class ProtocolSettings(CompositeCapture):
                 error_log(lumaview.motion.message)
                 lumaview.motion.move_abs_pos('Z', z)
                 error_log(lumaview.motion.message)
+
 
             # if all positions have already been reached
             else:
