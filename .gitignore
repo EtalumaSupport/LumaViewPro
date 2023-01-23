@@ -2,7 +2,6 @@ __pycache__/
 data/current.json
 .vscode/
 calls.txt
-logs/*
+logs/LVP_log*
 capture/*.tiff
 script_testing.py
-priority_list.txt
