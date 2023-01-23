@@ -75,8 +75,8 @@ class LEDBoard:
                                         write_timeout=self.write_timeout)
             self.driver.close()
             self.driver.open()
-            # self.send_command ('import main.py')         
-            # self.send_command ('import main.py') 
+            self.send_command ('import main.py')         
+            self.send_command ('import main.py') 
             self.message = 'LEDBoard.connect() succeeded'
         except:
             self.driver = False
