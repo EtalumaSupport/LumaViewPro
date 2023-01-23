@@ -195,7 +195,7 @@ class CompositeCapture(FloatLayout):
         append = 'ms'
         color = 'BF'
 
-        layers = ['BF', 'Blue', 'Green', 'Red']
+        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
             accordion = layer + '_accordion'
             if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
@@ -292,7 +292,7 @@ class CompositeCapture(FloatLayout):
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
 
-        layers = ['BF', 'Blue', 'Green', 'Red']
+        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
             if settings[layer]['acquire'] == True:
 
@@ -683,7 +683,7 @@ class MainSettings(BoxLayout):
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_mainsettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
-            layers = ['BF', 'Blue', 'Green', 'Red']
+            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
                 error_log('Clock.unschedule(lumaview...histogram)')
@@ -704,7 +704,7 @@ class MainSettings(BoxLayout):
         error_log(lumaview.led_board.message)
 
         # turn off all LED toggle buttons and histograms
-        layers = ['BF', 'Blue', 'Green', 'Red']
+        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
@@ -846,6 +846,8 @@ class VerticalControl(BoxLayout):
         error_log(lumaview.motion.message)
         settings['bookmark']['z'] = height
         settings['BF']['focus'] = height
+        settings['PC']['focus'] = height
+        settings['EP']['focus'] = height
         settings['Blue']['focus'] = height
         settings['Green']['focus'] = height
         settings['Red']['focus'] = height
@@ -1335,7 +1337,7 @@ class ProtocolSettings(CompositeCapture):
         for pos in current_labware.pos_list:
 
             # Iterate through all the colors to create the steps
-            layers = ['BF', 'Blue', 'Green', 'Red']
+            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 if settings[layer]['acquire'] == True:
 
@@ -1586,7 +1588,7 @@ class ProtocolSettings(CompositeCapture):
 
         c_layer = False
 
-        layers = ['BF', 'Blue', 'Green', 'Red']
+        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
             accordion = layer + '_accordion'
             if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
@@ -1615,7 +1617,7 @@ class ProtocolSettings(CompositeCapture):
         name = self.ids['step_name_input'].text
         c_layer = False
 
-        layers = ['BF', 'Blue', 'Green', 'Red']
+        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
             accordion = layer + '_accordion'
             if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
@@ -1808,7 +1810,7 @@ class ProtocolSettings(CompositeCapture):
 
             # toggle all LEDs AND TOGGLE BUTTONS ofF
             lumaview.led_board.leds_off()
-            layers = ['BF', 'Blue', 'Green', 'Red']
+            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
@@ -2156,7 +2158,7 @@ class MicroscopeSettings(BoxLayout):
                 else:
                     zstack_settings.ids['zstack_steps_id'].text = '0'
 
-                layers = ['BF', 'Blue', 'Green', 'Red']
+                layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
                 for layer in layers:
                     lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
                     lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
@@ -2377,7 +2379,7 @@ class LayerControl(BoxLayout):
 
             
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
-            layers = ['BF', 'Blue', 'Green', 'Red']
+            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 if layer == self.layer:
                     Clock.schedule_interval(lumaview.ids['mainsettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
@@ -2438,7 +2440,8 @@ class LayerControl(BoxLayout):
         else:
             lumaview.ids['viewer_id'].update_shader('none')
 
-
+# Z Stack functions class
+# ---------------------------------------------------------------------
 class ZStack(CompositeCapture):
     def set_steps(self):
         error_log('ZStack.set_steps()')

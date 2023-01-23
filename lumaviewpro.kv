@@ -1065,11 +1065,31 @@
         # BRIGHTFIELD SETTINGS
         AccordionItem:
 			id: BF_accordion
-            title: 'Brightfield Channel Control'
+            title: 'Brightfield Control'
 			on_collapse: root.accordion_collapse()
             LayerControl:
                 id: BF
                 layer: 'BF'
+                bg_color: 0.5, 0.5, 0.5,  1
+
+       # PHASE CONTRAST SETTINGS
+        AccordionItem:
+			id: PC_accordion
+            title: 'Phase Contrast Control'
+			on_collapse: root.accordion_collapse()
+            LayerControl:
+                id: PC
+                layer: 'PC'
+                bg_color: 0.5, 0.5, 0.5,  1
+
+       # EXTENDED PHASE CONTRAST SETTINGS
+        AccordionItem:
+			id: EP_accordion
+            title: 'Extended Phase Control'
+			on_collapse: root.accordion_collapse()
+            LayerControl:
+                id: EP
+                layer: 'EP'
                 bg_color: 0.5, 0.5, 0.5,  1
 
         # BLUE SETTINGS

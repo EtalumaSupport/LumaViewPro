@@ -40,6 +40,30 @@
         "exp": 30.0,
         "acquire": true
     },
+    "PC": {
+        "save_folder": "./capture",
+        "file_root": "W_",
+        "focus": 4950.0,
+        "autofocus": true,
+        "false_color": false,
+        "ill": 100.0,
+        "gain": 1.0,
+        "auto_gain": false,
+        "exp": 30.0,
+        "acquire": true
+    },
+    "EP": {
+        "save_folder": "./capture",
+        "file_root": "W_",
+        "focus": 4950.0,
+        "autofocus": true,
+        "false_color": false,
+        "ill": 100.0,
+        "gain": 1.0,
+        "auto_gain": false,
+        "exp": 30.0,
+        "acquire": true
+    },
     "Blue": {
         "save_folder": "./capture",
         "file_root": "B_",

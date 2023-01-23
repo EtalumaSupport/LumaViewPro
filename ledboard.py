@@ -123,6 +123,12 @@ class LEDBoard:
             return 1
         elif color == 'Red':
             return 2
+        elif color == 'BF':
+            return 3
+        elif color == 'PC':
+            return 4
+        elif color == 'EP':
+            return 5
         else: # BF
             return 3
 
@@ -134,6 +140,12 @@ class LEDBoard:
             return 'Green'
         elif channel == 2:
             return 'Red'
+        elif channel == 3:
+            return 'BF'
+        elif channel == 4:
+            return 'PC'
+        elif channel == 5:
+            return 'EP'
         else:
             return 'BF'
 
