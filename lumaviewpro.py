@@ -710,6 +710,13 @@ class MainSettings(BoxLayout):
             Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
             error_log('Clock.unschedule(lumaview...histogram)')
 
+            accordion = layer + '_accordion'
+            if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
+                if lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active:
+                    lumaview.ids['viewer_id'].update_shader(false_color=layer)
+                else:
+                    lumaview.ids['viewer_id'].update_shader(false_color='BF')
+
         # Restart camera feed
         if scope_display.play == True:
             scope_display.start()
