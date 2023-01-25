@@ -118,7 +118,8 @@ def error_log(mssg):
             file = open('./logs/LVP_log '+start_str+'.txt', 'a')
         except:
             if not os.path.isdir('./logs'):
-                print("Couldn't find 'logs' directory. Maybe not in the correct base directory?")
+                raise FileNotFoundError("Couldn't find 'logs' directory.")
+                #raise FileNotFoundError("Couldn't find 'logs' directory. Maybe not in the correct base directory?")
         else:
             file.write(mssg + '\n')
             file.close()
@@ -1227,7 +1228,7 @@ class ProtocolSettings(CompositeCapture):
         except:
             print("Error reading labware definition file 'data/labware.json'")
             if not os.path.isdir('./data'):
-                print("Cound't find 'data' directory.")
+                raise FileNotFoundError("Cound't find 'data' directory.")
             self.labware = False
         else:
             self.labware = json.load(read_file)
@@ -2136,7 +2137,7 @@ class MicroscopeSettings(BoxLayout):
             read_file = open(filename, "r")
         except:
             error_log("Unable to open file "+filename)
-            settings = []
+            raise
             
         else:
             try:
@@ -2673,7 +2674,7 @@ class LumaViewProApp(App):
         elif os.path.exists("./data/settings.json"):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
         else:
-            print('No settings found.')
+            raise FileNotFoundError('No settings found.')
         
         # # initialize global coordinate class
         # global cordinates
