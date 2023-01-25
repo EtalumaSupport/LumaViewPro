@@ -106,14 +106,14 @@ global lumaview
 global settings
 # global coordinates
 
-home_wd = os.getcwd()
+#home_wd = os.getcwd()
 
 start_str = time.strftime("%Y %m %d %H_%M_%S")
 start_str = str(int(round(time.time() * 1000)))
 
 def error_log(mssg):
     if True:
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         try:
             file = open('./logs/LVP_log '+start_str+'.txt', 'a')
         except:
@@ -133,8 +133,14 @@ focus_round = 0
 def focus_log(positions, values):
     global focus_round
     if True:
-        os.chdir(home_wd)
-        file = open('./logs/focus_log.txt', 'a')
+        #os.chdir(home_wd)
+        try:
+            file = open('./logs/focus_log.txt', 'a')
+        except:
+            if not os.path.isdir('./logs'):
+                raise FileNotFoundError("Couldn't find 'logs' directory.")
+            else:
+                raise
         for i, p in enumerate(positions):
             mssg = str(focus_round) + '\t' + str(p) + '\t' + str(values[i]) + '\n'
             file.write(mssg)
@@ -1223,7 +1229,7 @@ class ProtocolSettings(CompositeCapture):
         error_log('ProtocolSettings.__init__()')
 
         # Load all Possible Labware from JSON
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         try:
             read_file = open('./data/labware.json', "r")
         except:
@@ -1232,7 +1238,7 @@ class ProtocolSettings(CompositeCapture):
                 raise FileNotFoundError("Cound't find 'data' directory.")
             else:
                 raise
-            self.labware = False
+            #self.labware = False
         else:
             self.labware = json.load(read_file)
             read_file.close()
@@ -1269,7 +1275,7 @@ class ProtocolSettings(CompositeCapture):
         # stage coordinates in um from bottom right
 
         # Determine current labware
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -1290,7 +1296,7 @@ class ProtocolSettings(CompositeCapture):
         # stage coordinates in um from bottom right
 
         # Determine current labware
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -1310,7 +1316,7 @@ class ProtocolSettings(CompositeCapture):
     def plate_to_pixel(self, px, py, scale_x, scale_y):
 
         # Determine current labware
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -1336,7 +1342,7 @@ class ProtocolSettings(CompositeCapture):
     def new_protocol(self):
         error_log('ProtocolSettings.new_protocol()')
 
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
         current_labware.set_positions()
@@ -1400,7 +1406,6 @@ class ProtocolSettings(CompositeCapture):
         self.step_values = []
 
         for row in csvreader:
-
             self.step_names.append(row[0])
             self.step_values.append(row[1:])
 
@@ -2113,20 +2118,20 @@ class MicroscopeSettings(BoxLayout):
         error_log('MicroscopeSettings.__init__()')
 
         try:
-            os.chdir(home_wd)
+            #os.chdir(home_wd)
             with open('./data/scopes.json', "r") as read_file:
                 self.scopes = json.load(read_file)
         except:
-            self.scopes = False
-            print("Unable to open scopes.json.")
+            print("Unable to read scopes.json.")
+            raise
 
         try:
-            os.chdir(home_wd)
+            #os.chdir(home_wd)
             with open('./data/objectives.json', "r") as read_file:
                 self.objectives = json.load(read_file)
         except:
-            self.objectives = False
             print("Unable to open objectives.json.")
+            raise
 
     # load settings from JSON file
     def load_settings(self, filename="./data/current.json"):
@@ -2136,7 +2141,7 @@ class MicroscopeSettings(BoxLayout):
 
         # load settings JSON file
         try:
-            os.chdir(home_wd)
+            #os.chdir(home_wd)
             read_file = open(filename, "r")
         except:
             error_log("Unable to open file "+filename)
@@ -2189,7 +2194,7 @@ class MicroscopeSettings(BoxLayout):
     def save_settings(self, file="./data/current.json"):
         error_log('MicroscopeSettings.save_settings()')
         global settings
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         with open(file, "w") as write_file:
             json.dump(settings, write_file, indent = 4)
 
