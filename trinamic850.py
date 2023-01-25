@@ -57,7 +57,7 @@ class TrinamicBoard:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
                 print('Motor Controller at', port.device)
                 self.port = port.device
-                #self.found = True
+                self.found = True
                 break
 
         self.baudrate=115200
