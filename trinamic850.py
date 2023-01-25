@@ -35,8 +35,8 @@ MODIFIED:
 January 22, 2023
 '''
 
-import threading
-import queue
+#import threading
+#import queue
 import time
 import serial
 import serial.tools.list_ports as list_ports

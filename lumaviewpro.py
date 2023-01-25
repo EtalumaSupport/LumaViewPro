@@ -55,48 +55,48 @@ from plyer import filechooser
 #     import pstats
 
 # Kivy
-import kivy
+#import kivy
 from kivy.app import App
 from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
-from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
+#from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivy.animation import Animation
+#from kivy.animation import Animation
 from kivy.graphics import Line, Color, Rectangle, Ellipse
 # from kivy.config import Config
 # Config.set('graphics', 'width', '1920')
 # Config.set('graphics', 'height', '1080')
 
 # User Interface
-from kivy.uix.accordion import Accordion, AccordionItem
+#from kivy.uix.accordion import Accordion, AccordionItem
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
+#from kivy.uix.gridlayout import GridLayout
 from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.relativelayout import RelativeLayout
+#from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.scatter import Scatter
 from kivy.uix.widget import Widget
-from kivy.uix.togglebutton import ToggleButton
-from kivy.uix.switch import Switch
+#from kivy.uix.togglebutton import ToggleButton
+#from kivy.uix.switch import Switch
 from kivy.uix.slider import Slider
-from kivy.uix.dropdown import DropDown
+#from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
-from kivy.uix.popup import Popup
-from kivy.uix.label import Label
+#from kivy.uix.popup import Popup
+#from kivy.uix.label import Label
 from kivy.uix.button import Button
 
 # Video Related
-from kivy.graphics.texture import Texture
+#from kivy.graphics.texture import Texture
 import cv2
 from scipy import signal
 
 # Additional LumaViewPro files
-from trinamic850 import *
-from ledboard import *
-from pyloncamera import *
-from labware import *
+from trinamic850 import TrinamicBoard
+from ledboard import LEDBoard
+from pyloncamera import PylonCamera
+from labware import WellPlate
 # import coordinate_system
 
 from kivy.config import Config
