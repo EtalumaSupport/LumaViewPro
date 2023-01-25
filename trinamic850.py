@@ -114,10 +114,12 @@ class TrinamicBoard:
 
             except serial.SerialTimeoutException:
                 self.message = 'TrinamicBoard.exchange_command('+command+') Serial Timeout Occurred'
-                return False
+                raise IOError
         else:
-            self.connect()
-            return False
+            try:
+                self.connect()
+            except:
+                raise IOError
 
     # Firmware 1-14-2023 commands include
     # 'QUIT'
