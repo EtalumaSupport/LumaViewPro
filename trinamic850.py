@@ -57,7 +57,7 @@ class TrinamicBoard:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
                 print('Motor Controller at', port.device)
                 self.port = port.device
-                self.found = True
+                #self.found = True
                 break
 
         self.baudrate=115200
@@ -93,7 +93,7 @@ class TrinamicBoard:
         except:
             self.driver = False
             self.message = 'TrinamicBoard.connect() failed'
-            print('TrinamicBoard.connect() succeeded')
+            print('TrinamicBoard.connect() failed')
 
     #----------------------------------------------------------
     # Define Communication
@@ -237,7 +237,8 @@ class TrinamicBoard:
         """ Get the target position of an axis"""
 
         if self.found:
-            pos = int( self.exchange_command('TARGET_R' + axis ) )
+            rv = self.exchange_command('TARGET_R' + axis)
+            pos = int(rv)
 
             if axis == 'Z':
                 um = self.z_ustep2um(pos)
@@ -255,7 +256,11 @@ class TrinamicBoard:
         """Get current position (in um) of axis"""
         
         if self.found:
-            pos = int( self.exchange_command('ACTUAL_R' + axis) )
+            try:
+                rv = self.exchange_command('ACTUAL_R' + axis)
+            except:
+                raise
+            pos = int(rv)
 
             if axis == 'Z':
                 um = self.z_ustep2um(pos)
