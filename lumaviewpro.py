@@ -43,7 +43,7 @@ import csv
 import time
 import json
 import glob
-import math
+# import math
 # import threading
 from plyer import filechooser
 # from scipy.optimized import curve_fit
@@ -55,36 +55,35 @@ from plyer import filechooser
 #     import pstats
 
 # Kivy
-import kivy
+#import kivy
 from kivy.app import App
-from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
-from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
+#from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivy.animation import Animation
+#from kivy.animation import Animation
 from kivy.graphics import Line, Color, Rectangle, Ellipse
 # from kivy.config import Config
 # Config.set('graphics', 'width', '1920')
 # Config.set('graphics', 'height', '1080')
 
 # User Interface
-from kivy.uix.accordion import Accordion, AccordionItem
+#from kivy.uix.accordion import Accordion, AccordionItem
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
+#from kivy.uix.gridlayout import GridLayout
 from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.relativelayout import RelativeLayout
+#from kivy.uix.relativelayout import RelativeLayout
 from kivy.uix.scatter import Scatter
 from kivy.uix.widget import Widget
-from kivy.uix.togglebutton import ToggleButton
-from kivy.uix.switch import Switch
+#from kivy.uix.togglebutton import ToggleButton
+#from kivy.uix.switch import Switch
 from kivy.uix.slider import Slider
-from kivy.uix.dropdown import DropDown
+#from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
-from kivy.uix.popup import Popup
-from kivy.uix.label import Label
+#from kivy.uix.popup import Popup
+#from kivy.uix.label import Label
 from kivy.uix.button import Button
 
 # Video Related
@@ -93,10 +92,10 @@ import cv2
 from scipy import signal
 
 # Additional LumaViewPro files
-from trinamic850 import *
-from ledboard import *
-from pyloncamera import *
-from labware import *
+from trinamic850 import TrinamicBoard
+from ledboard import LEDBoard
+from pyloncamera import PylonCamera
+from labware import WellPlate
 # import coordinate_system
 
 from kivy.config import Config
@@ -106,19 +105,21 @@ global lumaview
 global settings
 # global coordinates
 
-home_wd = os.getcwd()
+#home_wd = os.getcwd()
 
 start_str = time.strftime("%Y %m %d %H_%M_%S")
 start_str = str(int(round(time.time() * 1000)))
 
 def error_log(mssg):
     if True:
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         try:
             file = open('./logs/LVP_log '+start_str+'.txt', 'a')
         except:
             if not os.path.isdir('./logs'):
-                print("Couldn't find 'logs' directory. Maybe not in the correct base directory?")
+                raise FileNotFoundError("Couldn't find 'logs' directory.")
+            else:
+                raise
         else:
             file.write(mssg + '\n')
             file.close()
@@ -131,8 +132,14 @@ focus_round = 0
 def focus_log(positions, values):
     global focus_round
     if True:
-        os.chdir(home_wd)
-        file = open('./logs/focus_log.txt', 'a')
+        #os.chdir(home_wd)
+        try:
+            file = open('./logs/focus_log.txt', 'a')
+        except:
+            if not os.path.isdir('./logs'):
+                raise FileNotFoundError("Couldn't find 'logs' directory.")
+            else:
+                raise
         for i, p in enumerate(positions):
             mssg = str(focus_round) + '\t' + str(p) + '\t' + str(values[i]) + '\n'
             file.write(mssg)
@@ -1221,14 +1228,16 @@ class ProtocolSettings(CompositeCapture):
         error_log('ProtocolSettings.__init__()')
 
         # Load all Possible Labware from JSON
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         try:
             read_file = open('./data/labware.json', "r")
         except:
-            print("Error reading labware definition file 'data/labware.json'")
+            error_log("Error reading labware definition file 'data/labware.json'")
             if not os.path.isdir('./data'):
-                print("Cound't find 'data' directory.")
-            self.labware = False
+                raise FileNotFoundError("Cound't find 'data' directory.")
+            else:
+                raise
+            #self.labware = False
         else:
             self.labware = json.load(read_file)
             read_file.close()
@@ -1265,7 +1274,7 @@ class ProtocolSettings(CompositeCapture):
         # stage coordinates in um from bottom right
 
         # Determine current labware
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -1286,7 +1295,7 @@ class ProtocolSettings(CompositeCapture):
         # stage coordinates in um from bottom right
 
         # Determine current labware
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -1306,7 +1315,7 @@ class ProtocolSettings(CompositeCapture):
     def plate_to_pixel(self, px, py, scale_x, scale_y):
 
         # Determine current labware
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -1332,7 +1341,7 @@ class ProtocolSettings(CompositeCapture):
     def new_protocol(self):
         error_log('ProtocolSettings.new_protocol()')
 
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
         current_labware.set_positions()
@@ -1396,7 +1405,6 @@ class ProtocolSettings(CompositeCapture):
         self.step_values = []
 
         for row in csvreader:
-
             self.step_names.append(row[0])
             self.step_values.append(row[1:])
 
@@ -2109,20 +2117,20 @@ class MicroscopeSettings(BoxLayout):
         error_log('MicroscopeSettings.__init__()')
 
         try:
-            os.chdir(home_wd)
+            #os.chdir(home_wd)
             with open('./data/scopes.json', "r") as read_file:
                 self.scopes = json.load(read_file)
         except:
-            self.scopes = False
-            print("Unable to open scopes.json.")
+            print("Unable to read scopes.json.")
+            raise
 
         try:
-            os.chdir(home_wd)
+            #os.chdir(home_wd)
             with open('./data/objectives.json', "r") as read_file:
                 self.objectives = json.load(read_file)
         except:
-            self.objectives = False
             print("Unable to open objectives.json.")
+            raise
 
     # load settings from JSON file
     def load_settings(self, filename="./data/current.json"):
@@ -2132,11 +2140,11 @@ class MicroscopeSettings(BoxLayout):
 
         # load settings JSON file
         try:
-            os.chdir(home_wd)
+            #os.chdir(home_wd)
             read_file = open(filename, "r")
         except:
             error_log("Unable to open file "+filename)
-            settings = []
+            raise
             
         else:
             try:
@@ -2185,7 +2193,7 @@ class MicroscopeSettings(BoxLayout):
     def save_settings(self, file="./data/current.json"):
         error_log('MicroscopeSettings.save_settings()')
         global settings
-        os.chdir(home_wd)
+        #os.chdir(home_wd)
         with open(file, "w") as write_file:
             json.dump(settings, write_file, indent = 4)
 
@@ -2659,10 +2667,13 @@ class LumaViewProApp(App):
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
+        global Window
         error_log('LumaViewProApp.build()')
         self.icon = './data/icons/icon32x.png'
+        from kivy.core.window import Window
         Window.bind(on_resize=self._on_resize)
         Window.maximize()
+
 
         global lumaview
         lumaview = MainDisplay()
@@ -2673,7 +2684,10 @@ class LumaViewProApp(App):
         elif os.path.exists("./data/settings.json"):
             lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
         else:
-            print('No settings found.')
+            if not os.path.isdir('./data'):
+                raise FileNotFoundError("Cound't find 'data' directory.")
+            else:
+                raise FileNotFoundError('No settings files found.')
         
         # # initialize global coordinate class
         # global cordinates

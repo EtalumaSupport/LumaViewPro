@@ -54,8 +54,8 @@ class LEDBoard:
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
-        self.timeout=0.5 # seconds
-        self.write_timeout=0.5 # seconds
+        self.timeout=0.01 # seconds
+        self.write_timeout=0.01 # seconds
         self.driver = False
         self.connect()
 
