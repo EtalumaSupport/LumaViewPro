@@ -43,7 +43,7 @@ import csv
 import time
 import json
 import glob
-import math
+# import math
 # import threading
 from plyer import filechooser
 # from scipy.optimized import curve_fit
@@ -57,7 +57,6 @@ from plyer import filechooser
 # Kivy
 #import kivy
 from kivy.app import App
-from kivy.core.window import Window
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
@@ -88,7 +87,7 @@ from kivy.uix.image import Image
 from kivy.uix.button import Button
 
 # Video Related
-#from kivy.graphics.texture import Texture
+from kivy.graphics.texture import Texture
 import cv2
 from scipy import signal
 
@@ -2668,10 +2667,13 @@ class LumaViewProApp(App):
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
+        global Window
         error_log('LumaViewProApp.build()')
         self.icon = './data/icons/icon32x.png'
+        from kivy.core.window import Window
         Window.bind(on_resize=self._on_resize)
         Window.maximize()
+
 
         global lumaview
         lumaview = MainDisplay()
