@@ -812,13 +812,13 @@
 				font_size: '12sp'
 		        on_release: self.choose('load_protocol')
 
-		    # Button:
-		    #     text: 'Save'
-		    #     size_hint_y: None
-		    #     height: '30dp'
-			# 	font_size: '12sp'
-			# 	disabled: True
-		    #     on_release: root.save_protocol()
+		    Button:
+		        text: 'Save'
+		        size_hint_y: None
+		        height: '30dp'
+				font_size: '12sp'
+				disabled: False
+		        on_release: root.save_protocol()
 
 		    FileSaveBTN:
 		        text: 'Save As'
