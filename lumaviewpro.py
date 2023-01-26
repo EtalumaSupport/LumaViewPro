@@ -808,8 +808,11 @@ class VerticalControl(BoxLayout):
         
     def update_gui(self):
         error_log('VerticalControl.update_gui()')
-        set_pos = lumaview.motion.target_pos('Z')  # Get target value
-        error_log(lumaview.motion.message)
+        try:
+            set_pos = lumaview.motion.target_pos('Z')  # Get target value
+            error_log(lumaview.motion.message)
+        except:
+            error_log('Error talking to Trinamic board.')
 
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
@@ -936,7 +939,10 @@ class VerticalControl(BoxLayout):
             # calculate the position and focus measure
             current = lumaview.motion.current_pos('Z')
             focus = self.focus_function(image)
-            next_target = lumaview.motion.target_pos('Z') + self.resolution
+            try:
+                next_target = lumaview.motion.target_pos('Z') + self.resolution
+            except:
+                error_log('Error talking to Trinamic board.')
 
             # append to positions and focus measures
             self.positions.append(current)
@@ -1086,10 +1092,13 @@ class XYStageControl(BoxLayout):
     def update_gui(self):
         error_log('XYStageControl.update_gui()')
         global lumaview
-        x_target = lumaview.motion.target_pos('X')  # Get target value in um
-        error_log(lumaview.motion.message)
-        y_target = lumaview.motion.target_pos('Y')  # Get target value in um
-        error_log(lumaview.motion.message)
+        try:
+            x_target = lumaview.motion.target_pos('X')  # Get target value in um
+            error_log(lumaview.motion.message)
+            y_target = lumaview.motion.target_pos('Y')  # Get target value in um
+            error_log(lumaview.motion.message)
+        except:
+            error_log('Error talking to Trinamic board.')
 
         self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f') # display coordinate in mm
         self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f') # display coordinate in mm
@@ -2094,8 +2103,11 @@ class Stage(Widget):
             protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
 
             # Get target position
-            x_target = lumaview.motion.target_pos('X')
-            y_target = lumaview.motion.target_pos('Y')
+            try:
+                x_target = lumaview.motion.target_pos('X')
+                y_target = lumaview.motion.target_pos('Y')
+            except:
+                error_log('Error talking to Trinamic board.')
             x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
             i, j = current_labware.get_well_index(x_target, y_target)

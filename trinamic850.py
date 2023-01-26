@@ -113,13 +113,14 @@ class TrinamicBoard:
                 return response[:-2]                
 
             except serial.SerialTimeoutException:
-                self.message = 'TrinamicBoard.exchange_command('+command+') Serial Timeout Occurred'
-                raise IOError
+                self.message = 'TrinamicBoard.exchange_command('+command+') serial timeout occurred'
+                raise IOError('Trinamic board timeout occured.')
         else:
             try:
                 self.connect()
             except:
-                raise IOError
+                self.message = 'TrinamicBoard.exchange_command('+command+') Unable to connect to board'
+                raise IOError('Unable to connect to Trinamic board.')
 
     # Firmware 1-14-2023 commands include
     # 'QUIT'
@@ -237,13 +238,17 @@ class TrinamicBoard:
         """ Get the target position of an axis"""
 
         if self.found:
-            rv = self.exchange_command('TARGET_R' + axis)
-            pos = int(rv)
+            try:
+                position = int(self.exchange_command('TARGET_R' + axis))
+            except ValueError:
+                raise IOError(f'Device busy. Repsonding with {position}')
+            except:
+                raise
 
             if axis == 'Z':
-                um = self.z_ustep2um(pos)
+                um = self.z_ustep2um(position)
             else:
-                um = self.xy_ustep2um(pos)
+                um = self.xy_ustep2um(position)
 
             self.message = 'TrinamicBoard.target_pos('+axis+') succeeded'            
             return um
@@ -257,15 +262,16 @@ class TrinamicBoard:
         
         if self.found:
             try:
-                rv = self.exchange_command('ACTUAL_R' + axis)
+                position = int(self.exchange_command('ACTUAL_R' + axis))
+            except ValueError:
+                raise IOError(f'Device busy. Repsonding with {position}')
             except:
                 raise
-            pos = int(rv)
 
             if axis == 'Z':
-                um = self.z_ustep2um(pos)
+                um = self.z_ustep2um(position)
             else:
-                um = self.xy_ustep2um(pos)
+                um = self.xy_ustep2um(position)
 
             self.message = 'TrinamicBoard.current_pos('+axis+') succeeded'            
             return um
