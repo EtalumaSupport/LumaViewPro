@@ -1949,7 +1949,7 @@ class ProtocolSettings(CompositeCapture):
 
         # Update Button
         # self.ids['run_protocol_btn'].text = hrs+':'+minutes+' remaining'
-        self.ids['run_protocol_btn'].text = str(n_scans)
+        self.ids['run_protocol_btn'].text = str(n_scans) + ' remaining. Press to ABORT'
 
         # Check if reached next Period
         if (time.time()-self.start_t) > period:
