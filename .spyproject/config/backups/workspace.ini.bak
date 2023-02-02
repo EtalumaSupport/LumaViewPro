@@ -4,7 +4,7 @@ save_data_on_exit = True
 save_history = True
 save_non_project_files = False
 project_type = 'empty-project-type'
-recent_files = ['lumaviewpro.py', 'script_example.py', 'ledboard.py', 'pyloncamera.py', '../../.local/lib/python3.10/site-packages/serial/serialposix.py', '../../.local/lib/python3.10/site-packages/serial/serialutil.py']
+recent_files = ['lumaviewpro.py', 'script_example.py', 'ledboard.py', '../../.local/lib/python3.10/site-packages/serial/tools/list_ports_linux.py', 'trinamic850.py']
 
 [main]
 version = 0.2.0
