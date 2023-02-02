@@ -375,12 +375,26 @@ class CompositeCapture(FloatLayout):
 # MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
 class MainDisplay(CompositeCapture): # i.e. global lumaview
-    led_board = ObjectProperty(None)
-    led_board = LEDBoard()
-    motion = ObjectProperty(None)
-    motion = TrinamicBoard()
-    camera = ObjectProperty(None)
-    camera = PylonCamera()
+    try:
+        led_board = ObjectProperty(None)
+        led_board = LEDBoard()
+    except:
+        error_log('Cannot establish connection to LED board.')
+        raise
+    
+    try:
+        motion = ObjectProperty(None)
+        motion = TrinamicBoard()
+    except:
+        error_log('Cannot establish connection to Trinamic motion control board.')
+        raise
+
+    try:
+        camera = ObjectProperty(None)
+        camera = PylonCamera()
+    except:
+        error_log('Cannot establish connection to Pylon camera.')
+        raise
 
     def cam_toggle(self):
         error_log('MainDisplay.cam_toggle()')
@@ -1100,9 +1114,10 @@ class XYStageControl(BoxLayout):
             error_log(lumaview.motion.message)
         except:
             error_log('Error talking to Trinamic board.')
-
-        self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f') # display coordinate in mm
-        self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f') # display coordinate in mm
+            raise
+        else:
+            self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f') # display coordinate in mm
+            self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f') # display coordinate in mm
 
     def fine_left(self):
         error_log('XYStageControl.fine_left()')
@@ -2109,6 +2124,8 @@ class Stage(Widget):
                 y_target = lumaview.motion.target_pos('Y')
             except:
                 error_log('Error talking to Trinamic board.')
+                raise
+
             x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
             i, j = current_labware.get_well_index(x_target, y_target)
