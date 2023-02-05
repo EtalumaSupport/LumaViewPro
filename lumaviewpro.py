@@ -375,26 +375,27 @@ class CompositeCapture(FloatLayout):
 # MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
 class MainDisplay(CompositeCapture): # i.e. global lumaview
-    try:
-        led_board = ObjectProperty(None)
-        led_board = LEDBoard()
-    except:
-        error_log('Cannot establish connection to LED board.')
-        raise
-    
-    try:
-        motion = ObjectProperty(None)
-        motion = TrinamicBoard()
-    except:
-        error_log('Cannot establish connection to Trinamic motion control board.')
-        raise
+    def __init__(self):
+        try:
+            led_board = ObjectProperty(None)
+            led_board = LEDBoard()
+        except:
+            error_log('Cannot establish connection to LED controller.')
+            raise
+        
+        try:
+            motion = ObjectProperty(None)
+            motion = TrinamicBoard()
+        except:
+            error_log('Cannot establish connection to motion motion controller.')
+            raise
 
-    try:
-        camera = ObjectProperty(None)
-        camera = PylonCamera()
-    except:
-        error_log('Cannot establish connection to Pylon camera.')
-        raise
+        try:
+            camera = ObjectProperty(None)
+            camera = PylonCamera()
+        except:
+            error_log('Cannot establish connection to camera.')
+            raise
 
     def cam_toggle(self):
         error_log('MainDisplay.cam_toggle()')

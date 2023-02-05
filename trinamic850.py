@@ -64,10 +64,14 @@ class TrinamicBoard:
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
-        self.timeout=0.5 # seconds
-        self.write_timeout=0.5 # seconds
+        self.timeout=0.01 # seconds
+        self.write_timeout=0.01 # seconds
         self.driver = False
-        self.connect()
+        try:
+            self.connect()
+        except:
+            print('Found device but motor controller unable establish connection.')
+            raise
 
     # def __del__(self):
     #     if self.driver != False:
@@ -89,11 +93,11 @@ class TrinamicBoard:
             response = self.exchange_command('INFO')
             self.message = 'TrinamicBoard.connect()\n' + response
             print('TrinamicBoard.connect()\n' + response)
-
         except:
             self.driver = False
             self.message = 'TrinamicBoard.connect() failed'
             print('TrinamicBoard.connect() failed')
+            raise
 
     #----------------------------------------------------------
     # Define Communication

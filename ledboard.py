@@ -57,7 +57,13 @@ class LEDBoard:
         self.timeout=0.01 # seconds
         self.write_timeout=0.01 # seconds
         self.driver = False
-        self.connect()
+        try:
+            print('Found LED controller and about to establish connection.')
+            self.connect()
+        except:
+            print('Found LED controller but unable to establish connection.')
+            raise
+
 
     # def __del__(self):
     #     if self.driver != False:
@@ -66,6 +72,7 @@ class LEDBoard:
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
         try:
+            print('Found LED controller and about to create driver.')
             self.driver = serial.Serial(port=self.port,
                                         baudrate=self.baudrate,
                                         bytesize=self.bytesize,
@@ -73,18 +80,23 @@ class LEDBoard:
                                         stopbits=self.stopbits,
                                         timeout=self.timeout,
                                         write_timeout=self.write_timeout)
+            print('Found LED controller and created driver.')
             self.driver.close()
             self.driver.open()
+            print('Found LED controller and closed and opened again.')
             self.send_command ('import main.py')         
+            print ('import main.py')         
             self.send_command ('import main.py') 
+            print ('import main.py')         
             self.message = 'LEDBoard.connect() succeeded'
         except:
             self.driver = False
             self.message = 'LEDBoard.connect() failed'
             print('LEDBoard.connect() failed')
+            raise
             
     def send_command(self, command):
-        """ Send command through serial to LED board
+        """ Send command through serial to LED controller
         This should NOT be used in a script. It is intended for other functions to access"""
 
         stream = command.encode('utf-8')+b"\r\n"
@@ -98,10 +110,11 @@ class LEDBoard:
                 return True
             except serial.SerialTimeoutException:
                 self.message = 'LEDBoard.send_command('+command+') Serial Timeout Occurred'
-                return False
+                raise
+            except:
+                raise
         else:
-            self.connect()
-            return False
+            raise Exception('Driver for LED controller not set.')
 
     def receive_command(self):
 
@@ -114,6 +127,7 @@ class LEDBoard:
                 return command[:-2]
             except serial.SerialTimeoutException:
                 self.message = 'LEDBoard.receive_command('+command+') Serial Timeout Occurred'
+                raise
 
     def color2ch(self, color):
         """ Convert color name to numerical channel """
