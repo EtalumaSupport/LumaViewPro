@@ -243,9 +243,11 @@ class TrinamicBoard:
 
         if self.found:
             try:
-                position = int(self.exchange_command('TARGET_R' + axis))
+                responce = self.exchange_command('TARGET_R' + axis)
+                position = int(responce)
             except ValueError:
-                raise IOError(f'Device busy. Repsonding with {position}')
+                return 0 # short term fix
+                raise IOError(f"Expected target position from motor controller. Repsonded with '{responce}'")
             except:
                 raise
 
@@ -266,9 +268,11 @@ class TrinamicBoard:
         
         if self.found:
             try:
-                position = int(self.exchange_command('ACTUAL_R' + axis))
+                responce = self.exchange_command('ACTUAL_R' + axis)
+                position = int(responce)
             except ValueError:
-                raise IOError(f'Device busy. Repsonding with {position}')
+                return 0 #short term fix
+                raise IOError(f"Expected current position from motor controller. Repsonded with '{responce}'")
             except:
                 raise
 

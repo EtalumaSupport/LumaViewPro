@@ -383,22 +383,22 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         super(MainDisplay,self).__init__(**kwargs)
 
         try:
-            led_board = ObjectProperty(None)
-            led_board = LEDBoard()
+            self.led_board = ObjectProperty(None)
+            self.led_board = LEDBoard()
         except:
             error_log('Cannot establish connection to LED controller.')
             raise
         
         try:
-            motion = ObjectProperty(None)
-            motion = TrinamicBoard()
+            self.motion = ObjectProperty(None)
+            self.motion = TrinamicBoard()
         except:
             error_log('Cannot establish connection to motion motion controller.')
             raise
 
         try:
-            camera = ObjectProperty(None)
-            camera = PylonCamera()
+            self.camera = ObjectProperty(None)
+            self.camera = PylonCamera()
         except:
             error_log('Cannot establish connection to camera.')
             raise
@@ -973,12 +973,13 @@ class VerticalControl(BoxLayout):
             image = image[int(rows/4):int(3*rows/4),int(cols/4):int(3*cols/4)]
 
             # calculate the position and focus measure
-            current = lumaview.motion.current_pos('Z')
-            focus = self.focus_function(image)
             try:
+                current = lumaview.motion.current_pos('Z')
+                focus = self.focus_function(image)
                 next_target = lumaview.motion.target_pos('Z') + self.resolution
             except:
-                error_log('Error talking to Trinamic board.')
+                error_log('Error talking to motion controller.')
+                raise
 
             # append to positions and focus measures
             self.positions.append(current)
