@@ -697,6 +697,7 @@ class MainSettings(BoxLayout):
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
+        self.update_transmitted()
         error_log('MainSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
@@ -705,6 +706,7 @@ class MainSettings(BoxLayout):
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_mainsettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
+
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
@@ -714,6 +716,19 @@ class MainSettings(BoxLayout):
  
         if scope_display.play == True:
             scope_display.start()
+
+    def update_transmitted(self):
+        layers = ['BF', 'PC', 'EP']
+        for layer in layers:
+            accordion = layer + '_accordion'
+
+            # Remove 'Colorize' option in transmitted channels control
+            # -----------------------------------------------------
+            self.ids[layer].ids['false_color_label'].text = ''
+            self.ids[layer].ids['false_color'].color = (0., )*4
+
+            # Adjust 'Illumination' range
+            self.ids[layer].ids['ill_slider'].max = 50
 
     def accordion_collapse(self):
         error_log('MainSettings.accordion_collapse()')
@@ -2476,12 +2491,6 @@ class LayerControl(BoxLayout):
                 self.ids['apply_btn'].background_down = './data/icons/ToggleRB.png'
         else:
             self.ids['apply_btn'].background_down = './data/icons/ToggleRW.png'
-
-        # Remove 'Colorize' option in brightfield control
-        # -----------------------------------------------------
-        if self.layer == 'BF':
-            self.ids['false_color_label'].text = ''
-            self.ids['false_color'].color = (0., )*4
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
