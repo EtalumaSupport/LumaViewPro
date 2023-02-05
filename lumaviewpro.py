@@ -2717,15 +2717,18 @@ class LumaViewProApp(App):
         error_log('-----------------------------------------')
 
         global Window
+        global lumaview
         error_log('LumaViewProApp.build()')
         self.icon = './data/icons/icon32x.png'
-        from kivy.core.window import Window
-        Window.bind(on_resize=self._on_resize)
-        Window.maximize()
 
-
-        global lumaview
-        lumaview = MainDisplay()
+        try:
+            from kivy.core.window import Window
+            Window.bind(on_resize=self._on_resize)
+            Window.maximize()
+            lumaview = MainDisplay()
+        except:
+            print("Cannot open main display.")
+            raise
 
         # load settings file
         if os.path.exists("./data/current.json"):
