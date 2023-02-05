@@ -89,7 +89,7 @@ from kivy.uix.button import Button
 # Video Related
 from kivy.graphics.texture import Texture
 import cv2
-from scipy import signal
+#from scipy import signal
 
 # Additional LumaViewPro files
 from trinamic850 import TrinamicBoard
@@ -1057,7 +1057,8 @@ class VerticalControl(BoxLayout):
             var = ssq*w*h-sum**2
             error_log('pixel_variation\t' + str(var))
             return var
-
+        
+            '''
         elif algorithm == 'convolve2D':
             # Bueno-Ibarra et al. Optical Engineering 44(6), 063601 (June 2005)
             kernel = np.array([ [0, -1, 0],
@@ -1075,7 +1076,7 @@ class VerticalControl(BoxLayout):
             sum = np.sum(convolve)
             error_log('sum\t' + str(sum))
             return sum
-
+            '''
         else:
             return 0
 
