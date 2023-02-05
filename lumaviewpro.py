@@ -193,6 +193,9 @@ class ScopeDisplay(Image):
 # -------------------------------------------------------------------------
 class CompositeCapture(FloatLayout):
 
+    def __init__(self, **kwargs):
+        super(CompositeCapture,self).__init__(**kwargs)
+
     def live_capture(self):
         error_log('CompositeCapture.live_capture()')
         global lumaview
@@ -375,7 +378,10 @@ class CompositeCapture(FloatLayout):
 # MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
 class MainDisplay(CompositeCapture): # i.e. global lumaview
-    def __init__(self):
+    
+    def __init__(self, **kwargs):
+        super(MainDisplay,self).__init__(**kwargs)
+
         try:
             led_board = ObjectProperty(None)
             led_board = LEDBoard()
@@ -2712,7 +2718,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 1/14/2023')
+        error_log('Latest Code Change: 2/5/2023')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
