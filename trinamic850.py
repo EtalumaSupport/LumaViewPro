@@ -97,7 +97,7 @@ class TrinamicBoard:
             self.driver = False
             self.message = 'TrinamicBoard.connect() failed'
             print('TrinamicBoard.connect() failed')
-            raise
+            #raise
 
     #----------------------------------------------------------
     # Define Communication

@@ -234,8 +234,11 @@ class CompositeCapture(FloatLayout):
         append = 'ms'
 
         # Illuminate
-        lumaview.led_board.led_on(channel, illumination)
-        error_log(lumaview.led_board.message)
+        if lumaview.led_board:
+            lumaview.led_board.led_on(channel, illumination)
+            error_log(lumaview.led_board.message)
+        else:
+            error_log("LED controller not available.")
 
         # Grab image and save
         time.sleep(2*exposure/1000+0.1)
@@ -248,8 +251,11 @@ class CompositeCapture(FloatLayout):
             self.save_image(save_folder, file_root, append, 'BF')
 
         # Turn off LEDs
-        lumaview.led_board.leds_off()
-        error_log(lumaview.led_board.message)
+        if lumaview.led_board:
+            lumaview.led_board.leds_off()
+            error_log(lumaview.led_board.message)
+        else:
+            error_log("LED cwcontroller not available.")
 
     # Save image from camera buffer to specified location
     def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
@@ -280,10 +286,10 @@ class CompositeCapture(FloatLayout):
         elif append == 'time':
             append = time.strftime("%Y%m%d_%H%M%S")
         else:
-            append =''
+            append = ''
 
         # generate filename string
-        filename =  file_root + append + '.tiff'
+        filename = file_root + append + '.tiff'
 
         try:
             cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
@@ -324,16 +330,22 @@ class CompositeCapture(FloatLayout):
                 illumination = settings[layer]['ill']
 
                 # Dark field capture
-                lumaview.led_board.leds_off()
-                error_log(lumaview.led_board.message)
+                if lumaview.led_board:
+                    lumaview.led_board.leds_off()
+                    error_log(lumaview.led_board.message)
+                else:
+                    error_log("LED cwcontroller not available.")
 
                 time.sleep(2*exposure/1000+0.1)  # Should be replaced with Clock
                 scope_display.update()
                 darkfield = lumaview.camera.array
 
                 # Florescent capture
-                lumaview.led_board.led_on(lumaview.led_board.color2ch(layer), illumination)
-                error_log(lumaview.led_board.message)
+                if lumaview.led_board:
+                    lumaview.led_board.led_on(lumaview.led_board.color2ch(layer), illumination)
+                    error_log(lumaview.led_board.message)
+                else:
+                    error_log("LED cwcontroller not available.")
 
                 time.sleep(2*exposure/1000+0.1)  # Should be replaced with Clock
                 lumaview.camera.grab()
@@ -355,8 +367,11 @@ class CompositeCapture(FloatLayout):
                 #     img[:,:,1] = img[:,:,1]*a + corrected*(1-a)
                 #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
 
-            lumaview.led_board.leds_off()
-            error_log(lumaview.led_board.message)
+            if lumaview.led_board:
+                lumaview.led_board.leds_off()
+                error_log(lumaview.led_board.message)
+            else:
+                error_log("LED cwcontroller not available.")
 
             # turn off all LED toggle buttons and histograms
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
@@ -387,13 +402,15 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             self.led_board = LEDBoard()
         except:
             error_log('Cannot establish connection to LED controller.')
-            raise
+            self.led_board = False
+            #raise
         
         try:
             self.motion = ObjectProperty(None)
             self.motion = TrinamicBoard()
         except:
-            error_log('Cannot establish connection to motion motion controller.')
+            error_log('Cannot establish connection to motion controller.')
+            self.motion = False
             raise
 
         try:
@@ -401,7 +418,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             self.camera = PylonCamera()
         except:
             error_log('Cannot establish connection to camera.')
-            raise
+            self.camera = False
+            #raise
 
     def cam_toggle(self):
         error_log('MainDisplay.cam_toggle()')
@@ -411,8 +429,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         if scope_display.play == True:
             scope_display.play = False
-            self.led_board.leds_off()
-            error_log(self.led_board.message)
+            if self.led_board:
+                self.led_board.leds_off()
+                error_log(self.led_board.message)
             scope_display.stop()
         else:
             scope_display.play = True
@@ -743,8 +762,11 @@ class MainSettings(BoxLayout):
         # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
-        lumaview.led_board.leds_off()
-        error_log(lumaview.led_board.message)
+        if lumaview.led_board:
+            lumaview.led_board.leds_off()
+            error_log(lumaview.led_board.message)
+        else:
+            error_log("LED cwcontroller not available.")
 
         # turn off all LED toggle buttons and histograms
         layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
@@ -1262,7 +1284,10 @@ class XYStageControl(BoxLayout):
         error_log('XYStageControl.home()')
         global lumaview
 
-        lumaview.motion.xyhome()
+        if lumaview.motion.driver:
+            lumaview.motion.xyhome()
+        else:
+            error_log("Motion controller not availabble.")
         self.ids['x_pos_id'].text = '0.00'
         self.ids['y_pos_id'].text = '0.00'
 
@@ -1574,12 +1599,15 @@ class ProtocolSettings(CompositeCapture):
         sx, sy = self.plate_to_stage(x, y)
 
         # Move into position
-        lumaview.motion.move_abs_pos('X', sx)
-        error_log(lumaview.motion.message)
-        lumaview.motion.move_abs_pos('Y', sy)
-        error_log(lumaview.motion.message)
-        lumaview.motion.move_abs_pos('Z', z)
-        error_log(lumaview.motion.message)
+        if lumaview.motion.driver:
+            lumaview.motion.move_abs_pos('X', sx)
+            error_log(lumaview.motion.message)
+            lumaview.motion.move_abs_pos('Y', sy)
+            error_log(lumaview.motion.message)
+            lumaview.motion.move_abs_pos('Z', z)
+            error_log(lumaview.motion.message)
+        else:
+            error_log("Motion controller not availabble.")
 
         ch = lumaview.led_board.ch2color(ch)
         layer  = lumaview.ids['mainsettings_id'].ids[ch]
@@ -1647,16 +1675,19 @@ class ProtocolSettings(CompositeCapture):
         self.step_names[self.c_step] = self.ids['step_name_input'].text
 
         # Determine and update plate position
-        sx = lumaview.motion.current_pos('X')
-        sy = lumaview.motion.current_pos('Y')
-        px, py = self.stage_to_plate(sx, sy)
+        if lumaview.motion.driver:
+            sx = lumaview.motion.current_pos('X')
+            sy = lumaview.motion.current_pos('Y')
+            px, py = self.stage_to_plate(sx, sy)
 
-        self.step_values[self.c_step, 0] = px # x
-        error_log(lumaview.motion.message)
-        self.step_values[self.c_step, 1] = py # y
-        error_log(lumaview.motion.message)
-        self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')      # z
-        error_log(lumaview.motion.message)
+            self.step_values[self.c_step, 0] = px # x
+            error_log(lumaview.motion.message)
+            self.step_values[self.c_step, 1] = py # y
+            error_log(lumaview.motion.message)
+            self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')      # z
+            error_log(lumaview.motion.message)
+        else:
+            error_log("Motion controller not availabble.")
 
         c_layer = False
 
@@ -1881,7 +1912,12 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
             # toggle all LEDs AND TOGGLE BUTTONS ofF
-            lumaview.led_board.leds_off()
+            if lumaview.led_board:
+                lumaview.led_board.leds_off()
+                error_log(lumaview.led_board.message)
+            else:
+                error_log("LED cwcontroller not available.")
+
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
@@ -2451,8 +2487,12 @@ class LayerControl(BoxLayout):
         illumination = settings[self.layer]['ill']
         if self.ids['apply_btn'].state == 'down': # if the button is down
             # In active channel,turn on LED
-            lumaview.led_board.led_on(lumaview.led_board.color2ch(self.layer), illumination)
-            error_log(lumaview.led_board.message)
+            if lumaview.led_board:
+                lumaview.led_board.led_on(lumaview.led_board.color2ch(self.layer), illumination)
+                error_log(lumaview.led_board.message)
+            else:
+                error_log("LED cwcontroller not available.")
+            
 
             
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
@@ -2466,8 +2506,11 @@ class LayerControl(BoxLayout):
 
         else: # if the button is 'normal' meaning not active
             # In active channel, and turn off LED
-            lumaview.led_board.leds_off()
-            error_log(lumaview.led_board.message)
+            if lumaview.led_board:
+                lumaview.led_board.leds_off()
+                error_log(lumaview.led_board.message)
+            else:
+                error_log("LED cwcontroller not available.")
 
         # update gain to currently selected settings
         # -----------------------------------------------------
@@ -2765,8 +2808,11 @@ class LumaViewProApp(App):
             error_log('Unable to load protocol at startup')
 
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
-        lumaview.led_board.leds_off()
-        error_log(lumaview.led_board.message)
+        if lumaview.led_board:
+            lumaview.led_board.leds_off()
+            error_log(lumaview.led_board.message)
+        else:
+            error_log("LED cwcontroller not available.")
         lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
 
         return lumaview
@@ -2785,8 +2831,11 @@ class LumaViewProApp(App):
         #     stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
 
         global lumaview
-        lumaview.led_board.leds_off()
-        error_log(lumaview.led_board.message)
+        if lumaview.led_board:
+            lumaview.led_board.leds_off()
+            error_log(lumaview.led_board.message)
+        else:
+            error_log("LED cwcontroller not available.")
         lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
 LumaViewProApp().run()
