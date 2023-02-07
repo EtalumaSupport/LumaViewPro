@@ -54,8 +54,22 @@ from plyer import filechooser
 #     import cProfile
 #     import pstats
 
-# Kivy
-#import kivy
+# Kivy configurations
+# Configurations must be set befor Kivy is imported
+from kivy.config import Config
+Config.set('input', 'mouse', 'mouse, disable_multitouch')
+Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
+
+# if fixed size at launch
+#Config.set('graphics', 'width', '1920')
+#Config.set('graphics', 'height', '1080')
+
+# if maximized at launch
+Config.set('graphics', 'window_state', 'maximized')
+
+import kivy
+kivy.require("2.1.0")
+
 from kivy.app import App
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
@@ -65,9 +79,6 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 #from kivy.animation import Animation
 from kivy.graphics import Line, Color, Rectangle, Ellipse
-# from kivy.config import Config
-# Config.set('graphics', 'width', '1920')
-# Config.set('graphics', 'height', '1080')
 
 # User Interface
 #from kivy.uix.accordion import Accordion, AccordionItem
@@ -98,8 +109,6 @@ from pyloncamera import PylonCamera
 from labware import WellPlate
 # import coordinate_system
 
-from kivy.config import Config
-Config.set('input', 'mouse', 'mouse, disable_multitouch')
 
 global lumaview
 global settings
@@ -2773,9 +2782,9 @@ class LumaViewProApp(App):
 
         try:
             from kivy.core.window import Window
-            Window.bind(on_resize=self._on_resize)
-            Window.maximize()
+            #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
+            #Window.maximize()
         except:
             print("Cannot open main display.")
             raise
@@ -2818,8 +2827,9 @@ class LumaViewProApp(App):
         return lumaview
 
     def _on_resize(self, window, w, h):
-        Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
-        Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
+        pass
+        #Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
+        #Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
 
     def on_stop(self):
         error_log('LumaViewProApp.on_stop()')
