@@ -1524,6 +1524,8 @@ class ProtocolSettings(CompositeCapture):
         else:
             settings['protocol']['filepath'] = filepath
 
+        if filepath[-4:].lower() != '.tsv':
+            filepath = filepath+'.tsv'
 
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
@@ -1653,6 +1655,10 @@ class ProtocolSettings(CompositeCapture):
         settings[ch]['exp'] = exp
         layer.ids['exp_text'].text = str(exp)
         layer.ids['exp_slider'].value = float(exp)
+
+        # update position in stage control
+        lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+
 
     # Delete Current Step of Protocol
     def delete_step(self):
@@ -2656,7 +2662,7 @@ class FileChooseBTN(Button):
         if self.context == 'load_settings':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"])   
         elif self.context == 'load_protocol':
-            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv", "*"])
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
 
     def handle_selection(self, selection):
         error_log('FileChooseBTN.handle_selection()')
@@ -2728,7 +2734,7 @@ class FileSaveBTN(Button):
     def choose(self, context):
         error_log('FileSaveBTN.choose()')
         self.context = context
-        filechooser.save_file(on_selection=self.handle_selection)
+        filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
 
     def handle_selection(self, selection):
         error_log('FileSaveBTN.handle_selection()')
