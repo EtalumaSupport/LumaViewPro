@@ -1454,7 +1454,8 @@ class ProtocolSettings(CompositeCapture):
         self.ids['step_number_input'].text = str(self.c_step+1)
         self.ids['step_total_input'].text = str(length)
 
-        self.step_names = [self.ids['step_name_input'].text] * length
+        # self.step_names = [self.ids['step_name_input'].text] * length
+        self.step_names = [''] * length
         settings['protocol']['filepath'] = ''        
         self.ids['protocol_filename'].text = ''
 
