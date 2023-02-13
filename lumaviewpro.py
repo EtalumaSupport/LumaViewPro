@@ -3,7 +3,7 @@
 '''
 MIT License
 
-Copyright (c) 2020 Etaluma, Inc.
+Copyright (c) 2023 Etaluma, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -2763,7 +2763,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Latest Code Change: 2/5/2023')
+        error_log('Code Compiled On: 2/13/2023')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
