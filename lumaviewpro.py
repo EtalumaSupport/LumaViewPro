@@ -1676,6 +1676,9 @@ class ProtocolSettings(CompositeCapture):
     def delete_step(self):
         error_log('ProtocolSettings.delete_step()')
 
+        if len(self.step_names) < 1:
+            return
+        
         self.step_names.pop(self.c_step)
         self.step_values = np.delete(self.step_values, self.c_step, axis = 0)
         self.c_step = self.c_step - 1
