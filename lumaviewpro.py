@@ -1691,7 +1691,7 @@ class ProtocolSettings(CompositeCapture):
     def modify_step(self):
         error_log('ProtocolSettings.modify_step()')
 
-        if self.c_step < 0:
+        if len(self.step_names) < 1:
             return
 
         self.step_names[self.c_step] = self.ids['step_name_input'].text
