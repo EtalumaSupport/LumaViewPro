@@ -242,7 +242,7 @@ class CompositeCapture(FloatLayout):
             error_log("LED controller not available.")
 
         # Grab image and save
-        time.sleep(2*exposure/1000+0.1)
+        time.sleep(2*exposure/1000+0.2) # This needs improvement
         lumaview.camera.grab()
         error_log(lumaview.camera.message)
 
@@ -1288,7 +1288,18 @@ class XYStageControl(BoxLayout):
         if lumaview.motion.driver:
             lumaview.motion.xyhome()
         else:
-            error_log("Motion controller not availabble.")
+            error_log("Motion controller not available.")
+        self.ids['x_pos_id'].text = '0.00'
+        self.ids['y_pos_id'].text = '0.00'
+
+    def center(self):
+        error_log('XYStageControl.center()')
+        global lumaview
+
+        if lumaview.motion.driver:
+            lumaview.motion.xycenter()
+        else:
+            error_log("Motion controller not available.")
         self.ids['x_pos_id'].text = '0.00'
         self.ids['y_pos_id'].text = '0.00'
 
@@ -1890,6 +1901,7 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_scan_btn'].text = 'Run One Scan'
             return
 
+        # Start Running Scan
         if self.ids['run_scan_btn'].state == 'down' or protocol == True:
             self.ids['run_scan_btn'].text = 'Running Scan'
 
@@ -1916,6 +1928,7 @@ class ProtocolSettings(CompositeCapture):
             error_log('Clock.schedule_interval(self.scan_iterate, 0.1)')
             Clock.schedule_interval(self.scan_iterate, 0.1)
 
+        # Stop Running Scan
         else:  # self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
@@ -2822,6 +2835,7 @@ class LumaViewProApp(App):
         else:
             error_log("LED controller not available.")
         lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
+        # lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].center()
 
         return lumaview
 

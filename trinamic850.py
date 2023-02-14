@@ -199,6 +199,12 @@ class TrinamicBoard:
         if self.found:
             self.exchange_command('HOME')
 
+    def xycenter(self):
+        """ Home the stage which also homes the objective first """
+        self.message = 'TrinamicBoard.xycenter()'            
+        if self.found:
+            self.exchange_command('CENTER')
+            
     #----------------------------------------------------------
     # T (Turret) Functions
     #----------------------------------------------------------
