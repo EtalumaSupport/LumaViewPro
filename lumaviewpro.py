@@ -337,7 +337,7 @@ class CompositeCapture(FloatLayout):
                 else:
                     error_log("LED controller not available.")
 
-                time.sleep(2*exposure/1000+0.1)  # Should be replaced with Clock
+                time.sleep(2*exposure/1000+0.2)  # Should be replaced with Clock
                 scope_display.update()
                 darkfield = lumaview.camera.array
 
@@ -348,7 +348,7 @@ class CompositeCapture(FloatLayout):
                 else:
                     error_log("LED controller not available.")
 
-                time.sleep(2*exposure/1000+0.1)  # Should be replaced with Clock
+                time.sleep(2*exposure/1000+0.2)  # Should be replaced with Clock
                 lumaview.camera.grab()
 
                 error_log(lumaview.camera.message)
@@ -986,7 +986,7 @@ class VerticalControl(BoxLayout):
         # if lumaview.motion.target_status('Z'):
 
             # Wait two exposure lengths
-            time.sleep(2*self.exposure/1000+0.1) # msec into sec
+            time.sleep(2*self.exposure/1000+0.2) # msec into sec
 
             # observe the image 
             image = lumaview.camera.array
