@@ -491,6 +491,11 @@
 			font_size: '12sp'
 			text: 'Home Stage'
 			on_release: root.home()
+		# Button: 
+		# 	id: center_id
+		# 	font_size: '12sp'
+		# 	text: 'Center Stage'
+		# 	on_release: root.center()
 		# Button:
 		# 	text: 'Calibrate'
 		# 	font_size: '12dp'
@@ -1028,6 +1033,13 @@
 		height: '30dp'
 		font_size: '12sp'
 		on_release:root.stitch()
+
+	ToggleButton:
+		text:'Open Last Save Folder'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release:root.open_folder()		
 
 	Label:
 

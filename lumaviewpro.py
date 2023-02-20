@@ -656,6 +656,8 @@ class PostProcessing(BoxLayout):
     def stitch(self):
         error_log('PostProcessing.stitch() not yet implemented')
 
+    def open_folder(self):
+        error_log('PostProcessing.open_folder() not yet implemented')
 
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
@@ -1162,8 +1164,11 @@ class XYStageControl(BoxLayout):
             error_log('Error talking to Trinamic board.')
             raise
         else:
-            self.ids['x_pos_id'].text = format(max(0, x_target)/1000, '.2f') # display coordinate in mm
-            self.ids['y_pos_id'].text = format(max(0, y_target)/1000, '.2f') # display coordinate in mm
+            # Convert from plate position to stage position
+            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+            stage_x, stage_y =  protocol_settings.stage_to_plate(x_target, y_target)
+            self.ids['x_pos_id'].text = format(max(0, stage_x), '.2f') # display coordinate in mm
+            self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
 
     def fine_left(self):
         error_log('XYStageControl.fine_left()')
@@ -1221,17 +1226,21 @@ class XYStageControl(BoxLayout):
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def set_xposition(self, pos):
+    def set_xposition(self, x_pos):
         error_log('XYStageControl.set_xposition()')
         global lumaview
-        lumaview.motion.move_abs_pos('X', float(pos)*1000)  # position in text is in mm
+        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+        stage_x, stage_y =  protocol_settings.plate_to_stage(x_pos, 0)
+        lumaview.motion.move_abs_pos('X', float(stage_x)*1000)  # position in text is in mm
         error_log(lumaview.motion.message)
         self.update_gui()
 
-    def set_yposition(self, pos):
+    def set_yposition(self, y_pos):
         error_log('XYStageControl.set_yposition()')
         global lumaview
-        lumaview.motion.move_abs_pos('Y', float(pos)*1000)  # position in text is in mm
+        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+        stage_x, stage_y =  protocol_settings.plate_to_stage(0, y_pos)
+        lumaview.motion.move_abs_pos('Y', float(stage_y)*1000)  # position in text is in mm
         error_log(lumaview.motion.message)
         self.update_gui()
 
@@ -1240,30 +1249,36 @@ class XYStageControl(BoxLayout):
         global lumaview
         x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
         error_log(lumaview.motion.message)
-        settings['bookmark']['x'] = x_pos
+        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+        plate_x, plate_y =  protocol_settings.stage_to_plate(x_pos, 0)
+        settings['bookmark']['x'] = plate_x
 
     def set_ybookmark(self):
         error_log('XYStageControl.set_ybookmark()')
         global lumaview
         y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
+        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+        plate_x, plate_y =  protocol_settings.stage_to_plate(0, y_pos)
         error_log(lumaview.motion.message)
-        settings['bookmark']['y'] = y_pos
+        settings['bookmark']['y'] = plate_y
 
     def goto_xbookmark(self):
         error_log('XYStageControl.goto_xbookmark()')
         global lumaview
         x_pos = settings['bookmark']['x']
-        lumaview.motion.move_abs_pos('X', x_pos)  # set current x position in um
+        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+        stage_x, stage_y =  protocol_settings.plate_to_stage(x_pos, 0)
+        lumaview.motion.move_abs_pos('X', stage_x)  # set current x position in um
         error_log(lumaview.motion.message)
-        self.update_gui()
 
     def goto_ybookmark(self):
         error_log('XYStageControl.goto_ybookmark()')
         global lumaview
         y_pos = settings['bookmark']['y']
+        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+        stage_x, stage_y =  protocol_settings.plate_to_stage(0, y_pos)
         lumaview.motion.move_abs_pos('Y', y_pos)  # set current y position in um
         error_log(lumaview.motion.message)
-        self.update_gui()
 
     # def calibrate(self):
     #     error_log('XYStageControl.calibrate()')
@@ -1289,8 +1304,7 @@ class XYStageControl(BoxLayout):
             lumaview.motion.xyhome()
         else:
             error_log("Motion controller not available.")
-        self.ids['x_pos_id'].text = '0.00'
-        self.ids['y_pos_id'].text = '0.00'
+        # self.update_gui()
 
     def center(self):
         error_log('XYStageControl.center()')
@@ -1300,8 +1314,7 @@ class XYStageControl(BoxLayout):
             lumaview.motion.xycenter()
         else:
             error_log("Motion controller not available.")
-        self.ids['x_pos_id'].text = '0.00'
-        self.ids['y_pos_id'].text = '0.00'
+        # self.update_gui()
 
 # Protocol settings tab
 class ProtocolSettings(CompositeCapture):
@@ -2789,7 +2802,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Code Compiled On: 2/13/2023')
+        error_log('Code Compiled On: 2/19/2023')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
@@ -2818,12 +2831,6 @@ class LumaViewProApp(App):
             else:
                 raise FileNotFoundError('No settings files found.')
         
-        # # initialize global coordinate class
-        # global cordinates
-        # cordinates = coordinate_system()
-        # cordinates.offset_x = settings['stage_offset']['x']*1000
-        # cordinates.offset_y = settings['stage_offset']['y']*1000
-
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_labware, 0.1)
