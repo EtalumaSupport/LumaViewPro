@@ -334,6 +334,7 @@
             	input_filter: 'float'
 		        text: format(obj_position.value, '.2f')
                 on_text_validate: root.set_position(self.text)
+				on_focus: if not self.focus: root.set_position(self.text)
 
 			BoxLayout:
 				orientation:'horizontal'
@@ -422,6 +423,7 @@
 	        	input_filter: 'float'
 				text: '0'
 	            on_text_validate: root.set_steps()
+	            on_focus: if not self.focus: root.set_steps()
 
 			TextInput:
 				id: zstack_range_id
@@ -433,6 +435,7 @@
 	        	input_filter: 'float'
 				text: '0'
 	            on_text_validate: root.set_steps()
+	            on_focus: if not self.focus: root.set_steps()
 
 			TextInput:
 				id: zstack_steps_id
@@ -530,6 +533,7 @@
 				input_filter: 'float'
 				text: ''
 				on_text_validate: root.set_xposition(self.text)
+				on_focus: if not self.focus: root.set_xposition(self.text)
 			
 			# Set X Bookmark
 			Button:
@@ -611,6 +615,7 @@
 				input_filter: 'float'
 				text: ''
 				on_text_validate: root.set_yposition(self.text)
+				on_focus: if not self.focus: root.set_yposition(self.text)
 
 			# Set Y Bookmark
 			Button:
@@ -735,6 +740,7 @@
 	            input_filter: 'float'
 	            text: format(5, '.3g')
 	            on_text_validate: root.update_period()
+	            on_focus: if not self.focus: root.update_period()
 	        Label:
 	            text: 'minutes'
 	            size_hint_x: None
@@ -762,6 +768,7 @@
 	            input_filter: 'float'
 	            text: format(48, '.3g')
 	            on_text_validate: root.update_duration()
+	            on_focus: if not self.focus: root.update_duration()
 	        Label:
 	            text: 'hours'
 	            size_hint_x: None
@@ -920,6 +927,7 @@
             	multiline: False
             	input_filter: 'int'
                 on_text_validate: root.go_to_step()
+                on_focus: if not self.focus: root.go_to_step()
 		    Label:
 		        text: 'of'
 		        size_hint_x: None
@@ -1247,6 +1255,7 @@
 			input_filter: 'int'
 			text: '1900'
 			on_text_validate: root.frame_size()
+			on_focus: if not self.focus: root.frame_size()
 			font_size: '12sp'
 		Label:
 			text: 'x'
@@ -1262,6 +1271,7 @@
 			input_filter: 'int'
 			text: '1900'
 			on_text_validate: root.frame_size()
+			on_focus: if not self.focus: root.frame_size()
 			font_size: '12sp'
 
 	FileChooseBTN:
@@ -1371,6 +1381,7 @@
 			input_filter: 'float'
 			text: format(ill_slider.value, '.3g')
 			on_text_validate: root.ill_text()
+			on_focus: if not self.focus: root.ill_text()
 
 	# Camera
 	Label:
@@ -1432,6 +1443,7 @@
 			input_filter: 'float'
 			text: format(gain_slider.value, '.3g')
 			on_text_validate: root.gain_text()
+			on_focus: if not self.focus: root.gain_text()
 
 	# Exposure
 	BoxLayout:
@@ -1479,6 +1491,7 @@
 			text: format(exp_slider.value, '.4g')
 			# text: format(10 ** exp_slider.value, '.3g')
 			on_text_validate: root.exp_text()
+			on_focus: if not self.focus: root.exp_text()
 
 
 	# Focus
