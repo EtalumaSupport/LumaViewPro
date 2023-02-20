@@ -2751,7 +2751,10 @@ class FileSaveBTN(Button):
     def choose(self, context):
         error_log('FileSaveBTN.choose()')
         self.context = context
-        filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
+        if self.context == 'save_settings':
+            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
+        elif self.context == 'saveas_protocol':
+            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
 
     def handle_selection(self, selection):
         error_log('FileSaveBTN.handle_selection()')
