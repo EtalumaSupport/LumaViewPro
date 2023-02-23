@@ -1229,26 +1229,41 @@ class XYStageControl(BoxLayout):
     def set_xposition(self, x_pos):
         error_log('XYStageControl.set_xposition()')
         global lumaview
+
+        # x_pos is the the plate position in mm
+        # Find the coordinates for the stage
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-        stage_x, stage_y =  protocol_settings.plate_to_stage(x_pos, 0)
-        lumaview.motion.move_abs_pos('X', float(stage_x)*1000)  # position in text is in mm
+        stage_x, stage_y =  protocol_settings.plate_to_stage(float(x_pos), 0)
+        print('X pos', x_pos, 'Stage X', stage_x)
+
+        # Move to x-position
+        lumaview.motion.move_abs_pos('X', stage_x)  # position in text is in mm
         error_log(lumaview.motion.message)
         self.update_gui()
 
     def set_yposition(self, y_pos):
         error_log('XYStageControl.set_yposition()')
         global lumaview
+
+        # y_pos is the the plate position in mm
+        # Find the coordinates for the stage
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-        stage_x, stage_y =  protocol_settings.plate_to_stage(0, y_pos)
-        lumaview.motion.move_abs_pos('Y', float(stage_y)*1000)  # position in text is in mm
+        stage_x, stage_y =  protocol_settings.plate_to_stage(0, float(y_pos))
+
+        # Move to y-position
+        lumaview.motion.move_abs_pos('Y', stage_y)  # position in text is in mm
         error_log(lumaview.motion.message)
         self.update_gui()
 
     def set_xbookmark(self):
         error_log('XYStageControl.set_xbookmark()')
         global lumaview
-        x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
+
+        # Get current stage x-position in um     
+        x_pos = lumaview.motion.current_pos('X')
         error_log(lumaview.motion.message)
+
+        # Save plate x-position to settings
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         plate_x, plate_y =  protocol_settings.stage_to_plate(x_pos, 0)
         settings['bookmark']['x'] = plate_x
@@ -1256,7 +1271,11 @@ class XYStageControl(BoxLayout):
     def set_ybookmark(self):
         error_log('XYStageControl.set_ybookmark()')
         global lumaview
-        y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
+
+        # Get current stage y-position in um
+        y_pos = lumaview.motion.current_pos('Y')  
+
+        # Save plate y-position to settings
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         plate_x, plate_y =  protocol_settings.stage_to_plate(0, y_pos)
         error_log(lumaview.motion.message)
@@ -1265,7 +1284,11 @@ class XYStageControl(BoxLayout):
     def goto_xbookmark(self):
         error_log('XYStageControl.goto_xbookmark()')
         global lumaview
+
+        # Get bookmark plate x-position in mm
         x_pos = settings['bookmark']['x']
+
+        # Move to x-position
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(x_pos, 0)
         lumaview.motion.move_abs_pos('X', stage_x)  # set current x position in um
@@ -1274,10 +1297,15 @@ class XYStageControl(BoxLayout):
     def goto_ybookmark(self):
         error_log('XYStageControl.goto_ybookmark()')
         global lumaview
+
+        # Get bookmark plate y-position in mm
         y_pos = settings['bookmark']['y']
+
+
+        # Move to y-position
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(0, y_pos)
-        lumaview.motion.move_abs_pos('Y', y_pos)  # set current y position in um
+        lumaview.motion.move_abs_pos('Y', stage_y)  # set current y position in um
         error_log(lumaview.motion.message)
 
     # def calibrate(self):
@@ -1377,20 +1405,22 @@ class ProtocolSettings(CompositeCapture):
         current_labware.load_plate(settings['protocol']['labware'])
 
         # Get labware dimensions
-        x_max = current_labware.plate['dimensions']['x']
-        y_max = current_labware.plate['dimensions']['y']
+        x_max = current_labware.plate['dimensions']['x'] # in mm
+        y_max = current_labware.plate['dimensions']['y'] # in mm
 
         # Convert coordinates
         sx = x_max - settings['stage_offset']['x']/1000 - px
         sy = y_max - settings['stage_offset']['y']/1000 - py
+
         sx = sx*1000
         sy = sy*1000
 
+        # return
         return sx, sy
     
     def stage_to_plate(self, sx, sy):
-        # plate coordinates in mm from top left
         # stage coordinates in um from bottom right
+        # plate coordinates in mm from top left
 
         # Determine current labware
         os.chdir(home_wd)
@@ -1402,15 +1432,14 @@ class ProtocolSettings(CompositeCapture):
         y_max = current_labware.plate['dimensions']['y']
 
         # Convert coordinates
-        sx = sx/1000
-        sy = sy/1000
-
-        px = x_max - settings['stage_offset']['x']/1000 - sx
-        py = y_max - settings['stage_offset']['y']/1000 - sy
+        px = x_max - (settings['stage_offset']['x'] + sx)/1000
+        py = y_max - (settings['stage_offset']['y'] + sy)/1000
  
         return px, py
     
     def plate_to_pixel(self, px, py, scale_x, scale_y):
+        # plate coordinates in mm from top left
+        # pixel coordinates in px from bottom left
 
         # Determine current labware
         os.chdir(home_wd)
@@ -1428,6 +1457,9 @@ class ProtocolSettings(CompositeCapture):
         return pixel_x, pixel_y
 
     def stage_to_pixel(self, sx, sy, scale_x, scale_y):
+        # stage coordinates in um from bottom right
+        # plate coordinates in mm from top left
+        # pixel coordinates in px from bottom left
 
         px, py = self.stage_to_plate(sx, sy)
         pixel_x, pixel_y = self.plate_to_pixel(px, py, scale_x, scale_y)
@@ -2240,7 +2272,6 @@ class Stage(Widget):
 
             # Convert stage coordinates to relative pixel coordinates
             pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
-
             Color(1., 0., 0., 1.)
             Line(points=(x+pixel_x-10, y+pixel_y, x+pixel_x+10, y+pixel_y), width = 1) # horizontal line
             Line(points=(x+pixel_x, y+pixel_y-10, x+pixel_x, y+pixel_y+10), width = 1) # vertical line
