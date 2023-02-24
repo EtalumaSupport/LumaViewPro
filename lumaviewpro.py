@@ -1301,7 +1301,6 @@ class XYStageControl(BoxLayout):
         # Get bookmark plate y-position in mm
         y_pos = settings['bookmark']['y']
 
-
         # Move to y-position
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(0, y_pos)
@@ -2144,7 +2143,7 @@ class Stage(Widget):
     def on_touch_down(self, touch):
         error_log('Stage.on_touch_down()')
 
-        if self.collide_point(*touch.pos):
+        if self.collide_point(*touch.pos) and touch.button == 'left':
 
             # Get mouse position in pixels
             (mouse_x, mouse_y) = touch.pos
