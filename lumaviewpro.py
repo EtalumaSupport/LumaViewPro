@@ -99,8 +99,9 @@ from trinamic850 import TrinamicBoard
 from ledboard import LEDBoard
 from pyloncamera import PylonCamera
 from labware import WellPlate
-# import coordinate_system
 
+# # FUTURE API
+# import lvp_api as scope
 
 global lumaview
 global settings
@@ -145,7 +146,6 @@ def focus_log(positions, values):
             mssg = str(focus_round) + '\t' + str(p) + '\t' + str(values[i]) + '\n'
             file.write(mssg)
         file.close()
-        print(mssg)
         focus_round += 1
 
 # -------------------------------------------------------------------------
@@ -866,6 +866,10 @@ class VerticalControl(BoxLayout):
     def __init__(self, **kwargs):
         super(VerticalControl, self).__init__(**kwargs)
         error_log('VerticalControl.__init__()')
+
+        # boolean describing whether the scope is currently in the process of autofocus
+        self.is_autofocus = False
+        self.is_complete = False
         
     def update_gui(self):
         error_log('VerticalControl.update_gui()')
@@ -947,10 +951,14 @@ class VerticalControl(BoxLayout):
     def autofocus(self):
         error_log('VerticalControl.autofocus()')
         global lumaview
+        self.is_complete = False
 
         if lumaview.camera.active == False:
             error_log('Error: VerticalControl.autofocus()')
+
             self.ids['autofocus_id'].state == 'normal'
+            self.is_autofocus = False
+
             return
 
         center = lumaview.motion.current_pos('Z')
@@ -969,6 +977,7 @@ class VerticalControl(BoxLayout):
         # set button text if button is pressed
         if self.ids['autofocus_id'].state == 'down':
             self.ids['autofocus_id'].text = 'Focusing...'
+            self.is_autofocus = True
 
             # Start the autofocus process at z-minimum
             lumaview.motion.move_abs_pos('Z', self.z_min)
@@ -1056,6 +1065,9 @@ class VerticalControl(BoxLayout):
                     # update button status
                     self.ids['autofocus_id'].state = 'normal'
                     self.ids['autofocus_id'].text = 'Autofocus'
+                    self.is_autofocus = False
+                    self.is_complete = True
+
             else:
                 # move to next position
                 lumaview.motion.move_rel_pos('Z', self.resolution)
@@ -1067,6 +1079,8 @@ class VerticalControl(BoxLayout):
         # In case user cancels autofocus, end autofocus sequence
         if self.ids['autofocus_id'].state == 'normal':
             self.ids['autofocus_id'].text = 'Autofocus'
+            self.is_autofocus = False
+
             error_log('Clock.unschedule(self.focus_iterate)')
             Clock.unschedule(self.focus_iterate)
 
@@ -1083,7 +1097,7 @@ class VerticalControl(BoxLayout):
             image = np.double(image)
             sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
             sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            error_log('difference\t' + str(sum_one - sum_two))
+            error_log('Focus Score Vollath: ' + str(sum_one - sum_two))
             return sum_one - sum_two
 
         elif algorithm == 'skew':
@@ -1095,14 +1109,14 @@ class VerticalControl(BoxLayout):
             white_edge = edges[1]
 
             skew = white_edge-max_index
-            error_log('skew\t' + str(skew))
+            error_log('Focus Score Skew: ' + str(skew))
             return skew
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
             ssq = np.sum(np.square(image))
             var = ssq*w*h-sum**2
-            error_log('pixel_variation\t' + str(var))
+            error_log('Focus Score Pixel Variation: ' + str(var))
             return var
         
             '''
@@ -1823,120 +1837,143 @@ class ProtocolSettings(CompositeCapture):
         self.ids['step_total_input'].text = str(len(self.step_names))
 
         
-    # # Run one scan of protocol, autofocus at each step, and update protocol
-    # def run_autofocus_scan(self):
-    #     error_log('ProtocolSettings.run_autofocus()')
-    #     # At each step in the scan, identify if the AF has started yet
-    #     self.new_AFscan_step = True
+    # Run one scan of protocol, autofocus at each step, and update protocol
+    def run_autofocus_scan(self):
+        error_log('ProtocolSettings.run_autofocus_scan()')
 
-    #     if len(self.step_names) < 1:
-    #         error_log('Protocol has no steps.')
-    #         self.ids['run_autofocus_btn'].state =='normal'
-    #         self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-    #         return
+        if len(self.step_names) < 1:
+            error_log('Protocol has no steps.')
+            self.ids['run_autofocus_btn'].state =='normal'
+            self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+            return
 
-    #     if self.ids['run_autofocus_btn'].state == 'down':
-    #         self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
+        if self.ids['run_autofocus_btn'].state == 'down':
+            self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
 
-    #         self.c_step = 0
-    #         self.ids['step_number_input'].text = str(self.c_step+1)
+            self.c_step = 0
+            self.ids['step_number_input'].text = str(self.c_step+1)
 
-    #         x = self.step_values[self.c_step, 0]
-    #         y = self.step_values[self.c_step, 1]
-    #         z = self.step_values[self.c_step, 2]
+            x = self.step_values[self.c_step, 0]
+            y = self.step_values[self.c_step, 1]
+            z = self.step_values[self.c_step, 2]
  
-    #         lumaview.motion.move_abs_pos('X', x*1000)
-    #         error_log(lumaview.motion.message)
-    #         lumaview.motion.move_abs_pos('Y', y*1000)
-    #         error_log(lumaview.motion.message)
-    #         lumaview.motion.move_abs_pos('Z', z)
-    #         error_log(lumaview.motion.message)
+            # Convert plate coordinates to stage coordinates
+            sx, sy = self.plate_to_stage(x, y)
 
-    #         error_log('Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
-    #         Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
+            # Move into position
+            lumaview.motion.move_abs_pos('X', sx)
+            error_log(lumaview.motion.message)
+            lumaview.motion.move_abs_pos('Y', sy)
+            error_log(lumaview.motion.message)
+            lumaview.motion.move_abs_pos('Z', z)
+            error_log(lumaview.motion.message)
 
-    #     else:  # self.ids['run_autofocus_btn'].state =='normal'
-    #         self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-    #         error_log('Clock.unschedule(self.autofocus_scan_iterate)')
-    #         Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
+            error_log('Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
+            Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
+
+        # Stop Running Autofocus Scan
+        else:  # self.ids['run_autofocus_btn'].state =='normal'
+            self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+
+            # toggle all LEDs AND TOGGLE BUTTONS OFF
+            if lumaview.led:
+                lumaview.led.leds_off()
+                error_log(lumaview.led.message)
+            else:
+                error_log("LED controller not available.")
+
+            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
+            for layer in layers:
+                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+
+            error_log('Clock.unschedule(self.autofocus_scan_iterate)')
+            Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
         
-    # def autofocus_scan_iterate(self, dt):
-    #     global lumaview
-    #     global settings
+    def autofocus_scan_iterate(self, dt):
+        global lumaview
+        global settings
 
-    #     # If the autofocus is currently active, leave the function before continuing step
-    #     if lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state == 'down':
-    #         print('in autofocus')
-    #         return
+        
+        # If the autofocus is currently active, leave the function before continuing step
+        is_autofocus = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_autofocus
+        if is_autofocus:
+            return
 
-    #     # # Draw the Labware on Stage
-    #     # self.ids['stage_widget_id'].draw_labware()
-    #     self.ids['step_number_input'].text = str(self.c_step+1)
+        # If the autofocus just completed, go to next steps
+        is_complete = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete
+        if is_complete:
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
-    #     # Check if at desired position
-    #     x_status = lumaview.motion.target_status('X')
-    #     y_status = lumaview.motion.target_status('Y')
-    #     z_status = lumaview.motion.target_status('Z')
+            # update protocol to focused z-position
+            self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')
 
-    #     # If target location has been reached
-    #     if x_status and y_status and z_status:
-    #         error_log('Autofocus Scan Step:' + str(self.step_names[self.c_step]) )
+            # increment to the next step
+            self.c_step += 1
 
-    #         # identify image settings
-    #         ch =        self.step_values[self.c_step, 3]
-    #         ill =       self.step_values[self.c_step, 4]
-    #         gain =      self.step_values[self.c_step, 5]
-    #         auto_gain = self.step_values[self.c_step, 6]
-    #         exp =       self.step_values[self.c_step, 7]
+            if self.c_step < len(self.step_names):
+                x = self.step_values[self.c_step, 0]
+                y = self.step_values[self.c_step, 1]
+                z =  self.step_values[self.c_step, 2]
 
-    #         # set camera settings
-    #         lumaview.camera.gain(gain)
-    #         error_log(lumaview.camera.message)
-    #         lumaview.camera.exposure_t(exp)
-    #         error_log(lumaview.camera.message)
+                # Convert plate coordinates to stage coordinates
+                sx, sy = self.plate_to_stage(x, y)
 
-    #         # Illuminate
-    #         lumaview.led.led_on(ch, ill)
-    #         error_log(lumaview.led.message)
+                # Move into position
+                lumaview.motion.move_abs_pos('X', sx)
+                lumaview.motion.move_abs_pos('Y', sy)
+                lumaview.motion.move_abs_pos('Z', z)
 
-    #         # Else, if the autofocus has not yet begun for the protocol step, begin autofocus
-    #         if self.new_AFscan_step:
-    #             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
-    #             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
-    #             print('started AF')
-    #             self.new_AFscan_step = False
-    #             return
+            # if all positions have already been reached
+            else:
+                error_log('Autofocus Scan Complete')
+                self.ids['run_autofocus_btn'].state = 'normal'
+                self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+
+
+                error_log('Clock.unschedule(self.autofocus_scan_iterate)')
+                Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
+            
+            return
+ 
+        # Update Step number text
+        self.ids['step_number_input'].text = str(self.c_step+1)
+
+        # Check if at desired position
+        x_status = lumaview.motion.target_status('X')
+        y_status = lumaview.motion.target_status('Y')
+        z_status = lumaview.motion.target_status('Z')
+
+        # If target location has been reached
+        if x_status and y_status and z_status and not lumaview.motion.overshoot:
+            error_log('Autofocus Scan Step:' + str(self.step_names[self.c_step]) )
+
+            # identify image settings
+            ch =        self.step_values[self.c_step, 4] # LED channel
+            fc =        self.step_values[self.c_step, 5] # image false color
+            ill =       self.step_values[self.c_step, 6] # LED illumination
+            gain =      self.step_values[self.c_step, 7] # camera gain
+            auto_gain = self.step_values[self.c_step, 8] # camera autogain
+            exp =       self.step_values[self.c_step, 9] # camera exposure
+            
+            # set camera settings and turn on LED
+            lumaview.led.led_on(ch, ill)
+            lumaview.camera.gain(gain)
+            lumaview.camera.auto_gain(bool(auto_gain))
+            lumaview.camera.exposure_t(exp)
+
+            # Begin autofocus routine
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
+            return
    
-    #         # Turn off LEDs
-    #         lumaview.led.leds_off()
-    #         error_log(lumaview.led.message)
-
-    #         # update protocol 
-    #         self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')
-
-    #         # increment to the next step
-    #         self.c_step += 1
-    #         print('complete AF')
-    #         self.new_AFscan_step = True
-
-    #         if self.c_step < len(self.step_names):
-    #             x = self.step_values[self.c_step, 0]
-    #             y = self.step_values[self.c_step, 1]
-    #             z =  self.step_values[self.c_step, 2]
-
-    #             lumaview.motion.move_abs_pos('X', x*1000)  # move to x
-    #             lumaview.motion.move_abs_pos('Y', y*1000)  # move to y
-    #             lumaview.motion.move_abs_pos('Z', z)       # move to z
-
-    #         # if all positions have already been reached
-    #         else:
-    #             error_log('Autofocus Scan Complete')
-    #             self.ids['run_autofocus_btn'].state = 'normal'
-    #             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
 
 
-    #             error_log('Clock.unschedule(self.autofocus_scan_iterate)')
-    #             Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
+
+
+
+
+
+
 
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
@@ -1979,7 +2016,7 @@ class ProtocolSettings(CompositeCapture):
         else:  # self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
-            # toggle all LEDs AND TOGGLE BUTTONS ofF
+            # toggle all LEDs AND TOGGLE BUTTONS OFF
             if lumaview.led:
                 lumaview.led.leds_off()
                 error_log(lumaview.led.message)
@@ -1997,8 +2034,6 @@ class ProtocolSettings(CompositeCapture):
         global lumaview
         global settings
 
-        lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
-
         self.ids['step_number_input'].text = str(self.c_step+1)
 
         # Check if at desired position
@@ -2008,7 +2043,6 @@ class ProtocolSettings(CompositeCapture):
 
         # If target location has been reached
         if x_status and y_status and z_status and not lumaview.motion.overshoot:
-        # if x_status and y_status and z_status:
             error_log('Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
@@ -2832,7 +2866,7 @@ class LumaViewProApp(App):
 
     def build(self):
         error_log('-----------------------------------------')
-        error_log('Code Compiled On: 2/19/2023')
+        error_log('Code Compiled On: 3/4/2023')
         error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         error_log('-----------------------------------------')
 
