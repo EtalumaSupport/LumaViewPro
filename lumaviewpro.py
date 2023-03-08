@@ -196,8 +196,8 @@ class CompositeCapture(FloatLayout):
         global settings
         
         # Set gain and exposure
-        lumaview.scope.camera.gain(gain)
-        lumaview.scope.camera.exposure_t(exposure)
+        lumaview.scope.set_gain(gain)
+        lumaview.scope.set_exposure_time(exposure)
  
         # Save Settings
         color = lumaview.scope.ch2color(channel)
@@ -291,9 +291,9 @@ class CompositeCapture(FloatLayout):
 
                 # set the gain and exposure
                 gain = settings[layer]['gain']
-                lumaview.scope.camera.gain(gain)
+                lumaview.scope.set_gain(gain)
                 exposure = settings[layer]['exp']
-                lumaview.scope.camera.exposure_t(exposure)
+                lumaview.scope.set_exposure_time(exposure)
 
                 # update illumination to currently selected settings
                 illumination = settings[layer]['ill']
@@ -1861,9 +1861,9 @@ class ProtocolSettings(CompositeCapture):
             
             # set camera settings and turn on LED
             lumaview.scope.led_on(ch, ill)
-            lumaview.scope.camera.gain(gain)
-            lumaview.scope.camera.auto_gain(bool(auto_gain))
-            lumaview.scope.camera.exposure_t(exp)
+            lumaview.scope.set_gain(gain)
+            lumaview.scope.set_auto_gain(bool(auto_gain))
+            lumaview.scope.set_exposure_time(exp)
 
             # Begin autofocus routine
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
@@ -1955,7 +1955,7 @@ class ProtocolSettings(CompositeCapture):
             auto_gain = self.step_values[self.c_step, 8] # camera autogain
             exp =       self.step_values[self.c_step, 9] # camera exposure
             
-            lumaview.scope.camera.auto_gain(bool(auto_gain))
+            lumaview.scope.set_auto_gain(bool(auto_gain))
             # TODO: Update display current capture
             
             # capture image
@@ -2508,16 +2508,16 @@ class LayerControl(BoxLayout):
         # update gain to currently selected settings
         # -----------------------------------------------------
         state = settings[self.layer]['auto_gain']
-        lumaview.scope.camera.auto_gain(state)
+        lumaview.scope.set_auto_gain(state)
 
         if not(state):
             gain = settings[self.layer]['gain']
-            lumaview.scope.camera.gain(gain)
+            lumaview.scope.set_gain(gain)
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
         exposure = settings[self.layer]['exp']
-        lumaview.scope.camera.exposure_t(exposure)
+        lumaview.scope.set_exposure_time(exposure)
 
         # choose correct active toggle button image based on color
         # -----------------------------------------------------
