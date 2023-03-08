@@ -856,12 +856,12 @@ class VerticalControl(BoxLayout):
 
     def set_bookmark(self):
         print('[LVP Main  ] VerticalControl.set_bookmark()')
-        height = lumaview.scope.motion.current_pos('Z')  # Get current z height in um
+        height = lumaview.scope.get_current_position('Z')  # Get current z height in um
         settings['bookmark']['z'] = height
 
     def set_all_bookmarks(self):
         print('[LVP Main  ] VerticalControl.set_all_bookmarks()')
-        height = lumaview.scope.motion.current_pos('Z')  # Get current z height in um
+        height = lumaview.scope.get_current_position('Z')  # Get current z height in um
         settings['bookmark']['z'] = height
         settings['BF']['focus'] = height
         settings['PC']['focus'] = height
@@ -895,7 +895,7 @@ class VerticalControl(BoxLayout):
 
             return
 
-        center = lumaview.scope.motion.current_pos('Z')
+        center = lumaview.scope.get_current_position('Z')
         range =  settings['objective']['AF_range']
 
         self.z_min = max(0, center-range)                   # starting minimum z-height for autofocus
@@ -941,9 +941,9 @@ class VerticalControl(BoxLayout):
 
             # calculate the position and focus measure
             try:
-                current = lumaview.scope.motion.current_pos('Z')
+                current = lumaview.scope.get_current_position('Z')
                 focus = self.focus_function(image)
-                next_target = lumaview.scope.motion.target_pos('Z') + self.resolution
+                next_target = lumaview.scope.get_target_position('Z') + self.resolution
             except:
                 print('[LVP Main  ] Error talking to motion controller.')
                 raise
@@ -1100,8 +1100,8 @@ class XYStageControl(BoxLayout):
         print('[LVP Main  ] XYStageControl.update_gui()')
         global lumaview
         try:
-            x_target = lumaview.scope.motion.target_pos('X')  # Get target value in um
-            y_target = lumaview.scope.motion.target_pos('Y')  # Get target value in um
+            x_target = lumaview.scope.get_target_position('X')  # Get target value in um
+            y_target = lumaview.scope.get_target_position('Y')  # Get target value in um
         except:
             print('[LVP Main  ] Error talking to Trinamic board.')
             raise
@@ -1192,7 +1192,7 @@ class XYStageControl(BoxLayout):
         global lumaview
 
         # Get current stage x-position in um     
-        x_pos = lumaview.scope.motion.current_pos('X')
+        x_pos = lumaview.scope.get_current_position('X')
  
         # Save plate x-position to settings
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
@@ -1204,7 +1204,7 @@ class XYStageControl(BoxLayout):
         global lumaview
 
         # Get current stage y-position in um
-        y_pos = lumaview.scope.motion.current_pos('Y')  
+        y_pos = lumaview.scope.get_current_position('Y')  
 
         # Save plate y-position to settings
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
@@ -1238,8 +1238,8 @@ class XYStageControl(BoxLayout):
     # def calibrate(self):
     #     print('[LVP Main  ] XYStageControl.calibrate()')
     #     global lumaview
-    #     x_pos = lumaview.scope.motion.current_pos('X')  # Get current x position in um
-    #     y_pos = lumaview.scope.motion.current_pos('Y')  # Get current x position in um
+    #     x_pos = lumaview.scope.get_current_position('X')  # Get current x position in um
+    #     y_pos = lumaview.scope.get_current_position('Y')  # Get current x position in um
 
     #     current_labware = WellPlate()
     #     current_labware.load_plate(settings['protocol']['labware'])
@@ -1666,13 +1666,13 @@ class ProtocolSettings(CompositeCapture):
 
         # Determine and update plate position
         if lumaview.scope.motion.driver:
-            sx = lumaview.scope.motion.current_pos('X')
-            sy = lumaview.scope.motion.current_pos('Y')
+            sx = lumaview.scope.get_current_position('X')
+            sy = lumaview.scope.get_current_position('Y')
             px, py = self.stage_to_plate(sx, sy)
 
             self.step_values[self.c_step, 0] = px # x
             self.step_values[self.c_step, 1] = py # y
-            self.step_values[self.c_step, 2] = lumaview.scope.motion.current_pos('Z')      # z
+            self.step_values[self.c_step, 2] = lumaview.scope.get_current_position('Z')      # z
         else:
             print('[LVP Main  ] Motion controller not availabble.')
 
@@ -1721,13 +1721,13 @@ class ProtocolSettings(CompositeCapture):
         layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
 
         # Determine and update plate position
-        sx = lumaview.scope.motion.current_pos('X')
-        sy = lumaview.scope.motion.current_pos('Y')
+        sx = lumaview.scope.get_current_position('X')
+        sy = lumaview.scope.get_current_position('Y')
         px, py = self.stage_to_plate(sx, sy)
 
         step = [px,                                      # x
                 py,                                      # y
-                lumaview.scope.motion.current_pos('Z'),        # z
+                lumaview.scope.get_current_position('Z'),        # z
                 int(layer_id.ids['autofocus'].active),   # autofocus
                 ch,                                      # ch 
                 int(layer_id.ids['false_color'].active), # false color
@@ -1809,7 +1809,7 @@ class ProtocolSettings(CompositeCapture):
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
             # update protocol to focused z-position
-            self.step_values[self.c_step, 2] = lumaview.scope.motion.current_pos('Z')
+            self.step_values[self.c_step, 2] = lumaview.scope.get_current_position('Z')
 
             # increment to the next step
             self.c_step += 1
@@ -2177,8 +2177,8 @@ class Stage(Widget):
 
             # Get target position
             try:
-                x_target = lumaview.scope.motion.target_pos('X')
-                y_target = lumaview.scope.motion.target_pos('Y')
+                x_target = lumaview.scope.get_target_position('X')
+                y_target = lumaview.scope.get_target_position('Y')
             except:
                 print('[LVP Main  ] Error talking to Trinamic board.')
                 raise
@@ -2196,8 +2196,8 @@ class Stage(Widget):
             
             #  Red Crosshairs
             # ------------------
-            x_current = lumaview.scope.motion.current_pos('X')
-            y_current = lumaview.scope.motion.current_pos('Y')
+            x_current = lumaview.scope.get_current_position('X')
+            y_current = lumaview.scope.get_current_position('Y')
 
             # Convert stage coordinates to relative pixel coordinates
             pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
@@ -2459,7 +2459,7 @@ class LayerControl(BoxLayout):
     def save_focus(self):
         print('[LVP Main  ] LayerControl.save_focus()')
         global lumaview
-        pos = lumaview.scope.motion.current_pos('Z')
+        pos = lumaview.scope.get_current_position('Z')
         settings[self.layer]['focus'] = pos
 
     def goto_focus(self):
@@ -2586,7 +2586,7 @@ class ZStack(CompositeCapture):
         spinner_value = self.ids['zstack_spinner'].text
 
         # Get current position
-        current_pos = lumaview.scope.motion.current_pos('Z')
+        current_pos = lumaview.scope.get_current_position('Z')
 
         # Set start position
         if spinner_value == spinner_values[0]:   # 'Current Position at Top'
