@@ -255,7 +255,7 @@ class Lumascope():
         """ Move to relative distance (in um) of axis"""
 
         if not self.motion: return
-        self.motion.move_abs_pos(axis, um)
+        self.motion.move_rel_pos(axis, um)
 
     def get_home_status(self, axis):
         """ Return True if axis is in home position"""

@@ -828,25 +828,25 @@ class VerticalControl(BoxLayout):
     def coarse_up(self):
         print('[LVP Main  ] VerticalControl.coarse_up()')
         coarse = settings['objective']['z_coarse']
-        lumaview.scope.motion.move_rel_pos('Z', coarse)                  # Move UP
+        lumaview.scope.move_relative_position('Z', coarse)                  # Move UP
         self.update_gui()
 
     def fine_up(self):
         print('[LVP Main  ] VerticalControl.fine_up()')
         fine = settings['objective']['z_fine']
-        lumaview.scope.motion.move_rel_pos('Z', fine)                    # Move UP
+        lumaview.scope.move_relative_position('Z', fine)                    # Move UP
         self.update_gui()
 
     def fine_down(self):
         print('[LVP Main  ] VerticalControl.fine_down()')
         fine = settings['objective']['z_fine']
-        lumaview.scope.motion.move_rel_pos('Z', -fine)                   # Move DOWN
+        lumaview.scope.move_relative_position('Z', -fine)                   # Move DOWN
         self.update_gui()
 
     def coarse_down(self):
         print('[LVP Main  ] VerticalControl.coarse_down()')
         coarse = settings['objective']['z_coarse']
-        lumaview.scope.motion.move_rel_pos('Z', -coarse)                 # Move DOWN
+        lumaview.scope.move_relative_position('Z', -coarse)                 # Move DOWN
         self.update_gui()
 
     def set_position(self, pos):
@@ -1001,7 +1001,7 @@ class VerticalControl(BoxLayout):
 
             else:
                 # move to next position
-                lumaview.scope.motion.move_rel_pos('Z', self.resolution)
+                lumaview.scope.move_relative_position('Z', self.resolution)
 
             # update last focus
             self.last_focus = focus
@@ -1115,49 +1115,49 @@ class XYStageControl(BoxLayout):
     def fine_left(self):
         print('[LVP Main  ] XYStageControl.fine_left()')
         fine = settings['objective']['xy_fine']
-        lumaview.scope.motion.move_rel_pos('X', -fine)  # Move LEFT fine step
+        lumaview.scope.move_relative_position('X', -fine)  # Move LEFT fine step
         self.update_gui()
 
     def fine_right(self):
         print('[LVP Main  ] XYStageControl.fine_right()')
         fine = settings['objective']['xy_fine']
-        lumaview.scope.motion.move_rel_pos('X', fine)  # Move RIGHT fine step
+        lumaview.scope.move_relative_position('X', fine)  # Move RIGHT fine step
         self.update_gui()
 
     def coarse_left(self):
         print('[LVP Main  ] XYStageControl.coarse_left()')
         coarse = settings['objective']['xy_coarse']
-        lumaview.scope.motion.move_rel_pos('X', -coarse)  # Move LEFT coarse step
+        lumaview.scope.move_relative_position('X', -coarse)  # Move LEFT coarse step
         self.update_gui()
 
     def coarse_right(self):
         print('[LVP Main  ] XYStageControl.coarse_right()')
         coarse = settings['objective']['xy_coarse']
-        lumaview.scope.motion.move_rel_pos('X', coarse)  # Move RIGHT
+        lumaview.scope.move_relative_position('X', coarse)  # Move RIGHT
         self.update_gui()
 
     def fine_back(self):
         print('[LVP Main  ] XYStageControl.fine_back()')
         fine = settings['objective']['xy_fine']
-        lumaview.scope.motion.move_rel_pos('Y', -fine)  # Move BACK 
+        lumaview.scope.move_relative_position('Y', -fine)  # Move BACK 
         self.update_gui()
 
     def fine_fwd(self):
         print('[LVP Main  ] XYStageControl.fine_fwd()')
         fine = settings['objective']['xy_fine']
-        lumaview.scope.motion.move_rel_pos('Y', fine)  # Move FORWARD 
+        lumaview.scope.move_relative_position('Y', fine)  # Move FORWARD 
         self.update_gui()
 
     def coarse_back(self):
         print('[LVP Main  ] XYStageControl.coarse_back()')
         coarse = settings['objective']['xy_coarse']
-        lumaview.scope.motion.move_rel_pos('Y', -coarse)  # Move BACK
+        lumaview.scope.move_relative_position('Y', -coarse)  # Move BACK
         self.update_gui()
 
     def coarse_fwd(self):
         print('[LVP Main  ] XYStageControl.coarse_fwd()')
         coarse = settings['objective']['xy_coarse']
-        lumaview.scope.motion.move_rel_pos('Y', coarse)  # Move FORWARD 
+        lumaview.scope.move_relative_position('Y', coarse)  # Move FORWARD 
         self.update_gui()
 
     def set_xposition(self, x_pos):
