@@ -43,10 +43,7 @@ import csv
 import time
 import json
 import glob
-# import math
-# import threading
 from plyer import filechooser
-# from scipy.optimized import curve_fit
 
 # # Profiling
 # profiling = False
@@ -70,6 +67,7 @@ Config.set('graphics', 'window_state', 'maximized')
 import kivy
 kivy.require("2.1.0")
 
+
 from kivy.app import App
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
@@ -92,48 +90,23 @@ from kivy.uix.button import Button
 # Video Related
 from kivy.graphics.texture import Texture
 import cv2
-#from scipy import signal
 
-# Additional LumaViewPro files
-from trinamic850 import TrinamicBoard
-from ledboard import LEDBoard
-from pyloncamera import PylonCamera
+# Hardware
 from labware import WellPlate
-
-# # FUTURE API
-# import lvp_api as scope
+import lumascope_api
 
 global lumaview
 global settings
-# global coordinates
 
 home_wd = os.getcwd()
-
 start_str = time.strftime("%Y %m %d %H_%M_%S")
 start_str = str(int(round(time.time() * 1000)))
-
-def error_log(mssg):
-    if True:
-        os.chdir(home_wd)
-        try:
-            file = open('./logs/LVP_log '+start_str+'.txt', 'a')
-        except:
-            if not os.path.isdir('./logs'):
-                raise FileNotFoundError("Couldn't find 'logs' directory.")
-            else:
-                raise
-        else:
-            file.write(mssg + '\n')
-            file.close()
-        finally:
-            print(mssg)
-
 
 global focus_round
 focus_round = 0
 def focus_log(positions, values):
     global focus_round
-    if True:
+    if False:
         os.chdir(home_wd)
         try:
             file = open('./logs/focus_log.txt', 'a')
@@ -159,25 +132,26 @@ class ScopeDisplay(Image):
 
     def __init__(self, **kwargs):
         super(ScopeDisplay,self).__init__(**kwargs)
-        error_log('ScopeDisplay.__init__()')
+        print('[LVP Main  ] ScopeDisplay.__init__()')
         self.start()
 
     def start(self, fps = 10):
-        error_log('ScopeDisplay.start()')
+        print('[LVP Main  ] ScopeDisplay.start()')
         self.fps = fps
-        error_log('Clock.schedule_interval(self.update, 1.0 / self.fps)')
+        print('[LVP Main  ] Clock.schedule_interval(self.update, 1.0 / self.fps)')
         Clock.schedule_interval(self.update, 1.0 / self.fps)
 
     def stop(self):
-        error_log('ScopeDisplay.stop()')
-        error_log('Clock.unschedule(self.update)')
+        print('[LVP Main  ] ScopeDisplay.stop()')
+        print('[LVP Main  ] Clock.unschedule(self.update)')
         Clock.unschedule(self.update)
 
     def update(self, dt=0):
         global lumaview
 
-        if lumaview.camera.grab():
-            array = lumaview.camera.array
+        if lumaview.scope.camera != False:
+            array = lumaview.scope.get_image()
+            # Convert to texture for display (using OpenGL)
             texture = Texture.create(size=(array.shape[1],array.shape[0]), colorfmt='luminance')
             texture.blit_buffer(array.flatten(), colorfmt='luminance', bufferfmt='ubyte')
             # display image from the texture
@@ -198,7 +172,7 @@ class CompositeCapture(FloatLayout):
         super(CompositeCapture,self).__init__(**kwargs)
 
     def live_capture(self):
-        error_log('CompositeCapture.live_capture()')
+        print('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
         save_folder = settings['live_folder']
@@ -213,38 +187,34 @@ class CompositeCapture(FloatLayout):
                 if lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
             
-        lumaview.camera.grab()
-        error_log(lumaview.camera.message)
+        lumaview.scope.camera.grab()
         self.save_image(save_folder, file_root, append, color)
 
     def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
-        error_log('CompositeCapture.custom_capture()')
+        print('[LVP Main  ] CompositeCapture.custom_capture()')
         global lumaview
         global settings
         
         # Set gain and exposure
-        lumaview.camera.gain(gain)
-        error_log(lumaview.camera.message)
-        lumaview.camera.exposure_t(exposure)
-        error_log(lumaview.camera.message)
+        lumaview.scope.camera.gain(gain)
+        lumaview.scope.camera.exposure_t(exposure)
  
         # Save Settings
-        color = lumaview.led.ch2color(channel)
+        color = lumaview.scope.ch2color(channel)
         save_folder =  settings[color]['save_folder']
         file_root = settings[color]['file_root']
         append = 'ms'
 
         # Illuminate
-        if lumaview.led:
-            lumaview.led.led_on(channel, illumination)
-            error_log(lumaview.led.message)
+        if lumaview.scope.led:
+            lumaview.scope.led_on(channel, illumination)
+            print('[LVP Main  ] lumaview.scope.led_on(channel, illumination)')
         else:
-            error_log("LED controller not available.")
+            print('LED controller not available.')
 
         # Grab image and save
         time.sleep(2*exposure/1000+0.2) # This needs improvement
-        lumaview.camera.grab()
-        error_log(lumaview.camera.message)
+        lumaview.scope.camera.grab()
 
         if false_color: 
             self.save_image(save_folder, file_root, append, color)
@@ -252,32 +222,32 @@ class CompositeCapture(FloatLayout):
             self.save_image(save_folder, file_root, append, 'BF')
 
         # Turn off LEDs
-        if lumaview.led:
-            lumaview.led.leds_off()
-            error_log(lumaview.led.message)
+        if lumaview.scope.led:
+            lumaview.scope.leds_off()
+            print('[LVP Main  ] lumaview.scope.leds_off()')
         else:
-            error_log("LED controller not available.")
+            print('LED controller not available.')
 
     # Save image from camera buffer to specified location
     def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
-        error_log('CompositeCapture.save_image()')
+        print('[LVP Main  ] CompositeCapture.save_image()')
         global lumaview
 
-        if lumaview.camera.active == False:
+        if lumaview.scope.camera.active == False:
             return
 
-        img = np.zeros((lumaview.camera.array.shape[0], lumaview.camera.array.shape[1], 3))
+        img = np.zeros((lumaview.scope.camera.array.shape[0], lumaview.scope.camera.array.shape[1], 3))
 
         if color == 'Blue':
-            img[:,:,0] = lumaview.camera.array
+            img[:,:,0] = lumaview.scope.camera.array
         elif color == 'Green':
-            img[:,:,1] = lumaview.camera.array
+            img[:,:,1] = lumaview.scope.camera.array
         elif color == 'Red':
-            img[:,:,2] = lumaview.camera.array
+            img[:,:,2] = lumaview.scope.camera.array
         else:
-            img[:,:,0] = lumaview.camera.array
-            img[:,:,1] = lumaview.camera.array
-            img[:,:,2] = lumaview.camera.array
+            img[:,:,0] = lumaview.scope.camera.array
+            img[:,:,1] = lumaview.scope.camera.array
+            img[:,:,2] = lumaview.scope.camera.array
 
         img = np.flip(img, 0)
 
@@ -296,14 +266,14 @@ class CompositeCapture(FloatLayout):
             cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
             # cv2.imwrite(filename, img.astype(np.uint8))
         except:
-            error_log("Error: Unable to save. Perhaps save folder does not exist?")
+            print('Error: Unable to save. Perhaps save folder does not exist?')
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
-        error_log('CompositeCapture.composite_capture()')
+        print('[LVP Main  ] CompositeCapture.composite_capture()')
         global lumaview
 
-        if self.camera.active == False:
+        if self.scope.camera.active == False:
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
@@ -316,44 +286,41 @@ class CompositeCapture(FloatLayout):
                 # Go to focus and wait for arrival
                 lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
 
-                while not lumaview.motion.target_status('Z'):
+                while not lumaview.scope.get_target_status('Z'):
                     time.sleep(.001)
 
                 # set the gain and exposure
                 gain = settings[layer]['gain']
-                lumaview.camera.gain(gain)
-                error_log(lumaview.camera.message)
+                lumaview.scope.camera.gain(gain)
                 exposure = settings[layer]['exp']
-                lumaview.camera.exposure_t(exposure)
-                error_log(lumaview.camera.message)
+                lumaview.scope.camera.exposure_t(exposure)
 
                 # update illumination to currently selected settings
                 illumination = settings[layer]['ill']
 
                 # Dark field capture
-                if lumaview.led:
-                    lumaview.led.leds_off()
-                    error_log(lumaview.led.message)
+                if lumaview.scope.led:
+                    lumaview.scope.leds_off()
+                    print('[LVP Main  ] lumaview.scope.leds_off()')
                 else:
-                    error_log("LED controller not available.")
+                    print('LED controller not available.')
 
                 time.sleep(2*exposure/1000+0.2)  # Should be replaced with Clock
                 scope_display.update()
-                darkfield = lumaview.camera.array
+                darkfield = lumaview.scope.camera.array
 
                 # Florescent capture
-                if lumaview.led:
-                    lumaview.led.led_on(lumaview.led.color2ch(layer), illumination)
-                    error_log(lumaview.led.message)
+                if lumaview.scope.led:
+                    lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
+                    print('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
                 else:
-                    error_log("LED controller not available.")
+                    print('LED controller not available.')
 
                 time.sleep(2*exposure/1000+0.2)  # Should be replaced with Clock
-                lumaview.camera.grab()
+                lumaview.scope.camera.grab()
 
-                error_log(lumaview.camera.message)
                 scope_display.update()
-                corrected = lumaview.camera.array - np.minimum(lumaview.camera.array,darkfield)
+                corrected = lumaview.scope.camera.array - np.minimum(lumaview.scope.camera.array,darkfield)
                 # buffer the images
                 if layer == 'Blue':
                     img[:,:,0] = corrected
@@ -368,16 +335,16 @@ class CompositeCapture(FloatLayout):
                 #     img[:,:,1] = img[:,:,1]*a + corrected*(1-a)
                 #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
 
-            if lumaview.led:
-                lumaview.led.leds_off()
-                error_log(lumaview.led.message)
+            if lumaview.scope.led:
+                lumaview.scope.leds_off()
+                print('[LVP Main  ] lumaview.scope.leds_off()')
             else:
-                error_log("LED controller not available.")
+                print('LED controller not available.')
 
             # turn off all LED toggle buttons and histograms
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
-            error_log('Clock.unschedule(lumaview...histogram)')
+            print('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
         # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
         lumaview.ids['composite_btn'].state = 'normal'
@@ -397,69 +364,46 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
     
     def __init__(self, **kwargs):
         super(MainDisplay,self).__init__(**kwargs)
-
-        try:
-            self.led = ObjectProperty(None)
-            self.led = LEDBoard()
-        except:
-            error_log('Cannot establish connection to LED controller.')
-            self.led = False
-            #raise
-        
-        try:
-            self.motion = ObjectProperty(None)
-            self.motion = TrinamicBoard()
-        except:
-            error_log('Cannot establish connection to motion controller.')
-            self.motion = False
-            raise
-
-        try:
-            self.camera = ObjectProperty(None)
-            self.camera = PylonCamera()
-        except:
-            error_log('Cannot establish connection to camera.')
-            self.camera = False
-            #raise
+        self.scope = lumascope_api.Lumascope()
 
     def cam_toggle(self):
-        error_log('MainDisplay.cam_toggle()')
+        print('[LVP Main  ] MainDisplay.cam_toggle()')
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        if self.camera.active == False:
+        if self.scope.camera.active == False:
             return
 
         if scope_display.play == True:
             scope_display.play = False
-            if self.led:
-                self.led.leds_off()
-                error_log(self.led.message)
+            if self.scope.led:
+                self.scope.leds_off()
+                print('[LVP Main  ] self.scope.leds_off()')
             scope_display.stop()
         else:
             scope_display.play = True
             scope_display.start()
 
     def record(self):
-        error_log('MainDisplay.record()')
+        print('[LVP Main  ] MainDisplay.record()')
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        if self.camera.active == False:
+        if self.scope.camera.active == False:
             return
         scope_display.record = not scope_display.record
 
     def fit_image(self):
-        error_log('MainDisplay.fit_image()')
-        if self.camera.active == False:
+        print('[LVP Main  ] MainDisplay.fit_image()')
+        if self.scope.camera.active == False:
             return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0,0)
 
     def one2one_image(self):
-        error_log('MainDisplay.one2one_image()')
-        if self.camera.active == False:
+        print('[LVP Main  ] MainDisplay.one2one_image()')
+        if self.scope.camera.active == False:
             return
         w = self.width
         h = self.height
-        scale_hor = float(lumaview.camera.active.Width.GetValue()) / float(w)
-        scale_ver = float(lumaview.camera.active.Height.GetValue()) / float(h)
+        scale_hor = float(lumaview.scope.camera.active.Width.GetValue()) / float(w)
+        scale_ver = float(lumaview.scope.camera.active.Height.GetValue()) / float(h)
         scale = max(scale_hor, scale_ver)
         self.ids['viewer_id'].scale = scale
         self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))
@@ -546,7 +490,7 @@ void main (void) {
 
     def __init__(self, **kwargs):
         super(ShaderViewer, self).__init__(**kwargs)
-        error_log('ShaderViewer.__init__()')
+        print('[LVP Main  ] ShaderViewer.__init__()')
         self.canvas = RenderContext()
         self.canvas.shader.fs = fs_header + self.fs
         self.canvas.shader.vs = vs_header + self.vs
@@ -554,7 +498,7 @@ void main (void) {
         self.black = 0.
 
     def on_touch_down(self, touch):
-        error_log('ShaderViewer.on_touch_down()')
+        print('[LVP Main  ] ShaderViewer.on_touch_down()')
         # Override Scatter's `on_touch_down` behavior for mouse scroll
         if touch.is_mouse_scrolling:
             if touch.button == 'scrolldown':
@@ -568,7 +512,7 @@ void main (void) {
             super(ShaderViewer, self).on_touch_down(touch)
 
     def update_shader(self, false_color='BF'):
-        # error_log('ShaderViewer.update_shader()')
+        # print('[LVP Main  ] ShaderViewer.update_shader()')
 
         c = self.canvas
         c['projection_mat'] = Window.render_context['projection_mat']
@@ -600,11 +544,11 @@ class MotionSettings(BoxLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        error_log('MotionSettings.__init__()')
+        print('[LVP Main  ] MotionSettings.__init__()')
 
     # Hide (and unhide) motion settings
     def toggle_settings(self):
-        error_log('MotionSettings.toggle_settings()')
+        print('[LVP Main  ] MotionSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
@@ -621,20 +565,20 @@ class MotionSettings(BoxLayout):
             scope_display.start()
 
     def check_settings(self, *args):
-        error_log('MotionSettings.check_settings()')
+        print('[LVP Main  ] MotionSettings.check_settings()')
         if self.ids['toggle_motionsettings'].state == 'normal':
             self.pos = -self.settings_width+30, 0
         else:
             self.pos = 0, 0
 
     def accordion_collapse(self):
-        error_log('MotionSettings.accordion_collapse()')
+        print('[LVP Main  ] MotionSettings.accordion_collapse()')
         global lumaview
 
 class PostProcessing(BoxLayout):
 
     def convert_to_avi(self):
-        error_log('PostProcessing.convert_to_avi() not yet implemented')
+        print('[LVP Main  ] PostProcessing.convert_to_avi() not yet implemented')
 
         # # self.choose_folder()
         # save_location = './capture/movie.avi'
@@ -654,10 +598,10 @@ class PostProcessing(BoxLayout):
         # out.release()
 
     def stitch(self):
-        error_log('PostProcessing.stitch() not yet implemented')
+        print('[LVP Main  ] PostProcessing.stitch() not yet implemented')
 
     def open_folder(self):
-        error_log('PostProcessing.open_folder() not yet implemented')
+        print('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
 
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
@@ -687,16 +631,16 @@ void main (void) {
 
     def __init__(self, **kwargs):
         super(ShaderEditor, self).__init__(**kwargs)
-        error_log('ShaderEditor.__init__()')
+        print('[LVP Main  ] ShaderEditor.__init__()')
         self.test_canvas = RenderContext()
         s = self.test_canvas.shader
         self.trigger_compile = Clock.create_trigger(self.compile_shaders, -1)
         self.bind(fs=self.trigger_compile, vs=self.trigger_compile)
 
     def compile_shaders(self, *largs):
-        error_log('ShaderEditor.compile_shaders()')
+        print('[LVP Main  ] ShaderEditor.compile_shaders()')
         if not self.viewer:
-            error_log('ShaderEditor.compile_shaders() Fail')
+            print('[LVP Main  ] ShaderEditor.compile_shaders() Fail')
             return
 
         # we don't use str() here because it will crash with non-ascii char
@@ -708,7 +652,7 @@ void main (void) {
 
     # Hide (and unhide) Shader settings
     def toggle_editor(self):
-        error_log('ShaderEditor.toggle_editor()')
+        print('[LVP Main  ] ShaderEditor.toggle_editor()')
         if self.hide_editor == False:
             self.hide_editor = True
             self.pos = -285, 0
@@ -721,12 +665,12 @@ class MainSettings(BoxLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        error_log('MainSettings.__init__()')
+        print('[LVP Main  ] MainSettings.__init__()')
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
         self.update_transmitted()
-        error_log('MainSettings.toggle_settings()')
+        print('[LVP Main  ] MainSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
@@ -738,7 +682,7 @@ class MainSettings(BoxLayout):
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
-                error_log('Clock.unschedule(lumaview...histogram)')
+                print('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
             self.pos = lumaview.width - self.settings_width, 0
  
@@ -759,24 +703,24 @@ class MainSettings(BoxLayout):
             self.ids[layer].ids['ill_slider'].max = 50
 
     def accordion_collapse(self):
-        error_log('MainSettings.accordion_collapse()')
+        print('[LVP Main  ] MainSettings.accordion_collapse()')
         global lumaview
 
         # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
-        if lumaview.led:
-            lumaview.led.leds_off()
-            error_log(lumaview.led.message)
+        if lumaview.scope.led:
+            lumaview.scope.leds_off()
+            print('[LVP Main  ] lumaview.scope.leds_off()')
         else:
-            error_log("LED controller not available.")
+            print('LED controller not available.')
 
         # turn off all LED toggle buttons and histograms
         layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
             lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
-            error_log('Clock.unschedule(lumaview...histogram)')
+            print('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
             accordion = layer + '_accordion'
             if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
@@ -790,7 +734,7 @@ class MainSettings(BoxLayout):
             scope_display.start()
 
     def check_settings(self, *args):
-        error_log('MainSettings.check_settings()')
+        print('[LVP Main  ] MainSettings.check_settings()')
         global lumaview
         if self.ids['toggle_mainsettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
@@ -803,7 +747,7 @@ class Histogram(Widget):
 
     def __init__(self, **kwargs):
         super(Histogram, self).__init__(**kwargs)
-        error_log('Histogram.__init__()')
+        print('[LVP Main  ] Histogram.__init__()')
         if self.bg_color is None:
             self.bg_color = (1, 1, 1, 1)
 
@@ -812,11 +756,11 @@ class Histogram(Widget):
         self.stablize = 0.3
 
     def histogram(self, *args):
-        # error_log('Histogram.histogram()')
+        # print('[LVP Main  ] Histogram.histogram()')
         global lumaview
 
-        if lumaview.camera != False:
-            image = lumaview.camera.array
+        if lumaview.scope.camera != False:
+            image = lumaview.scope.camera.array
             hist = np.histogram(image, bins=256,range=(0,256))
             if self.hist_range_set:
                 edges = self.edges
@@ -865,67 +809,59 @@ class VerticalControl(BoxLayout):
 
     def __init__(self, **kwargs):
         super(VerticalControl, self).__init__(**kwargs)
-        error_log('VerticalControl.__init__()')
+        print('[LVP Main  ] VerticalControl.__init__()')
 
         # boolean describing whether the scope is currently in the process of autofocus
         self.is_autofocus = False
         self.is_complete = False
         
     def update_gui(self):
-        error_log('VerticalControl.update_gui()')
+        print('[LVP Main  ] VerticalControl.update_gui()')
         try:
-            set_pos = lumaview.motion.target_pos('Z')  # Get target value
-            error_log(lumaview.motion.message)
+            set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
-            error_log('Error talking to Trinamic board.')
+            print('[LVP Main  ] Error talking to Trinamic board.')
 
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
     def coarse_up(self):
-        error_log('VerticalControl.coarse_up()')
+        print('[LVP Main  ] VerticalControl.coarse_up()')
         coarse = settings['objective']['z_coarse']
-        lumaview.motion.move_rel_pos('Z', coarse)                  # Move UP
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('Z', coarse)                  # Move UP
         self.update_gui()
 
     def fine_up(self):
-        error_log('VerticalControl.fine_up()')
+        print('[LVP Main  ] VerticalControl.fine_up()')
         fine = settings['objective']['z_fine']
-        lumaview.motion.move_rel_pos('Z', fine)                    # Move UP
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('Z', fine)                    # Move UP
         self.update_gui()
 
     def fine_down(self):
-        error_log('VerticalControl.fine_down()')
+        print('[LVP Main  ] VerticalControl.fine_down()')
         fine = settings['objective']['z_fine']
-        lumaview.motion.move_rel_pos('Z', -fine)                   # Move DOWN
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('Z', -fine)                   # Move DOWN
         self.update_gui()
 
     def coarse_down(self):
-        error_log('VerticalControl.coarse_down()')
+        print('[LVP Main  ] VerticalControl.coarse_down()')
         coarse = settings['objective']['z_coarse']
-        lumaview.motion.move_rel_pos('Z', -coarse)                 # Move DOWN
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('Z', -coarse)                 # Move DOWN
         self.update_gui()
 
     def set_position(self, pos):
-        error_log('VerticalControl.set_position()')
-        lumaview.motion.move_abs_pos('Z', float(pos))
-        error_log(lumaview.motion.message)
+        print('[LVP Main  ] VerticalControl.set_position()')
+        lumaview.scope.motion.move_abs_pos('Z', float(pos))
         self.update_gui()
 
     def set_bookmark(self):
-        error_log('VerticalControl.set_bookmark()')
-        height = lumaview.motion.current_pos('Z')  # Get current z height in um
-        error_log(lumaview.motion.message)
+        print('[LVP Main  ] VerticalControl.set_bookmark()')
+        height = lumaview.scope.motion.current_pos('Z')  # Get current z height in um
         settings['bookmark']['z'] = height
 
     def set_all_bookmarks(self):
-        error_log('VerticalControl.set_all_bookmarks()')
-        height = lumaview.motion.current_pos('Z')  # Get current z height in um
-        error_log(lumaview.motion.message)
+        print('[LVP Main  ] VerticalControl.set_all_bookmarks()')
+        height = lumaview.scope.motion.current_pos('Z')  # Get current z height in um
         settings['bookmark']['z'] = height
         settings['BF']['focus'] = height
         settings['PC']['focus'] = height
@@ -935,39 +871,37 @@ class VerticalControl(BoxLayout):
         settings['Red']['focus'] = height
 
     def goto_bookmark(self):
-        error_log('VerticalControl.goto_bookmark()')
+        print('[LVP Main  ] VerticalControl.goto_bookmark()')
         pos = settings['bookmark']['z']
-        lumaview.motion.move_abs_pos('Z', pos)
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_abs_pos('Z', pos)
         self.update_gui()
 
     def home(self):
-        error_log('VerticalControl.home()')
-        lumaview.motion.zhome()
-        error_log(lumaview.motion.message)
+        print('[LVP Main  ] VerticalControl.home()')
+        lumaview.scope.motion.zhome()
         self.update_gui()
 
     # User selected the autofocus function
     def autofocus(self):
-        error_log('VerticalControl.autofocus()')
+        print('[LVP Main  ] VerticalControl.autofocus()')
         global lumaview
         self.is_complete = False
 
-        if lumaview.camera.active == False:
-            error_log('Error: VerticalControl.autofocus()')
+        if lumaview.scope.camera.active == False:
+            print('[LVP Main  ] Error: VerticalControl.autofocus()')
 
             self.ids['autofocus_id'].state == 'normal'
             self.is_autofocus = False
 
             return
 
-        center = lumaview.motion.current_pos('Z')
+        center = lumaview.scope.motion.current_pos('Z')
         range =  settings['objective']['AF_range']
 
         self.z_min = max(0, center-range)                   # starting minimum z-height for autofocus
         self.z_max = center+range                           # starting maximum z-height for autofocus
         self.resolution = settings['objective']['AF_max']   # starting step size for autofocus
-        self.exposure = lumaview.camera.get_exposure_t()    # camera exposure to determine 'wait' time
+        self.exposure = lumaview.scope.camera.get_exposure_t()    # camera exposure to determine 'wait' time
 
         self.positions = []       # List of positions to step through
         self.focus_measures = []  # Measure focus score at each position
@@ -980,27 +914,26 @@ class VerticalControl(BoxLayout):
             self.is_autofocus = True
 
             # Start the autofocus process at z-minimum
-            lumaview.motion.move_abs_pos('Z', self.z_min)
-            error_log(lumaview.motion.message)
+            lumaview.scope.motion.move_abs_pos('Z', self.z_min)
 
             # schedule focus iterate
-            error_log('Clock.schedule_interval(self.focus_iterate, 0.01)')
+            print('[LVP Main  ] Clock.schedule_interval(self.focus_iterate, 0.01)')
             Clock.schedule_interval(self.focus_iterate, 0.01)
 
     def focus_iterate(self, dt):
 
-        error_log('VerticalControl.focus_iterate()')
+        print('[LVP Main  ] VerticalControl.focus_iterate()')
         global lumaview
 
         # If the z-height has reached its target
-        if lumaview.motion.target_status('Z') and not lumaview.motion.overshoot:
-        # if lumaview.motion.target_status('Z'):
+        if lumaview.scope.get_target_status('Z') and not lumaview.scope.get_overshoot():
+        # if lumaview.scope.get_target_status('Z'):
 
             # Wait two exposure lengths
             time.sleep(2*self.exposure/1000+0.2) # msec into sec
 
             # observe the image 
-            image = lumaview.camera.array
+            image = lumaview.scope.camera.array
             rows, cols = image.shape
 
             # Use center quarter of image for focusing
@@ -1008,11 +941,11 @@ class VerticalControl(BoxLayout):
 
             # calculate the position and focus measure
             try:
-                current = lumaview.motion.current_pos('Z')
+                current = lumaview.scope.motion.current_pos('Z')
                 focus = self.focus_function(image)
-                next_target = lumaview.motion.target_pos('Z') + self.resolution
+                next_target = lumaview.scope.motion.target_pos('Z') + self.resolution
             except:
-                error_log('Error talking to motion controller.')
+                print('[LVP Main  ] Error talking to motion controller.')
                 raise
 
             # append to positions and focus measures
@@ -1044,8 +977,7 @@ class VerticalControl(BoxLayout):
                     self.focus_measures = []
 
                     # go to new z_min
-                    lumaview.motion.move_abs_pos('Z', self.z_min)
-                    error_log(lumaview.motion.message)
+                    lumaview.scope.motion.move_abs_pos('Z', self.z_min)
 
                     if self.resolution == AF_min:
                         self.last = True
@@ -1055,11 +987,10 @@ class VerticalControl(BoxLayout):
                     focus = self.focus_best(self.positions, self.focus_measures)
 
                     # go to best focus
-                    lumaview.motion.move_abs_pos('Z', focus) # move to absolute target
-                    error_log(lumaview.motion.message)
+                    lumaview.scope.motion.move_abs_pos('Z', focus) # move to absolute target
 
                     # end autofocus sequence
-                    error_log('Clock.unschedule(self.focus_iterate)')
+                    print('[LVP Main  ] Clock.unschedule(self.focus_iterate)')
                     Clock.unschedule(self.focus_iterate)
 
                     # update button status
@@ -1070,8 +1001,7 @@ class VerticalControl(BoxLayout):
 
             else:
                 # move to next position
-                lumaview.motion.move_rel_pos('Z', self.resolution)
-                error_log(lumaview.motion.message)
+                lumaview.scope.motion.move_rel_pos('Z', self.resolution)
 
             # update last focus
             self.last_focus = focus
@@ -1081,14 +1011,14 @@ class VerticalControl(BoxLayout):
             self.ids['autofocus_id'].text = 'Autofocus'
             self.is_autofocus = False
 
-            error_log('Clock.unschedule(self.focus_iterate)')
+            print('[LVP Main  ] Clock.unschedule(self.focus_iterate)')
             Clock.unschedule(self.focus_iterate)
 
         self.update_gui()
 
     # Algorithms for estimating the quality of the focus
     def focus_function(self, image, algorithm = 'vollath4'):
-        error_log('VerticalControl.focus_function()')
+        print('[LVP Main  ] VerticalControl.focus_function()')
         w = image.shape[0]
         h = image.shape[1]
 
@@ -1097,7 +1027,7 @@ class VerticalControl(BoxLayout):
             image = np.double(image)
             sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
             sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            error_log('Focus Score Vollath: ' + str(sum_one - sum_two))
+            print('[LVP Main  ] Focus Score Vollath: ' + str(sum_one - sum_two))
             return sum_one - sum_two
 
         elif algorithm == 'skew':
@@ -1109,14 +1039,14 @@ class VerticalControl(BoxLayout):
             white_edge = edges[1]
 
             skew = white_edge-max_index
-            error_log('Focus Score Skew: ' + str(skew))
+            print('[LVP Main  ] Focus Score Skew: ' + str(skew))
             return skew
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
             ssq = np.sum(np.square(image))
             var = ssq*w*h-sum**2
-            error_log('Focus Score Pixel Variation: ' + str(var))
+            print('[LVP Main  ] Focus Score Pixel Variation: ' + str(var))
             return var
         
             '''
@@ -1132,17 +1062,17 @@ class VerticalControl(BoxLayout):
                 for j in range(n):
                     r2 = ((i-(n-1)/2)**2 + (j-(n-1)/2)**2)/a**2
                     kernel[i,j] = 2*(1-r2)*np.exp(-0.5*r2)/np.sqrt(3*a)
-            error_log('kernel\t' + str(kernel))
+            print('[LVP Main  ] kernel\t' + str(kernel))
             convolve = signal.convolve2d(image, kernel, mode='valid')
             sum = np.sum(convolve)
-            error_log('sum\t' + str(sum))
+            print('[LVP Main  ] sum\t' + str(sum))
             return sum
             '''
         else:
             return 0
 
     def focus_best(self, positions, values, algorithm='direct'):
-        error_log('VerticalControl.focus_best()')
+        print('[LVP Main  ] VerticalControl.focus_best()')
         if algorithm == 'direct':
             max_value = max(values)
             max_index = values.index(max_value)
@@ -1167,15 +1097,13 @@ class VerticalControl(BoxLayout):
 class XYStageControl(BoxLayout):
 
     def update_gui(self):
-        error_log('XYStageControl.update_gui()')
+        print('[LVP Main  ] XYStageControl.update_gui()')
         global lumaview
         try:
-            x_target = lumaview.motion.target_pos('X')  # Get target value in um
-            error_log(lumaview.motion.message)
-            y_target = lumaview.motion.target_pos('Y')  # Get target value in um
-            error_log(lumaview.motion.message)
+            x_target = lumaview.scope.motion.target_pos('X')  # Get target value in um
+            y_target = lumaview.scope.motion.target_pos('Y')  # Get target value in um
         except:
-            error_log('Error talking to Trinamic board.')
+            print('[LVP Main  ] Error talking to Trinamic board.')
             raise
         else:
             # Convert from plate position to stage position
@@ -1185,78 +1113,69 @@ class XYStageControl(BoxLayout):
             self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
 
     def fine_left(self):
-        error_log('XYStageControl.fine_left()')
+        print('[LVP Main  ] XYStageControl.fine_left()')
         fine = settings['objective']['xy_fine']
-        lumaview.motion.move_rel_pos('X', -fine)  # Move LEFT fine step
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('X', -fine)  # Move LEFT fine step
         self.update_gui()
 
     def fine_right(self):
-        error_log('XYStageControl.fine_right()')
+        print('[LVP Main  ] XYStageControl.fine_right()')
         fine = settings['objective']['xy_fine']
-        lumaview.motion.move_rel_pos('X', fine)  # Move RIGHT fine step
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('X', fine)  # Move RIGHT fine step
         self.update_gui()
 
     def coarse_left(self):
-        error_log('XYStageControl.coarse_left()')
+        print('[LVP Main  ] XYStageControl.coarse_left()')
         coarse = settings['objective']['xy_coarse']
-        lumaview.motion.move_rel_pos('X', -coarse)  # Move LEFT coarse step
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('X', -coarse)  # Move LEFT coarse step
         self.update_gui()
 
     def coarse_right(self):
-        error_log('XYStageControl.coarse_right()')
+        print('[LVP Main  ] XYStageControl.coarse_right()')
         coarse = settings['objective']['xy_coarse']
-        lumaview.motion.move_rel_pos('X', coarse)  # Move RIGHT
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('X', coarse)  # Move RIGHT
         self.update_gui()
 
     def fine_back(self):
-        error_log('XYStageControl.fine_back()')
+        print('[LVP Main  ] XYStageControl.fine_back()')
         fine = settings['objective']['xy_fine']
-        lumaview.motion.move_rel_pos('Y', -fine)  # Move BACK 
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('Y', -fine)  # Move BACK 
         self.update_gui()
 
     def fine_fwd(self):
-        error_log('XYStageControl.fine_fwd()')
+        print('[LVP Main  ] XYStageControl.fine_fwd()')
         fine = settings['objective']['xy_fine']
-        lumaview.motion.move_rel_pos('Y', fine)  # Move FORWARD 
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('Y', fine)  # Move FORWARD 
         self.update_gui()
 
     def coarse_back(self):
-        error_log('XYStageControl.coarse_back()')
+        print('[LVP Main  ] XYStageControl.coarse_back()')
         coarse = settings['objective']['xy_coarse']
-        lumaview.motion.move_rel_pos('Y', -coarse)  # Move BACK
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('Y', -coarse)  # Move BACK
         self.update_gui()
 
     def coarse_fwd(self):
-        error_log('XYStageControl.coarse_fwd()')
+        print('[LVP Main  ] XYStageControl.coarse_fwd()')
         coarse = settings['objective']['xy_coarse']
-        lumaview.motion.move_rel_pos('Y', coarse)  # Move FORWARD 
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_rel_pos('Y', coarse)  # Move FORWARD 
         self.update_gui()
 
     def set_xposition(self, x_pos):
-        error_log('XYStageControl.set_xposition()')
+        print('[LVP Main  ] XYStageControl.set_xposition()')
         global lumaview
 
         # x_pos is the the plate position in mm
         # Find the coordinates for the stage
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(float(x_pos), 0)
-        print('X pos', x_pos, 'Stage X', stage_x)
+        print('[LVP Main  ] X pos', x_pos, 'Stage X', stage_x)
 
         # Move to x-position
-        lumaview.motion.move_abs_pos('X', stage_x)  # position in text is in mm
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_abs_pos('X', stage_x)  # position in text is in mm
         self.update_gui()
 
     def set_yposition(self, y_pos):
-        error_log('XYStageControl.set_yposition()')
+        print('[LVP Main  ] XYStageControl.set_yposition()')
         global lumaview
 
         # y_pos is the the plate position in mm
@@ -1265,38 +1184,35 @@ class XYStageControl(BoxLayout):
         stage_x, stage_y =  protocol_settings.plate_to_stage(0, float(y_pos))
 
         # Move to y-position
-        lumaview.motion.move_abs_pos('Y', stage_y)  # position in text is in mm
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_abs_pos('Y', stage_y)  # position in text is in mm
         self.update_gui()
 
     def set_xbookmark(self):
-        error_log('XYStageControl.set_xbookmark()')
+        print('[LVP Main  ] XYStageControl.set_xbookmark()')
         global lumaview
 
         # Get current stage x-position in um     
-        x_pos = lumaview.motion.current_pos('X')
-        error_log(lumaview.motion.message)
-
+        x_pos = lumaview.scope.motion.current_pos('X')
+ 
         # Save plate x-position to settings
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         plate_x, plate_y =  protocol_settings.stage_to_plate(x_pos, 0)
         settings['bookmark']['x'] = plate_x
 
     def set_ybookmark(self):
-        error_log('XYStageControl.set_ybookmark()')
+        print('[LVP Main  ] XYStageControl.set_ybookmark()')
         global lumaview
 
         # Get current stage y-position in um
-        y_pos = lumaview.motion.current_pos('Y')  
+        y_pos = lumaview.scope.motion.current_pos('Y')  
 
         # Save plate y-position to settings
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         plate_x, plate_y =  protocol_settings.stage_to_plate(0, y_pos)
-        error_log(lumaview.motion.message)
         settings['bookmark']['y'] = plate_y
 
     def goto_xbookmark(self):
-        error_log('XYStageControl.goto_xbookmark()')
+        print('[LVP Main  ] XYStageControl.goto_xbookmark()')
         global lumaview
 
         # Get bookmark plate x-position in mm
@@ -1305,11 +1221,10 @@ class XYStageControl(BoxLayout):
         # Move to x-position
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(x_pos, 0)
-        lumaview.motion.move_abs_pos('X', stage_x)  # set current x position in um
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_abs_pos('X', stage_x)  # set current x position in um
 
     def goto_ybookmark(self):
-        error_log('XYStageControl.goto_ybookmark()')
+        print('[LVP Main  ] XYStageControl.goto_ybookmark()')
         global lumaview
 
         # Get bookmark plate y-position in mm
@@ -1318,15 +1233,13 @@ class XYStageControl(BoxLayout):
         # Move to y-position
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(0, y_pos)
-        lumaview.motion.move_abs_pos('Y', stage_y)  # set current y position in um
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_abs_pos('Y', stage_y)  # set current y position in um
 
     # def calibrate(self):
-    #     error_log('XYStageControl.calibrate()')
+    #     print('[LVP Main  ] XYStageControl.calibrate()')
     #     global lumaview
-    #     x_pos = lumaview.motion.current_pos('X')  # Get current x position in um
-    #     y_pos = lumaview.motion.current_pos('Y')  # Get current x position in um
-    #     error_log(lumaview.motion.message)
+    #     x_pos = lumaview.scope.motion.current_pos('X')  # Get current x position in um
+    #     y_pos = lumaview.scope.motion.current_pos('Y')  # Get current x position in um
 
     #     current_labware = WellPlate()
     #     current_labware.load_plate(settings['protocol']['labware'])
@@ -1338,23 +1251,23 @@ class XYStageControl(BoxLayout):
     #     self.update_gui()
 
     def home(self):
-        error_log('XYStageControl.home()')
+        print('[LVP Main  ] XYStageControl.home()')
         global lumaview
 
-        if lumaview.motion.driver:
-            lumaview.motion.xyhome()
+        if lumaview.scope.motion.driver:
+            lumaview.scope.motion.xyhome()
         else:
-            error_log("Motion controller not available.")
+            print('[LVP Main  ] Motion controller not available.')
         # self.update_gui()
 
     def center(self):
-        error_log('XYStageControl.center()')
+        print('[LVP Main  ] XYStageControl.center()')
         global lumaview
 
-        if lumaview.motion.driver:
-            lumaview.motion.xycenter()
+        if lumaview.scope.motion.driver:
+            lumaview.scope.motion.xycenter()
         else:
-            error_log("Motion controller not available.")
+            print('[LVP Main  ] Motion controller not available.')
         # self.update_gui()
 
 # Protocol settings tab
@@ -1364,14 +1277,14 @@ class ProtocolSettings(CompositeCapture):
     def __init__(self, **kwargs):
 
         super(ProtocolSettings, self).__init__(**kwargs)
-        error_log('ProtocolSettings.__init__()')
+        print('[LVP Main  ] ProtocolSettings.__init__()')
 
         # Load all Possible Labware from JSON
         os.chdir(home_wd)
         try:
             read_file = open('./data/labware.json', "r")
         except:
-            error_log("Error reading labware definition file 'data/labware.json'")
+            print("[LVP Main  ] Error reading labware definition file 'data/labware.json'")
             if not os.path.isdir('./data'):
                 raise FileNotFoundError("Cound't find 'data' directory.")
             else:
@@ -1387,23 +1300,23 @@ class ProtocolSettings(CompositeCapture):
 
     # Update Protocol Period   
     def update_period(self):
-        error_log('ProtocolSettings.update_period()')
+        print('[LVP Main  ] ProtocolSettings.update_period()')
         try:
             settings['protocol']['period'] = float(self.ids['capture_period'].text)
         except:
-            error_log('Update Period is not an acceptable value')
+            print('[LVP Main  ] Update Period is not an acceptable value')
 
     # Update Protocol Duration   
     def update_duration(self):
-        error_log('ProtocolSettings.update_duration()')
+        print('[LVP Main  ] ProtocolSettings.update_duration()')
         try:
             settings['protocol']['duration'] = float(self.ids['capture_dur'].text)
         except:
-            error_log('Update Duration is not an acceptable value')
+            print('[LVP Main  ] Update Duration is not an acceptable value')
 
     # Labware Selection
     def select_labware(self):
-        error_log('ProtocolSettings.select_labware()')
+        print('[LVP Main  ] ProtocolSettings.select_labware()')
         spinner = self.ids['labware_spinner']
         spinner.values = list(self.labware['Wellplate'].keys())
         settings['protocol']['labware'] = spinner.text
@@ -1482,7 +1395,7 @@ class ProtocolSettings(CompositeCapture):
 
     # Create New Protocol
     def new_protocol(self):
-        error_log('ProtocolSettings.new_protocol()')
+        print('[LVP Main  ] ProtocolSettings.new_protocol()')
 
         os.chdir(home_wd)
         current_labware = WellPlate()
@@ -1504,7 +1417,7 @@ class ProtocolSettings(CompositeCapture):
                     y = pos[1] # in 'plate' coordinates
                     z = settings[layer]['focus']
                     af = settings[layer]['autofocus']
-                    ch = lumaview.led.color2ch(layer)
+                    ch = lumaview.scope.color2ch(layer)
                     fc = settings[layer]['false_color']
                     ill = settings[layer]['ill']
                     gain = settings[layer]['gain']
@@ -1530,7 +1443,7 @@ class ProtocolSettings(CompositeCapture):
 
     # Load Protocol from File
     def load_protocol(self, filepath="./data/example_protocol.tsv"):
-        error_log('ProtocolSettings.load_protocol()')
+        print('[LVP Main  ] ProtocolSettings.load_protocol()')
 
         # Load protocol
         file_pointer = open(filepath, 'r')                      # open the file
@@ -1578,7 +1491,7 @@ class ProtocolSettings(CompositeCapture):
     
     # Save Protocol to File
     def save_protocol(self, filepath=''):
-        error_log('ProtocolSettings.save_protocol()')
+        print('[LVP Main  ] ProtocolSettings.save_protocol()')
 
         # Gather information
         period = settings['protocol']['period']
@@ -1622,7 +1535,7 @@ class ProtocolSettings(CompositeCapture):
 
     # Goto to Previous Step
     def prev_step(self):
-        error_log('ProtocolSettings.prev_step()')
+        print('[LVP Main  ] ProtocolSettings.prev_step()')
         if len(self.step_names) <= 0:
             return
         self.c_step = max(self.c_step - 1, 0)
@@ -1631,7 +1544,7 @@ class ProtocolSettings(CompositeCapture):
  
     # Go to Next Step
     def next_step(self):
-        error_log('ProtocolSettings.next_step()')
+        print('[LVP Main  ] ProtocolSettings.next_step()')
         if len(self.step_names) <= 0:
             return
         self.c_step = min(self.c_step + 1, len(self.step_names)-1)
@@ -1640,7 +1553,7 @@ class ProtocolSettings(CompositeCapture):
     
     # Go to Input Step
     def go_to_step(self):
-        error_log('ProtocolSettings.go_to_step()')
+        print('[LVP Main  ] ProtocolSettings.go_to_step()')
 
         if len(self.step_names) <= 0:
             self.ids['step_number_input'].text = '0'
@@ -1672,17 +1585,14 @@ class ProtocolSettings(CompositeCapture):
         sx, sy = self.plate_to_stage(x, y)
 
         # Move into position
-        if lumaview.motion.driver:
-            lumaview.motion.move_abs_pos('X', sx)
-            error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Y', sy)
-            error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Z', z)
-            error_log(lumaview.motion.message)
+        if lumaview.scope.motion.driver:
+            lumaview.scope.motion.move_abs_pos('X', sx)
+            lumaview.scope.motion.move_abs_pos('Y', sy)
+            lumaview.scope.motion.move_abs_pos('Z', z)
         else:
-            error_log("Motion controller not availabble.")
+            print('[LVP Main  ] Motion controller not availabble.')
 
-        ch = lumaview.led.ch2color(ch)
+        ch = lumaview.scope.ch2color(ch)
         layer  = lumaview.ids['mainsettings_id'].ids[ch]
 
         # open MainSettings
@@ -1694,34 +1604,34 @@ class ProtocolSettings(CompositeCapture):
         lumaview.ids['mainsettings_id'].ids[id].collapse = False
 
         # set autofocus checkbox
-        error_log('autofocus: ' + str(af))
+        print('[LVP Main  ] autofocus: ' + str(af))
         settings[ch]['autofocus'] = bool(af)
         layer.ids['autofocus'].active = bool(af)
         
         # set false_color checkbox
-        error_log('false_color: ' + str(fc))
+        print('[LVP Main  ] false_color: ' + str(fc))
         settings[ch]['false_color'] = bool(fc)
         layer.ids['false_color'].active = bool(fc)
 
         # set illumination settings, text, and slider
-        error_log('ill:     ' + str(ill))
+        print('[LVP Main  ] ill:     ' + str(ill))
         settings[ch]['ill'] = ill
         layer.ids['ill_text'].text = str(ill)
         layer.ids['ill_slider'].value = float(ill)
 
         # set gain settings, text, and slider
-        error_log('gain:     ' + str(gain))
+        print('[LVP Main  ] gain:     ' + str(gain))
         settings[ch]['gain'] = gain
         layer.ids['gain_text'].text = str(gain)
         layer.ids['gain_slider'].value = float(gain)
 
         # set auto_gain checkbox
-        error_log('auto_gain: ' + str(auto_gain))
+        print('[LVP Main  ] auto_gain: ' + str(auto_gain))
         settings[ch]['auto_gain'] = bool(auto_gain)
         layer.ids['auto_gain'].active = bool(auto_gain)
 
         # set exposure settings, text, and slider
-        error_log('exp:       ' + str(exp))
+        print('[LVP Main  ] exp:       ' + str(exp))
         settings[ch]['exp'] = exp
         layer.ids['exp_text'].text = str(exp)
         layer.ids['exp_slider'].value = float(exp)
@@ -1732,7 +1642,7 @@ class ProtocolSettings(CompositeCapture):
 
     # Delete Current Step of Protocol
     def delete_step(self):
-        error_log('ProtocolSettings.delete_step()')
+        print('[LVP Main  ] ProtocolSettings.delete_step()')
 
         if len(self.step_names) < 1:
             return
@@ -1747,7 +1657,7 @@ class ProtocolSettings(CompositeCapture):
 
     # Modify Current Step of Protocol
     def modify_step(self):
-        error_log('ProtocolSettings.modify_step()')
+        print('[LVP Main  ] ProtocolSettings.modify_step()')
 
         if len(self.step_names) < 1:
             return
@@ -1755,19 +1665,16 @@ class ProtocolSettings(CompositeCapture):
         self.step_names[self.c_step] = self.ids['step_name_input'].text
 
         # Determine and update plate position
-        if lumaview.motion.driver:
-            sx = lumaview.motion.current_pos('X')
-            sy = lumaview.motion.current_pos('Y')
+        if lumaview.scope.motion.driver:
+            sx = lumaview.scope.motion.current_pos('X')
+            sy = lumaview.scope.motion.current_pos('Y')
             px, py = self.stage_to_plate(sx, sy)
 
             self.step_values[self.c_step, 0] = px # x
-            error_log(lumaview.motion.message)
             self.step_values[self.c_step, 1] = py # y
-            error_log(lumaview.motion.message)
-            self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')      # z
-            error_log(lumaview.motion.message)
+            self.step_values[self.c_step, 2] = lumaview.scope.motion.current_pos('Z')      # z
         else:
-            error_log("Motion controller not availabble.")
+            print('[LVP Main  ] Motion controller not availabble.')
 
         c_layer = False
 
@@ -1781,7 +1688,7 @@ class ProtocolSettings(CompositeCapture):
             mssg = "No layer currently selected"
             return mssg
 
-        ch = lumaview.led.color2ch(c_layer)
+        ch = lumaview.scope.color2ch(c_layer)
 
         layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
         self.step_values[self.c_step, 3] = int(layer_id.ids['autofocus'].active) # autofocus
@@ -1794,7 +1701,7 @@ class ProtocolSettings(CompositeCapture):
 
     # Insert Current Step to Protocol at Current Position
     def add_step(self):
-        error_log('ProtocolSettings.add_step()')
+        print('[LVP Main  ] ProtocolSettings.add_step()')
 
          # Determine Values
         name = self.ids['step_name_input'].text
@@ -1810,17 +1717,17 @@ class ProtocolSettings(CompositeCapture):
             mssg = "No layer currently selected"
             return mssg
 
-        ch = lumaview.led.color2ch(c_layer)
+        ch = lumaview.scope.color2ch(c_layer)
         layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
 
         # Determine and update plate position
-        sx = lumaview.motion.current_pos('X')
-        sy = lumaview.motion.current_pos('Y')
+        sx = lumaview.scope.motion.current_pos('X')
+        sy = lumaview.scope.motion.current_pos('Y')
         px, py = self.stage_to_plate(sx, sy)
 
         step = [px,                                      # x
                 py,                                      # y
-                lumaview.motion.current_pos('Z'),        # z
+                lumaview.scope.motion.current_pos('Z'),        # z
                 int(layer_id.ids['autofocus'].active),   # autofocus
                 ch,                                      # ch 
                 int(layer_id.ids['false_color'].active), # false color
@@ -1839,10 +1746,10 @@ class ProtocolSettings(CompositeCapture):
         
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_autofocus_scan(self):
-        error_log('ProtocolSettings.run_autofocus_scan()')
+        print('[LVP Main  ] ProtocolSettings.run_autofocus_scan()')
 
         if len(self.step_names) < 1:
-            error_log('Protocol has no steps.')
+            print('[LVP Main  ] Protocol has no steps.')
             self.ids['run_autofocus_btn'].state =='normal'
             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
             return
@@ -1861,14 +1768,11 @@ class ProtocolSettings(CompositeCapture):
             sx, sy = self.plate_to_stage(x, y)
 
             # Move into position
-            lumaview.motion.move_abs_pos('X', sx)
-            error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Y', sy)
-            error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Z', z)
-            error_log(lumaview.motion.message)
+            lumaview.scope.motion.move_abs_pos('X', sx)
+            lumaview.scope.motion.move_abs_pos('Y', sy)
+            lumaview.scope.motion.move_abs_pos('Z', z)
 
-            error_log('Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
+            print('[LVP Main  ] Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
             Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
 
         # Stop Running Autofocus Scan
@@ -1876,17 +1780,17 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
 
             # toggle all LEDs AND TOGGLE BUTTONS OFF
-            if lumaview.led:
-                lumaview.led.leds_off()
-                error_log(lumaview.led.message)
+            if lumaview.scope.led:
+                lumaview.scope.leds_off()
+                print('[LVP Main  ] lumaview.scope.leds_off()')
             else:
-                error_log("LED controller not available.")
+                print('[LVP Main  ] LED controller not available.')
 
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
-            error_log('Clock.unschedule(self.autofocus_scan_iterate)')
+            print('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
             Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
         
     def autofocus_scan_iterate(self, dt):
@@ -1905,7 +1809,7 @@ class ProtocolSettings(CompositeCapture):
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
             # update protocol to focused z-position
-            self.step_values[self.c_step, 2] = lumaview.motion.current_pos('Z')
+            self.step_values[self.c_step, 2] = lumaview.scope.motion.current_pos('Z')
 
             # increment to the next step
             self.c_step += 1
@@ -1919,18 +1823,18 @@ class ProtocolSettings(CompositeCapture):
                 sx, sy = self.plate_to_stage(x, y)
 
                 # Move into position
-                lumaview.motion.move_abs_pos('X', sx)
-                lumaview.motion.move_abs_pos('Y', sy)
-                lumaview.motion.move_abs_pos('Z', z)
+                lumaview.scope.motion.move_abs_pos('X', sx)
+                lumaview.scope.motion.move_abs_pos('Y', sy)
+                lumaview.scope.motion.move_abs_pos('Z', z)
 
             # if all positions have already been reached
             else:
-                error_log('Autofocus Scan Complete')
+                print('[LVP Main  ] Autofocus Scan Complete')
                 self.ids['run_autofocus_btn'].state = 'normal'
                 self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
 
 
-                error_log('Clock.unschedule(self.autofocus_scan_iterate)')
+                print('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
                 Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
             
             return
@@ -1939,13 +1843,13 @@ class ProtocolSettings(CompositeCapture):
         self.ids['step_number_input'].text = str(self.c_step+1)
 
         # Check if at desired position
-        x_status = lumaview.motion.target_status('X')
-        y_status = lumaview.motion.target_status('Y')
-        z_status = lumaview.motion.target_status('Z')
+        x_status = lumaview.scope.get_target_status('X')
+        y_status = lumaview.scope.get_target_status('Y')
+        z_status = lumaview.scope.get_target_status('Z')
 
         # If target location has been reached
-        if x_status and y_status and z_status and not lumaview.motion.overshoot:
-            error_log('Autofocus Scan Step:' + str(self.step_names[self.c_step]) )
+        if x_status and y_status and z_status and not lumaview.scope.get_overshoot():
+            print('[LVP Main  ] Autofocus Scan Step:' + str(self.step_names[self.c_step]) )
 
             # identify image settings
             ch =        self.step_values[self.c_step, 4] # LED channel
@@ -1956,10 +1860,10 @@ class ProtocolSettings(CompositeCapture):
             exp =       self.step_values[self.c_step, 9] # camera exposure
             
             # set camera settings and turn on LED
-            lumaview.led.led_on(ch, ill)
-            lumaview.camera.gain(gain)
-            lumaview.camera.auto_gain(bool(auto_gain))
-            lumaview.camera.exposure_t(exp)
+            lumaview.scope.led_on(ch, ill)
+            lumaview.scope.camera.gain(gain)
+            lumaview.scope.camera.auto_gain(bool(auto_gain))
+            lumaview.scope.camera.exposure_t(exp)
 
             # Begin autofocus routine
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
@@ -1977,10 +1881,10 @@ class ProtocolSettings(CompositeCapture):
 
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
-        error_log('ProtocolSettings.run_scan()')
+        print('[LVP Main  ] ProtocolSettings.run_scan()')
  
         if len(self.step_names) < 1:
-            error_log('Protocol has no steps.')
+            print('[LVP Main  ] Protocol has no steps.')
             self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
             return
@@ -2002,14 +1906,11 @@ class ProtocolSettings(CompositeCapture):
             sx, sy = self.plate_to_stage(x, y)
 
             # Move into position
-            lumaview.motion.move_abs_pos('X', sx)
-            error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Y', sy)
-            error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Z', z)
-            error_log(lumaview.motion.message)
+            lumaview.scope.motion.move_abs_pos('X', sx)
+            lumaview.scope.motion.move_abs_pos('Y', sy)
+            lumaview.scope.motion.move_abs_pos('Z', z)
 
-            error_log('Clock.schedule_interval(self.scan_iterate, 0.1)')
+            print('[LVP Main  ] Clock.schedule_interval(self.scan_iterate, 0.1)')
             Clock.schedule_interval(self.scan_iterate, 0.1)
 
         # Stop Running Scan
@@ -2017,17 +1918,17 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
             # toggle all LEDs AND TOGGLE BUTTONS OFF
-            if lumaview.led:
-                lumaview.led.leds_off()
-                error_log(lumaview.led.message)
+            if lumaview.scope.led:
+                lumaview.scope.leds_off()
+                print('[LVP Main  ] lumaview.scope.leds_off()')
             else:
-                error_log("LED controller not available.")
+                print('[LVP Main  ] LED controller not available.')
 
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
-            error_log('Clock.unschedule(self.scan_iterate)')
+            print('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
     
     def scan_iterate(self, dt):
@@ -2037,13 +1938,13 @@ class ProtocolSettings(CompositeCapture):
         self.ids['step_number_input'].text = str(self.c_step+1)
 
         # Check if at desired position
-        x_status = lumaview.motion.target_status('X')
-        y_status = lumaview.motion.target_status('Y')
-        z_status = lumaview.motion.target_status('Z')
+        x_status = lumaview.scope.get_target_status('X')
+        y_status = lumaview.scope.get_target_status('Y')
+        z_status = lumaview.scope.get_target_status('Z')
 
         # If target location has been reached
-        if x_status and y_status and z_status and not lumaview.motion.overshoot:
-            error_log('Scan Step:' + str(self.step_names[self.c_step]) )
+        if x_status and y_status and z_status and not lumaview.scope.get_overshoot():
+            print('[LVP Main  ] Scan Step:' + str(self.step_names[self.c_step]))
 
             # identify image settings
             af =        self.step_values[self.c_step, 3] # TODO, autofocus
@@ -2054,7 +1955,7 @@ class ProtocolSettings(CompositeCapture):
             auto_gain = self.step_values[self.c_step, 8] # camera autogain
             exp =       self.step_values[self.c_step, 9] # camera exposure
             
-            lumaview.camera.auto_gain(bool(auto_gain))
+            lumaview.scope.camera.auto_gain(bool(auto_gain))
             # TODO: Update display current capture
             
             # capture image
@@ -2073,26 +1974,23 @@ class ProtocolSettings(CompositeCapture):
                 sx, sy = self.plate_to_stage(x, y)
 
                 # Move into position
-                lumaview.motion.move_abs_pos('X', sx)
-                error_log(lumaview.motion.message)
-                lumaview.motion.move_abs_pos('Y', sy)
-                error_log(lumaview.motion.message)
-                lumaview.motion.move_abs_pos('Z', z)
-                error_log(lumaview.motion.message)
+                lumaview.scope.motion.move_abs_pos('X', sx)
+                lumaview.scope.motion.move_abs_pos('Y', sy)
+                lumaview.scope.motion.move_abs_pos('Z', z)
 
 
             # if all positions have already been reached
             else:
-                error_log('Scan Complete')
+                print('[LVP Main  ] Scan Complete')
                 self.ids['run_scan_btn'].state = 'normal'
                 self.ids['run_scan_btn'].text = 'Run One Scan'
 
-                error_log('Clock.unschedule(self.scan_iterate)')
+                print('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
                 Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
 
     # Run protocol without xy movement
     def run_stationary(self):
-        error_log('ProtocolSettings.run_stationary()')
+        print('[LVP Main  ] ProtocolSettings.run_stationary()')
 
         if self.ids['run_stationary_btn'].state == 'down':
             self.ids['run_stationary_btn'].text = 'State == Down'
@@ -2102,28 +2000,28 @@ class ProtocolSettings(CompositeCapture):
 
     # Run the complete protocol 
     def run_protocol(self):
-        error_log('ProtocolSettings.run_protocol()')
+        print('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
-            error_log('Clock.unschedule(self.scan_iterate)')
+            print('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
             self.run_scan(protocol = True)
-            error_log('Clock.schedule_interval(self.protocol_iterate, 1)')
+            print('[LVP Main  ] Clock.schedule_interval(self.protocol_iterate, 1)')
             Clock.schedule_interval(self.protocol_iterate, 1)
 
         else:
             self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
 
-            error_log('Clock.unschedule(self.scan_iterate)')
+            print('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
-            error_log('Clock.unschedule(self.protocol_iterate)')
+            print('[LVP Main  ] Clock.unschedule(self.protocol_iterate)')
             Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
             # self.protocol_event.cancel()
  
     def protocol_iterate(self, dt):
-        error_log('ProtocolSettings.protocol_iterate()')
+        print('[LVP Main  ] ProtocolSettings.protocol_iterate()')
 
         # Simplified variables
         start_t = self.start_t # start of cycle in seconds
@@ -2154,15 +2052,15 @@ class ProtocolSettings(CompositeCapture):
             self.n_scans = self.n_scans - 1
 
             if self.n_scans > 0:
-                error_log('Scans Remaining: ' + str(self.n_scans))
+                print('[LVP Main  ] Scans Remaining: ' + str(self.n_scans))
                 self.run_scan(protocol = True)
             else:
                self.ids['run_protocol_btn'].state = 'normal' # 'normal'
                self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
 
-               error_log('Clock.unschedule(self.scan_iterate)')
+               print('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
                Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
-               error_log('Clock.unschedule(self.protocol_iterate)')
+               print('[LVP Main  ] Clock.unschedule(self.protocol_iterate)')
                Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
 
 # Widget for displaying Microscope Stage area, labware, and current position 
@@ -2172,10 +2070,10 @@ class Stage(Widget):
 
     def __init__(self, **kwargs):
         super(Stage, self).__init__(**kwargs)
-        error_log('Stage.__init__()')
+        print('[LVP Main  ] Stage.__init__()')
 
     def on_touch_down(self, touch):
-        error_log('Stage.on_touch_down()')
+        print('[LVP Main  ] Stage.on_touch_down()')
 
         if self.collide_point(*touch.pos) and touch.button == 'left':
 
@@ -2205,14 +2103,12 @@ class Stage(Widget):
             # Convert from plate position to stage position
             stage_x, stage_y =  lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].plate_to_stage(plate_x, plate_y)
 
-            lumaview.motion.move_abs_pos('X', stage_x)
-            error_log(lumaview.motion.message)
-            lumaview.motion.move_abs_pos('Y', stage_y)
-            error_log(lumaview.motion.message)
+            lumaview.scope.motion.move_abs_pos('X', stage_x)
+            lumaview.scope.motion.move_abs_pos('Y', stage_y)
             lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
 
     def draw_labware(self, *args): # View the labware from front and above
-        # error_log('Stage.draw_labware()')
+        # print('[LVP Main  ] Stage.draw_labware()')
         global lumaview
         global settings
 
@@ -2281,10 +2177,10 @@ class Stage(Widget):
 
             # Get target position
             try:
-                x_target = lumaview.motion.target_pos('X')
-                y_target = lumaview.motion.target_pos('Y')
+                x_target = lumaview.scope.motion.target_pos('X')
+                y_target = lumaview.scope.motion.target_pos('Y')
             except:
-                error_log('Error talking to Trinamic board.')
+                print('[LVP Main  ] Error talking to Trinamic board.')
                 raise
 
             x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
@@ -2300,8 +2196,8 @@ class Stage(Widget):
             
             #  Red Crosshairs
             # ------------------
-            x_current = lumaview.motion.current_pos('X')
-            y_current = lumaview.motion.current_pos('Y')
+            x_current = lumaview.scope.motion.current_pos('X')
+            y_current = lumaview.scope.motion.current_pos('Y')
 
             # Convert stage coordinates to relative pixel coordinates
             pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
@@ -2313,14 +2209,14 @@ class MicroscopeSettings(BoxLayout):
 
     def __init__(self, **kwargs):
         super(MicroscopeSettings, self).__init__(**kwargs)
-        error_log('MicroscopeSettings.__init__()')
+        print('[LVP Main  ] MicroscopeSettings.__init__()')
 
         try:
             os.chdir(home_wd)
             with open('./data/scopes.json', "r") as read_file:
                 self.scopes = json.load(read_file)
         except:
-            print("Unable to read scopes.json.")
+            print('[LVP Main  ] Unable to read scopes.json.')
             raise
 
         try:
@@ -2328,12 +2224,12 @@ class MicroscopeSettings(BoxLayout):
             with open('./data/objectives.json', "r") as read_file:
                 self.objectives = json.load(read_file)
         except:
-            print("Unable to open objectives.json.")
+            print('[LVP Main  ] Unable to open objectives.json.')
             raise
 
     # load settings from JSON file
     def load_settings(self, filename="./data/current.json"):
-        error_log('MicroscopeSettings.load_settings()')
+        print('[LVP Main  ] MicroscopeSettings.load_settings()')
         global lumaview
         global settings
 
@@ -2342,7 +2238,7 @@ class MicroscopeSettings(BoxLayout):
             os.chdir(home_wd)
             read_file = open(filename, "r")
         except:
-            error_log("Unable to open file "+filename)
+            print('[LVP Main  ] Unable to open file '+filename)
             raise
             
         else:
@@ -2383,26 +2279,25 @@ class MicroscopeSettings(BoxLayout):
                     lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
                     lumaview.ids['mainsettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
-                lumaview.camera.frame_size(settings['frame']['width'], settings['frame']['height'])
-                error_log(lumaview.camera.message)
+                lumaview.scope.camera.frame_size(settings['frame']['width'], settings['frame']['height'])
             except:
-                error_log('Incompatible JSON file for Microscope Settings')
+                print('[LVP Main  ] Incompatible JSON file for Microscope Settings')
 
     # Save settings to JSON file
     def save_settings(self, file="./data/current.json"):
-        error_log('MicroscopeSettings.save_settings()')
+        print('[LVP Main  ] MicroscopeSettings.save_settings()')
         global settings
         os.chdir(home_wd)
         with open(file, "w") as write_file:
             json.dump(settings, write_file, indent = 4)
 
     def load_scopes(self):
-        error_log('MicroscopeSettings.load_scopes()')
+        print('[LVP Main  ] MicroscopeSettings.load_scopes()')
         spinner = self.ids['scope_spinner']
         spinner.values = list(self.scopes.keys())
 
     def select_scope(self):
-        error_log('MicroscopeSettings.select_scope()')
+        print('[LVP Main  ] MicroscopeSettings.select_scope()')
         global lumaview
         global settings
 
@@ -2410,12 +2305,12 @@ class MicroscopeSettings(BoxLayout):
         settings['microscope'] = spinner.text
 
     def load_ojectives(self):
-        error_log('MicroscopeSettings.load_ojectives()')
+        print('[LVP Main  ] MicroscopeSettings.load_ojectives()')
         spinner = self.ids['objective_spinner']
         spinner.values = list(self.objectives.keys())
 
     def select_objective(self):
-        error_log('MicroscopeSettings.select_objective()')
+        print('[LVP Main  ] MicroscopeSettings.select_objective()')
         global lumaview
         global settings
 
@@ -2426,15 +2321,15 @@ class MicroscopeSettings(BoxLayout):
         microscope_settings_id.ids['magnification_id'].text = str(settings['objective']['magnification'])
 
     def frame_size(self):
-        error_log('MicroscopeSettings.frame_size()')
+        print('[LVP Main  ] MicroscopeSettings.frame_size()')
         global lumaview
         global settings
 
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
 
-        width = int(min(int(w), lumaview.camera.active.Width.Max)/4)*4
-        height = int(min(int(h), lumaview.camera.active.Height.Max)/4)*4
+        width = int(min(int(w), lumaview.scope.camera.active.Width.Max)/4)*4
+        height = int(min(int(h), lumaview.scope.camera.active.Height.Max)/4)*4
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
@@ -2442,8 +2337,7 @@ class MicroscopeSettings(BoxLayout):
         self.ids['frame_width'].text = str(width)
         self.ids['frame_height'].text = str(height)
 
-        lumaview.camera.frame_size(width, height)
-        error_log(lumaview.camera.message)
+        lumaview.scope.camera.frame_size(width, height)
 
 
 # Modified Slider Class to enable on_release event
@@ -2452,14 +2346,14 @@ class ModSlider(Slider):
     def __init__(self, **kwargs):
         self.register_event_type('on_release')
         super(ModSlider, self).__init__(**kwargs)
-        error_log('ModSlider.__init__()')
+        print('[LVP Main  ] ModSlider.__init__()')
 
     def on_release(self):
         pass
 
     def on_touch_up(self, touch):
         super(ModSlider, self).on_touch_up(touch)
-        # error_log('ModSlider.on_touch_up()')
+        # print('[LVP Main  ] ModSlider.on_touch_up()')
         if touch.grab_current == self:
             self.dispatch('on_release')
             return True
@@ -2473,18 +2367,18 @@ class LayerControl(BoxLayout):
 
     def __init__(self, **kwargs):
         super(LayerControl, self).__init__(**kwargs)
-        error_log('LayerControl.__init__()')
+        print('[LVP Main  ] LayerControl.__init__()')
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
 
     def ill_slider(self):
-        error_log('LayerControl.ill_slider()')
+        print('[LVP Main  ] LayerControl.ill_slider()')
         illumination = self.ids['ill_slider'].value
         settings[self.layer]['ill'] = illumination
         self.apply_settings()
 
     def ill_text(self):
-        error_log('LayerControl.ill_text()')
+        print('[LVP Main  ] LayerControl.ill_text()')
         ill_min = self.ids['ill_slider'].min
         ill_max = self.ids['ill_slider'].max
         ill_val = float(self.ids['ill_text'].text)
@@ -2497,7 +2391,7 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def auto_gain(self):
-        error_log('LayerControl.auto_gain()')
+        print('[LVP Main  ] LayerControl.auto_gain()')
         if self.ids['auto_gain'].state == 'down':
             state = True
         else:
@@ -2506,13 +2400,13 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def gain_slider(self):
-        error_log('LayerControl.gain_slider()')
+        print('[LVP Main  ] LayerControl.gain_slider()')
         gain = self.ids['gain_slider'].value
         settings[self.layer]['gain'] = gain
         self.apply_settings()
 
     def gain_text(self):
-        error_log('LayerControl.gain_text()')
+        print('[LVP Main  ] LayerControl.gain_text()')
         gain_min = self.ids['gain_slider'].min
         gain_max = self.ids['gain_slider'].max
         gain_val = float(self.ids['gain_text'].text)
@@ -2525,14 +2419,14 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def exp_slider(self):
-        error_log('LayerControl.exp_slider()')
+        print('[LVP Main  ] LayerControl.exp_slider()')
         exposure = self.ids['exp_slider'].value
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         settings[self.layer]['exp'] = exposure        # exposure in ms
         self.apply_settings()
 
     def exp_text(self):
-        error_log('LayerControl.exp_text()')
+        print('[LVP Main  ] LayerControl.exp_text()')
         exp_min = self.ids['exp_slider'].min
         exp_max = self.ids['exp_slider'].max
         exp_val = float(self.ids['exp_text'].text)
@@ -2546,40 +2440,38 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def root_text(self):
-        error_log('LayerControl.root_text()')
+        print('[LVP Main  ] LayerControl.root_text()')
         settings[self.layer]['file_root'] = self.ids['root_text'].text
 
     def false_color(self):
-        error_log('LayerControl.false_color()')
+        print('[LVP Main  ] LayerControl.false_color()')
         settings[self.layer]['false_color'] = self.ids['false_color'].active
         self.apply_settings()
 
     def update_acquire(self):
-        error_log('LayerControl.update_acquire()')
+        print('[LVP Main  ] LayerControl.update_acquire()')
         settings[self.layer]['acquire'] = self.ids['acquire'].active
 
     def update_autofocus(self):
-        error_log('LayerControl.update_autofocus()')
+        print('[LVP Main  ] LayerControl.update_autofocus()')
         settings[self.layer]['autofocus'] = self.ids['autofocus'].active
 
     def save_focus(self):
-        error_log('LayerControl.save_focus()')
+        print('[LVP Main  ] LayerControl.save_focus()')
         global lumaview
-        pos = lumaview.motion.current_pos('Z')
-        error_log(lumaview.motion.message)
+        pos = lumaview.scope.motion.current_pos('Z')
         settings[self.layer]['focus'] = pos
 
     def goto_focus(self):
-        error_log('LayerControl.goto_focus()')
+        print('[LVP Main  ] LayerControl.goto_focus()')
         global lumaview
         pos = settings[self.layer]['focus']
-        lumaview.motion.move_abs_pos('Z', pos)  # set current z height in usteps
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_abs_pos('Z', pos)  # set current z height in usteps
         control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
         control.update_gui()
 
     def apply_settings(self):
-        error_log('LayerControl.apply_settings()')
+        print('[LVP Main  ] LayerControl.apply_settings()')
         global lumaview
         # global gain_vals
 
@@ -2588,11 +2480,11 @@ class LayerControl(BoxLayout):
         illumination = settings[self.layer]['ill']
         if self.ids['apply_btn'].state == 'down': # if the button is down
             # In active channel,turn on LED
-            if lumaview.led:
-                lumaview.led.led_on(lumaview.led.color2ch(self.layer), illumination)
-                error_log(lumaview.led.message)
+            if lumaview.scope.led:
+                lumaview.scope.led_on(lumaview.scope.color2ch(self.layer), illumination)
+                print('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(self.layer), illumination)')
             else:
-                error_log("LED controller not available.")
+                print('[LVP Main  ] LED controller not available.')
             
 
             
@@ -2601,35 +2493,31 @@ class LayerControl(BoxLayout):
             for layer in layers:
                 if layer == self.layer:
                     Clock.schedule_interval(lumaview.ids['mainsettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
-                    error_log('Clock.schedule_interval(...[self.layer]...histogram, 0.1)')
+                    print('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 0.1)')
                 else:
                     lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         else: # if the button is 'normal' meaning not active
             # In active channel, and turn off LED
-            if lumaview.led:
-                lumaview.led.leds_off()
-                error_log(lumaview.led.message)
+            if lumaview.scope.led:
+                lumaview.scope.leds_off()
+                print('[LVP Main  ] lumaview.scope.leds_off()')
             else:
-                error_log("LED controller not available.")
+                print('[LVP Main  ] LED controller not available.')
 
         # update gain to currently selected settings
         # -----------------------------------------------------
         state = settings[self.layer]['auto_gain']
-        lumaview.camera.auto_gain(state)
-        error_log(lumaview.camera.message)
-
+        lumaview.scope.camera.auto_gain(state)
 
         if not(state):
             gain = settings[self.layer]['gain']
-            lumaview.camera.gain(gain)
-            error_log(lumaview.camera.message)
+            lumaview.scope.camera.gain(gain)
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
         exposure = settings[self.layer]['exp']
-        lumaview.camera.exposure_t(exposure)
-        error_log(lumaview.camera.message)
+        lumaview.scope.camera.exposure_t(exposure)
 
         # choose correct active toggle button image based on color
         # -----------------------------------------------------
@@ -2649,7 +2537,7 @@ class LayerControl(BoxLayout):
             Clock.schedule_once(self.update_shader, i)
 
     def update_shader(self, dt):
-        # error_log('LayerControl.update_shader()')
+        # print('[LVP Main  ] LayerControl.update_shader()')
         if self.ids['false_color'].active:
             lumaview.ids['viewer_id'].update_shader(self.layer)
         else:
@@ -2659,7 +2547,7 @@ class LayerControl(BoxLayout):
 # ---------------------------------------------------------------------
 class ZStack(CompositeCapture):
     def set_steps(self):
-        error_log('ZStack.set_steps()')
+        print('[LVP Main  ] ZStack.set_steps()')
 
         step_size = self.ids['zstack_stepsize_id'].text
         step_size = float(step_size)
@@ -2679,7 +2567,7 @@ class ZStack(CompositeCapture):
         settings['zstack']['position'] = self.ids['zstack_spinner'].text
 
     def aquire_zstack(self):
-        error_log('ZStack.aquire_zstack()')
+        print('[LVP Main  ] ZStack.aquire_zstack()')
         global lumaview
 
         step_size = self.ids['zstack_stepsize_id'].text
@@ -2698,8 +2586,7 @@ class ZStack(CompositeCapture):
         spinner_value = self.ids['zstack_spinner'].text
 
         # Get current position
-        current_pos = lumaview.motion.current_pos('Z')
-        error_log(lumaview.motion.message)
+        current_pos = lumaview.scope.motion.current_pos('Z')
 
         # Set start position
         if spinner_value == spinner_values[0]:   # 'Current Position at Top'
@@ -2714,34 +2601,33 @@ class ZStack(CompositeCapture):
 
         # begin moving to the first position
         self.n_pos = 0
-        lumaview.motion.move_abs_pos('Z', self.positions[self.n_pos])
-        error_log(lumaview.motion.message)
+        lumaview.scope.motion.move_abs_pos('Z', self.positions[self.n_pos])
 
         if self.ids['ztack_aqr_btn'].state == 'down':
-            error_log('Clock.schedule_interval(self.zstack_iterate, 0.01)')
+            print('[LVP Main  ] Clock.schedule_interval(self.zstack_iterate, 0.01)')
             Clock.schedule_interval(self.zstack_iterate, 0.01)
             self.ids['ztack_aqr_btn'].text = 'Acquiring ZStack'
 
         else:
             self.ids['ztack_aqr_btn'].text = 'Acquire'
             # self.zstack_event.cancel()
-            error_log('Clock.unschedule(self.zstack_iterate)')
+            print('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
             Clock.unschedule(self.zstack_iterate)
 
     def zstack_iterate(self, dt):
-        error_log('ZStack.zstack_iterate()')
+        print('[LVP Main  ] ZStack.zstack_iterate()')
 
-        if lumaview.motion.target_status('Z'):
-            error_log('Z at target')
+        if lumaview.scope.get_target_status('Z'):
+            print('[LVP Main  ] Z at target')
             self.live_capture()
             self.n_pos += 1
 
             if self.n_pos < len(self.positions):
-                lumaview.motion.move_abs_pos('Z', self.positions[self.n_pos])
+                lumaview.scope.motion.move_abs_pos('Z', self.positions[self.n_pos])
             else:
                 self.ids['ztack_aqr_btn'].text = 'Acquire'
                 self.ids['ztack_aqr_btn'].state = 'normal'
-                error_log('Clock.unschedule(self.zstack_iterate)')
+                print('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
                 Clock.unschedule(self.zstack_iterate)
 
 # Button the triggers 'filechooser.open_file()' from plyer
@@ -2750,7 +2636,7 @@ class FileChooseBTN(Button):
     selection = ListProperty([])
 
     def choose(self, context):
-        error_log('FileChooseBTN.choose()')
+        print('[LVP Main  ] FileChooseBTN.choose()')
         # Call plyer filechooser API to run a filechooser Activity.
         self.context = context
         if self.context == 'load_settings':
@@ -2759,12 +2645,12 @@ class FileChooseBTN(Button):
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
 
     def handle_selection(self, selection):
-        error_log('FileChooseBTN.handle_selection()')
+        print('[LVP Main  ] FileChooseBTN.handle_selection()')
         self.selection = selection
         self.on_selection()
 
     def on_selection(self, *a, **k):
-        error_log('FileChooseBTN.on_selection()')
+        print('[LVP Main  ] FileChooseBTN.on_selection()')
         global lumaview
         
         if self.selection:
@@ -2782,17 +2668,17 @@ class FolderChooseBTN(Button):
     selection = ListProperty([])
 
     def choose(self, context):
-        error_log('FolderChooseBTN.choose()')
+        print('[LVP Main  ] FolderChooseBTN.choose()')
         self.context = context
         filechooser.choose_dir(on_selection=self.handle_selection)
 
     def handle_selection(self, selection):
-        error_log('FolderChooseBTN.handle_selection()')
+        print('[LVP Main  ] FolderChooseBTN.handle_selection()')
         self.selection = selection
         self.on_selection()
 
     def on_selection(self, *a, **k):
-        error_log('FolderChooseBTN.on_selection()')
+        print('[LVP Main  ] FolderChooseBTN.on_selection()')
         if self.selection:
             path = self.selection[0]
         else:
@@ -2826,7 +2712,7 @@ class FileSaveBTN(Button):
     selection = ListProperty([])
 
     def choose(self, context):
-        error_log('FileSaveBTN.choose()')
+        print('[LVP Main  ] FileSaveBTN.choose()')
         self.context = context
         if self.context == 'save_settings':
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
@@ -2834,23 +2720,23 @@ class FileSaveBTN(Button):
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
 
     def handle_selection(self, selection):
-        error_log('FileSaveBTN.handle_selection()')
+        print('[LVP Main  ] FileSaveBTN.handle_selection()')
         self.selection = selection
         self.on_selection()
 
     def on_selection(self, *a, **k):
-        error_log('FileSaveBTN.on_selection()')
+        print('[LVP Main  ] FileSaveBTN.on_selection()')
         global lumaview
         
         if self.context == 'save_settings':
             if self.selection:
                 lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
-                error_log('Saving Settings to File:' + self.selection[0])
+                print('[LVP Main  ] Saving Settings to File:' + self.selection[0])
 
         elif self.context == 'saveas_protocol':
             if self.selection:
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
-                error_log('Saving Protocol to File:' + self.selection[0])
+                print('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
 
 
 # -------------------------------------------------------------------------
@@ -2865,14 +2751,14 @@ class LumaViewProApp(App):
         pass
 
     def build(self):
-        error_log('-----------------------------------------')
-        error_log('Code Compiled On: 3/4/2023')
-        error_log('Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
-        error_log('-----------------------------------------')
+        print('[LVP Main  ] -----------------------------------------')
+        print('[LVP Main  ] Code Compiled On: 3/4/2023')
+        print('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
+        print('[LVP Main  ] -----------------------------------------')
 
         global Window
         global lumaview
-        error_log('LumaViewProApp.build()')
+        print('[LVP Main  ] LumaViewProApp.build()')
         self.icon = './data/icons/icon32x.png'
 
         try:
@@ -2881,7 +2767,7 @@ class LumaViewProApp(App):
             lumaview = MainDisplay()
             #Window.maximize()
         except:
-            print("Cannot open main display.")
+            print('[LVP Main  ] Cannot open main display.')
             raise
 
         # load settings file
@@ -2903,14 +2789,14 @@ class LumaViewProApp(App):
             filepath = settings['protocol']['filepath']
             lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
         except:
-            error_log('Unable to load protocol at startup')
+            print('[LVP Main  ] Unable to load protocol at startup')
 
         lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
-        if lumaview.led:
-            lumaview.led.leds_off()
-            error_log(lumaview.led.message)
+        if lumaview.scope.led:
+            lumaview.scope.leds_off()
+            print('[LVP Main  ] lumaview.scope.leds_off()')
         else:
-            error_log("LED controller not available.")
+            print('[LVP Main  ] LED controller not available.')
         lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
         # lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].center()
 
@@ -2922,7 +2808,7 @@ class LumaViewProApp(App):
         #Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
 
     def on_stop(self):
-        error_log('LumaViewProApp.on_stop()')
+        print('[LVP Main  ] LumaViewProApp.on_stop()')
         # if profiling:
         #     self.profile.disable()
         #     self.profile.dump_stats('./logs/LumaViewProApp.profile')
@@ -2931,11 +2817,11 @@ class LumaViewProApp(App):
         #     stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
 
         global lumaview
-        if lumaview.led:
-            lumaview.led.leds_off()
-            error_log(lumaview.led.message)
+        if lumaview.scope.led:
+            lumaview.scope.leds_off()
+            print('[LVP Main  ] lumaview.scope.leds_off()')
         else:
-            error_log("LED controller not available.")
+            print('[LVP Main  ] LED controller not available.')
         lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
 LumaViewProApp().run()

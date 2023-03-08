@@ -41,12 +41,12 @@ import serial.tools.list_ports as list_ports
 
 class LEDBoard:    
     def __init__(self, **kwargs):
+        print('[LED Class ] LEDBoard.__init__()')
         ports = list_ports.comports(include_links = True)
-        self.message = 'LEDBoard.__init__()'
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
-                print('LED Controller at', port.device)
+                print('[LED Class ] LED Controller at', port.device)
                 self.port = port.device
                 break
 
@@ -58,10 +58,10 @@ class LEDBoard:
         self.write_timeout=0.01 # seconds
         self.driver = False
         try:
-            print('Found LED controller and about to establish connection.')
+            print('[LED Class ] Found LED controller and about to establish connection.')
             self.connect()
         except:
-            print('Found LED controller but unable to establish connection.')
+            print('[LED Class ] Found LED controller but unable to establish connection.')
             raise
 
 
@@ -72,7 +72,7 @@ class LEDBoard:
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
         try:
-            print('Found LED controller and about to create driver.')
+            print('[LED Class ] Found LED controller and about to create driver.')
             self.driver = serial.Serial(port=self.port,
                                         baudrate=self.baudrate,
                                         bytesize=self.bytesize,
@@ -80,19 +80,16 @@ class LEDBoard:
                                         stopbits=self.stopbits,
                                         timeout=self.timeout,
                                         write_timeout=self.write_timeout)
-            print('Found LED controller and created driver.')
+            print('[LED Class ] Found LED controller and created driver.')
             self.driver.close()
             self.driver.open()
-            print('Found LED controller and closed and opened again.')
-            self.send_command ('import main.py')         
-            print ('import main.py')         
-            self.send_command ('import main.py') 
-            print ('import main.py')         
-            self.message = 'LEDBoard.connect() succeeded'
+            print('[LED Class ] Found LED controller and closed and opened again.')
+            self.send_command('import main.py')
+            self.send_command('import main.py')
+            print('[LED Class ] LEDBoard.connect() succeeded')
         except:
             self.driver = False
-            self.message = 'LEDBoard.connect() failed'
-            print('LEDBoard.connect() failed')
+            print('[LED Class ] LEDBoard.connect() failed')
             raise
             
     def send_command(self, command):
@@ -105,11 +102,10 @@ class LEDBoard:
                 self.driver.close()
                 self.driver.open()
                 self.driver.write(stream)
-                self.message = 'LEDBoard.send_command('+command+') succeeded'
-                # self.message = command
+                print('[LED Class ] LEDBoard.send_command('+command+') succeeded')
                 return True
             except serial.SerialTimeoutException:
-                self.message = 'LEDBoard.send_command('+command+') Serial Timeout Occurred'
+                print('[LED Class ] LEDBoard.send_command('+command+') Serial Timeout Occurred')
                 raise
             except:
                 raise
@@ -126,7 +122,7 @@ class LEDBoard:
                 command = stream.decode("utf-8","ignore")
                 return command[:-2]
             except serial.SerialTimeoutException:
-                self.message = 'LEDBoard.receive_command('+command+') Serial Timeout Occurred'
+                print('[LED Class ] LEDBoard.receive_command('+command+') Serial Timeout Occurred')
                 raise
 
     def color2ch(self, color):

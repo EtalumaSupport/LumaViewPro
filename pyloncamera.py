@@ -39,9 +39,9 @@ from pypylon import pylon
 class PylonCamera:
 
     def __init__(self, **kwargs):
+        print('[CAM Class ] PylonCamera.__init__()')
         self.active = False
         self.error_report_count = 0
-        self.message = 'PylonCamera.__init__()'
         self.array = np.array([])
         self.connect()
 
@@ -49,7 +49,7 @@ class PylonCamera:
         try:
             self.active.close()
         except:
-            print('exception')
+            print('[CAM Class ] exception')
 
     def connect(self):
         """ Try to connect to the first available basler camera"""
@@ -68,14 +68,13 @@ class PylonCamera:
             # Grabbing Continuously (video) with minimal delay
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             self.error_report_count = 0
-            self.message = 'PylonCamera.connect() succeeded'            
+            print('[CAM Class ] PylonCamera.connect() succeeded)')
 
         except:
             self.active = False
             if (self.error_report_count < 6):
-                print('Error: Cannot connect to camera')
+                print('[CAM Class ] PylonCamera.connect() failed')
             self.error_report_count += 1
-            self.message = 'PylonCamera.connect() failed'            
 
     def grab(self):
         """ Grab last available frame from camera and save it to self.array
@@ -94,21 +93,19 @@ class PylonCamera:
 
             grabResult.Release()
             self.error_report_count = 0
-            self.message = 'PylonCamera.grab() succeeded'            
+            # print('[CAM Class ] PylonCamera.grab() succeeded')
             return True
 
         except:
             if self.error_report_count < 6:
-                print('Error: Cannot grab texture from camera')
+                print('[CAM Class ] PylonCamera.grab() failed')
             self.error_report_count += 1
             self.active = False
-            self.message = 'PylonCamera.grab() failed'            
             return False
 
     def frame_size(self, w, h):
         """ Set camera frame size to w by h and keep centered """
 
-        print(self.active)
         if self.active != False:
 
             width = int(min(int(w), self.active.Width.Max)/4)*4
@@ -120,34 +117,32 @@ class PylonCamera:
             self.active.BslCenterX.Execute()
             self.active.BslCenterY.Execute()
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-            self.message = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded' 
+            print('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded')
         else:
-            self.message = 'PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive' 
+            print('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive')
 
 
     def gain(self, gain):
         """ Set gain value in the camera hardware"""
 
-        print(self.active)
         if self.active != False:
             self.active.Gain.SetValue(gain)
-            self.message = 'PylonCamera.gain('+str(gain)+')'+': succeeded' 
+            print('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': succeeded')
         else:
-            self.message = 'PylonCamera.gain('+str(gain)+')'+': inactive camera' 
+            print('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': inactive camera')
 
     def auto_gain(self, state = True):
         """ Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
-        print(self.active)
         if self.active != False:
             if state == True:
                 self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             else:
                 self.active.GainAuto.SetValue('Off')
-            self.message = 'PylonCamera.auto_gain('+str(state)+')'+': succeeded' 
+            print('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': succeeded')
         else:
-            self.message = 'PylonCamera.auto_gain('+str(state)+')'+': inactive camera' 
+            print('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': inactive camera')
             
     def exposure_t(self, t):
         """ Set exposure time in the camera hardware t (msec)"""
@@ -155,9 +150,9 @@ class PylonCamera:
         if self.active != False:
             # (t*1000) in microseconds; therefore t  in milliseconds
             self.active.ExposureTime.SetValue(max(t*1000, self.active.ExposureTime.Min))
-            self.message = 'PylonCamera.exposure_t('+str(t)+')'+': succeeded' 
+            print('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
         else:
-            self.message = 'PylonCamera.exposure_t('+str(t)+')'+': inactive camera' 
+            print('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': inactive camera')
 
     def get_exposure_t(self):
         """ Set exposure time in the camera hardware
@@ -166,10 +161,10 @@ class PylonCamera:
         if self.active != False:
             microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
             millisec = microsec/1000 # convert exposure time to millisec
-            self.message = 'PylonCamera.get_exposure_t(): succeeded' 
+            print('[CAM Class ] PylonCamera.get_exposure_t(): succeeded')
             return millisec
         else:
-            self.message = 'PylonCamera.get_exposure_t(): inactive camera' 
+            print('[CAM Class ] PylonCamera.get_exposure_t(): inactive camera')
             return -1
 
     def auto_exposure_t(self, state = True):
@@ -181,7 +176,7 @@ class PylonCamera:
                 self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             else:
                 self.active.ExposureAuto.SetValue('Off')
-            self.message = 'PylonCamera.auto_exposure_t('+str(state)+')'+': succeeded' 
+            print('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': succeeded')
         else:
-            self.message = 'PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera' 
+            print('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera')
 

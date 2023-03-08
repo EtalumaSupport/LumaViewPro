@@ -47,15 +47,15 @@ class TrinamicBoard:
     # Initialize connection through microcontroller
     #----------------------------------------------------------
     def __init__(self, **kwargs):
+        print('[XYZ Class ] TrinamicBoard.__init__()')
         ports = list_ports.comports(include_links = True)
-        self.message = 'TrinamicBoard.__init__()'
         self.found = False
         self.overshoot = False
         self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
-                print('Motor Controller at', port.device)
+                print('[XYZ Class ] Motor Controller at', port.device)
                 self.port = port.device
                 self.found = True
                 break
@@ -70,7 +70,7 @@ class TrinamicBoard:
         try:
             self.connect()
         except:
-            print('Found device but motor controller unable establish connection.')
+            print('[XYZ Class ] Found device but motor controller unable establish connection.')
             raise
 
     # def __del__(self):
@@ -91,13 +91,10 @@ class TrinamicBoard:
             self.driver.open()
             
             response = self.exchange_command('INFO')
-            self.message = 'TrinamicBoard.connect()\n' + response
-            print('TrinamicBoard.connect()\n' + response)
+            print('[XYZ Class ] TrinamicBoard.connect()\n' + response)
         except:
             self.driver = False
-            self.message = 'TrinamicBoard.connect() failed'
-            print('TrinamicBoard.connect() failed')
-            #raise
+            print('[XYZ Class ] TrinamicBoard.connect() failed')
 
     #----------------------------------------------------------
     # Define Communication
@@ -113,17 +110,17 @@ class TrinamicBoard:
                 self.driver.write(command.encode('utf-8')+b"\r\n")
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
-                self.message = 'TrinamicBoard.exchange_command('+command+') succeeded'
+                # print('[XYZ Class ] TrinamicBoard.exchange_command('+command+') succeeded')
                 return response[:-2]                
 
             except serial.SerialTimeoutException:
-                self.message = 'TrinamicBoard.exchange_command('+command+') serial timeout occurred'
+                # print('[XYZ Class ] TrinamicBoard.exchange_command('+command+') serial timeout occurred')
                 raise IOError('Trinamic board timeout occured.')
         else:
             try:
                 self.connect()
             except:
-                self.message = 'TrinamicBoard.exchange_command('+command+') Unable to connect to board'
+                # print('[XYZ Class ] TrinamicBoard.exchange_command('+command+') Unable to connect to board')
                 raise IOError('Unable to connect to Trinamic board.')
 
     # Firmware 1-14-2023 commands include
@@ -140,43 +137,22 @@ class TrinamicBoard:
     # 'SPI'
 
     
-    # def SPI_put (self, pin: int, address: int, data: int):
-    #     if self.buffer == False:
-    #         self.buffer = queue.Queue(1024)  # could add buffer size to settings someday
-        
-    #     if self.buffer.full():
-    #        print("Trinamic SPI write buffer size is "+self.buffer.qsize()+" and is full.")
-    #        return
-        
-    #     self.buffer.put({
-    #             pin:     pin,
-    #             address: address,
-    #             data:    data
-    #         })
-
-    # def SPI_get (self):
-    #     if self.buffer == False:
-    #         return
-        
-    #     cmd = self.buffer.get()
-    #     self.SPI_write(cmd.pin, cmd.address, cmd.data)
-
     #----------------------------------------------------------
     # Z (Focus) Functions
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
-        self.message = 'TrinamicBoard.z_ustep2um('+str(ustep)+')'            
+        # print('[XYZ Class ] TrinamicBoard.z_ustep2um('+str(ustep)+')')
         um = 0.00586 * ustep # 0.00586 um/ustep Olympus Z
         return um
 
     def z_um2ustep(self, um):
-        self.message = 'TrinamicBoard.z_um2ustep('+str(um)+')'            
+        # print('[XYZ Class ] TrinamicBoard.z_um2ustep('+str(um)+')')       
         ustep = int( um / 0.00586 ) # 0.00586 um/ustep Olympus Z
         return ustep
 
     def zhome(self):
         """ Home the objective """
-        self.message = 'TrinamicBoard.zhome()'            
+        print('[XYZ Class ] TrinamicBoard.zhome()')        
         if self.found:
             self.exchange_command('ZHOME')
 
@@ -184,24 +160,24 @@ class TrinamicBoard:
     # XY Stage Functions
     #----------------------------------------------------------
     def xy_ustep2um(self, ustep):
-        self.message = 'TrinamicBoard.xy_ustep2um('+str(ustep)+')'            
+        # print('[XYZ Class ] TrinamicBoard.xy_ustep2um('+str(ustep)+')')
         um = 0.0496 * ustep # 0.0496 um/ustep
         return um
 
     def xy_um2ustep(self, um):
-        self.message = 'TrinamicBoard.xy_um2ustep('+str(um)+')'            
+        # print('[XYZ Class ] TrinamicBoard.xy_um2ustep('+str(um)+')')
         ustep = int( um / 0.0496) # 0.0496 um/ustep
         return ustep
 
     def xyhome(self):
         """ Home the stage which also homes the objective first """
-        self.message = 'TrinamicBoard.xyhome()'            
+        print('[XYZ Class ] TrinamicBoard.xyhome()')   
         if self.found:
             self.exchange_command('HOME')
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
-        self.message = 'TrinamicBoard.xycenter()'            
+        print('[XYZ Class ] TrinamicBoard.xycenter()')
         if self.found:
             self.exchange_command('CENTER')
             
@@ -209,24 +185,24 @@ class TrinamicBoard:
     # T (Turret) Functions
     #----------------------------------------------------------
     def t_ustep2deg(self, ustep):
-        self.message = 'TrinamicBoard.t_ustep2deg('+str(ustep)+')'            
+        # print('[XYZ Class ] TrinamicBoard.t_ustep2deg('+str(ustep)+')')
         um = 1. * ustep # needs correct value
         return um
 
     def t_deg2ustep(self, um):
-        self.message = 'TrinamicBoard.t_ustep2deg('+str(um)+')'            
+        # print('[XYZ Class ] TrinamicBoard.t_ustep2deg('+str(um)+')')
         ustep = int( um / 1.) # needs correct value
         return ustep
 
     def thome(self):
         """ Home the turret, not yet functional in hardware"""
-        self.message = 'TrinamicBoard.thome()'            
+        print('[XYZ Class ] TrinamicBoard.thome()')
         if self.found:
             self.exchange_command('THOME')
 
     def tmove(self, degrees):
         """ Move the turret, not yet functional in hardware"""
-        self.message = 'TrinamicBoard.thome()'
+        print('[XYZ Class ] TrinamicBoard.thome()')
         steps = self.t_deg2ustep(degrees)
         if self.found:
             self.move('T', steps)
@@ -262,10 +238,10 @@ class TrinamicBoard:
             else:
                 um = self.xy_ustep2um(position)
 
-            self.message = 'TrinamicBoard.target_pos('+axis+') succeeded'            
+            # print('[XYZ Class ] TrinamicBoard.target_pos('+axis+') succeeded')
             return um
         else:
-            self.message = 'TrinamicBoard.target_pos('+axis+') inactive'            
+            # print('[XYZ Class ] TrinamicBoard.target_pos('+axis+') inactive')
             return 0
 
     # Get current position (in um)
@@ -274,8 +250,8 @@ class TrinamicBoard:
         
         if self.found:
             try:
-                responce = self.exchange_command('ACTUAL_R' + axis)
-                position = int(responce)
+                response = self.exchange_command('ACTUAL_R' + axis)
+                position = int(response)
             except ValueError:
                 return 0 #short term fix
                 raise IOError(f"Expected current position from motor controller. Repsonded with '{responce}'")
@@ -287,10 +263,10 @@ class TrinamicBoard:
             else:
                 um = self.xy_ustep2um(position)
 
-            self.message = 'TrinamicBoard.current_pos('+axis+') succeeded'            
+            # print('[XYZ Class ] TrinamicBoard.current_pos('+axis+') succeeded')
             return um
         else:
-            self.message = 'TrinamicBoard.current_pos('+axis+') inactive'            
+            # print('[XYZ Class ] TrinamicBoard.current_pos('+axis+') inactive')
             return 0
 
     # Move to absolute position (in um)
@@ -336,9 +312,9 @@ class TrinamicBoard:
                     self.overshoot = False
 
             self.move(axis, steps)
-            self.message = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') succeeded'
+            print('[XYZ Class ] TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') succeeded')
         else:
-            self.message = 'TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') inactive'
+            print('[XYZ Class ] TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') inactive')
 
     # Move by relative distance (in um)
     def move_rel_pos(self, axis, um):
@@ -348,9 +324,9 @@ class TrinamicBoard:
             # Read target position in um
             pos = self.target_pos(axis)
             self.move_abs_pos(axis, pos+um)
-            self.message = 'TrinamicBoard.move_rel_pos('+axis+','+str(um)+') succeeded'
+            print('[XYZ Class ] TrinamicBoard.move_rel_pos('+axis+','+str(um)+') succeeded')
         else:
-            self.message = 'TrinamicBoard.move_rel_pos('+axis+','+str(um)+') inactive'
+            print('[XYZ Class ] TrinamicBoard.move_rel_pos('+axis+','+str(um)+') inactive')
 
     #----------------------------------------------------------
     # Ramp and Reference Switch Status Register
@@ -360,7 +336,7 @@ class TrinamicBoard:
     def home_status(self, axis):
         """ Return True if axis is in home position"""
 
-        self.message = 'TrinamicBoard.home_status('+axis+')'            
+        # print('[XYZ Class ] TrinamicBoard.home_status('+axis+')')      
         if self.found:
             data = int( self.exchange_command('STATUS_R' + axis) )
             bits = format(data, 'b').zfill(32)
@@ -370,15 +346,14 @@ class TrinamicBoard:
             else:
                 return False
         else:
-            self.message = 'TrinamicBoard.home_status('+axis+') inactive'            
+            print('[XYZ Class ] TrinamicBoard.home_status('+axis+') inactive')        
             return False
 
     # return True if current position and target position are the same
     def target_status(self, axis):
         """ Return True if axis is at target position"""
 
-        self.message = 'TrinamicBoard.target_status('+axis+')'  
-        
+        # print('[XYZ Class ] TrinamicBoard.target_status('+axis+')')
         if self.found:
             data = int( self.exchange_command('STATUS_R' + axis) )
             bits = format(data, 'b').zfill(32)
@@ -389,7 +364,7 @@ class TrinamicBoard:
                 return False
   
         else:
-            self.message = 'TrinamicBoard.get_limit_status('+axis+') inactive'            
+            print('[XYZ Class ] TrinamicBoard.get_limit_status('+axis+') inactive')
             return False
 
 
@@ -411,7 +386,7 @@ class TrinamicBoard:
             print(data)
             return data
         else:
-            self.message = 'TrinamicBoard.reference_status('+axis+') inactive'            
+            print('[XYZ Class ] TrinamicBoard.reference_status('+axis+') inactive')
             return False
 
 
