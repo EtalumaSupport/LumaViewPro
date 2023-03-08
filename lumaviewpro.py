@@ -851,7 +851,7 @@ class VerticalControl(BoxLayout):
 
     def set_position(self, pos):
         print('[LVP Main  ] VerticalControl.set_position()')
-        lumaview.scope.motion.move_abs_pos('Z', float(pos))
+        lumaview.scope.move_absolute_position('Z', float(pos))
         self.update_gui()
 
     def set_bookmark(self):
@@ -873,7 +873,7 @@ class VerticalControl(BoxLayout):
     def goto_bookmark(self):
         print('[LVP Main  ] VerticalControl.goto_bookmark()')
         pos = settings['bookmark']['z']
-        lumaview.scope.motion.move_abs_pos('Z', pos)
+        lumaview.scope.move_absolute_position('Z', pos)
         self.update_gui()
 
     def home(self):
@@ -914,7 +914,7 @@ class VerticalControl(BoxLayout):
             self.is_autofocus = True
 
             # Start the autofocus process at z-minimum
-            lumaview.scope.motion.move_abs_pos('Z', self.z_min)
+            lumaview.scope.move_absolute_position('Z', self.z_min)
 
             # schedule focus iterate
             print('[LVP Main  ] Clock.schedule_interval(self.focus_iterate, 0.01)')
@@ -977,7 +977,7 @@ class VerticalControl(BoxLayout):
                     self.focus_measures = []
 
                     # go to new z_min
-                    lumaview.scope.motion.move_abs_pos('Z', self.z_min)
+                    lumaview.scope.move_absolute_position('Z', self.z_min)
 
                     if self.resolution == AF_min:
                         self.last = True
@@ -987,7 +987,7 @@ class VerticalControl(BoxLayout):
                     focus = self.focus_best(self.positions, self.focus_measures)
 
                     # go to best focus
-                    lumaview.scope.motion.move_abs_pos('Z', focus) # move to absolute target
+                    lumaview.scope.move_absolute_position('Z', focus) # move to absolute target
 
                     # end autofocus sequence
                     print('[LVP Main  ] Clock.unschedule(self.focus_iterate)')
@@ -1171,7 +1171,7 @@ class XYStageControl(BoxLayout):
         print('[LVP Main  ] X pos', x_pos, 'Stage X', stage_x)
 
         # Move to x-position
-        lumaview.scope.motion.move_abs_pos('X', stage_x)  # position in text is in mm
+        lumaview.scope.move_absolute_position('X', stage_x)  # position in text is in mm
         self.update_gui()
 
     def set_yposition(self, y_pos):
@@ -1184,7 +1184,7 @@ class XYStageControl(BoxLayout):
         stage_x, stage_y =  protocol_settings.plate_to_stage(0, float(y_pos))
 
         # Move to y-position
-        lumaview.scope.motion.move_abs_pos('Y', stage_y)  # position in text is in mm
+        lumaview.scope.move_absolute_position('Y', stage_y)  # position in text is in mm
         self.update_gui()
 
     def set_xbookmark(self):
@@ -1221,7 +1221,7 @@ class XYStageControl(BoxLayout):
         # Move to x-position
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(x_pos, 0)
-        lumaview.scope.motion.move_abs_pos('X', stage_x)  # set current x position in um
+        lumaview.scope.move_absolute_position('X', stage_x)  # set current x position in um
 
     def goto_ybookmark(self):
         print('[LVP Main  ] XYStageControl.goto_ybookmark()')
@@ -1233,7 +1233,7 @@ class XYStageControl(BoxLayout):
         # Move to y-position
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(0, y_pos)
-        lumaview.scope.motion.move_abs_pos('Y', stage_y)  # set current y position in um
+        lumaview.scope.move_absolute_position('Y', stage_y)  # set current y position in um
 
     # def calibrate(self):
     #     print('[LVP Main  ] XYStageControl.calibrate()')
@@ -1586,9 +1586,9 @@ class ProtocolSettings(CompositeCapture):
 
         # Move into position
         if lumaview.scope.motion.driver:
-            lumaview.scope.motion.move_abs_pos('X', sx)
-            lumaview.scope.motion.move_abs_pos('Y', sy)
-            lumaview.scope.motion.move_abs_pos('Z', z)
+            lumaview.scope.move_absolute_position('X', sx)
+            lumaview.scope.move_absolute_position('Y', sy)
+            lumaview.scope.move_absolute_position('Z', z)
         else:
             print('[LVP Main  ] Motion controller not availabble.')
 
@@ -1768,9 +1768,9 @@ class ProtocolSettings(CompositeCapture):
             sx, sy = self.plate_to_stage(x, y)
 
             # Move into position
-            lumaview.scope.motion.move_abs_pos('X', sx)
-            lumaview.scope.motion.move_abs_pos('Y', sy)
-            lumaview.scope.motion.move_abs_pos('Z', z)
+            lumaview.scope.move_absolute_position('X', sx)
+            lumaview.scope.move_absolute_position('Y', sy)
+            lumaview.scope.move_absolute_position('Z', z)
 
             print('[LVP Main  ] Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
             Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
@@ -1823,9 +1823,9 @@ class ProtocolSettings(CompositeCapture):
                 sx, sy = self.plate_to_stage(x, y)
 
                 # Move into position
-                lumaview.scope.motion.move_abs_pos('X', sx)
-                lumaview.scope.motion.move_abs_pos('Y', sy)
-                lumaview.scope.motion.move_abs_pos('Z', z)
+                lumaview.scope.move_absolute_position('X', sx)
+                lumaview.scope.move_absolute_position('Y', sy)
+                lumaview.scope.move_absolute_position('Z', z)
 
             # if all positions have already been reached
             else:
@@ -1906,9 +1906,9 @@ class ProtocolSettings(CompositeCapture):
             sx, sy = self.plate_to_stage(x, y)
 
             # Move into position
-            lumaview.scope.motion.move_abs_pos('X', sx)
-            lumaview.scope.motion.move_abs_pos('Y', sy)
-            lumaview.scope.motion.move_abs_pos('Z', z)
+            lumaview.scope.move_absolute_position('X', sx)
+            lumaview.scope.move_absolute_position('Y', sy)
+            lumaview.scope.move_absolute_position('Z', z)
 
             print('[LVP Main  ] Clock.schedule_interval(self.scan_iterate, 0.1)')
             Clock.schedule_interval(self.scan_iterate, 0.1)
@@ -1974,9 +1974,9 @@ class ProtocolSettings(CompositeCapture):
                 sx, sy = self.plate_to_stage(x, y)
 
                 # Move into position
-                lumaview.scope.motion.move_abs_pos('X', sx)
-                lumaview.scope.motion.move_abs_pos('Y', sy)
-                lumaview.scope.motion.move_abs_pos('Z', z)
+                lumaview.scope.move_absolute_position('X', sx)
+                lumaview.scope.move_absolute_position('Y', sy)
+                lumaview.scope.move_absolute_position('Z', z)
 
 
             # if all positions have already been reached
@@ -2103,8 +2103,8 @@ class Stage(Widget):
             # Convert from plate position to stage position
             stage_x, stage_y =  lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].plate_to_stage(plate_x, plate_y)
 
-            lumaview.scope.motion.move_abs_pos('X', stage_x)
-            lumaview.scope.motion.move_abs_pos('Y', stage_y)
+            lumaview.scope.move_absolute_position('X', stage_x)
+            lumaview.scope.move_absolute_position('Y', stage_y)
             lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
 
     def draw_labware(self, *args): # View the labware from front and above
@@ -2466,7 +2466,7 @@ class LayerControl(BoxLayout):
         print('[LVP Main  ] LayerControl.goto_focus()')
         global lumaview
         pos = settings[self.layer]['focus']
-        lumaview.scope.motion.move_abs_pos('Z', pos)  # set current z height in usteps
+        lumaview.scope.move_absolute_position('Z', pos)  # set current z height in usteps
         control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
         control.update_gui()
 
@@ -2601,7 +2601,7 @@ class ZStack(CompositeCapture):
 
         # begin moving to the first position
         self.n_pos = 0
-        lumaview.scope.motion.move_abs_pos('Z', self.positions[self.n_pos])
+        lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
 
         if self.ids['ztack_aqr_btn'].state == 'down':
             print('[LVP Main  ] Clock.schedule_interval(self.zstack_iterate, 0.01)')
@@ -2623,7 +2623,7 @@ class ZStack(CompositeCapture):
             self.n_pos += 1
 
             if self.n_pos < len(self.positions):
-                lumaview.scope.motion.move_abs_pos('Z', self.positions[self.n_pos])
+                lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
             else:
                 self.ids['ztack_aqr_btn'].text = 'Acquire'
                 self.ids['ztack_aqr_btn'].state = 'normal'
