@@ -179,7 +179,7 @@ class Lumascope():
         if not self.camera: return
         self.camera.exposure_t(t)
 
-    def get_exposure_time(self, t):
+    def get_exposure_time(self):
         """ Get exposure time in the camera hardware
          Returns t (msec), or -1 if the camera is inactive"""
 

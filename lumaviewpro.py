@@ -901,7 +901,7 @@ class VerticalControl(BoxLayout):
         self.z_min = max(0, center-range)                   # starting minimum z-height for autofocus
         self.z_max = center+range                           # starting maximum z-height for autofocus
         self.resolution = settings['objective']['AF_max']   # starting step size for autofocus
-        self.exposure = lumaview.scope.camera.get_exposure_t()    # camera exposure to determine 'wait' time
+        self.exposure = lumaview.scope.get_exposure_time()  # camera exposure to determine 'wait' time
 
         self.positions = []       # List of positions to step through
         self.focus_measures = []  # Measure focus score at each position
