@@ -878,7 +878,7 @@ class VerticalControl(BoxLayout):
 
     def home(self):
         print('[LVP Main  ] VerticalControl.home()')
-        lumaview.scope.motion.zhome()
+        lumaview.scope.zhome()
         self.update_gui()
 
     # User selected the autofocus function
@@ -1254,8 +1254,8 @@ class XYStageControl(BoxLayout):
         print('[LVP Main  ] XYStageControl.home()')
         global lumaview
 
-        if lumaview.scope.motion.driver:
-            lumaview.scope.motion.xyhome()
+        if lumaview.scope.motion.driver: # motor controller is actively connected
+            lumaview.scope.xyhome()
         else:
             print('[LVP Main  ] Motion controller not available.')
         # self.update_gui()
@@ -1264,8 +1264,8 @@ class XYStageControl(BoxLayout):
         print('[LVP Main  ] XYStageControl.center()')
         global lumaview
 
-        if lumaview.scope.motion.driver:
-            lumaview.scope.motion.xycenter()
+        if lumaview.scope.motion.driver: # motor controller is actively connected
+            lumaview.scope.xycenter()
         else:
             print('[LVP Main  ] Motion controller not available.')
         # self.update_gui()
