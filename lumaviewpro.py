@@ -273,7 +273,7 @@ class CompositeCapture(FloatLayout):
         print('[LVP Main  ] CompositeCapture.composite_capture()')
         global lumaview
 
-        if self.scope.camera.active == False:
+        if lumaview.scope.camera.active == False:
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
@@ -2279,7 +2279,7 @@ class MicroscopeSettings(BoxLayout):
                     lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
                     lumaview.ids['mainsettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
-                lumaview.scope.camera.frame_size(settings['frame']['width'], settings['frame']['height'])
+                lumaview.scope.set_frame_size(settings['frame']['width'], settings['frame']['height'])
             except:
                 print('[LVP Main  ] Incompatible JSON file for Microscope Settings')
 
