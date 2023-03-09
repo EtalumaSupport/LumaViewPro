@@ -2113,6 +2113,8 @@ class Stage(Widget):
         global settings
 
         # Create current labware instance
+        
+        os.chdir(home_wd)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
