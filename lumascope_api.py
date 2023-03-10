@@ -39,6 +39,9 @@ March 2, 2023
 from trinamic850 import TrinamicBoard
 from ledboard import LEDBoard
 from pyloncamera import PylonCamera
+import time
+import cv2
+import numpy as np
 
 class Lumascope():
 
@@ -117,41 +120,42 @@ class Lumascope():
             return False
 
     def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
-        pass
-        # if not lumaview.scope.camera:
-        #     return
 
-        # img = np.zeros((lumaview.scope.camera.array.shape[0], lumaview.scope.camera.array.shape[1], 3))
+        if not self.camera:
+            return
 
-        # if color == 'Blue':
-        #     img[:,:,0] = lumaview.scope.camera.array
-        # elif color == 'Green':
-        #     img[:,:,1] = lumaview.scope.camera.array
-        # elif color == 'Red':
-        #     img[:,:,2] = lumaview.scope.camera.array
-        # else:
-        #     img[:,:,0] = lumaview.scope.camera.array
-        #     img[:,:,1] = lumaview.scope.camera.array
-        #     img[:,:,2] = lumaview.scope.camera.array
+        img = np.zeros((self.camera.array.shape[0], self.camera.array.shape[1], 3))
 
-        # img = np.flip(img, 0)
+        if color == 'Blue':
+            img[:,:,0] = self.camera.array
+        elif color == 'Green':
+            img[:,:,1] = self.camera.array
+        elif color == 'Red':
+            img[:,:,2] = self.camera.array
+        else:
+            img[:,:,0] = self.camera.array
+            img[:,:,1] = self.camera.array
+            img[:,:,2] = self.camera.array
 
-        # # set filename options
-        # if append == 'ms':
-        #     append = str(int(round(time.time() * 1000)))
-        # elif append == 'time':
-        #     append = time.strftime("%Y%m%d_%H%M%S")
-        # else:
-        #     append = ''
+        img = np.flip(img, 0)
 
-        # # generate filename string
-        # filename = file_root + append + '.tiff'
+        # set filename options
+        if append == 'ms':
+            append = str(int(round(time.time() * 1000)))
+        elif append == 'time':
+            append = time.strftime("%Y%m%d_%H%M%S")
+        else:
+            append = ''
 
-        # try:
-        #     cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
-        #     # cv2.imwrite(filename, img.astype(np.uint8))
-        # except:
-        #     error_log("Error: Unable to save. Perhaps save folder does not exist?")
+        # generate filename string
+        filename = file_root + append + '.tiff'
+
+        try:
+            cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
+            print("[SCOPE API ] Saving Image to",save_folder+'/'+filename )
+           # cv2.imwrite(filename, img.astype(np.uint8))
+        except:
+            print("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
 
     def set_frame_size(self, w, h):

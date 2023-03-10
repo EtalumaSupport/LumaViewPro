@@ -208,7 +208,7 @@
 		AccordionItem:
 			title: 'Post Processing'
 			on_collapse: root.accordion_collapse()
-			PostProcessing:
+			PostProcessingAccordion:
                 id: post_processing_id
 
     ToggleButton:
@@ -1015,9 +1015,9 @@
 
 		Label:
 
-# PostProcessing - Settings for PostProcessing
+# PostProcessingAccordion - Settings for PostProcessingAccordion
 # ------------------------------------------
-<PostProcessing>:
+<PostProcessingAccordion>:
     padding: '5dp'
     spacing: '5dp'
     orientation: 'vertical'
@@ -1042,7 +1042,7 @@
 		font_size: '12sp'
 		on_release:root.stitch()
 
-	ToggleButton:
+	Button:
 		text:'Open Last Save Folder'
 		size_hint_y: None
 		height: '30dp'

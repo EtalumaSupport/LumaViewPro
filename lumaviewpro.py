@@ -94,9 +94,11 @@ import cv2
 # Hardware
 from labware import WellPlate
 import lumascope_api
+import post_processing
 
 global lumaview
 global settings
+
 
 home_wd = os.getcwd()
 start_str = time.strftime("%Y %m %d %H_%M_%S")
@@ -188,7 +190,7 @@ class CompositeCapture(FloatLayout):
                     color = layer
             
         lumaview.scope.camera.grab()
-        self.save_image(save_folder, file_root, append, color)
+        lumaview.scope.save_image(save_folder, file_root, append, color)
 
     def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
         print('[LVP Main  ] CompositeCapture.custom_capture()')
@@ -575,30 +577,18 @@ class MotionSettings(BoxLayout):
         print('[LVP Main  ] MotionSettings.accordion_collapse()')
         global lumaview
 
-class PostProcessing(BoxLayout):
+class PostProcessingAccordion(BoxLayout):
+
+    def __init__(self, **kwargs):
+        super(PostProcessingAccordion,self).__init__(**kwargs)
+        self.post = post_processing.PostProcessing()
 
     def convert_to_avi(self):
-        print('[LVP Main  ] PostProcessing.convert_to_avi() not yet implemented')
-
-        # # self.choose_folder()
-        # save_location = './capture/movie.avi'
-
-        # img_array = []
-        # for filename in glob.glob('./capture/*.tiff'):
-        #     img = cv2.imread(filename)
-        #     height, width, layers = img.shape
-        #     size = (width,height)
-        #     img_array.append(img)
-
-        # if len(img_array) > 0:
-        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-
-        # for i in range(len(img_array)):
-        #     out.write(img_array[i])
-        # out.release()
+        self.post.convert_to_avi('')
 
     def stitch(self):
         print('[LVP Main  ] PostProcessing.stitch() not yet implemented')
+        self.post.stitch('')
 
     def open_folder(self):
         print('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
