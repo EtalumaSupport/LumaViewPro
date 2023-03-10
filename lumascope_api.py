@@ -111,13 +111,6 @@ class Lumascope():
     ########################################################################
     # CAMERA FUNCTIONS
     ########################################################################
-    def get_array(self):
-        """Get last image grabbed by camera"""
-        if self.camera:
-            array = self.camera.array
-            return array
-        else:
-            return False
 
     def get_image(self):
         """Grab and return image from camera"""
@@ -131,19 +124,21 @@ class Lumascope():
 
         if not self.camera:
             return
+        
+        array = self.get_image()
 
-        img = np.zeros((self.camera.array.shape[0], self.camera.array.shape[1], 3))
+        img = np.zeros((array.shape[0], array.shape[1], 3))
 
         if color == 'Blue':
-            img[:,:,0] = self.camera.array
+            img[:,:,0] = array
         elif color == 'Green':
-            img[:,:,1] = self.camera.array
+            img[:,:,1] = array
         elif color == 'Red':
-            img[:,:,2] = self.camera.array
+            img[:,:,2] = array
         else:
-            img[:,:,0] = self.camera.array
-            img[:,:,1] = self.camera.array
-            img[:,:,2] = self.camera.array
+            img[:,:,0] = array
+            img[:,:,1] = array
+            img[:,:,2] = array
 
         img = np.flip(img, 0)
 
@@ -165,6 +160,21 @@ class Lumascope():
         except:
             print("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
+    def get_max_width(self):
+        if not self.camera: return 0
+        return self.camera.active.Width.Max
+
+    def get_max_height(self):
+        if not self.camera: return 0
+        return self.camera.active.Height.Max
+      
+    def get_width(self):
+        if not self.camera: return 0
+        return self.camera.active.Width.GetValue()
+
+    def get_height(self):
+        if not self.camera: return 0
+        return self.camera.active.Height.GetValue()
 
     def set_frame_size(self, w, h):
         """Set frame size of camera to w by h"""

@@ -215,7 +215,7 @@ class CompositeCapture(FloatLayout):
             print('LED controller not available.')
 
         # Grab image and save
-        time.sleep(2*exposure/1000+0.2) # This needs improvement
+        time.sleep(2*exposure/1000) # This needs improvement
         lumaview.scope.get_image()
 
         if false_color: 
@@ -229,46 +229,6 @@ class CompositeCapture(FloatLayout):
             print('[LVP Main  ] lumaview.scope.leds_off()')
         else:
             print('LED controller not available.')
-
-    # # Save image from camera buffer to specified location
-    # def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
-    #     print('[LVP Main  ] CompositeCapture.save_image()')
-    #     global lumaview
-
-    #     if lumaview.scope.camera.active == False:
-    #         return
-
-    #     img = np.zeros((lumaview.scope.camera.array.shape[0], lumaview.scope.camera.array.shape[1], 3))
-
-    #     if color == 'Blue':
-    #         img[:,:,0] = lumaview.scope.camera.array
-    #     elif color == 'Green':
-    #         img[:,:,1] = lumaview.scope.camera.array
-    #     elif color == 'Red':
-    #         img[:,:,2] = lumaview.scope.camera.array
-    #     else:
-    #         img[:,:,0] = lumaview.scope.camera.array
-    #         img[:,:,1] = lumaview.scope.camera.array
-    #         img[:,:,2] = lumaview.scope.camera.array
-
-    #     img = np.flip(img, 0)
-
-    #     # set filename options
-    #     if append == 'ms':
-    #         append = str(int(round(time.time() * 1000)))
-    #     elif append == 'time':
-    #         append = time.strftime("%Y%m%d_%H%M%S")
-    #     else:
-    #         append = ''
-
-    #     # generate filename string
-    #     filename = file_root + append + '.tiff'
-
-    #     try:
-    #         cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
-    #         # cv2.imwrite(filename, img.astype(np.uint8))
-    #     except:
-    #         print('Error: Unable to save. Perhaps save folder does not exist?')
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
@@ -307,9 +267,9 @@ class CompositeCapture(FloatLayout):
                 else:
                     print('LED controller not available.')
 
-                time.sleep(2*exposure/1000+0.2)  # Should be replaced with Clock
+                time.sleep(2*exposure/1000)  # Should be replaced with Clock
                 scope_display.update()
-                darkfield = lumaview.scope.get_array()
+                darkfield = lumaview.scope.get_image()
 
                 # Florescent capture
                 if lumaview.scope.led:
@@ -318,11 +278,11 @@ class CompositeCapture(FloatLayout):
                 else:
                     print('LED controller not available.')
 
-                time.sleep(2*exposure/1000+0.2)  # Should be replaced with Clock
-                lumaview.scope.camera.grab()
+                time.sleep(2*exposure/1000)  # Should be replaced with Clock
+                exposed = lumaview.scope.get_image()
 
                 scope_display.update()
-                corrected = lumaview.scope.get_array() - np.minimum(lumaview.scope.get_array(),darkfield)
+                corrected = exposed - np.minimum(exposed,darkfield)
                 # buffer the images
                 if layer == 'Blue':
                     img[:,:,0] = corrected
@@ -404,8 +364,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             return
         w = self.width
         h = self.height
-        scale_hor = float(lumaview.scope.camera.active.Width.GetValue()) / float(w)
-        scale_ver = float(lumaview.scope.camera.active.Height.GetValue()) / float(h)
+        scale_hor = float(lumaview.scope.get_width()) / float(w)
+        scale_ver = float(lumaview.scope.get_height()) / float(h)
         scale = max(scale_hor, scale_ver)
         self.ids['viewer_id'].scale = scale
         self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))
@@ -750,7 +710,7 @@ class Histogram(Widget):
         global lumaview
 
         if lumaview.scope.camera != False:
-            image = lumaview.scope.get_array()
+            image = lumaview.scope.get_image()
             hist = np.histogram(image, bins=256,range=(0,256))
             if self.hist_range_set:
                 edges = self.edges
@@ -928,7 +888,7 @@ class VerticalControl(BoxLayout):
         # if lumaview.scope.get_target_status('Z'):
 
             # Wait two exposure lengths
-            time.sleep(2*self.exposure/1000+0.2) # msec into sec
+            time.sleep(2*self.exposure/1000) # msec into sec
 
             # observe the image 
             image = lumaview.scope.get_image()
@@ -2329,8 +2289,8 @@ class MicroscopeSettings(BoxLayout):
         w = int(self.ids['frame_width'].text)
         h = int(self.ids['frame_height'].text)
 
-        width = int(min(int(w), lumaview.scope.camera.active.Width.Max)/4)*4
-        height = int(min(int(h), lumaview.scope.camera.active.Height.Max)/4)*4
+        width = int(min(int(w), lumaview.scope.get_max_width())/4)*4
+        height = int(min(int(h), lumaview.scope.get_max_height())/4)*4
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
@@ -2338,7 +2298,7 @@ class MicroscopeSettings(BoxLayout):
         self.ids['frame_width'].text = str(width)
         self.ids['frame_height'].text = str(height)
 
-        lumaview.scope.camera.frame_size(width, height)
+        lumaview.scope.set_frame_size(width, height)
 
 
 # Modified Slider Class to enable on_release event
