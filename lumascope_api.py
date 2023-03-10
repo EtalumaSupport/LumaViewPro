@@ -111,8 +111,16 @@ class Lumascope():
     ########################################################################
     # CAMERA FUNCTIONS
     ########################################################################
-    def get_image(self):
+    def get_array(self):
         """Get last image grabbed by camera"""
+        if self.camera:
+            array = self.camera.array
+            return array
+        else:
+            return False
+
+    def get_image(self):
+        """Grab and return image from camera"""
         if self.camera.grab():
             array = self.camera.array
             return array
@@ -281,3 +289,188 @@ class Lumascope():
 
         if not self.motion: return False
         return self.motion.overshoot
+
+    ########################################################################
+    # INTEGRATED SCOPE FUNCTIONS
+    ########################################################################
+
+    ## IN PROGRESS - DO NOT USE ##
+    def autofocus(self, dt=0):
+
+        # These should be passed but its not working
+        AF_range = 15.0
+        AF_min =   0.5
+        AF_max =   6.0
+        
+        print('[SCOPE API ] Lumascope.autofocus()')
+        self.is_complete = False
+        self.is_autofocus = True
+
+        if self.camera.active == False:
+            print('[SCOPE API ] Error: VerticalControl.autofocus()')
+            self.is_autofocus = False
+            return
+
+        center = self.get_current_position('Z')
+
+        self.z_min = max(0, center-AF_range)      # starting minimum z-height for autofocus
+        self.z_max = center+AF_range              # starting maximum z-height for autofocus
+        self.resolution = AF_max                  # starting step size for autofocus
+        self.exposure = self.get_exposure_time()  # camera exposure to determine 'wait' time
+
+        self.positions = []       # List of positions to step through
+        self.focus_measures = []  # Measure focus score at each position
+        self.last_focus = 0       # Last / Previous focus score
+        self.last = False         # Are we on the last scan for autofocus?
+
+        # Start the autofocus process at z-minimum
+        self.move_absolute_position('Z', self.z_min)
+
+        while self.is_autofocus:
+            time.sleep(0.01)
+
+            # If the z-height has reached its target
+            if self.get_target_status('Z') and not self.get_overshoot():
+                
+                # Wait two exposure lengths
+                time.sleep(2*self.exposure/1000+0.2) # msec into sec
+
+                # observe the image 
+                image = self.get_image()
+                rows, cols = image.shape
+
+                # Use center quarter of image for focusing
+                image = image[int(rows/4):int(3*rows/4),int(cols/4):int(3*cols/4)]
+
+                # calculate the position and focus measure
+                try:
+                    current = self.get_current_position('Z')
+                    focus = self.focus_function(image)
+                    next_target = self.get_target_position('Z') + self.resolution
+                except:
+                    print('[SCOPE API ] Error talking to motion controller.')
+                    raise
+
+                # append to positions and focus measures
+                self.positions.append(current)
+                self.focus_measures.append(focus)
+
+                # if (focus < self.last_focus) or (next_target > self.z_max):
+                if next_target > self.z_max:
+
+                    # Calculate new step size for resolution
+                    prev_resolution = self.resolution
+                    self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
+
+                    if self.resolution < AF_min:
+                        self.resolution = AF_min
+
+                    # As long as the step size is larger than or equal to the minimum and not the last pass
+                    if self.resolution >= AF_min and not self.last:
+
+                        # compute best focus
+                        focus = self.focus_best(self.positions, self.focus_measures)
+
+                        # assign new z_min, z_max, resolution, and sweep
+                        self.z_min = focus-prev_resolution 
+                        self.z_max = focus+prev_resolution 
+
+                        # reset positions and focus measures
+                        self.positions = []
+                        self.focus_measures = []
+
+                        # go to new z_min
+                        self.move_absolute_position('Z', self.z_min)
+
+                        if self.resolution == AF_min:
+                            self.last = True
+                            print('self.last = True')
+                    else: # self.resolution >= AF_min and not self.last
+                        # compute best focus
+                        focus = self.focus_best(self.positions, self.focus_measures)
+                        
+                        # go to best focus
+                        self.move_absolute_position('Z', focus) # move to absolute target
+                        
+                        # end autofocus sequence
+                        self.is_autofocus = False
+                        
+                        self.is_complete = True
+
+                else:
+                    # move to next position
+                    self.move_relative_position('Z', self.resolution)
+
+                # update last focus
+                self.last_focus = focus
+
+    # Algorithms for estimating the quality of the focus
+    def focus_function(self, image, algorithm = 'vollath4'):
+        print('[LVP Main  ] VerticalControl.focus_function()')
+        w = image.shape[0]
+        h = image.shape[1]
+
+        # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
+        if algorithm == 'vollath4': # pg 266
+            image = np.double(image)
+            sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
+            sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
+            print('[LVP Main  ] Focus Score Vollath: ' + str(sum_one - sum_two))
+            return sum_one - sum_two
+
+        elif algorithm == 'skew':
+            hist = np.histogram(image, bins=256,range=(0,256))
+            hist = np.asarray(hist[0], dtype='int')
+            max_index = hist.argmax()
+
+            edges = np.histogram_bin_edges(image, bins=1)
+            white_edge = edges[1]
+
+            skew = white_edge-max_index
+            print('[LVP Main  ] Focus Score Skew: ' + str(skew))
+            return skew
+
+        elif algorithm == 'pixel_variation':
+            sum = np.sum(image)
+            ssq = np.sum(np.square(image))
+            var = ssq*w*h-sum**2
+            print('[LVP Main  ] Focus Score Pixel Variation: ' + str(var))
+            return var
+        
+            '''
+        elif algorithm == 'convolve2D':
+            # Bueno-Ibarra et al. Optical Engineering 44(6), 063601 (June 2005)
+            kernel = np.array([ [0, -1, 0],
+                                [-1, 4,-1],
+                                [0, -1, 0]], dtype='float') / 6
+            n = 9
+            a = 1
+            kernel = np.zeros([n,n])
+            for i in range(n):
+                for j in range(n):
+                    r2 = ((i-(n-1)/2)**2 + (j-(n-1)/2)**2)/a**2
+                    kernel[i,j] = 2*(1-r2)*np.exp(-0.5*r2)/np.sqrt(3*a)
+            print('[LVP Main  ] kernel\t' + str(kernel))
+            convolve = signal.convolve2d(image, kernel, mode='valid')
+            sum = np.sum(convolve)
+            print('[LVP Main  ] sum\t' + str(sum))
+            return sum
+            '''
+        else:
+            return 0
+
+    def focus_best(self, positions, values, algorithm='direct'):
+        print('[LVP Main  ] VerticalControl.focus_best()')
+        if algorithm == 'direct':
+            max_value = max(values)
+            max_index = values.index(max_value)
+            return positions[max_index]
+
+        elif algorithm == 'mov_avg':
+            avg_values = np.convolve(values, [.5, 1, 0.5], 'same')
+            max_index = avg_values.argmax()
+            return positions[max_index]
+
+        else:
+            return positions[0]
+

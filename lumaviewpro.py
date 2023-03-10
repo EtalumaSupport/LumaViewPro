@@ -189,7 +189,7 @@ class CompositeCapture(FloatLayout):
                 if lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
             
-        lumaview.scope.camera.grab()
+        lumaview.scope.get_image()
         lumaview.scope.save_image(save_folder, file_root, append, color)
 
     def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
@@ -216,12 +216,12 @@ class CompositeCapture(FloatLayout):
 
         # Grab image and save
         time.sleep(2*exposure/1000+0.2) # This needs improvement
-        lumaview.scope.camera.grab()
+        lumaview.scope.get_image()
 
         if false_color: 
-            self.save_image(save_folder, file_root, append, color)
+            lumaview.scope.save_image(save_folder, file_root, append, color)
         else:
-            self.save_image(save_folder, file_root, append, 'BF')
+            lumaview.scope.save_image(save_folder, file_root, append, 'BF')
 
         # Turn off LEDs
         if lumaview.scope.led:
@@ -230,45 +230,45 @@ class CompositeCapture(FloatLayout):
         else:
             print('LED controller not available.')
 
-    # Save image from camera buffer to specified location
-    def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
-        print('[LVP Main  ] CompositeCapture.save_image()')
-        global lumaview
+    # # Save image from camera buffer to specified location
+    # def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
+    #     print('[LVP Main  ] CompositeCapture.save_image()')
+    #     global lumaview
 
-        if lumaview.scope.camera.active == False:
-            return
+    #     if lumaview.scope.camera.active == False:
+    #         return
 
-        img = np.zeros((lumaview.scope.camera.array.shape[0], lumaview.scope.camera.array.shape[1], 3))
+    #     img = np.zeros((lumaview.scope.camera.array.shape[0], lumaview.scope.camera.array.shape[1], 3))
 
-        if color == 'Blue':
-            img[:,:,0] = lumaview.scope.camera.array
-        elif color == 'Green':
-            img[:,:,1] = lumaview.scope.camera.array
-        elif color == 'Red':
-            img[:,:,2] = lumaview.scope.camera.array
-        else:
-            img[:,:,0] = lumaview.scope.camera.array
-            img[:,:,1] = lumaview.scope.camera.array
-            img[:,:,2] = lumaview.scope.camera.array
+    #     if color == 'Blue':
+    #         img[:,:,0] = lumaview.scope.camera.array
+    #     elif color == 'Green':
+    #         img[:,:,1] = lumaview.scope.camera.array
+    #     elif color == 'Red':
+    #         img[:,:,2] = lumaview.scope.camera.array
+    #     else:
+    #         img[:,:,0] = lumaview.scope.camera.array
+    #         img[:,:,1] = lumaview.scope.camera.array
+    #         img[:,:,2] = lumaview.scope.camera.array
 
-        img = np.flip(img, 0)
+    #     img = np.flip(img, 0)
 
-        # set filename options
-        if append == 'ms':
-            append = str(int(round(time.time() * 1000)))
-        elif append == 'time':
-            append = time.strftime("%Y%m%d_%H%M%S")
-        else:
-            append = ''
+    #     # set filename options
+    #     if append == 'ms':
+    #         append = str(int(round(time.time() * 1000)))
+    #     elif append == 'time':
+    #         append = time.strftime("%Y%m%d_%H%M%S")
+    #     else:
+    #         append = ''
 
-        # generate filename string
-        filename = file_root + append + '.tiff'
+    #     # generate filename string
+    #     filename = file_root + append + '.tiff'
 
-        try:
-            cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
-            # cv2.imwrite(filename, img.astype(np.uint8))
-        except:
-            print('Error: Unable to save. Perhaps save folder does not exist?')
+    #     try:
+    #         cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
+    #         # cv2.imwrite(filename, img.astype(np.uint8))
+    #     except:
+    #         print('Error: Unable to save. Perhaps save folder does not exist?')
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
@@ -309,7 +309,7 @@ class CompositeCapture(FloatLayout):
 
                 time.sleep(2*exposure/1000+0.2)  # Should be replaced with Clock
                 scope_display.update()
-                darkfield = lumaview.scope.camera.array
+                darkfield = lumaview.scope.get_array()
 
                 # Florescent capture
                 if lumaview.scope.led:
@@ -322,7 +322,7 @@ class CompositeCapture(FloatLayout):
                 lumaview.scope.camera.grab()
 
                 scope_display.update()
-                corrected = lumaview.scope.camera.array - np.minimum(lumaview.scope.camera.array,darkfield)
+                corrected = lumaview.scope.get_array() - np.minimum(lumaview.scope.get_array(),darkfield)
                 # buffer the images
                 if layer == 'Blue':
                     img[:,:,0] = corrected
@@ -507,8 +507,8 @@ void main (void) {
                 if self.scale < 100:
                     self.scale = self.scale * 1.1
             elif touch.button == 'scrollup':
-                if self.scale > 0.1:
-                    self.scale = self.scale * 0.8
+                if self.scale > 1:
+                    self.scale = max(1, self.scale * 0.8)
         # If some other kind of "touch": Fall back on Scatter's behavior
         else:
             super(ShaderViewer, self).on_touch_down(touch)
@@ -750,7 +750,7 @@ class Histogram(Widget):
         global lumaview
 
         if lumaview.scope.camera != False:
-            image = lumaview.scope.camera.array
+            image = lumaview.scope.get_array()
             hist = np.histogram(image, bins=256,range=(0,256))
             if self.hist_range_set:
                 edges = self.edges
@@ -874,7 +874,15 @@ class VerticalControl(BoxLayout):
     # User selected the autofocus function
     def autofocus(self):
         print('[LVP Main  ] VerticalControl.autofocus()')
+
+        # AF_range = settings['objective']['AF_range']
+        # AF_min =   settings['objective']['AF_min']
+        # AF_max =   settings['objective']['AF_max']
+
+        # Clock.schedule_once(lumaview.scope.autofocus)
+
         global lumaview
+
         self.is_complete = False
 
         if lumaview.scope.camera.active == False:
@@ -923,7 +931,7 @@ class VerticalControl(BoxLayout):
             time.sleep(2*self.exposure/1000+0.2) # msec into sec
 
             # observe the image 
-            image = lumaview.scope.camera.array
+            image = lumaview.scope.get_image()
             rows, cols = image.shape
 
             # Use center quarter of image for focusing
@@ -942,7 +950,8 @@ class VerticalControl(BoxLayout):
             self.positions.append(current)
             self.focus_measures.append(focus)
 
-            if (focus < self.last_focus) or (next_target > self.z_max):
+            # if (focus < self.last_focus) or (next_target > self.z_max):
+            if next_target > self.z_max:
 
                 # Calculate new step size for resolution
                 AF_min = settings['objective']['AF_min']
