@@ -215,7 +215,7 @@ class CompositeCapture(FloatLayout):
             print('LED controller not available.')
 
         # Grab image and save
-        time.sleep(2*exposure/1000) # This needs improvement
+        time.sleep(2*exposure/1000+0.2) # TODO: This needs improvement
         lumaview.scope.get_image()
 
         if false_color: 
@@ -267,7 +267,7 @@ class CompositeCapture(FloatLayout):
                 else:
                     print('LED controller not available.')
 
-                time.sleep(2*exposure/1000)  # Should be replaced with Clock
+                time.sleep(2*exposure/1000+0.2)  # TODO: Should be replaced with Clock
                 scope_display.update()
                 darkfield = lumaview.scope.get_image()
 
@@ -278,7 +278,7 @@ class CompositeCapture(FloatLayout):
                 else:
                     print('LED controller not available.')
 
-                time.sleep(2*exposure/1000)  # Should be replaced with Clock
+                time.sleep(2*exposure/1000+0.2)  # TODO: Should be replaced with Clock
                 exposed = lumaview.scope.get_image()
 
                 scope_display.update()
@@ -888,7 +888,7 @@ class VerticalControl(BoxLayout):
         # if lumaview.scope.get_target_status('Z'):
 
             # Wait two exposure lengths
-            time.sleep(2*self.exposure/1000) # msec into sec
+            time.sleep(2*self.exposure/1000+0.2) # TODO: msec into sec
 
             # observe the image 
             image = lumaview.scope.get_image()

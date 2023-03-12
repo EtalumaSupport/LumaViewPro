@@ -121,7 +121,7 @@ class Lumascope():
             return False
 
     def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
-
+        "Grab the current live image and save to file"
         if not self.camera:
             return
         
