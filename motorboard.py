@@ -41,13 +41,13 @@ import time
 import serial
 import serial.tools.list_ports as list_ports
 
-class TrinamicBoard:
+class MotorBoard:
 
     #----------------------------------------------------------
     # Initialize connection through microcontroller
     #----------------------------------------------------------
     def __init__(self, **kwargs):
-        print('[XYZ Class ] TrinamicBoard.__init__()')
+        print('[XYZ Class ] MotorBoard.__init__()')
         ports = list_ports.comports(include_links = True)
         self.found = False
         self.overshoot = False
@@ -68,18 +68,16 @@ class TrinamicBoard:
         self.write_timeout=0.01 # seconds
         self.driver = False
         try:
+            print('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
         except:
-            print('[XYZ Class ] Found device but motor controller unable establish connection.')
+            print('[LED Class ] Found motor controller but unable to establish connection.')
             raise
-
-    # def __del__(self):
-    #     if self.driver != False:
-    #         self.driver.close()
 
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
         try:
+            print('[XYZ Class ] Found motor controller and about to create driver.')
             self.driver = serial.Serial(port=self.port,
                                         baudrate=self.baudrate,
                                         bytesize=self.bytesize,
@@ -90,38 +88,44 @@ class TrinamicBoard:
             self.driver.close()
             self.driver.open()
             
-            response = self.exchange_command('INFO')
-            print('[XYZ Class ] TrinamicBoard.connect()\n' + response)
+            print('[XYZ Class ] MotorBoard.connect() succeeded')
         except:
             self.driver = False
-            print('[XYZ Class ] TrinamicBoard.connect() failed')
+            print('[XYZ Class ] MotorBoard.connect() failed')
 
     #----------------------------------------------------------
     # Define Communication
     #----------------------------------------------------------
     def exchange_command(self, command):
-        """ Exchange command through serial to SPI to the Trinamic boards
+        """ Exchange command through serial to SPI to the motor boards
         This should NOT be used in a script. It is intended for other functions to access"""
+
+        stream = command.encode('utf-8')+b"\r\n"
 
         if self.driver != False:
             try:
                 self.driver.close()
                 self.driver.open()
-                self.driver.write(command.encode('utf-8')+b"\r\n")
+                self.driver.write(stream)
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
-                # print('[XYZ Class ] TrinamicBoard.exchange_command('+command+') succeeded')
-                return response[:-2]                
+
+                # (too often) print('[XYZ Class ] MotorBoard.exchange_command('+command+') succeeded')
+                return response[:-2]
 
             except serial.SerialTimeoutException:
-                # print('[XYZ Class ] TrinamicBoard.exchange_command('+command+') serial timeout occurred')
-                raise IOError('Trinamic board timeout occured.')
+                self.driver = False
+                print('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+
+            except:
+                self.driver = False
+                print('[LED Class ] LEDBoard.exchange_command('+command+') failed')
+
         else:
             try:
                 self.connect()
             except:
-                # print('[XYZ Class ] TrinamicBoard.exchange_command('+command+') Unable to connect to board')
-                raise IOError('Unable to connect to Trinamic board.')
+                return
 
     # Firmware 1-14-2023 commands include
     # 'QUIT'
@@ -141,71 +145,67 @@ class TrinamicBoard:
     # Z (Focus) Functions
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
-        # print('[XYZ Class ] TrinamicBoard.z_ustep2um('+str(ustep)+')')
+        # print('[XYZ Class ] MotorBoard.z_ustep2um('+str(ustep)+')')
         um = 0.00586 * ustep # 0.00586 um/ustep Olympus Z
         return um
 
     def z_um2ustep(self, um):
-        # print('[XYZ Class ] TrinamicBoard.z_um2ustep('+str(um)+')')       
+        # print('[XYZ Class ] MotorBoard.z_um2ustep('+str(um)+')')       
         ustep = int( um / 0.00586 ) # 0.00586 um/ustep Olympus Z
         return ustep
 
     def zhome(self):
         """ Home the objective """
-        print('[XYZ Class ] TrinamicBoard.zhome()')        
-        if self.found:
-            self.exchange_command('ZHOME')
+        print('[XYZ Class ] MotorBoard.zhome()')        
+        self.exchange_command('ZHOME')
 
     #----------------------------------------------------------
     # XY Stage Functions
     #----------------------------------------------------------
     def xy_ustep2um(self, ustep):
-        # print('[XYZ Class ] TrinamicBoard.xy_ustep2um('+str(ustep)+')')
+        # print('[XYZ Class ] MotorBoard.xy_ustep2um('+str(ustep)+')')
         um = 0.0496 * ustep # 0.0496 um/ustep
         return um
 
     def xy_um2ustep(self, um):
-        # print('[XYZ Class ] TrinamicBoard.xy_um2ustep('+str(um)+')')
+        # print('[XYZ Class ] MotorBoard.xy_um2ustep('+str(um)+')')
         ustep = int( um / 0.0496) # 0.0496 um/ustep
         return ustep
 
     def xyhome(self):
         """ Home the stage which also homes the objective first """
-        print('[XYZ Class ] TrinamicBoard.xyhome()')   
+        print('[XYZ Class ] MotorBoard.xyhome()')   
         if self.found:
             self.exchange_command('HOME')
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
-        print('[XYZ Class ] TrinamicBoard.xycenter()')
-        if self.found:
-            self.exchange_command('CENTER')
+        print('[XYZ Class ] MotorBoard.xycenter()')
+        self.exchange_command('CENTER')
             
     #----------------------------------------------------------
     # T (Turret) Functions
     #----------------------------------------------------------
     def t_ustep2deg(self, ustep):
-        # print('[XYZ Class ] TrinamicBoard.t_ustep2deg('+str(ustep)+')')
+        # print('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
         um = 1. * ustep # needs correct value
         return um
 
     def t_deg2ustep(self, um):
-        # print('[XYZ Class ] TrinamicBoard.t_ustep2deg('+str(um)+')')
+        # print('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
         ustep = int( um / 1.) # needs correct value
         return ustep
 
     def thome(self):
         """ Home the turret, not yet functional in hardware"""
-        print('[XYZ Class ] TrinamicBoard.thome()')
-        if self.found:
-            self.exchange_command('THOME')
+        print('[XYZ Class ] MotorBoard.thome()')
+        self.exchange_command('THOME')
 
     def tmove(self, degrees):
         """ Move the turret, not yet functional in hardware"""
-        print('[XYZ Class ] TrinamicBoard.thome()')
+        print('[XYZ Class ] MotorBoard.thome()')
         steps = self.t_deg2ustep(degrees)
-        if self.found:
-            self.move('T', steps)
+        self.move('T', steps)
 
     #----------------------------------------------------------
     # Motion Functions
@@ -214,7 +214,9 @@ class TrinamicBoard:
     def move(self, axis, steps):
         """ Move the axis to an absolute position (in usteps)
         compared to Home """
+        # print('move', axis, steps)
 
+        # print('def move(self, axis, steps)', axis, steps)
         if steps < 0:
             steps += 0x100000000 # twos compliment
         self.exchange_command('TARGET_W' + axis + str(steps))
@@ -223,111 +225,88 @@ class TrinamicBoard:
     def target_pos(self, axis):
         """ Get the target position of an axis"""
 
-        if self.found:
-            try:
-                responce = self.exchange_command('TARGET_R' + axis)
-                position = int(responce)
-            except ValueError:
-                return 0 # short term fix
-                raise IOError(f"Expected target position from motor controller. Repsonded with '{responce}'")
-            except:
-                raise
+        try:
+            response = self.exchange_command('TARGET_R' + axis)
+            position = int(response)
+        except:
+            position = 0
 
-            if axis == 'Z':
-                um = self.z_ustep2um(position)
-            else:
-                um = self.xy_ustep2um(position)
-
-            # print('[XYZ Class ] TrinamicBoard.target_pos('+axis+') succeeded')
-            return um
+        if axis == 'Z':
+            um = self.z_ustep2um(position)
         else:
-            # print('[XYZ Class ] TrinamicBoard.target_pos('+axis+') inactive')
-            return 0
+            um = self.xy_ustep2um(position)
+
+        return um
 
     # Get current position (in um)
     def current_pos(self, axis):
         """Get current position (in um) of axis"""
         
-        if self.found:
-            try:
-                response = self.exchange_command('ACTUAL_R' + axis)
-                position = int(response)
-            except ValueError:
-                return 0 #short term fix
-                raise IOError(f"Expected current position from motor controller. Repsonded with '{responce}'")
-            except:
-                raise
+        try:
+            response = self.exchange_command('ACTUAL_R' + axis)
+            position = int(response)
+        except:
+            position = 0
 
-            if axis == 'Z':
-                um = self.z_ustep2um(position)
-            else:
-                um = self.xy_ustep2um(position)
-
-            # print('[XYZ Class ] TrinamicBoard.current_pos('+axis+') succeeded')
-            return um
+        if axis == 'Z':
+            um = self.z_ustep2um(position)
         else:
-            # print('[XYZ Class ] TrinamicBoard.current_pos('+axis+') inactive')
-            return 0
+            um = self.xy_ustep2um(position)
 
+        return um
+ 
     # Move to absolute position (in um)
     def move_abs_pos(self, axis, pos):
         """ Move to absolute position (in um) of axis"""
+        # print('move_abs_pos', axis, pos)
+        if axis == 'Z': # Z bound between 0 to 14mm
+            if pos < 0:
+                pos = 0.
+            elif pos > 14000:
+                pos = 14000.
+            steps = self.z_um2ustep(pos)
+        elif axis == 'X': # X bound 0 to 120mm
+            if pos < 0:
+                pos = 0.
+            elif pos > 120000:
+                pos = 120000.
+            steps = self.xy_um2ustep(pos)
+        elif axis == 'Y': # y bound 0 to 80mm
+            if pos < 0:
+                pos = 0.
+            elif pos > 80000:
+                pos = 80000.
+            steps = self.xy_um2ustep(pos)
 
-        if self.found:
-            if axis == 'Z': # Z bound between 0 to 14mm
-                if pos < 0:
-                    pos = 0.
-                elif pos > 14000:
-                    pos = 14000.
-                steps = self.z_um2ustep(pos)
-            elif axis == 'X': # X bound 0 to 120mm
-                if pos < 0:
-                    pos = 0.
-                elif pos > 120000:
-                    pos = 120000.
-                steps = self.xy_um2ustep(pos)
-            elif axis == 'Y': # y bound 0 to 80mm
-                if pos < 0:
-                    pos = 0.
-                elif pos > 80000:
-                    pos = 80000.
-                steps = self.xy_um2ustep(pos)
+        if axis=='Z': # perform overshoot to always come from one direction
+            # get current position
+            current = self.current_pos('Z')
 
-            if axis=='Z': # perform overshoot to always come from one direction
-                # get current position
-                current = self.current_pos('Z')
+            # if the current position is above the new target position
+            if current > pos:
+                # In process of overshoot
+                self.overshoot = True
+                # First overshoot downwards
+                overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
+                overshoot = max(1, overshoot)
+                #self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
+                self.move(axis, overshoot)
+                while not self.target_status('Z'):
+                    time.sleep(0.001)
+                # complete overshoot
+                self.overshoot = False
 
-                # if the current position is above the new target position
-                if current > pos:
-                    # In process of overshoot
-                    self.overshoot = True
-                    # First overshoot downwards
-                    overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
-                    overshoot = max(1, overshoot)
-                    #self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
-                    self.move(axis, overshoot)
-                    while not self.target_status('Z'):
-                        time.sleep(0.001)
-                    # complete overshoot
-                    self.overshoot = False
-
-            self.move(axis, steps)
-            print('[XYZ Class ] TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') succeeded')
-        else:
-            print('[XYZ Class ] TrinamicBoard.move_abs_pos('+axis+','+str(pos)+') inactive')
+        self.move(axis, steps)
 
     # Move by relative distance (in um)
     def move_rel_pos(self, axis, um):
         """ Move by relative distance (in um) of axis """
 
-        if self.found:
-            # Read target position in um
-            pos = self.target_pos(axis)
-            self.move_abs_pos(axis, pos+um)
-            print('[XYZ Class ] TrinamicBoard.move_rel_pos('+axis+','+str(um)+') succeeded')
-        else:
-            print('[XYZ Class ] TrinamicBoard.move_rel_pos('+axis+','+str(um)+') inactive')
-
+        # Read target position in um
+        pos = self.target_pos(axis)
+        self.move_abs_pos(axis, pos+um)
+        print('[XYZ Class ] MotorBoard.move_rel_pos('+axis+','+str(um)+') succeeded')
+ 
     #----------------------------------------------------------
     # Ramp and Reference Switch Status Register
     #----------------------------------------------------------
@@ -336,8 +315,8 @@ class TrinamicBoard:
     def home_status(self, axis):
         """ Return True if axis is in home position"""
 
-        # print('[XYZ Class ] TrinamicBoard.home_status('+axis+')')      
-        if self.found:
+        # print('[XYZ Class ] MotorBoard.home_status('+axis+')')      
+        try:
             data = int( self.exchange_command('STATUS_R' + axis) )
             bits = format(data, 'b').zfill(32)
 
@@ -345,16 +324,16 @@ class TrinamicBoard:
                 return True
             else:
                 return False
-        else:
-            print('[XYZ Class ] TrinamicBoard.home_status('+axis+') inactive')        
+        except:
+            print('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')        
             return False
 
     # return True if current position and target position are the same
     def target_status(self, axis):
         """ Return True if axis is at target position"""
 
-        # print('[XYZ Class ] TrinamicBoard.target_status('+axis+')')
-        if self.found:
+        # print('[XYZ Class ] MotorBoard.target_status('+axis+')')
+        try:
             data = int( self.exchange_command('STATUS_R' + axis) )
             bits = format(data, 'b').zfill(32)
 
@@ -363,15 +342,15 @@ class TrinamicBoard:
             else:
                 return False
   
-        else:
-            print('[XYZ Class ] TrinamicBoard.get_limit_status('+axis+') inactive')
+        except:
+            print('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
             return False
 
 
     # Get all reference status register bits as 32 character string (32-> 0)
     def reference_status(self, axis):
         """ Get all reference status register bits as 32 character string (32-> 0) """
-        if self.found:
+        try:
 
             data = int( self.exchange_command('STATUS_R' + axis) )
             bits = format(data, 'b').zfill(32)
@@ -385,8 +364,8 @@ class TrinamicBoard:
             '''
             print(data)
             return data
-        else:
-            print('[XYZ Class ] TrinamicBoard.reference_status('+axis+') inactive')
+        except:
+            print('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
             return False
 
 

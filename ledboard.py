@@ -40,14 +40,20 @@ import serial
 import serial.tools.list_ports as list_ports
 
 class LEDBoard:    
+
+    #----------------------------------------------------------
+    # Initialize connection through microcontroller
+    #----------------------------------------------------------
     def __init__(self, **kwargs):
         print('[LED Class ] LEDBoard.__init__()')
         ports = list_ports.comports(include_links = True)
+        self.found = False
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
                 print('[LED Class ] LED Controller at', port.device)
                 self.port = port.device
+                self.found = True
                 break
 
         self.baudrate=115200
@@ -64,13 +70,8 @@ class LEDBoard:
             print('[LED Class ] Found LED controller but unable to establish connection.')
             raise
 
-
-    # def __del__(self):
-    #     if self.driver != False:
-    #         self.driver.close()
-
     def connect(self):
-        """ Try to connect to the motor controller based on the known VID/PID"""
+        """ Try to connect to the LED controller based on the known VID/PID"""
         try:
             print('[LED Class ] Found LED controller and about to create driver.')
             self.driver = serial.Serial(port=self.port,
@@ -80,51 +81,47 @@ class LEDBoard:
                                         stopbits=self.stopbits,
                                         timeout=self.timeout,
                                         write_timeout=self.write_timeout)
-            print('[LED Class ] Found LED controller and created driver.')
+
             self.driver.close()
             self.driver.open()
-            print('[LED Class ] Found LED controller and closed and opened again.')
-            self.send_command('import main.py')
-            self.send_command('import main.py')
+
+            # self.exchange_command('import main.py')
+            # self.exchange_command('import main.py')
             print('[LED Class ] LEDBoard.connect() succeeded')
         except:
             self.driver = False
             print('[LED Class ] LEDBoard.connect() failed')
-            raise
             
-    def send_command(self, command):
-        """ Send command through serial to LED controller
+    def exchange_command(self, command):
+        """ Exchange command through serial to LED board
         This should NOT be used in a script. It is intended for other functions to access"""
 
         stream = command.encode('utf-8')+b"\r\n"
+
         if self.driver != False:
             try:
                 self.driver.close()
                 self.driver.open()
                 self.driver.write(stream)
-                print('[LED Class ] LEDBoard.send_command('+command+') succeeded')
-                return True
+                response = self.driver.readline()
+                response = response.decode("utf-8","ignore")
+
+                print('[LED Class ] LEDBoard.exchange_command('+command+') succeeded')
+                return response[:-2]
+            
             except serial.SerialTimeoutException:
-                print('[LED Class ] LEDBoard.send_command('+command+') Serial Timeout Occurred')
-                raise
+                self.driver = False
+                print('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+
             except:
-                raise
+                self.driver = False
+
         else:
-            raise Exception('Driver for LED controller not set.')
-
-    def receive_command(self):
-
-        if self.driver != False:
             try:
-                self.driver.close()
-                self.driver.open()
-                stream = self.driver.readline()
-                command = stream.decode("utf-8","ignore")
-                return command[:-2]
-            except serial.SerialTimeoutException:
-                print('[LED Class ] LEDBoard.receive_command('+command+') Serial Timeout Occurred')
-                raise
-
+                self.connect()
+            except:
+                return
+      
     def color2ch(self, color):
         """ Convert color name to numerical channel """
         if color == 'Blue':
@@ -170,23 +167,23 @@ class LEDBoard:
 
     def leds_enable(self):
         command = 'LEDS_ENT'
-        self.send_command(command)
+        self.exchange_command(command)
 
     def leds_disable(self):
         command = 'LEDS_ENF'
-        self.send_command(command)
+        self.exchange_command(command)
 
     def led_on(self, channel, mA):
         """ Turn on LED at channel number at mA power """
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
-        self.send_command(command)
+        self.exchange_command(command)
 
     def led_off(self, channel):
         """ Turn off LED at channel number """
         command = 'LED' + str(int(channel)) + '_OFF'
-        self.send_command(command)
+        self.exchange_command(command)
 
     def leds_off(self):
         """ Turn off all LEDs """
         command = 'LEDS_OFF'
-        self.send_command(command)
+        self.exchange_command(command)

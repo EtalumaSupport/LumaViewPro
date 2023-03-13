@@ -11,7 +11,7 @@ You will also need to install the camera driver from Basler
 
 '''
 # Additional LumaViewPro files
-from trinamic850 import *
+from motorboard import *
 from ledboard import *
 from pyloncamera import *
 import time

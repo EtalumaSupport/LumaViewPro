@@ -36,7 +36,7 @@ March 2, 2023
 '''
 
 # Import Lumascope Hardware files
-from trinamic850 import TrinamicBoard
+from motorboard import MotorBoard
 from ledboard import LEDBoard
 from pyloncamera import PylonCamera
 import time
@@ -53,22 +53,19 @@ class Lumascope():
             self.led = LEDBoard()
 
         except:
-            self.led = False
-            print('[SCOPE API ] LED False')
+            print('[SCOPE API ] LED Board Not Initialized')
         
         # Motion Control Board
         try:
-            self.motion = TrinamicBoard()
+            self.motion = MotorBoard()
         except:
-            self.motion = False
-            print('[SCOPE API ] Motion False')
+            print('[SCOPE API ] Motion Board Not Initialized')
 
         # Camera
         try:
             self.camera = PylonCamera()
         except:
-            self.camera = False
-            print('[SCOPE API ] Camera False')
+            print('[SCOPE API ] Camera Board Not Initialized')
 
 
     ########################################################################
@@ -126,7 +123,8 @@ class Lumascope():
             return
         
         array = self.get_image()
-
+        if array is False:
+            return 
         img = np.zeros((array.shape[0], array.shape[1], 3))
 
         if color == 'Blue':
@@ -156,7 +154,6 @@ class Lumascope():
         try:
             cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
             print("[SCOPE API ] Saving Image to",save_folder+'/'+filename )
-           # cv2.imwrite(filename, img.astype(np.uint8))
         except:
             print("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
@@ -247,7 +244,7 @@ class Lumascope():
         Returns position (um), or 0 if the motion board is inactive
         values of axis 'X', 'Y', 'Z', and 'T' """
 
-        if not self.motion: return 0
+        if not self.motion.driver: return 0
         target_position = self.motion.target_pos(axis)
         return target_position
         
@@ -256,7 +253,7 @@ class Lumascope():
         Returns position (um), or 0 if the motion board is inactive
         values of axis 'X', 'Y', 'Z', and 'T' """
 
-        if not self.motion: return 0
+        if not self.motion.driver: return 0
         target_position = self.motion.current_pos(axis)
         return target_position
         

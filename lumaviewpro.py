@@ -151,8 +151,10 @@ class ScopeDisplay(Image):
     def update(self, dt=0):
         global lumaview
 
-        if lumaview.scope.camera != False:
+        if lumaview.scope.camera.active != False:
             array = lumaview.scope.get_image()
+            if array is False:
+                return
             # Convert to texture for display (using OpenGL)
             texture = Texture.create(size=(array.shape[1],array.shape[0]), colorfmt='luminance')
             texture.blit_buffer(array.flatten(), colorfmt='luminance', bufferfmt='ubyte')
@@ -770,7 +772,7 @@ class VerticalControl(BoxLayout):
         try:
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
-            print('[LVP Main  ] Error talking to Trinamic board.')
+            print('[LVP Main  ] Error talking to Motor board.')
 
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
@@ -1062,7 +1064,7 @@ class XYStageControl(BoxLayout):
             x_target = lumaview.scope.get_target_position('X')  # Get target value in um
             y_target = lumaview.scope.get_target_position('Y')  # Get target value in um
         except:
-            print('[LVP Main  ] Error talking to Trinamic board.')
+            print('[LVP Main  ] Error talking to Motor board.')
             raise
         else:
             # Convert from plate position to stage position
@@ -1563,34 +1565,34 @@ class ProtocolSettings(CompositeCapture):
         lumaview.ids['mainsettings_id'].ids[id].collapse = False
 
         # set autofocus checkbox
-        print('[LVP Main  ] autofocus: ' + str(af))
+        print('[LVP Main  ] autofocus:  ' + str(bool(af)))
         settings[ch]['autofocus'] = bool(af)
         layer.ids['autofocus'].active = bool(af)
         
         # set false_color checkbox
-        print('[LVP Main  ] false_color: ' + str(fc))
+        print('[LVP Main  ] false_color:' + str(bool(fc)))
         settings[ch]['false_color'] = bool(fc)
         layer.ids['false_color'].active = bool(fc)
 
         # set illumination settings, text, and slider
-        print('[LVP Main  ] ill:     ' + str(ill))
+        print('[LVP Main  ] ill:        ' + str(ill))
         settings[ch]['ill'] = ill
         layer.ids['ill_text'].text = str(ill)
         layer.ids['ill_slider'].value = float(ill)
 
         # set gain settings, text, and slider
-        print('[LVP Main  ] gain:     ' + str(gain))
+        print('[LVP Main  ] gain:       ' + str(gain))
         settings[ch]['gain'] = gain
         layer.ids['gain_text'].text = str(gain)
         layer.ids['gain_slider'].value = float(gain)
 
         # set auto_gain checkbox
-        print('[LVP Main  ] auto_gain: ' + str(auto_gain))
+        print('[LVP Main  ] auto_gain:  ' + str(auto_gain))
         settings[ch]['auto_gain'] = bool(auto_gain)
         layer.ids['auto_gain'].active = bool(auto_gain)
 
         # set exposure settings, text, and slider
-        print('[LVP Main  ] exp:       ' + str(exp))
+        print('[LVP Main  ] exp:        ' + str(exp))
         settings[ch]['exp'] = exp
         layer.ids['exp_text'].text = str(exp)
         layer.ids['exp_slider'].value = float(exp)
@@ -2141,7 +2143,7 @@ class Stage(Widget):
                 x_target = lumaview.scope.get_target_position('X')
                 y_target = lumaview.scope.get_target_position('Y')
             except:
-                print('[LVP Main  ] Error talking to Trinamic board.')
+                print('[LVP Main  ] Error talking to Motor board.')
                 raise
 
             x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
