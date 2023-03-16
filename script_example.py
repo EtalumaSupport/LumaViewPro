@@ -35,9 +35,9 @@ for i in range(6):
 # Controlling focus and XY stage
 # ----------------------------------------------------
 xyz.xyhome()        # home position of xy stage
-for t in range(5):
+for t in range(10):
     time.sleep(1)              # cannot send it new commands to move while its homing
-    print(5-t)
+    print(10-t)
 xyz.move_abs_pos('X', 60000)    # move to absolute position in um
 xyz.move_abs_pos('Y', 40000)    # move to absolute position in um
 xyz.move_abs_pos('Z', 7000)     # move to absolute position in um

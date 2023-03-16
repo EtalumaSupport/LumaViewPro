@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Bryan Tiedemann, The Earthineering Company
 
 MODIFIED:
-January 21, 2023
+March 16, 2023
 '''
 
 # General
@@ -2715,7 +2715,7 @@ class LumaViewProApp(App):
 
     def build(self):
         print('[LVP Main  ] -----------------------------------------')
-        print('[LVP Main  ] Code Compiled On: 3/4/2023')
+        print('[LVP Main  ] Code Compiled On: 3/16/2023')
         print('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         print('[LVP Main  ] -----------------------------------------')
 
