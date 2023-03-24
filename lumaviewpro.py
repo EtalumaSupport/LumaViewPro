@@ -535,10 +535,6 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
-    def accordion_collapse(self):
-        print('[LVP Main  ] MotionSettings.accordion_collapse()')
-        global lumaview
-
 class PostProcessingAccordion(BoxLayout):
 
     def __init__(self, **kwargs):

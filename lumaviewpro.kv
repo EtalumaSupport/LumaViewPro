@@ -194,36 +194,30 @@
         AccordionItem:
             title: 'Microscope Settings'
             collapse: False
-			on_collapse: root.accordion_collapse()
             MicroscopeSettings:
                 id: microscope_settings_id
 
         # FOCUS SETTINGS
 		AccordionItem:
 			title: 'Focus'
-            collapse: False
-			on_collapse: root.accordion_collapse()
 			VerticalControl:
 				id: verticalcontrol_id
 
         # XY STAGE CONTROL
 		AccordionItem:
 			title: 'XY Stage Control'
-			on_collapse: root.accordion_collapse()
 			XYStageControl:
 				id: xy_stagecontrol_id
 
         # PROTOCOL SETTINGS
 		AccordionItem:
 			title: 'Protocol'
-			on_collapse: root.accordion_collapse()
 			ProtocolSettings:
                 id: protocol_settings_id
 
 		# POST PROCESSING
 		AccordionItem:
 			title: 'Post Processing'
-			on_collapse: root.accordion_collapse()
 			PostProcessingAccordion:
                 id: post_processing_id
 
