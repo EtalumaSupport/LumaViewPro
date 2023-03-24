@@ -73,36 +73,60 @@ class Lumascope():
     ########################################################################
 
     def leds_enable(self):
-        """ Enable all LEDS"""
+        """ LED BOARD FUNCTIONS
+        Enable all LEDS"""
         if not self.led: return
         self.led.leds_enable()
 
     def leds_disable(self):
-        """ Disable all LEDS"""
+        """ LED BOARD FUNCTIONS
+        Disable all LEDS"""
         if not self.led: return
         self.led.leds_disable()
 
     def led_on(self, channel, mA):
-        """ Turn on LED at channel number at mA power """
+        """ LED BOARD FUNCTIONS
+        Turn on LED at channel number at mA power """
         if not self.led: return
         self.led.led_on(channel, mA)
 
     def led_off(self, channel):
-        """ Turn off LED at channel number """
+        """ LED BOARD FUNCTIONS
+        Turn off LED at channel number """
         if not self.led: return
         self.led.led_off(channel)
 
     def leds_off(self):
-        """ Turn off all LEDs """
+        """ LED BOARD FUNCTIONS
+        Turn off all LEDs """
         if not self.led: return
         self.led.leds_off()
 
     def ch2color(self, color):
+        """ LED BOARD FUNCTIONS
+        Convert channel number to string representing color
+         0 -> Blue: Fluorescence
+         1 -> Green: Fluorescence
+         2 -> Red: Fluorescence
+         3 -> BF: Brightfield
+         4 -> PC: Phase Contrast
+         5 -> EP: Extended Phase Contrast
+           """
         if not self.led: return
         return self.led.ch2color(color)
 
     def color2ch(self, color):
+        """ LED BOARD FUNCTIONS
+        Convert string representing color to channel number
+         Blue: Fluorescence Channel 0   -> 0
+         Green: Fluorescence Channel 1  -> 1
+         Red: Fluorescence Channel 2    -> 2
+         BF: Brightfield                -> 3
+         PC: Phase Contrast             -> 4
+         EP: Extended Phase Contrast    -> 5
+           """
         if not self.led: return
+        
         return self.led.color2ch(color)
 
     ########################################################################
@@ -110,7 +134,8 @@ class Lumascope():
     ########################################################################
 
     def get_image(self):
-        """Grab and return image from camera"""
+        """ CAMERA FUNCTIONS
+        Grab and return image from camera"""
         if self.camera.grab():
             array = self.camera.array
             return array
@@ -118,7 +143,9 @@ class Lumascope():
             return False
 
     def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
-        "Grab the current live image and save to file"
+        """CAMERA FUNCTIONS
+        Grab the current live image and save to file
+        """
         if not self.camera:
             return
         
@@ -158,48 +185,66 @@ class Lumascope():
             print("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
     def get_max_width(self):
+        """CAMERA FUNCTIONS
+        Grab the max pixel width of camera
+        """
         if not self.camera: return 0
         return self.camera.active.Width.Max
 
     def get_max_height(self):
+        """CAMERA FUNCTIONS
+        Grab the max pixel height of camera
+        """
         if not self.camera: return 0
         return self.camera.active.Height.Max
       
     def get_width(self):
+        """CAMERA FUNCTIONS
+        Grab the current pixel width setting of camera
+        """
         if not self.camera: return 0
         return self.camera.active.Width.GetValue()
 
     def get_height(self):
+        """CAMERA FUNCTIONS
+        Grab the current pixel height setting of camera
+        """
         if not self.camera: return 0
         return self.camera.active.Height.GetValue()
 
     def set_frame_size(self, w, h):
-        """Set frame size of camera to w by h"""
+        """CAMERA FUNCTIONS
+        Set frame size (pixel width by picel height
+        of camera to w by h"""
 
         if not self.camera: return
         self.camera.frame_size(w, h)
 
     def set_gain(self, gain):
-        """Set camera gain"""
+        """CAMERA FUNCTIONS
+        Set camera gain"""
 
         if not self.camera: return
         self.camera.gain(gain)
 
     def set_auto_gain(self, state=True):
-        """ Enable / Disable camera auto_gain with the value of 'state'
+        """CAMERA FUNCTIONS
+        Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
         if not self.camera: return
         self.camera.auto_gain(state)
 
     def set_exposure_time(self, t):
-        """ Set exposure time in the camera hardware t (msec)"""
+        """CAMERA FUNCTIONS
+         Set exposure time in the camera hardware t (msec)"""
 
         if not self.camera: return
         self.camera.exposure_t(t)
 
     def get_exposure_time(self):
-        """ Get exposure time in the camera hardware
+        """CAMERA FUNCTIONS
+         Get exposure time in the camera hardware
          Returns t (msec), or -1 if the camera is inactive"""
 
         if not self.camera: return -1
@@ -207,7 +252,8 @@ class Lumascope():
         return exposure
         
     def set_auto_exposure_time(self, state = True):
-        """ Enable / Disable camera auto_exposure with the value of 'state'
+        """CAMERA FUNCTIONS
+         Enable / Disable camera auto_exposure with the value of 'state'
         It will be continueously updating based on the current image """
 
         if not self.camera: return
@@ -218,29 +264,34 @@ class Lumascope():
     ########################################################################
 
     def zhome(self):
-        """Home the z-axis (i.e. focus)"""
+        """MOTION CONTROL FUNCTIONS
+        Home the z-axis (i.e. focus)"""
         if not self.motion: return
         self.motion.zhome()
 
     def xyhome(self):
-        """Home the xy-axes (i.e. stage). Note: z-axis will always home first"""
+        """MOTION CONTROL FUNCTIONS
+        Home the xy-axes (i.e. stage). Note: z-axis and turret will always home first"""
         if not self.motion: return
         self.motion.xyhome()
 
     def xycenter(self):
-        """Move Stage to the center."""
+        """MOTION CONTROL FUNCTIONS
+        Move Stage to the center."""
 
         if not self.motion: return
         self.motion.xycenter()
 
     def thome(self):
-        """Home the Turret"""
+        """MOTION CONTROL FUNCTIONS
+        Home the Turret"""
 
         if not self.motion: return
         self.motion.thome()
 
     def get_target_position(self, axis):
-        """Get the value of the target position of the axis relative to home
+        """MOTION CONTROL FUNCTIONS
+        Get the value of the target position of the axis relative to home
         Returns position (um), or 0 if the motion board is inactive
         values of axis 'X', 'Y', 'Z', and 'T' """
 
@@ -249,7 +300,8 @@ class Lumascope():
         return target_position
         
     def get_current_position(self, axis):
-        """Get the value of the current position of the axis relative to home
+        """MOTION CONTROL FUNCTIONS
+        Get the value of the current position of the axis relative to home
         Returns position (um), or 0 if the motion board is inactive
         values of axis 'X', 'Y', 'Z', and 'T' """
 
@@ -258,26 +310,30 @@ class Lumascope():
         return target_position
         
     def move_absolute_position(self, axis, pos):
-        """ Move to absolute position (in um) of axis"""
+        """MOTION CONTROL FUNCTIONS
+         Move to absolute position (in um) of axis"""
 
         if not self.motion: return
         self.motion.move_abs_pos(axis, pos)
 
     def move_relative_position(self, axis, um):
-        """ Move to relative distance (in um) of axis"""
+        """MOTION CONTROL FUNCTIONS
+         Move to relative distance (in um) of axis"""
 
         if not self.motion: return
         self.motion.move_rel_pos(axis, um)
 
     def get_home_status(self, axis):
-        """ Return True if axis is in home position"""
+        """MOTION CONTROL FUNCTIONS
+         Return True if axis is in home position"""
  
         if not self.motion: return False
         status = self.motion.home_status(axis)
         return status
 
     def get_target_status(self, axis):
-        """ Return True if axis is at target position"""
+        """MOTION CONTROL FUNCTIONS
+         Return True if axis is at target position"""
 
         if not self.motion: return False
         status = self.motion.target_status(axis)
@@ -285,14 +341,16 @@ class Lumascope():
         
     # Get all reference status register bits as 32 character string (32-> 0)
     def get_reference_status(self, axis):
-        """ Get all reference status register bits as 32 character string (32-> 0) """
+        """MOTION CONTROL FUNCTIONS
+         Get all reference status register bits as 32 character string (32-> 0) """
 
         if not self.motion: return False
         status = self.motion.reference_status(axis)
         return status
 
     def get_overshoot(self):
-        """Is z-axis (focus) currently in overshoot mode?"""
+        """MOTION CONTROL FUNCTIONS
+        Is z-axis (focus) currently in overshoot mode?"""
 
         if not self.motion: return False
         return self.motion.overshoot
@@ -303,7 +361,9 @@ class Lumascope():
 
     ## IN PROGRESS - DO NOT USE ##
     def autofocus(self, dt=0):
-
+        """INTEGRATED SCOPE FUNCTIONS
+        begin autofocus functionality (not yet ported from LVP)"""
+        
         # These should be passed but its not working
         AF_range = 15.0
         AF_min =   0.5
@@ -413,6 +473,10 @@ class Lumascope():
 
     # Algorithms for estimating the quality of the focus
     def focus_function(self, image, algorithm = 'vollath4'):
+        """INTEGRATED SCOPE FUNCTIONS
+        assess focus value at specific position for autofocus function
+        (not yet ported from LVP)"""
+
         print('[LVP Main  ] VerticalControl.focus_function()')
         w = image.shape[0]
         h = image.shape[1]
@@ -467,6 +531,10 @@ class Lumascope():
             return 0
 
     def focus_best(self, positions, values, algorithm='direct'):
+        """INTEGRATED SCOPE FUNCTIONS
+        select best focus position for autofocus function
+        (not yet ported from LVP)"""
+
         print('[LVP Main  ] VerticalControl.focus_best()')
         if algorithm == 'direct':
             max_value = max(values)
