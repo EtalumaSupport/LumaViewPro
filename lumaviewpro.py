@@ -2714,7 +2714,7 @@ class LumaViewProApp(App):
         print('[LVP Main  ] LumaViewProApp.build()')
 
         print('[LVP Main  ] -----------------------------------------')
-        print('[LVP Main  ] Code Compiled On: 3/16/2023')
+        print('[LVP Main  ] Code Compiled On: 3/24/2023')
         print('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         print('[LVP Main  ] -----------------------------------------')
 
