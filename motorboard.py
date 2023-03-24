@@ -90,8 +90,9 @@ class MotorBoard:
             
             print('[XYZ Class ] MotorBoard.connect() succeeded')
 
-            self.xyhome()
-            
+            # After powering on the scope, the first command seems to be ignored.
+            # This is to ensure the following commands are followed
+            self.exchange_command('INFO')
         except:
             self.driver = False
             print('[XYZ Class ] MotorBoard.connect() failed')
@@ -143,7 +144,12 @@ class MotorBoard:
     # 'STATUS_R'
     # 'SPI'
 
-    
+    #----------------------------------------------------------
+    # Informational Functions
+    #----------------------------------------------------------
+    def infomation(self):
+        self.exchange_command('INFO')
+
     #----------------------------------------------------------
     # Z (Focus) Functions
     #----------------------------------------------------------

@@ -2703,13 +2703,16 @@ class FileSaveBTN(Button):
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def on_start(self):
+        print('[LVP Main  ] LumaViewProApp.on_start()')
+        lumaview.scope.xyhome()
         # if profiling:
         #     self.profile = cProfile.Profile()
         #     self.profile.enable()
         # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
-        pass
 
     def build(self):
+        print('[LVP Main  ] LumaViewProApp.build()')
+
         print('[LVP Main  ] -----------------------------------------')
         print('[LVP Main  ] Code Compiled On: 3/16/2023')
         print('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
@@ -2717,7 +2720,6 @@ class LumaViewProApp(App):
 
         global Window
         global lumaview
-        print('[LVP Main  ] LumaViewProApp.build()')
         self.icon = './data/icons/icon32x.png'
 
         try:
@@ -2742,8 +2744,7 @@ class LumaViewProApp(App):
         
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
-        # Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_labware, 0.1)
-        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui, 0.1) 
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui, 0.1) # Includes text boxes, not just stage
 
         try:
             filepath = settings['protocol']['filepath']
