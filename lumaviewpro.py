@@ -1057,21 +1057,23 @@ class VerticalControl(BoxLayout):
 
 class XYStageControl(BoxLayout):
 
-    def update_gui(self):
-        print('[LVP Main  ] XYStageControl.update_gui()')
+    def update_gui(self, dt=0):
+        # print('[LVP Main  ] XYStageControl.update_gui()')
         global lumaview
         try:
             x_target = lumaview.scope.get_target_position('X')  # Get target value in um
+            x_target = np.clip(x_target, 0, 120000) # prevents crosshairs from leaving the stage area
             y_target = lumaview.scope.get_target_position('Y')  # Get target value in um
+            y_target = np.clip(y_target, 0, 80000) # prevents crosshairs from leaving the stage area
         except:
             print('[LVP Main  ] Error talking to Motor board.')
-            raise
         else:
             # Convert from plate position to stage position
             protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
             stage_x, stage_y =  protocol_settings.stage_to_plate(x_target, y_target)
             self.ids['x_pos_id'].text = format(max(0, stage_x), '.2f') # display coordinate in mm
             self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
+            self.ids['stage_control_id'].draw_labware()
 
     def fine_left(self):
         print('[LVP Main  ] XYStageControl.fine_left()')
@@ -1217,19 +1219,10 @@ class XYStageControl(BoxLayout):
 
         if lumaview.scope.motion.driver: # motor controller is actively connected
             lumaview.scope.xyhome()
+            # TODO: update GUI, 
+            
         else:
             print('[LVP Main  ] Motion controller not available.')
-        # self.update_gui()
-
-    def center(self):
-        print('[LVP Main  ] XYStageControl.center()')
-        global lumaview
-
-        if lumaview.scope.motion.driver: # motor controller is actively connected
-            lumaview.scope.xycenter()
-        else:
-            print('[LVP Main  ] Motion controller not available.')
-        # self.update_gui()
 
 # Protocol settings tab
 class ProtocolSettings(CompositeCapture):
@@ -2160,13 +2153,16 @@ class Stage(Widget):
             #  Red Crosshairs
             # ------------------
             x_current = lumaview.scope.get_current_position('X')
+            x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
             y_current = lumaview.scope.get_current_position('Y')
+            y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
 
             # Convert stage coordinates to relative pixel coordinates
             pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
             Color(1., 0., 0., 1.)
             Line(points=(x+pixel_x-10, y+pixel_y, x+pixel_x+10, y+pixel_y), width = 1) # horizontal line
             Line(points=(x+pixel_x, y+pixel_y-10, x+pixel_x, y+pixel_y+10), width = 1) # vertical line
+
 
 class MicroscopeSettings(BoxLayout):
 
@@ -2746,7 +2742,8 @@ class LumaViewProApp(App):
         
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
-        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_labware, 0.1)
+        # Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].ids['stage_control_id'].draw_labware, 0.1)
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui, 0.1) 
 
         try:
             filepath = settings['protocol']['filepath']
@@ -2778,7 +2775,7 @@ class LumaViewProApp(App):
         #     stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
 
         global lumaview
-        
+
         if lumaview.scope.led:
             lumaview.scope.leds_off()
             print('[LVP Main  ] lumaview.scope.leds_off()')
