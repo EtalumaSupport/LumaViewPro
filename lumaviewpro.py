@@ -2276,7 +2276,7 @@ class MicroscopeSettings(BoxLayout):
         spinner = self.ids['objective_spinner']
         settings['objective'] = self.objectives[spinner.text]
         settings['objective']['ID'] = spinner.text
-        microscope_settings_id = lumaview.ids['imagesettings_id'].ids['microscope_settings_id']
+        microscope_settings_id = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
         microscope_settings_id.ids['magnification_id'].text = str(settings['objective']['magnification'])
 
     def frame_size(self):
@@ -2614,7 +2614,7 @@ class FileChooseBTN(Button):
         
         if self.selection:
             if self.context == 'load_settings':
-                lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
+                lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
 
             elif self.context == 'load_protocol':
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
@@ -2689,7 +2689,7 @@ class FileSaveBTN(Button):
         
         if self.context == 'save_settings':
             if self.selection:
-                lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
+                lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
                 print('[LVP Main  ] Saving Settings to File:' + self.selection[0])
 
         elif self.context == 'saveas_protocol':
@@ -2733,9 +2733,9 @@ class LumaViewProApp(App):
 
         # load settings file
         if os.path.exists("./data/current.json"):
-            lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
+            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
         elif os.path.exists("./data/settings.json"):
-            lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
+            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
         else:
             if not os.path.isdir('./data'):
                 raise FileNotFoundError("Cound't find 'data' directory.")
@@ -2783,6 +2783,6 @@ class LumaViewProApp(App):
         else:
             print('[LVP Main  ] LED controller not available.')
 
-        lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
+        lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
 LumaViewProApp().run()

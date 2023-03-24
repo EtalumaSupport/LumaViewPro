@@ -189,22 +189,38 @@
 
 	Accordion:
 		orientation: 'vertical'
+
+        # MICROSCOPE SETTINGS
+        AccordionItem:
+            title: 'Microscope Settings'
+            collapse: False
+			on_collapse: root.accordion_collapse()
+            MicroscopeSettings:
+                id: microscope_settings_id
+
+        # FOCUS SETTINGS
 		AccordionItem:
 			title: 'Focus'
             collapse: False
 			on_collapse: root.accordion_collapse()
 			VerticalControl:
 				id: verticalcontrol_id
+
+        # XY STAGE CONTROL
 		AccordionItem:
 			title: 'XY Stage Control'
 			on_collapse: root.accordion_collapse()
 			XYStageControl:
 				id: xy_stagecontrol_id
+
+        # PROTOCOL SETTINGS
 		AccordionItem:
 			title: 'Protocol'
 			on_collapse: root.accordion_collapse()
 			ProtocolSettings:
                 id: protocol_settings_id
+
+		# POST PROCESSING
 		AccordionItem:
 			title: 'Post Processing'
 			on_collapse: root.accordion_collapse()
@@ -1074,13 +1090,6 @@
     Accordion:
         orientation: 'vertical'
         id: accordion_id
-        # MICROSCOPE SETTINGS
-        AccordionItem:
-            title: 'Microscope Settings'
-            collapse: False
-			on_collapse: root.accordion_collapse()
-            MicroscopeSettings:
-                id: microscope_settings_id
 
         # BRIGHTFIELD SETTINGS
         AccordionItem:
