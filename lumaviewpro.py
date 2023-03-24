@@ -187,8 +187,8 @@ class CompositeCapture(FloatLayout):
         layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
             accordion = layer + '_accordion'
-            if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
-                if lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active:
+            if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+                if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
             
         lumaview.scope.get_image()
@@ -248,7 +248,7 @@ class CompositeCapture(FloatLayout):
             if settings[layer]['acquire'] == True:
 
                 # Go to focus and wait for arrival
-                lumaview.ids['mainsettings_id'].ids[layer].goto_focus()
+                lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
 
                 while not lumaview.scope.get_target_status('Z'):
                     time.sleep(.001)
@@ -306,11 +306,11 @@ class CompositeCapture(FloatLayout):
                 print('LED controller not available.')
 
             # turn off all LED toggle buttons and histograms
-            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-            Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
+            lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+            Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             print('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
-        # lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+        # lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
         lumaview.ids['composite_btn'].state = 'normal'
 
         img = np.flip(img, 0)
@@ -612,28 +612,28 @@ void main (void) {
             self.hide_editor = False
             self.pos = 0, 0
 
-class MainSettings(BoxLayout):
+class ImageSettings(BoxLayout):
     settings_width = dp(300)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        print('[LVP Main  ] MainSettings.__init__()')
+        print('[LVP Main  ] ImageSettings.__init__()')
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
         self.update_transmitted()
-        print('[LVP Main  ] MainSettings.toggle_settings()')
+        print('[LVP Main  ] ImageSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
 
         # move position of settings and stop histogram if main settings are collapsed
-        if self.ids['toggle_mainsettings'].state == 'normal':
+        if self.ids['toggle_imagesettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
 
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
-                Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
+                Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
                 print('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
             self.pos = lumaview.width - self.settings_width, 0
@@ -655,7 +655,7 @@ class MainSettings(BoxLayout):
             self.ids[layer].ids['ill_slider'].max = 50
 
     def accordion_collapse(self):
-        print('[LVP Main  ] MainSettings.accordion_collapse()')
+        print('[LVP Main  ] ImageSettings.accordion_collapse()')
         global lumaview
 
         # turn off the camera update and all LEDs
@@ -670,13 +670,13 @@ class MainSettings(BoxLayout):
         # turn off all LED toggle buttons and histograms
         layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
-            lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-            Clock.unschedule(lumaview.ids['mainsettings_id'].ids[layer].ids['histo_id'].histogram)
+            lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+            Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             print('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
             accordion = layer + '_accordion'
-            if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
-                if lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active:
+            if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+                if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
                     lumaview.ids['viewer_id'].update_shader(false_color=layer)
                 else:
                     lumaview.ids['viewer_id'].update_shader(false_color='BF')
@@ -686,9 +686,9 @@ class MainSettings(BoxLayout):
             scope_display.start()
 
     def check_settings(self, *args):
-        print('[LVP Main  ] MainSettings.check_settings()')
+        print('[LVP Main  ] ImageSettings.check_settings()')
         global lumaview
-        if self.ids['toggle_mainsettings'].state == 'normal':
+        if self.ids['toggle_imagesettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
         else:
             self.pos = lumaview.width - self.settings_width, 0
@@ -741,7 +741,7 @@ class Histogram(Widget):
                 Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
                 Color(r, b, g, a/2)
                 #self.color = Color(rgba=self.color)
-                logHistogram = lumaview.ids['mainsettings_id'].ids[self.layer].ids['logHistogram_id'].active
+                logHistogram = lumaview.ids['imagesettings_id'].ids[self.layer].ids['logHistogram_id'].active
                 if logHistogram:
                     maxheight = np.log(np.max(hist[0])+1)
                 else:
@@ -1547,15 +1547,15 @@ class ProtocolSettings(CompositeCapture):
             print('[LVP Main  ] Motion controller not availabble.')
 
         ch = lumaview.scope.ch2color(ch)
-        layer  = lumaview.ids['mainsettings_id'].ids[ch]
+        layer  = lumaview.ids['imagesettings_id'].ids[ch]
 
-        # open MainSettings
-        lumaview.ids['mainsettings_id'].ids['toggle_mainsettings'].state = 'down'
-        lumaview.ids['mainsettings_id'].toggle_settings()
+        # open ImageSettings
+        lumaview.ids['imagesettings_id'].ids['toggle_imagesettings'].state = 'down'
+        lumaview.ids['imagesettings_id'].toggle_settings()
         
         # set accordion item to corresponding channel
         id = ch + '_accordion'
-        lumaview.ids['mainsettings_id'].ids[id].collapse = False
+        lumaview.ids['imagesettings_id'].ids[id].collapse = False
 
         # set autofocus checkbox
         print('[LVP Main  ] autofocus:  ' + str(bool(af)))
@@ -1635,7 +1635,7 @@ class ProtocolSettings(CompositeCapture):
         layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
             accordion = layer + '_accordion'
-            if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
+            if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
                 c_layer = layer
 
         if c_layer == False:
@@ -1644,7 +1644,7 @@ class ProtocolSettings(CompositeCapture):
 
         ch = lumaview.scope.color2ch(c_layer)
 
-        layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
+        layer_id = lumaview.ids['imagesettings_id'].ids[c_layer]
         self.step_values[self.c_step, 3] = int(layer_id.ids['autofocus'].active) # autofocus
         self.step_values[self.c_step, 4] = ch # channel
         self.step_values[self.c_step, 5] = int(layer_id.ids['false_color'].active) # false color
@@ -1664,7 +1664,7 @@ class ProtocolSettings(CompositeCapture):
         layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
             accordion = layer + '_accordion'
-            if lumaview.ids['mainsettings_id'].ids[accordion].collapse == False:
+            if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
                 c_layer = layer
 
         if c_layer == False:
@@ -1672,7 +1672,7 @@ class ProtocolSettings(CompositeCapture):
             return mssg
 
         ch = lumaview.scope.color2ch(c_layer)
-        layer_id = lumaview.ids['mainsettings_id'].ids[c_layer]
+        layer_id = lumaview.ids['imagesettings_id'].ids[c_layer]
 
         # Determine and update plate position
         sx = lumaview.scope.get_current_position('X')
@@ -1742,7 +1742,7 @@ class ProtocolSettings(CompositeCapture):
 
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
-                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+                lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
             print('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
             Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
@@ -1880,7 +1880,7 @@ class ProtocolSettings(CompositeCapture):
 
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
-                lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+                lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
             print('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
@@ -2229,14 +2229,14 @@ class MicroscopeSettings(BoxLayout):
 
                 layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
                 for layer in layers:
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
-                    # lumaview.ids['mainsettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['root_text'].text = settings[layer]['file_root']
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
+                    # lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['root_text'].text = settings[layer]['file_root']
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
                 lumaview.scope.set_frame_size(settings['frame']['width'], settings['frame']['height'])
             except:
@@ -2276,7 +2276,7 @@ class MicroscopeSettings(BoxLayout):
         spinner = self.ids['objective_spinner']
         settings['objective'] = self.objectives[spinner.text]
         settings['objective']['ID'] = spinner.text
-        microscope_settings_id = lumaview.ids['mainsettings_id'].ids['microscope_settings_id']
+        microscope_settings_id = lumaview.ids['imagesettings_id'].ids['microscope_settings_id']
         microscope_settings_id.ids['magnification_id'].text = str(settings['objective']['magnification'])
 
     def frame_size(self):
@@ -2451,10 +2451,10 @@ class LayerControl(BoxLayout):
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 if layer == self.layer:
-                    Clock.schedule_interval(lumaview.ids['mainsettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
+                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
                     print('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 0.1)')
                 else:
-                    lumaview.ids['mainsettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
         else: # if the button is 'normal' meaning not active
             # In active channel, and turn off LED
@@ -2614,7 +2614,7 @@ class FileChooseBTN(Button):
         
         if self.selection:
             if self.context == 'load_settings':
-                lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
+                lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
 
             elif self.context == 'load_protocol':
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
@@ -2689,7 +2689,7 @@ class FileSaveBTN(Button):
         
         if self.context == 'save_settings':
             if self.selection:
-                lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
+                lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].save_settings(self.selection[0])
                 print('[LVP Main  ] Saving Settings to File:' + self.selection[0])
 
         elif self.context == 'saveas_protocol':
@@ -2733,9 +2733,9 @@ class LumaViewProApp(App):
 
         # load settings file
         if os.path.exists("./data/current.json"):
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
+            lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
         elif os.path.exists("./data/settings.json"):
-            lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
+            lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
         else:
             if not os.path.isdir('./data'):
                 raise FileNotFoundError("Cound't find 'data' directory.")
@@ -2752,7 +2752,7 @@ class LumaViewProApp(App):
         except:
             print('[LVP Main  ] Unable to load protocol at startup')
 
-        lumaview.ids['mainsettings_id'].ids['BF'].apply_settings()
+        lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
         if lumaview.scope.led:
             lumaview.scope.leds_off()
             print('[LVP Main  ] lumaview.scope.leds_off()')
@@ -2764,7 +2764,7 @@ class LumaViewProApp(App):
     def _on_resize(self, window, w, h):
         pass
         #Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
-        #Clock.schedule_once(lumaview.ids['mainsettings_id'].check_settings, 0.1)
+        #Clock.schedule_once(lumaview.ids['imagesettings_id'].check_settings, 0.1)
 
     def on_stop(self):
         print('[LVP Main  ] LumaViewProApp.on_stop()')
@@ -2783,6 +2783,6 @@ class LumaViewProApp(App):
         else:
             print('[LVP Main  ] LED controller not available.')
 
-        lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
+        lumaview.ids['imagesettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
 LumaViewProApp().run()
