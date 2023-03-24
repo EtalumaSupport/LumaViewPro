@@ -89,6 +89,9 @@ class MotorBoard:
             self.driver.open()
             
             print('[XYZ Class ] MotorBoard.connect() succeeded')
+
+            self.xyhome()
+            
         except:
             self.driver = False
             print('[XYZ Class ] MotorBoard.connect() failed')

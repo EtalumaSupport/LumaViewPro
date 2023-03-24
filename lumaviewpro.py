@@ -2760,8 +2760,6 @@ class LumaViewProApp(App):
             print('[LVP Main  ] lumaview.scope.leds_off()')
         else:
             print('[LVP Main  ] LED controller not available.')
-        lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].home()
-        # lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].center()
 
         return lumaview
 
@@ -2780,11 +2778,13 @@ class LumaViewProApp(App):
         #     stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
 
         global lumaview
+        
         if lumaview.scope.led:
             lumaview.scope.leds_off()
             print('[LVP Main  ] lumaview.scope.leds_off()')
         else:
             print('[LVP Main  ] LED controller not available.')
+
         lumaview.ids['mainsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
 LumaViewProApp().run()
