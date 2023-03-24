@@ -42,7 +42,7 @@
     },
     "PC": {
         "save_folder": "./capture",
-        "file_root": "W_",
+        "file_root": "PC_",
         "focus": 4950.0,
         "autofocus": true,
         "false_color": false,
@@ -54,7 +54,7 @@
     },
     "EP": {
         "save_folder": "./capture",
-        "file_root": "W_",
+        "file_root": "EP_",
         "focus": 4950.0,
         "autofocus": true,
         "false_color": false,
