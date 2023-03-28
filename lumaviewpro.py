@@ -72,10 +72,8 @@ from kivy.app import App
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
-#from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
 from kivy.clock import Clock
 from kivy.metrics import dp
-#from kivy.animation import Animation
 from kivy.graphics import Line, Color, Rectangle, Ellipse
 
 # User Interface
@@ -640,7 +638,6 @@ class ImageSettings(BoxLayout):
     def update_transmitted(self):
         layers = ['BF', 'PC', 'EP']
         for layer in layers:
-            accordion = layer + '_accordion'
 
             # Remove 'Colorize' option in transmitted channels control
             # -----------------------------------------------------
