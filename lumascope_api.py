@@ -30,15 +30,17 @@ This open source software was developed for use with Etaluma microscopes.
 AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
+Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 16, 2023
+March 20, 2023
 '''
 
 # Import Lumascope Hardware files
 from motorboard import MotorBoard
 from ledboard import LEDBoard
 from pyloncamera import PylonCamera
+from lvp_logger import logger
 import time
 import cv2
 import numpy as np
@@ -53,19 +55,19 @@ class Lumascope():
             self.led = LEDBoard()
 
         except:
-            print('[SCOPE API ] LED Board Not Initialized')
+            logger.exception('[SCOPE API ] LED Board Not Initialized')
         
         # Motion Control Board
         try:
             self.motion = MotorBoard()
         except:
-            print('[SCOPE API ] Motion Board Not Initialized')
+            logger.exception('[SCOPE API ] Motion Board Not Initialized')
 
         # Camera
         try:
             self.camera = PylonCamera()
         except:
-            print('[SCOPE API ] Camera Board Not Initialized')
+            logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
 
     ########################################################################
@@ -180,9 +182,9 @@ class Lumascope():
 
         try:
             cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
-            print("[SCOPE API ] Saving Image to",save_folder+'/'+filename )
+            logger.info("[SCOPE API ] Saving Image to",save_folder+'/'+filename )
         except:
-            print("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
+            logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
     def get_max_width(self):
         """CAMERA FUNCTIONS
@@ -369,12 +371,12 @@ class Lumascope():
         AF_min =   0.5
         AF_max =   6.0
         
-        print('[SCOPE API ] Lumascope.autofocus()')
+        logger.info('[SCOPE API ] Lumascope.autofocus()')
         self.is_complete = False
         self.is_autofocus = True
 
         if self.camera.active == False:
-            print('[SCOPE API ] Error: VerticalControl.autofocus()')
+            logger.exception('[SCOPE API ] Error: VerticalControl.autofocus()')
             self.is_autofocus = False
             return
 
@@ -415,7 +417,7 @@ class Lumascope():
                     focus = self.focus_function(image)
                     next_target = self.get_target_position('Z') + self.resolution
                 except:
-                    print('[SCOPE API ] Error talking to motion controller.')
+                    logger.exception('[SCOPE API ] Error talking to motion controller.')
                     raise
 
                 # append to positions and focus measures
@@ -451,7 +453,7 @@ class Lumascope():
 
                         if self.resolution == AF_min:
                             self.last = True
-                            print('self.last = True')
+                            logger.info('self.last = True')
                     else: # self.resolution >= AF_min and not self.last
                         # compute best focus
                         focus = self.focus_best(self.positions, self.focus_measures)
@@ -477,7 +479,7 @@ class Lumascope():
         assess focus value at specific position for autofocus function
         (not yet ported from LVP)"""
 
-        print('[LVP Main  ] VerticalControl.focus_function()')
+        logger.info('[LVP Main  ] VerticalControl.focus_function()')
         w = image.shape[0]
         h = image.shape[1]
 
@@ -486,7 +488,7 @@ class Lumascope():
             image = np.double(image)
             sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
             sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            print('[LVP Main  ] Focus Score Vollath: ' + str(sum_one - sum_two))
+            logger.info('[LVP Main  ] Focus Score Vollath: ' + str(sum_one - sum_two))
             return sum_one - sum_two
 
         elif algorithm == 'skew':
@@ -498,14 +500,14 @@ class Lumascope():
             white_edge = edges[1]
 
             skew = white_edge-max_index
-            print('[LVP Main  ] Focus Score Skew: ' + str(skew))
+            logger.info('[LVP Main  ] Focus Score Skew: ' + str(skew))
             return skew
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
             ssq = np.sum(np.square(image))
             var = ssq*w*h-sum**2
-            print('[LVP Main  ] Focus Score Pixel Variation: ' + str(var))
+            logger.info('[LVP Main  ] Focus Score Pixel Variation: ' + str(var))
             return var
         
             '''
@@ -521,10 +523,10 @@ class Lumascope():
                 for j in range(n):
                     r2 = ((i-(n-1)/2)**2 + (j-(n-1)/2)**2)/a**2
                     kernel[i,j] = 2*(1-r2)*np.exp(-0.5*r2)/np.sqrt(3*a)
-            print('[LVP Main  ] kernel\t' + str(kernel))
+            logger.info('[LVP Main  ] kernel\t' + str(kernel))
             convolve = signal.convolve2d(image, kernel, mode='valid')
             sum = np.sum(convolve)
-            print('[LVP Main  ] sum\t' + str(sum))
+            logger.info('[LVP Main  ] sum\t' + str(sum))
             return sum
             '''
         else:
@@ -535,7 +537,7 @@ class Lumascope():
         select best focus position for autofocus function
         (not yet ported from LVP)"""
 
-        print('[LVP Main  ] VerticalControl.focus_best()')
+        logger.info('[LVP Main  ] VerticalControl.focus_best()')
         if algorithm == 'direct':
             max_value = max(values)
             max_index = values.index(max_value)

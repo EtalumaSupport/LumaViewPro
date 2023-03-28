@@ -28,18 +28,20 @@ This open source software was developed for use with Etaluma microscopes.
 AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
+Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 16, 2023
+March 20, 2023
 '''
 
 import numpy as np
 from pypylon import pylon
+from lvp_logger import logger
 
 class PylonCamera:
 
     def __init__(self, **kwargs):
-        print('[CAM Class ] PylonCamera.__init__()')
+        logger.info('[CAM Class ] PylonCamera.__init__()')
         self.active = False
         self.error_report_count = 0
         self.array = np.array([])
@@ -49,7 +51,7 @@ class PylonCamera:
         try:
             self.active.close()
         except:
-            print('[CAM Class ] exception')
+            logger.exception('[CAM Class ] exception')
 
     def connect(self):
         """ Try to connect to the first available basler camera"""
@@ -68,12 +70,12 @@ class PylonCamera:
             # Grabbing Continuously (video) with minimal delay
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             self.error_report_count = 0
-            print('[CAM Class ] PylonCamera.connect() succeeded)')
+            logger.info('[CAM Class ] PylonCamera.connect() succeeded)')
 
         except:
             self.active = False
             if (self.error_report_count < 6):
-                print('[CAM Class ] PylonCamera.connect() failed')
+                logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.error_report_count += 1
 
     def grab(self):
@@ -93,12 +95,12 @@ class PylonCamera:
 
             grabResult.Release()
             self.error_report_count = 0
-            # print('[CAM Class ] PylonCamera.grab() succeeded')
+            # logger.info('[CAM Class ] PylonCamera.grab() succeeded')
             return True
 
         except:
             if self.error_report_count < 6:
-                print('[CAM Class ] PylonCamera.grab() failed')
+                logger.exception('[CAM Class ] PylonCamera.grab() failed')
             self.error_report_count += 1
             self.active = False
             return False
@@ -117,9 +119,9 @@ class PylonCamera:
             self.active.BslCenterX.Execute()
             self.active.BslCenterY.Execute()
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-            print('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded')
+            logger.info('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded')
         else:
-            print('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive')
+            logger.warning('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive')
 
 
     def gain(self, gain):
@@ -127,9 +129,9 @@ class PylonCamera:
 
         if self.active != False:
             self.active.Gain.SetValue(gain)
-            print('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': succeeded')
+            logger.info('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': succeeded')
         else:
-            print('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': inactive camera')
+            logger.warning('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': inactive camera')
 
     def auto_gain(self, state = True):
         """ Enable / Disable camera auto_gain with the value of 'state'
@@ -140,9 +142,9 @@ class PylonCamera:
                 self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             else:
                 self.active.GainAuto.SetValue('Off')
-            print('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': succeeded')
+            logger.info('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': succeeded')
         else:
-            print('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': inactive camera')
+            logger.warning('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': inactive camera')
             
     def exposure_t(self, t):
         """ Set exposure time in the camera hardware t (msec)"""
@@ -150,9 +152,9 @@ class PylonCamera:
         if self.active != False:
             # (t*1000) in microseconds; therefore t  in milliseconds
             self.active.ExposureTime.SetValue(max(t*1000, self.active.ExposureTime.Min))
-            print('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
+            logger.info('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
         else:
-            print('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': inactive camera')
+            logger.warning('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': inactive camera')
 
     def get_exposure_t(self):
         """ Set exposure time in the camera hardware
@@ -161,10 +163,10 @@ class PylonCamera:
         if self.active != False:
             microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
             millisec = microsec/1000 # convert exposure time to millisec
-            print('[CAM Class ] PylonCamera.get_exposure_t(): succeeded')
+            logger.info('[CAM Class ] PylonCamera.get_exposure_t(): succeeded')
             return millisec
         else:
-            print('[CAM Class ] PylonCamera.get_exposure_t(): inactive camera')
+            logger.warning('[CAM Class ] PylonCamera.get_exposure_t(): inactive camera')
             return -1
 
     def auto_exposure_t(self, state = True):
@@ -176,7 +178,7 @@ class PylonCamera:
                 self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             else:
                 self.active.ExposureAuto.SetValue('Off')
-            print('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': succeeded')
+            logger.info('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': succeeded')
         else:
-            print('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera')
+            logger.warning('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera')
 

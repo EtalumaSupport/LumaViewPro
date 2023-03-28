@@ -30,14 +30,16 @@ This open source software was developed for use with Etaluma microscopes.
 AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
+Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 16, 2023
+March 20 2023
 '''
 
 from numpy import False_
 import serial
 import serial.tools.list_ports as list_ports
+from lvp_logger import logger
 
 class LEDBoard:    
 
@@ -45,13 +47,13 @@ class LEDBoard:
     # Initialize connection through microcontroller
     #----------------------------------------------------------
     def __init__(self, **kwargs):
-        print('[LED Class ] LEDBoard.__init__()')
+        logger.info('[LED Class ] LEDBoard.__init__()')
         ports = list_ports.comports(include_links = True)
         self.found = False
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
-                print('[LED Class ] LED Controller at', port.device)
+                logger.info('[LED Class ] LED Controller at', port.device)
                 self.port = port.device
                 self.found = True
                 break
@@ -64,16 +66,16 @@ class LEDBoard:
         self.write_timeout=0.01 # seconds
         self.driver = False
         try:
-            print('[LED Class ] Found LED controller and about to establish connection.')
+            logger.info('[LED Class ] Found LED controller and about to establish connection.')
             self.connect()
         except:
-            print('[LED Class ] Found LED controller but unable to establish connection.')
+            logger.exception('[LED Class ] Found LED controller but unable to establish connection.')
             raise
 
     def connect(self):
         """ Try to connect to the LED controller based on the known VID/PID"""
         try:
-            print('[LED Class ] Found LED controller and about to create driver.')
+            logger.info('[LED Class ] Found LED controller and about to create driver.')
             self.driver = serial.Serial(port=self.port,
                                         baudrate=self.baudrate,
                                         bytesize=self.bytesize,
@@ -87,10 +89,10 @@ class LEDBoard:
 
             # self.exchange_command('import main.py')
             # self.exchange_command('import main.py')
-            print('[LED Class ] LEDBoard.connect() succeeded')
+            logger.info('[LED Class ] LEDBoard.connect() succeeded')
         except:
             self.driver = False
-            print('[LED Class ] LEDBoard.connect() failed')
+            logger.exception('[LED Class ] LEDBoard.connect() failed')
             
     def exchange_command(self, command):
         """ Exchange command through serial to LED board
@@ -106,12 +108,12 @@ class LEDBoard:
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
 
-                print('[LED Class ] LEDBoard.exchange_command('+command+') succeeded')
+                logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded')
                 return response[:-2]
             
             except serial.SerialTimeoutException:
                 self.driver = False
-                print('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+                logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
 
             except:
                 self.driver = False

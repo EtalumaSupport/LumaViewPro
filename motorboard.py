@@ -30,9 +30,10 @@ This open source software was developed for use with Etaluma microscopes.
 AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
+Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 16, 2023
+March 20, 2023
 '''
 
 #import threading
@@ -40,6 +41,7 @@ March 16, 2023
 import time
 import serial
 import serial.tools.list_ports as list_ports
+from lvp_logger import logger
 
 class MotorBoard:
 
@@ -47,7 +49,7 @@ class MotorBoard:
     # Initialize connection through microcontroller
     #----------------------------------------------------------
     def __init__(self, **kwargs):
-        print('[XYZ Class ] MotorBoard.__init__()')
+        logger.info('[XYZ Class ] MotorBoard.__init__()')
         ports = list_ports.comports(include_links = True)
         self.found = False
         self.overshoot = False
@@ -55,7 +57,7 @@ class MotorBoard:
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
-                print('[XYZ Class ] Motor Controller at', port.device)
+                logger.info('[XYZ Class ] Motor Controller at', port.device)
                 self.port = port.device
                 self.found = True
                 break
@@ -68,16 +70,16 @@ class MotorBoard:
         self.write_timeout=0.01 # seconds
         self.driver = False
         try:
-            print('[XYZ Class ] Found motor controller and about to establish connection.')
+            logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
         except:
-            print('[LED Class ] Found motor controller but unable to establish connection.')
+            logger.exception('[LED Class ] Found motor controller but unable to establish connection.')
             raise
 
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
         try:
-            print('[XYZ Class ] Found motor controller and about to create driver.')
+            logger.info('[XYZ Class ] Found motor controller and about to create driver.')
             self.driver = serial.Serial(port=self.port,
                                         baudrate=self.baudrate,
                                         bytesize=self.bytesize,
@@ -88,14 +90,14 @@ class MotorBoard:
             self.driver.close()
             self.driver.open()
             
-            print('[XYZ Class ] MotorBoard.connect() succeeded')
+            logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
 
             # After powering on the scope, the first command seems to be ignored.
             # This is to ensure the following commands are followed
             self.exchange_command('INFO')
         except:
             self.driver = False
-            print('[XYZ Class ] MotorBoard.connect() failed')
+            logger.exception('[XYZ Class ] MotorBoard.connect() failed')
 
     #----------------------------------------------------------
     # Define Communication
@@ -114,16 +116,16 @@ class MotorBoard:
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
 
-                # (too often) print('[XYZ Class ] MotorBoard.exchange_command('+command+') succeeded')
+                # (too often) logger.info('[XYZ Class ] MotorBoard.exchange_command('+command+') succeeded')
                 return response[:-2]
 
             except serial.SerialTimeoutException:
                 self.driver = False
-                print('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+                logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
 
             except:
                 self.driver = False
-                print('[LED Class ] LEDBoard.exchange_command('+command+') failed')
+                logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') failed')
 
         else:
             try:
@@ -154,65 +156,65 @@ class MotorBoard:
     # Z (Focus) Functions
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
-        # print('[XYZ Class ] MotorBoard.z_ustep2um('+str(ustep)+')')
+        # logger.info('[XYZ Class ] MotorBoard.z_ustep2um('+str(ustep)+')')
         um = 0.00586 * ustep # 0.00586 um/ustep Olympus Z
         return um
 
     def z_um2ustep(self, um):
-        # print('[XYZ Class ] MotorBoard.z_um2ustep('+str(um)+')')       
+        # logger.info('[XYZ Class ] MotorBoard.z_um2ustep('+str(um)+')')       
         ustep = int( um / 0.00586 ) # 0.00586 um/ustep Olympus Z
         return ustep
 
     def zhome(self):
         """ Home the objective """
-        print('[XYZ Class ] MotorBoard.zhome()')        
+        logger.info('[XYZ Class ] MotorBoard.zhome()')        
         self.exchange_command('ZHOME')
 
     #----------------------------------------------------------
     # XY Stage Functions
     #----------------------------------------------------------
     def xy_ustep2um(self, ustep):
-        # print('[XYZ Class ] MotorBoard.xy_ustep2um('+str(ustep)+')')
+        # logger.info('[XYZ Class ] MotorBoard.xy_ustep2um('+str(ustep)+')')
         um = 0.0496 * ustep # 0.0496 um/ustep
         return um
 
     def xy_um2ustep(self, um):
-        # print('[XYZ Class ] MotorBoard.xy_um2ustep('+str(um)+')')
+        # logger.info('[XYZ Class ] MotorBoard.xy_um2ustep('+str(um)+')')
         ustep = int( um / 0.0496) # 0.0496 um/ustep
         return ustep
 
     def xyhome(self):
         """ Home the stage which also homes the objective first """
-        print('[XYZ Class ] MotorBoard.xyhome()')   
+        logger.info('[XYZ Class ] MotorBoard.xyhome()')   
         if self.found:
             self.exchange_command('HOME')
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
-        print('[XYZ Class ] MotorBoard.xycenter()')
+        logger.info('[XYZ Class ] MotorBoard.xycenter()')
         self.exchange_command('CENTER')
             
     #----------------------------------------------------------
     # T (Turret) Functions
     #----------------------------------------------------------
     def t_ustep2deg(self, ustep):
-        # print('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
+        # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
         um = 1. * ustep # needs correct value
         return um
 
     def t_deg2ustep(self, um):
-        # print('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
+        # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
         ustep = int( um / 1.) # needs correct value
         return ustep
 
     def thome(self):
         """ Home the turret, not yet functional in hardware"""
-        print('[XYZ Class ] MotorBoard.thome()')
+        logger.info('[XYZ Class ] MotorBoard.thome()')
         self.exchange_command('THOME')
 
     def tmove(self, degrees):
         """ Move the turret, not yet functional in hardware"""
-        print('[XYZ Class ] MotorBoard.thome()')
+        logger.info('[XYZ Class ] MotorBoard.thome()')
         steps = self.t_deg2ustep(degrees)
         self.move('T', steps)
 
@@ -223,9 +225,9 @@ class MotorBoard:
     def move(self, axis, steps):
         """ Move the axis to an absolute position (in usteps)
         compared to Home """
-        # print('move', axis, steps)
+        # logger.info('move', axis, steps)
 
-        # print('def move(self, axis, steps)', axis, steps)
+        # logger.info('def move(self, axis, steps)', axis, steps)
         if steps < 0:
             steps += 0x100000000 # twos compliment
         self.exchange_command('TARGET_W' + axis + str(steps))
@@ -267,7 +269,7 @@ class MotorBoard:
     # Move to absolute position (in um)
     def move_abs_pos(self, axis, pos):
         """ Move to absolute position (in um) of axis"""
-        # print('move_abs_pos', axis, pos)
+        # logger.info('move_abs_pos', axis, pos)
         if axis == 'Z': # Z bound between 0 to 14mm
             if pos < 0:
                 pos = 0.
@@ -314,7 +316,7 @@ class MotorBoard:
         # Read target position in um
         pos = self.target_pos(axis)
         self.move_abs_pos(axis, pos+um)
-        print('[XYZ Class ] MotorBoard.move_rel_pos('+axis+','+str(um)+') succeeded')
+        logger.info('[XYZ Class ] MotorBoard.move_rel_pos('+axis+','+str(um)+') succeeded')
  
     #----------------------------------------------------------
     # Ramp and Reference Switch Status Register
@@ -324,7 +326,7 @@ class MotorBoard:
     def home_status(self, axis):
         """ Return True if axis is in home position"""
 
-        # print('[XYZ Class ] MotorBoard.home_status('+axis+')')      
+        # logger.info('[XYZ Class ] MotorBoard.home_status('+axis+')')      
         try:
             data = int( self.exchange_command('STATUS_R' + axis) )
             bits = format(data, 'b').zfill(32)
@@ -334,14 +336,14 @@ class MotorBoard:
             else:
                 return False
         except:
-            print('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')        
+            logger.exception('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')        
             return False
 
     # return True if current position and target position are the same
     def target_status(self, axis):
         """ Return True if axis is at target position"""
 
-        # print('[XYZ Class ] MotorBoard.target_status('+axis+')')
+        # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
         try:
             data = int( self.exchange_command('STATUS_R' + axis) )
             bits = format(data, 'b').zfill(32)
@@ -352,7 +354,7 @@ class MotorBoard:
                 return False
   
         except:
-            print('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
+            logger.exception('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
             return False
 
 
@@ -371,10 +373,10 @@ class MotorBoard:
             bit: 10987654321098765432109876543210
             bit: ----------------------*-------**
             '''
-            print(data)
+            logger.info(data)
             return data
         except:
-            print('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
+            logger.exception('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
             return False
 
 
@@ -382,11 +384,11 @@ class MotorBoard:
 # signed 32 bit hex to dec
 if value >=  0x80000000:
     value -= 0x10000000
-print(int(value))
+logger.info(int(value))
 
 # signed dec to 32 bit hex
 value = -200000
 if value < 0:
     value = 4294967296+value
-print(hex(value))
+logger.info(hex(value))
 '''
