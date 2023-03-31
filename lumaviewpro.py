@@ -50,18 +50,11 @@ from plyer import filechooser
 # Deactivate kivy logging
 os.environ["KIVY_NO_CONSOLELOG"] = "1"
 
-# # Profiling
-# profiling = False
-# if profiling:
-#     import cProfile
-#     import pstats
-
 # Kivy configurations
 # Configurations must be set befor Kivy is imported
 from kivy.config import Config
 Config.set('input', 'mouse', 'mouse, disable_multitouch')
 Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
-
 
 # if fixed size at launch
 #Config.set('graphics', 'width', '1920')
@@ -72,7 +65,6 @@ Config.set('graphics', 'window_state', 'maximized')
 
 import kivy
 kivy.require("2.1.0")
-
 
 from kivy.app import App
 from kivy.factory import Factory
@@ -105,8 +97,11 @@ import post_processing
 global lumaview
 global settings
 
+abspath = os.path.abspath(__file__)
+basename = os.path.basename(__file__)
+source_path = abspath[:-len(basename)]
+print(source_path)
 
-home_wd = os.getcwd()
 start_str = time.strftime("%Y %m %d %H_%M_%S")
 start_str = str(int(round(time.time() * 1000)))
 
@@ -115,7 +110,7 @@ focus_round = 0
 def focus_log(positions, values):
     global focus_round
     if False:
-        os.chdir(home_wd)
+        os.chdir(source_path)
         try:
             file = open('./logs/focus_log.txt', 'a')
         except:
@@ -197,7 +192,7 @@ class CompositeCapture(FloatLayout):
                 if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
             
-        lumaview.scope.get_image()
+        # lumaview.scope.get_image()
         lumaview.scope.save_image(save_folder, file_root, append, color)
 
     def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
@@ -1236,7 +1231,7 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.__init__()')
 
         # Load all Possible Labware from JSON
-        os.chdir(home_wd)
+        os.chdir(source_path)
         try:
             read_file = open('./data/labware.json', "r")
         except:
@@ -1282,7 +1277,7 @@ class ProtocolSettings(CompositeCapture):
         # stage coordinates in um from bottom right
 
         # Determine current labware
-        os.chdir(home_wd)
+        os.chdir(source_path)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -1305,7 +1300,7 @@ class ProtocolSettings(CompositeCapture):
         # plate coordinates in mm from top left
 
         # Determine current labware
-        os.chdir(home_wd)
+        os.chdir(source_path)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -1324,7 +1319,7 @@ class ProtocolSettings(CompositeCapture):
         # pixel coordinates in px from bottom left
 
         # Determine current labware
-        os.chdir(home_wd)
+        os.chdir(source_path)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -1353,7 +1348,7 @@ class ProtocolSettings(CompositeCapture):
     def new_protocol(self):
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
-        os.chdir(home_wd)
+        os.chdir(source_path)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
         current_labware.set_positions()
@@ -1546,7 +1541,7 @@ class ProtocolSettings(CompositeCapture):
             lumaview.scope.move_absolute_position('Y', sy)
             lumaview.scope.move_absolute_position('Z', z)
         else:
-            logger.warning('[LVP Main  ] Motion controller not availabble.')
+            logger.warning('[LVP Main  ] Motion controller not available.')
 
         ch = lumaview.scope.ch2color(ch)
         layer  = lumaview.ids['imagesettings_id'].ids[ch]
@@ -1683,7 +1678,7 @@ class ProtocolSettings(CompositeCapture):
 
         step = [px,                                      # x
                 py,                                      # y
-                lumaview.scope.get_current_position('Z'),        # z
+                lumaview.scope.get_current_position('Z'),# z
                 int(layer_id.ids['autofocus'].active),   # autofocus
                 ch,                                      # ch 
                 int(layer_id.ids['false_color'].active), # false color
@@ -2070,7 +2065,7 @@ class Stage(Widget):
 
         # Create current labware instance
         
-        os.chdir(home_wd)
+        os.chdir(source_path)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
@@ -2173,7 +2168,7 @@ class MicroscopeSettings(BoxLayout):
         logger.info('[LVP Main  ] MicroscopeSettings.__init__()')
 
         try:
-            os.chdir(home_wd)
+            os.chdir(source_path)
             with open('./data/scopes.json', "r") as read_file:
                 self.scopes = json.load(read_file)
         except:
@@ -2181,7 +2176,7 @@ class MicroscopeSettings(BoxLayout):
             raise
 
         try:
-            os.chdir(home_wd)
+            os.chdir(source_path)
             with open('./data/objectives.json', "r") as read_file:
                 self.objectives = json.load(read_file)
         except:
@@ -2196,7 +2191,7 @@ class MicroscopeSettings(BoxLayout):
 
         # load settings JSON file
         try:
-            os.chdir(home_wd)
+            os.chdir(source_path)
             read_file = open(filename, "r")
         except:
             logger.exception('[LVP Main  ] Unable to open file '+filename)
@@ -2248,7 +2243,7 @@ class MicroscopeSettings(BoxLayout):
     def save_settings(self, file="./data/current.json"):
         logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
         global settings
-        os.chdir(home_wd)
+        os.chdir(source_path)
         with open(file, "w") as write_file:
             json.dump(settings, write_file, indent = 4)
 
