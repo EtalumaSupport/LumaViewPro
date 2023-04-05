@@ -45,7 +45,6 @@ import time
 import json
 import glob
 from lvp_logger import logger
-from plyer import filechooser
 
 # Deactivate kivy logging
 os.environ["KIVY_NO_CONSOLELOG"] = "1"
