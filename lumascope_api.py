@@ -33,17 +33,25 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 20, 2023
+March 30, 2023
 '''
 
 # Import Lumascope Hardware files
 from motorboard import MotorBoard
 from ledboard import LEDBoard
 from pyloncamera import PylonCamera
+
+# Import additional libraries
 from lvp_logger import logger
+from threading import Timer
 import time
 import cv2
 import numpy as np
+
+class RepeatTimer(Timer):
+    def run(self):
+        while not self.finished.wait(self.interval):
+            self.function(*self.args, **self.kwargs)
 
 class Lumascope():
 
@@ -69,6 +77,15 @@ class Lumascope():
         except:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
+        # Initialize scope status booleans
+        self.is_capturing = False        # Is the microscope currently attempting image capture (with illumination)
+        self.capture_return = False      # Will be image if capture is ready to pull, else False
+
+        self.is_focusing = False         # Is the microscope currently attempting autofocus
+        self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
+
+        self.is_stepping = False         # Is the microscope currently attempting to capture a step
+        self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
     ########################################################################
     # LED BOARD FUNCTIONS
@@ -128,7 +145,6 @@ class Lumascope():
          EP: Extended Phase Contrast    -> 5
            """
         if not self.led: return
-        
         return self.led.color2ch(color)
 
     ########################################################################
@@ -139,21 +155,15 @@ class Lumascope():
         """ CAMERA FUNCTIONS
         Grab and return image from camera"""
         if self.camera.grab():
-            array = self.camera.array
-            return array
+            return self.camera.array
         else:
             return False
 
-    def save_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
+    def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
         """CAMERA FUNCTIONS
-        Grab the current live image and save to file
+        save image (as array) to file
         """
-        if not self.camera:
-            return
         
-        array = self.get_image()
-        if array is False:
-            return 
         img = np.zeros((array.shape[0], array.shape[1], 3))
 
         if color == 'Blue':
@@ -186,6 +196,15 @@ class Lumascope():
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
+    def save_live_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
+        """CAMERA FUNCTIONS
+        Grab the current live image and save to file
+        """
+        array = self.get_image()
+        if array is False:
+            return 
+        self.save_image(array, save_folder, file_root, append, color)
+ 
     def get_max_width(self):
         """CAMERA FUNCTIONS
         Grab the max pixel width of camera
@@ -249,7 +268,7 @@ class Lumascope():
          Get exposure time in the camera hardware
          Returns t (msec), or -1 if the camera is inactive"""
 
-        if not self.camera: return -1
+        if not self.camera: return 0
         exposure = self.camera.get_exposure_t()
         return exposure
         
@@ -327,9 +346,9 @@ class Lumascope():
 
     def get_home_status(self, axis):
         """MOTION CONTROL FUNCTIONS
-         Return True if axis is in home position"""
+         Return True if axis is in home position or motionboard is """
  
-        if not self.motion: return False
+        if not self.motion: return True
         status = self.motion.home_status(axis)
         return status
 
@@ -337,7 +356,7 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
          Return True if axis is at target position"""
 
-        if not self.motion: return False
+        if not self.motion: return True
         status = self.motion.target_status(axis)
         return status
         
@@ -346,7 +365,7 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
          Get all reference status register bits as 32 character string (32-> 0) """
 
-        if not self.motion: return False
+        if not self.motion: return
         status = self.motion.reference_status(axis)
         return status
 
@@ -357,129 +376,231 @@ class Lumascope():
         if not self.motion: return False
         return self.motion.overshoot
 
+    def is_moving(self):
+        # If not communicating with motor board
+        if not self.motion.driver: return False
+
+        # Check each axis
+        x_status = self.get_target_status('X')
+        y_status = self.get_target_status('Y')
+        z_status = self.get_target_status('Z')
+
+        if x_status and y_status and z_status and not self.get_overshoot():
+            return False
+        else:
+            return True
+
+    ########################################################################
+    # COORDINATES
+    ########################################################################
+
+    # INCOMPLETE
+    def plate_to_stage(self, px, py):
+        # plate coordinates in mm from top left
+        # stage coordinates in um from bottom right
+
+        # Get labware dimensions
+        x_max = 127.76 # in mm
+        y_max = 85.48 # in mm
+
+        # Convert coordinates
+        sx = x_max - 3.88 - px
+        sy = y_max - 2.74 - py
+
+        # Convert from mm to um
+        sx = sx*1000
+        sy = sy*1000
+
+        # return
+        return sx, sy
+    
+    # INCOMPLETE
+    def stage_to_plate(self, sx, sy):
+        # stage coordinates in um from bottom right
+        # plate coordinates in mm from top left
+
+        # Get labware dimensions
+        x_max = 127.76 # in mm
+        y_max = 85.48 # in mm
+
+        # Convert coordinates
+        px = x_max - (3880 + sx)/1000
+        py = y_max - (2740 + sy)/1000
+ 
+        return px, py
+
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS
     ########################################################################
 
-    ## IN PROGRESS - DO NOT USE ##
-    def autofocus(self, dt=0):
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # ILLUMINATE AND CAPTURE
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    def capture(self):
         """INTEGRATED SCOPE FUNCTIONS
-        begin autofocus functionality (not yet ported from LVP)"""
-        
-        # These should be passed but its not working
-        AF_range = 15.0
-        AF_min =   0.5
-        AF_max =   6.0
-        
-        logger.info('[SCOPE API ] Lumascope.autofocus()')
-        self.is_complete = False
-        self.is_autofocus = True
+        Capture image with illumination"""       
 
-        if self.camera.active == False:
-            logger.exception('[SCOPE API ] Error: VerticalControl.autofocus()')
-            self.is_autofocus = False
-            return
+        if not self.led: return
+        if not self.camera: return
 
+        # Set capture states
+        self.is_capturing = True
+        self.capture_return = False
+
+        # Wait time for exposure and rolling shutter
+        wait_time = 2*self.get_exposure_time()/1000+0.2
+
+        # Start thread to wait until capture is complete
+        capture_timer = Timer(wait_time, self.capture_complete)
+        capture_timer.start()
+
+    def capture_complete(self):
+        self.capture_return = self.get_image() # Grab image
+        self.is_capturing = False
+
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # AUTOFOCUS Functionality
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    def autofocus(self, AF_min, AF_max, AF_range):
+        """INTEGRATED SCOPE FUNCTIONS
+        begin autofocus functionality"""
+
+        # Check all hardware required
+        if not self.led: return
+        if not self.motion: return
+        if not self.camera: return
+
+        # Check if hardware is actively responding
+        if self.led.driver is False: return
+        if self.motion.driver is False: return
+        if self.camera.active is False: return
+        
+        # Set autofocus states
+        self.is_focusing = True          # Is the microscope currently attempting autofocus
+        self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
+
+        # Determine center of AF
         center = self.get_current_position('Z')
 
         self.z_min = max(0, center-AF_range)      # starting minimum z-height for autofocus
         self.z_max = center+AF_range              # starting maximum z-height for autofocus
         self.resolution = AF_max                  # starting step size for autofocus
-        self.exposure = self.get_exposure_time()  # camera exposure to determine 'wait' time
 
-        self.positions = []       # List of positions to step through
-        self.focus_measures = []  # Measure focus score at each position
-        self.last_focus = 0       # Last / Previous focus score
-        self.last = False         # Are we on the last scan for autofocus?
+        self.AF_positions = []       # List of positions to step through
+        self.focus_measures = []     # Measure focus score at each position
+        self.last_focus_score = 0    # Last / Previous focus score
+        self.last_focus_pass = False # Are we on the last scan for autofocus?
 
         # Start the autofocus process at z-minimum
         self.move_absolute_position('Z', self.z_min)
 
-        while self.is_autofocus:
-            time.sleep(0.01)
+        # Start thread to wait until autofocus is complete
+        self.autofocus_timer = RepeatTimer(0.01, self.autofocus_iterate, args=(AF_min,))
+        self.autofocus_timer.start()
 
-            # If the z-height has reached its target
-            if self.get_target_status('Z') and not self.get_overshoot():
+    def autofocus_iterate(self, AF_min):
+        """INTEGRATED SCOPE FUNCTIONS
+        iterate autofocus functionality"""
+
+        # Ignore steps until conditions are met
+        if self.is_moving(): return   # needs to be in position
+        if self.is_capturing: return  # needs to have completed capture with illumination
+        print('1- is_moving, is_capturing == False')
+
+
+        # Is there a previous capture result to pull?
+        if self.capture_return is False:
+            print('2- self.capture_return is False')
+            # No -> start a capture event``
+            self.capture()
+            return
+            
+        else:
+            print('3- self.capture_return has image')
+            # Yes -> pull the capture result and clear
+            image = self.capture_return
+            self.capture_return = False
+            
+        if image is False:
+            # Stop thread image can't be acquired
+            self.autofocus_timer.cancel()
+            return
+
+        print('4- observe the image')    
+        # observe the image
+        rows, cols = image.shape
+
+        # Use center quarter of image for focusing
+        image = image[int(rows/4):int(3*rows/4),int(cols/4):int(3*cols/4)]
+
+        # calculate the position and focus measure
+        try:
+            print('5- TRY ')    
+            current = self.get_current_position('Z')
+            focus = self.focus_function(image)
+            next_target = self.get_target_position('Z') + self.resolution
+        except:
+            print('5- EXCEPT ')    
+            logger.exception('[SCOPE API ] Error talking to motion controller.')
+
+        # append to positions and focus measures
+        self.AF_positions.append(current)
+        self.focus_measures.append(focus)
+
+        if next_target <= self.z_max:
+            print('6- move next target')
+            print('self.resolution', self.resolution)
+            self.move_relative_position('Z', self.resolution)
+            return
+
+        print('7- future steps')
+        # Adjust future steps if next_target went out of bounds
+        # Calculate new step size for resolution
+        prev_resolution = self.resolution
+        self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
+
+        print('8- resolution')
+        if self.resolution < AF_min:
+            self.resolution = AF_min
+            self.last_focus_pass = True
+
+        print('9- compute best')
+        # compute best focus
+        focus = self.focus_best(self.AF_positions, self.focus_measures)
+
+        if not self.last_focus_pass:
+            print('10- not self.last_pass')
+            # assign new z_min, z_max, resolution, and sweep
+            self.z_min = focus-prev_resolution 
+            self.z_max = focus+prev_resolution 
+
+            # reset positions and focus measures
+            self.AF_positions = []
+            self.focus_measures = []
+
+            # go to new z_min
+            self.move_absolute_position('Z', self.z_min)
                 
-                # Wait two exposure lengths
-                time.sleep(2*self.exposure/1000+0.2) # msec into sec
+        else:
+            print('10- LAST PASS')
+            # go to best focus
+            self.move_absolute_position('Z', focus) # move to absolute target
+            
+            # end autofocus sequence
+            self.autofocus_return = focus
+            self.is_focusing = False
 
-                # observe the image 
-                image = self.get_image()
-                rows, cols = image.shape
-
-                # Use center quarter of image for focusing
-                image = image[int(rows/4):int(3*rows/4),int(cols/4):int(3*cols/4)]
-
-                # calculate the position and focus measure
-                try:
-                    current = self.get_current_position('Z')
-                    focus = self.focus_function(image)
-                    next_target = self.get_target_position('Z') + self.resolution
-                except:
-                    logger.exception('[SCOPE API ] Error talking to motion controller.')
-                    raise
-
-                # append to positions and focus measures
-                self.positions.append(current)
-                self.focus_measures.append(focus)
-
-                # if (focus < self.last_focus) or (next_target > self.z_max):
-                if next_target > self.z_max:
-
-                    # Calculate new step size for resolution
-                    prev_resolution = self.resolution
-                    self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
-
-                    if self.resolution < AF_min:
-                        self.resolution = AF_min
-
-                    # As long as the step size is larger than or equal to the minimum and not the last pass
-                    if self.resolution >= AF_min and not self.last:
-
-                        # compute best focus
-                        focus = self.focus_best(self.positions, self.focus_measures)
-
-                        # assign new z_min, z_max, resolution, and sweep
-                        self.z_min = focus-prev_resolution 
-                        self.z_max = focus+prev_resolution 
-
-                        # reset positions and focus measures
-                        self.positions = []
-                        self.focus_measures = []
-
-                        # go to new z_min
-                        self.move_absolute_position('Z', self.z_min)
-
-                        if self.resolution == AF_min:
-                            self.last = True
-                            logger.info('self.last = True')
-                    else: # self.resolution >= AF_min and not self.last
-                        # compute best focus
-                        focus = self.focus_best(self.positions, self.focus_measures)
-                        
-                        # go to best focus
-                        self.move_absolute_position('Z', focus) # move to absolute target
-                        
-                        # end autofocus sequence
-                        self.is_autofocus = False
-                        
-                        self.is_complete = True
-
-                else:
-                    # move to next position
-                    self.move_relative_position('Z', self.resolution)
-
-                # update last focus
-                self.last_focus = focus
+            # Stop thread image when autofocus is complete
+            self.autofocus_timer.cancel()
 
     # Algorithms for estimating the quality of the focus
     def focus_function(self, image, algorithm = 'vollath4'):
         """INTEGRATED SCOPE FUNCTIONS
-        assess focus value at specific position for autofocus function
-        (not yet ported from LVP)"""
+        assess focus value at specific position for autofocus function"""
 
-        logger.info('[LVP Main  ] VerticalControl.focus_function()')
+        logger.info('[SCOPE API ] Lumascope.focus_function()')
+
         w = image.shape[0]
         h = image.shape[1]
 
@@ -488,7 +609,7 @@ class Lumascope():
             image = np.double(image)
             sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
             sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            logger.info('[LVP Main  ] Focus Score Vollath: ' + str(sum_one - sum_two))
+            logger.info('[SCOPE API ] Focus Score Vollath: ' + str(sum_one - sum_two))
             return sum_one - sum_two
 
         elif algorithm == 'skew':
@@ -500,44 +621,24 @@ class Lumascope():
             white_edge = edges[1]
 
             skew = white_edge-max_index
-            logger.info('[LVP Main  ] Focus Score Skew: ' + str(skew))
+            logger.info('[SCOPE API ] Focus Score Skew: ' + str(skew))
             return skew
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
             ssq = np.sum(np.square(image))
             var = ssq*w*h-sum**2
-            logger.info('[LVP Main  ] Focus Score Pixel Variation: ' + str(var))
+            logger.info('[SCOPE API ] Focus Score Pixel Variation: ' + str(var))
             return var
         
-            '''
-        elif algorithm == 'convolve2D':
-            # Bueno-Ibarra et al. Optical Engineering 44(6), 063601 (June 2005)
-            kernel = np.array([ [0, -1, 0],
-                                [-1, 4,-1],
-                                [0, -1, 0]], dtype='float') / 6
-            n = 9
-            a = 1
-            kernel = np.zeros([n,n])
-            for i in range(n):
-                for j in range(n):
-                    r2 = ((i-(n-1)/2)**2 + (j-(n-1)/2)**2)/a**2
-                    kernel[i,j] = 2*(1-r2)*np.exp(-0.5*r2)/np.sqrt(3*a)
-            logger.info('[LVP Main  ] kernel\t' + str(kernel))
-            convolve = signal.convolve2d(image, kernel, mode='valid')
-            sum = np.sum(convolve)
-            logger.info('[LVP Main  ] sum\t' + str(sum))
-            return sum
-            '''
         else:
             return 0
-
+    
     def focus_best(self, positions, values, algorithm='direct'):
         """INTEGRATED SCOPE FUNCTIONS
-        select best focus position for autofocus function
-        (not yet ported from LVP)"""
+        select best focus position for autofocus function"""
 
-        logger.info('[LVP Main  ] VerticalControl.focus_best()')
+        logger.info('[SCOPE API ] Lumascope.focus_best()')
         if algorithm == 'direct':
             max_value = max(values)
             max_index = values.index(max_value)
@@ -551,3 +652,114 @@ class Lumascope():
         else:
             return positions[0]
 
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # PROTOCOL STEP Functionality
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    def goto_step(self, step):
+        """ Go to step position and ready camera for a protocol step """
+        x =          step[0] # plate x-position
+        y =          step[1] # plate y-position
+        z =          step[2] # z-position
+        gain =       step[7] # gain
+        auto_gain =  step[8] # auto_gain  T/F == 1/0
+        exp =        step[9] # exposure
+
+        # INCOMPLETE
+        # Convert plate coordinates to stage coordinates
+        sx, sy = self.plate_to_stage(x, y)
+
+        # Move into position
+        if self.motion:
+            self.move_absolute_position('X', x)
+            self.move_absolute_position('Y', y)
+            self.move_absolute_position('Z', z)
+        else:
+            logger.warning('[SCOPE API ] Motion controller not available.')
+
+        # Set Camera
+        self.set_gain(gain)
+        self.set_auto_gain(auto_gain)
+        self.set_exposure_time(exp)
+
+    # CURRENTLY NOT FUNCTIONAL BEYOND THIS POINT
+    
+    '''
+    def step_capture(self, step):
+        """ Complete single protocol step including
+        movement, illumination, camera settings, and save """
+
+        # Check all hardware required
+        if not self.led: return
+        if not self.motion: return
+        if not self.camera: return
+
+        # Check if hardware is actively responding
+        if self.led.driver is False: return
+        if self.motion.driver is False: return
+        if self.camera.active is False: return
+        
+        # Set autofocus states
+        self.is_stepping = True         # Is the microscope currently attempting to capture a step
+        self.capture_return = False     # Will be image if capture is ready to pull, else False
+
+        # Go to step position and ready camera
+        self.goto_step(step)
+
+        # Start thread to wait until position is reached
+        self.step_capture_timer = RepeatTimer(0.1, self.step_capture_iterate, args=(step,))
+        self.step_capture_timer.start()
+
+    def step_capture_iterate(self, step):
+        print('iter A')
+        # Ignore steps until conditions are met
+        if self.is_moving(): return    # needs to be in position
+        if self.is_capturing: return   # needs to not be capturing an image
+        if self.is_focusing: return    # needs to not be in the middle of an autofocus
+        print('iter B')
+
+        # Get step properties
+        autofocus =  step[3] # autofocus enabled T/F == 1/0
+        ch =         step[4] # channel
+        ill =        step[6] # illumination
+
+        # Turn on LED
+        print('LED on')
+        self.led_on(ch, ill)
+
+        # Run autofocus if stated in step
+        if autofocus:
+            print('if autofocus')
+            # Is there a previous autofocus result to pull?
+            if self.autofocus_return is False:
+                print('begin AF')
+                # No - start autofocus event
+                # INCOMPLETE
+                AF_min = 0.5
+                AF_max = 6.0
+                AF_range = 15.0
+                self.autofocus(AF_min, AF_max, AF_range)
+                return  
+              
+        # Is there a previous capture result to pull?
+        if self.capture_return is False:
+            # No - start a step capture event
+            self.capture()
+            return
+
+        # Yes - pull the capture result and clear all returns
+        self.step_capture_return = self.capture_return
+        self.capture_return = False
+        self.autofocus_return = False         
+
+        # Turn off LEDs
+        self.leds_off()
+
+        # End thread when step capture is complete
+        self.save_image(self.step_capture_return)
+        self.step_capture_timer.cancel()
+
+        '''
+
+
+ 
