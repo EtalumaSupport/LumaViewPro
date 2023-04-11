@@ -84,8 +84,8 @@ class Lumascope():
         self.is_focusing = False         # Is the microscope currently attempting autofocus
         self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
 
-        self.is_stepping = False         # Is the microscope currently attempting to capture a step
-        self.step_capture_return = False # Will be image at step settings if ready to pull, else False
+        # self.is_stepping = False         # Is the microscope currently attempting to capture a step
+        # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
     ########################################################################
     # LED BOARD FUNCTIONS
@@ -390,6 +390,7 @@ class Lumascope():
         else:
             return True
 
+    '''
     ########################################################################
     # COORDINATES
     ########################################################################
@@ -428,7 +429,8 @@ class Lumascope():
         py = y_max - (2740 + sy)/1000
  
         return px, py
-
+    '''
+    
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS
     ########################################################################
@@ -506,18 +508,14 @@ class Lumascope():
         # Ignore steps until conditions are met
         if self.is_moving(): return   # needs to be in position
         if self.is_capturing: return  # needs to have completed capture with illumination
-        print('1- is_moving, is_capturing == False')
-
 
         # Is there a previous capture result to pull?
         if self.capture_return is False:
-            print('2- self.capture_return is False')
             # No -> start a capture event``
             self.capture()
             return
             
         else:
-            print('3- self.capture_return has image')
             # Yes -> pull the capture result and clear
             image = self.capture_return
             self.capture_return = False
@@ -526,8 +524,7 @@ class Lumascope():
             # Stop thread image can't be acquired
             self.autofocus_timer.cancel()
             return
-
-        print('4- observe the image')    
+   
         # observe the image
         rows, cols = image.shape
 
@@ -536,12 +533,10 @@ class Lumascope():
 
         # calculate the position and focus measure
         try:
-            print('5- TRY ')    
             current = self.get_current_position('Z')
             focus = self.focus_function(image)
             next_target = self.get_target_position('Z') + self.resolution
         except:
-            print('5- EXCEPT ')    
             logger.exception('[SCOPE API ] Error talking to motion controller.')
 
         # append to positions and focus measures
@@ -549,28 +544,22 @@ class Lumascope():
         self.focus_measures.append(focus)
 
         if next_target <= self.z_max:
-            print('6- move next target')
-            print('self.resolution', self.resolution)
             self.move_relative_position('Z', self.resolution)
             return
 
-        print('7- future steps')
         # Adjust future steps if next_target went out of bounds
         # Calculate new step size for resolution
         prev_resolution = self.resolution
         self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
 
-        print('8- resolution')
         if self.resolution < AF_min:
             self.resolution = AF_min
             self.last_focus_pass = True
 
-        print('9- compute best')
         # compute best focus
         focus = self.focus_best(self.AF_positions, self.focus_measures)
 
         if not self.last_focus_pass:
-            print('10- not self.last_pass')
             # assign new z_min, z_max, resolution, and sweep
             self.z_min = focus-prev_resolution 
             self.z_max = focus+prev_resolution 
@@ -583,7 +572,6 @@ class Lumascope():
             self.move_absolute_position('Z', self.z_min)
                 
         else:
-            print('10- LAST PASS')
             # go to best focus
             self.move_absolute_position('Z', focus) # move to absolute target
             
@@ -653,11 +641,13 @@ class Lumascope():
             return positions[0]
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # PROTOCOL STEP Functionality
+    # PROTOCOL STEP Functionality probably shouldn't be part of the API
+    # At least not for a long time.
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+    '''
     def goto_step(self, step):
-        """ Go to step position and ready camera for a protocol step """
+        """PROTOCOL STEP Functionality
+        Go to step position and ready camera for a protocol step """
         x =          step[0] # plate x-position
         y =          step[1] # plate y-position
         z =          step[2] # z-position
@@ -671,8 +661,8 @@ class Lumascope():
 
         # Move into position
         if self.motion:
-            self.move_absolute_position('X', x)
-            self.move_absolute_position('Y', y)
+            self.move_absolute_position('X', sx) 
+            self.move_absolute_position('Y', sy)
             self.move_absolute_position('Z', z)
         else:
             logger.warning('[SCOPE API ] Motion controller not available.')
@@ -683,11 +673,10 @@ class Lumascope():
         self.set_exposure_time(exp)
 
     # CURRENTLY NOT FUNCTIONAL BEYOND THIS POINT
-    
-    '''
     def step_capture(self, step):
-        """ Complete single protocol step including
-        movement, illumination, camera settings, and save """
+        """PROTOCOL STEP Functionality
+        Complete single protocol step including
+        movement, illumination, camera settings, and save."""
 
         # Check all hardware required
         if not self.led: return
@@ -711,12 +700,10 @@ class Lumascope():
         self.step_capture_timer.start()
 
     def step_capture_iterate(self, step):
-        print('iter A')
         # Ignore steps until conditions are met
         if self.is_moving(): return    # needs to be in position
         if self.is_capturing: return   # needs to not be capturing an image
         if self.is_focusing: return    # needs to not be in the middle of an autofocus
-        print('iter B')
 
         # Get step properties
         autofocus =  step[3] # autofocus enabled T/F == 1/0
@@ -724,15 +711,12 @@ class Lumascope():
         ill =        step[6] # illumination
 
         # Turn on LED
-        print('LED on')
         self.led_on(ch, ill)
 
         # Run autofocus if stated in step
         if autofocus:
-            print('if autofocus')
             # Is there a previous autofocus result to pull?
             if self.autofocus_return is False:
-                print('begin AF')
                 # No - start autofocus event
                 # INCOMPLETE
                 AF_min = 0.5
@@ -759,7 +743,7 @@ class Lumascope():
         self.save_image(self.step_capture_return)
         self.step_capture_timer.cancel()
 
-        '''
+    '''
 
 
  
