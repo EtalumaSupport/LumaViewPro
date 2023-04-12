@@ -57,7 +57,7 @@ class MotorBoard:
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
-                logger.info('[XYZ Class ] Motor Controller at', port.device)
+                logger.info(f'[XYZ Class ] Motor Controller at {port.device}')
                 self.port = port.device
                 self.found = True
                 break

@@ -53,7 +53,7 @@ class LEDBoard:
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
-                logger.info('[LED Class ] LED Controller at', port.device)
+                logger.info(f'[LED Class ] LED Controller at {port.device}')
                 self.port = port.device
                 self.found = True
                 break
