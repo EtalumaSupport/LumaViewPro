@@ -47,7 +47,7 @@ import glob
 from lvp_logger import logger
 
 # Deactivate kivy logging
-os.environ["KIVY_NO_CONSOLELOG"] = "1"
+#os.environ["KIVY_NO_CONSOLELOG"] = "1"
 
 # Kivy configurations
 # Configurations must be set befor Kivy is imported
