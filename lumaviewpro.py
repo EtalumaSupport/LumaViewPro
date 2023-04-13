@@ -141,14 +141,14 @@ class ScopeDisplay(Image):
         logger.info('[LVP Main  ] ScopeDisplay.start()')
         self.fps = fps
         logger.info('[LVP Main  ] Clock.schedule_interval(self.update, 1.0 / self.fps)')
-        Clock.schedule_interval(self.update, 1.0 / self.fps)
+        Clock.schedule_interval(self.update_scopedisplay, 1.0 / self.fps)
 
     def stop(self):
         logger.info('[LVP Main  ] ScopeDisplay.stop()')
         logger.info('[LVP Main  ] Clock.unschedule(self.update)')
-        Clock.unschedule(self.update)
+        Clock.unschedule(self.update_scopedisplay)
 
-    def update(self, dt=0):
+    def update_scopedisplay(self, dt=0):
         global lumaview
 
         if lumaview.scope.camera.active != False:
@@ -192,7 +192,7 @@ class CompositeCapture(FloatLayout):
                     color = layer
             
         # lumaview.scope.get_image()
-        lumaview.scope.save_image(save_folder, file_root, append, color)
+        lumaview.scope.save_live_image(save_folder, file_root, append, color)
 
     def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
@@ -216,14 +216,15 @@ class CompositeCapture(FloatLayout):
         else:
             logger.warning('LED controller not available.')
 
+        # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
-        time.sleep(2*exposure/1000+0.2) # TODO: This needs improvement
+        time.sleep(2*exposure/1000+0.2) 
         lumaview.scope.get_image()
 
         if false_color: 
-            lumaview.scope.save_image(save_folder, file_root, append, color)
+            lumaview.scope.save_live_image(save_folder, file_root, append, color)
         else:
-            lumaview.scope.save_image(save_folder, file_root, append, 'BF')
+            lumaview.scope.save_live_image(save_folder, file_root, append, 'BF')
 
         # Turn off LEDs
         if lumaview.scope.led:
@@ -269,8 +270,9 @@ class CompositeCapture(FloatLayout):
                 else:
                     logger.warning('LED controller not available.')
 
-                time.sleep(2*exposure/1000+0.2)  # TODO: Should be replaced with Clock
-                scope_display.update()
+                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
+                time.sleep(2*exposure/1000+0.2)
+                scope_display.update_scopedisplay() # Why?
                 darkfield = lumaview.scope.get_image()
 
                 # Florescent capture
@@ -280,10 +282,11 @@ class CompositeCapture(FloatLayout):
                 else:
                     logger.warning('LED controller not available.')
 
-                time.sleep(2*exposure/1000+0.2)  # TODO: Should be replaced with Clock
+                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
+                time.sleep(2*exposure/1000+0.2)
                 exposed = lumaview.scope.get_image()
 
-                scope_display.update()
+                scope_display.update_scopedisplay() # Why?
                 corrected = exposed - np.minimum(exposed,darkfield)
                 # buffer the images
                 if layer == 'Blue':
@@ -1049,6 +1052,43 @@ class VerticalControl(BoxLayout):
         # https://scikit-image.org/docs/dev/auto_examples/filters/
         # plot_deconvolution.html#sphx-glr-download-auto-examples-filters-plot-deconvolution-py
         pass
+
+    def turret_home(self):
+        lumaview.scope.thome()
+        self.ids['turret_pos_A_btn'].state = 'normal'
+        self.ids['turret_pos_B_btn'].state = 'normal'
+        self.ids['turret_pos_C_btn'].state = 'normal'
+        self.ids['turret_pos_D_btn'].state = 'normal'
+
+    def turret_select(self, position):
+
+        #TODO HOME  turret first
+
+        if position == 'A':
+            lumaview.scope.tmove(0)
+            self.ids['turret_pos_A_btn'].state = 'down'
+            self.ids['turret_pos_B_btn'].state = 'normal'
+            self.ids['turret_pos_C_btn'].state = 'normal'
+            self.ids['turret_pos_D_btn'].state = 'normal'
+
+        elif position == 'B':
+            lumaview.scope.tmove(90)
+            self.ids['turret_pos_A_btn'].state = 'normal'
+            self.ids['turret_pos_B_btn'].state = 'down'
+            self.ids['turret_pos_C_btn'].state = 'normal'
+            self.ids['turret_pos_D_btn'].state = 'normal'
+        elif position == 'C':
+            lumaview.scope.tmove(180)
+            self.ids['turret_pos_A_btn'].state = 'normal'
+            self.ids['turret_pos_B_btn'].state = 'normal'
+            self.ids['turret_pos_C_btn'].state = 'down'
+            self.ids['turret_pos_D_btn'].state = 'normal'
+        elif position == 'D':
+            lumaview.scope.tmove(270)
+            self.ids['turret_pos_A_btn'].state = 'normal'
+            self.ids['turret_pos_B_btn'].state = 'normal'
+            self.ids['turret_pos_C_btn'].state = 'normal'
+            self.ids['turret_pos_D_btn'].state = 'down'
 
 
 class XYStageControl(BoxLayout):

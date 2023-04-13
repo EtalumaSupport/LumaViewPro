@@ -310,6 +310,13 @@ class Lumascope():
         if not self.motion: return
         self.motion.thome()
 
+    def tmove(self, degrees):
+        """MOTION CONTROL FUNCTIONS
+        Move turret to position in degrees"""
+
+        if not self.motion: return
+        self.motion.tmove(degrees)
+
     def get_target_position(self, axis):
         """MOTION CONTROL FUNCTIONS
         Get the value of the target position of the axis relative to home
@@ -511,7 +518,7 @@ class Lumascope():
 
         # Is there a previous capture result to pull?
         if self.capture_return is False:
-            # No -> start a capture event``
+            # No -> start a capture event
             self.capture()
             return
             
