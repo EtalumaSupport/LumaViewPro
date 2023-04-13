@@ -45,6 +45,7 @@ import time
 import json
 import glob
 from lvp_logger import logger
+from plyer import filechooser
 
 # Deactivate kivy logging
 #os.environ["KIVY_NO_CONSOLELOG"] = "1"
@@ -1055,40 +1056,42 @@ class VerticalControl(BoxLayout):
 
     def turret_home(self):
         lumaview.scope.thome()
-        self.ids['turret_pos_A_btn'].state = 'normal'
-        self.ids['turret_pos_B_btn'].state = 'normal'
-        self.ids['turret_pos_C_btn'].state = 'normal'
-        self.ids['turret_pos_D_btn'].state = 'normal'
+        self.ids['turret_pos_1_btn'].state = 'normal'
+        self.ids['turret_pos_2_btn'].state = 'normal'
+        self.ids['turret_pos_3_btn'].state = 'normal'
+        self.ids['turret_pos_4_btn'].state = 'normal'
 
     def turret_select(self, position):
 
         #TODO HOME  turret first
 
-        if position == 'A':
+        if position == '1':
             lumaview.scope.tmove(0)
-            self.ids['turret_pos_A_btn'].state = 'down'
-            self.ids['turret_pos_B_btn'].state = 'normal'
-            self.ids['turret_pos_C_btn'].state = 'normal'
-            self.ids['turret_pos_D_btn'].state = 'normal'
+            self.ids['turret_pos_1_btn'].state = 'down'
+            self.ids['turret_pos_2_btn'].state = 'normal'
+            self.ids['turret_pos_3_btn'].state = 'normal'
+            self.ids['turret_pos_4_btn'].state = 'normal'
 
-        elif position == 'B':
+        elif position == '2':
             lumaview.scope.tmove(90)
-            self.ids['turret_pos_A_btn'].state = 'normal'
-            self.ids['turret_pos_B_btn'].state = 'down'
-            self.ids['turret_pos_C_btn'].state = 'normal'
-            self.ids['turret_pos_D_btn'].state = 'normal'
-        elif position == 'C':
+            self.ids['turret_pos_1_btn'].state = 'normal'
+            self.ids['turret_pos_2_btn'].state = 'down'
+            self.ids['turret_pos_3_btn'].state = 'normal'
+            self.ids['turret_pos_4_btn'].state = 'normal'
+
+        elif position == '3':
             lumaview.scope.tmove(180)
-            self.ids['turret_pos_A_btn'].state = 'normal'
-            self.ids['turret_pos_B_btn'].state = 'normal'
-            self.ids['turret_pos_C_btn'].state = 'down'
-            self.ids['turret_pos_D_btn'].state = 'normal'
-        elif position == 'D':
+            self.ids['turret_pos_1_btn'].state = 'normal'
+            self.ids['turret_pos_2_btn'].state = 'normal'
+            self.ids['turret_pos_3_btn'].state = 'down'
+            self.ids['turret_pos_4_btn'].state = 'normal'
+
+        elif position == '4':
             lumaview.scope.tmove(270)
-            self.ids['turret_pos_A_btn'].state = 'normal'
-            self.ids['turret_pos_B_btn'].state = 'normal'
-            self.ids['turret_pos_C_btn'].state = 'normal'
-            self.ids['turret_pos_D_btn'].state = 'down'
+            self.ids['turret_pos_1_btn'].state = 'normal'
+            self.ids['turret_pos_2_btn'].state = 'normal'
+            self.ids['turret_pos_3_btn'].state = 'normal'
+            self.ids['turret_pos_4_btn'].state = 'down'
 
 
 class XYStageControl(BoxLayout):
