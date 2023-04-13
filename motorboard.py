@@ -208,15 +208,9 @@ class MotorBoard:
         return ustep
 
     def thome(self):
-        """ Home the turret, not yet functional in hardware"""
+        """ Home the turret, need to test if functional in hardware"""
         logger.info('[XYZ Class ] MotorBoard.thome()')
         self.exchange_command('THOME')
-
-    def tmove(self, degrees):
-        """ Move the turret, not yet functional in hardware"""
-        logger.info('[XYZ Class ] MotorBoard.thome()')
-        steps = self.t_deg2ustep(degrees)
-        self.move('T', steps)
 
     #----------------------------------------------------------
     # Motion Functions
@@ -244,12 +238,17 @@ class MotorBoard:
 
         if axis == 'Z':
             um = self.z_ustep2um(position)
-        else:
+            return um
+        elif (axis == 'X') or (axis == 'Y'):
             um = self.xy_ustep2um(position)
-
-        return um
-
-    # Get current position (in um)
+            return um
+        elif axis == 'T':
+            degrees = self.t_ustep2deg(position)
+            return degrees
+        else:
+            return 0
+        
+    # Get current position (in um or degrees for Turret)
     def current_pos(self, axis):
         """Get current position (in um) of axis"""
         
@@ -261,12 +260,17 @@ class MotorBoard:
 
         if axis == 'Z':
             um = self.z_ustep2um(position)
-        else:
+            return um
+        elif (axis == 'X') or (axis == 'Y'):
             um = self.xy_ustep2um(position)
-
-        return um
+            return um
+        elif axis == 'T':
+            degrees = self.t_ustep2deg(position)
+            return degrees
+        else:
+            return 0
  
-    # Move to absolute position (in um)
+    # Move to absolute position (in um or degrees for Turret)
     def move_abs_pos(self, axis, pos):
         """ Move to absolute position (in um) of axis"""
         # logger.info('move_abs_pos', axis, pos)
@@ -288,13 +292,16 @@ class MotorBoard:
             elif pos > 80000:
                 pos = 80000.
             steps = self.xy_um2ustep(pos)
+        elif axis == 'T':
+            steps = self.t_deg2ustep(pos)
 
         if axis=='Z': # perform overshoot to always come from one direction
             # get current position
             current = self.current_pos('Z')
 
             # if the current position is above the new target position
-            if current > pos:
+            # and 50um above the height of the backlash
+            if (current > pos) and (pos > (self.backlash+50)):
                 # In process of overshoot
                 self.overshoot = True
                 # First overshoot downwards
@@ -309,9 +316,9 @@ class MotorBoard:
 
         self.move(axis, steps)
 
-    # Move by relative distance (in um)
+    # Move by relative distance (in um or degrees for Turret)
     def move_rel_pos(self, axis, um):
-        """ Move by relative distance (in um) of axis """
+        """ Move by relative distance (in um for X, Y, Z or degrees for T) of axis """
 
         # Read target position in um
         pos = self.target_pos(axis)

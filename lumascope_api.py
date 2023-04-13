@@ -322,7 +322,7 @@ class Lumascope():
         self.tmove_timer.start()
 
     def tmove_complete(self, degrees):
-        self.tmove(degrees)
+        self.move_absolute_position('T', degrees)
         self.tmove_timer.cancel()
 
     def get_target_position(self, axis):
