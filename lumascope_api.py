@@ -315,7 +315,15 @@ class Lumascope():
         Move turret to position in degrees"""
 
         if not self.motion: return
-        self.motion.tmove(degrees)
+        # MUST home move objective home first to prevent crash
+        self.zhome()
+
+        self.tmove_timer = Timer(5, self.tmove_complete, args=(degrees,))
+        self.tmove_timer.start()
+
+    def tmove_complete(self, degrees):
+        self.tmove(degrees)
+        self.tmove_timer.cancel()
 
     def get_target_position(self, axis):
         """MOTION CONTROL FUNCTIONS

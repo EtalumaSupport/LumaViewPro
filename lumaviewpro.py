@@ -1063,7 +1063,7 @@ class VerticalControl(BoxLayout):
 
     def turret_select(self, position):
 
-        #TODO HOME  turret first
+        #TODO check if turret has been HOMED turret first
 
         if position == '1':
             lumaview.scope.tmove(0)
