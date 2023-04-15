@@ -34,7 +34,7 @@ Bryan Tiedemann, The Earthineering Company
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 26, 2023
+April 15, 2023
 '''
 
 # General
@@ -84,6 +84,7 @@ from kivy.uix.widget import Widget
 from kivy.uix.slider import Slider
 from kivy.uix.image import Image
 from kivy.uix.button import Button
+from kivy.uix.scrollview import ScrollView
 
 # Video Related
 from kivy.graphics.texture import Texture
