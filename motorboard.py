@@ -199,12 +199,12 @@ class MotorBoard:
     #----------------------------------------------------------
     def t_ustep2deg(self, ustep):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
-        um = 1. * ustep # needs correct value
-        return um
+        degrees = 1000. * ustep # needs correct value
+        return degrees
 
-    def t_deg2ustep(self, um):
+    def t_deg2ustep(self, degrees):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
-        ustep = int( um / 1.) # needs correct value
+        ustep = int( degrees / 1000.) # needs correct value
         return ustep
 
     def thome(self):
