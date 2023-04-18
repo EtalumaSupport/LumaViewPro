@@ -198,13 +198,13 @@ class MotorBoard:
     # T (Turret) Functions
     #----------------------------------------------------------
     def t_ustep2deg(self, ustep):
-        # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
-        um = 1. * ustep # needs correct value
-        return um
+        # 80000 usteps per full rotation
+        deg = 360./80000. * ustep # needs correct value
+        return deg
 
     def t_deg2ustep(self, um):
-        # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
-        ustep = int( um / 1.) # needs correct value
+        # 80000 usteps per full rotation
+        ustep = int( um * 80000./360.) # needs correct value
         return ustep
 
     def thome(self):
