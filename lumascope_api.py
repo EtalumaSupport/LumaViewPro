@@ -316,7 +316,7 @@ class Lumascope():
 
         if not self.motion: return
         # MUST home move objective home first to prevent crash
-        self.zhome()
+        self.xyhome()
 
         self.tmove_timer = Timer(5, self.tmove_complete, args=(degrees,))
         self.tmove_timer.start()
@@ -479,6 +479,8 @@ class Lumascope():
     # AUTOFOCUS Functionality
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+    # Functional, but not integrated with LVP, just for scripting at the moment.
+    
     def autofocus(self, AF_min, AF_max, AF_range):
         """INTEGRATED SCOPE FUNCTIONS
         begin autofocus functionality"""
