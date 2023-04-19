@@ -107,6 +107,7 @@ class MotorBoard:
         This should NOT be used in a script. It is intended for other functions to access"""
 
         stream = command.encode('utf-8')+b"\r\n"
+        print(stream)
 
         if self.driver != False:
             try:
@@ -115,6 +116,7 @@ class MotorBoard:
                 self.driver.write(stream)
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
+                print(response[:-2])
 
                 # (too often) logger.info('[XYZ Class ] MotorBoard.exchange_command('+command+') succeeded')
                 return response[:-2]
