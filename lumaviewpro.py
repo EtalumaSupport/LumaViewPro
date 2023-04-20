@@ -838,16 +838,10 @@ class VerticalControl(BoxLayout):
     def autofocus(self):
         logger.info('[LVP Main  ] VerticalControl.autofocus()')
 
-        # AF_range = settings['objective']['AF_range']
-        # AF_min =   settings['objective']['AF_min']
-        # AF_max =   settings['objective']['AF_max']
-
-        # Clock.schedule_once(lumaview.scope.autofocus)
-
         global lumaview
-
+        self.is_autofocus = True
         self.is_complete = False
-
+        
         if lumaview.scope.camera.active == False:
             logger.warning('[LVP Main  ] Error: VerticalControl.autofocus()')
 
@@ -1854,6 +1848,7 @@ class ProtocolSettings(CompositeCapture):
             exp =       self.step_values[self.c_step, 9] # camera exposure
             
             # set camera settings and turn on LED
+            lumaview.scope.leds_off()
             lumaview.scope.led_on(ch, ill)
             lumaview.scope.set_gain(gain)
             lumaview.scope.set_auto_gain(bool(auto_gain))
