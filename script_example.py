@@ -32,18 +32,18 @@ for i in range(6):
 # Controlling focus and XY stage
 # ----------------------------------------------------
 scope.xyhome()        # home position of xy stage
-for t in range(10):
-    time.sleep(1)              # cannot send it new commands to move while its homing
-    print(10-t)
-scope.move_absolute_position('X', 60000)    # move to absolute position in um
-scope.move_absolute_position('Y', 40000)    # move to absolute position in um
-scope.move_absolute_position('Z', 7000)     # move to absolute position in um
+
+i = 0
+while scope.is_homing:
+    time.sleep(1)              # do not send it new commands to move while its homing
+    print(i)
+    i += 1
 
 # # ----------------------------------------------------
 # # Controlling the Turret (Not Yet Functional)
 # # ----------------------------------------------------
 # scope.thome()
-# scope.move_abs_pos('T', 30.000) # move to absolute position in deg
+# scope.move_abs_pos('T', 90.) # move to absolute position in deg
 
 # ----------------------------------------------------
 # Controlling the Camera
@@ -59,6 +59,11 @@ for i in range(3):
 # Simple Scripting Example
 # ----------------------------------------------------
 scope.xyhome()
+i = 0
+while scope.is_homing:
+    time.sleep(1)              # do not send it new commands to move while its homing
+    print(i)
+    i += 1
 
 # Homing needs 10 seconds. Test LEDs while homing.
 for i in range(6):
