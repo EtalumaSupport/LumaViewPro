@@ -34,7 +34,7 @@ Bryan Tiedemann, The Earthineering Company
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-April 20, 2023
+April 21, 2023
 '''
 
 # General
@@ -2648,8 +2648,9 @@ class FileChooseBTN(Button):
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileChooseBTN.handle_selection()')
-        self.selection = selection
-        self.on_selection()
+        if selection:
+            self.selection = selection
+            self.on_selection()
 
     def on_selection(self, *a, **k):
         logger.info('[LVP Main  ] FileChooseBTN.on_selection()')
@@ -2676,8 +2677,9 @@ class FolderChooseBTN(Button):
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FolderChooseBTN.handle_selection()')
-        self.selection = selection
-        self.on_selection()
+        if selection:
+            self.selection = selection
+            self.on_selection()
 
     def on_selection(self, *a, **k):
         logger.info('[LVP Main  ] FolderChooseBTN.on_selection()')
@@ -2723,8 +2725,9 @@ class FileSaveBTN(Button):
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileSaveBTN.handle_selection()')
-        self.selection = selection
-        self.on_selection()
+        if selection:
+            self.selection = selection
+            self.on_selection()
 
     def on_selection(self, *a, **k):
         logger.info('[LVP Main  ] FileSaveBTN.on_selection()')
