@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-April 20, 2023
+April 21, 2023
 '''
 
 # Import Lumascope Hardware files
@@ -191,10 +191,11 @@ class Lumascope():
 
         # generate filename string
         filename = file_root + append + '.tiff'
+        path = save_folder + '/' + filename
 
         try:
-            cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
-            logger.info("[SCOPE API ] Saving Image to",save_folder+'/'+filename )
+            cv2.imwrite(path, img.astype(np.uint8))
+            logger.info(f'[SCOPE API ] Saving Image to {path}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
