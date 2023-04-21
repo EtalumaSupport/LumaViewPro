@@ -12,7 +12,7 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyribackground_downght notice and this permission notice shall be included in all
+The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
@@ -34,7 +34,7 @@ Bryan Tiedemann, The Earthineering Company
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-April 15, 2023
+April 20, 2023
 '''
 
 # General
@@ -838,16 +838,10 @@ class VerticalControl(BoxLayout):
     def autofocus(self):
         logger.info('[LVP Main  ] VerticalControl.autofocus()')
 
-        # AF_range = settings['objective']['AF_range']
-        # AF_min =   settings['objective']['AF_min']
-        # AF_max =   settings['objective']['AF_max']
-
-        # Clock.schedule_once(lumaview.scope.autofocus)
-
         global lumaview
-
+        self.is_autofocus = True
         self.is_complete = False
-
+        
         if lumaview.scope.camera.active == False:
             logger.warning('[LVP Main  ] Error: VerticalControl.autofocus()')
 
@@ -1742,15 +1736,21 @@ class ProtocolSettings(CompositeCapture):
     def run_autofocus_scan(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_autofocus_scan()')
 
+        # If there are no steps, do not continue
         if len(self.step_names) < 1:
             logger.warning('[LVP Main  ] Protocol has no steps.')
             self.ids['run_autofocus_btn'].state =='normal'
             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
             return
 
+        # If the toggle button is in the down position: start autofocus scan
         if self.ids['run_autofocus_btn'].state == 'down':
             self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
 
+            # reset the is_complete flag on autofocus
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
+
+            # begin at current step (c_step = 0)
             self.c_step = 0
             self.ids['step_number_input'].text = str(self.c_step+1)
 
@@ -1769,7 +1769,7 @@ class ProtocolSettings(CompositeCapture):
             logger.info('[LVP Main  ] Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
             Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
 
-        # Stop Running Autofocus Scan
+        # If the toggle button is in the up position: Stop Running Autofocus Scan
         else:  # self.ids['run_autofocus_btn'].state =='normal'
             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
 
@@ -1785,13 +1785,12 @@ class ProtocolSettings(CompositeCapture):
                 lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
-            Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
+            Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of autofocus scan iterate
         
     def autofocus_scan_iterate(self, dt):
         global lumaview
         global settings
 
-        
         # If the autofocus is currently active, leave the function before continuing step
         is_autofocus = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_autofocus
         if is_autofocus:
@@ -1799,7 +1798,9 @@ class ProtocolSettings(CompositeCapture):
 
         # If the autofocus just completed, go to next steps
         is_complete = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete
+
         if is_complete:
+            # reset the is_complete flag on autofocus
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
             # update protocol to focused z-position
@@ -1808,18 +1809,11 @@ class ProtocolSettings(CompositeCapture):
             # increment to the next step
             self.c_step += 1
 
+            # determine and go to next positions
             if self.c_step < len(self.step_names):
-                x = self.step_values[self.c_step, 0]
-                y = self.step_values[self.c_step, 1]
-                z =  self.step_values[self.c_step, 2]
-
-                # Convert plate coordinates to stage coordinates
-                sx, sy = self.plate_to_stage(x, y)
-
-                # Move into position
-                lumaview.scope.move_absolute_position('X', sx)
-                lumaview.scope.move_absolute_position('Y', sy)
-                lumaview.scope.move_absolute_position('Z', z)
+                # Update Step number text
+                self.ids['step_number_input'].text = str(self.c_step+1)
+                self.go_to_step()
 
             # if all positions have already been reached
             else:
@@ -1832,11 +1826,8 @@ class ProtocolSettings(CompositeCapture):
                 Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
             
             return
- 
-        # Update Step number text
-        self.ids['step_number_input'].text = str(self.c_step+1)
 
-        # Check if at desired position
+        # Check if at desired position 
         x_status = lumaview.scope.get_target_status('X')
         y_status = lumaview.scope.get_target_status('Y')
         z_status = lumaview.scope.get_target_status('Z')
@@ -1854,6 +1845,7 @@ class ProtocolSettings(CompositeCapture):
             exp =       self.step_values[self.c_step, 9] # camera exposure
             
             # set camera settings and turn on LED
+            lumaview.scope.leds_off()
             lumaview.scope.led_on(ch, ill)
             lumaview.scope.set_gain(gain)
             lumaview.scope.set_auto_gain(bool(auto_gain))
@@ -1864,31 +1856,27 @@ class ProtocolSettings(CompositeCapture):
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
             return
    
-
-
-
-
-
-
-
-
-
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
         logger.info('[LVP Main  ] ProtocolSettings.run_scan()')
  
+        # If there are no steps, do not continue
         if len(self.step_names) < 1:
             logger.warning('[LVP Main  ] Protocol has no steps.')
             self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
             return
 
-        # Start Running Scan
+        # If the toggle button is in the down position: Start Running Scan
         if self.ids['run_scan_btn'].state == 'down' or protocol == True:
             self.ids['run_scan_btn'].text = 'Running Scan'
 
             # TODO: shut off live updates
 
+            # reset the is_complete flag on autofocus
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
+
+            # begin at current step set to 0 (c_step = 0)
             self.c_step = 0
             self.ids['step_number_input'].text = str(self.c_step+1)
 
@@ -1907,7 +1895,7 @@ class ProtocolSettings(CompositeCapture):
             logger.info('[LVP Main  ] Clock.schedule_interval(self.scan_iterate, 0.1)')
             Clock.schedule_interval(self.scan_iterate, 0.1)
 
-        # Stop Running Scan
+        # If the toggle button is in the up position: Stop Running Scan
         else:  # self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
@@ -1929,7 +1917,13 @@ class ProtocolSettings(CompositeCapture):
         global lumaview
         global settings
 
-        self.ids['step_number_input'].text = str(self.c_step+1)
+        # If the autofocus is currently active, leave the function before continuing step
+        is_autofocus = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_autofocus
+        if is_autofocus:
+            return
+
+        # Identify if an autofocus cycle completed
+        is_complete = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete
 
         # Check if at desired position
         x_status = lumaview.scope.get_target_status('X')
@@ -1941,7 +1935,7 @@ class ProtocolSettings(CompositeCapture):
             logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.c_step]))
 
             # identify image settings
-            af =        self.step_values[self.c_step, 3] # TODO, autofocus
+            af =        self.step_values[self.c_step, 3] # autofocus
             ch =        self.step_values[self.c_step, 4] # LED channel
             fc =        self.step_values[self.c_step, 5] # image false color
             ill =       self.step_values[self.c_step, 6] # LED illumination
@@ -1949,9 +1943,26 @@ class ProtocolSettings(CompositeCapture):
             auto_gain = self.step_values[self.c_step, 8] # camera autogain
             exp =       self.step_values[self.c_step, 9] # camera exposure
             
+            # Set camera settings
+            lumaview.scope.set_gain(gain)
             lumaview.scope.set_auto_gain(bool(auto_gain))
-            # TODO: Update display current capture
+            lumaview.scope.set_exposure_time(exp)
             
+            # If the autofocus is selected, is not currently running and has not completed, begin autofocus
+            if af and not is_complete:
+                # turn on LED
+                lumaview.scope.leds_off()
+                lumaview.scope.led_on(ch, ill)
+
+                # Begin autofocus routine
+                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
+                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
+                
+                return
+            
+            # reset the is_complete flag on autofocus
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
+
             # capture image
             self.custom_capture(ch, ill, gain, exp, bool(fc))
 
@@ -1960,18 +1971,9 @@ class ProtocolSettings(CompositeCapture):
 
             if self.c_step < len(self.step_names):
 
-                x = self.step_values[self.c_step, 0]
-                y = self.step_values[self.c_step, 1]
-                z = self.step_values[self.c_step, 2]
-    
-                # Convert plate coordinates to stage coordinates
-                sx, sy = self.plate_to_stage(x, y)
-
-                # Move into position
-                lumaview.scope.move_absolute_position('X', sx)
-                lumaview.scope.move_absolute_position('Y', sy)
-                lumaview.scope.move_absolute_position('Z', z)
-
+                # Update Step number text
+                self.ids['step_number_input'].text = str(self.c_step+1)
+                self.go_to_step()
 
             # if all positions have already been reached
             else:
@@ -2025,6 +2027,8 @@ class ProtocolSettings(CompositeCapture):
 
         # compute time remaining
         sec_remaining = n_scans*period - (curr_t - start_t)
+        # compute time remaining until next scan
+        # sec_remaining = period - (curr_t - start_t)
         min_remaining = sec_remaining / 60
         hrs_remaining = min_remaining / 60
 
@@ -2035,8 +2039,7 @@ class ProtocolSettings(CompositeCapture):
         minutes = '%02d' % minutes
 
         # Update Button
-        # self.ids['run_protocol_btn'].text = hrs+':'+minutes+' remaining'
-        self.ids['run_protocol_btn'].text = str(n_scans) + ' remaining. Press to ABORT'
+        self.ids['run_protocol_btn'].text = str(n_scans) + ' scans remaining. Press to ABORT'
 
         # Check if reached next Period
         if (time.time()-self.start_t) > period:
@@ -2754,13 +2757,13 @@ class LumaViewProApp(App):
         logger.info('[LVP Main  ] LumaViewProApp.build()')
 
         logger.info('[LVP Main  ] -----------------------------------------')
-        logger.info('[LVP Main  ] Code Compiled On: 3/24/2023')
+        logger.info('[LVP Main  ] Code Compiled On: 4/20/2023')
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         logger.info('[LVP Main  ] -----------------------------------------')
 
         global Window
         global lumaview
-        self.icon = './data/icons/icon32x.png'
+        self.icon = './data/icons/icon.png'
 
         try:
             from kivy.core.window import Window

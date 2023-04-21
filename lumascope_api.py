@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 30, 2023
+April 20, 2023
 '''
 
 # Import Lumascope Hardware files
@@ -78,6 +78,8 @@ class Lumascope():
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
         # Initialize scope status booleans
+        self.is_homing = False           # Is the microscope currently moving to home position
+
         self.is_capturing = False        # Is the microscope currently attempting image capture (with illumination)
         self.capture_return = False      # Will be image if capture is ready to pull, else False
 
@@ -294,7 +296,16 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
         Home the xy-axes (i.e. stage). Note: z-axis and turret will always home first"""
         if not self.motion: return
+        self.is_homing = True
         self.motion.xyhome()
+
+        self.xyhome_timer = RepeatTimer(0.01, self.xyhome_iterate)
+        self.xyhome_timer.start()
+
+    def xyhome_iterate(self):
+        if not self.is_moving():
+            self.is_homing = False
+            self.xyhome_timer.cancel()
 
     def xycenter(self):
         """MOTION CONTROL FUNCTIONS
@@ -319,10 +330,12 @@ class Lumascope():
         #self.xyhome()
         self.xycenter()
 
-        self.tmove_timer = Timer(5, self.tmove_complete, args=(degrees,))
+        self.tmove_timer = RepeatTimer(0.01, self.tmove_iterate, args=(degrees,))
         self.tmove_timer.start()
 
-    def tmove_complete(self, degrees):
+    def tmove_iterate(self, degrees):
+        if self.is_moving():
+            return
         self.move_absolute_position('T', degrees)
         self.tmove_timer.cancel()
 
@@ -658,110 +671,4 @@ class Lumascope():
         else:
             return positions[0]
 
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # PROTOCOL STEP Functionality probably shouldn't be part of the API
-    # At least not for a long time.
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    '''
-    def goto_step(self, step):
-        """PROTOCOL STEP Functionality
-        Go to step position and ready camera for a protocol step """
-        x =          step[0] # plate x-position
-        y =          step[1] # plate y-position
-        z =          step[2] # z-position
-        gain =       step[7] # gain
-        auto_gain =  step[8] # auto_gain  T/F == 1/0
-        exp =        step[9] # exposure
 
-        # INCOMPLETE
-        # Convert plate coordinates to stage coordinates
-        sx, sy = self.plate_to_stage(x, y)
-
-        # Move into position
-        if self.motion:
-            self.move_absolute_position('X', sx) 
-            self.move_absolute_position('Y', sy)
-            self.move_absolute_position('Z', z)
-        else:
-            logger.warning('[SCOPE API ] Motion controller not available.')
-
-        # Set Camera
-        self.set_gain(gain)
-        self.set_auto_gain(auto_gain)
-        self.set_exposure_time(exp)
-
-    # CURRENTLY NOT FUNCTIONAL BEYOND THIS POINT
-    def step_capture(self, step):
-        """PROTOCOL STEP Functionality
-        Complete single protocol step including
-        movement, illumination, camera settings, and save."""
-
-        # Check all hardware required
-        if not self.led: return
-        if not self.motion: return
-        if not self.camera: return
-
-        # Check if hardware is actively responding
-        if self.led.driver is False: return
-        if self.motion.driver is False: return
-        if self.camera.active is False: return
-        
-        # Set autofocus states
-        self.is_stepping = True         # Is the microscope currently attempting to capture a step
-        self.capture_return = False     # Will be image if capture is ready to pull, else False
-
-        # Go to step position and ready camera
-        self.goto_step(step)
-
-        # Start thread to wait until position is reached
-        self.step_capture_timer = RepeatTimer(0.1, self.step_capture_iterate, args=(step,))
-        self.step_capture_timer.start()
-
-    def step_capture_iterate(self, step):
-        # Ignore steps until conditions are met
-        if self.is_moving(): return    # needs to be in position
-        if self.is_capturing: return   # needs to not be capturing an image
-        if self.is_focusing: return    # needs to not be in the middle of an autofocus
-
-        # Get step properties
-        autofocus =  step[3] # autofocus enabled T/F == 1/0
-        ch =         step[4] # channel
-        ill =        step[6] # illumination
-
-        # Turn on LED
-        self.led_on(ch, ill)
-
-        # Run autofocus if stated in step
-        if autofocus:
-            # Is there a previous autofocus result to pull?
-            if self.autofocus_return is False:
-                # No - start autofocus event
-                # INCOMPLETE
-                AF_min = 0.5
-                AF_max = 6.0
-                AF_range = 15.0
-                self.autofocus(AF_min, AF_max, AF_range)
-                return  
-              
-        # Is there a previous capture result to pull?
-        if self.capture_return is False:
-            # No - start a step capture event
-            self.capture()
-            return
-
-        # Yes - pull the capture result and clear all returns
-        self.step_capture_return = self.capture_return
-        self.capture_return = False
-        self.autofocus_return = False         
-
-        # Turn off LEDs
-        self.leds_off()
-
-        # End thread when step capture is complete
-        self.save_image(self.step_capture_return)
-        self.step_capture_timer.cancel()
-
-    '''
-
-
- 
