@@ -201,12 +201,13 @@ class MotorBoard:
     #----------------------------------------------------------
     def t_ustep2deg(self, ustep):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
-        degrees = 360./80000. * ustep # needs correct value
+        degrees = 90./8000. * ustep # needs correct value
         return degrees
 
     def t_deg2ustep(self, degrees):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
-        ustep = int( degrees * 80000./360.) # needs correct value
+        ustep = int( degrees * 8000./90.) # needs correct value
+        print("ustep: ",ustep)
         return ustep
 
     def thome(self):
@@ -226,6 +227,7 @@ class MotorBoard:
         # logger.info('def move(self, axis, steps)', axis, steps)
         if steps < 0:
             steps += 0x100000000 # twos compliment
+        print(f"Axis: {axis} steps: {steps}")
         self.exchange_command('TARGET_W' + axis + str(steps))
 
     # Get target position

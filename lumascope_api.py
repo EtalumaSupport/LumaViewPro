@@ -316,7 +316,8 @@ class Lumascope():
 
         if not self.motion: return
         # MUST home move objective home first to prevent crash
-        self.xyhome()
+        #self.xyhome()
+        self.xycenter()
 
         self.tmove_timer = Timer(5, self.tmove_complete, args=(degrees,))
         self.tmove_timer.start()
