@@ -318,7 +318,8 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
         Home the Turret"""
 
-        if not self.motion: return
+        if not self.motion:
+            return
         self.motion.thome()
 
     def tmove(self, degrees):
@@ -328,16 +329,18 @@ class Lumascope():
         if not self.motion: return
         # MUST home move objective home first to prevent crash
         #self.xyhome()
-        self.xycenter()
+        #self.xycenter()
 
+        self.is_turreting = True
+        self.move_absolute_position('T', degrees)
         self.tmove_timer = RepeatTimer(0.01, self.tmove_iterate, args=(degrees,))
+        #self.tmove_timer = RepeatTimer(2, self.tmove_iterate, args=(degrees,))
         self.tmove_timer.start()
 
     def tmove_iterate(self, degrees):
-        if self.is_moving():
-            return
-        self.move_absolute_position('T', degrees)
-        self.tmove_timer.cancel()
+        if not self.is_moving():
+            self.is_turreting = False
+            self.tmove_timer.cancel()
 
     def get_target_position(self, axis):
         """MOTION CONTROL FUNCTIONS

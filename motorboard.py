@@ -201,12 +201,12 @@ class MotorBoard:
     #----------------------------------------------------------
     def t_ustep2deg(self, ustep):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
-        degrees = 90./8000. * ustep # needs correct value
+        degrees = 90./80000. * ustep # needs correct value
         return degrees
 
     def t_deg2ustep(self, degrees):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
-        ustep = int( degrees * 8000./90.) # needs correct value
+        ustep = int( degrees * 80000./90.) # needs correct value
         print("ustep: ",ustep)
         return ustep
 
