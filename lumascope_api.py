@@ -329,6 +329,7 @@ class Lumascope():
 
         if not self.motion: return
         # MUST home move objective home first to prevent crash
+        self.zhome()
         #self.xyhome()
         #self.xycenter()
 

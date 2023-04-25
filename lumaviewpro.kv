@@ -400,6 +400,13 @@
 		size_hint_y: None
 		height: '30dp'
 
+        Button:
+            id: turret_left_btn
+            size_hint_x: None
+            width: '40dp'
+            text: '<'
+            on_release: root.turret_left()
+
 		Button:
 			id: turret_home_btn
 			size_hint_x: None
@@ -423,6 +430,13 @@
 			id: turret_pos_4_btn
 			text: '4'
             on_release: root.turret_select('4')
+            
+        Button:
+            id: turret_right_btn
+            size_hint_x: None
+            width: '40dp'
+            text: '>'
+            on_release: root.turret_right()
 
 	ZStack:
 		id: zstack_id
