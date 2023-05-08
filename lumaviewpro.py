@@ -897,7 +897,7 @@ class VerticalControl(BoxLayout):
             # calculate the position and focus measure
             try:
                 current = lumaview.scope.get_current_position('Z')
-                focus = self.focus_function(image, algorithm = 'skew')
+                focus = self.focus_function(image)
                 next_target = lumaview.scope.get_target_position('Z') + self.resolution
             except:
                 logger.warning('[LVP Main  ] Error talking to motion controller.')
