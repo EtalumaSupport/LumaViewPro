@@ -88,7 +88,7 @@ class MotorBoard:
                                         timeout=self.timeout,
                                         write_timeout=self.write_timeout)
             self.driver.close()
-            time.sleep(1)
+            time.sleep(0.01)
             self.driver.open()
             
             logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
@@ -113,6 +113,7 @@ class MotorBoard:
         if self.driver != False:
             try:
                 self.driver.close()
+                time.sleep(0.01)
                 self.driver.open()
                 self.driver.write(stream)
                 response = self.driver.readline()
