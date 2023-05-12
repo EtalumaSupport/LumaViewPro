@@ -193,6 +193,7 @@ class MotorBoard:
         """ Home the stage which also homes the objective first """
         logger.info('[XYZ Class ] MotorBoard.xyhome()')   
         if self.found:
+            self.exchange_command('INFO')
             self.exchange_command('HOME')
 
     def xycenter(self):
