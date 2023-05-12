@@ -96,7 +96,7 @@ class MotorBoard:
             # After powering on the scope, the first command seems to be ignored.
             # This is to ensure the following commands are followed
             self.exchange_command('INFO')
-            self.driver.close()
+            #self.driver.close()
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
@@ -114,13 +114,13 @@ class MotorBoard:
         if self.driver != False:
             try:
                 self.driver.close()
-                time.sleep(0.1)
+                time.sleep(0.01)
                 self.driver.open()
                 self.driver.write(stream)
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
                 #print(response[:-2])
-                self.driver.close()
+                #self.driver.close()
 
                 # (too often) logger.info('[XYZ Class ] MotorBoard.exchange_command('+command+') succeeded')
                 return response[:-2]
