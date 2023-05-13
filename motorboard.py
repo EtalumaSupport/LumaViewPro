@@ -113,9 +113,9 @@ class MotorBoard:
 
         if self.driver != False:
             try:
-                self.driver.close()
-                time.sleep(0.01)
-                self.driver.open()
+                #self.driver.close()
+                #time.sleep(0.01)
+                #self.driver.open()
                 self.driver.write(stream)
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
@@ -193,8 +193,9 @@ class MotorBoard:
         """ Home the stage which also homes the objective first """
         logger.info('[XYZ Class ] MotorBoard.xyhome()')   
         if self.found:
-            self.exchange_command('INFO')
             self.exchange_command('HOME')
+            self.exchange_command('INFO')
+            time.sleep(3)
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
