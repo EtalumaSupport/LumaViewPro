@@ -95,7 +95,7 @@ class MotorBoard:
 
             # After powering on the scope, the first command seems to be ignored.
             # This is to ensure the following commands are followed
-            #self.exchange_command('INFO')
+            self.exchange_command('INFO')
             #self.driver.close()
         except:
             self.driver = False
