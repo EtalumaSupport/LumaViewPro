@@ -358,7 +358,8 @@ class MotorBoard:
 
         # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
         try:
-            data = int( self.exchange_command('STATUS_R' + axis) )
+            response = self.exchange_command('STATUS_R' + axis)
+            data = int( response )
             bits = format(data, 'b').zfill(32)
 
             if bits[22] == '1':
@@ -368,7 +369,8 @@ class MotorBoard:
   
         except:
             logger.exception('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
-            return False
+            raise
+            #return False
 
 
     # Get all reference status register bits as 32 character string (32-> 0)
