@@ -349,8 +349,8 @@ class MotorBoard:
             else:
                 return False
         except:
-            logger.exception('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')        
-            return False
+            logger.exception('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')
+            raise
 
     # return True if current position and target position are the same
     def target_status(self, axis):
@@ -392,7 +392,7 @@ class MotorBoard:
             return data
         except:
             logger.exception('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
-            return False
+            raise
 
 
 '''
