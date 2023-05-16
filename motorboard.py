@@ -73,7 +73,7 @@ class MotorBoard:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
         except:
-            logger.exception('[LED Class ] Found motor controller but unable to establish connection.')
+            logger.exception('[XYZ Class ] Found motor controller but unable to establish connection.')
             raise
 
     def connect(self):
@@ -88,12 +88,14 @@ class MotorBoard:
                                         timeout=self.timeout,
                                         write_timeout=self.write_timeout)
             self.driver.close()
+            #print([comport.device for comport in serial.tools.list_ports.comports()])
             self.driver.open()
             
             logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
 
             # After powering on the scope, the first command seems to be ignored.
             # This is to ensure the following commands are followed
+            # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
             self.exchange_command('INFO')
         except:
             self.driver = False
@@ -123,11 +125,11 @@ class MotorBoard:
 
             except serial.SerialTimeoutException:
                 self.driver = False
-                logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+                logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
 
             except:
                 self.driver = False
-                logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') failed')
+                logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
 
         else:
             try:
