@@ -117,7 +117,7 @@ class MotorBoard:
                 self.driver.open()
                 self.driver.write(stream)
                 if (command)=='HOME': # ESW to increase homing reliability
-                    CRLF = encode('utf-8')+b"\r\n"
+                    CRLF = command.encode('utf-8')+b"\r\n"
                     self.driver.write(CRLF)
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
