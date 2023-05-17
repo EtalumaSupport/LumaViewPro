@@ -774,6 +774,7 @@ class VerticalControl(BoxLayout):
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
             logger.warning('[LVP Main  ] Error talking to Motor board.')
+            raise
 
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
