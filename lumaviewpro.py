@@ -1116,6 +1116,7 @@ class XYStageControl(BoxLayout):
             y_target = np.clip(y_target, 0, 80000) # prevents crosshairs from leaving the stage area
         except:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
+            raise
         else:
             # Convert from plate position to stage position
             protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
@@ -2115,9 +2116,12 @@ class Stage(Widget):
             # Convert from plate position to stage position
             stage_x, stage_y =  lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].plate_to_stage(plate_x, plate_y)
 
-            lumaview.scope.move_absolute_position('X', stage_x)
-            lumaview.scope.move_absolute_position('Y', stage_y)
-            lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+            try:
+                lumaview.scope.move_absolute_position('X', stage_x)
+                lumaview.scope.move_absolute_position('Y', stage_y)
+                lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+            except:
+                raise
 
     def draw_labware(self, *args): # View the labware from front and above
         # logger.info('[LVP Main  ] Stage.draw_labware()')
