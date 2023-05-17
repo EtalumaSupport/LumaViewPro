@@ -2196,9 +2196,9 @@ class Stage(Widget):
             except:
                 logger.exception('[LVP Main  ] Error talking to Motor board.')
                 #raise
+                return
                 #x_target = 0
                 #y_target = 0
-                return
                 
             x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
