@@ -108,7 +108,7 @@ class MotorBoard:
         """ Exchange command through serial to SPI to the motor boards
         This should NOT be used in a script. It is intended for other functions to access"""
 
-        stream = command.encode('utf-8')+b"\r\n"
+        stream = command.encode('utf-8')+b"\r\n\r\n"
         #print(stream)
 
         if self.driver != False:
@@ -116,9 +116,9 @@ class MotorBoard:
                 self.driver.close()
                 self.driver.open()
                 self.driver.write(stream)
-                if (command)=='HOME': # ESW to increase homing reliability
-                    CRLF = command.encode('utf-8')+b"\r\n"
-                    self.driver.write(CRLF)
+                #if (command)=='HOME': # ESW to increase homing reliability
+                #    CRLF = command.encode('utf-8')+b"\r\n"
+                #    self.driver.write(CRLF)
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
                 #print(response[:-2])
