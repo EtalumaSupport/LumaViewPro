@@ -304,12 +304,9 @@ class Lumascope():
         self.xyhome_timer.start()
 
     def xyhome_iterate(self):
-        try:
-            if not self.is_moving():
-                self.is_homing = False
-                self.xyhome_timer.cancel()
-        except:
-            pass
+        if not self.is_moving():
+            self.is_homing = False
+            self.xyhome_timer.cancel()
 
     def xycenter(self):
         """MOTION CONTROL FUNCTIONS
