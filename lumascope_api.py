@@ -434,13 +434,10 @@ class Lumascope():
         if not self.motion.driver: return False
 
         # Check each axis
-        try:
-            x_status = self.get_target_status('X')
-            y_status = self.get_target_status('Y')
-            z_status = self.get_target_status('Z')
-            t_status = self.get_target_status('T')
-        except:
-            return True
+        x_status = self.get_target_status('X')
+        y_status = self.get_target_status('Y')
+        z_status = self.get_target_status('Z')
+        t_status = self.get_target_status('T')
 
         if x_status and y_status and z_status and t_status and not self.get_overshoot():
             return False
