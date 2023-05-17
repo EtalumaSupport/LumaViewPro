@@ -2195,7 +2195,9 @@ class Stage(Widget):
                 y_target = lumaview.scope.get_target_position('Y')
             except:
                 logger.exception('[LVP Main  ] Error talking to Motor board.')
-                raise
+                #raise
+                x_target = 0
+                y_target = 0
 
             x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
