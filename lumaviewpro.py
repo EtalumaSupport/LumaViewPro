@@ -2196,9 +2196,8 @@ class Stage(Widget):
             except:
                 logger.exception('[LVP Main  ] Error talking to Motor board.')
                 #raise
-                return
-                #x_target = 0
-                #y_target = 0
+                x_target = 0
+                y_target = 0
                 
             x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
@@ -2211,12 +2210,16 @@ class Stage(Widget):
             Color(0., 1., 0., 1.)
             Line(circle=(x+sx, y+sy, rx))
             
-            #  Red Crosshairs
-            # ------------------
-            x_current = lumaview.scope.get_current_position('X')
-            x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-            y_current = lumaview.scope.get_current_position('Y')
-            y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+            try:
+                #  Red Crosshairs
+                # ------------------
+                x_current = lumaview.scope.get_current_position('X')
+                x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+                y_current = lumaview.scope.get_current_position('Y')
+                y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+            except:
+                x_current = 0
+                y_current = 0
 
             # Convert stage coordinates to relative pixel coordinates
             pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
