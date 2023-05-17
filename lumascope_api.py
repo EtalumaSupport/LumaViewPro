@@ -351,8 +351,11 @@ class Lumascope():
         values of axis 'X', 'Y', 'Z', and 'T' """
 
         if not self.motion.driver: return 0
-        target_position = self.motion.target_pos(axis)
-        return target_position
+        try:
+            target_position = self.motion.target_pos(axis)
+            return target_position
+        except:
+            raise
         
     def get_current_position(self, axis):
         """MOTION CONTROL FUNCTIONS
