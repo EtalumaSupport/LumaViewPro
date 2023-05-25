@@ -774,6 +774,7 @@ class VerticalControl(BoxLayout):
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
             logger.warning('[LVP Main  ] Error talking to Motor board.')
+            raise
 
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
@@ -1116,6 +1117,7 @@ class XYStageControl(BoxLayout):
             y_target = np.clip(y_target, 0, 80000) # prevents crosshairs from leaving the stage area
         except:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
+            raise
         else:
             # Convert from plate position to stage position
             protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
@@ -2115,9 +2117,12 @@ class Stage(Widget):
             # Convert from plate position to stage position
             stage_x, stage_y =  lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].plate_to_stage(plate_x, plate_y)
 
-            lumaview.scope.move_absolute_position('X', stage_x)
-            lumaview.scope.move_absolute_position('Y', stage_y)
-            lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+            try:
+                lumaview.scope.move_absolute_position('X', stage_x)
+                lumaview.scope.move_absolute_position('Y', stage_y)
+                lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+            except:
+                raise
 
     def draw_labware(self, *args): # View the labware from front and above
         # logger.info('[LVP Main  ] Stage.draw_labware()')
@@ -2195,8 +2200,10 @@ class Stage(Widget):
                 y_target = lumaview.scope.get_target_position('Y')
             except:
                 logger.exception('[LVP Main  ] Error talking to Motor board.')
-                raise
-
+                #raise
+                x_target = 0
+                y_target = 0
+                
             x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
             i, j = current_labware.get_well_index(x_target, y_target)
@@ -2208,12 +2215,16 @@ class Stage(Widget):
             Color(0., 1., 0., 1.)
             Line(circle=(x+sx, y+sy, rx))
             
-            #  Red Crosshairs
-            # ------------------
-            x_current = lumaview.scope.get_current_position('X')
-            x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-            y_current = lumaview.scope.get_current_position('Y')
-            y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+            try:
+                #  Red Crosshairs
+                # ------------------
+                x_current = lumaview.scope.get_current_position('X')
+                x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+                y_current = lumaview.scope.get_current_position('Y')
+                y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+            except:
+                x_current = 0
+                y_current = 0
 
             # Convert stage coordinates to relative pixel coordinates
             pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)

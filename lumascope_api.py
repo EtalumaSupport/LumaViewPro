@@ -351,8 +351,11 @@ class Lumascope():
         values of axis 'X', 'Y', 'Z', and 'T' """
 
         if not self.motion.driver: return 0
-        target_position = self.motion.target_pos(axis)
-        return target_position
+        try:
+            target_position = self.motion.target_pos(axis)
+            return target_position
+        except:
+            raise
         
     def get_current_position(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -361,38 +364,54 @@ class Lumascope():
         values of axis 'X', 'Y', 'Z', and 'T' """
 
         if not self.motion.driver: return 0
-        target_position = self.motion.current_pos(axis)
-        return target_position
+        try:
+            target_position = self.motion.current_pos(axis)
+            return target_position
+        except:
+            raise
         
     def move_absolute_position(self, axis, pos):
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
 
         if not self.motion: return
-        self.motion.move_abs_pos(axis, pos)
-
+        try:
+            self.motion.move_abs_pos(axis, pos)
+        except:
+            raise
+        
     def move_relative_position(self, axis, um):
         """MOTION CONTROL FUNCTIONS
          Move to relative distance (in um) of axis"""
 
         if not self.motion: return
-        self.motion.move_rel_pos(axis, um)
+        try:
+            self.motion.move_rel_pos(axis, um)
+        except:
+            raise
 
     def get_home_status(self, axis):
         """MOTION CONTROL FUNCTIONS
          Return True if axis is in home position or motionboard is """
  
         if not self.motion: return True
-        status = self.motion.home_status(axis)
-        return status
-
+        try:
+            status = self.motion.home_status(axis)
+            return status
+        except:
+            raise
+        
+        
     def get_target_status(self, axis):
         """MOTION CONTROL FUNCTIONS
          Return True if axis is at target position"""
 
         if not self.motion: return True
-        status = self.motion.target_status(axis)
-        return status
+        try:
+            status = self.motion.target_status(axis)
+            return status
+        except:
+            raise
         
     # Get all reference status register bits as 32 character string (32-> 0)
     def get_reference_status(self, axis):
@@ -415,11 +434,15 @@ class Lumascope():
         if not self.motion.driver: return False
 
         # Check each axis
-        x_status = self.get_target_status('X')
-        y_status = self.get_target_status('Y')
-        z_status = self.get_target_status('Z')
+        try:
+            x_status = self.get_target_status('X')
+            y_status = self.get_target_status('Y')
+            z_status = self.get_target_status('Z')
+            t_status = self.get_target_status('T')
+        except:
+            return True
 
-        if x_status and y_status and z_status and not self.get_overshoot():
+        if x_status and y_status and z_status and t_status and not self.get_overshoot():
             return False
         else:
             return True
