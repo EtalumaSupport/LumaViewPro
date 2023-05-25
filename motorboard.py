@@ -105,7 +105,6 @@ class MotorBoard:
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
-            #raise
 
     #----------------------------------------------------------
     # Define Communication
@@ -249,8 +248,7 @@ class MotorBoard:
             response = self.exchange_command('TARGET_R' + axis)
             position = int(response)
         except:
-            raise
-            #position = 0
+            position = 0
 
         if axis == 'Z':
             um = self.z_ustep2um(position)
@@ -272,8 +270,7 @@ class MotorBoard:
             response = self.exchange_command('ACTUAL_R' + axis)
             position = int(response)
         except:
-            raise
-            #position = 0
+            position = 0
 
         if axis == 'Z':
             um = self.z_ustep2um(position)

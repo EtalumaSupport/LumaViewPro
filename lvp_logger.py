@@ -30,7 +30,7 @@ AUTHORS:
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 20, 2023
+May 24, 2023
 '''
 
 '''
@@ -41,6 +41,9 @@ import logging
 import os
 if not os.path.exists("logs/LVP_Log"):
     os.makedirs("logs/LVP_Log")
+
+# file to which messages are logged 
+LOG_FILE = 'logs/LVP_log/lumaviewpro.log'
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
@@ -55,10 +58,6 @@ class CustomFormatter(logging.Formatter):
             # if INFO level, only log the message
             return record.getMessage()
         return logging.Formatter.format(self, record)
-
-
-# file to which messages are logged 
-LOG_FILE = 'logs/LVP_log/lumaviewpro.log'
 
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
