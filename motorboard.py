@@ -66,8 +66,8 @@ class MotorBoard:
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
-        self.timeout=0.01 # seconds
-        self.write_timeout=0.01 # seconds
+        self.timeout=None # seconds
+        self.write_timeout=None # seconds
         self.driver = False
         try:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
@@ -90,21 +90,30 @@ class MotorBoard:
             self.driver.close()
             #print([comport.device for comport in serial.tools.list_ports.comports()])
             self.driver.open()
-            
+
             logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
 
             # After powering on the scope, the first command seems to be ignored.
             # This is to ensure the following commands are followed
             # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
-            self.exchange_command('INFO')
+            self.infomation()
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
 
+    def safe_readline(self):
+        """ Read a line from the serial port.  A line ends when a \n byte is read (10 decimal)
+            This terrible hack get's around an unknown odd behavior where readline() can return an empty string regardless of the serial port timeout."""
+        response = self.driver.read(1)
+        #why TF is b'\n' != 10?
+        while response[-1] != 10:
+            response += self.driver.read(1)
+        return response
+
     #----------------------------------------------------------
     # Define Communication
     #----------------------------------------------------------
-    def exchange_command(self, command):
+    def exchange_command(self, command, response_numlines=1):
         """ Exchange command through serial to SPI to the motor boards
         This should NOT be used in a script. It is intended for other functions to access"""
 
@@ -113,18 +122,19 @@ class MotorBoard:
 
         if self.driver != False:
             try:
-                self.driver.close()
-                self.driver.open()
                 self.driver.write(stream)
                 #if (command)=='HOME': # ESW to increase homing reliability
                 #    CRLF = command.encode('utf-8')+b"\r\n"
                 #    self.driver.write(CRLF)
-                response = self.driver.readline()
-                response = response.decode("utf-8","ignore")
-                #print(response[:-2])
 
-                # (too often) logger.info('[XYZ Class ] MotorBoard.exchange_command('+command+') succeeded')
-                return response[:-2]
+                #response = self.driver.readline()
+                #response = self.driver.read_until(b"\n")
+                resp_lines = [self.safe_readline() for _ in range(response_numlines)]
+                response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
+                if response_numlines == 1:
+                    response = response[0]
+                #logger.info('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
+                return response
 
             except serial.SerialTimeoutException:
                 self.driver = False
@@ -157,7 +167,7 @@ class MotorBoard:
     # Informational Functions
     #----------------------------------------------------------
     def infomation(self):
-        self.exchange_command('INFO')
+        self.exchange_command('INFO', 7)
 
     #----------------------------------------------------------
     # Z (Focus) Functions
@@ -194,7 +204,7 @@ class MotorBoard:
         """ Home the stage which also homes the objective first """
         logger.info('[XYZ Class ] MotorBoard.xyhome()')   
         if self.found:
-            self.exchange_command('HOME')
+            self.exchange_command('HOME', 11)
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
