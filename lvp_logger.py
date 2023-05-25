@@ -30,7 +30,7 @@ AUTHORS:
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 20, 2023
+May 24, 2023
 '''
 
 '''
@@ -39,6 +39,10 @@ lvp_logger.py configures a standard python logger for LumaViewPro.
 
 import logging
 import os
+
+# file to which messages are logged 
+LOG_FILE = 'logs/LVP_log/lumaviewpro.log'
+
 if not os.path.exists("logs/LVP_Log"):
     os.makedirs("logs/LVP_Log")
 
@@ -55,10 +59,6 @@ class CustomFormatter(logging.Formatter):
             # if INFO level, only log the message
             return record.getMessage()
         return logging.Formatter.format(self, record)
-
-
-# file to which messages are logged 
-LOG_FILE = 'logs/LVP_log/lumaviewpro.log'
 
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)

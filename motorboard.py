@@ -33,12 +33,15 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 20, 2023
+May 24, 2023
 '''
 
 #import threading
 #import queue
 import time
+import requests
+import ampy
+from requests.structures import CaseInsensitiveDict
 import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
@@ -97,6 +100,8 @@ class MotorBoard:
             # This is to ensure the following commands are followed
             # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
             self.exchange_command('INFO')
+
+            ## self.check_firmware() - IN PROGRESS, LEAVE COMMENTED
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
@@ -397,6 +402,148 @@ class MotorBoard:
             logger.exception('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
             raise
 
+
+    #-------------------------------------------------------------------------------
+    #                         FIRMWARE HANDLING 
+    #
+    # Last Modified: 5/24/2023
+    # 
+    # TODO: Implement firmware version comparing (firmware_is_up_to_date() function)
+    # TODO: Add GUI Controls for Firmware Handling 
+    # TODO: Eventually move firmware handling to separate .py file (Firmware Class)
+    #--------------------------------------------------------------------------------
+
+    def check_firmware(self):
+        """ Checks and updates motorboard firmware if out of date """
+
+        # Ensure Motorboard is connected and found
+        if not self.found or not self.driver:
+            logger.warning(f'[XYZ Class] Cannot perform firmware update. Motorboard not connected or found')
+            return
+        
+        # If firmware is outdated, attempt to update firmware. 
+        if not self.firmware_is_up_to_date():
+            logger.info(f'[XYZ Class] Motorboard is out of date. Installing new firmware...')
+
+            if self.update_firmware():
+                logger.info(f'[XYZ Class] Succesfully updated Motorboard firmware')
+            else:
+                logger.warning(f'[XYZ Class] Failed to update Motorboard firmware')
+        else:
+            logger.info(f'[XYZ Class] Motorboard firmware is already up to date')
+
+    def update_firmware(self):
+        """ Performs the firmware update on the motorboard
+
+            :return a boolean true if firmware update was successful, false otherwise
+
+        """
+        # Ensure Motorboard is connected and found
+        if not self.found or not self.driver:
+            logger.warning(f'[XYZ Class] Cannot perform firmware update. Motorboard not connected or found')
+            return False
+        
+        # Obtain the latest firmware files from the firmware repository
+        FIRMWARE_URL = self.get_firmware_URL('EtalumaSupport/Firmware', 'Firmware', 'Motor Controller/LVP current functional/')
+        AUTH_TOKEN = None # Insert authentication token here
+
+        latest_firmware = self.get_latest_firmware(FIRMWARE_URL, AUTH_TOKEN)
+        if not latest_firmware:
+            logger.warning(f'[XYZ Class] Failed to get latest firmware from remote repository')
+            return False
+
+        try:
+        
+            # Attempts to overwrite current files on PICO with new firmware files
+            file_manager = ampy.files.Files(self.device)
+            for file_name in latest_firmware.keys():
+                file_manager.put(latest_firmware[file_name])
+                logger.info(f'[XYZ Class] Succesfully upload firmware file {file_name} to Motorboard')
+
+            return True
+        except:
+            logger.exception(f'[XYZ Class] Failed to upload new Firmware files to Motorboard')
+            raise
+
+
+    def get_firmware_URL(self, owner, repo, path):
+        """ Generates a GitHub API URL to make get requests from
+        
+            :param string owner: the owner of the GitHub Repo
+            :param string repo: the title of the repo
+            :param path: the path to firmware files
+            :return the GitHub URL string
+
+        """
+        return f'https://api.github.com/repos/{owner}/{repo}/contents/{path}'
+
+    def get_latest_firmware(self, firmware_url, auth_token):
+        """ Retrieves the latest firmware files from a GitHub repository
+
+            :param string firmware_url: the URL to the Github API containing the Firmware
+            :param string auth_token: an authentification token to access the repo if it is private
+            :return firmware_files dictionary of the format ['FILE NAME' : <FILE CONTENT>]
+
+        """
+        firmware_files = {}
+
+        # Authentication token needed if repo is private
+        headers = CaseInsensitiveDict()
+        if auth_token:
+            headers["Authorization"] = f'Bearer {auth_token}'   
+
+        # Make GET request from firmware URL 
+        response = requests.get(firmware_url, headers=headers, stream = True)
+
+        # Check if the request was successful
+        if response.status_code == 200:
+            logger.info(f'[XYZ Class] Succesfully reached firmware repository at: {firmware_url}')
+
+            # Parse the response 
+            contents = response.json()
+
+            # Download each file in the folder
+            for item in contents:
+                file_name = item['name']
+                download_url = item['download_url']
+                if not download_url:
+                    continue
+
+                # Send a GET request to download the file with authentication
+                file_response = requests.get(download_url, headers=headers, stream=True)
+                
+                # Check if the file was downloaded successfully
+                if file_response.status_code == 200:
+                    firmware_files[file_name] = file_response
+                    logger.info(f'[XYZ Class] Succesfully download firmware file: {file_name}')
+                else:
+                    logger.warning(f'[XYZ Class] Failed to download firmware file: {file_name}')
+        else:
+            logger.warning(f'[XYZ Class] Failed to reach GitHub API. STATUS CODE: {response.status_code}')
+
+        return firmware_files
+
+    def firmware_is_up_to_date(self):
+        """ Checks if current firmware is out of date
+
+            :return a boolean true if firmware is up to date, false otherwise
+        """
+        # TO BE IMPLEMENTED
+        # Need Eric to add VERSION.txt or alternative to firmware to allow for easy version comparison
+        return True
+        
+    def get_current_firmware(self):
+        """ Returns current version of firmware on Motorboard
+
+            :return the string
+                Etaluma Motor Controller Board <BOARD TYPE> 
+                Firmware:     <DATE>
+        """
+        response = self.exchange_command('INFO')
+        if not response:
+            logger.info('[XYZ Class ] MotorBoard not connected. Unable to check current firmware')
+            return 
+        return response
 
 '''
 # signed 32 bit hex to dec
