@@ -43,15 +43,10 @@ from pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger
-from threading import Timer
 import time
 import cv2
 import numpy as np
 
-class RepeatTimer(Timer):
-    def run(self):
-        while not self.finished.wait(self.interval):
-            self.function(*self.args, **self.kwargs)
 
 class Lumascope():
 
@@ -300,8 +295,9 @@ class Lumascope():
         self.is_homing = True
         self.motion.xyhome()
 
-        self.xyhome_timer = RepeatTimer(0.01, self.xyhome_iterate)
-        self.xyhome_timer.start()
+        while self.is_moving():
+            time.sleep(0.01)
+        self.is_homing = False
 
     def xyhome_iterate(self):
         if not self.is_moving():
@@ -335,9 +331,9 @@ class Lumascope():
 
         self.is_turreting = True
         self.move_absolute_position('T', degrees)
-        self.tmove_timer = RepeatTimer(0.01, self.tmove_iterate, args=(degrees,))
-        #self.tmove_timer = RepeatTimer(2, self.tmove_iterate, args=(degrees,))
-        self.tmove_timer.start()
+        while not self.is_moving():
+            time.sleep(0.1)
+        self.is_turreting = False
 
     def tmove_iterate(self, degrees):
         if not self.is_moving():
@@ -533,23 +529,23 @@ class Lumascope():
         # Start the autofocus process at z-minimum
         self.move_absolute_position('Z', self.z_min)
 
-        # Start thread to wait until autofocus is complete
-        self.autofocus_timer = RepeatTimer(0.01, self.autofocus_iterate, args=(AF_min,))
-        self.autofocus_timer.start()
+        while not self.autofocus_iterate(AF_min):
+            time.sleep(0.01)
 
     def autofocus_iterate(self, AF_min):
         """INTEGRATED SCOPE FUNCTIONS
         iterate autofocus functionality"""
+        done=False
 
         # Ignore steps until conditions are met
-        if self.is_moving(): return   # needs to be in position
-        if self.is_capturing: return  # needs to have completed capture with illumination
+        if self.is_moving(): return done  # needs to be in position
+        if self.is_capturing: return done # needs to have completed capture with illumination
 
         # Is there a previous capture result to pull?
         if self.capture_return is False:
             # No -> start a capture event
             self.capture()
-            return
+            return done
             
         else:
             # Yes -> pull the capture result and clear
@@ -558,8 +554,8 @@ class Lumascope():
             
         if image is False:
             # Stop thread image can't be acquired
-            self.autofocus_timer.cancel()
-            return
+            done = True
+            return done
    
         # observe the image
         rows, cols = image.shape
@@ -581,7 +577,7 @@ class Lumascope():
 
         if next_target <= self.z_max:
             self.move_relative_position('Z', self.resolution)
-            return
+            return done
 
         # Adjust future steps if next_target went out of bounds
         # Calculate new step size for resolution
@@ -616,7 +612,8 @@ class Lumascope():
             self.is_focusing = False
 
             # Stop thread image when autofocus is complete
-            self.autofocus_timer.cancel()
+            done=True
+        return done
 
     # Algorithms for estimating the quality of the focus
     def focus_function(self, image, algorithm = 'vollath4'):
