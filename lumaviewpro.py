@@ -34,7 +34,7 @@ Bryan Tiedemann, The Earthineering Company
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-April 21, 2023
+May 31, 2023
 '''
 
 # General
@@ -108,6 +108,8 @@ start_str = str(int(round(time.time() * 1000)))
 
 global focus_round
 focus_round = 0
+
+
 def focus_log(positions, values):
     global focus_round
     if False:
@@ -177,14 +179,35 @@ class CompositeCapture(FloatLayout):
     def __init__(self, **kwargs):
         super(CompositeCapture,self).__init__(**kwargs)
 
+    # Gets the current well label (ex. A1, C2, ...) 
+    def get_well_label(self):
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+
+        # Get target position
+        try:
+            x_target = lumaview.scope.get_target_position('X')
+            y_target = lumaview.scope.get_target_position('Y')
+        except:
+            logger.exception('[LVP Main  ] Error talking to Motor board.')
+            raise
+
+        x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
+
+        well_x, well_y = current_labware.get_well_index(x_target, y_target)
+        letter = chr(ord('A') + well_y)
+        return f'{letter}{well_x + 1}'
+
     def live_capture(self):
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
         save_folder = settings['live_folder']
         file_root = 'live_'
-        append = 'ms'
         color = 'BF'
+        well_label = self.get_well_label()
+        append = f'{well_label}_{color}'
 
         layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
         for layer in layers:
@@ -209,7 +232,8 @@ class CompositeCapture(FloatLayout):
         color = lumaview.scope.ch2color(channel)
         save_folder =  settings[color]['save_folder']
         file_root = settings[color]['file_root']
-        append = 'ms'
+        well_label = self.get_well_label()
+        append = f'{well_label}_{color}'
 
         # Illuminate
         if lumaview.scope.led:
@@ -322,9 +346,21 @@ class CompositeCapture(FloatLayout):
 
         save_folder = settings['live_folder']
         file_root = 'composite_'
-        append = str(int(round(time.time() * 1000)))
-        filename =  file_root + append + '.tiff'
-        cv2.imwrite(save_folder+'/'+filename, img.astype(np.uint8))
+
+        # append = str(int(round(time.time() * 1000)))
+        well_label = self.get_well_label()
+        append = f'{well_label}'
+
+        # generate filename and save path string
+        initial_id = '_000001'
+        filename =  file_root + append + initial_id + '.tiff'
+        path = save_folder + '/' + filename
+
+        # Obtain next save path if current directory already exists
+        if os.path.exists(path):
+            path = lumaview.scope.get_next_save_path(path)
+
+        cv2.imwrite(path, img.astype(np.uint8))
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -1394,6 +1430,7 @@ class ProtocolSettings(CompositeCapture):
         pixel_x, pixel_y = self.plate_to_pixel(px, py, scale_x, scale_y)
 
         return pixel_x, pixel_y
+        
 
 
     # Create New Protocol

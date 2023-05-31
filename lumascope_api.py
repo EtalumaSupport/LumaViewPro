@@ -44,6 +44,7 @@ from pyloncamera import PylonCamera
 # Import additional libraries
 from lvp_logger import logger
 import time
+import os
 import cv2
 import numpy as np
 
@@ -155,6 +156,31 @@ class Lumascope():
             return self.camera.array
         else:
             return False
+        
+    def get_next_save_path(self, path):
+        """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
+
+            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'   
+            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'   
+
+        """
+
+        # Extract file extension (.tiff) and file_id (00001)
+        dot_idx = path.rfind('.') 
+        under_idx = path.rfind('_')
+        file_extension = path[dot_idx + 1:]
+        file_id = path[under_idx + 1:dot_idx]
+
+        # Determine the next file_id 
+        num_zeros = len(file_id)
+        number_str = str(int(file_id) + 1)
+        zeros_to_add = num_zeros - len(number_str)
+        if zeros_to_add <= 0:
+            new_file_id = number_str
+        else:
+            new_file_id =  '0' * zeros_to_add + number_str
+
+        return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
 
     def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
         """CAMERA FUNCTIONS
@@ -177,16 +203,21 @@ class Lumascope():
         img = np.flip(img, 0)
 
         # set filename options
-        if append == 'ms':
-            append = str(int(round(time.time() * 1000)))
-        elif append == 'time':
-            append = time.strftime("%Y%m%d_%H%M%S")
-        else:
-            append = ''
+        # if append == 'ms':
+        #     append = str(int(round(time.time() * 1000)))
+        # elif append == 'time':
+        #     append = time.strftime("%Y%m%d_%H%M%S")
+        # else:
+        #     append = ''
 
-        # generate filename string
-        filename = file_root + append + '.tiff'
+        # generate filename and save path string
+        initial_id = '_000001'
+        filename =  file_root + append + initial_id + '.tiff'
         path = save_folder + '/' + filename
+
+        # Obtain next save path if current directory already exists
+        if os.path.exists(path):
+            path = self.get_next_save_path(path)
 
         try:
             cv2.imwrite(path, img.astype(np.uint8))
