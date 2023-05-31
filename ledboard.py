@@ -40,6 +40,7 @@ from numpy import False_
 import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
+import time
 
 class LEDBoard:    
 
@@ -84,13 +85,15 @@ class LEDBoard:
                                         timeout=self.timeout,
                                         write_timeout=self.write_timeout)
 
-            self.driver.close()
-            self.driver.open()
+            #self.driver.close()
+            #self.driver.open()
 
             # self.exchange_command('import main.py')
             # self.exchange_command('import main.py')
             logger.info('[LED Class ] LEDBoard.connect() succeeded')
-            self.driver.flushInput()
+            #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains 
+            self.driver.write(b'\x04\n')
+            logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readlines())
         except:
             self.driver = False
             logger.exception('[LED Class ] LEDBoard.connect() failed')
