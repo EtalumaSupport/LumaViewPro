@@ -177,12 +177,12 @@ class Lumascope():
         img = np.flip(img, 0)
 
         # set filename options
-        if append == 'ms':
-            append = str(int(round(time.time() * 1000)))
-        elif append == 'time':
-            append = time.strftime("%Y%m%d_%H%M%S")
-        else:
-            append = ''
+        # if append == 'ms':
+        #     append = str(int(round(time.time() * 1000)))
+        # elif append == 'time':
+        #     append = time.strftime("%Y%m%d_%H%M%S")
+        # else:
+        #     append = ''
 
         # generate filename string
         filename = file_root + append + '.tiff'
