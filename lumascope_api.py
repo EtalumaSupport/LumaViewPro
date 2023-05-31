@@ -210,8 +210,9 @@ class Lumascope():
         # else:
         #     append = ''
 
-        # generate filename string
-        filename = file_root + append + '_00001.tiff'
+        # generate filename and save path string
+        initial_id = '_000001'
+        filename =  file_root + append + initial_id + '.tiff'
         path = save_folder + '/' + filename
 
         # Obtain next save path if current directory already exists
