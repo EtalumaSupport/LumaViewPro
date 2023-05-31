@@ -169,6 +169,7 @@ class MotorBoard:
         model = info[info.index("Model:")+1]
         if model[-1] == "T":
             self.has_turret = True
+        # an option here is to set the current model in the LumaView object as well so the user doesn't need to
 
     #----------------------------------------------------------
     # Z (Focus) Functions
