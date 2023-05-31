@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 20, 2023
+May 31, 2023
 '''
 
 #import threading
@@ -167,7 +167,7 @@ class MotorBoard:
     # Informational Functions
     #----------------------------------------------------------
     def infomation(self):
-        self.exchange_command('INFO', 7)
+        self.exchange_command('INFO', 2)
 
     #----------------------------------------------------------
     # Z (Focus) Functions
@@ -204,7 +204,7 @@ class MotorBoard:
         """ Home the stage which also homes the objective first """
         logger.info('[XYZ Class ] MotorBoard.xyhome()')   
         if self.found:
-            self.exchange_command('HOME', 11)
+            self.exchange_command('HOME', 4)
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
