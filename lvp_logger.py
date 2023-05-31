@@ -30,7 +30,7 @@ AUTHORS:
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-March 20, 2023
+May 31, 2023
 '''
 
 '''
@@ -64,7 +64,7 @@ LOG_FILE = 'logs/LVP_log/lumaviewpro.log'
 logger = logging.getLogger(__name__)
 
 # determines lowest level of messages to log (DEBUG < INFO < WARNING < ERROR < CRITICAL)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 # obtains name of the module (file) importing lvp_logger
 filename = '%s' % __file__
