@@ -285,19 +285,20 @@ class Lumascope():
     def zhome(self):
         """MOTION CONTROL FUNCTIONS
         Home the z-axis (i.e. focus)"""
-        if not self.motion: return
+        #if not self.motion: return
         self.motion.zhome()
 
     def xyhome(self):
         """MOTION CONTROL FUNCTIONS
         Home the xy-axes (i.e. stage). Note: z-axis and turret will always home first"""
-        if not self.motion: return
+        #if not self.motion: return
         self.is_homing = True
         self.motion.xyhome()
+        return
 
-        while self.is_moving():
-            time.sleep(0.01)
-        self.is_homing = False
+        #while self.is_moving():
+        #    time.sleep(0.01)
+        #self.is_homing = False
 
     def xyhome_iterate(self):
         if not self.is_moving():
@@ -308,22 +309,22 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
         Move Stage to the center."""
 
-        if not self.motion: return
+        #if not self.motion: return
         self.motion.xycenter()
 
     def thome(self):
         """MOTION CONTROL FUNCTIONS
         Home the Turret"""
 
-        if not self.motion:
-            return
+        #if not self.motion:
+        #    return
         self.motion.thome()
 
     def tmove(self, degrees):
         """MOTION CONTROL FUNCTIONS
         Move turret to position in degrees"""
 
-        if not self.motion: return
+        #if not self.motion: return
         # MUST home move objective home first to prevent crash
         self.zhome()
         #self.xyhome()
@@ -331,14 +332,9 @@ class Lumascope():
 
         self.is_turreting = True
         self.move_absolute_position('T', degrees)
-        while not self.is_moving():
-            time.sleep(0.1)
+        #while not self.is_moving():
+        #    time.sleep(0.1)
         self.is_turreting = False
-
-    def tmove_iterate(self, degrees):
-        if not self.is_moving():
-            self.is_turreting = False
-            self.tmove_timer.cancel()
 
     def get_target_position(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -364,21 +360,21 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
 
-        if not self.motion: return
+        #if not self.motion: return
         self.motion.move_abs_pos(axis, pos)
 
     def move_relative_position(self, axis, um):
         """MOTION CONTROL FUNCTIONS
          Move to relative distance (in um) of axis"""
 
-        if not self.motion: return
+        #if not self.motion: return
         self.motion.move_rel_pos(axis, um)
 
     def get_home_status(self, axis):
         """MOTION CONTROL FUNCTIONS
          Return True if axis is in home position or motionboard is """
  
-        if not self.motion: return True
+        #if not self.motion: return True
         status = self.motion.home_status(axis)
         return status
 
@@ -386,7 +382,7 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
          Return True if axis is at target position"""
 
-        if not self.motion: return True
+        #if not self.motion: return True
         status = self.motion.target_status(axis)
         return status
         
@@ -395,7 +391,7 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
          Get all reference status register bits as 32 character string (32-> 0) """
 
-        if not self.motion: return
+        #if not self.motion: return
         status = self.motion.reference_status(axis)
         return status
 
@@ -403,7 +399,7 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
         Is z-axis (focus) currently in overshoot mode?"""
 
-        if not self.motion: return False
+        #if not self.motion: return False
         return self.motion.overshoot
 
     def is_moving(self):

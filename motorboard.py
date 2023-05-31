@@ -54,6 +54,7 @@ class MotorBoard:
         self.found = False
         self.overshoot = False
         self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
+        self.has_turret = False
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
@@ -96,19 +97,12 @@ class MotorBoard:
             # After powering on the scope, the first command seems to be ignored.
             # This is to ensure the following commands are followed
             # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
-            self.infomation()
+            #self.driver.write("\r\n")
+            # Fullinfo checks to see if it has a turret, so call that here
+            self.fullinfo()
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
-
-    def safe_readline(self):
-        """ Read a line from the serial port.  A line ends when a \n byte is read (10 decimal)
-            This terrible hack get's around an unknown odd behavior where readline() can return an empty string regardless of the serial port timeout."""
-        response = self.driver.read(1)
-        #why TF is b'\n' != 10?
-        while response[-1] != 10:
-            response += self.driver.read(1)
-        return response
 
     #----------------------------------------------------------
     # Define Communication
@@ -120,35 +114,32 @@ class MotorBoard:
         stream = command.encode('utf-8')+b"\r\n"
         #print(stream)
 
-        if self.driver != False:
-            try:
-                self.driver.write(stream)
-                #if (command)=='HOME': # ESW to increase homing reliability
-                #    CRLF = command.encode('utf-8')+b"\r\n"
-                #    self.driver.write(CRLF)
-
-                #response = self.driver.readline()
-                #response = self.driver.read_until(b"\n")
-                resp_lines = [self.safe_readline() for _ in range(response_numlines)]
-                response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
-                if response_numlines == 1:
-                    response = response[0]
-                #logger.info('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
-                return response
-
-            except serial.SerialTimeoutException:
-                self.driver = False
-                logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
-
-            except:
-                self.driver = False
-                logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
-
-        else:
+        if not self.driver:
             try:
                 self.connect()
             except:
                 return
+        try:
+            self.driver.write(stream)
+            #if (command)=='HOME': # ESW to increase homing reliability
+            #    CRLF = command.encode('utf-8')+b"\r\n"
+            #    self.driver.write(CRLF)
+
+            resp_lines = [self.driver.readline() for _ in range(response_numlines)]
+            response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
+            if response_numlines == 1:
+                response = response[0]
+            logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
+            return response
+
+        except serial.SerialTimeoutException:
+            self.driver = False
+            logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
+
+        except:
+            self.driver = False
+            logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
+
 
     # Firmware 1-14-2023 commands include
     # 'QUIT'
@@ -167,7 +158,15 @@ class MotorBoard:
     # Informational Functions
     #----------------------------------------------------------
     def infomation(self):
-        self.exchange_command('INFO', 7)
+        self.exchange_command('INFO')
+
+    def fullinfo(self):
+        info = self.exchange_command("FULLINFO")
+        logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info)
+        info = info.split()
+        model = info[info.index("Model:")+1]
+        if model[-1] == "T":
+            self.has_turret = True
 
     #----------------------------------------------------------
     # Z (Focus) Functions
@@ -178,13 +177,13 @@ class MotorBoard:
         return um
 
     def z_um2ustep(self, um):
-        # logger.info('[XYZ Class ] MotorBoard.z_um2ustep('+str(um)+')')       
+        # logger.info('[XYZ Class ] MotorBoard.z_um2ustep('+str(um)+')')
         ustep = int( um / 0.00586 ) # 0.00586 um/ustep Olympus Z
         return ustep
 
     def zhome(self):
         """ Home the objective """
-        logger.info('[XYZ Class ] MotorBoard.zhome()')        
+        logger.info('[XYZ Class ] MotorBoard.zhome()')
         self.exchange_command('ZHOME')
 
     #----------------------------------------------------------
@@ -202,15 +201,14 @@ class MotorBoard:
 
     def xyhome(self):
         """ Home the stage which also homes the objective first """
-        logger.info('[XYZ Class ] MotorBoard.xyhome()')   
-        if self.found:
-            self.exchange_command('HOME', 11)
+        logger.info('[XYZ Class ] MotorBoard.xyhome()')
+        self.exchange_command('HOME')
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
         logger.info('[XYZ Class ] MotorBoard.xycenter()')
         self.exchange_command('CENTER')
-            
+
     #----------------------------------------------------------
     # T (Turret) Functions
     #----------------------------------------------------------
@@ -233,7 +231,7 @@ class MotorBoard:
     #----------------------------------------------------------
     # Motion Functions
     #----------------------------------------------------------
- 
+
     def move(self, axis, steps):
         """ Move the axis to an absolute position (in usteps)
         compared to Home """
@@ -328,8 +326,8 @@ class MotorBoard:
                 overshoot = max(1, overshoot)
                 #self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                 self.move(axis, overshoot)
-                while not self.target_status('Z'):
-                    time.sleep(0.001)
+                #while not self.target_status('Z'):
+                #    time.sleep(0.001)
                 # complete overshoot
                 self.overshoot = False
 
