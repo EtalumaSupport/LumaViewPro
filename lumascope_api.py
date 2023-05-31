@@ -324,11 +324,11 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
         Move turret to position in degrees"""
 
-        #if not self.motion: return
         # MUST home move objective home first to prevent crash
-        self.zhome()
-        #self.xyhome()
-        #self.xycenter()
+        #self.zhome()
+        #self.move_absolute_position('Z', self.z_min)
+        self.move_absolute_position('Z', 0)
+
 
         self.is_turreting = True
         self.move_absolute_position('T', degrees)
