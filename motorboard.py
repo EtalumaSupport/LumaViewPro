@@ -111,7 +111,7 @@ class MotorBoard:
         """ Exchange command through serial to SPI to the motor boards
         This should NOT be used in a script. It is intended for other functions to access"""
 
-        stream = command.encode('utf-8')+b"\r\n"
+        stream = command.encode('utf-8')+b"\n"
         #print(stream)
 
         if not self.driver:
