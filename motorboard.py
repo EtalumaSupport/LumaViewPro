@@ -97,7 +97,7 @@ class MotorBoard:
             # After powering on the scope, the first command seems to be ignored.
             # This is to ensure the following commands are followed
             # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
-            #Sometimes the firmware fails to start, this forces MicroPython to reset, and the normal firmware just complains 
+            #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains
             self.driver.write(b'\x04\n')
             logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
             # Fullinfo checks to see if it has a turret, so call that here

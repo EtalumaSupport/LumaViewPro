@@ -93,7 +93,7 @@ class LEDBoard:
             logger.info('[LED Class ] LEDBoard.connect() succeeded')
             #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains 
             self.driver.write(b'\x04\n')
-            logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readlines())
+            logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
         except:
             self.driver = False
             logger.exception('[LED Class ] LEDBoard.connect() failed')
