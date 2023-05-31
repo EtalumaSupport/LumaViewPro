@@ -90,6 +90,7 @@ class LEDBoard:
             # self.exchange_command('import main.py')
             # self.exchange_command('import main.py')
             logger.info('[LED Class ] LEDBoard.connect() succeeded')
+            self.driver.flushInput()
         except:
             self.driver = False
             logger.exception('[LED Class ] LEDBoard.connect() failed')
@@ -98,7 +99,7 @@ class LEDBoard:
         """ Exchange command through serial to LED board
         This should NOT be used in a script. It is intended for other functions to access"""
 
-        stream = command.encode('utf-8')+b"\r\n"
+        stream = command.encode('utf-8')+b"\n"
 
         if self.driver != False:
             try:
@@ -108,7 +109,7 @@ class LEDBoard:
                 self.driver.flush()
                 response = response.decode("utf-8","ignore")
 
-                logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded')
+                logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
                 return response[:-2]
             
             except serial.SerialTimeoutException:
