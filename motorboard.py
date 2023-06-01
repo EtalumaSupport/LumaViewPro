@@ -43,6 +43,8 @@ import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
 
+
+
 class MotorBoard:
 
     #----------------------------------------------------------
@@ -101,7 +103,16 @@ class MotorBoard:
             self.driver.write(b'\x04\n')
             logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
             # Fullinfo checks to see if it has a turret, so call that here
-            self.fullinfo()
+            microscope_firmware = self.fullinfo()
+            #if microscope:
+            #    if not microscope.firmware == "2023.5.30":
+            if not microscope_firmware == "2023.5.30":
+                print("Failed: This microscopes firmware is out of date and will not work with this version of LumaviewPro")
+                print("Please update to version 2023.5.30")
+                logger.exception('[XYZ Class ] MotorBoard.connect() incorect firmware version.')
+                exit() # this is a harsh hack but should help for now
+                    
+            
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
@@ -169,7 +180,10 @@ class MotorBoard:
         model = info[info.index("Model:")+1]
         if model[-1] == "T":
             self.has_turret = True
+        firmware = info[info.index("Firmware:")+1] #TBD
         # an option here is to set the current model in the LumaView object as well so the user doesn't need to
+        return firmware
+        
 
     #----------------------------------------------------------
     # Z (Focus) Functions
