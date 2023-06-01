@@ -30,7 +30,7 @@ AUTHORS:
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-May 24, 2023
+May 31, 2023
 '''
 
 '''
@@ -63,7 +63,7 @@ class CustomFormatter(logging.Formatter):
 logger = logging.getLogger(__name__)
 
 # determines lowest level of messages to log (DEBUG < INFO < WARNING < ERROR < CRITICAL)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 # obtains name of the module (file) importing lvp_logger
 filename = '%s' % __file__

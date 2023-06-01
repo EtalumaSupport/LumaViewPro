@@ -40,6 +40,7 @@ from numpy import False_
 import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
+import time
 
 class LEDBoard:    
 
@@ -84,12 +85,15 @@ class LEDBoard:
                                         timeout=self.timeout,
                                         write_timeout=self.write_timeout)
 
-            self.driver.close()
-            self.driver.open()
+            #self.driver.close()
+            #self.driver.open()
 
             # self.exchange_command('import main.py')
             # self.exchange_command('import main.py')
             logger.info('[LED Class ] LEDBoard.connect() succeeded')
+            #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains 
+            self.driver.write(b'\x04\n')
+            logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
         except:
             self.driver = False
             logger.exception('[LED Class ] LEDBoard.connect() failed')
@@ -98,17 +102,17 @@ class LEDBoard:
         """ Exchange command through serial to LED board
         This should NOT be used in a script. It is intended for other functions to access"""
 
-        stream = command.encode('utf-8')+b"\r\n"
+        stream = command.encode('utf-8')+b"\n"
 
         if self.driver != False:
             try:
-                self.driver.close()
-                self.driver.open()
                 self.driver.write(stream)
                 response = self.driver.readline()
+                self.driver.flushInput()
+                self.driver.flush()
                 response = response.decode("utf-8","ignore")
 
-                logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded')
+                logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
                 return response[:-2]
             
             except serial.SerialTimeoutException:

@@ -43,15 +43,11 @@ from pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger
-from threading import Timer
 import time
+import os
 import cv2
 import numpy as np
 
-class RepeatTimer(Timer):
-    def run(self):
-        while not self.finished.wait(self.interval):
-            self.function(*self.args, **self.kwargs)
 
 class Lumascope():
 
@@ -160,6 +156,31 @@ class Lumascope():
             return self.camera.array
         else:
             return False
+        
+    def get_next_save_path(self, path):
+        """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
+
+            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'   
+            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'   
+
+        """
+
+        # Extract file extension (.tiff) and file_id (00001)
+        dot_idx = path.rfind('.') 
+        under_idx = path.rfind('_')
+        file_extension = path[dot_idx + 1:]
+        file_id = path[under_idx + 1:dot_idx]
+
+        # Determine the next file_id 
+        num_zeros = len(file_id)
+        number_str = str(int(file_id) + 1)
+        zeros_to_add = num_zeros - len(number_str)
+        if zeros_to_add <= 0:
+            new_file_id = number_str
+        else:
+            new_file_id =  '0' * zeros_to_add + number_str
+
+        return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
 
     def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
         """CAMERA FUNCTIONS
@@ -182,16 +203,21 @@ class Lumascope():
         img = np.flip(img, 0)
 
         # set filename options
-        if append == 'ms':
-            append = str(int(round(time.time() * 1000)))
-        elif append == 'time':
-            append = time.strftime("%Y%m%d_%H%M%S")
-        else:
-            append = ''
+        # if append == 'ms':
+        #     append = str(int(round(time.time() * 1000)))
+        # elif append == 'time':
+        #     append = time.strftime("%Y%m%d_%H%M%S")
+        # else:
+        #     append = ''
 
-        # generate filename string
-        filename = file_root + append + '.tiff'
+        # generate filename and save path string
+        initial_id = '_000001'
+        filename =  file_root + append + initial_id + '.tiff'
         path = save_folder + '/' + filename
+
+        # Obtain next save path if current directory already exists
+        if os.path.exists(path):
+            path = self.get_next_save_path(path)
 
         try:
             cv2.imwrite(path, img.astype(np.uint8))
@@ -290,18 +316,20 @@ class Lumascope():
     def zhome(self):
         """MOTION CONTROL FUNCTIONS
         Home the z-axis (i.e. focus)"""
-        if not self.motion: return
+        #if not self.motion: return
         self.motion.zhome()
 
     def xyhome(self):
         """MOTION CONTROL FUNCTIONS
         Home the xy-axes (i.e. stage). Note: z-axis and turret will always home first"""
-        if not self.motion: return
+        #if not self.motion: return
         self.is_homing = True
         self.motion.xyhome()
+        return
 
-        self.xyhome_timer = RepeatTimer(0.01, self.xyhome_iterate)
-        self.xyhome_timer.start()
+        #while self.is_moving():
+        #    time.sleep(0.01)
+        #self.is_homing = False
 
     def xyhome_iterate(self):
         if not self.is_moving():
@@ -312,37 +340,32 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
         Move Stage to the center."""
 
-        if not self.motion: return
+        #if not self.motion: return
         self.motion.xycenter()
 
     def thome(self):
         """MOTION CONTROL FUNCTIONS
         Home the Turret"""
 
-        if not self.motion:
-            return
+        #if not self.motion:
+        #    return
         self.motion.thome()
 
     def tmove(self, degrees):
         """MOTION CONTROL FUNCTIONS
         Move turret to position in degrees"""
 
-        if not self.motion: return
         # MUST home move objective home first to prevent crash
-        self.zhome()
-        #self.xyhome()
-        #self.xycenter()
+        #self.zhome()
+        #self.move_absolute_position('Z', self.z_min)
+        self.move_absolute_position('Z', 0)
+
 
         self.is_turreting = True
         self.move_absolute_position('T', degrees)
-        self.tmove_timer = RepeatTimer(0.01, self.tmove_iterate, args=(degrees,))
-        #self.tmove_timer = RepeatTimer(2, self.tmove_iterate, args=(degrees,))
-        self.tmove_timer.start()
-
-    def tmove_iterate(self, degrees):
-        if not self.is_moving():
-            self.is_turreting = False
-            self.tmove_timer.cancel()
+        #while not self.is_moving():
+        #    time.sleep(0.1)
+        self.is_turreting = False
 
     def get_target_position(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -368,21 +391,21 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
 
-        if not self.motion: return
+        #if not self.motion: return
         self.motion.move_abs_pos(axis, pos)
 
     def move_relative_position(self, axis, um):
         """MOTION CONTROL FUNCTIONS
          Move to relative distance (in um) of axis"""
 
-        if not self.motion: return
+        #if not self.motion: return
         self.motion.move_rel_pos(axis, um)
 
     def get_home_status(self, axis):
         """MOTION CONTROL FUNCTIONS
          Return True if axis is in home position or motionboard is """
  
-        if not self.motion: return True
+        #if not self.motion: return True
         status = self.motion.home_status(axis)
         return status
 
@@ -390,7 +413,7 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
          Return True if axis is at target position"""
 
-        if not self.motion: return True
+        #if not self.motion: return True
         status = self.motion.target_status(axis)
         return status
         
@@ -399,7 +422,7 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
          Get all reference status register bits as 32 character string (32-> 0) """
 
-        if not self.motion: return
+        #if not self.motion: return
         status = self.motion.reference_status(axis)
         return status
 
@@ -407,7 +430,7 @@ class Lumascope():
         """MOTION CONTROL FUNCTIONS
         Is z-axis (focus) currently in overshoot mode?"""
 
-        if not self.motion: return False
+        #if not self.motion: return False
         return self.motion.overshoot
 
     def is_moving(self):
@@ -533,23 +556,23 @@ class Lumascope():
         # Start the autofocus process at z-minimum
         self.move_absolute_position('Z', self.z_min)
 
-        # Start thread to wait until autofocus is complete
-        self.autofocus_timer = RepeatTimer(0.01, self.autofocus_iterate, args=(AF_min,))
-        self.autofocus_timer.start()
+        while not self.autofocus_iterate(AF_min):
+            time.sleep(0.01)
 
     def autofocus_iterate(self, AF_min):
         """INTEGRATED SCOPE FUNCTIONS
         iterate autofocus functionality"""
+        done=False
 
         # Ignore steps until conditions are met
-        if self.is_moving(): return   # needs to be in position
-        if self.is_capturing: return  # needs to have completed capture with illumination
+        if self.is_moving(): return done  # needs to be in position
+        if self.is_capturing: return done # needs to have completed capture with illumination
 
         # Is there a previous capture result to pull?
         if self.capture_return is False:
             # No -> start a capture event
             self.capture()
-            return
+            return done
             
         else:
             # Yes -> pull the capture result and clear
@@ -558,8 +581,8 @@ class Lumascope():
             
         if image is False:
             # Stop thread image can't be acquired
-            self.autofocus_timer.cancel()
-            return
+            done = True
+            return done
    
         # observe the image
         rows, cols = image.shape
@@ -581,7 +604,7 @@ class Lumascope():
 
         if next_target <= self.z_max:
             self.move_relative_position('Z', self.resolution)
-            return
+            return done
 
         # Adjust future steps if next_target went out of bounds
         # Calculate new step size for resolution
@@ -616,7 +639,8 @@ class Lumascope():
             self.is_focusing = False
 
             # Stop thread image when autofocus is complete
-            self.autofocus_timer.cancel()
+            done=True
+        return done
 
     # Algorithms for estimating the quality of the focus
     def focus_function(self, image, algorithm = 'vollath4'):
