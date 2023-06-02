@@ -34,7 +34,7 @@ Bryan Tiedemann, The Earthineering Company
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-May 31, 2023
+June 1, 2023
 '''
 
 # General
@@ -357,7 +357,7 @@ class CompositeCapture(FloatLayout):
         path = save_folder + '/' + filename
 
         # Obtain next save path if current directory already exists
-        if os.path.exists(path):
+        while os.path.exists(path):
             path = lumaview.scope.get_next_save_path(path)
 
         cv2.imwrite(path, img.astype(np.uint8))

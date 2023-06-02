@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-April 21, 2023
+June 1, 2023
 '''
 
 # Import Lumascope Hardware files
@@ -216,7 +216,7 @@ class Lumascope():
         path = save_folder + '/' + filename
 
         # Obtain next save path if current directory already exists
-        if os.path.exists(path):
+        while os.path.exists(path):
             path = self.get_next_save_path(path)
 
         try:

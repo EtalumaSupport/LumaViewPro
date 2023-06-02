@@ -33,14 +33,14 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-May 31, 2023
+June 1, 2023
 '''
 
 #import threading
 #import queue
 import time
-import requests
-import ampy
+# import requests
+# import ampy
 from requests.structures import CaseInsensitiveDict
 import serial
 import serial.tools.list_ports as list_ports
