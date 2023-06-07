@@ -40,11 +40,18 @@ June 1, 2023
 #import queue
 import time
 # import requests
-# import ampy
+import glob
+import os
+import pyboard
+from ampy import files
+from ampy.pyboard import Pyboard
 from requests.structures import CaseInsensitiveDict
 import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
+
+LATEST_FIRMWARE = '2023-05-30'
+LATEST_FIRMWARE_PATH = 'firmware'
 
 class MotorBoard:
 
@@ -103,8 +110,14 @@ class MotorBoard:
             #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains
             self.driver.write(b'\x04\n')
             logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
+
             # Fullinfo checks to see if it has a turret, so call that here
             self.fullinfo()
+
+            # self.check_firmware()
+
+            # microscope_firmware = self.exchange_command("FULLINFO")
+
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
@@ -172,6 +185,8 @@ class MotorBoard:
         model = info[info.index("Model:")+1]
         if model[-1] == "T":
             self.has_turret = True
+        return info
+        # an option here is to set the current model in the LumaView object as well so the user doesn't need to
         # an option here is to set the current model in the LumaView object as well so the user doesn't need to
 
     #----------------------------------------------------------
@@ -427,19 +442,19 @@ class MotorBoard:
 
         # Ensure Motorboard is connected and found
         if not self.found or not self.driver:
-            logger.warning(f'[XYZ Class] Cannot perform firmware update. Motorboard not connected or found')
+            logger.warning('[XYZ Class] Cannot perform firmware update. Motorboard not connected or found')
             return
         
         # If firmware is outdated, attempt to update firmware. 
         if not self.firmware_is_up_to_date():
-            logger.info(f'[XYZ Class] Motorboard is out of date. Installing new firmware...')
+            logger.info('[XYZ Class] Motorboard is out of date. Installing latest firmware %s ...', LATEST_FIRMWARE)
 
             if self.update_firmware():
-                logger.info(f'[XYZ Class] Succesfully updated Motorboard firmware')
+                logger.info('[XYZ Class] Succesfully updated Motorboard firmware. Please restart LumaViewPro')
             else:
-                logger.warning(f'[XYZ Class] Failed to update Motorboard firmware')
+                logger.warning('[XYZ Class] Failed to update Motorboard firmware')
         else:
-            logger.info(f'[XYZ Class] Motorboard firmware is already up to date')
+            logger.info("[XYZ Class ] Motorboard firmware is already up to date with version %s",LATEST_FIRMWARE)
 
     def update_firmware(self):
         """ Performs the firmware update on the motorboard
@@ -449,31 +464,37 @@ class MotorBoard:
         """
         # Ensure Motorboard is connected and found
         if not self.found or not self.driver:
-            logger.warning(f'[XYZ Class] Cannot perform firmware update. Motorboard not connected or found')
+            logger.warning('[XYZ Class] Cannot perform firmware update. Motorboard not connected or found')
             return False
         
         # Obtain the latest firmware files from the firmware repository
-        FIRMWARE_URL = self.get_firmware_URL('EtalumaSupport/Firmware', 'Firmware', 'Motor Controller/LVP current functional/')
-        AUTH_TOKEN = None # Insert authentication token here
+        # FIRMWARE_URL = self.get_firmware_URL('EtalumaSupport/Firmware', 'Firmware', 'Motor Controller/LVP current functional/')
+        # AUTH_TOKEN = None # Insert authentication token here
 
-        latest_firmware = self.get_latest_firmware(FIRMWARE_URL, AUTH_TOKEN)
-        if not latest_firmware:
-            logger.warning(f'[XYZ Class] Failed to get latest firmware from remote repository')
+        # latest_firmware = self.get_latest_firmware(FIRMWARE_URL, AUTH_TOKEN)
+
+        latest_firmware = self.get_latest_firmware_local()
+
+        if not latest_firmware or len(latest_firmware) == 0:
+            logger.warning('[XYZ Class] Failed to get latest firmware')
             return False
 
         try:
         
             # Attempts to overwrite current files on PICO with new firmware files
-            file_manager = ampy.files.Files(self.device)
-            for file_name in latest_firmware.keys():
-                file_manager.put(latest_firmware[file_name])
-                logger.info(f'[XYZ Class] Succesfully upload firmware file {file_name} to Motorboard')
 
+            self.driver.close()
+            pyboard_obj = Pyboard(self.port)
+            file_manager = files.Files(pyboard_obj)
+    
+            for file_name in latest_firmware.keys():
+                if file_name == 'main.py':
+                    file_manager.put(file_name, latest_firmware[file_name])
+                    logger.info('[XYZ Class] Succesfully upload firmware file %s to Motorboard', file_name)
             return True
         except:
-            logger.exception(f'[XYZ Class] Failed to upload new Firmware files to Motorboard')
-            raise
-
+            logger.exception('[XYZ Class] Failed to upload new Firmware files to Motorboard')
+            return False
 
     def get_firmware_URL(self, owner, repo, path):
         """ Generates a GitHub API URL to make get requests from
@@ -485,6 +506,34 @@ class MotorBoard:
 
         """
         return f'https://api.github.com/repos/{owner}/{repo}/contents/{path}'
+    
+    def get_latest_firmware_local(self):
+        """ Get the latest firmware from a local directory LATEST_FIRMWARE_DIRECTORY
+            defined at the top of motorboard.py
+
+            :returns firmware_files dictionary of the format ['FILE NAME' : <FILE CONTENT>]
+        """
+        # Use glob to get a list of files in the directory
+        file_list = glob.glob(os.path.join(LATEST_FIRMWARE_PATH, '*'))
+
+        # Store the files in a variable
+        file_contents = {}
+
+        try:
+            # Read the contents of each file and store them in the variable
+            for file_path in file_list:
+                file_name = os.path.basename(file_path)
+                with open(file_path, 'r') as file:
+                    file_contents[file_name] = file.read()
+            
+            logger.info('[XYZ Class ] Succesfully retrieved contents from local firmware directory %s', LATEST_FIRMWARE_PATH)
+            return file_contents
+
+        except:
+            logger.warning('[XYZ Class ] Unable to retrieve contents from local firmware directory %s', LATEST_FIRMWARE_PATH)
+            return []
+
+
 
     def get_latest_firmware(self, firmware_url, auth_token):
         """ Retrieves the latest firmware files from a GitHub repository
@@ -537,10 +586,19 @@ class MotorBoard:
 
             :return a boolean true if firmware is up to date, false otherwise
         """
-        # TO BE IMPLEMENTED
-        # Need Eric to add VERSION.txt or alternative to firmware to allow for easy version comparison
-        return True
+
+        current_firmware = self.get_current_firmware()
+
+        if LATEST_FIRMWARE not in current_firmware:
+            logger.warning("[XYZ Class ] This microscope's firmware is out of date and will not work with this version of LumaviewPro")
+            logger.warning("[XYZ Class ] Please update to version %s", LATEST_FIRMWARE)
+            logger.warning('[XYZ Class ] MotorBoard.connect() incorect firmware version.')
+            return False
         
+        # logger.info("[XYZ Class ] Firmware Checking Successful. Motorboard has firmware %s", LATEST_FIRMWARE)
+        return True
+
+ 
     def get_current_firmware(self):
         """ Returns current version of firmware on Motorboard
 
@@ -548,11 +606,12 @@ class MotorBoard:
                 Etaluma Motor Controller Board <BOARD TYPE> 
                 Firmware:     <DATE>
         """
-        response = self.exchange_command('INFO')
+        response = self.exchange_command('FULLINFO')
         if not response:
-            logger.info('[XYZ Class ] MotorBoard not connected. Unable to check current firmware')
+            logger.info('[XYZ Class ] MotorBoard not connected. Unable to check current')
             return 
         return response
+     
 
 '''
 # signed 32 bit hex to dec
