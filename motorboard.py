@@ -33,7 +33,7 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-June 1, 2023
+June 7, 2023
 '''
 
 #import threading
@@ -112,9 +112,9 @@ class MotorBoard:
             logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
 
             # Fullinfo checks to see if it has a turret, so call that here
+            self.check_firmware()
             self.fullinfo()
 
-            # self.check_firmware()
 
             # microscope_firmware = self.exchange_command("FULLINFO")
 
