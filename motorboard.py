@@ -450,7 +450,8 @@ class MotorBoard:
             logger.info('[XYZ Class] Motorboard is out of date. Installing latest firmware %s ...', LATEST_FIRMWARE)
 
             if self.update_firmware():
-                logger.info('[XYZ Class] Succesfully updated Motorboard firmware. Please restart LumaViewPro')
+                logger.info('[XYZ Class] Succesfully updated Motorboard firmware.')
+                logger.info('[XYZ Class] PLEASE RESTART LUMAVIEWPRO AND REBOOT MICROSCOPE.')
             else:
                 logger.warning('[XYZ Class] Failed to update Motorboard firmware')
         else:
