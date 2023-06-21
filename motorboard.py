@@ -332,8 +332,8 @@ class MotorBoard:
                 overshoot = max(1, overshoot)
                 #self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                 self.move(axis, overshoot)
-                #while not self.target_status('Z'):
-                #    time.sleep(0.001)
+                while not self.target_status('Z'):
+                    time.sleep(0.001)
                 # complete overshoot
                 self.overshoot = False
 
