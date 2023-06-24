@@ -34,7 +34,7 @@ Bryan Tiedemann, The Earthineering Company
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-June 1, 2023
+June 24, 2023
 '''
 
 # General
@@ -2810,10 +2810,11 @@ class LumaViewProApp(App):
         # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
 
     def build(self):
+        current_time = time.strftime("%m/%d/%Y", time.localtime())
         logger.info('[LVP Main  ] LumaViewProApp.build()')
 
         logger.info('[LVP Main  ] -----------------------------------------')
-        logger.info('[LVP Main  ] Code Compiled On: 4/20/2023')
+        logger.info('[LVP Main  ] Code Compiled On: %s', current_time)
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         logger.info('[LVP Main  ] -----------------------------------------')
 

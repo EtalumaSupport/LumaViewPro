@@ -30,7 +30,7 @@ AUTHORS:
 Gerard Decker, The Earthineering Company
 
 MODIFIED:
-May 31, 2023
+June 24, 2023
 '''
 
 '''
@@ -38,6 +38,7 @@ lvp_logger.py configures a standard python logger for LumaViewPro.
 '''
 
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 if not os.path.exists("logs/LVP_Log"):
     os.makedirs("logs/LVP_Log")
@@ -67,6 +68,8 @@ logger.setLevel(logging.INFO)
 
 # obtains name of the module (file) importing lvp_logger
 filename = '%s' % __file__
-file_handler = logging.FileHandler(LOG_FILE)
+file_handler = RotatingFileHandler(LOG_FILE, mode='a', maxBytes=1*1024*1024, 
+                                 backupCount=0, encoding=None, delay=False)
+# file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setFormatter(CustomFormatter())
 logger.addHandler(file_handler)
