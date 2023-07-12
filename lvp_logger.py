@@ -44,7 +44,7 @@ if not os.path.exists("logs/LVP_Log"):
     os.makedirs("logs/LVP_Log")
 
 # file to which messages are logged 
-LOG_FILE = 'logs/LVP_log/lumaviewpro.log'
+LOG_FILE = 'logs/LVP_Log/lumaviewpro.log'
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
