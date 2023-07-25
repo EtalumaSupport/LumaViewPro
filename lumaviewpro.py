@@ -85,6 +85,8 @@ from kivy.uix.slider import Slider
 from kivy.uix.image import Image
 from kivy.uix.button import Button
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.popup import Popup
+from kivy.uix.label import Label
 
 # Video Related
 from kivy.graphics.texture import Texture
@@ -576,6 +578,53 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
+
+class CellCountPopup(BoxLayout):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        logger.info('[LVP Main  ] CellCountPopup.__init__()')
+        self._preview_source_file = None
+
+    
+    def get_settings(self):
+
+        return {
+            'threshold': self.ids['slider_cell_count_threshold_id'].value,
+            'size': self.ids['slider_cell_count_size_id'].value,
+        }
+
+
+    def set_preview_source_file(self, file_loc):
+        self._preview_source_file = file_loc
+
+
+    # Save settings to JSON file
+    def save_method_as(self, file="./data/cell_count_method.json"):
+        logger.info('[LVP Main  ] CellCountPopup.save_method_as()')
+        self.settings()
+        os.chdir(source_path)
+        with open(file, "w") as write_file:
+            json.dump(self.get_settings(), write_file, indent = 4)
+
+    
+    def slider_adjustment_threshold(self, value):
+        if self._preview_source_file is None:
+            return
+
+        post = post_processing.PostProcessing()
+        image_texture, _ = post.preview_cell_count(
+            filepath=self._preview_source_file,
+            threshold=value
+        )
+
+        cell_count_popup.ids['cell_count_image_id'].texture = image_texture
+
+
+    def slider_adjustment_size(self, value):
+        print(f"Not implemented yet. Slider adjustment size to {value}")
+
+
 class PostProcessingAccordion(BoxLayout):
 
     def __init__(self, **kwargs):
@@ -591,6 +640,23 @@ class PostProcessingAccordion(BoxLayout):
 
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
+
+    def open_cell_count(self):
+        logger.info('[LVP Main  ] PostProcessing.cell_count() not yet implemented')
+        popup_window = Popup(
+            title="Post Processing - Cell Count",
+            content=cell_count_popup,
+            size_hint=(0.7,0.7),
+            auto_dismiss=True
+        )
+        popup_window.open()
+
+
+
+class CellCountDisplay(FloatLayout):
+
+    def __init__(self, **kwargs):
+        super(CellCountDisplay,self).__init__(**kwargs)
 
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
@@ -2698,6 +2764,10 @@ class FileChooseBTN(Button):
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"])   
         elif self.context == 'load_protocol':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
+        elif self.context == 'load_cell_count_input_image':
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.jpg","*.bmp","*.png","*.gif"])
+        elif self.context == 'load_cell_count_method':
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"]) 
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileChooseBTN.handle_selection()')
@@ -2715,6 +2785,15 @@ class FileChooseBTN(Button):
 
             elif self.context == 'load_protocol':
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
+            
+            elif self.context == 'load_cell_count_input_image':
+                cell_count_popup.ids['cell_count_image_id'].source = self.selection[0]
+                cell_count_popup.set_preview_source_file(file_loc=self.selection[0])
+
+            elif self.context == 'load_cell_count_method':
+                logger.error('[LVP Main  ] TODO')
+                raise Exception("load_cell_count_method TO BE IMPLEMENTED")
+
         else:
             return
 
@@ -2760,6 +2839,14 @@ class FolderChooseBTN(Button):
                 out.write(img_array[i])
             out.release()
 
+        elif self.context == 'apply_cell_count_method_to_folder':
+            post = post_processing.PostProcessing()
+
+            post.apply_cell_count_to_folder(
+                path=path,
+                settings=cell_count_popup.get_settings()
+            )
+
         else: # Channel Save Folder selections
             settings[self.context]['save_folder'] = path
 
@@ -2775,6 +2862,9 @@ class FileSaveBTN(Button):
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
         elif self.context == 'saveas_protocol':
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
+        elif self.context == 'saveas_cell_count_method':
+            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
+
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileSaveBTN.handle_selection()')
@@ -2795,6 +2885,14 @@ class FileSaveBTN(Button):
             if self.selection:
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
                 logger.info('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
+        
+        elif self.context == 'saveas_cell_count_method':
+            if self.selection:
+                logger.info('[LVP Main  ] Saving Cell Count Method to File:' + self.selection[0])
+                filename = self.selection[0]
+                if os.path.splitext(filename)[1] == "":
+                    filename += ".json"
+                cell_count_popup.save_method_as(file=filename)
 
 
 # -------------------------------------------------------------------------
@@ -2820,12 +2918,14 @@ class LumaViewProApp(App):
 
         global Window
         global lumaview
+        global cell_count_popup
         self.icon = './data/icons/icon.png'
 
         try:
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
+            cell_count_popup = CellCountPopup()
             #Window.maximize()
         except:
             logger.exception('[LVP Main  ] Cannot open main display.')

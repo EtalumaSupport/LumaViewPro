@@ -1091,7 +1091,14 @@
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
-		on_release:root.open_folder()		
+		on_release:root.open_folder()
+
+	Button:
+		text:'Cell Count'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release:root.open_cell_count()		
 
 	Label:
 
@@ -1718,3 +1725,98 @@
 		Line:
 			width: 1
 			rectangle: (self.x, self.y, self.width, self.height)
+
+<CellCountPopup>:
+	orientation: 'horizontal'
+
+	# Controls
+	BoxLayout: 
+		orientation: 'vertical'
+		size_hint_x: 0.25
+
+		# Select image to load
+		FileChooseBTN:
+			text: 'Load Image'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('load_cell_count_input_image')
+
+		BoxLayout: # Slider Controls
+			orientiation: 'horizontal'
+			size_hint_y: 0.5
+
+			# Threshold slider
+			BoxLayout:
+				orientation: 'vertical'
+
+				Label:
+					text: 'Threshold'
+					size_hint_y: None
+					# size_y: '30dp'
+					height: '30dp'
+				
+				ModSlider:
+					id: slider_cell_count_threshold_id
+					min: 0
+					max: 100
+					step: 1
+					orientation: 'vertical'
+					on_release: root.slider_adjustment_threshold(slider_cell_count_threshold_id.value)
+				Label:
+					text: str(slider_cell_count_threshold_id.value)
+					height: '30dp'
+
+			# Size slider
+			BoxLayout:
+				orientation: 'vertical'
+
+				Label:
+					text: 'Size'
+					size_hint_y: None
+					# size_y: '30dp'
+					height: '30dp'
+				
+				ModSlider:
+					id: slider_cell_count_size_id
+					min: 0
+					max: 100
+					step: 1
+					orientation: 'vertical'
+					on_release: root.slider_adjustment_size(slider_cell_count_size_id.value)
+				Label:
+					text: str(slider_cell_count_size_id.value)
+					height: '30dp'
+
+		# Save method
+		FileSaveBTN:
+			text: 'Save Method As...'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('saveas_cell_count_method')
+
+		
+		# Select method to load
+		FileChooseBTN:
+			text: 'Load Method'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('load_cell_count_method')
+
+		# Apply method
+		FolderChooseBTN:
+			text: 'Apply Method to Folder'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('apply_cell_count_method_to_folder')
+
+	# Image area
+	BoxLayout: 
+		orientation: 'vertical'
+		size_hint_y: 0.75
+		Image:
+			id: cell_count_image_id
+			source: ""
