@@ -602,7 +602,6 @@ class CellCountPopup(BoxLayout):
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
         logger.info('[LVP Main  ] CellCountPopup.save_method_as()')
-        self.settings()
         os.chdir(source_path)
         with open(file, "w") as write_file:
             json.dump(self.get_settings(), write_file, indent = 4)
