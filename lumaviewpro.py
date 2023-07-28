@@ -109,7 +109,6 @@ start_str = str(int(round(time.time() * 1000)))
 global focus_round
 focus_round = 0
 
-
 def focus_log(positions, values):
     global focus_round
     if False:
@@ -200,6 +199,7 @@ class CompositeCapture(FloatLayout):
         return f'{letter}{well_x + 1}'
 
     def live_capture(self):
+        print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
@@ -220,6 +220,7 @@ class CompositeCapture(FloatLayout):
         lumaview.scope.save_live_image(save_folder, file_root, append, color)
 
     def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
+        print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
         global lumaview
         global settings
@@ -244,9 +245,10 @@ class CompositeCapture(FloatLayout):
 
         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
-        time.sleep(2*exposure/1000+0.2) 
-        lumaview.scope.get_image()
-
+        #time.sleep(2*exposure/1000+0.2)
+        #lumaview.scope.get_image()
+        lumaview.scope.capture()
+        
         if false_color: 
             lumaview.scope.save_live_image(save_folder, file_root, append, color)
         else:
