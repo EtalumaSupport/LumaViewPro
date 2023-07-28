@@ -73,24 +73,25 @@ class PostProcessing:
 
     
 
-    def preview_cell_count(self, filepath, threshold):
+    def preview_cell_count(self, image, threshold):
         """
         Takes a file path, processes an image for cell counting, and returns
         a Kivy texture preview of the processed image
         """
         preview_img, num_cells = self._cell_count.preview_image(
-            filepath=filepath,
+            image=image,
             threshold=threshold
         )
 
-        buf = preview_img.tostring()
+        # image_utils.image_to_texture
+        # buf = preview_img.tostring()
 
-        image_texture = Texture.create(
-            size=(preview_img.shape[1], preview_img.shape[0]), colorfmt='bgr')
+        # image_texture = Texture.create(
+        #     size=(preview_img.shape[1], preview_img.shape[0]), colorfmt='bgr')
         
-        image_texture.blit_buffer(buf, colorfmt='bgr', bufferfmt='ubyte')
+        # image_texture.blit_buffer(buf, colorfmt='bgr', bufferfmt='ubyte')
 
-        return image_texture, num_cells
+        return preview_img, num_cells
 
 
 
@@ -102,6 +103,8 @@ class PostProcessing:
             '.jpeg',
             '.png',
             '.bmp',
+            '.tif',
+            '.tiff'
         )
 
         fields = ['file', 'count']
@@ -110,8 +113,9 @@ class PostProcessing:
         for file_name in os.listdir(path):
             if file_name.endswith(SUPPORTED_IMAGE_TYPES):
                 file_path = os.path.join(path, file_name)
+                image = image_utils.image_file_to_image(image_file=file_path)
                 _, num_cells = self.preview_cell_count(
-                    filepath=file_path,
+                    image=image,
                     threshold=settings['threshold']
                 )
                 results.append({

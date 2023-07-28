@@ -1732,7 +1732,7 @@
 	# Controls
 	BoxLayout: 
 		orientation: 'vertical'
-		size_hint_x: 0.25
+		size_hint_x: 0.20
 
 		# Select image to load
 		FileChooseBTN:
@@ -1743,50 +1743,53 @@
 			on_release: self.choose('load_cell_count_input_image')
 
 		BoxLayout: # Slider Controls
-			orientiation: 'horizontal'
-			size_hint_y: 0.5
+			orientiation: 'vertical'
+			# size_hint_x: 0.
+			size_hint_y: None #0.25
+			height: '100dp'
 
 			# Threshold slider
 			BoxLayout:
-				orientation: 'vertical'
+				orientation: 'horizontal'
 
 				Label:
 					text: 'Threshold'
-					size_hint_y: None
+					size_hint_x: None
 					# size_y: '30dp'
-					height: '30dp'
+					width: '30dp'
 				
 				ModSlider:
 					id: slider_cell_count_threshold_id
 					min: 0
 					max: 100
 					step: 1
-					orientation: 'vertical'
+					orientation: 'horizontal'
 					on_release: root.slider_adjustment_threshold(slider_cell_count_threshold_id.value)
 				Label:
 					text: str(slider_cell_count_threshold_id.value)
-					height: '30dp'
+					width: '30dp'
 
 			# Size slider
-			BoxLayout:
-				orientation: 'vertical'
+			# BoxLayout:
+			# 	orientation: 'horizontal'
 
-				Label:
-					text: 'Size'
-					size_hint_y: None
-					# size_y: '30dp'
-					height: '30dp'
+			# 	Label:
+			# 		text: 'Size'
+			# 		size_hint_x: None
+			# 		# size_y: '30dp'
+			# 		width: '30dp'
 				
-				ModSlider:
-					id: slider_cell_count_size_id
-					min: 0
-					max: 100
-					step: 1
-					orientation: 'vertical'
-					on_release: root.slider_adjustment_size(slider_cell_count_size_id.value)
-				Label:
-					text: str(slider_cell_count_size_id.value)
-					height: '30dp'
+			# 	RangeSlider:
+			# 	# ModSlider:
+			# 		id: slider_cell_count_size_range_id
+			# 		min: 0
+			# 		max: 100
+			# 		step: 1
+			# 		orientation: 'horizontal'
+			# 		# on_release: root.slider_adjustment_size(slider_cell_count_size_id.value)
+			# 	Label:
+			# 		text: str(slider_cell_count_size_range_id.value)
+			# 		width: '30dp'
 
 		# Save method
 		FileSaveBTN:
@@ -1816,7 +1819,14 @@
 	# Image area
 	BoxLayout: 
 		orientation: 'vertical'
-		size_hint_y: 0.75
+		# size_hint_x: 0.75
+		size_hint_y: 1
+		canvas:
+			Color:
+				rgb: 255,255,255
 		Image:
 			id: cell_count_image_id
 			source: ""
+			canvas:
+				Color:
+					rgb: 255,255,255

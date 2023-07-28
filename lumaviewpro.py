@@ -90,12 +90,18 @@ from kivy.uix.label import Label
 
 # Video Related
 from kivy.graphics.texture import Texture
+
+# User Interface Custom Widgets
+from custom_widgets.range_slider import RangeSlider
+
 import cv2
 
 # Hardware
 from labware import WellPlate
 import lumascope_api
 import post_processing
+
+import image_utils
 
 global lumaview
 global settings
@@ -584,7 +590,7 @@ class CellCountPopup(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] CellCountPopup.__init__()')
-        self._preview_source_file = None
+        self._preview_source_image = None
 
     
     def get_settings(self):
@@ -595,8 +601,17 @@ class CellCountPopup(BoxLayout):
         }
 
 
-    def set_preview_source_file(self, file_loc):
-        self._preview_source_file = file_loc
+    # def set_preview_source_file(self, file_loc):
+    #     self._preview_source_file = file_loc
+
+    def set_preview_source_file(self, file) -> None:
+        image = image_utils.image_file_to_image(image_file=file)
+        self.set_preview_source(image=image)
+        
+    def set_preview_source(self, image) -> None:
+        self._preview_source_image = image
+        # self._preview_texture_source = texture
+        cell_count_popup.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
 
     # Save settings to JSON file
@@ -608,16 +623,16 @@ class CellCountPopup(BoxLayout):
 
     
     def slider_adjustment_threshold(self, value):
-        if self._preview_source_file is None:
+        if self._preview_source_image is None:
             return
 
         post = post_processing.PostProcessing()
-        image_texture, _ = post.preview_cell_count(
-            filepath=self._preview_source_file,
+        image, _ = post.preview_cell_count(
+            image=self._preview_source_image,
             threshold=value
         )
 
-        cell_count_popup.ids['cell_count_image_id'].texture = image_texture
+        cell_count_popup.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
 
     def slider_adjustment_size(self, value):
@@ -2764,7 +2779,7 @@ class FileChooseBTN(Button):
         elif self.context == 'load_protocol':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
         elif self.context == 'load_cell_count_input_image':
-            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.jpg","*.bmp","*.png","*.gif"])
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.jpg","*.bmp","*.png","*.gif","*.tif"])
         elif self.context == 'load_cell_count_method':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"]) 
 
@@ -2786,8 +2801,11 @@ class FileChooseBTN(Button):
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
             
             elif self.context == 'load_cell_count_input_image':
-                cell_count_popup.ids['cell_count_image_id'].source = self.selection[0]
-                cell_count_popup.set_preview_source_file(file_loc=self.selection[0])
+                # texture = image_utils.image_file_to_texture(image_file=self.selection[0])
+                # cell_count_popup.ids['cell_count_image_id'].source = self.selection[0]
+                # cell_count_popup.set_preview_source_file(file_loc=self.selection[0])
+                # cell_count_popup.set_preview_texture_source(texture=texture)
+                cell_count_popup.set_preview_source_file(file=self.selection[0])
 
             elif self.context == 'load_cell_count_method':
                 logger.error('[LVP Main  ] TODO')
