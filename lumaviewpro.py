@@ -2547,7 +2547,7 @@ class LayerControl(BoxLayout):
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
                 if layer == self.layer:
-                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
+#                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
                     logger.info('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 0.1)')
                 else:
                     lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
