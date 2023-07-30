@@ -25,7 +25,6 @@ class CellCount:
         # Countours
         contours, hierarchy = cv2.findContours(threshold_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-
         # Contour Area filtering
         filtered_contours = []
         for contour in contours:    

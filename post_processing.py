@@ -74,7 +74,6 @@ class PostProcessing:
         pass
 
     
-
     def preview_cell_count(self, image, fluorescent_mode, threshold, size_min, size_max):
         """
         Takes a file path, processes an image for cell counting, and returns

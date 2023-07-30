@@ -685,7 +685,7 @@ class PostProcessingAccordion(BoxLayout):
         popup_window = Popup(
             title="Post Processing - Cell Count",
             content=cell_count_popup,
-            size_hint=(0.7,0.7),
+            size_hint=(0.85,0.85),
             auto_dismiss=True
         )
         popup_window.open()
