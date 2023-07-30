@@ -597,7 +597,6 @@ class CellCountPopup(BoxLayout):
 
     
     def get_settings(self):
-
         return {
             'fluorescent_mode': self.ids['cell_count_fluorescent_mode_id'].active,
             'threshold': self.ids['slider_cell_count_threshold_id'].value,
@@ -607,22 +606,34 @@ class CellCountPopup(BoxLayout):
             }
         }
 
+    def set_settings(self, settings):
+        self.ids['cell_count_fluorescent_mode_id'].active = settings['fluorescent_mode']
+        self.ids['slider_cell_count_threshold_id'].value = settings['threshold']
+        self.ids['slider_cell_count_size_range_id'].value[0] = settings['size']['min']
+        self.ids['slider_cell_count_size_range_id'].value[1] = settings['size']['max']
+        self._regenerate_image_preview()
+
     def set_preview_source_file(self, file) -> None:
         image = image_utils.image_file_to_image(image_file=file)
         self.set_preview_source(image=image)
 
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
-        # self._preview_texture_source = texture
         self.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
 
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
-        logger.info('[LVP Main  ] CellCountPopup.save_method_as()')
+        logger.info(f'[LVP Main  ] CellCountPopup.save_method_as({file})')
         os.chdir(source_path)
         with open(file, "w") as write_file:
             json.dump(self.get_settings(), write_file, indent = 4)
+
+    def load_method_from_file(self, file):
+        logger.info(f'[LVP Main  ] CellCountPopup.load_method_from_file({file})')
+        with open(file, "r") as f:
+            method_settings = json.load(f)
+            self.set_settings(settings=method_settings)
 
     
     def _regenerate_image_preview(self):
@@ -2791,7 +2802,7 @@ class FileChooseBTN(Button):
         elif self.context == 'load_protocol':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
         elif self.context == 'load_cell_count_input_image':
-            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.jpg","*.bmp","*.png","*.gif","*.tif"])
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tif","*.tiff","*.jpg","*.bmp","*.png","*.gif"])
         elif self.context == 'load_cell_count_method':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"]) 
 
@@ -2813,15 +2824,10 @@ class FileChooseBTN(Button):
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
             
             elif self.context == 'load_cell_count_input_image':
-                # texture = image_utils.image_file_to_texture(image_file=self.selection[0])
-                # cell_count_popup.ids['cell_count_image_id'].source = self.selection[0]
-                # cell_count_popup.set_preview_source_file(file_loc=self.selection[0])
-                # cell_count_popup.set_preview_texture_source(texture=texture)
                 cell_count_popup.set_preview_source_file(file=self.selection[0])
 
             elif self.context == 'load_cell_count_method':
-                logger.error('[LVP Main  ] TODO')
-                raise Exception("load_cell_count_method TO BE IMPLEMENTED")
+                cell_count_popup.load_method_from_file(file=self.selection[0])
 
         else:
             return
