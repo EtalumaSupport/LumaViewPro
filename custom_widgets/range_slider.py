@@ -318,3 +318,8 @@ class RangeSlider(Widget):
         if touch.grab_current == self:
             touch.ungrab(self)
             return True
+
+    def get_current_range_str(self):
+        min_value, max_value = self._get_value()
+        return f"{min_value} - {max_value}"
+        

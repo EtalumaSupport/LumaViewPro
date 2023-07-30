@@ -40,6 +40,8 @@ import os
 
 from kivy.graphics.texture import Texture
 
+import image_utils
+
 from modules.cell_count import CellCount
 
 class PostProcessing:
@@ -73,26 +75,20 @@ class PostProcessing:
 
     
 
-    def preview_cell_count(self, image, threshold):
+    def preview_cell_count(self, image, fluorescent_mode, threshold, size_min, size_max):
         """
         Takes a file path, processes an image for cell counting, and returns
         a Kivy texture preview of the processed image
         """
         preview_img, num_cells = self._cell_count.preview_image(
             image=image,
-            threshold=threshold
+            fluorescent_mode=fluorescent_mode,
+            threshold=threshold,
+            size_min=size_min,
+            size_max=size_max
         )
 
-        # image_utils.image_to_texture
-        # buf = preview_img.tostring()
-
-        # image_texture = Texture.create(
-        #     size=(preview_img.shape[1], preview_img.shape[0]), colorfmt='bgr')
-        
-        # image_texture.blit_buffer(buf, colorfmt='bgr', bufferfmt='ubyte')
-
         return preview_img, num_cells
-
 
 
     def apply_cell_count_to_folder(self, path, settings):
@@ -107,7 +103,7 @@ class PostProcessing:
             '.tiff'
         )
 
-        fields = ['file', 'count']
+        fields = ['file', 'num_cells']
         results = []
 
         for file_name in os.listdir(path):
@@ -116,14 +112,16 @@ class PostProcessing:
                 image = image_utils.image_file_to_image(image_file=file_path)
                 _, num_cells = self.preview_cell_count(
                     image=image,
-                    threshold=settings['threshold']
+                    fluorescent_mode=settings['fluorescent_mode'],
+                    threshold=settings['threshold'],
+                    size_min=settings['size']['min'],
+                    size_max=settings['size']['max']
                 )
                 results.append({
                     'file': os.path.basename(file_name),
-                    'count': num_cells
+                    'num_cells': num_cells
                 })
-            else:
-                continue
+
 
         results_file_path = os.path.join(path, 'results.csv')
         with open(results_file_path, 'w') as f:

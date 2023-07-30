@@ -106,6 +106,8 @@ import image_utils
 global lumaview
 global settings
 
+global cell_count_popup
+
 abspath = os.path.abspath(__file__)
 basename = os.path.basename(__file__)
 source_path = abspath[:-len(basename)]
@@ -591,27 +593,28 @@ class CellCountPopup(BoxLayout):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] CellCountPopup.__init__()')
         self._preview_source_image = None
+        # self._post = post_processing.PostProcessing()
 
     
     def get_settings(self):
 
         return {
+            'fluorescent_mode': self.ids['cell_count_fluorescent_mode_id'].active,
             'threshold': self.ids['slider_cell_count_threshold_id'].value,
-            'size': self.ids['slider_cell_count_size_id'].value,
+            'size': {
+                'min': self.ids['slider_cell_count_size_range_id'].value[0],
+                'max': self.ids['slider_cell_count_size_range_id'].value[1]
+            }
         }
-
-
-    # def set_preview_source_file(self, file_loc):
-    #     self._preview_source_file = file_loc
 
     def set_preview_source_file(self, file) -> None:
         image = image_utils.image_file_to_image(image_file=file)
         self.set_preview_source(image=image)
-        
+
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
         # self._preview_texture_source = texture
-        cell_count_popup.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+        self.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
 
     # Save settings to JSON file
@@ -622,21 +625,30 @@ class CellCountPopup(BoxLayout):
             json.dump(self.get_settings(), write_file, indent = 4)
 
     
-    def slider_adjustment_threshold(self, value):
+    def _regenerate_image_preview(self):
         if self._preview_source_image is None:
             return
 
         post = post_processing.PostProcessing()
         image, _ = post.preview_cell_count(
             image=self._preview_source_image,
-            threshold=value
+            fluorescent_mode=self.ids['cell_count_fluorescent_mode_id'].active,
+            threshold=self.ids['slider_cell_count_threshold_id'].value,
+            size_min=self.ids['slider_cell_count_size_range_id'].value[0],
+            size_max=self.ids['slider_cell_count_size_range_id'].value[1]
         )
 
         cell_count_popup.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
 
-    def slider_adjustment_size(self, value):
-        print(f"Not implemented yet. Slider adjustment size to {value}")
+    def slider_adjustment_threshold(self):
+        self._regenerate_image_preview()
+
+    def slider_adjustment_size(self):
+        self._regenerate_image_preview()
+
+    def flourescent_mode_toggle(self):
+        self._regenerate_image_preview()
 
 
 class PostProcessingAccordion(BoxLayout):
