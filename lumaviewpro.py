@@ -593,9 +593,11 @@ class CellCountPopup(BoxLayout):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] CellCountPopup.__init__()')
         self._preview_source_image = None
-        # self._post = post_processing.PostProcessing()
+        self._post = None
 
-    
+    def set_post_processing_module(self, post_processing_module):
+        self._post = post_processing_module
+
     def get_settings(self):
         return {
             'fluorescent_mode': self.ids['cell_count_fluorescent_mode_id'].active,
@@ -640,8 +642,7 @@ class CellCountPopup(BoxLayout):
         if self._preview_source_image is None:
             return
 
-        post = post_processing.PostProcessing()
-        image, _ = post.preview_cell_count(
+        image, _ = self._post.preview_cell_count(
             image=self._preview_source_image,
             fluorescent_mode=self.ids['cell_count_fluorescent_mode_id'].active,
             threshold=self.ids['slider_cell_count_threshold_id'].value,
@@ -680,6 +681,7 @@ class PostProcessingAccordion(BoxLayout):
 
     def open_cell_count(self):
         logger.info('[LVP Main  ] PostProcessing.cell_count() not yet implemented')
+        cell_count_popup.set_post_processing_module(self.post)
         popup_window = Popup(
             title="Post Processing - Cell Count",
             content=cell_count_popup,

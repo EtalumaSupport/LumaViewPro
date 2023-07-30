@@ -12,7 +12,6 @@ class CellCount:
     def preview_image(image, fluorescent_mode, threshold, size_min, size_max=None):
         gray_image = image_utils.rgb_image_to_gray(image=image)
 
-        print(f"Fluorescent mode is {fluorescent_mode}")
         if fluorescent_mode is False:
             # Invert the image
             gray_image = cv2.bitwise_not(gray_image)

@@ -5,7 +5,6 @@ from kivy.graphics.texture import Texture
 
 def image_file_to_image(image_file):
     image = cv2.imread(image_file, cv2.IMREAD_UNCHANGED)
-    print(f"Image type: {image.dtype}, shape: {image.shape}")
     return image
 
 
