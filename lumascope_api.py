@@ -511,7 +511,7 @@ class Lumascope():
 
         # Wait time for exposure and rolling shutter
         wait_time = 2*self.get_exposure_time()/1000+0.2
-        print("Wait time = ", wait_time)
+        #print("Wait time = ", wait_time)
 
         # Start thread to wait until capture is complete
         capture_timer = threading.Timer(wait_time, self.capture_complete)
