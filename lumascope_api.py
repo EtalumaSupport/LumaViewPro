@@ -154,7 +154,8 @@ class Lumascope():
         """ CAMERA FUNCTIONS
         Grab and return image from camera"""
         if self.camera.grab():
-            return self.camera.array
+            self.image_buffer = self.camera.array
+            return self.image_buffer
         else:
             return False
         
@@ -509,9 +510,8 @@ class Lumascope():
         self.is_capturing = True
 
         # Wait time for exposure and rolling shutter
-        wait_time = self.get_exposure_time()/1000+0.2
-        println("Why aren't I seeing this?")
-        println(wait_time)
+        wait_time = 2*self.get_exposure_time()/1000+0.2
+        print("Wait time = ", wait_time)
 
         # Start thread to wait until capture is complete
         capture_timer = threading.Timer(wait_time, self.capture_complete)

@@ -749,10 +749,12 @@ class Histogram(Widget):
     def histogram(self, *args):
         # logger.info('[LVP Main  ] Histogram.histogram()')
         global lumaview
+        bins = 64
 
         if lumaview.scope.camera != False:
-            image = lumaview.scope.get_image()
-            hist = np.histogram(image, bins=256,range=(0,256))
+            #image = lumaview.scope.get_image()
+            image = lumaview.scope.image_buffer
+            hist = np.histogram(image, bins=bins,range=(0,256))
             if self.hist_range_set:
                 edges = self.edges
             else:
@@ -793,7 +795,8 @@ class Histogram(Widget):
                         else:
                             counts = np.ceil(scale*hist[0][i])
                         self.pos = self.pos
-                        self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
+                        Rectangle(pos=(x+(256/bins)*i, y), size=(256/bins, counts))
+                        #self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
 
 
 class VerticalControl(BoxLayout):
@@ -2547,10 +2550,12 @@ class LayerControl(BoxLayout):
             
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
+            
             for layer in layers:
+                Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
                 if layer == self.layer:
-#                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
-                    logger.info('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 0.1)')
+                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 2)
+                    logger.info('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 2)')
                 else:
                     lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
