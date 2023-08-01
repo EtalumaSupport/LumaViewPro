@@ -602,15 +602,21 @@ class CellCountPopup(BoxLayout):
     @show_popup
     def apply_method_to_folder(self, popup, path):
         popup.title = 'Processing Cell Count Method'
-        popup.text = f'Applying method to folder: {path}'
+        pre_text = f'Applying method to folder: {path}'
+        popup.text = pre_text
+        
         popup.progress = 0
-        self._post.apply_cell_count_to_folder(
-            path=path,
-            settings=self.get_settings()
-        )
+        total_images = self._post.get_num_images_in_folder(path=path)
+        image_count = 0
+        for image_process in self._post.apply_cell_count_to_folder(path=path, settings=self.get_settings()):
+            filename = image_process['filename']
+            image_count += 1
+            popup.progress = int(100 * image_count / total_images)
+            popup.text = f"{pre_text}\n- {image_count}/{total_images}: {filename}"
+
         popup.progress = 100
         popup.text = 'Done'
-        time.sleep(0.5)
+        time.sleep(1)
         self.done = True
 
     def set_post_processing_module(self, post_processing_module):

@@ -46,6 +46,15 @@ from modules.cell_count import CellCount
 
 class PostProcessing:
 
+    SUPPORTED_IMAGE_TYPES = (
+        '.jpg',
+        '.jpeg',
+        '.png',
+        '.bmp',
+        '.tif',
+        '.tiff'
+    )
+
     def __init__(self):
         self._cell_count = CellCount()
 
@@ -90,24 +99,24 @@ class PostProcessing:
         return preview_img, num_cells
 
 
-    def apply_cell_count_to_folder(self, path, settings):
-        print(f"Apply cell counts to folder: {path} with settings {settings}")
+    def get_num_images_in_folder(self, path):
+        num_images = 0
+        for filename in os.listdir(path):
+            if filename.endswith(self.SUPPORTED_IMAGE_TYPES):
+                num_images += 1
+        
+        return num_images
 
-        SUPPORTED_IMAGE_TYPES = (
-            '.jpg',
-            '.jpeg',
-            '.png',
-            '.bmp',
-            '.tif',
-            '.tiff'
-        )
+
+    def apply_cell_count_to_folder(self, path, settings):
+
 
         fields = ['file', 'num_cells']
         results = []
 
-        for file_name in os.listdir(path):
-            if file_name.endswith(SUPPORTED_IMAGE_TYPES):
-                file_path = os.path.join(path, file_name)
+        for filename in os.listdir(path):
+            if filename.endswith(self.SUPPORTED_IMAGE_TYPES):
+                file_path = os.path.join(path, filename)
                 image = image_utils.image_file_to_image(image_file=file_path)
                 _, num_cells = self.preview_cell_count(
                     image=image,
@@ -117,10 +126,13 @@ class PostProcessing:
                     size_max=settings['size']['max']
                 )
                 results.append({
-                    'file': os.path.basename(file_name),
+                    'filename': os.path.basename(filename),
                     'num_cells': num_cells
                 })
-
+                
+                yield {
+                    'filename': filename
+                }
 
         results_file_path = os.path.join(path, 'results.csv')
         with open(results_file_path, 'w') as f:

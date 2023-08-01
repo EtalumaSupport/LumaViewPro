@@ -5,8 +5,6 @@ from kivy.uix.popup import Popup
 from kivy.lang import Builder
 
 
-# From https://stackoverflow.com/questions/66851117/allow-kivy-popup-or-progress-bar-to-show-before-continuing
-
 def show_popup(function):
     def wrap(app, *args, **kwargs):
         popup = CustomPopup()  # Instantiate CustomPopup (could add some kwargs if you wish)
@@ -24,7 +22,7 @@ class CustomPopup(Popup):
     pass
 
 
-kv = Builder.load_string(  # Generic kv stuff
+kv = Builder.load_string(
 """
 <CustomPopup>:
     size_hint: .6, .3
