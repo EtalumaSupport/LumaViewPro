@@ -83,7 +83,7 @@ class PostProcessing:
         pass
 
     
-    def preview_cell_count(self, image, fluorescent_mode, threshold, size_min, size_max):
+    def preview_cell_count(self, image, fluorescent_mode, threshold, area_min, area_max):
         """
         Takes a file path, processes an image for cell counting, and returns
         a Kivy texture preview of the processed image
@@ -92,8 +92,8 @@ class PostProcessing:
             image=image,
             fluorescent_mode=fluorescent_mode,
             threshold=threshold,
-            size_min=size_min,
-            size_max=size_max
+            area_min=area_min,
+            area_max=area_max
         )
 
         return preview_img, num_cells
@@ -122,8 +122,8 @@ class PostProcessing:
                     image=image,
                     fluorescent_mode=settings['fluorescent_mode'],
                     threshold=settings['threshold'],
-                    size_min=settings['size']['min'],
-                    size_max=settings['size']['max']
+                    area_min=settings['area']['min'],
+                    area_max=settings['area']['max']
                 )
                 results.append({
                     'filename': os.path.basename(filename),

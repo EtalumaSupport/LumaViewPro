@@ -1780,7 +1780,7 @@
 				ModSlider:
 					id: slider_cell_count_threshold_id
 					min: 0
-					max: 100
+					max: 255
 					step: 1
 					orientation: 'horizontal'
 					on_release: root.slider_adjustment_threshold()
@@ -1789,30 +1789,55 @@
 					width: '60dp'
 					font_size: '12sp'
 
-			# Size slider
+			# Area slider
 			BoxLayout:
 				orientation: 'horizontal'
 
 				Label:
-					text: 'Size'
+					text: 'Area'
 					size_hint_x: None
 					width: '70dp'
 					font_size: '12sp'
 				
 				RangeSlider:
-					id: slider_cell_count_size_range_id
+					id: slider_cell_count_area_id
 					min: 0
 					max: 50000
 					step: 500
 					orientation: 'horizontal'
 					value1: 500
 					value2: 25000
-					on_touch_up: root.slider_adjustment_size()
+					on_touch_up: root.slider_adjustment_area()
 				Label:
 					id: label_cell_count_size_range_id
-					text: f"{int(slider_cell_count_size_range_id.value[0])}-{int(slider_cell_count_size_range_id.value[1])}"
+					text: f"{int(slider_cell_count_area_id.value[0])}-{int(slider_cell_count_area_id.value[1])}"
 					width: '60dp'
 					font_size: '12sp'
+
+			# # Area slider
+			# BoxLayout:
+			# 	orientation: 'horizontal'
+
+			# 	Label:
+			# 		text: 'Area'
+			# 		size_hint_x: None
+			# 		width: '70dp'
+			# 		font_size: '12sp'
+				
+			# 	RangeSlider:
+			# 		id: slider_cell_count_size_range_id
+			# 		min: 0
+			# 		max: 50000
+			# 		step: 500
+			# 		orientation: 'horizontal'
+			# 		value1: 500
+			# 		value2: 25000
+			# 		on_touch_up: root.slider_adjustment_size()
+			# 	Label:
+			# 		id: label_cell_count_size_range_id
+			# 		text: f"{int(slider_cell_count_size_range_id.value[0])}-{int(slider_cell_count_size_range_id.value[1])}"
+			# 		width: '60dp'
+			# 		font_size: '12sp'
 
 		# Save method
 		FileSaveBTN:

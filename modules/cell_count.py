@@ -9,7 +9,7 @@ class CellCount:
         pass
 
     @staticmethod
-    def preview_image(image, fluorescent_mode, threshold, size_min, size_max=None):
+    def preview_image(image, fluorescent_mode, threshold, area_min, area_max=None):
         gray_image = image_utils.rgb_image_to_gray(image=image)
 
         if fluorescent_mode is False:
@@ -29,8 +29,8 @@ class CellCount:
         filtered_contours = []
         for contour in contours:    
             area = cv2.contourArea(contour)
-            if (area >= size_min):
-                if (size_max is None) or (area <= size_max):
+            if (area >= area_min):
+                if (area_max is None) or (area <= area_max):
                     filtered_contours.append(contour)
 
         contoursImg = image.copy()
