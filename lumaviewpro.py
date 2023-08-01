@@ -793,19 +793,20 @@ class Histogram(Widget):
     def histogram(self, *args):
         # logger.info('[LVP Main  ] Histogram.histogram()')
         global lumaview
-        bins = 64
+        bins = 128
 
         if lumaview.scope.camera != False:
             #image = lumaview.scope.get_image()
             image = lumaview.scope.image_buffer
             hist = np.histogram(image, bins=bins,range=(0,256))
+            '''
             if self.hist_range_set:
                 edges = self.edges
             else:
                 edges = np.histogram_bin_edges(image, bins=1)
                 edges[0] = self.stablize*self.edges[0] + (1 - self.stablize)*edges[0]
                 edges[1] = self.stablize*self.edges[1] + (1 - self.stablize)*edges[1]
-
+            '''
             # mean = np.mean(hist[1],hist[0])
             lumaview.ids['viewer_id'].black = 0.0 # float(edges[0])/255.
             lumaview.ids['viewer_id'].white = 1.0 # float(edges[1])/255.
@@ -814,16 +815,16 @@ class Histogram(Widget):
             self.canvas.clear()
             r, b, g, a = self.bg_color
             self.hist = hist
-            self.edges = edges
+            #self.edges = edges
             with self.canvas:
                 x = self.x
                 y = self.y
                 w = self.width
                 h = self.height
-                Color(r, b, g, a/12)
-                Rectangle(pos=(x, y), size=(256, h))
-                Color(r, b, g, a/4)
-                Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
+                #Color(r, b, g, a/12)
+                #Rectangle(pos=(x, y), size=(256, h))
+                #Color(r, b, g, a/4)
+                #Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
                 Color(r, b, g, a/2)
                 #self.color = Color(rgba=self.color)
                 logHistogram = lumaview.ids['imagesettings_id'].ids[self.layer].ids['logHistogram_id'].active
@@ -839,7 +840,7 @@ class Histogram(Widget):
                         else:
                             counts = np.ceil(scale*hist[0][i])
                         self.pos = self.pos
-                        Rectangle(pos=(x+(256/bins)*i, y), size=(256/bins, counts))
+                        Rectangle(pos=(x+max(i*512/bins-1, 1), y), size=(512/bins, counts))
                         #self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
 
 
@@ -2598,8 +2599,8 @@ class LayerControl(BoxLayout):
             for layer in layers:
                 Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
                 if layer == self.layer:
-                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 2)
-                    logger.info('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 2)')
+                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.5)
+                    logger.info('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 0.5)')
                 else:
                     lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 

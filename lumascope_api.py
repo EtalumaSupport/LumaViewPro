@@ -154,7 +154,7 @@ class Lumascope():
         """ CAMERA FUNCTIONS
         Grab and return image from camera"""
         if self.camera.grab():
-            self.image_buffer = self.camera.array
+            self.image_buffer = np.copy(self.camera.array)
             return self.image_buffer
         else:
             return False
