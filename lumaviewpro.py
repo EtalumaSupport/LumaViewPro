@@ -88,6 +88,9 @@ from kivy.uix.scrollview import ScrollView
 
 # Video Related
 from kivy.graphics.texture import Texture
+
+#post processing
+from image_stitcher import image_stitcher
 import cv2
 
 # Hardware
@@ -468,6 +471,47 @@ uniform vec4       color;
 
 # global gain_vals
 # gain_vals = (1., )*4
+
+class PostProcessing(BoxLayout):
+    
+    def __init__(self):
+        global settings
+        #stitching params (see more info in image_stitcher.py):
+        self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
+        self.ext = "tiff" #or read it from settings?
+        self.stitching_method = "features" # "features" - Low method, "position" - based on position information
+        self.stitched_save_name = "last_composite_img.tiff"
+        self.positions_file = None #relevant if stitching method is position, will read positions from that file
+        self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
+        
+        
+    def convert_to_avi(self):
+
+        error_log('PostProcessing.convert_to_avi()')
+
+        # # self.choose_folder()
+        # save_location = './capture/movie.avi'
+
+        # img_array = []
+        # for filename in glob.glob('./capture/*.tiff'):
+        #     img = cv2.imread(filename)
+        #     height, width, layers = img.shape
+        #     size = (width,height)
+        #     img_array.append(img)
+
+        # if len(img_array) > 0:
+        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+
+        # for i in range(len(img_array)):
+        #     out.write(img_array[i])
+        # out.release()
+
+    def stitch(self):
+        error_log('PostProcessing.stitch()')
+        self.stitched_image = image_stitcher(images_folder=self.raw_images_folder, combine_colors = self.combine_colors,  ext = self.ext,
+                                             method = self.stitching_method,save_name = self.stitched_save_name,
+                                             positions_file = self.positions_file,pos2pix = self.pos2pix,post_process = False)
 
 class ShaderViewer(Scatter):
     black = ObjectProperty(0.)
