@@ -588,12 +588,30 @@ class MotionSettings(BoxLayout):
 
 
 class CellCountPopup(BoxLayout):
+    done = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] CellCountPopup.__init__()')
         self._preview_source_image = None
         self._post = None
+
+    from custom_widgets.progress_popup import show_popup
+
+    # Decorate function to show popup and run the code below in a thread
+    @show_popup
+    def apply_method_to_folder(self, popup, path):
+        popup.title = 'Processing Cell Count Method'
+        popup.text = f'Applying method to folder: {path}'
+        popup.progress = 0
+        self._post.apply_cell_count_to_folder(
+            path=path,
+            settings=self.get_settings()
+        )
+        popup.progress = 100
+        popup.text = 'Done'
+        time.sleep(0.5)
+        self.done = True
 
     def set_post_processing_module(self, post_processing_module):
         self._post = post_processing_module
@@ -2877,11 +2895,8 @@ class FolderChooseBTN(Button):
             out.release()
 
         elif self.context == 'apply_cell_count_method_to_folder':
-            post = post_processing.PostProcessing()
-
-            post.apply_cell_count_to_folder(
-                path=path,
-                settings=cell_count_popup.get_settings()
+            cell_count_popup.apply_method_to_folder(
+                path=path
             )
 
         else: # Channel Save Folder selections
