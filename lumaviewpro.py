@@ -93,6 +93,7 @@ from kivy.graphics.texture import Texture
 
 # User Interface Custom Widgets
 from custom_widgets.range_slider import RangeSlider
+from custom_widgets.progress_popup import show_popup
 
 import cv2
 
@@ -595,9 +596,39 @@ class CellCountPopup(BoxLayout):
         logger.info('[LVP Main  ] CellCountPopup.__init__()')
         self._preview_source_image = None
         self._post = None
+        self._settings = self._get_init_settings()
+        self._set_ui_to_settings(self._settings)
 
-    from custom_widgets.progress_popup import show_popup
 
+    def _get_init_settings(self):
+        return {
+            'pixels_to_um': 1.0,
+            'fluorescent_mode': True,
+            'threshold': 50,
+            'area': {
+                'min': 10,
+                'max': None
+            },
+            'perimeter': {
+                'min': 5,
+                'max': None
+            },
+            'intensity': {
+                'min': {
+                    'min': 0,
+                    'max': 100
+                },
+                'mean': {
+                    'min': 0,
+                    'max': 100
+                },
+                'max': {
+                    'min': 0,
+                    'max': 100
+                }
+            }
+        }
+    
     # Decorate function to show popup and run the code below in a thread
     @show_popup
     def apply_method_to_folder(self, popup, path):
@@ -622,37 +653,24 @@ class CellCountPopup(BoxLayout):
     def set_post_processing_module(self, post_processing_module):
         self._post = post_processing_module
 
-    def get_settings(self):
-        return {
-            'fluorescent_mode': self.ids['cell_count_fluorescent_mode_id'].active,
-            'threshold': self.ids['slider_cell_count_threshold_id'].value,
-            'area': {
-                'min': self.ids['slider_cell_count_area_id'].value[0],
-                'max': self.ids['slider_cell_count_area_id'].value[1]
-            },
-            'perimeter': {
-                'min': self.ids['slider_cell_count_perimeter_id'].value[0],
-                'max': self.ids['slider_cell_count_perimeter_id'].value[1]
-            },
-            'intensity': {
-                'mean': {
-                    'min': self.ids['slider_cell_count_mean_intensity_id'].value[0],
-                    'max': self.ids['slider_cell_count_mean_intensity_id'].value[1]
-                },
-                'max': {
-                    'min': self.ids['slider_cell_count_max_intensity_id'].value[0],
-                    'max': self.ids['slider_cell_count_max_intensity_id'].value[1]
-                }
-            }
-        }
+    def get_current_settings(self):
+        return self._settings
 
-    def set_settings(self, settings):
+
+    def load_settings(self, settings):
+        self._settings = settings
+        self._set_ui_to_current_settings(self._settings)
+
+    def _set_ui_to_settings(self, settings):
+        self.ids['text_cell_count_pixels_to_um_id'].text = str(settings['pixels_to_um'])
         self.ids['cell_count_fluorescent_mode_id'].active = settings['fluorescent_mode']
         self.ids['slider_cell_count_threshold_id'].value = settings['threshold']
         self.ids['slider_cell_count_area_id'].value[0] = settings['area']['min']
         self.ids['slider_cell_count_area_id'].value[1] = settings['area']['max']
         self.ids['slider_cell_count_perimeter_id'].value[0] = settings['perimeter']['min']
         self.ids['slider_cell_count_perimeter_id'].value[1] = settings['perimeter']['max']
+        self.ids['slider_cell_count_min_intensity_id'].value[0] = settings['intensity']['min']['min']
+        self.ids['slider_cell_count_min_intensity_id'].value[1] = settings['intensity']['min']['max']
         self.ids['slider_cell_count_mean_intensity_id'].value[0] = settings['intensity']['mean']['min']
         self.ids['slider_cell_count_mean_intensity_id'].value[1] = settings['intensity']['mean']['max']
         self.ids['slider_cell_count_max_intensity_id'].value[0] = settings['intensity']['max']['min']
@@ -667,19 +685,18 @@ class CellCountPopup(BoxLayout):
         self._preview_source_image = image
         self.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
-
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
         logger.info(f'[LVP Main  ] CellCountPopup.save_method_as({file})')
         os.chdir(source_path)
         with open(file, "w") as write_file:
-            json.dump(self.get_settings(), write_file, indent = 4)
+            json.dump(self._settings, write_file, indent = 4)
 
     def load_method_from_file(self, file):
         logger.info(f'[LVP Main  ] CellCountPopup.load_method_from_file({file})')
         with open(file, "r") as f:
             method_settings = json.load(f)
-            self.set_settings(settings=method_settings)
+            self.load_settings(settings=method_settings)
 
     
     def _regenerate_image_preview(self):
@@ -689,32 +706,72 @@ class CellCountPopup(BoxLayout):
         image, _ = self._post.preview_cell_count(
             image=self._preview_source_image,
             settings=self.get_settings()
-            # fluorescent_mode=self.ids['cell_count_fluorescent_mode_id'].active,
-            # threshold=self.ids['slider_cell_count_threshold_id'].value,
-            # area_min=self.ids['slider_cell_count_area_id'].value[0],
-            # area_max=self.ids['slider_cell_count_area_id'].value[1],
         )
 
         cell_count_popup.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
 
     def slider_adjustment_threshold(self):
+        self._settings['threshold'] = self.ids['slider_cell_count_threshold_id'].value
         self._regenerate_image_preview()
+
 
     def slider_adjustment_area(self):
+        self._settings['area']['min'] = self.ids['slider_cell_count_area_id'].value[0]
+        self._settings['area']['max'] = self.ids['slider_cell_count_area_id'].value[1]
         self._regenerate_image_preview()
+
 
     def slider_adjustment_perimeter(self):
+        self._settings['perimeter']['min'] = self.ids['slider_cell_count_perimeter_id'].value[0]
+        self._settings['perimeter']['max'] = self.ids['slider_cell_count_perimeter_id'].value[1]
         self._regenerate_image_preview()
+
+
+    def slider_adjustment_min_intensity(self):
+        self._settings['intensity']['min']['min'] = self.ids['slider_cell_count_min_intensity_id'].value[0]
+        self._settings['intensity']['min']['max'] = self.ids['slider_cell_count_min_intensity_id'].value[1]
+        self._regenerate_image_preview()
+
 
     def slider_adjustment_mean_intensity(self):
+        self._settings['intensity']['mean']['min'] = self.ids['slider_cell_count_mean_intensity_id'].value[0]
+        self._settings['intensity']['mean']['max'] = self.ids['slider_cell_count_mean_intensity_id'].value[1]
         self._regenerate_image_preview()
+
 
     def slider_adjustment_max_intensity(self):
+        self._settings['intensity']['max']['min'] = self.ids['slider_cell_count_max_intensity_id'].value[0]
+        self._settings['intensity']['max']['max'] = self.ids['slider_cell_count_max_intensity_id'].value[1]
         self._regenerate_image_preview()
 
+
     def flourescent_mode_toggle(self):
+        self._settings['fluorescent_mode'] = self.ids['cell_count_fluorescent_mode_id'].active
         self._regenerate_image_preview()
+
+
+    def pixel_conversion_adjustment(self):
+
+        def _validate(value_str):
+            try:
+                value = float(value_str)
+            except:
+                return False, -1
+
+            return True, value
+
+        value_str = cell_count_popup.ids['text_cell_count_pixels_to_um_id'].text
+
+        valid, value = _validate(value_str)
+        if not valid:
+            # logger.error(f'[LVP Main  ] CellCountPopup.pixel_conversion_adjustment: {value_str} is not valid')
+            return
+        
+        self._settings['pixels_to_um'] = value
+        # logger.info(f"[LVP Main  ] CellCountPopup.pixel_conversion_adjustment: {self._settings['pixels_to_um']} pixels/um")
+        
+        
 
 
 class PostProcessingAccordion(BoxLayout):
@@ -734,7 +791,6 @@ class PostProcessingAccordion(BoxLayout):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
 
     def open_cell_count(self):
-        logger.info('[LVP Main  ] PostProcessing.cell_count() not yet implemented')
         cell_count_popup.set_post_processing_module(self.post)
         popup_window = Popup(
             title="Post Processing - Cell Count",

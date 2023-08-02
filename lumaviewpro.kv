@@ -1742,6 +1742,41 @@
 			font_size: '12sp'
 			on_release: self.choose('load_cell_count_input_image')
 
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '30dp'
+
+		# Pixel size
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 1
+
+			Label:
+				text: 'Pixel Conversion'
+				size_hint_x: None
+				width: '120dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: text_cell_count_pixels_to_um_id
+				valign: 'center'
+				text: "1.0"
+				size_hint_x: None
+				width: '70dp'
+				multiline: False
+				on_text: root.pixel_conversion_adjustment()
+			
+			Label:
+				text: 'pixels/μm'
+				size_hint_x: None
+				width: '100dp'
+				font_size: '12sp'
+				halign: 'left'
+
 		# Enable fluorescence mode
 		BoxLayout:
 			orientation: 'horizontal'
@@ -1836,6 +1871,31 @@
 				Label:
 					id: label_cell_count_perimeter_id
 					text: f"{int(slider_cell_count_perimeter_id.value[0])}-{int(slider_cell_count_perimeter_id.value[1])} μm"
+					width: '60dp'
+					font_size: '12sp'
+
+			# Min Intensity slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Min Intensity'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				RangeSlider:
+					id: slider_cell_count_min_intensity_id
+					min: 0
+					max: 255
+					step: 1
+					orientation: 'horizontal'
+					value1: 0
+					value2: 255
+					on_touch_up: root.slider_adjustment_min_intensity()
+				Label:
+					id: label_cell_count_min_intensity_id
+					text: f"{int(slider_cell_count_min_intensity_id.value[0])}-{int(slider_cell_count_min_intensity_id.value[1])}"
 					width: '60dp'
 					font_size: '12sp'
 
