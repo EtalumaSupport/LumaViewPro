@@ -602,7 +602,7 @@ class CellCountPopup(BoxLayout):
 
     def _get_init_settings(self):
         return {
-            'pixels_to_um': 1.0,
+            'pixels_per_um': 1.0,
             'fluorescent_mode': True,
             'threshold': 50,
             'area': {
@@ -662,7 +662,7 @@ class CellCountPopup(BoxLayout):
         self._set_ui_to_current_settings(self._settings)
 
     def _set_ui_to_settings(self, settings):
-        self.ids['text_cell_count_pixels_to_um_id'].text = str(settings['pixels_to_um'])
+        self.ids['text_cell_count_pixels_per_um_id'].text = str(settings['pixels_per_um'])
         self.ids['cell_count_fluorescent_mode_id'].active = settings['fluorescent_mode']
         self.ids['slider_cell_count_threshold_id'].value = settings['threshold']
         self.ids['slider_cell_count_area_id'].value[0] = settings['area']['min']
@@ -762,13 +762,13 @@ class CellCountPopup(BoxLayout):
 
             return True, value
 
-        value_str = cell_count_popup.ids['text_cell_count_pixels_to_um_id'].text
+        value_str = cell_count_popup.ids['text_cell_count_pixels_per_um_id'].text
 
         valid, value = _validate(value_str)
         if not valid:
             return
         
-        self._settings['pixels_to_um'] = value
+        self._settings['pixels_per_um'] = value
       
 
 class PostProcessingAccordion(BoxLayout):

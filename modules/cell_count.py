@@ -31,16 +31,16 @@ class CellCount:
             }
         }
 
-    def _transform_perimeter_settings(self, settings, pixels_to_um):
+    def _transform_perimeter_settings(self, settings, pixels_per_um):
         return {
-            'min': settings['min'] / pixels_to_um,
-            'max': settings['max'] / pixels_to_um
+            'min': settings['min'] / pixels_per_um,
+            'max': settings['max'] / pixels_per_um
         }
 
-    def _transform_area_settings(self, settings, pixels_to_um):
+    def _transform_area_settings(self, settings, pixels_per_um):
         return {
-            'min': settings['min'] / (pixels_to_um**2),
-            'max': settings['max'] / (pixels_to_um**2)
+            'min': settings['min'] / (pixels_per_um**2),
+            'max': settings['max'] / (pixels_per_um**2)
         }
 
     def _transform_threshold_settings(self, setting):
@@ -51,11 +51,11 @@ class CellCount:
     def _transform_settings(self, settings):
         transformed_settings = {
             'fluorescent_mode': settings['fluorescent_mode'],
-            'pixels_to_um': settings['pixels_to_um'],
+            'pixels_per_um': settings['pixels_per_um'],
             'intensity': self._transform_intensity_settings(settings['intensity']),
-            'perimeter': self._transform_perimeter_settings(settings['perimeter'], settings['pixels_to_um']),
+            'perimeter': self._transform_perimeter_settings(settings['perimeter'], settings['pixels_per_um']),
             'threshold': self._transform_threshold_settings(settings['threshold']),
-            'area': self._transform_area_settings(settings['area'], settings['pixels_to_um'])
+            'area': self._transform_area_settings(settings['area'], settings['pixels_per_um'])
         }
         return transformed_settings
 
@@ -140,14 +140,14 @@ class CellCount:
     #     region_stats = self._extract_region_properties(
     #         labeled_mask=labeled_mask,
     #         intensity_image=gray_image,
-    #         pixels_to_um=settings['pixels_to_um']
+    #         pixels_per_um=settings['pixels_per_um']
     #     )
 
     #     return labeled_img, region_stats
 
     
     # @staticmethod
-    # def _extract_region_properties(labeled_mask, intensity_image, pixels_to_um):
+    # def _extract_region_properties(labeled_mask, intensity_image, pixels_per_um):
     #     regions = skimage.measure.regionprops(labeled_mask, intensity_image=intensity_image)
 
     #     prop_list = [
@@ -163,11 +163,11 @@ class CellCount:
     #         print(f"Region {region_idx}")
     #         for prop in prop_list:
     #             if (prop == 'Area'):
-    #                 val = f"{round(region[prop]*pixels_to_um**2,2)} um^2"
+    #                 val = f"{round(region[prop]*pixels_per_um**2,2)} um^2"
     #             elif (prop == 'Perimeter'):
-    #                 val = f"{round(region[prop]*pixels_to_um,2)} um"
+    #                 val = f"{round(region[prop]*pixels_per_um,2)} um"
     #             elif (prop == 'equivalent_diameter'):
-    #                 val = f"{round(region[prop]*pixels_to_um,2)} um"
+    #                 val = f"{round(region[prop]*pixels_per_um,2)} um"
     #             elif (prop in ['MinIntensity','MeanIntensity','MaxIntensity']):
     #                 val = np.round(region[prop],2)
     #             else:
