@@ -18,16 +18,16 @@ class CellCount:
       
         return {
             'min': {
-                'min': settings['min']['min']*scale_ratio,
-                'max': settings['min']['max']*scale_ratio,
+                'min': round(settings['min']['min']*scale_ratio),
+                'max': round(settings['min']['max']*scale_ratio),
             },
             'mean': {
-                'min': settings['mean']['min']*scale_ratio,
-                'max': settings['mean']['max']*scale_ratio,
+                'min': round(settings['mean']['min']*scale_ratio),
+                'max': round(settings['mean']['max']*scale_ratio),
             },
             'max': {
-                'min': settings['max']['min']*scale_ratio,
-                'max': settings['max']['max']*scale_ratio,
+                'min': round(settings['max']['min']*scale_ratio),
+                'max': round(settings['max']['max']*scale_ratio),
             }
         }
 
@@ -45,7 +45,7 @@ class CellCount:
 
     def _transform_threshold_settings(self, setting):
         scale_ratio = 255/100
-        return setting * scale_ratio
+        return round(setting * scale_ratio)
         
 
     def _transform_settings(self, settings):
