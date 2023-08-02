@@ -8,33 +8,57 @@ class SettingsTransformer:
     def _transform_intensity_settings(self, settings):
 
         scale_ratio = 255/100
-      
+
+        def _process_val(val):
+            if val is None:
+                return None
+            
+            return round(val*scale_ratio)
+
+
         return {
             'min': {
-                'min': round(settings['min']['min']*scale_ratio),
-                'max': round(settings['min']['max']*scale_ratio),
+                'min': _process_val(settings['min']['min']),
+                'max': _process_val(settings['min']['max']),
             },
             'mean': {
-                'min': round(settings['mean']['min']*scale_ratio),
-                'max': round(settings['mean']['max']*scale_ratio),
+                'min': _process_val(settings['mean']['min']),
+                'max': _process_val(settings['mean']['max']),
             },
             'max': {
-                'min': round(settings['max']['min']*scale_ratio),
-                'max': round(settings['max']['max']*scale_ratio),
+                'min': _process_val(settings['max']['min']),
+                'max': _process_val(settings['max']['max']),
             }
         }
 
+
     def _transform_perimeter_settings(self, settings, pixels_per_um):
+
+        def _process_val(val):
+            if val is None:
+                return None
+            
+            return val / pixels_per_um
+
         return {
-            'min': settings['min'] / pixels_per_um,
-            'max': settings['max'] / pixels_per_um
+            'min': _process_val(settings['min']),
+            'max': _process_val(settings['max'])
         }
 
+
     def _transform_area_settings(self, settings, pixels_per_um):
+        
+        def _process_val(val):
+            if val is None:
+                return None
+            
+            return val / (pixels_per_um**2)
+
         return {
-            'min': settings['min'] / (pixels_per_um**2),
-            'max': settings['max'] / (pixels_per_um**2)
+            'min': _process_val(settings['min']),
+            'max': _process_val(settings['max'])
         }
+
 
     def _transform_threshold_settings(self, setting):
         scale_ratio = 255/100
