@@ -46,16 +46,30 @@ class CellCount:
     def _transform_threshold_settings(self, setting):
         scale_ratio = 255/100
         return round(setting * scale_ratio)
+
+    def _transform_context_settings(self, settings):
+        return settings
         
+    def _transform_segmentation_settings(self, settings):
+        return {
+            'algorithm': settings['algorithm'],
+            'parameters': {
+                'threshold': self._transform_threshold_settings(settings['parameters']['threshold'])
+            }
+        }
+
+    def _transform_filter_settings(self, settings, pixels_per_um):
+        return {
+            'intensity': self._transform_intensity_settings(settings['intensity']),
+            'perimeter': self._transform_perimeter_settings(settings['perimeter'], pixels_per_um),
+            'area': self._transform_area_settings(settings['area'], pixels_per_um)
+        }
 
     def _transform_settings(self, settings):
         transformed_settings = {
-            'fluorescent_mode': settings['fluorescent_mode'],
-            'pixels_per_um': settings['pixels_per_um'],
-            'intensity': self._transform_intensity_settings(settings['intensity']),
-            'perimeter': self._transform_perimeter_settings(settings['perimeter'], settings['pixels_per_um']),
-            'threshold': self._transform_threshold_settings(settings['threshold']),
-            'area': self._transform_area_settings(settings['area'], settings['pixels_per_um'])
+            'context': self._transform_context_settings(settings['context']),
+            'segmentation': self._transform_segmentation_settings(settings['segmentation']),
+            'filters': self._transform_filter_settings(settings['filters'], pixels_per_um=settings['context']['pixels_per_um'])
         }
         return transformed_settings
 
@@ -72,7 +86,7 @@ class CellCount:
 
         gray_image = image_utils.rgb_image_to_gray(image=image)
 
-        if settings['fluorescent_mode'] is False:
+        if settings['context']['fluorescent_mode'] is False:
             # Invert the image
             gray_image = cv2.bitwise_not(gray_image)
 
@@ -80,7 +94,7 @@ class CellCount:
         denoised_img = cv2.fastNlMeansDenoising(gray_image)
 
         # Threshold
-        th, threshold_img = cv2.threshold(denoised_img, settings['threshold'], 255, cv2.THRESH_BINARY)
+        th, threshold_img = cv2.threshold(denoised_img, settings['segmentation']['parameters']['threshold'], 255, cv2.THRESH_BINARY)
 
         # Countours
         contours, hierarchy = cv2.findContours(threshold_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -89,8 +103,8 @@ class CellCount:
         filtered_contours = []
         for contour in contours:    
             area = cv2.contourArea(contour)
-            if (area >= settings['area']['min']):
-                if (settings['area']['max'] is None) or (area <= settings['area']['max']):
+            if (area >= settings['filters']['area']['min']):
+                if (settings['filters']['area']['max'] is None) or (area <= settings['filters']['area']['max']):
                     filtered_contours.append(contour)
 
         # contours = filtered_contours.copy()
