@@ -626,17 +626,37 @@ class CellCountPopup(BoxLayout):
         return {
             'fluorescent_mode': self.ids['cell_count_fluorescent_mode_id'].active,
             'threshold': self.ids['slider_cell_count_threshold_id'].value,
-            'size': {
+            'area': {
                 'min': self.ids['slider_cell_count_area_id'].value[0],
                 'max': self.ids['slider_cell_count_area_id'].value[1]
+            },
+            'perimeter': {
+                'min': self.ids['slider_cell_count_perimeter_id'].value[0],
+                'max': self.ids['slider_cell_count_perimeter_id'].value[1]
+            },
+            'intensity': {
+                'mean': {
+                    'min': self.ids['slider_cell_count_mean_intensity_id'].value[0],
+                    'max': self.ids['slider_cell_count_mean_intensity_id'].value[1]
+                },
+                'max': {
+                    'min': self.ids['slider_cell_count_max_intensity_id'].value[0],
+                    'max': self.ids['slider_cell_count_max_intensity_id'].value[1]
+                }
             }
         }
 
     def set_settings(self, settings):
         self.ids['cell_count_fluorescent_mode_id'].active = settings['fluorescent_mode']
         self.ids['slider_cell_count_threshold_id'].value = settings['threshold']
-        self.ids['slider_cell_count_area_id'].value[0] = settings['size']['min']
-        self.ids['slider_cell_count_area_id'].value[1] = settings['size']['max']
+        self.ids['slider_cell_count_area_id'].value[0] = settings['area']['min']
+        self.ids['slider_cell_count_area_id'].value[1] = settings['area']['max']
+        self.ids['slider_cell_count_perimeter_id'].value[0] = settings['perimeter']['min']
+        self.ids['slider_cell_count_perimeter_id'].value[1] = settings['perimeter']['max']
+        self.ids['slider_cell_count_mean_intensity_id'].value[0] = settings['intensity']['mean']['min']
+        self.ids['slider_cell_count_mean_intensity_id'].value[1] = settings['intensity']['mean']['max']
+        self.ids['slider_cell_count_max_intensity_id'].value[0] = settings['intensity']['max']['min']
+        self.ids['slider_cell_count_max_intensity_id'].value[1] = settings['intensity']['max']['max']
         self._regenerate_image_preview()
 
     def set_preview_source_file(self, file) -> None:
@@ -668,10 +688,11 @@ class CellCountPopup(BoxLayout):
 
         image, _ = self._post.preview_cell_count(
             image=self._preview_source_image,
-            fluorescent_mode=self.ids['cell_count_fluorescent_mode_id'].active,
-            threshold=self.ids['slider_cell_count_threshold_id'].value,
-            area_min=self.ids['slider_cell_count_area_id'].value[0],
-            area_max=self.ids['slider_cell_count_area_id'].value[1]
+            settings=self.get_settings()
+            # fluorescent_mode=self.ids['cell_count_fluorescent_mode_id'].active,
+            # threshold=self.ids['slider_cell_count_threshold_id'].value,
+            # area_min=self.ids['slider_cell_count_area_id'].value[0],
+            # area_max=self.ids['slider_cell_count_area_id'].value[1],
         )
 
         cell_count_popup.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
@@ -681,6 +702,15 @@ class CellCountPopup(BoxLayout):
         self._regenerate_image_preview()
 
     def slider_adjustment_area(self):
+        self._regenerate_image_preview()
+
+    def slider_adjustment_perimeter(self):
+        self._regenerate_image_preview()
+
+    def slider_adjustment_mean_intensity(self):
+        self._regenerate_image_preview()
+
+    def slider_adjustment_max_intensity(self):
         self._regenerate_image_preview()
 
     def flourescent_mode_toggle(self):

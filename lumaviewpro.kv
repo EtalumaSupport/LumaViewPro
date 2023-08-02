@@ -1765,7 +1765,7 @@
 		BoxLayout: # Slider Controls
 			orientation: 'vertical'
 			size_hint_y: None
-			height: '100dp'
+			height: '225dp'
 
 			# Threshold slider
 			BoxLayout:
@@ -1774,7 +1774,7 @@
 				Label:
 					text: 'Threshold'
 					size_hint_x: None
-					width: '70dp'
+					width: '90dp'
 					font_size: '12sp'
 				
 				ModSlider:
@@ -1796,7 +1796,7 @@
 				Label:
 					text: 'Area'
 					size_hint_x: None
-					width: '70dp'
+					width: '90dp'
 					font_size: '12sp'
 				
 				RangeSlider:
@@ -1809,35 +1809,91 @@
 					value2: 25000
 					on_touch_up: root.slider_adjustment_area()
 				Label:
-					id: label_cell_count_size_range_id
-					text: f"{int(slider_cell_count_area_id.value[0])}-{int(slider_cell_count_area_id.value[1])}"
+					id: label_cell_count_area_id
+					text: f"{int(slider_cell_count_area_id.value[0])}-{int(slider_cell_count_area_id.value[1])} μm²"
 					width: '60dp'
 					font_size: '12sp'
 
-			# # Area slider
-			# BoxLayout:
-			# 	orientation: 'horizontal'
+			# Perimeter slider
+			BoxLayout:
+				orientation: 'horizontal'
 
-			# 	Label:
-			# 		text: 'Area'
-			# 		size_hint_x: None
-			# 		width: '70dp'
-			# 		font_size: '12sp'
+				Label:
+					text: 'Perimeter'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
 				
-			# 	RangeSlider:
-			# 		id: slider_cell_count_size_range_id
-			# 		min: 0
-			# 		max: 50000
-			# 		step: 500
-			# 		orientation: 'horizontal'
-			# 		value1: 500
-			# 		value2: 25000
-			# 		on_touch_up: root.slider_adjustment_size()
-			# 	Label:
-			# 		id: label_cell_count_size_range_id
-			# 		text: f"{int(slider_cell_count_size_range_id.value[0])}-{int(slider_cell_count_size_range_id.value[1])}"
-			# 		width: '60dp'
-			# 		font_size: '12sp'
+				RangeSlider:
+					id: slider_cell_count_perimeter_id
+					min: 0
+					max: 5000
+					step: 1
+					orientation: 'horizontal'
+					value1: 0
+					value2: 5000
+					on_touch_up: root.slider_adjustment_perimeter()
+				Label:
+					id: label_cell_count_perimeter_id
+					text: f"{int(slider_cell_count_perimeter_id.value[0])}-{int(slider_cell_count_perimeter_id.value[1])} μm"
+					width: '60dp'
+					font_size: '12sp'
+
+			# Mean Intensity slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Mean Intensity'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				RangeSlider:
+					id: slider_cell_count_mean_intensity_id
+					min: 0
+					max: 255
+					step: 1
+					orientation: 'horizontal'
+					value1: 0
+					value2: 255
+					on_touch_up: root.slider_adjustment_mean_intensity()
+				Label:
+					id: label_cell_count_mean_intensity_id
+					text: f"{int(slider_cell_count_mean_intensity_id.value[0])}-{int(slider_cell_count_mean_intensity_id.value[1])}"
+					width: '60dp'
+					font_size: '12sp'
+
+			# Max Intensity slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Max Intensity'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				RangeSlider:
+					id: slider_cell_count_max_intensity_id
+					min: 0
+					max: 255
+					step: 1
+					orientation: 'horizontal'
+					value1: 0
+					value2: 255
+					on_touch_up: root.slider_adjustment_max_intensity()
+				Label:
+					id: label_cell_count_max_intensity_id
+					text: f"{int(slider_cell_count_max_intensity_id.value[0])}-{int(slider_cell_count_max_intensity_id.value[1])}"
+					width: '60dp'
+					font_size: '12sp'
+
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '30dp'
 
 		# Save method
 		FileSaveBTN:
