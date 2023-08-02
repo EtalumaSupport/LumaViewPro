@@ -11,14 +11,14 @@ from modules.settings_transformer import SettingsTransformer
 class CellCount:
 
     def __init__(self):
-        self._settings_transformer = SettingsTransformer()
+        self._settings_transformer = SettingsTransformer(to_direction='digital')
         
 
     def process_image(self, image, settings):
 
         print(f"Before settings: {settings}")
-        settings = self._settings_transformer.transform_to_digital(settings=settings)
-        # settings = self._transform_settings(settings)
+        settings = self._settings_transformer.transform(settings=settings)
+
         print(f"Transformed settings: {settings}")
 
         gray_image = image_utils.rgb_image_to_gray(image=image)
