@@ -624,6 +624,10 @@ class CellCountPopup(BoxLayout):
                     'min': 5,
                     'max': None
                 },
+                'sphericity': {
+                    'min': 0.0,
+                    'max': 1.0
+                },
                 'intensity': {
                     'min': {
                         'min': 0,
@@ -685,6 +689,8 @@ class CellCountPopup(BoxLayout):
         self.ids['slider_cell_count_area_id'].value[1] = settings['filters']['area']['max']
         self.ids['slider_cell_count_perimeter_id'].value[0] = settings['filters']['perimeter']['min']
         self.ids['slider_cell_count_perimeter_id'].value[1] = settings['filters']['perimeter']['max']
+        self.ids['slider_cell_count_sphericity_id'].value[0] = settings['filters']['sphericity']['min']
+        self.ids['slider_cell_count_sphericity_id'].value[1] = settings['filters']['sphericity']['max']
         self.ids['slider_cell_count_min_intensity_id'].value[0] = settings['filters']['intensity']['min']['min']
         self.ids['slider_cell_count_min_intensity_id'].value[1] = settings['filters']['intensity']['min']['max']
         self.ids['slider_cell_count_mean_intensity_id'].value[0] = settings['filters']['intensity']['mean']['min']
@@ -750,6 +756,12 @@ class CellCountPopup(BoxLayout):
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
+    def slider_adjustment_sphericity(self):
+        self._settings['filters']['sphericity']['min'] = self.ids['slider_cell_count_sphericity_id'].value[0]
+        self._settings['filters']['sphericity']['max'] = self.ids['slider_cell_count_sphericity_id'].value[1]
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
 
     def slider_adjustment_min_intensity(self):
         self._settings['filters']['intensity']['min']['min'] = self.ids['slider_cell_count_min_intensity_id'].value[0]

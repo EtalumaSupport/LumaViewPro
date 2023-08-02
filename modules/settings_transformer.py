@@ -45,6 +45,9 @@ class SettingsTransformer:
             'max': _process_val(settings['max'])
         }
 
+    def _transform_sphericity_settings(self, settings):
+        return settings
+
 
     def _transform_area_settings(self, settings, pixels_per_um):
         
@@ -79,6 +82,7 @@ class SettingsTransformer:
         return {
             'intensity': self._transform_intensity_settings(settings['intensity']),
             'perimeter': self._transform_perimeter_settings(settings['perimeter'], pixels_per_um),
+            'sphericity': self._transform_sphericity_settings(settings['sphericity']),
             'area': self._transform_area_settings(settings['area'], pixels_per_um)
         }
 
