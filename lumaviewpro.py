@@ -766,14 +766,10 @@ class CellCountPopup(BoxLayout):
 
         valid, value = _validate(value_str)
         if not valid:
-            # logger.error(f'[LVP Main  ] CellCountPopup.pixel_conversion_adjustment: {value_str} is not valid')
             return
         
         self._settings['pixels_to_um'] = value
-        # logger.info(f"[LVP Main  ] CellCountPopup.pixel_conversion_adjustment: {self._settings['pixels_to_um']} pixels/um")
-        
-        
-
+      
 
 class PostProcessingAccordion(BoxLayout):
 
