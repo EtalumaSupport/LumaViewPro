@@ -84,12 +84,12 @@ class PostProcessing:
 
     
     def preview_cell_count(self, image, settings):
-        preview_img, num_cells = self._cell_count.process_image(
+        preview_img, cell_stats = self._cell_count.process_image(
             image=image,
             settings=settings
         )
 
-        return preview_img, num_cells
+        return preview_img, cell_stats
 
 
     def get_num_images_in_folder(self, path):
@@ -109,13 +109,13 @@ class PostProcessing:
             if filename.endswith(self.SUPPORTED_IMAGE_TYPES):
                 file_path = os.path.join(path, filename)
                 image = image_utils.image_file_to_image(image_file=file_path)
-                _, num_cells = self.preview_cell_count(
+                _, cell_stats = self.preview_cell_count(
                     image=image,
                     settings=settings
                 )
                 results.append({
                     'filename': os.path.basename(filename),
-                    'num_cells': num_cells
+                    'num_cells': cell_stats['num_cells']
                 })
                 
                 yield {

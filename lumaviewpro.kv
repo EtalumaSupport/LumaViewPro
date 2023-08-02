@@ -1734,6 +1734,11 @@
 		orientation: 'vertical'
 		size_hint_x: 0.25
 
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '30dp'
+
 		# Select image to load
 		FileChooseBTN:
 			text: 'Load Image'
@@ -1815,7 +1820,7 @@
 				ModSlider:
 					id: slider_cell_count_threshold_id
 					min: 0
-					max: 255
+					max: 100
 					step: 1
 					orientation: 'horizontal'
 					on_release: root.slider_adjustment_threshold()
@@ -1887,11 +1892,11 @@
 				RangeSlider:
 					id: slider_cell_count_min_intensity_id
 					min: 0
-					max: 255
+					max: 100
 					step: 1
 					orientation: 'horizontal'
 					value1: 0
-					value2: 255
+					value2: 100
 					on_touch_up: root.slider_adjustment_min_intensity()
 				Label:
 					id: label_cell_count_min_intensity_id
@@ -1912,11 +1917,11 @@
 				RangeSlider:
 					id: slider_cell_count_mean_intensity_id
 					min: 0
-					max: 255
+					max: 100
 					step: 1
 					orientation: 'horizontal'
 					value1: 0
-					value2: 255
+					value2: 100
 					on_touch_up: root.slider_adjustment_mean_intensity()
 				Label:
 					id: label_cell_count_mean_intensity_id
@@ -1937,11 +1942,11 @@
 				RangeSlider:
 					id: slider_cell_count_max_intensity_id
 					min: 0
-					max: 255
+					max: 100
 					step: 1
 					orientation: 'horizontal'
 					value1: 0
-					value2: 255
+					value2: 100
 					on_touch_up: root.slider_adjustment_max_intensity()
 				Label:
 					id: label_cell_count_max_intensity_id

@@ -684,6 +684,7 @@ class CellCountPopup(BoxLayout):
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
         self.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+        self._regenerate_image_preview()
 
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
@@ -705,7 +706,7 @@ class CellCountPopup(BoxLayout):
 
         image, _ = self._post.preview_cell_count(
             image=self._preview_source_image,
-            settings=self.get_settings()
+            settings=self._settings
         )
 
         cell_count_popup.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
