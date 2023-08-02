@@ -2897,6 +2897,7 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui, 0.1) # Includes text boxes, not just stage
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].draw_labware, 0.1)
 
         try:
             filepath = settings['protocol']['filepath']
