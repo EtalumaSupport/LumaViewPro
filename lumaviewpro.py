@@ -589,6 +589,9 @@ class MotionSettings(BoxLayout):
 
 
 class CellCountPopup(BoxLayout):
+
+    ENABLE_PREVIEW_AUTO_REFRESH = False
+
     done = BooleanProperty(False)
 
     def __init__(self, **kwargs):
@@ -637,6 +640,10 @@ class CellCountPopup(BoxLayout):
                 }
             }
         }
+
+    def apply_method_to_preview_image(self):
+        self._regenerate_image_preview()
+
     
     # Decorate function to show popup and run the code below in a thread
     @show_popup
@@ -723,42 +730,56 @@ class CellCountPopup(BoxLayout):
 
     def slider_adjustment_threshold(self):
         self._settings['segmentation']['parameters']['threshold'] = self.ids['slider_cell_count_threshold_id'].value
-        self._regenerate_image_preview()
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
 
 
     def slider_adjustment_area(self):
         self._settings['filters']['area']['min'] = self.ids['slider_cell_count_area_id'].value[0]
         self._settings['filters']['area']['max'] = self.ids['slider_cell_count_area_id'].value[1]
-        self._regenerate_image_preview()
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
 
 
     def slider_adjustment_perimeter(self):
         self._settings['filters']['perimeter']['min'] = self.ids['slider_cell_count_perimeter_id'].value[0]
         self._settings['filters']['perimeter']['max'] = self.ids['slider_cell_count_perimeter_id'].value[1]
-        self._regenerate_image_preview()
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
 
 
     def slider_adjustment_min_intensity(self):
         self._settings['filters']['intensity']['min']['min'] = self.ids['slider_cell_count_min_intensity_id'].value[0]
         self._settings['filters']['intensity']['min']['max'] = self.ids['slider_cell_count_min_intensity_id'].value[1]
-        self._regenerate_image_preview()
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
 
 
     def slider_adjustment_mean_intensity(self):
         self._settings['filters']['intensity']['mean']['min'] = self.ids['slider_cell_count_mean_intensity_id'].value[0]
         self._settings['filters']['intensity']['mean']['max'] = self.ids['slider_cell_count_mean_intensity_id'].value[1]
-        self._regenerate_image_preview()
+        
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
 
 
     def slider_adjustment_max_intensity(self):
         self._settings['filters']['intensity']['max']['min'] = self.ids['slider_cell_count_max_intensity_id'].value[0]
         self._settings['filters']['intensity']['max']['max'] = self.ids['slider_cell_count_max_intensity_id'].value[1]
-        self._regenerate_image_preview()
+        
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
 
 
     def flourescent_mode_toggle(self):
         self._settings['context']['fluorescent_mode'] = self.ids['cell_count_fluorescent_mode_id'].active
-        self._regenerate_image_preview()
+        
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
 
 
     def pixel_conversion_adjustment(self):

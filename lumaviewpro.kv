@@ -1959,7 +1959,14 @@
 		Widget:
 			size_hint_y: None
 			height: '30dp'
-
+			
+		Button:
+			text: 'Apply Method to Preview'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: root.apply_method_to_preview_image()
+			
 		# Save method
 		FileSaveBTN:
 			text: 'Save Method As...'
