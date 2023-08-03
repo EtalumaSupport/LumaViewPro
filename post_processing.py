@@ -109,6 +109,9 @@ class PostProcessing:
             if filename.endswith(self.SUPPORTED_IMAGE_TYPES):
                 file_path = os.path.join(path, filename)
                 image = image_utils.image_file_to_image(image_file=file_path)
+                if image is None:
+                    continue
+                    
                 _, region_info = self.preview_cell_count(
                     image=image,
                     settings=settings

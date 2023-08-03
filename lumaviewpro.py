@@ -697,6 +697,9 @@ class CellCountPopup(BoxLayout):
 
     def set_preview_source_file(self, file) -> None:
         image = image_utils.image_file_to_image(image_file=file)
+        if image is None:
+            return
+            
         self.set_preview_source(image=image)
 
     def set_preview_source(self, image) -> None:
@@ -2935,6 +2938,7 @@ class ZStack(CompositeCapture):
                 logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
                 Clock.unschedule(self.zstack_iterate)
 
+
 # Button the triggers 'filechooser.open_file()' from plyer
 class FileChooseBTN(Button):
     context  = StringProperty()
@@ -2949,7 +2953,7 @@ class FileChooseBTN(Button):
         elif self.context == 'load_protocol':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
         elif self.context == 'load_cell_count_input_image':
-            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tif","*.tiff","*.jpg","*.bmp","*.png","*.gif"])
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tif?","*.jpg","*.bmp","*.png","*.gif"])
         elif self.context == 'load_cell_count_method':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"]) 
 
