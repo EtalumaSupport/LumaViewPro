@@ -472,46 +472,9 @@ uniform vec4       color;
 # global gain_vals
 # gain_vals = (1., )*4
 
-class PostProcessing(BoxLayout):
+
+            
     
-    def __init__(self):
-        global settings
-        #stitching params (see more info in image_stitcher.py):
-        self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
-        self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
-        self.ext = "tiff" #or read it from settings?
-        self.stitching_method = "features" # "features" - Low method, "position" - based on position information
-        self.stitched_save_name = "last_composite_img.tiff"
-        self.positions_file = None #relevant if stitching method is position, will read positions from that file
-        self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
-        
-        
-    def convert_to_avi(self):
-
-        error_log('PostProcessing.convert_to_avi()')
-
-        # # self.choose_folder()
-        # save_location = './capture/movie.avi'
-
-        # img_array = []
-        # for filename in glob.glob('./capture/*.tiff'):
-        #     img = cv2.imread(filename)
-        #     height, width, layers = img.shape
-        #     size = (width,height)
-        #     img_array.append(img)
-
-        # if len(img_array) > 0:
-        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-
-        # for i in range(len(img_array)):
-        #     out.write(img_array[i])
-        # out.release()
-
-    def stitch(self):
-        error_log('PostProcessing.stitch()')
-        self.stitched_image = image_stitcher(images_folder=self.raw_images_folder, combine_colors = self.combine_colors,  ext = self.ext,
-                                             method = self.stitching_method,save_name = self.stitched_save_name,
-                                             positions_file = self.positions_file,pos2pix = self.pos2pix,post_process = False)
 
 class ShaderViewer(Scatter):
     black = ObjectProperty(0.)
@@ -622,21 +585,123 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
+'''
+class PostProcessing(BoxLayout):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        global settings
+        #stitching params (see more info in image_stitcher.py):
+        self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
+        self.ext = "tiff" #or read it from settings?
+        self.stitching_method = "features" # "features" - Low method, "position" - based on position information
+        self.stitched_save_name = "last_composite_img.tiff"
+        self.positions_file = None #relevant if stitching method is position, will read positions from that file
+        self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
+        self.target = []
+        
+    def convert_to_avi(self):
+        error_log('PostProcessing.convert_to_avi()')
+
+        # # self.choose_folder()
+        # save_location = './capture/movie.avi'
+
+        # img_array = []
+        # for filename in glob.glob('./capture/*.tiff'):
+        #     img = cv2.imread(filename)
+        #     height, width, layers = img.shape
+        #     size = (width,height)
+        #     img_array.append(img)
+
+        # if len(img_array) > 0:
+        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+
+        # for i in range(len(img_array)):
+        #     out.write(img_array[i])
+        # out.release()
+
+    def stitch(self):
+        error_log('PostProcessing.stitch()')
+        self.stitched_image = image_stitcher(images_folder=self.raw_images_folder, combine_colors = self.combine_colors,  ext = self.ext,
+                                             method = self.stitching_method,save_name = self.stitched_save_name,
+                                             positions_file = self.positions_file,pos2pix = self.pos2pix,post_process = False)
+'''
+
+
 class PostProcessingAccordion(BoxLayout):
 
     def __init__(self, **kwargs):
-        super(PostProcessingAccordion,self).__init__(**kwargs)
-        self.post = post_processing.PostProcessing()
+        #super(PostProcessingAccordion,self).__init__(**kwargs)
+        super().__init__(**kwargs)
+        #self.post = post_processing.PostProcessing()
+        #global settings
+        #stitching params (see more info in image_stitcher.py):
+        #self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
+        self.ext = "tiff" #or read it from settings?
+        self.stitching_method = "features" # "features" - Low method, "position" - based on position information
+        self.stitched_save_name = "last_composite_img.tiff"
+        self.positions_file = None #relevant if stitching method is position, will read positions from that file
+        self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
+        self.tiling_target = []
+        self.tiling_min = [120000, 80000]
+        self.tiling_max = [0, 0]
 
     def convert_to_avi(self):
-        self.post.convert_to_avi('')
+        logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
+        #error_log('PostProcessing.convert_to_avi()')
+
+        # # self.choose_folder()
+        # save_location = './capture/movie.avi'
+
+        # img_array = []
+        # for filename in glob.glob('./capture/*.tiff'):
+        #     img = cv2.imread(filename)
+        #     height, width, layers = img.shape
+        #     size = (width,height)
+        #     img_array.append(img)
+
+        # if len(img_array) > 0:
+        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+
+        # for i in range(len(img_array)):
+        #     out.write(img_array[i])
+        # out.release()
 
     def stitch(self):
-        logger.debug('[LVP Main  ] PostProcessing.stitch() not yet implemented')
-        self.post.stitch('')
+        logger.debug('[LVP Main  ] PostProcessingAccordian.stitch() not fully implemented')
+        #error_log('PostProcessing.stitch()')
+        self.stitched_image = image_stitcher(images_folder=self.raw_images_folder,
+                                             combine_colors = self.combine_colors,
+                                             ext = self.ext,
+                                             method = self.stitching_method,
+                                             save_name = self.stitched_save_name,
+                                             positions_file = self.positions_file,
+                                             pos2pix = self.pos2pix,post_process = False)
+
+    def add_tiling_step(self):
+        logger.debug('[LVP Main  ] PostProcessing.add_tiling_step() not fully implemented')
+        x_current = lumaview.scope.get_current_position('X')
+        x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+        y_current = lumaview.scope.get_current_position('Y')
+        y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+        new_step = [x_current,y_current]
+        self.tiling_target.append(new_step)
+        self.tiling_min = [min(x_current, self.tiling_min[0]), min(y_current, self.tiling_min[1])]
+        self.tiling_max = [max(x_current, self.tiling_max[0]), max(y_current, self.tiling_max[1])]
+        print(new_step)
+        print(self.tiling_min)
+        print(self.tiling_max)
+        return
+                                             
+    def start_tiling(self):
+        logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
+        return
 
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
+
 
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
