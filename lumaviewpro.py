@@ -618,11 +618,11 @@ class CellCountPopup(BoxLayout):
             'filters': {
                 'area': {
                     'min': 10,
-                    'max': None
+                    'max': 100
                 },
                 'perimeter': {
                     'min': 5,
-                    'max': None
+                    'max': 100
                 },
                 'sphericity': {
                     'min': 0.0,
@@ -679,24 +679,21 @@ class CellCountPopup(BoxLayout):
 
     def load_settings(self, settings):
         self._settings = settings
-        self._set_ui_to_current_settings(self._settings)
+        self._set_ui_to_settings(settings)
+
 
     def _set_ui_to_settings(self, settings):
-        self.ids['text_cell_count_pixels_per_um_id'].text = str(settings['context']['pixels_per_um'])
-        self.ids['cell_count_fluorescent_mode_id'].active = settings['context']['fluorescent_mode']
-        self.ids['slider_cell_count_threshold_id'].value = settings['segmentation']['parameters']['threshold']
-        self.ids['slider_cell_count_area_id'].value[0] = settings['filters']['area']['min']
-        self.ids['slider_cell_count_area_id'].value[1] = settings['filters']['area']['max']
-        self.ids['slider_cell_count_perimeter_id'].value[0] = settings['filters']['perimeter']['min']
-        self.ids['slider_cell_count_perimeter_id'].value[1] = settings['filters']['perimeter']['max']
-        self.ids['slider_cell_count_sphericity_id'].value[0] = settings['filters']['sphericity']['min']
-        self.ids['slider_cell_count_sphericity_id'].value[1] = settings['filters']['sphericity']['max']
-        self.ids['slider_cell_count_min_intensity_id'].value[0] = settings['filters']['intensity']['min']['min']
-        self.ids['slider_cell_count_min_intensity_id'].value[1] = settings['filters']['intensity']['min']['max']
-        self.ids['slider_cell_count_mean_intensity_id'].value[0] = settings['filters']['intensity']['mean']['min']
-        self.ids['slider_cell_count_mean_intensity_id'].value[1] = settings['filters']['intensity']['mean']['max']
-        self.ids['slider_cell_count_max_intensity_id'].value[0] = settings['filters']['intensity']['max']['min']
-        self.ids['slider_cell_count_max_intensity_id'].value[1] = settings['filters']['intensity']['max']['max']
+        print(settings)
+        self.ids.text_cell_count_pixels_per_um_id.text = str(settings['context']['pixels_per_um'])
+        self.ids.cell_count_fluorescent_mode_id.active = settings['context']['fluorescent_mode']
+        self.ids.slider_cell_count_threshold_id.value = settings['segmentation']['parameters']['threshold']
+        self.ids.slider_cell_count_area_id.value = (settings['filters']['area']['min'], settings['filters']['area']['max'])
+        self.ids.slider_cell_count_perimeter_id.value = (settings['filters']['perimeter']['min'], settings['filters']['perimeter']['max'])
+        self.ids.slider_cell_count_sphericity_id.value = (settings['filters']['sphericity']['min'], settings['filters']['sphericity']['max'])
+        self.ids.slider_cell_count_min_intensity_id.value = (settings['filters']['intensity']['min']['min'], settings['filters']['intensity']['min']['max'])
+        self.ids.slider_cell_count_mean_intensity_id.value = (settings['filters']['intensity']['mean']['min'], settings['filters']['intensity']['mean']['max'])
+        self.ids.slider_cell_count_max_intensity_id.value = (settings['filters']['intensity']['max']['min'], settings['filters']['intensity']['max']['max'])
+
         self._regenerate_image_preview()
 
     def set_preview_source_file(self, file) -> None:
