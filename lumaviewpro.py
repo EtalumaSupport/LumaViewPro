@@ -693,6 +693,10 @@ class PostProcessingAccordion(BoxLayout):
         print(new_step)
         print(self.tiling_min)
         print(self.tiling_max)
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
+        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
+        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
         return
                                              
     def start_tiling(self):
@@ -2235,6 +2239,8 @@ class Stage(Widget):
     def __init__(self, **kwargs):
         super(Stage, self).__init__(**kwargs)
         logger.info('[LVP Main  ] Stage.__init__()')
+        self.ROI_min = [0,0]
+        self.ROI_max = [0,0]
 
     def on_touch_down(self, touch):
         logger.info('[LVP Main  ] Stage.on_touch_down()')
@@ -2306,6 +2312,11 @@ class Stage(Widget):
             stage_x = settings['stage_offset']['x']/1000
             stage_y = settings['stage_offset']['y']/1000
 
+            # Needed for grean cicles, cross hairs and roi
+            # ------------------
+            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+
+            # Get target position
             # Outline of Stage Area from Above
             # ------------------
             
@@ -2315,13 +2326,25 @@ class Stage(Widget):
 
             # Outline of Plate from Above
             # ------------------
-            Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
+            Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
             Line(points=(x, y, x, y+h-15), width = 1)          # Left
             Line(points=(x+w, y, x+w, y+h), width = 1)         # Right
             Line(points=(x, y, x+w, y), width = 1)             # Bottom
             Line(points=(x+15, y+h, x+w, y+h), width = 1)      # Top
             Line(points=(x, y+h-15, x+15, y+h), width = 1)     # Diagonal
 
+            # ROI rectangle
+            # ------------------
+            if self.ROI_max[0] > self.ROI_min[0]:
+                roi_min_x, roi_min_y = protocol_settings.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
+                roi_max_x, roi_max_y = protocol_settings.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
+                Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
+                #Rectangle(pos=(self.ROI_min[0], self.ROI_min[1]),
+                #          size=(self.ROI_max[0] - self.ROI_min[0], self.ROI_max[1] - self.ROI_min[1]))
+                #Rectangle(pos=(x + roi_min_x, y + roi_min_y), size=(roi_max_x - roi_min_x, roi_max_y - roi_min_y))
+                Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
+
+            
             # Draw all wells
             # ------------------
             cols = current_labware.plate['columns']
@@ -2338,11 +2361,6 @@ class Stage(Widget):
                     y_center = int(y+well_y*scale_y) # on screen center
                     Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
 
-            # Green Circle
-            # ------------------
-            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-
-            # Get target position
             try:
                 x_target = lumaview.scope.get_target_position('X')
                 y_target = lumaview.scope.get_target_position('Y')
