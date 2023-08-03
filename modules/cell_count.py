@@ -41,13 +41,13 @@ class CellCount:
             for param in region_prop_params:
                 if (param == 'Area'):
                     val = round(region[param]/(pixels_per_um**2),2)
-                    units = 'μm^2'
+                    units = 'um^2'
                 elif (param == 'Perimeter'):
                     val = round(region[param]/(pixels_per_um),2)
-                    units = 'μm'
+                    units = 'um'
                 elif (param == 'equivalent_diameter'):
                     val = round(region[param]/(pixels_per_um),2)
-                    units = 'μm'
+                    units = 'um'
                 elif (param in ['MinIntensity','MeanIntensity','MaxIntensity']):
                     val = np.round(region[param]/(255/100),2)
                     units = '%'

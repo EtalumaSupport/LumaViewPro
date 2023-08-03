@@ -109,13 +109,13 @@ class PostProcessing:
             if filename.endswith(self.SUPPORTED_IMAGE_TYPES):
                 file_path = os.path.join(path, filename)
                 image = image_utils.image_file_to_image(image_file=file_path)
-                _, cell_stats = self.preview_cell_count(
+                _, region_info = self.preview_cell_count(
                     image=image,
                     settings=settings
                 )
                 results.append({
                     'filename': os.path.basename(filename),
-                    'num_cells': cell_stats['num_cells']
+                    'num_cells': region_info['summary']['num_regions']
                 })
                 
                 yield {

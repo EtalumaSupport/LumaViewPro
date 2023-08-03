@@ -618,11 +618,11 @@ class CellCountPopup(BoxLayout):
             'filters': {
                 'area': {
                     'min': 10,
-                    'max': 100
+                    'max': 50000
                 },
                 'perimeter': {
                     'min': 5,
-                    'max': 100
+                    'max': 5000
                 },
                 'sphericity': {
                     'min': 0.0,
@@ -659,7 +659,7 @@ class CellCountPopup(BoxLayout):
         popup.progress = 0
         total_images = self._post.get_num_images_in_folder(path=path)
         image_count = 0
-        for image_process in self._post.apply_cell_count_to_folder(path=path, settings=self.get_settings()):
+        for image_process in self._post.apply_cell_count_to_folder(path=path, settings=self._settings):
             filename = image_process['filename']
             image_count += 1
             popup.progress = int(100 * image_count / total_images)
@@ -683,7 +683,6 @@ class CellCountPopup(BoxLayout):
 
 
     def _set_ui_to_settings(self, settings):
-        print(settings)
         self.ids.text_cell_count_pixels_per_um_id.text = str(settings['context']['pixels_per_um'])
         self.ids.cell_count_fluorescent_mode_id.active = settings['context']['fluorescent_mode']
         self.ids.slider_cell_count_threshold_id.value = settings['segmentation']['parameters']['threshold']
