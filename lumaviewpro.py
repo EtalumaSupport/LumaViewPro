@@ -711,9 +711,25 @@ class CellCountContent(BoxLayout):
             
         self.set_preview_source(image=image)
 
+    def update_filter_max(self, image):
+        pixels_per_um = self._settings['context']['pixels_per_um']
+
+        max_area_pixels = image.shape[0] * image.shape[1]
+        max_area_um2 = max_area_pixels / (pixels_per_um**2)
+
+        # Assume max perimeter will never need to be larger than 2x frame size border
+        # The 2x is to provide margin for handling various curvatures
+        max_perimeter_pixels = 2*((2*image.shape[0])+(2*image.shape[1]))
+        max_perimeter_um = max_perimeter_pixels / pixels_per_um
+        
+        self.ids.slider_cell_count_area_id.max = max_area_um2
+        self.ids.slider_cell_count_perimeter_id.max = max_perimeter_um
+
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
+        self._preview_image = image
         self.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+        self.update_filter_max(image=image)
         self._regenerate_image_preview()
 
     # Save settings to JSON file
@@ -738,6 +754,8 @@ class CellCountContent(BoxLayout):
             image=self._preview_source_image,
             settings=self._settings
         )
+
+        self._preview_image = image
 
         cell_count_content.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
@@ -819,6 +837,7 @@ class CellCountContent(BoxLayout):
             return
         
         self._settings['context']['pixels_per_um'] = value
+        self.update_filter_max(image=self._preview_image)
       
 
 '''
