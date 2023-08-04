@@ -95,6 +95,9 @@ from kivy.graphics.texture import Texture
 from custom_widgets.range_slider import RangeSlider
 from custom_widgets.progress_popup import show_popup
 
+#post processing
+from image_stitcher import image_stitcher
+
 import cv2
 
 # Hardware
@@ -119,7 +122,6 @@ start_str = str(int(round(time.time() * 1000)))
 
 global focus_round
 focus_round = 0
-
 
 def focus_log(positions, values):
     global focus_round
@@ -211,6 +213,7 @@ class CompositeCapture(FloatLayout):
         return f'{letter}{well_x + 1}'
 
     def live_capture(self):
+        print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
@@ -231,6 +234,7 @@ class CompositeCapture(FloatLayout):
         lumaview.scope.save_live_image(save_folder, file_root, append, color)
 
     def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
+        print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
         global lumaview
         global settings
@@ -255,9 +259,10 @@ class CompositeCapture(FloatLayout):
 
         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
-        time.sleep(2*exposure/1000+0.2) 
-        lumaview.scope.get_image()
-
+        #time.sleep(2*exposure/1000+0.2)
+        #lumaview.scope.get_image()
+        lumaview.scope.capture()
+        
         if false_color: 
             lumaview.scope.save_live_image(save_folder, file_root, append, color)
         else:
@@ -477,6 +482,10 @@ uniform vec4       color;
 
 # global gain_vals
 # gain_vals = (1., )*4
+
+
+            
+    
 
 class ShaderViewer(Scatter):
     black = ObjectProperty(0.)
@@ -812,18 +821,123 @@ class CellCountPopup(BoxLayout):
         self._settings['context']['pixels_per_um'] = value
       
 
+'''
+class PostProcessing(BoxLayout):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        global settings
+        #stitching params (see more info in image_stitcher.py):
+        self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
+        self.ext = "tiff" #or read it from settings?
+        self.stitching_method = "features" # "features" - Low method, "position" - based on position information
+        self.stitched_save_name = "last_composite_img.tiff"
+        self.positions_file = None #relevant if stitching method is position, will read positions from that file
+        self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
+        self.target = []
+        
+    def convert_to_avi(self):
+        error_log('PostProcessing.convert_to_avi()')
+
+        # # self.choose_folder()
+        # save_location = './capture/movie.avi'
+
+        # img_array = []
+        # for filename in glob.glob('./capture/*.tiff'):
+        #     img = cv2.imread(filename)
+        #     height, width, layers = img.shape
+        #     size = (width,height)
+        #     img_array.append(img)
+
+        # if len(img_array) > 0:
+        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+
+        # for i in range(len(img_array)):
+        #     out.write(img_array[i])
+        # out.release()
+
+    def stitch(self):
+        error_log('PostProcessing.stitch()')
+        self.stitched_image = image_stitcher(images_folder=self.raw_images_folder, combine_colors = self.combine_colors,  ext = self.ext,
+                                             method = self.stitching_method,save_name = self.stitched_save_name,
+                                             positions_file = self.positions_file,pos2pix = self.pos2pix,post_process = False)
+'''
+
+
 class PostProcessingAccordion(BoxLayout):
 
     def __init__(self, **kwargs):
-        super(PostProcessingAccordion,self).__init__(**kwargs)
+        #super(PostProcessingAccordion,self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.post = post_processing.PostProcessing()
+        #global settings
+        #stitching params (see more info in image_stitcher.py):
+        #self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
+        self.ext = "tiff" #or read it from settings?
+        self.stitching_method = "features" # "features" - Low method, "position" - based on position information
+        self.stitched_save_name = "last_composite_img.tiff"
+        self.positions_file = None #relevant if stitching method is position, will read positions from that file
+        self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
+        self.tiling_target = []
+        self.tiling_min = [120000, 80000]
+        self.tiling_max = [0, 0]
 
     def convert_to_avi(self):
-        self.post.convert_to_avi('')
+        logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
+        #error_log('PostProcessing.convert_to_avi()')
+
+        # # self.choose_folder()
+        # save_location = './capture/movie.avi'
+
+        # img_array = []
+        # for filename in glob.glob('./capture/*.tiff'):
+        #     img = cv2.imread(filename)
+        #     height, width, layers = img.shape
+        #     size = (width,height)
+        #     img_array.append(img)
+
+        # if len(img_array) > 0:
+        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
+
+        # for i in range(len(img_array)):
+        #     out.write(img_array[i])
+        # out.release()
 
     def stitch(self):
-        logger.debug('[LVP Main  ] PostProcessing.stitch() not yet implemented')
-        self.post.stitch('')
+        logger.debug('[LVP Main  ] PostProcessingAccordian.stitch() not fully implemented')
+        #error_log('PostProcessing.stitch()')
+        self.stitched_image = image_stitcher(images_folder=self.raw_images_folder,
+                                             combine_colors = self.combine_colors,
+                                             ext = self.ext,
+                                             method = self.stitching_method,
+                                             save_name = self.stitched_save_name,
+                                             positions_file = self.positions_file,
+                                             pos2pix = self.pos2pix,post_process = False)
+
+    def add_tiling_step(self):
+        logger.debug('[LVP Main  ] PostProcessing.add_tiling_step() not fully implemented')
+        x_current = lumaview.scope.get_current_position('X')
+        x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+        y_current = lumaview.scope.get_current_position('Y')
+        y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+        new_step = [x_current,y_current]
+        self.tiling_target.append(new_step)
+        self.tiling_min = [min(x_current, self.tiling_min[0]), min(y_current, self.tiling_min[1])]
+        self.tiling_max = [max(x_current, self.tiling_max[0]), max(y_current, self.tiling_max[1])]
+        print(new_step)
+        print(self.tiling_min)
+        print(self.tiling_max)
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
+        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
+        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
+        return
+                                             
+    def start_tiling(self):
+        logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
+        return
 
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
@@ -839,11 +953,11 @@ class PostProcessingAccordion(BoxLayout):
         popup_window.open()
 
 
-
 class CellCountDisplay(FloatLayout):
 
     def __init__(self, **kwargs):
         super(CellCountDisplay,self).__init__(**kwargs)
+
 
 class ShaderEditor(BoxLayout):
     fs = StringProperty('''
@@ -1000,17 +1114,20 @@ class Histogram(Widget):
     def histogram(self, *args):
         # logger.info('[LVP Main  ] Histogram.histogram()')
         global lumaview
+        bins = 128
 
         if lumaview.scope.camera != False:
-            image = lumaview.scope.get_image()
-            hist = np.histogram(image, bins=256,range=(0,256))
+            #image = lumaview.scope.get_image()
+            image = lumaview.scope.image_buffer
+            hist = np.histogram(image, bins=bins,range=(0,256))
+            '''
             if self.hist_range_set:
                 edges = self.edges
             else:
                 edges = np.histogram_bin_edges(image, bins=1)
                 edges[0] = self.stablize*self.edges[0] + (1 - self.stablize)*edges[0]
                 edges[1] = self.stablize*self.edges[1] + (1 - self.stablize)*edges[1]
-
+            '''
             # mean = np.mean(hist[1],hist[0])
             lumaview.ids['viewer_id'].black = 0.0 # float(edges[0])/255.
             lumaview.ids['viewer_id'].white = 1.0 # float(edges[1])/255.
@@ -1019,16 +1136,16 @@ class Histogram(Widget):
             self.canvas.clear()
             r, b, g, a = self.bg_color
             self.hist = hist
-            self.edges = edges
+            #self.edges = edges
             with self.canvas:
                 x = self.x
                 y = self.y
                 w = self.width
                 h = self.height
-                Color(r, b, g, a/12)
-                Rectangle(pos=(x, y), size=(256, h))
-                Color(r, b, g, a/4)
-                Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
+                #Color(r, b, g, a/12)
+                #Rectangle(pos=(x, y), size=(256, h))
+                #Color(r, b, g, a/4)
+                #Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
                 Color(r, b, g, a/2)
                 #self.color = Color(rgba=self.color)
                 logHistogram = lumaview.ids['imagesettings_id'].ids[self.layer].ids['logHistogram_id'].active
@@ -1044,7 +1161,8 @@ class Histogram(Widget):
                         else:
                             counts = np.ceil(scale*hist[0][i])
                         self.pos = self.pos
-                        self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
+                        Rectangle(pos=(x+max(i*512/bins-1, 1), y), size=(512/bins, counts))
+                        #self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
 
 
 class VerticalControl(BoxLayout):
@@ -2373,6 +2491,8 @@ class Stage(Widget):
     def __init__(self, **kwargs):
         super(Stage, self).__init__(**kwargs)
         logger.info('[LVP Main  ] Stage.__init__()')
+        self.ROI_min = [0,0]
+        self.ROI_max = [0,0]
 
     def on_touch_down(self, touch):
         logger.info('[LVP Main  ] Stage.on_touch_down()')
@@ -2444,6 +2564,11 @@ class Stage(Widget):
             stage_x = settings['stage_offset']['x']/1000
             stage_y = settings['stage_offset']['y']/1000
 
+            # Needed for grean cicles, cross hairs and roi
+            # ------------------
+            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+
+            # Get target position
             # Outline of Stage Area from Above
             # ------------------
             
@@ -2453,13 +2578,25 @@ class Stage(Widget):
 
             # Outline of Plate from Above
             # ------------------
-            Color(50/255, 164/255, 206/155, 1.)                # kivy aqua
+            Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
             Line(points=(x, y, x, y+h-15), width = 1)          # Left
             Line(points=(x+w, y, x+w, y+h), width = 1)         # Right
             Line(points=(x, y, x+w, y), width = 1)             # Bottom
             Line(points=(x+15, y+h, x+w, y+h), width = 1)      # Top
             Line(points=(x, y+h-15, x+15, y+h), width = 1)     # Diagonal
 
+            # ROI rectangle
+            # ------------------
+            if self.ROI_max[0] > self.ROI_min[0]:
+                roi_min_x, roi_min_y = protocol_settings.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
+                roi_max_x, roi_max_y = protocol_settings.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
+                Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
+                #Rectangle(pos=(self.ROI_min[0], self.ROI_min[1]),
+                #          size=(self.ROI_max[0] - self.ROI_min[0], self.ROI_max[1] - self.ROI_min[1]))
+                #Rectangle(pos=(x + roi_min_x, y + roi_min_y), size=(roi_max_x - roi_min_x, roi_max_y - roi_min_y))
+                Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
+
+            
             # Draw all wells
             # ------------------
             cols = current_labware.plate['columns']
@@ -2476,11 +2613,6 @@ class Stage(Widget):
                     y_center = int(y+well_y*scale_y) # on screen center
                     Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
 
-            # Green Circle
-            # ------------------
-            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-
-            # Get target position
             try:
                 x_target = lumaview.scope.get_target_position('X')
                 y_target = lumaview.scope.get_target_position('Y')
@@ -2798,10 +2930,12 @@ class LayerControl(BoxLayout):
             
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
+            
             for layer in layers:
+                Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
                 if layer == self.layer:
-                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.1)
-                    logger.info('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 0.1)')
+                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.5)
+                    logger.info('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 0.5)')
                 else:
                     lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
@@ -3128,6 +3262,7 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui, 0.1) # Includes text boxes, not just stage
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].draw_labware, 0.1)
 
         try:
             filepath = settings['protocol']['filepath']

@@ -1084,8 +1084,38 @@
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
-		on_release:root.stitch()
+		on_release: root.stitch()
 
+    # Tiling Stage Display
+    FloatLayout:
+        padding: '5dp'
+        size_hint_y: None
+        height: '128dp'
+        height: self.width * 2 / 3
+        
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '30dp'
+            spacing: '5dp'
+            Button:
+                id: add_tiling_pos_btn
+                text: 'Add'
+                size_hint_y: None
+                height: '30dp'
+                font_size: '12sp'
+                on_release: root.add_tiling_step()
+            Button:
+                id: start_tiling_btn
+                text: 'Start'
+                size_hint_y: None
+                height: '30dp'
+                font_size: '12sp'
+                on_release: root.start_tiling()
+        
+        Stage:
+            id: tiling_stage_id
+            pos_hint:{'center_x':0.5, 'center_y':0.5}
 	Button:
 		text:'Open Last Save Folder'
 		size_hint_y: None
@@ -1098,7 +1128,7 @@
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
-		on_release:root.open_cell_count()		
+		on_release: root.open_cell_count()				
 
 	Label:
 
