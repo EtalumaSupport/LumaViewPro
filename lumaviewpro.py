@@ -110,7 +110,7 @@ import image_utils
 global lumaview
 global settings
 
-global cell_count_popup
+global cell_count_content
 
 abspath = os.path.abspath(__file__)
 basename = os.path.basename(__file__)
@@ -597,7 +597,7 @@ class MotionSettings(BoxLayout):
             self.pos = 0, 0
 
 
-class CellCountPopup(BoxLayout):
+class CellCountContent(BoxLayout):
 
     ENABLE_PREVIEW_AUTO_REFRESH = False
 
@@ -718,13 +718,13 @@ class CellCountPopup(BoxLayout):
 
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
-        logger.info(f'[LVP Main  ] CellCountPopup.save_method_as({file})')
+        logger.info(f'[LVP Main  ] CellCountContent.save_method_as({file})')
         os.chdir(source_path)
         with open(file, "w") as write_file:
             json.dump(self._settings, write_file, indent = 4)
 
     def load_method_from_file(self, file):
-        logger.info(f'[LVP Main  ] CellCountPopup.load_method_from_file({file})')
+        logger.info(f'[LVP Main  ] CellCountContent.load_method_from_file({file})')
         with open(file, "r") as f:
             method_settings = json.load(f)
             self.load_settings(settings=method_settings)
@@ -739,7 +739,7 @@ class CellCountPopup(BoxLayout):
             settings=self._settings
         )
 
-        cell_count_popup.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+        cell_count_content.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
 
     def slider_adjustment_threshold(self):
@@ -812,7 +812,7 @@ class CellCountPopup(BoxLayout):
 
             return True, value
 
-        value_str = cell_count_popup.ids['text_cell_count_pixels_per_um_id'].text
+        value_str = cell_count_content.ids['text_cell_count_pixels_per_um_id'].text
 
         valid, value = _validate(value_str)
         if not valid:
@@ -883,6 +883,12 @@ class PostProcessingAccordion(BoxLayout):
         self.tiling_target = []
         self.tiling_min = [120000, 80000]
         self.tiling_max = [0, 0]
+        self.init_cell_count()
+
+    
+    def init_cell_count(self):
+        self._cell_count_popup = None
+        
 
     def convert_to_avi(self):
         logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
@@ -943,14 +949,16 @@ class PostProcessingAccordion(BoxLayout):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
 
     def open_cell_count(self):
-        cell_count_popup.set_post_processing_module(self.post)
-        popup_window = Popup(
-            title="Post Processing - Cell Count",
-            content=cell_count_popup,
-            size_hint=(0.85,0.85),
-            auto_dismiss=True
-        )
-        popup_window.open()
+        if self._cell_count_popup is None:
+            cell_count_content.set_post_processing_module(self.post)
+            self._cell_count_popup = Popup(
+                title="Post Processing - Cell Count",
+                content=cell_count_content,
+                size_hint=(0.85,0.85),
+                auto_dismiss=True
+            )
+
+        self._cell_count_popup.open()
 
 
 class CellCountDisplay(FloatLayout):
@@ -3109,10 +3117,10 @@ class FileChooseBTN(Button):
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
             
             elif self.context == 'load_cell_count_input_image':
-                cell_count_popup.set_preview_source_file(file=self.selection[0])
+                cell_count_content.set_preview_source_file(file=self.selection[0])
 
             elif self.context == 'load_cell_count_method':
-                cell_count_popup.load_method_from_file(file=self.selection[0])
+                cell_count_content.load_method_from_file(file=self.selection[0])
 
         else:
             return
@@ -3160,7 +3168,7 @@ class FolderChooseBTN(Button):
             out.release()
 
         elif self.context == 'apply_cell_count_method_to_folder':
-            cell_count_popup.apply_method_to_folder(
+            cell_count_content.apply_method_to_folder(
                 path=path
             )
 
@@ -3209,7 +3217,7 @@ class FileSaveBTN(Button):
                 filename = self.selection[0]
                 if os.path.splitext(filename)[1] == "":
                     filename += ".json"
-                cell_count_popup.save_method_as(file=filename)
+                cell_count_content.save_method_as(file=filename)
 
 
 # -------------------------------------------------------------------------
@@ -3235,14 +3243,14 @@ class LumaViewProApp(App):
 
         global Window
         global lumaview
-        global cell_count_popup
+        global cell_count_content
         self.icon = './data/icons/icon.png'
 
         try:
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
-            cell_count_popup = CellCountPopup()
+            cell_count_content = CellCountContent()
             #Window.maximize()
         except:
             logger.exception('[LVP Main  ] Cannot open main display.')
