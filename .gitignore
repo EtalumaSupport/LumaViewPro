@@ -5,3 +5,4 @@ calls.txt
 logs/LVP_log*
 capture/*.tiff
 script_testing.py
+venv/

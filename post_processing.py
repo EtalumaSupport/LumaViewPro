@@ -35,7 +35,29 @@ MODIFIED:
 March 16, 2023
 '''
 
+import csv
+import os
+
+from kivy.graphics.texture import Texture
+
+import image_utils
+
+from modules.cell_count import CellCount
+
 class PostProcessing:
+
+    SUPPORTED_IMAGE_TYPES = (
+        '.jpg',
+        '.jpeg',
+        '.png',
+        '.bmp',
+        '.tif',
+        '.tiff'
+    )
+
+    def __init__(self):
+        self._cell_count = CellCount()
+
 
     def convert_to_avi(self, filepath):
         pass
@@ -59,3 +81,53 @@ class PostProcessing:
 
     def stitch(self, filepath):
         pass
+
+    
+    def preview_cell_count(self, image, settings):
+        preview_img, cell_stats = self._cell_count.process_image(
+            image=image,
+            settings=settings
+        )
+
+        return preview_img, cell_stats
+
+
+    def get_num_images_in_folder(self, path):
+        num_images = 0
+        for filename in os.listdir(path):
+            if filename.endswith(self.SUPPORTED_IMAGE_TYPES):
+                num_images += 1
+        
+        return num_images
+
+
+    def apply_cell_count_to_folder(self, path, settings):
+        fields = ['file', 'num_cells']
+        results = []
+
+        for filename in os.listdir(path):
+            if filename.endswith(self.SUPPORTED_IMAGE_TYPES):
+                file_path = os.path.join(path, filename)
+                image = image_utils.image_file_to_image(image_file=file_path)
+                if image is None:
+                    continue
+                    
+                _, region_info = self.preview_cell_count(
+                    image=image,
+                    settings=settings
+                )
+                results.append({
+                    'filename': os.path.basename(filename),
+                    'num_cells': region_info['summary']['num_regions']
+                })
+                
+                yield {
+                    'filename': filename
+                }
+
+        results_file_path = os.path.join(path, 'results.csv')
+        with open(results_file_path, 'w') as f:
+            writer = csv.writer(f)
+            writer.writerow(fields)
+            for record in results:
+                writer.writerow(record.values())
