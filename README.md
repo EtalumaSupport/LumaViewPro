@@ -29,7 +29,7 @@ python -m pip install pypylon
 python -m pip install kivy
 python -m pip install plyer
 python -m pip install scipy
-python -m pip install pandas imutils color_transfer
+python -m pip install pandas imutils color_transfer scikit-image
 ```
 Go to the location of the LumaViewPro-master folder in the command prompt
 
