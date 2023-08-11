@@ -828,6 +828,9 @@ class CellCountContent(BoxLayout):
             except:
                 return False, -1
 
+            if value == 0:
+                return False, -1
+                
             return True, value
 
         value_str = cell_count_content.ids['text_cell_count_pixels_per_um_id'].text
