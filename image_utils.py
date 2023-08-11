@@ -1,5 +1,6 @@
 
 import cv2
+import numpy as np
 
 from kivy.graphics.texture import Texture
 
@@ -48,4 +49,30 @@ def image_file_to_texture(image_file) -> Texture:
 
 
 def rgb_image_to_gray(image):
+
+    def _is_grayscale(image):
+        shape = image.shape
+        if (len(shape) <= 2) or (shape[2] == 1):
+            return True
+
+        return False
+    
+    def _values_in_one_plane(image):
+        count = 0
+        for color_plane_idx in range(image.shape[2]):
+            image_view = image[:,:,color_plane_idx]
+            if np.any(image_view):
+                count += 1
+
+        if count <= 1:
+            return True
+        else:
+            return False
+
+    if _is_grayscale(image=image):
+        return image
+
+    if _values_in_one_plane(image=image):
+        return np.amax(image, axis=2)
+
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
