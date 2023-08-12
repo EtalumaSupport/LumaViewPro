@@ -607,10 +607,17 @@ class CellCountControls(BoxLayout):
         super().__init__(**kwargs)
         logger.info('LVP Main: CellCountPopup.__init__()')
         self._preview_source_image = None
+        self._post = None
         self._post = post_processing.PostProcessing()
         self._settings = self._get_init_settings()
         cell_count_controls = self
-        # self._set_ui_to_settings(self._settings)
+        self._first_open = False
+        
+
+    def activate(self):
+        if self._first_open is False:
+            self._first_open = True
+            self._set_ui_to_settings(self._settings)
 
 
     def _get_init_settings(self):
@@ -622,7 +629,7 @@ class CellCountControls(BoxLayout):
             'segmentation': {
                 'algorithm': 'initial',
                 'parameters': {
-                    'threshold': 50,
+                    'threshold': 20,
                 }
             },
             'filters': {
@@ -905,16 +912,17 @@ class PostProcessingAccordion(BoxLayout):
         self.tiling_target = []
         self.tiling_min = [120000, 80000]
         self.tiling_max = [0, 0]
-        self.init_cell_count()
+     
 
-
-    def accordion_collapse(self):
-        logger.info(f'[LVP Main  ] {self.name}.accordion_collapse()')
-
-
-    def init_cell_count(self):
-        self._cell_count_popup = None
+    def accordion_collapse(self, item: str):
+        pass
         
+
+    def accordion_touch_down(self, item: str):
+
+        if item == 'cell_count_controls':
+            cell_count_controls.activate()
+
 
     def convert_to_avi(self):
         logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')

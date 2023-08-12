@@ -1079,7 +1079,8 @@
         AccordionItem:
 			id: create_avi_accordion_id
             title: 'Create AVI'
-			on_collapse: root.accordion_collapse()
+			collapse: False
+			on_collapse: root.accordion_collapse('create_avi')
 			FolderChooseBTN:
 				text: 'Create AVI'
 				size_hint_y: None
@@ -1092,7 +1093,7 @@
         AccordionItem:
 			id: stitch_accordion_id
             title: 'Stitch'
-			on_collapse: root.accordion_collapse()
+			on_collapse: root.accordion_collapse('stitch')
 			FolderChooseBTN:
 				text: 'Stitch'
 				size_hint_y: None
@@ -1137,7 +1138,7 @@
 		AccordionItem:
 			id: open_last_save_folder_accordion_id
             title: 'Open Last Save Folder'
-			on_collapse: root.accordion_collapse()
+			on_collapse: root.accordion_collapse('open_last_save_folder')
 			Button:
 				text:'Open Last Save Folder'
 				size_hint_y: None
@@ -1150,7 +1151,8 @@
 		AccordionItem:
 			id: cell_count_accordion_id
             title: 'Cell Count'
-			on_collapse: root.accordion_collapse()
+			on_collapse: root.accordion_collapse('cell_count_controls')
+			on_touch_down: root.accordion_touch_down('cell_count_controls')
 
 			CellCountControls:
 				id: cell_count_controls_id
