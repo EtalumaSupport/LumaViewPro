@@ -102,7 +102,7 @@ class PostProcessing:
 
 
     def apply_cell_count_to_folder(self, path, settings):
-        fields = ['file', 'num_cells', 'total_object_area (um2)']
+        fields = ['file', 'num_cells', 'total_object_area (um2)', 'total_object_intensity']
         results = []
 
         for filename in os.listdir(path):
@@ -119,7 +119,8 @@ class PostProcessing:
                 results.append({
                     'filename': os.path.basename(filename),
                     'num_cells': region_info['summary']['num_regions'],
-                    'total_object_area (um2)': region_info['summary']['total_object_area']
+                    'total_object_area (um2)': region_info['summary']['total_object_area'],
+                    'total_object_intensity': region_info['summary']['total_object_intensity'],
                 })
                 
                 yield {

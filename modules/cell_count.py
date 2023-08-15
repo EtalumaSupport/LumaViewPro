@@ -91,6 +91,7 @@ class CellCount:
             
 
         total_object_area = 0
+        total_object_intensity = 0
         for (region_idx, region), contour in zip(region_info['regions'].items(), contours):
 
             if not _within_bounds(region, 'area', settings, 'area'):
@@ -112,13 +113,15 @@ class CellCount:
                 continue
                 
             total_object_area += region['area']['val']
+            total_object_intensity += (region['area']['val'] * region['intensity_mean']['val'])
             filtered_regions[region_idx] = region
             filtered_contours.append(contour)
 
         filtered_region_info = {
             'summary': {
                 'num_regions': len(filtered_regions),
-                'total_object_area': total_object_area
+                'total_object_area': total_object_area,
+                'total_object_intensity': round(total_object_intensity,1)
             },
             'regions': filtered_regions
         }
