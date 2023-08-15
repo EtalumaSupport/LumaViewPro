@@ -26,12 +26,12 @@ class CellCount:
         regions = skimage.measure.regionprops(labeled_mask, intensity_image=intensity_image, extra_properties=(_sphericity,))
         
         region_prop_params = [
-            'Area',
+            'area',
             # 'equivalent_diameter',
-            'Perimeter',
-            'MinIntensity',
-            'MeanIntensity',
-            'MaxIntensity',
+            'perimeter',
+            'intensity_min',
+            'intensity_mean',
+            'intensity_max',
         ]
 
         region_info = {}
@@ -39,16 +39,16 @@ class CellCount:
             
             region_param_info = {}
             for param in region_prop_params:
-                if (param == 'Area'):
+                if (param == 'area'):
                     val = round(region[param]/(pixels_per_um**2),2)
                     units = 'um^2'
-                elif (param == 'Perimeter'):
+                elif (param == 'perimeter'):
                     val = round(region[param]/(pixels_per_um),2)
                     units = 'um'
                 elif (param == 'equivalent_diameter'):
                     val = round(region[param]/(pixels_per_um),2)
                     units = 'um'
-                elif (param in ['MinIntensity','MeanIntensity','MaxIntensity']):
+                elif (param in ['intensity_min','intensity_mean','intensity_max']):
                     val = np.round(region[param]/(255/100),2)
                     units = '%'
                 else:
@@ -90,6 +90,7 @@ class CellCount:
             return True
             
 
+        total_object_area = 0
         for (region_idx, region), contour in zip(region_info['regions'].items(), contours):
 
             if not _within_bounds(region, 'area', settings, 'area'):
@@ -101,21 +102,23 @@ class CellCount:
             if not _within_bounds(region, 'sphericity', settings, 'sphericity'):
                 continue
 
-            if not _within_bounds(region, 'minintensity', settings['intensity'], 'min'):
+            if not _within_bounds(region, 'intensity_min', settings['intensity'], 'min'):
                 continue
 
-            if not _within_bounds(region, 'meanintensity', settings['intensity'], 'mean'):
+            if not _within_bounds(region, 'intensity_mean', settings['intensity'], 'mean'):
                 continue
 
-            if not _within_bounds(region, 'maxintensity', settings['intensity'], 'max'):
+            if not _within_bounds(region, 'intensity_max', settings['intensity'], 'max'):
                 continue
                 
+            total_object_area += region['area']['val']
             filtered_regions[region_idx] = region
             filtered_contours.append(contour)
 
         filtered_region_info = {
             'summary': {
-                'num_regions': len(filtered_regions)
+                'num_regions': len(filtered_regions),
+                'total_object_area': total_object_area
             },
             'regions': filtered_regions
         }
