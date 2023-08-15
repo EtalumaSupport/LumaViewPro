@@ -126,7 +126,7 @@ class PostProcessing:
                 }
 
         results_file_path = os.path.join(path, 'results.csv')
-        with open(results_file_path, 'w') as f:
+        with open(results_file_path, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(fields)
             for record in results:
