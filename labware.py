@@ -73,9 +73,10 @@ class WellPlate(LabWare):
         self.plate = self.labware['Wellplate'][plate_key]
 
     # set indices based on plate and motion
-    def set_indices(self):
+    def set_indices(self, stitch=1):
 
         self.ind_list = []
+        self.stitch_list = []
         # 'i' represents column index (x-direction)
         # 'j' represents row index (y-direction)
         # (0, 0) on the bottom left looking from above
@@ -86,15 +87,23 @@ class WellPlate(LabWare):
                 if j % 2 == 1:
                     i = self.plate['columns'] - i - 1
                 self.ind_list.append([i,j])
+                
+        if stitch > 1:
+            for i in range(stitch_count):
+                for j in range(stich_count):
+                    if j % 2 == 1:
+                        i = self.plate['columns'] - i - 1
+                    self.stitch_list.append([i,j])
 
     # set positions based on indices
-    def set_positions(self): 
+    def set_positions(self, stitch=1):
 
-        self.set_indices()
+        self.set_indices(stitch)
         self.pos_list = []
 
-        for i in self.ind_list:
-            x, y = self.get_well_position(i[0], i[1])
+        for well in self.ind_list:
+            i, j = well[0], well[1]
+            x, y = self.get_well_position(well[0], well[1])
             self.pos_list.append([x, y])
 
     # Get center position of well on plate in mm given its index (i, j)
