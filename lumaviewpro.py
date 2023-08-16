@@ -85,12 +85,19 @@ from kivy.uix.slider import Slider
 from kivy.uix.image import Image
 from kivy.uix.button import Button
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.popup import Popup
+from kivy.uix.label import Label
 
 # Video Related
 from kivy.graphics.texture import Texture
 
+# User Interface Custom Widgets
+from custom_widgets.range_slider import RangeSlider
+from custom_widgets.progress_popup import show_popup
+
 #post processing
 from image_stitcher import image_stitcher
+
 import cv2
 
 # Hardware
@@ -98,8 +105,12 @@ from labware import WellPlate
 import lumascope_api
 import post_processing
 
+import image_utils
+
 global lumaview
 global settings
+
+global cell_count_content
 
 abspath = os.path.abspath(__file__)
 basename = os.path.basename(__file__)
@@ -585,6 +596,253 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
+
+class CellCountContent(BoxLayout):
+
+    ENABLE_PREVIEW_AUTO_REFRESH = False
+
+    done = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        logger.info('[LVP Main  ] CellCountPopup.__init__()')
+        self._preview_source_image = None
+        self._post = None
+        self._settings = self._get_init_settings()
+        self._set_ui_to_settings(self._settings)
+
+
+    def _get_init_settings(self):
+        return {
+            'context': {
+                'pixels_per_um': 1.0,
+                'fluorescent_mode': True
+            },
+            'segmentation': {
+                'algorithm': 'initial',
+                'parameters': {
+                    'threshold': 50,
+                }
+            },
+            'filters': {
+                'area': {
+                    'min': 10,
+                    'max': 50000
+                },
+                'perimeter': {
+                    'min': 5,
+                    'max': 5000
+                },
+                'sphericity': {
+                    'min': 0.0,
+                    'max': 1.0
+                },
+                'intensity': {
+                    'min': {
+                        'min': 0,
+                        'max': 100
+                    },
+                    'mean': {
+                        'min': 0,
+                        'max': 100
+                    },
+                    'max': {
+                        'min': 0,
+                        'max': 100
+                    }
+                }
+            }
+        }
+
+    def apply_method_to_preview_image(self):
+        self._regenerate_image_preview()
+
+    
+    # Decorate function to show popup and run the code below in a thread
+    @show_popup
+    def apply_method_to_folder(self, popup, path):
+        popup.title = 'Processing Cell Count Method'
+        pre_text = f'Applying method to folder: {path}'
+        popup.text = pre_text
+        
+        popup.progress = 0
+        total_images = self._post.get_num_images_in_folder(path=path)
+        image_count = 0
+        for image_process in self._post.apply_cell_count_to_folder(path=path, settings=self._settings):
+            filename = image_process['filename']
+            image_count += 1
+            popup.progress = int(100 * image_count / total_images)
+            popup.text = f"{pre_text}\n- {image_count}/{total_images}: {filename}"
+
+        popup.progress = 100
+        popup.text = 'Done'
+        time.sleep(1)
+        self.done = True
+
+    def set_post_processing_module(self, post_processing_module):
+        self._post = post_processing_module
+
+    def get_current_settings(self):
+        return self._settings
+
+
+    def load_settings(self, settings):
+        self._settings = settings
+        self._set_ui_to_settings(settings)
+
+
+    def _set_ui_to_settings(self, settings):
+        self.ids.text_cell_count_pixels_per_um_id.text = str(settings['context']['pixels_per_um'])
+        self.ids.cell_count_fluorescent_mode_id.active = settings['context']['fluorescent_mode']
+        self.ids.slider_cell_count_threshold_id.value = settings['segmentation']['parameters']['threshold']
+        self.ids.slider_cell_count_area_id.value = (settings['filters']['area']['min'], settings['filters']['area']['max'])
+        self.ids.slider_cell_count_perimeter_id.value = (settings['filters']['perimeter']['min'], settings['filters']['perimeter']['max'])
+        self.ids.slider_cell_count_sphericity_id.value = (settings['filters']['sphericity']['min'], settings['filters']['sphericity']['max'])
+        self.ids.slider_cell_count_min_intensity_id.value = (settings['filters']['intensity']['min']['min'], settings['filters']['intensity']['min']['max'])
+        self.ids.slider_cell_count_mean_intensity_id.value = (settings['filters']['intensity']['mean']['min'], settings['filters']['intensity']['mean']['max'])
+        self.ids.slider_cell_count_max_intensity_id.value = (settings['filters']['intensity']['max']['min'], settings['filters']['intensity']['max']['max'])
+
+        self._regenerate_image_preview()
+
+    def set_preview_source_file(self, file) -> None:
+        image = image_utils.image_file_to_image(image_file=file)
+        if image is None:
+            return
+            
+        self.set_preview_source(image=image)
+
+    def update_filter_max(self, image):
+        pixels_per_um = self._settings['context']['pixels_per_um']
+
+        max_area_pixels = image.shape[0] * image.shape[1]
+        max_area_um2 = max_area_pixels / (pixels_per_um**2)
+
+        # Assume max perimeter will never need to be larger than 2x frame size border
+        # The 2x is to provide margin for handling various curvatures
+        max_perimeter_pixels = 2*((2*image.shape[0])+(2*image.shape[1]))
+        max_perimeter_um = max_perimeter_pixels / pixels_per_um
+        
+        self.ids.slider_cell_count_area_id.max = max_area_um2
+        self.ids.slider_cell_count_perimeter_id.max = max_perimeter_um
+
+    def set_preview_source(self, image) -> None:
+        self._preview_source_image = image
+        self._preview_image = image
+        self.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+        self.update_filter_max(image=image)
+        self._regenerate_image_preview()
+
+    # Save settings to JSON file
+    def save_method_as(self, file="./data/cell_count_method.json"):
+        logger.info(f'[LVP Main  ] CellCountContent.save_method_as({file})')
+        os.chdir(source_path)
+        with open(file, "w") as write_file:
+            json.dump(self._settings, write_file, indent = 4)
+
+    def load_method_from_file(self, file):
+        logger.info(f'[LVP Main  ] CellCountContent.load_method_from_file({file})')
+        with open(file, "r") as f:
+            method_settings = json.load(f)
+            self.load_settings(settings=method_settings)
+
+    
+    def _regenerate_image_preview(self):
+        if self._preview_source_image is None:
+            return
+
+        image, _ = self._post.preview_cell_count(
+            image=self._preview_source_image,
+            settings=self._settings
+        )
+
+        self._preview_image = image
+
+        cell_count_content.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+
+
+    def slider_adjustment_threshold(self):
+        self._settings['segmentation']['parameters']['threshold'] = self.ids['slider_cell_count_threshold_id'].value
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
+
+
+    def slider_adjustment_area(self):
+        self._settings['filters']['area']['min'] = self.ids['slider_cell_count_area_id'].value[0]
+        self._settings['filters']['area']['max'] = self.ids['slider_cell_count_area_id'].value[1]
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
+
+
+    def slider_adjustment_perimeter(self):
+        self._settings['filters']['perimeter']['min'] = self.ids['slider_cell_count_perimeter_id'].value[0]
+        self._settings['filters']['perimeter']['max'] = self.ids['slider_cell_count_perimeter_id'].value[1]
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
+
+    def slider_adjustment_sphericity(self):
+        self._settings['filters']['sphericity']['min'] = self.ids['slider_cell_count_sphericity_id'].value[0]
+        self._settings['filters']['sphericity']['max'] = self.ids['slider_cell_count_sphericity_id'].value[1]
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
+
+    def slider_adjustment_min_intensity(self):
+        self._settings['filters']['intensity']['min']['min'] = self.ids['slider_cell_count_min_intensity_id'].value[0]
+        self._settings['filters']['intensity']['min']['max'] = self.ids['slider_cell_count_min_intensity_id'].value[1]
+
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
+
+
+    def slider_adjustment_mean_intensity(self):
+        self._settings['filters']['intensity']['mean']['min'] = self.ids['slider_cell_count_mean_intensity_id'].value[0]
+        self._settings['filters']['intensity']['mean']['max'] = self.ids['slider_cell_count_mean_intensity_id'].value[1]
+        
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
+
+
+    def slider_adjustment_max_intensity(self):
+        self._settings['filters']['intensity']['max']['min'] = self.ids['slider_cell_count_max_intensity_id'].value[0]
+        self._settings['filters']['intensity']['max']['max'] = self.ids['slider_cell_count_max_intensity_id'].value[1]
+        
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
+
+
+    def flourescent_mode_toggle(self):
+        self._settings['context']['fluorescent_mode'] = self.ids['cell_count_fluorescent_mode_id'].active
+        
+        if self.ENABLE_PREVIEW_AUTO_REFRESH:
+            self._regenerate_image_preview()
+
+
+    def pixel_conversion_adjustment(self):
+
+        def _validate(value_str):
+            try:
+                value = float(value_str)
+            except:
+                return False, -1
+
+            if value == 0:
+                return False, -1
+                
+            return True, value
+
+        value_str = cell_count_content.ids['text_cell_count_pixels_per_um_id'].text
+
+        valid, value = _validate(value_str)
+        if not valid:
+            return
+        
+        self._settings['context']['pixels_per_um'] = value
+        self.update_filter_max(image=self._preview_image)
+      
+
 '''
 class PostProcessing(BoxLayout):
     
@@ -634,7 +892,7 @@ class PostProcessingAccordion(BoxLayout):
     def __init__(self, **kwargs):
         #super(PostProcessingAccordion,self).__init__(**kwargs)
         super().__init__(**kwargs)
-        #self.post = post_processing.PostProcessing()
+        self.post = post_processing.PostProcessing()
         #global settings
         #stitching params (see more info in image_stitcher.py):
         #self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
@@ -647,6 +905,12 @@ class PostProcessingAccordion(BoxLayout):
         self.tiling_target = []
         self.tiling_min = [120000, 80000]
         self.tiling_max = [0, 0]
+        self.init_cell_count()
+
+    
+    def init_cell_count(self):
+        self._cell_count_popup = None
+        
 
     def convert_to_avi(self):
         logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
@@ -709,6 +973,24 @@ class PostProcessingAccordion(BoxLayout):
 
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
+
+    def open_cell_count(self):
+        if self._cell_count_popup is None:
+            cell_count_content.set_post_processing_module(self.post)
+            self._cell_count_popup = Popup(
+                title="Post Processing - Cell Count",
+                content=cell_count_content,
+                size_hint=(0.85,0.85),
+                auto_dismiss=True
+            )
+
+        self._cell_count_popup.open()
+
+
+class CellCountDisplay(FloatLayout):
+
+    def __init__(self, **kwargs):
+        super(CellCountDisplay,self).__init__(**kwargs)
 
 
 class ShaderEditor(BoxLayout):
@@ -2821,6 +3103,7 @@ class ZStack(CompositeCapture):
                 logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
                 Clock.unschedule(self.zstack_iterate)
 
+
 # Button the triggers 'filechooser.open_file()' from plyer
 class FileChooseBTN(Button):
     context  = StringProperty()
@@ -2834,6 +3117,10 @@ class FileChooseBTN(Button):
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"])   
         elif self.context == 'load_protocol':
             filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
+        elif self.context == 'load_cell_count_input_image':
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tif?","*.jpg","*.bmp","*.png","*.gif"])
+        elif self.context == 'load_cell_count_method':
+            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"]) 
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileChooseBTN.handle_selection()')
@@ -2851,6 +3138,13 @@ class FileChooseBTN(Button):
 
             elif self.context == 'load_protocol':
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
+            
+            elif self.context == 'load_cell_count_input_image':
+                cell_count_content.set_preview_source_file(file=self.selection[0])
+
+            elif self.context == 'load_cell_count_method':
+                cell_count_content.load_method_from_file(file=self.selection[0])
+
         else:
             return
 
@@ -2896,6 +3190,11 @@ class FolderChooseBTN(Button):
                 out.write(img_array[i])
             out.release()
 
+        elif self.context == 'apply_cell_count_method_to_folder':
+            cell_count_content.apply_method_to_folder(
+                path=path
+            )
+
         else: # Channel Save Folder selections
             settings[self.context]['save_folder'] = path
 
@@ -2911,6 +3210,9 @@ class FileSaveBTN(Button):
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
         elif self.context == 'saveas_protocol':
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
+        elif self.context == 'saveas_cell_count_method':
+            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
+
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileSaveBTN.handle_selection()')
@@ -2931,6 +3233,14 @@ class FileSaveBTN(Button):
             if self.selection:
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
                 logger.info('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
+        
+        elif self.context == 'saveas_cell_count_method':
+            if self.selection:
+                logger.info('[LVP Main  ] Saving Cell Count Method to File:' + self.selection[0])
+                filename = self.selection[0]
+                if os.path.splitext(filename)[1] == "":
+                    filename += ".json"
+                cell_count_content.save_method_as(file=filename)
 
 
 # -------------------------------------------------------------------------
@@ -2956,12 +3266,14 @@ class LumaViewProApp(App):
 
         global Window
         global lumaview
+        global cell_count_content
         self.icon = './data/icons/icon.png'
 
         try:
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
+            cell_count_content = CellCountContent()
             #Window.maximize()
         except:
             logger.exception('[LVP Main  ] Cannot open main display.')

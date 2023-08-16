@@ -1121,7 +1121,14 @@
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
-		on_release: root.open_folder()		
+		on_release:root.open_folder()
+
+	Button:
+		text:'Cell Count'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: root.open_cell_count()		
 
 	Label:
 
@@ -1748,3 +1755,313 @@
 		Line:
 			width: 1
 			rectangle: (self.x, self.y, self.width, self.height)
+
+<CellCountContent>:
+	orientation: 'horizontal'
+
+	# Controls
+	BoxLayout: 
+		orientation: 'vertical'
+		size_hint_x: 0.25
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '30dp'
+
+		# Select image to load
+		FileChooseBTN:
+			text: 'Load Image'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('load_cell_count_input_image')
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '30dp'
+
+		# Pixel size
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 1
+
+			Label:
+				text: 'Pixel Conversion'
+				size_hint_x: None
+				width: '120dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: text_cell_count_pixels_per_um_id
+				valign: 'center'
+				text: "1.0"
+				size_hint_x: None
+				size_hint_y: None
+				height: '35dp'
+				width: '70dp'
+				multiline: False
+				on_text: root.pixel_conversion_adjustment()
+			
+			Label:
+				text: 'pixels/μm'
+				size_hint_x: None
+				width: '100dp'
+				font_size: '12sp'
+				halign: 'left'
+
+		# Enable fluorescence mode
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 1
+			CheckBox:
+				id: cell_count_fluorescent_mode_id
+				size_hint_x: None
+				width: '40dp'
+				active: True
+				on_release: root.flourescent_mode_toggle()
+			
+			Label:
+				text: 'Fluorescent Image'
+				size_hint_x: None
+				width: '100dp'
+				font_size: '12sp'
+				halign: 'left'
+		
+		BoxLayout: # Slider Controls
+			orientation: 'vertical'
+			size_hint_y: None
+			height: '225dp'
+
+			# Threshold slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Threshold'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				ModSlider:
+					id: slider_cell_count_threshold_id
+					min: 0
+					max: 100
+					step: 1
+					orientation: 'horizontal'
+					on_release: root.slider_adjustment_threshold()
+				Label:
+					text: f"{str(int(slider_cell_count_threshold_id.value))} %"
+					width: '60dp'
+					font_size: '12sp'
+
+			# Area slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Area'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				RangeSlider:
+					id: slider_cell_count_area_id
+					min: 0
+					max: 50000
+					step: 500
+					orientation: 'horizontal'
+					value1: 500
+					value2: 25000
+					on_touch_up: root.slider_adjustment_area()
+				Label:
+					id: label_cell_count_area_id
+					text: f"{int(slider_cell_count_area_id.value[0])}-{int(slider_cell_count_area_id.value[1])} μm²"
+					width: '60dp'
+					font_size: '12sp'
+
+			# Perimeter slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Perimeter'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				RangeSlider:
+					id: slider_cell_count_perimeter_id
+					min: 0
+					max: 5000
+					step: 1
+					orientation: 'horizontal'
+					value1: 0
+					value2: 5000
+					on_touch_up: root.slider_adjustment_perimeter()
+				Label:
+					id: label_cell_count_perimeter_id
+					text: f"{int(slider_cell_count_perimeter_id.value[0])}-{int(slider_cell_count_perimeter_id.value[1])} μm"
+					width: '60dp'
+					font_size: '12sp'
+
+			# Sphericity slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Sphericity'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				RangeSlider:
+					id: slider_cell_count_sphericity_id
+					min: 0
+					max: 1.0
+					step: 0.01
+					orientation: 'horizontal'
+					value1: 0
+					value2: 1.0
+					on_touch_up: root.slider_adjustment_sphericity()
+				Label:
+					id: label_cell_count_sphericity_id
+					text: f"{round(slider_cell_count_sphericity_id.value[0],2)}-{round(slider_cell_count_sphericity_id.value[1],2)}"
+					width: '60dp'
+					font_size: '12sp'
+
+			# Min Intensity slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Min Intensity'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				RangeSlider:
+					id: slider_cell_count_min_intensity_id
+					min: 0
+					max: 100
+					step: 1
+					orientation: 'horizontal'
+					value1: 0
+					value2: 100
+					on_touch_up: root.slider_adjustment_min_intensity()
+				Label:
+					id: label_cell_count_min_intensity_id
+					text: f"{int(slider_cell_count_min_intensity_id.value[0])}-{int(slider_cell_count_min_intensity_id.value[1])} %"
+					width: '60dp'
+					font_size: '12sp'
+
+			# Mean Intensity slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Mean Intensity'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				RangeSlider:
+					id: slider_cell_count_mean_intensity_id
+					min: 0
+					max: 100
+					step: 1
+					orientation: 'horizontal'
+					value1: 0
+					value2: 100
+					on_touch_up: root.slider_adjustment_mean_intensity()
+				Label:
+					id: label_cell_count_mean_intensity_id
+					text: f"{int(slider_cell_count_mean_intensity_id.value[0])}-{int(slider_cell_count_mean_intensity_id.value[1])} %"
+					width: '60dp'
+					font_size: '12sp'
+
+			# Max Intensity slider
+			BoxLayout:
+				orientation: 'horizontal'
+
+				Label:
+					text: 'Max Intensity'
+					size_hint_x: None
+					width: '90dp'
+					font_size: '12sp'
+				
+				RangeSlider:
+					id: slider_cell_count_max_intensity_id
+					min: 0
+					max: 100
+					step: 1
+					orientation: 'horizontal'
+					value1: 0
+					value2: 100
+					on_touch_up: root.slider_adjustment_max_intensity()
+				Label:
+					id: label_cell_count_max_intensity_id
+					text: f"{int(slider_cell_count_max_intensity_id.value[0])}-{int(slider_cell_count_max_intensity_id.value[1])} %"
+					width: '60dp'
+					font_size: '12sp'
+
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '30dp'
+			
+		Button:
+			text: 'Apply Method to Preview'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: root.apply_method_to_preview_image()
+
+		# Save method
+		FileSaveBTN:
+			text: 'Save Method As...'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('saveas_cell_count_method')
+
+		
+		# Select method to load
+		FileChooseBTN:
+			text: 'Load Method'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('load_cell_count_method')
+
+		# Apply method
+		FolderChooseBTN:
+			text: 'Apply Method to Folder'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('apply_cell_count_method_to_folder')
+
+		# Empty widget to consume space at bottom of controls panel
+		Widget:
+
+	# Image area
+	BoxLayout: 
+		orientation: 'vertical'
+		size_hint_y: 1
+		canvas:
+			Color:
+				rgba: 0,0,0,0
+		Image:
+			id: cell_count_image_id
+			source: ""
+			canvas:
+				Color:
+					rgba: 0,0,0,0
