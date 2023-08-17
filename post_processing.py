@@ -84,12 +84,12 @@ class PostProcessing:
 
     
     def preview_cell_count(self, image, settings):
-        preview_img, cell_stats = self._cell_count.process_image(
+        preview_images, cell_stats = self._cell_count.process_image(
             image=image,
             settings=settings
         )
 
-        return preview_img, cell_stats
+        return preview_images['filtered_contours'], cell_stats
 
 
     def get_num_images_in_folder(self, path):

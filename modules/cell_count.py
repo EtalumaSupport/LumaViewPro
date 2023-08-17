@@ -27,7 +27,6 @@ class CellCount:
         
         region_prop_params = [
             'area',
-            # 'equivalent_diameter',
             'perimeter',
             'intensity_min',
             'intensity_mean',
@@ -92,24 +91,40 @@ class CellCount:
 
         total_object_area = 0
         total_object_intensity = 0
+
+        filter_stats = {
+            'area': 0,
+            'perimeter': 0,
+            'sphericity': 0,
+            'intensity_min': 0,
+            'intensity_mean': 0,
+            'intensity_max': 0
+        }
+
         for (region_idx, region), contour in zip(region_info['regions'].items(), contours):
 
             if not _within_bounds(region, 'area', settings, 'area'):
+                filter_stats['area'] += 1
                 continue
 
             if not _within_bounds(region, 'perimeter', settings, 'perimeter'):
+                filter_stats['perimeter'] += 1
                 continue
 
             if not _within_bounds(region, 'sphericity', settings, 'sphericity'):
+                filter_stats['sphericity'] += 1
                 continue
 
             if not _within_bounds(region, 'intensity_min', settings['intensity'], 'min'):
+                filter_stats['intensity_min'] += 1
                 continue
 
             if not _within_bounds(region, 'intensity_mean', settings['intensity'], 'mean'):
+                filter_stats['intensity_mean'] += 1
                 continue
 
             if not _within_bounds(region, 'intensity_max', settings['intensity'], 'max'):
+                filter_stats['intensity_max'] += 1
                 continue
                 
             total_object_area += region['area']['val']
@@ -117,11 +132,16 @@ class CellCount:
             filtered_regions[region_idx] = region
             filtered_contours.append(contour)
 
+        
         filtered_region_info = {
             'summary': {
                 'num_regions': len(filtered_regions),
                 'total_object_area': total_object_area,
                 'total_object_intensity': round(total_object_intensity,1)
+            },
+            'filter_reasons': filter_stats,
+            'summary_unfiltered': {
+                'num_regions': len(contours)
             },
             'regions': filtered_regions
         }
@@ -129,7 +149,18 @@ class CellCount:
         return filtered_region_info, filtered_contours
 
 
-    def process_image(self, image, settings):
+    def process_image(self, image, settings, include_images=['filtered_contours']):
+
+        if include_images=='all':
+            include_images = [
+                'gray',
+                'denoised',
+                'threshold',
+                'unfiltered_contours',
+                'filtered_contours'
+            ]
+
+        return_images = {}
 
         digital_settings = self._settings_transformer.transform(settings=settings)
 
@@ -139,11 +170,20 @@ class CellCount:
             # Invert the image
             gray_image = cv2.bitwise_not(gray_image)
 
+        if 'gray' in include_images:
+            return_images['gray'] = gray_image
+
         # Denoise
         denoised_img = cv2.fastNlMeansDenoising(gray_image)
 
+        if 'denoised' in include_images:
+            return_images['denoised'] = denoised_img
+
         # Threshold
         th, threshold_img = cv2.threshold(denoised_img, digital_settings['segmentation']['parameters']['threshold'], 255, cv2.THRESH_BINARY)
+
+        if 'threshold' in include_images:
+            return_images['threshold'] = threshold_img
 
         # Countours
         contours, hierarchy = cv2.findContours(threshold_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -151,9 +191,13 @@ class CellCount:
         contours_img = gray_image.copy()
         cv2.drawContours(contours_img, contours, -1, (255,100,0), 3)
 
+        if 'unfiltered_contours' in include_images:
+            return_images['unfiltered_contours'] = contours_img
+
+        num_unfiltered_contours = len(contours)
 
         # Labeling
-        label_map = np.zeros_like(contours_img, dtype = 'uint8')
+        label_map = np.zeros_like(contours_img, dtype='uint16')
         for i, contour in enumerate(contours):
             label_map = cv2.drawContours(label_map, [contour], -1, i+1, -1)
 
@@ -173,5 +217,8 @@ class CellCount:
         filtered_contours_img_for_display = image.copy()
         cv2.drawContours(filtered_contours_img_for_display, filtered_contours, -1, (255,100,0), 3)
 
-        return filtered_contours_img_for_display, filtered_region_info
+        if 'filtered_contours' in include_images:
+            return_images['filtered_contours'] = filtered_contours_img_for_display
+
+        return return_images, filtered_region_info
 
