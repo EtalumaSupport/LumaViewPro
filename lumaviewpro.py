@@ -620,6 +620,10 @@ class CellCountControls(BoxLayout):
             self._set_ui_to_settings(self._settings)
 
 
+    def deactivate(self):
+        pass
+        # TODO return to camera mode
+
     def _get_init_settings(self):
         return {
             'context': {
@@ -912,16 +916,50 @@ class PostProcessingAccordion(BoxLayout):
         self.tiling_target = []
         self.tiling_min = [120000, 80000]
         self.tiling_max = [0, 0]
+
+        self.accordion_item_states = {
+            'cell_count_accordion_id': None,
+            'stitch_accordion_id': None,
+            'open_last_save_folder_accordion_id': None,
+            'create_avi_accordion_id': None
+        }
      
 
-    def accordion_collapse(self, item: str):
-        pass
+    @staticmethod
+    def accordion_item_state(accordion_item):
+        if accordion_item.collapse == True:
+            return 'closed'
+        return 'open'
+     
+
+    def get_accordion_item_states(self):
+        return {
+            'cell_count_accordion_id': self.accordion_item_state(self.ids['cell_count_accordion_id']),
+            'stitch_accordion_id': self.accordion_item_state(self.ids['stitch_accordion_id']),
+            'open_last_save_folder_accordion_id': self.accordion_item_state(self.ids['open_last_save_folder_accordion_id']),
+            'create_avi_accordion_id': self.accordion_item_state(self.ids['create_avi_accordion_id']),
+        }
+
+
+    def accordion_collapse(self):
         
+        new_accordion_item_states = self.get_accordion_item_states()
 
-    def accordion_touch_down(self, item: str):
+        changed_items = []
+        for accordion_item_id, prev_accordion_item_state in self.accordion_item_states.items():
+            if new_accordion_item_states[accordion_item_id] == prev_accordion_item_state:
+                # No change
+                continue
+            
+            # Update state and add state change to list
+            self.accordion_item_states[accordion_item_id] = self.accordion_item_state(self.ids[accordion_item_id])
+            changed_items.append(accordion_item_id)
 
-        if item == 'cell_count_controls':
-            cell_count_controls.activate()
+        if 'cell_count_accordion_id' in changed_items:
+            if self.accordion_item_states['cell_count_accordion_id'] == 'open':
+                cell_count_controls.activate()
+            else:
+                cell_count_controls.deactivate()
 
 
     def convert_to_avi(self):
