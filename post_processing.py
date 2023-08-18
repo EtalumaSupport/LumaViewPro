@@ -84,12 +84,12 @@ class PostProcessing:
 
     
     def preview_cell_count(self, image, settings):
-        preview_img, cell_stats = self._cell_count.process_image(
+        preview_images, cell_stats = self._cell_count.process_image(
             image=image,
             settings=settings
         )
 
-        return preview_img, cell_stats
+        return preview_images['filtered_contours'], cell_stats
 
 
     def get_num_images_in_folder(self, path):
@@ -102,7 +102,7 @@ class PostProcessing:
 
 
     def apply_cell_count_to_folder(self, path, settings):
-        fields = ['file', 'num_cells']
+        fields = ['file', 'num_cells', 'total_object_area (um2)', 'total_object_intensity']
         results = []
 
         for filename in os.listdir(path):
@@ -118,7 +118,9 @@ class PostProcessing:
                 )
                 results.append({
                     'filename': os.path.basename(filename),
-                    'num_cells': region_info['summary']['num_regions']
+                    'num_cells': region_info['summary']['num_regions'],
+                    'total_object_area (um2)': region_info['summary']['total_object_area'],
+                    'total_object_intensity': region_info['summary']['total_object_intensity'],
                 })
                 
                 yield {
@@ -126,7 +128,7 @@ class PostProcessing:
                 }
 
         results_file_path = os.path.join(path, 'results.csv')
-        with open(results_file_path, 'w') as f:
+        with open(results_file_path, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(fields)
             for record in results:
