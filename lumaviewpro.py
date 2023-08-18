@@ -613,15 +613,35 @@ class CellCountControls(BoxLayout):
         cell_count_controls = self
         self._first_open = False
         
+        
 
     def activate(self):
         if self._first_open is False:
             self._first_open = True
             self._set_ui_to_settings(self._settings)
 
+        # lumaview.cam_toggle()
+        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
+        scope_display.play = False
+        scope_display.stop()
+
+        # if scope_display.play == True:
+        #     scope_display.play = False
+        #     if self.scope.led:
+        #         self.scope.leds_off()
+        #         logger.info('[LVP Main  ] self.scope.leds_off()')
+        #     scope_display.stop()
+        # else:
+        #     scope_display.play = True
+        #     scope_display.start()
+
 
     def deactivate(self):
-        pass
+        # lumaview.cam_toggle()
+        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
+        scope_display.play = True
+        scope_display.start()
+        # pass
         # TODO return to camera mode
 
     def _get_init_settings(self):
