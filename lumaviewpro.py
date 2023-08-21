@@ -1016,7 +1016,7 @@ class PostProcessingAccordion(BoxLayout):
                                              pos2pix = self.pos2pix,post_process = False)
 
     def add_tiling_step(self):
-        logger.debug('[LVP Main  ] PostProcessing.add_tiling_step() not fully implemented')
+        #logger.debug('[LVP Main  ] PostProcessing.add_tiling_step() not fully implemented')
         x_current = lumaview.scope.get_current_position('X')
         x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
         y_current = lumaview.scope.get_current_position('Y')
@@ -1036,6 +1036,10 @@ class PostProcessingAccordion(BoxLayout):
                                              
     def start_tiling(self):
         logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
+        for i in range(10):
+            for j in range(10):
+                pass
+
         return
 
     def open_folder(self):
@@ -2675,9 +2679,6 @@ class Stage(Widget):
                 roi_min_x, roi_min_y = protocol_settings.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
                 roi_max_x, roi_max_y = protocol_settings.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
                 Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
-                #Rectangle(pos=(self.ROI_min[0], self.ROI_min[1]),
-                #          size=(self.ROI_max[0] - self.ROI_min[0], self.ROI_max[1] - self.ROI_min[1]))
-                #Rectangle(pos=(x + roi_min_x, y + roi_min_y), size=(roi_max_x - roi_min_x, roi_max_y - roi_min_y))
                 Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
 
             
