@@ -89,8 +89,8 @@ class WellPlate(LabWare):
                 self.ind_list.append([i,j])
                 
         if stitch > 1:
-            for i in range(stitch_count):
-                for j in range(stich_count):
+            for i in range(stitch):
+                for j in range(stich):
                     if j % 2 == 1:
                         i = self.plate['columns'] - i - 1
                     self.stitch_list.append([i,j])
