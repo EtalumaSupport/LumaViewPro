@@ -1019,11 +1019,12 @@
 		        on_release: root.modify_step()
 		    Button:
 		        id: add_step_btn
-		        text: 'Add'
+		        text: 'Insert'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
-				on_release: root.add_step()
+				#on_release: root.append_step()
+                on_release: root.insert_step()
 		ToggleButton:
 			id: run_autofocus_btn
 	        text: 'Scan and Autofocus All Steps'

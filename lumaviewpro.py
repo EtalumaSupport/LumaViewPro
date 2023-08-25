@@ -1794,7 +1794,7 @@ class ProtocolSettings(CompositeCapture):
 
         self.step_names = list()
         self.step_values = []
-        self.c_step = 0
+        self.curr_step = 0
 
     # Update Protocol Period   
     def update_period(self):
@@ -1931,8 +1931,8 @@ class ProtocolSettings(CompositeCapture):
         length =  self.step_values.shape[0]
               
         # Update text with current step and number of steps in protocol
-        self.c_step = -1
-        self.ids['step_number_input'].text = str(self.c_step+1)
+        self.curr_step = -1
+        self.ids['step_number_input'].text = str(self.curr_step+1)
         self.ids['step_total_input'].text = str(length)
 
         # self.step_names = [self.ids['step_name_input'].text] * length
@@ -1973,8 +1973,8 @@ class ProtocolSettings(CompositeCapture):
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         # Update GUI
-        self.c_step = -1
-        self.ids['step_number_input'].text = str(self.c_step+1)
+        self.curr_step = -1
+        self.ids['step_number_input'].text = str(self.curr_step+1)
         self.ids['step_name_input'].text = ''
         self.ids['step_total_input'].text = str(len(self.step_names))
         self.ids['capture_period'].text = str(period)
@@ -2037,8 +2037,8 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.prev_step()')
         if len(self.step_names) <= 0:
             return
-        self.c_step = max(self.c_step - 1, 0)
-        self.ids['step_number_input'].text = str(self.c_step+1)
+        self.curr_step = max(self.curr_step - 1, 0)
+        self.ids['step_number_input'].text = str(self.curr_step+1)
         self.go_to_step()
  
     # Go to Next Step
@@ -2046,8 +2046,8 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.next_step()')
         if len(self.step_names) <= 0:
             return
-        self.c_step = min(self.c_step + 1, len(self.step_names)-1)
-        self.ids['step_number_input'].text = str(self.c_step+1)
+        self.curr_step = min(self.curr_step + 1, len(self.step_names)-1)
+        self.ids['step_number_input'].text = str(self.curr_step+1)
         self.go_to_step()
     
     # Go to Input Step
@@ -2059,24 +2059,24 @@ class ProtocolSettings(CompositeCapture):
             return
         
         # Get the Current Step Number
-        self.c_step = int(self.ids['step_number_input'].text)-1
+        self.curr_step = int(self.ids['step_number_input'].text)-1
 
-        if self.c_step < 0 or self.c_step > len(self.step_names):
+        if self.curr_step < 0 or self.curr_step > len(self.step_names):
             self.ids['step_number_input'].text = '0'
             return
 
         # Extract Values from protocol list and array
-        name =      str(self.step_names[self.c_step])
-        x =         self.step_values[self.c_step, 0]
-        y =         self.step_values[self.c_step, 1]
-        z =         self.step_values[self.c_step, 2]
-        af =        self.step_values[self.c_step, 3]
-        ch =        self.step_values[self.c_step, 4]
-        fc =        self.step_values[self.c_step, 5]
-        ill =       self.step_values[self.c_step, 6]
-        gain =      self.step_values[self.c_step, 7]
-        auto_gain = self.step_values[self.c_step, 8]
-        exp =       self.step_values[self.c_step, 9]
+        name =      str(self.step_names[self.curr_step])
+        x =         self.step_values[self.curr_step, 0]
+        y =         self.step_values[self.curr_step, 1]
+        z =         self.step_values[self.curr_step, 2]
+        af =        self.step_values[self.curr_step, 3]
+        ch =        self.step_values[self.curr_step, 4]
+        fc =        self.step_values[self.curr_step, 5]
+        ill =       self.step_values[self.curr_step, 6]
+        gain =      self.step_values[self.curr_step, 7]
+        auto_gain = self.step_values[self.curr_step, 8]
+        exp =       self.step_values[self.curr_step, 9]
 
         self.ids['step_name_input'].text = name
 
@@ -2146,9 +2146,9 @@ class ProtocolSettings(CompositeCapture):
         if len(self.step_names) < 1:
             return
         
-        self.step_names.pop(self.c_step)
-        self.step_values = np.delete(self.step_values, self.c_step, axis = 0)
-        self.c_step = self.c_step - 1
+        self.step_names.pop(self.curr_step)
+        self.step_values = np.delete(self.step_values, self.curr_step, axis = 0)
+        self.curr_step = self.curr_step - 1
 
         # Update total number of steps to GUI
         self.ids['step_total_input'].text = str(len(self.step_names))
@@ -2161,7 +2161,7 @@ class ProtocolSettings(CompositeCapture):
         if len(self.step_names) < 1:
             return
 
-        self.step_names[self.c_step] = self.ids['step_name_input'].text
+        self.step_names[self.curr_step] = self.ids['step_name_input'].text
 
         # Determine and update plate position
         if lumaview.scope.motion.driver:
@@ -2169,9 +2169,9 @@ class ProtocolSettings(CompositeCapture):
             sy = lumaview.scope.get_current_position('Y')
             px, py = self.stage_to_plate(sx, sy)
 
-            self.step_values[self.c_step, 0] = px # x
-            self.step_values[self.c_step, 1] = py # y
-            self.step_values[self.c_step, 2] = lumaview.scope.get_current_position('Z')      # z
+            self.step_values[self.curr_step, 0] = px # x
+            self.step_values[self.curr_step, 1] = py # y
+            self.step_values[self.curr_step, 2] = lumaview.scope.get_current_position('Z')      # z
         else:
             logger.warning('[LVP Main  ] Motion controller not availabble.')
 
@@ -2190,17 +2190,21 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.scope.color2ch(c_layer)
 
         layer_id = lumaview.ids['imagesettings_id'].ids[c_layer]
-        self.step_values[self.c_step, 3] = int(layer_id.ids['autofocus'].active) # autofocus
-        self.step_values[self.c_step, 4] = ch # channel
-        self.step_values[self.c_step, 5] = int(layer_id.ids['false_color'].active) # false color
-        self.step_values[self.c_step, 6] = layer_id.ids['ill_slider'].value # ill
-        self.step_values[self.c_step, 7] = layer_id.ids['gain_slider'].value # gain
-        self.step_values[self.c_step, 8] = int(layer_id.ids['auto_gain'].active) # auto_gain
-        self.step_values[self.c_step, 9] = layer_id.ids['exp_slider'].value # exp
+        self.step_values[self.curr_step, 3] = int(layer_id.ids['autofocus'].active) # autofocus
+        self.step_values[self.curr_step, 4] = ch # channel
+        self.step_values[self.curr_step, 5] = int(layer_id.ids['false_color'].active) # false color
+        self.step_values[self.curr_step, 6] = layer_id.ids['ill_slider'].value # ill
+        self.step_values[self.curr_step, 7] = layer_id.ids['gain_slider'].value # gain
+        self.step_values[self.curr_step, 8] = int(layer_id.ids['auto_gain'].active) # auto_gain
+        self.step_values[self.curr_step, 9] = layer_id.ids['exp_slider'].value # exp
 
+    # Append Current Step to Protocol at Current Position
+    def append_step(self):
+        logger.info('[LVP Main  ] ProtocolSettings.append_step()')
+        
     # Insert Current Step to Protocol at Current Position
-    def add_step(self):
-        logger.info('[LVP Main  ] ProtocolSettings.add_step()')
+    def insert_step(self):
+        logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
 
          # Determine Values
         name = self.ids['step_name_input'].text
@@ -2237,8 +2241,8 @@ class ProtocolSettings(CompositeCapture):
         ]
 
         # Insert into List and Array
-        self.step_names.insert(self.c_step, name)
-        self.step_values = np.insert(self.step_values, self.c_step, step, axis=0)
+        self.step_names.insert(self.curr_step, name)
+        self.step_values = np.insert(self.step_values, self.curr_step, step, axis=0)
 
         self.ids['step_total_input'].text = str(len(self.step_names))
 
@@ -2261,13 +2265,13 @@ class ProtocolSettings(CompositeCapture):
             # reset the is_complete flag on autofocus
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
-            # begin at current step (c_step = 0)
-            self.c_step = 0
-            self.ids['step_number_input'].text = str(self.c_step+1)
+            # begin at current step (curr_step = 0)
+            self.curr_step = 0
+            self.ids['step_number_input'].text = str(self.curr_step+1)
 
-            x = self.step_values[self.c_step, 0]
-            y = self.step_values[self.c_step, 1]
-            z = self.step_values[self.c_step, 2]
+            x = self.step_values[self.curr_step, 0]
+            y = self.step_values[self.curr_step, 1]
+            z = self.step_values[self.curr_step, 2]
  
             # Convert plate coordinates to stage coordinates
             sx, sy = self.plate_to_stage(x, y)
@@ -2315,15 +2319,15 @@ class ProtocolSettings(CompositeCapture):
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
             # update protocol to focused z-position
-            self.step_values[self.c_step, 2] = lumaview.scope.get_current_position('Z')
+            self.step_values[self.curr_step, 2] = lumaview.scope.get_current_position('Z')
 
             # increment to the next step
-            self.c_step += 1
+            self.curr_step += 1
 
             # determine and go to next positions
-            if self.c_step < len(self.step_names):
+            if self.curr_step < len(self.step_names):
                 # Update Step number text
-                self.ids['step_number_input'].text = str(self.c_step+1)
+                self.ids['step_number_input'].text = str(self.curr_step+1)
                 self.go_to_step()
 
             # if all positions have already been reached
@@ -2345,15 +2349,15 @@ class ProtocolSettings(CompositeCapture):
 
         # If target location has been reached
         if x_status and y_status and z_status and not lumaview.scope.get_overshoot():
-            logger.info('[LVP Main  ] Autofocus Scan Step:' + str(self.step_names[self.c_step]) )
+            logger.info('[LVP Main  ] Autofocus Scan Step:' + str(self.step_names[self.curr_step]) )
 
             # identify image settings
-            ch =        self.step_values[self.c_step, 4] # LED channel
-            fc =        self.step_values[self.c_step, 5] # image false color
-            ill =       self.step_values[self.c_step, 6] # LED illumination
-            gain =      self.step_values[self.c_step, 7] # camera gain
-            auto_gain = self.step_values[self.c_step, 8] # camera autogain
-            exp =       self.step_values[self.c_step, 9] # camera exposure
+            ch =        self.step_values[self.curr_step, 4] # LED channel
+            fc =        self.step_values[self.curr_step, 5] # image false color
+            ill =       self.step_values[self.curr_step, 6] # LED illumination
+            gain =      self.step_values[self.curr_step, 7] # camera gain
+            auto_gain = self.step_values[self.curr_step, 8] # camera autogain
+            exp =       self.step_values[self.curr_step, 9] # camera exposure
             
             # set camera settings and turn on LED
             lumaview.scope.leds_off()
@@ -2387,13 +2391,13 @@ class ProtocolSettings(CompositeCapture):
             # reset the is_complete flag on autofocus
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
-            # begin at current step set to 0 (c_step = 0)
-            self.c_step = 0
-            self.ids['step_number_input'].text = str(self.c_step+1)
+            # begin at current step set to 0 (curr_step = 0)
+            self.curr_step = 0
+            self.ids['step_number_input'].text = str(self.curr_step+1)
 
-            x = self.step_values[self.c_step, 0]
-            y = self.step_values[self.c_step, 1]
-            z = self.step_values[self.c_step, 2]
+            x = self.step_values[self.curr_step, 0]
+            y = self.step_values[self.curr_step, 1]
+            z = self.step_values[self.curr_step, 2]
  
             # Convert plate coordinates to stage coordinates
             sx, sy = self.plate_to_stage(x, y)
@@ -2443,16 +2447,16 @@ class ProtocolSettings(CompositeCapture):
 
         # If target location has been reached
         if x_status and y_status and z_status and not lumaview.scope.get_overshoot():
-            logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.c_step]))
+            logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.curr_step]))
 
             # identify image settings
-            af =        self.step_values[self.c_step, 3] # autofocus
-            ch =        self.step_values[self.c_step, 4] # LED channel
-            fc =        self.step_values[self.c_step, 5] # image false color
-            ill =       self.step_values[self.c_step, 6] # LED illumination
-            gain =      self.step_values[self.c_step, 7] # camera gain
-            auto_gain = self.step_values[self.c_step, 8] # camera autogain
-            exp =       self.step_values[self.c_step, 9] # camera exposure
+            af =        self.step_values[self.curr_step, 3] # autofocus
+            ch =        self.step_values[self.curr_step, 4] # LED channel
+            fc =        self.step_values[self.curr_step, 5] # image false color
+            ill =       self.step_values[self.curr_step, 6] # LED illumination
+            gain =      self.step_values[self.curr_step, 7] # camera gain
+            auto_gain = self.step_values[self.curr_step, 8] # camera autogain
+            exp =       self.step_values[self.curr_step, 9] # camera exposure
             
             # Set camera settings
             lumaview.scope.set_gain(gain)
@@ -2478,12 +2482,12 @@ class ProtocolSettings(CompositeCapture):
             self.custom_capture(ch, ill, gain, exp, bool(fc))
 
             # increment to the next step
-            self.c_step += 1
+            self.curr_step += 1
 
-            if self.c_step < len(self.step_names):
+            if self.curr_step < len(self.step_names):
 
                 # Update Step number text
-                self.ids['step_number_input'].text = str(self.c_step+1)
+                self.ids['step_number_input'].text = str(self.curr_step+1)
                 self.go_to_step()
 
             # if all positions have already been reached
