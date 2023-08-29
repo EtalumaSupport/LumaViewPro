@@ -1986,7 +1986,10 @@ class ProtocolSettings(CompositeCapture):
         self.step_values
 
         if len(filepath)==0:
+            # If there is no current file path, "save" button will act as "save as" 
             if len(settings['protocol']['filepath']) == 0:
+                FileSaveBTN_instance=FileSaveBTN()
+                FileSaveBTN_instance.choose('saveas_protocol')
                 return
             filepath = settings['protocol']['filepath']
         else:
@@ -3170,10 +3173,10 @@ class FileChooseBTN(Button):
         logger.info('[LVP Main  ] FileChooseBTN.handle_selection()')
         if selection:
             self.selection = selection
-            self.on_selection()
+            self.on_selection_function()
 
-    def on_selection(self, *a, **k):
-        logger.info('[LVP Main  ] FileChooseBTN.on_selection()')
+    def on_selection_function(self, *a, **k):
+        logger.info('[LVP Main  ] FileChooseBTN.on_selection_function()')
         global lumaview
         
         if self.selection:
@@ -3206,10 +3209,10 @@ class FolderChooseBTN(Button):
         logger.info('[LVP Main  ] FolderChooseBTN.handle_selection()')
         if selection:
             self.selection = selection
-            self.on_selection()
+            self.on_selection_function()
 
-    def on_selection(self, *a, **k):
-        logger.info('[LVP Main  ] FolderChooseBTN.on_selection()')
+    def on_selection_function(self, *a, **k):
+        logger.info('[LVP Main  ] FolderChooseBTN.on_selection_function()')
         if self.selection:
             path = self.selection[0]
         else:
@@ -3262,10 +3265,10 @@ class FileSaveBTN(Button):
         logger.info('[LVP Main  ] FileSaveBTN.handle_selection()')
         if selection:
             self.selection = selection
-            self.on_selection()
+            self.on_selection_function()
 
-    def on_selection(self, *a, **k):
-        logger.info('[LVP Main  ] FileSaveBTN.on_selection()')
+    def on_selection_function(self, *a, **k):
+        logger.info('[LVP Main  ] FileSaveBTN.on_selection_function()')
         global lumaview
         
         if self.context == 'save_settings':
@@ -3343,6 +3346,9 @@ class LumaViewProApp(App):
             lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
         except:
             logger.exception('[LVP Main  ] Unable to load protocol at startup')
+            # If protocol file is missing or incomplete, file name and path are cleared from memory. 
+            filepath=''	
+            settings['protocol']['filepath']=''
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
         if lumaview.scope.led:
