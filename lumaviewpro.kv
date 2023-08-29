@@ -1105,30 +1105,25 @@
 				size_hint_y: None
 				height: '600dp'
 
-				# Pad
-				Widget:
-					size_hint_y: None
-					height: '30dp'
-
 				# Select image to load
 				FolderChooseBTN:
 					text: 'Load Folder'
 					size_hint_y: None
-					size_hint_x: 0.9
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.stitch()
 
-				# Pad
-				Widget:
+				# Tiling Stage Display
+				FloatLayout:
+					padding: '5dp'
 					size_hint_y: None
-					height: '30dp'
-
-				Stage:
-					id: tiling_stage_id
-					pos_hint:{'center_x':0.5, 'center_y':0.5}
 					height: '128dp'
+					height: self.width * 2 / 3
 					
+					Stage:
+						id: tiling_stage_id
+						pos_hint:{'center_x':0.5, 'center_y':0.5}
+
 				BoxLayout:
 					orientation: 'horizontal'
 					size_hint_y: None
@@ -1149,7 +1144,7 @@
 						font_size: '12sp'
 						on_release: root.start_tiling()
 				
-				Widget:
+				Label:
 
 
 		AccordionItem:
