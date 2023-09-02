@@ -258,15 +258,10 @@ class CompositeCapture(FloatLayout):
 
         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
-        # TODO JC
         time.sleep(2*exposure/1000+0.2)
-        lumaview.scope.get_image()
-        # lumaview.scope.capture()
         
-        if false_color: 
-            lumaview.scope.save_live_image(save_folder, file_root, append, color)
-        else:
-            lumaview.scope.save_live_image(save_folder, file_root, append, 'BF')
+        use_color = color if false_color else 'BF'
+        lumaview.scope.save_live_image(save_folder, file_root, append, use_color)
 
         # Turn off LEDs
         if lumaview.scope.led:
