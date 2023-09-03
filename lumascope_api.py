@@ -154,7 +154,7 @@ class Lumascope():
         """ CAMERA FUNCTIONS
         Grab and return image from camera"""
         if self.camera.grab():
-            self.image_buffer = np.copy(self.camera.array)
+            self.image_buffer = self.camera.array.copy()
             return self.image_buffer
         else:
             return False
@@ -501,13 +501,12 @@ class Lumascope():
         """INTEGRATED SCOPE FUNCTIONS
         Capture image with illumination"""       
 
-        self.capture_return = False
-        if self.is_capturing: return
         if not self.led: return
         if not self.camera: return
 
         # Set capture states
         self.is_capturing = True
+        self.capture_return = False
 
         # Wait time for exposure and rolling shutter
         wait_time = 2*self.get_exposure_time()/1000+0.2
