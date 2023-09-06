@@ -640,12 +640,12 @@ class CellCountControls(BoxLayout):
             },
             'filters': {
                 'area': {
-                    'min': 10,
-                    'max': 50000
+                    'min': 0,
+                    'max': 100
                 },
                 'perimeter': {
-                    'min': 5,
-                    'max': 5000
+                    'min': 0,
+                    'max': 100
                 },
                 'sphericity': {
                     'min': 0.0,
@@ -703,18 +703,60 @@ class CellCountControls(BoxLayout):
         self._set_ui_to_settings(settings)
 
 
+    def _area_range_slider_values_to_physical(self, slider_values):
+        if self._preview_source_image is None:
+            return 0, 1000 # Default area max
+        
+        xp = [0, 50, 100]
+        fp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
+        return np.interp(slider_values, xp, fp)
+    
+    def _area_range_slider_physical_to_values(self, physical_values):
+        if self._preview_source_image is None:
+            return 0, 100 # Default area max
+
+        xp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
+        fp = [0, 50, 100]
+        fg = np.interp(physical_values, xp, fp)
+        return fg
+
+    def _perimeter_range_slider_values_to_physical(self, slider_values):
+        if self._preview_source_image is None:
+            return 0, 100 # Default perimeter max
+
+        xp = [0, 50, 100]
+        fp = [0, 100, self.calculate_perimeter_filter_max(image=self._preview_source_image)]
+        fg = np.interp(slider_values, xp, fp)
+        return fg
+    
+    def _perimeter_range_slider_physical_to_values(self, physical_values):
+        if self._preview_source_image is None:
+            return 0, 100 # Default perimeter max
+        
+        xp = [0, 100, self.calculate_perimeter_filter_max(image=self._preview_source_image)] 
+        fp = [0, 50, 100]
+        fg = np.interp(physical_values, xp, fp)
+        return fg
+
+
     def _set_ui_to_settings(self, settings):
         self.ids.text_cell_count_pixels_per_um_id.text = str(settings['context']['pixels_per_um'])
         self.ids.cell_count_fluorescent_mode_id.active = settings['context']['fluorescent_mode']
         self.ids.slider_cell_count_threshold_id.value = settings['segmentation']['parameters']['threshold']
-        self.ids.slider_cell_count_area_id.value = (settings['filters']['area']['min'], settings['filters']['area']['max'])
-        self.ids.slider_cell_count_perimeter_id.value = (settings['filters']['perimeter']['min'], settings['filters']['perimeter']['max'])
+        self.ids.slider_cell_count_area_id.value = self._area_range_slider_physical_to_values(
+            (settings['filters']['area']['min'], settings['filters']['area']['max'])
+        )
+        
+        self.ids.slider_cell_count_perimeter_id.value = self._perimeter_range_slider_physical_to_values(
+            (settings['filters']['perimeter']['min'], settings['filters']['perimeter']['max'])
+        )
         self.ids.slider_cell_count_sphericity_id.value = (settings['filters']['sphericity']['min'], settings['filters']['sphericity']['max'])
         self.ids.slider_cell_count_min_intensity_id.value = (settings['filters']['intensity']['min']['min'], settings['filters']['intensity']['min']['max'])
         self.ids.slider_cell_count_mean_intensity_id.value = (settings['filters']['intensity']['mean']['min'], settings['filters']['intensity']['mean']['max'])
         self.ids.slider_cell_count_max_intensity_id.value = (settings['filters']['intensity']['max']['min'], settings['filters']['intensity']['max']['max'])
 
         self._regenerate_image_preview()
+
 
     def set_preview_source_file(self, file) -> None:
         image = image_utils.image_file_to_image(image_file=file)
@@ -723,19 +765,32 @@ class CellCountControls(BoxLayout):
             
         self.set_preview_source(image=image)
 
-    def update_filter_max(self, image):
+
+    def calculate_area_filter_max(self, image):
         pixels_per_um = self._settings['context']['pixels_per_um']
 
         max_area_pixels = image.shape[0] * image.shape[1]
         max_area_um2 = max_area_pixels / (pixels_per_um**2)
+        return max_area_um2
+    
+
+    def calculate_perimeter_filter_max(self, image):
+        pixels_per_um = self._settings['context']['pixels_per_um']
 
         # Assume max perimeter will never need to be larger than 2x frame size border
         # The 2x is to provide margin for handling various curvatures
         max_perimeter_pixels = 2*((2*image.shape[0])+(2*image.shape[1]))
         max_perimeter_um = max_perimeter_pixels / pixels_per_um
+        return max_perimeter_um
+    
+
+    def update_filter_max(self, image):
+        max_area_um2 = self. calculate_area_filter_max(image=image)
+        max_perimeter_um = self.calculate_perimeter_filter_max(image=image)
         
-        self.ids.slider_cell_count_area_id.max = max_area_um2
-        self.ids.slider_cell_count_perimeter_id.max = max_perimeter_um
+        self.ids.slider_cell_count_area_id.max = int(self._area_range_slider_physical_to_values(physical_values=(0,max_area_um2))[1])
+        self.ids.slider_cell_count_perimeter_id.max = int(self._perimeter_range_slider_physical_to_values(physical_values=(0,max_perimeter_um))[1])
+
 
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
@@ -743,6 +798,7 @@ class CellCountControls(BoxLayout):
         lumaview.ids['viewer_id'].ids['scope_display_id'].texture = image_utils.image_to_texture(image=image)
         self.update_filter_max(image=image)
         self._regenerate_image_preview()
+
 
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
@@ -780,16 +836,26 @@ class CellCountControls(BoxLayout):
 
 
     def slider_adjustment_area(self):
-        self._settings['filters']['area']['min'] = self.ids['slider_cell_count_area_id'].value[0]
-        self._settings['filters']['area']['max'] = self.ids['slider_cell_count_area_id'].value[1]
+        min, max = self._area_range_slider_values_to_physical(
+            (self.ids['slider_cell_count_area_id'].value[0], self.ids['slider_cell_count_area_id'].value[1])
+        )
+
+        self._settings['filters']['area']['min'], self._settings['filters']['area']['max'] = min, max
+
+        self.ids['label_cell_count_area_id'].text = f"{int(min)}-{int(max)} μm²"
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
 
     def slider_adjustment_perimeter(self):
-        self._settings['filters']['perimeter']['min'] = self.ids['slider_cell_count_perimeter_id'].value[0]
-        self._settings['filters']['perimeter']['max'] = self.ids['slider_cell_count_perimeter_id'].value[1]
+        min, max = self._perimeter_range_slider_values_to_physical(
+            (self.ids['slider_cell_count_perimeter_id'].value[0], self.ids['slider_cell_count_perimeter_id'].value[1])
+        )
+
+        self._settings['filters']['perimeter']['min'], self._settings['filters']['perimeter']['max'] = min, max
+
+        self.ids['label_cell_count_perimeter_id'].text = f"{int(min)}-{int(max)} μm"
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
