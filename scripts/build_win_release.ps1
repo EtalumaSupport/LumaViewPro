@@ -42,7 +42,7 @@ Compress-Archive @compress
 
 echo "Generating .exe..."
 Copy-Item '.\scripts\config\lumaviewpro_win_release.spec' '.\lumaviewpro.spec'
-pyinstaller .\lumaviewpro.spec
+pyinstaller --log-level INFO .\lumaviewpro.spec
 
 echo "Rename output directory"
 $orig_output_dir = ".\dist\lumaviewpro"
