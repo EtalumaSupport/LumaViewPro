@@ -1,17 +1,15 @@
 $ErrorActionPreference = "Stop"
 
-# $branch = "main"
-# $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
-$repo_url = "https://github.com/jmcoreymv/LumaViewPro-Private.git"
-$branch = "feature/add-windows-exe-gen"
+$repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
+$branch = "main"
 
 $version = Read-Host -Prompt "Set version"
 $lvp_base_w_version = "LumaViewPro-$version"
 
 $starting_dir = Get-Location
-$working_dir = Resolve-Path ".\tmp"
-$repo_dir = Resolve-Path "$working_dir\$lvp_base_w_version"
-$artifact_dir = Resolve-Path "$working_dir\artifacts"
+$working_dir = Join-Path -Path $starting_dir -ChildPath "tmp"
+$repo_dir = Join-Path -Path $working_dir -ChildPath  $lvp_base_w_version
+$artifact_dir = Join-Path -Path $working_dir -ChildPath "artifacts"
 
 Write-Host @"
 Current Dir:  $starting_dir
@@ -30,6 +28,7 @@ New-Item -Path $artifact_dir -ItemType Directory
 
 echo "Cloning $repo_url@$branch for release"
 git clone --depth 1 --branch $branch $repo_url $repo_dir
+Remove-Item "$repo_dir/.git*" -Recurse -Force
 Set-Location -Path $repo_dir
 
 echo "Adding license files to top-level"
@@ -65,7 +64,7 @@ echo "Creating .zip bundle of executable..."
 $compress = @{
     Path = $new_output_dir
     CompressionLevel = "Optimal"
-    DestinationPath =  "..\..\$artifact_dir\$lvp_base_w_version.zip"
+    DestinationPath =  "$artifact_dir\$lvp_base_w_version.zip"
 }
 Compress-Archive @compress
 
