@@ -608,6 +608,7 @@ class CellCountControls(BoxLayout):
         super().__init__(**kwargs)
         logger.info('LVP Main: CellCountPopup.__init__()')
         self._preview_source_image = None
+        self._preview_image = None
         self._post = None
         self._post = post_processing.PostProcessing()
         self._settings = self._get_init_settings()
@@ -854,6 +855,9 @@ class CellCountControls(BoxLayout):
 
         valid, value = _validate(value_str)
         if not valid:
+            return
+        
+        if self._preview_image is None:
             return
         
         self._settings['context']['pixels_per_um'] = value
