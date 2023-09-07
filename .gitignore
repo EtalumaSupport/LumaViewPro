@@ -8,3 +8,4 @@ script_testing.py
 venv/
 build/
 dist/
+tmp/
