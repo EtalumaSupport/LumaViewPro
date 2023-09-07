@@ -1,18 +1,5 @@
 {
-  "4x phase": {
-      "desc": "4x description",
-      "magnification": 4,
-      "aperture": 0.1,
-      "DOF": 55.5,
-      "AF_min": 20.0,
-      "AF_max": 72.0,
-      "AF_range": 150.0,
-      "z_fine": 27.75,
-      "z_coarse": 277.5,
-      "xy_fine": 100.0,
-      "xy_coarse": 1000.0
-  },
-  "4x other": {
+  "4x": {
       "desc": "4x description",
       "magnification": 4,
       "aperture": 0.1,
