@@ -3,7 +3,7 @@
 from kivy_deps import sdl2, glew
 
 block_cipher = None
-app_name = 'lumaviewpro
+app_name = 'lumaviewpro'
 
 a = Analysis(
     ['lumaviewpro.py'],
