@@ -1,10 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import sys
-sys.setrecursionlimit(5000)
+from kivy_deps import sdl2, glew
 
 block_cipher = None
-
+app_name = 'lumaviewpro
 
 a = Analysis(
     ['lumaviewpro.py'],
@@ -16,7 +15,8 @@ a = Analysis(
     hiddenimports=[
         'plyer.platforms.win.notification',
         'plyer.platforms.win.filechooser',
-        'skimage.measure'
+        'skimage.measure',
+        'win32timezone',
     ],
     hookspath=[],
     hooksconfig={},
@@ -47,7 +47,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='lumaviewpro',
+    name=app_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -66,8 +66,9 @@ coll = COLLECT(
     a.binaries,
     a.zipfiles,
     a.datas,
+    *[Tree(p) for p in (sdl2.dep_bins + glew.dep_bins)],
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='lumaviewpro',
+    name=app_name,
 )
