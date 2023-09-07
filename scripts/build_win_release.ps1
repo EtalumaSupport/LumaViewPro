@@ -1,3 +1,4 @@
+$ErrorActionPreference = "Stop"
 
 # $branch = "main"
 # $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
@@ -39,20 +40,22 @@ $compress = @{
 }
 Compress-Archive @compress
 
-# echo "Creating .tar.gz bundle of source..."
-# tar -czf ".\" "..\..\$artifact_dir\$lvp_base_w_version-source.tar.gz"
-
 echo "Generating .exe..."
 Copy-Item '.\scripts\config\lumaviewpro_win_release.spec' '.\lumaviewpro.spec'
 pyinstaller .\lumaviewpro.spec
 
 echo "Rename output directory"
 $orig_output_dir = ".\dist\lumaviewpro"
-Rename-Item -Path $orig_output_dir -NewName $lvp_base_w_version
+$new_output_dir = ".\dist\$lvp_base_w_version"
+
+# Note: Encountered access denied issue when trying to use Rename-Item. For now
+# make a new directory and copy the contents instead.
+New-Item -Path $new_output_dir -ItemType Directory
+Copy-Item -Path "$orig_output_dir\*" -Destination $new_output_dir -Recurse
 
 echo "Creating .zip bundle of executable..."
 $compress = @{
-    Path = ".\dist\$lvp_base_w_version"
+    Path = $new_output_dir
     CompressionLevel = "Optimal"
     DestinationPath =  "..\..\$artifact_dir\$lvp_base_w_version.zip"
 }
