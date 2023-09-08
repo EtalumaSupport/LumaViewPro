@@ -8,7 +8,7 @@
 },
 
 "Wellplate": {
-  "Center Plate": {
+  "Center Dish": {
     "standard" : "",
     "diameter" : -1,
     "columns" : 1,
@@ -84,6 +84,25 @@
       "y" : 14.4
     }
   },
+  "48 well microplate": {
+    "standard" : "",
+    "diameter" : -1,
+    "columns" : 8,
+    "rows" : 6,
+    "dimensions" : {
+      "x" : 127.76,
+      "y" : 85.48,
+      "z" : -1
+    },
+    "spacing" : {
+      "x" : 13,
+      "y" : 13
+    },
+    "offset" : {
+      "x" : 19.4,
+      "y" : 10
+    }
+  },
   "96 well microplate": {
     "standard" : "ANSI SLAS 2004",
     "diameter" : -1,
@@ -143,7 +162,7 @@
   }
 },
 
-"Pitri dish": {
+"Petri dish": {
     "35 mm dish": {
         "diameter": 100,
         "inner": 34,
