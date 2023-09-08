@@ -729,7 +729,7 @@ class CellCountControls(BoxLayout):
 
     def _area_range_slider_values_to_physical(self, slider_values):
         if self._preview_source_image is None:
-            return slider_values #0, 1000 # Default area max
+            return slider_values
         
         xp = [0, 50, 100]
         fp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
@@ -738,7 +738,7 @@ class CellCountControls(BoxLayout):
     
     def _area_range_slider_physical_to_values(self, physical_values):
         if self._preview_source_image is None:
-            return physical_values #0, 100 # Default area max
+            return physical_values
 
         xp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
         fp = [0, 50, 100]
