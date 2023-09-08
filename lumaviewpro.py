@@ -731,8 +731,12 @@ class CellCountControls(BoxLayout):
         if self._preview_source_image is None:
             return slider_values
         
-        xp = [0, 50, 100]
-        fp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
+        xp = [0, 30, 60, 100]
+        max = self.calculate_area_filter_max(image=self._preview_source_image)
+        if max < 10001:
+            max = 10001
+
+        fp = [0, 1000, 10000, max]
         fg = np.interp(slider_values, xp, fp)
         return fg[0], fg[1]
     
@@ -740,8 +744,12 @@ class CellCountControls(BoxLayout):
         if self._preview_source_image is None:
             return physical_values
 
-        xp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
-        fp = [0, 50, 100]
+        max = self.calculate_area_filter_max(image=self._preview_source_image)
+        if max < 10001:
+            max = 10001
+
+        xp = [0, 1000, 10000, max]
+        fp = [0, 30, 60, 100]
         fg = np.interp(physical_values, xp, fp)
         return fg[0], fg[1]
 
@@ -750,7 +758,12 @@ class CellCountControls(BoxLayout):
             return slider_values
 
         xp = [0, 50, 100]
-        fp = [0, 100, self.calculate_perimeter_filter_max(image=self._preview_source_image)]
+
+        max = self.calculate_perimeter_filter_max(image=self._preview_source_image)
+        if max < 101:
+            max = 101
+
+        fp = [0, 100, max]
         fg = np.interp(slider_values, xp, fp)
         return fg[0], fg[1]
     
@@ -758,7 +771,11 @@ class CellCountControls(BoxLayout):
         if self._preview_source_image is None:
             return physical_values
         
-        xp = [0, 100, self.calculate_perimeter_filter_max(image=self._preview_source_image)] 
+        max = self.calculate_perimeter_filter_max(image=self._preview_source_image)
+        if max < 101:
+            max = 101
+
+        xp = [0, 100, max]
         fp = [0, 50, 100]
         fg = np.interp(physical_values, xp, fp)
         return fg[0], fg[1]
