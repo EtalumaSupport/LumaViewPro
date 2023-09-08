@@ -702,7 +702,27 @@ class CellCountControls(BoxLayout):
         return self._settings
 
 
+    @staticmethod
+    def _validate_method_settings_metadata(settings):
+        if 'metadata' not in settings:
+            raise Exception(f"No valid metadata found")
+        
+        metadata = settings['metadata']
+        
+        for key in ('type', 'version'):
+            if key not in metadata:
+                raise Exception(f"No {key} found in metadata")
+                
+
+    def _add_method_settings_metadata(self):
+        self._settings['metadata'] = {
+            'type': 'cell_count_method',
+            'version': '1'
+        }
+
+
     def load_settings(self, settings):
+        self._validate_method_settings_metadata(settings=settings)
         self._settings = settings
         self._set_ui_to_settings(settings)
 
@@ -713,7 +733,8 @@ class CellCountControls(BoxLayout):
         
         xp = [0, 50, 100]
         fp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
-        return np.interp(slider_values, xp, fp)
+        fg = np.interp(slider_values, xp, fp)
+        return fg[0], fg[1]
     
     def _area_range_slider_physical_to_values(self, physical_values):
         if self._preview_source_image is None:
@@ -722,7 +743,7 @@ class CellCountControls(BoxLayout):
         xp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
         fp = [0, 50, 100]
         fg = np.interp(physical_values, xp, fp)
-        return fg
+        return fg[0], fg[1]
 
     def _perimeter_range_slider_values_to_physical(self, slider_values):
         if self._preview_source_image is None:
@@ -731,7 +752,7 @@ class CellCountControls(BoxLayout):
         xp = [0, 50, 100]
         fp = [0, 100, self.calculate_perimeter_filter_max(image=self._preview_source_image)]
         fg = np.interp(slider_values, xp, fp)
-        return fg
+        return fg[0], fg[1]
     
     def _perimeter_range_slider_physical_to_values(self, physical_values):
         if self._preview_source_image is None:
@@ -740,7 +761,7 @@ class CellCountControls(BoxLayout):
         xp = [0, 100, self.calculate_perimeter_filter_max(image=self._preview_source_image)] 
         fp = [0, 50, 100]
         fg = np.interp(physical_values, xp, fp)
-        return fg
+        return fg[0], fg[1]
 
 
     def _set_ui_to_settings(self, settings):
@@ -759,6 +780,8 @@ class CellCountControls(BoxLayout):
         self.ids.slider_cell_count_mean_intensity_id.value = (settings['filters']['intensity']['mean']['min'], settings['filters']['intensity']['mean']['max'])
         self.ids.slider_cell_count_max_intensity_id.value = (settings['filters']['intensity']['max']['min'], settings['filters']['intensity']['max']['max'])
 
+        self.slider_adjustment_area()
+        self.slider_adjustment_perimeter()
         self._regenerate_image_preview()
 
 
@@ -811,6 +834,7 @@ class CellCountControls(BoxLayout):
     def save_method_as(self, file="./data/cell_count_method.json"):
         logger.info(f'[LVP Main  ] CellCountControls.save_method_as({file})')
         os.chdir(source_path)
+        self._add_method_settings_metadata()
         with open(file, "w") as write_file:
             json.dump(self._settings, write_file, indent = 4)
 
@@ -818,7 +842,8 @@ class CellCountControls(BoxLayout):
         logger.info(f'[LVP Main  ] CellCountControls.load_method_from_file({file})')
         with open(file, "r") as f:
             method_settings = json.load(f)
-            self.load_settings(settings=method_settings)
+        
+        self.load_settings(settings=method_settings)
 
     
     def _regenerate_image_preview(self):
