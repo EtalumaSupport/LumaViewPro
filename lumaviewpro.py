@@ -43,9 +43,14 @@ import numpy as np
 import csv
 import time
 import json
+import sys
 import glob
 from lvp_logger import logger
 from plyer import filechooser
+
+if getattr(sys, 'frozen', False):
+    import pyi_splash
+    pyi_splash.update_text("")
 
 # Deactivate kivy logging
 #os.environ["KIVY_NO_CONSOLELOG"] = "1"
@@ -3309,6 +3314,9 @@ class LumaViewProApp(App):
         except:
             logger.exception('[LVP Main  ] Cannot open main display.')
             raise
+
+        if getattr(sys, 'frozen', False):
+            pyi_splash.close()
 
         # load settings file
         if os.path.exists("./data/current.json"):
