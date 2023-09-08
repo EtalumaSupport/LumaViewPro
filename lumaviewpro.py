@@ -144,6 +144,16 @@ def focus_log(positions, values):
         file.close()
         focus_round += 1
 
+
+def scope_leds_off():
+    global lumaview
+    if lumaview.scope.led:
+        lumaview.scope.leds_off()
+        logger.info('[LVP Main  ] lumaview.scope.leds_off()')
+    else:
+        logger.warning('[LVP Main  ] LED controller not available.')
+
+
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
 # -------------------------------------------------------------------------
@@ -268,12 +278,8 @@ class CompositeCapture(FloatLayout):
         use_color = color if false_color else 'BF'
         lumaview.scope.save_live_image(save_folder, file_root, append, use_color)
 
-        # Turn off LEDs
-        if lumaview.scope.led:
-            lumaview.scope.leds_off()
-            logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-        else:
-            logger.warning('LED controller not available.')
+        scope_leds_off()
+
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
@@ -306,11 +312,7 @@ class CompositeCapture(FloatLayout):
                 illumination = settings[layer]['ill']
 
                 # Dark field capture
-                if lumaview.scope.led:
-                    lumaview.scope.leds_off()
-                    logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-                else:
-                    logger.warning('LED controller not available.')
+                scope_leds_off()
 
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
@@ -344,11 +346,7 @@ class CompositeCapture(FloatLayout):
                 #     img[:,:,1] = img[:,:,1]*a + corrected*(1-a)
                 #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
 
-            if lumaview.scope.led:
-                lumaview.scope.leds_off()
-                logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-            else:
-                logger.warning('LED controller not available.')
+            scope_leds_off()
 
             # turn off all LED toggle buttons and histograms
             lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
@@ -1144,11 +1142,7 @@ class ImageSettings(BoxLayout):
         # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
-        if lumaview.scope.led:
-            lumaview.scope.leds_off()
-            logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-        else:
-            logger.warning('LED controller not available.')
+        scope_leds_off()
 
         # turn off all LED toggle buttons and histograms
         layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
@@ -2283,11 +2277,7 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
 
             # toggle all LEDs AND TOGGLE BUTTONS OFF
-            if lumaview.scope.led:
-                lumaview.scope.leds_off()
-                logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-            else:
-                logger.warning('[LVP Main  ] LED controller not available.')
+            scope_leds_off()
 
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
@@ -2329,6 +2319,7 @@ class ProtocolSettings(CompositeCapture):
                 logger.info('[LVP Main  ] Autofocus Scan Complete')
                 self.ids['run_autofocus_btn'].state = 'normal'
                 self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+                scope_leds_off()
 
 
                 logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
@@ -2409,11 +2400,7 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
             # toggle all LEDs AND TOGGLE BUTTONS OFF
-            if lumaview.scope.led:
-                lumaview.scope.leds_off()
-                logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-            else:
-                logger.warning('[LVP Main  ] LED controller not available.')
+            scope_leds_off()
 
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
@@ -2524,6 +2511,7 @@ class ProtocolSettings(CompositeCapture):
             logger.info('[LVP Main  ] Clock.unschedule(self.protocol_iterate)')
             Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
             # self.protocol_event.cancel()
+            scope_leds_off()
  
     def protocol_iterate(self, dt):
         logger.info('[LVP Main  ] ProtocolSettings.protocol_iterate()')
@@ -2568,6 +2556,7 @@ class ProtocolSettings(CompositeCapture):
                Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
                logger.info('[LVP Main  ] Clock.unschedule(self.protocol_iterate)')
                Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
+               scope_leds_off()
 
 # Widget for displaying Microscope Stage area, labware, and current position 
 class Stage(Widget):
@@ -3024,11 +3013,7 @@ class LayerControl(BoxLayout):
 
         else: # if the button is 'normal' meaning not active
             # In active channel, and turn off LED
-            if lumaview.scope.led:
-                lumaview.scope.leds_off()
-                logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-            else:
-                logger.warning('[LVP Main  ] LED controller not available.')
+            scope_leds_off()
 
         # update gain to currently selected settings
         # -----------------------------------------------------
@@ -3359,11 +3344,7 @@ class LumaViewProApp(App):
             settings['protocol']['filepath']=''
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
-        if lumaview.scope.led:
-            lumaview.scope.leds_off()
-            logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-        else:
-            logger.warning('[LVP Main  ] LED controller not available.')
+        scope_leds_off()
 
         return lumaview
 
@@ -3383,11 +3364,7 @@ class LumaViewProApp(App):
 
         global lumaview
 
-        if lumaview.scope.led:
-            lumaview.scope.leds_off()
-            logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-        else:
-            logger.warning('[LVP Main  ] LED controller not available.')
+        scope_leds_off()
 
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
