@@ -709,7 +709,7 @@ class CellCountControls(BoxLayout):
 
     def _area_range_slider_values_to_physical(self, slider_values):
         if self._preview_source_image is None:
-            return 0, 1000 # Default area max
+            return slider_values #0, 1000 # Default area max
         
         xp = [0, 50, 100]
         fp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
@@ -717,7 +717,7 @@ class CellCountControls(BoxLayout):
     
     def _area_range_slider_physical_to_values(self, physical_values):
         if self._preview_source_image is None:
-            return 0, 100 # Default area max
+            return physical_values #0, 100 # Default area max
 
         xp = [0, 1000, self.calculate_area_filter_max(image=self._preview_source_image)]
         fp = [0, 50, 100]
@@ -726,7 +726,7 @@ class CellCountControls(BoxLayout):
 
     def _perimeter_range_slider_values_to_physical(self, slider_values):
         if self._preview_source_image is None:
-            return 0, 100 # Default perimeter max
+            return slider_values
 
         xp = [0, 50, 100]
         fp = [0, 100, self.calculate_perimeter_filter_max(image=self._preview_source_image)]
@@ -735,7 +735,7 @@ class CellCountControls(BoxLayout):
     
     def _perimeter_range_slider_physical_to_values(self, physical_values):
         if self._preview_source_image is None:
-            return 0, 100 # Default perimeter max
+            return physical_values
         
         xp = [0, 100, self.calculate_perimeter_filter_max(image=self._preview_source_image)] 
         fp = [0, 50, 100]
@@ -795,6 +795,9 @@ class CellCountControls(BoxLayout):
         self.ids.slider_cell_count_area_id.max = int(self._area_range_slider_physical_to_values(physical_values=(0,max_area_um2))[1])
         self.ids.slider_cell_count_perimeter_id.max = int(self._perimeter_range_slider_physical_to_values(physical_values=(0,max_perimeter_um))[1])
 
+        self.slider_adjustment_area()
+        self.slider_adjustment_perimeter()
+
 
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
@@ -840,26 +843,26 @@ class CellCountControls(BoxLayout):
 
 
     def slider_adjustment_area(self):
-        min, max = self._area_range_slider_values_to_physical(
+        low, high = self._area_range_slider_values_to_physical(
             (self.ids['slider_cell_count_area_id'].value[0], self.ids['slider_cell_count_area_id'].value[1])
         )
 
-        self._settings['filters']['area']['min'], self._settings['filters']['area']['max'] = min, max
+        self._settings['filters']['area']['min'], self._settings['filters']['area']['max'] = low, high
 
-        self.ids['label_cell_count_area_id'].text = f"{int(min)}-{int(max)} μm²"
+        self.ids['label_cell_count_area_id'].text = f"{int(low)}-{int(high)} μm²"
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
 
     def slider_adjustment_perimeter(self):
-        min, max = self._perimeter_range_slider_values_to_physical(
+        low, high = self._perimeter_range_slider_values_to_physical(
             (self.ids['slider_cell_count_perimeter_id'].value[0], self.ids['slider_cell_count_perimeter_id'].value[1])
         )
 
-        self._settings['filters']['perimeter']['min'], self._settings['filters']['perimeter']['max'] = min, max
+        self._settings['filters']['perimeter']['min'], self._settings['filters']['perimeter']['max'] = low, high
 
-        self.ids['label_cell_count_perimeter_id'].text = f"{int(min)}-{int(max)} μm"
+        self.ids['label_cell_count_perimeter_id'].text = f"{int(low)}-{int(high)} μm"
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
