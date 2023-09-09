@@ -3314,15 +3314,12 @@ class FolderChooseBTN(Button):
         elif context in settings:
             selected_path = settings[context]['save_folder']
 
-        if selected_path == './capture':
-            selected_path = None
-        
         # Note: Could likely use tkinter filedialog for all platforms
         # but needs testing on Mac/Linux first
         if sys.platform != 'win32':
             filechooser.choose_dir(
-                on_selection=self.handle_selection,
-                path=selected_path
+                on_selection=self.handle_selection
+                # path=selected_path
             )
             return
         
