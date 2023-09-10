@@ -46,6 +46,7 @@ import json
 import sys
 import glob
 from lvp_logger import logger
+from tkinter import filedialog as tkinter_filedialog
 from plyer import filechooser
 
 if getattr(sys, 'frozen', False):
@@ -3302,9 +3303,38 @@ class FolderChooseBTN(Button):
     selection = ListProperty([])
 
     def choose(self, context):
-        logger.info('[LVP Main  ] FolderChooseBTN.choose()')
+        logger.info(f'[LVP Main  ] FolderChooseBTN.choose({context})')
         self.context = context
-        filechooser.choose_dir(on_selection=self.handle_selection)
+        logger.info(f"Settings: {settings}")
+
+        # Show previously selected/default folder
+        selected_path = None
+        if (context == 'live_folder') and ('live_folder' in settings):
+            selected_path = settings['live_folder']
+        elif context in settings:
+            selected_path = settings[context]['save_folder']
+
+        # Note: Could likely use tkinter filedialog for all platforms
+        # but needs testing on Mac/Linux first
+        if sys.platform != 'win32':
+            filechooser.choose_dir(
+                on_selection=self.handle_selection
+                # path=selected_path
+            )
+            return
+        
+        else:
+            # Tested for Windows platforms
+            selection = tkinter_filedialog.askdirectory(
+                initialdir=selected_path
+            )
+
+            # Nothing selected/cancel
+            if selection == '':
+                return
+            
+            self.handle_selection(selection=[selection])
+        
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FolderChooseBTN.handle_selection()')
@@ -3312,7 +3342,9 @@ class FolderChooseBTN(Button):
             self.selection = selection
             self.on_selection_function()
 
+
     def on_selection_function(self, *a, **k):
+        global settings
         logger.info('[LVP Main  ] FolderChooseBTN.on_selection_function()')
         if self.selection:
             path = self.selection[0]
