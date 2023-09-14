@@ -242,8 +242,17 @@ class CompositeCapture(FloatLayout):
         for layer in layers:
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+
+                # Get the custom layer string value and remove any surrounding whitespace/underscores
+                custom_layer_str = lumaview.ids['imagesettings_id'].ids[layer].ids['root_text'].text
+                custom_layer_str = custom_layer_str.strip("_ ")
+
+                append = f'{well_label}_{custom_layer_str}'
+
                 if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
+                    
+                break       
             
         # lumaview.scope.get_image()
         lumaview.scope.save_live_image(save_folder, file_root, append, color)
