@@ -242,8 +242,10 @@ class CompositeCapture(FloatLayout):
         for layer in layers:
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+                append = f'{well_label}_{layer}'
                 if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
+                break       
             
         # lumaview.scope.get_image()
         lumaview.scope.save_live_image(save_folder, file_root, append, color)
