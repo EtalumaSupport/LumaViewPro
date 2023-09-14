@@ -1721,8 +1721,13 @@ class XYStageControl(BoxLayout):
             # Convert from plate position to stage position
             protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
             stage_x, stage_y =  protocol_settings.stage_to_plate(x_target, y_target)
-            self.ids['x_pos_id'].text = format(max(0, stage_x), '.2f') # display coordinate in mm
-            self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
+
+            if not self.ids['x_pos_id'].focus:
+                self.ids['x_pos_id'].text = format(max(0, stage_x), '.2f') # display coordinate in mm
+
+            if not self.ids['y_pos_id'].focus:  
+                self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
+
             self.ids['stage_control_id'].draw_labware()
 
     def fine_left(self):
@@ -1781,7 +1786,7 @@ class XYStageControl(BoxLayout):
         # Find the coordinates for the stage
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(float(x_pos), 0)
-        logger.info('[LVP Main  ] X pos', x_pos, 'Stage X', stage_x)
+        logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
         lumaview.scope.move_absolute_position('X', stage_x)  # position in text is in mm
