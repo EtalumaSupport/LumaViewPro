@@ -1772,7 +1772,7 @@ class XYStageControl(BoxLayout):
         # Find the coordinates for the stage
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(float(x_pos), 0)
-        logger.info('[LVP Main  ] X pos', x_pos, 'Stage X', stage_x)
+        logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
         lumaview.scope.move_absolute_position('X', stage_x)  # position in text is in mm
