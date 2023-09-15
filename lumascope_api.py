@@ -349,7 +349,6 @@ class Lumascope():
 
     @contextlib.contextmanager
     def safe_turret_mover(self):
-
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0')
         initial_z = self.get_current_position(axis='Z')
@@ -382,14 +381,8 @@ class Lumascope():
         #self.move_absolute_position('Z', self.z_min)
 
         with self.safe_turret_mover():
-            # self.is_turreting = True
             logger.info(f'[SCOPE API ] Moving T to {degrees}')
-            self.move_absolute_position('T', degrees) #, wait_until_complete=True)
-            # TODO figure out how to move T axis
-            time.sleep(1)
-            #while not self.is_moving():
-            #    time.sleep(0.1)
-            # self.is_turreting = False
+            self.move_absolute_position('T', degrees, wait_until_complete=True)
 
 
     def get_target_position(self, axis):
@@ -443,6 +436,11 @@ class Lumascope():
          Return True if axis is at target position"""
 
         #if not self.motion: return True
+
+        # Handle case where we want to know if turret has reached its target, but there is no turret
+        if (axis == 'T') and (self.motion.has_turret == False):
+            return True
+        
         status = self.motion.target_status(axis)
         return status
         
@@ -470,8 +468,9 @@ class Lumascope():
         x_status = self.get_target_status('X')
         y_status = self.get_target_status('Y')
         z_status = self.get_target_status('Z')
+        t_status = self.get_target_status('T')
 
-        if x_status and y_status and z_status and not self.get_overshoot():
+        if x_status and y_status and z_status and t_status and not self.get_overshoot():
             return False
         else:
             return True
