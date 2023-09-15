@@ -46,6 +46,7 @@ from lvp_logger import logger
 import time
 import threading
 import os
+import contextlib
 import cv2
 import numpy as np
 
@@ -345,29 +346,44 @@ class Lumascope():
         #if not self.motion: return
         self.motion.xycenter()
 
+
+    @contextlib.contextmanager
+    def safe_turret_mover(self):
+        # Save off current Z position before moving Z to 0
+        logger.info('[SCOPE API ] Moving Z to 0')
+        initial_z = self.get_current_position(axis='Z')
+        self.move_absolute_position('Z', pos=0, wait_until_complete=True)
+        self.is_turreting = True
+        yield
+        self.is_turreting = False
+        # Restore Z position
+        logger.info(f'[SCOPE API ] Restoring Z to {initial_z}')
+        self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
+
+
     def thome(self):
         """MOTION CONTROL FUNCTIONS
         Home the Turret"""
 
         #if not self.motion:
         #    return
-        self.motion.thome()
+
+        # Move turret
+        with self.safe_turret_mover():
+            self.motion.thome()
+
 
     def tmove(self, degrees):
         """MOTION CONTROL FUNCTIONS
         Move turret to position in degrees"""
-
         # MUST home move objective home first to prevent crash
         #self.zhome()
         #self.move_absolute_position('Z', self.z_min)
-        self.move_absolute_position('Z', 0)
 
+        with self.safe_turret_mover():
+            logger.info(f'[SCOPE API ] Moving T to {degrees}')
+            self.move_absolute_position('T', degrees, wait_until_complete=True)
 
-        self.is_turreting = True
-        self.move_absolute_position('T', degrees)
-        #while not self.is_moving():
-        #    time.sleep(0.1)
-        self.is_turreting = False
 
     def get_target_position(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -389,12 +405,16 @@ class Lumascope():
         target_position = self.motion.current_pos(axis)
         return target_position
         
-    def move_absolute_position(self, axis, pos):
+    def move_absolute_position(self, axis, pos, wait_until_complete=False):
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
 
         #if not self.motion: return
         self.motion.move_abs_pos(axis, pos)
+        
+        if wait_until_complete is True:
+            self.wait_until_finished_moving()
+
 
     def move_relative_position(self, axis, um):
         """MOTION CONTROL FUNCTIONS
@@ -416,6 +436,11 @@ class Lumascope():
          Return True if axis is at target position"""
 
         #if not self.motion: return True
+
+        # Handle case where we want to know if turret has reached its target, but there is no turret
+        if (axis == 'T') and (self.motion.has_turret == False):
+            return True
+        
         status = self.motion.target_status(axis)
         return status
         
@@ -443,11 +468,23 @@ class Lumascope():
         x_status = self.get_target_status('X')
         y_status = self.get_target_status('Y')
         z_status = self.get_target_status('Z')
+        t_status = self.get_target_status('T')
 
-        if x_status and y_status and z_status and not self.get_overshoot():
+        if x_status and y_status and z_status and t_status and not self.get_overshoot():
             return False
         else:
             return True
+        
+
+    def wait_until_finished_moving(self):
+
+        if not self.motion.driver: return
+
+        while self.is_moving():
+            time.sleep(0.05)
+        
+        return
+
 
     '''
     ########################################################################
