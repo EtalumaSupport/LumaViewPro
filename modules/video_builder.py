@@ -33,10 +33,11 @@ class VideoBuilder:
 
     def _all_images_same_size(self, image_list: list[pathlib.Path]) -> bool:
 
-        if len(image_list) == 0:
-            return False, {}
-
         frame_shapes = {}
+
+        if len(image_list) == 0:
+            return False, frame_shapes
+        
         for image in image_list:
             shape = self._get_frame_size(image=image)
 
