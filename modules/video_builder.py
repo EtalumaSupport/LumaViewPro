@@ -17,8 +17,7 @@ class VideoBuilder:
         self._name = self.__class__.__name__
 
 
-    @staticmethod
-    def _get_all_images_in_directory(directory: pathlib.Path) -> list[pathlib.Path]:
+    def _get_all_images_in_directory(self, directory: pathlib.Path) -> list[pathlib.Path]:
         if not directory.exists():
             raise Exception(f"Directory {directory} does not exist")
         
@@ -26,21 +25,20 @@ class VideoBuilder:
             raise Exception(f"{directory} is not a directory")
         
         images = []
-        for image_path in directory.glob("*.tiff"):
+        for image_path in directory.glob("*.tif*"):
             images.append(image_path)
 
         return images
     
 
-    @staticmethod
-    def _all_images_same_size(image_list: list[pathlib.Path]) -> bool:
+    def _all_images_same_size(self, image_list: list[pathlib.Path]) -> bool:
 
         if len(image_list) == 0:
             return False, {}
 
         frame_shapes = {}
         for image in image_list:
-            shape = VideoBuilder._get_frame_size(image=image)
+            shape = self._get_frame_size(image=image)
 
             # Track which images have which frame shapes
             # Useful for troubleshooting/logging
@@ -67,10 +65,8 @@ class VideoBuilder:
     
 
     def _get_frame_size(self, image: pathlib.Path) -> dict:
-        frame = cv2.imread(image)
-        height, width, layers = frame.shape
-        if layers != 1:
-            raise Exception(f"[{self._name}] Found image ({image}) with multiple layers ({layers})")
+        frame = cv2.imread(str(image))
+        height, width, _ = frame.shape
         
         return (height, width)
 
@@ -81,6 +77,30 @@ class VideoBuilder:
         frames_per_sec: int,
         output_file_loc: pathlib.Path
     ) -> bool:
+        
+        def _are_valid_inputs():
+            if not issubclass(type(input_directory), pathlib.Path):
+                logger.error(f"[{self._name}] Expected input directory to be of type pathlib.Path, got {type(input_directory)}")
+                return False
+            
+            if not issubclass(type(output_file_loc), pathlib.Path):
+                logger.error(f"[{self._name}] Expected output file location to be of type pathlib.Path, got {type(output_file_loc)}")
+                return False
+            
+            if type(frames_per_sec) not in (int, float):
+                logger.error(f"[{self._name}] Invalid type for frames_per_sec, must be int or float")
+                return False
+
+            if frames_per_sec <= 0:
+                logger.error(f"[{self._name}] Invalid value for frames_per_sec, must be >0")
+                return False
+            
+            return True
+            
+
+        if not _are_valid_inputs():
+            return False
+
         
         logger.info(f"""[{self._name}] Starting video creation:
                             Input directory: {input_directory}
@@ -108,7 +128,7 @@ class VideoBuilder:
         frame_height, frame_width = self._get_frame_size(image=images[0])
 
         video = cv2.VideoWriter(
-            filename=output_file_loc,
+            filename=str(output_file_loc),
             fourcc=fourcc,
             fps=frames_per_sec,
             frameSize=(frame_width, frame_height),
@@ -117,7 +137,7 @@ class VideoBuilder:
 
         logger.info(f"[{self._name}] Writing video to {output_file_loc}")
         for image in images:
-            video.write(cv2.imread(image))
+            video.write(cv2.imread(str(image)))
 
         cv2.destroyAllWindows()
         video.release()

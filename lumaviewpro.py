@@ -39,6 +39,7 @@ June 24, 2023
 
 # General
 import os
+import pathlib
 import numpy as np
 import csv
 import time
@@ -103,6 +104,7 @@ from custom_widgets.progress_popup import show_popup
 
 #post processing
 from image_stitcher import image_stitcher
+from modules.video_builder import VideoBuilder
 
 import cv2
 
@@ -605,6 +607,48 @@ class MotionSettings(BoxLayout):
             self.pos = 0, 0
 
 
+class VideoCreationControls(BoxLayout):
+
+
+    done = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        global video_creation_controls
+        super().__init__(**kwargs)
+        logger.info('LVP Main: VideoCreationControls.__init__()')
+        self._post = post_processing.PostProcessing()
+        video_creation_controls = self
+        self._first_open = False
+        self._input_images_loc = None
+        self._output_file_loc = None
+
+    
+    def activate(self):
+        if self._first_open is False:
+            self._first_open = True
+
+
+    def deactivate(self):
+        pass
+
+
+    def set_input_images_loc(self, directory: str | pathlib.Path) -> None:
+        self._input_images_loc = pathlib.Path(directory)
+
+    
+    def set_output_file_loc(self, file_loc: str | pathlib.Path) -> None:
+        self._output_file_loc = pathlib.Path(file_loc)
+
+    
+    def create_video(self) -> None:
+        video_builder = VideoBuilder()
+        video_builder.create_video_from_directory(
+            input_directory=self._input_images_loc,
+            frames_per_sec=10,
+            output_file_loc=self._output_file_loc,
+        )
+
+
 class CellCountControls(BoxLayout):
 
     ENABLE_PREVIEW_AUTO_REFRESH = False
@@ -614,10 +658,9 @@ class CellCountControls(BoxLayout):
     def __init__(self, **kwargs):
         global cell_count_controls
         super().__init__(**kwargs)
-        logger.info('LVP Main: CellCountPopup.__init__()')
+        logger.info('LVP Main: CellCountControls.__init__()')
         self._preview_source_image = None
         self._preview_image = None
-        self._post = None
         self._post = post_processing.PostProcessing()
         self._settings = self._get_init_settings()
         cell_count_controls = self
@@ -3368,21 +3411,8 @@ class FolderChooseBTN(Button):
         if self.context == 'live_folder':
             settings['live_folder'] = path
 
-        elif self.context == 'movie_folder':
-            save_location = path + '/movie.avi'
-
-            img_array = []
-            for filename in glob.glob(path + '/*.tiff'):
-                img = cv2.imread(filename)
-                height, width, layers = img.shape
-                size = (width,height)
-                img_array.append(img)
-
-            out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-
-            for i in range(len(img_array)):
-                out.write(img_array[i])
-            out.release()
+        elif self.context == 'video_input_images_folder':
+            video_creation_controls.set_input_images_loc(directory=path)
 
         elif self.context == 'apply_cell_count_method_to_folder':
             cell_count_controls.apply_method_to_folder(
@@ -3406,6 +3436,8 @@ class FileSaveBTN(Button):
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
         elif self.context == 'saveas_cell_count_method':
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
+        elif self.context == 'saveas_video_creation':
+            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.avi"])
 
 
     def handle_selection(self, selection):
@@ -3435,6 +3467,14 @@ class FileSaveBTN(Button):
                 if os.path.splitext(filename)[1] == "":
                     filename += ".json"
                 cell_count_controls.save_method_as(file=filename)
+        
+        elif self.context == 'saveas_video_creation':
+            if self.selection:
+                logger.info('[LVP Main  ] Set video creation output to file:' + self.selection[0])
+                filename = self.selection[0]
+                if os.path.splitext(filename)[1] == "":
+                    filename += ".avi"
+                video_creation_controls.set_output_file_loc(file_loc=filename)
 
 
 # -------------------------------------------------------------------------
@@ -3461,6 +3501,7 @@ class LumaViewProApp(App):
         global Window
         global lumaview
         global cell_count_controls
+        global video_creation_controls
         self.icon = './data/icons/icon.png'
 
         try:
