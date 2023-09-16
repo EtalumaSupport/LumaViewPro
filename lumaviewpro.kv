@@ -1143,7 +1143,18 @@
 						height: '30dp'
 						font_size: '12sp'
 						on_release: root.start_tiling()
-				
+                    
+                    # Select Labware
+                    Spinner:
+                        id: labware_spinner
+                        sync_height: True
+                        text: 'New'
+                        font_size: '12dp'
+                        size_hint_y: None
+                        height: '30dp'
+                        text_autoupdate: True
+                        on_text: root.select_tiling_size()
+                
 				Label:
 
 
