@@ -639,14 +639,27 @@ class VideoCreationControls(BoxLayout):
     def set_output_file_loc(self, file_loc: str | pathlib.Path) -> None:
         self._output_file_loc = pathlib.Path(file_loc)
 
-    
-    def create_video(self) -> None:
+
+    @show_popup
+    def create_video(self, popup) -> None:
+        popup.title = "Video Builder"
+        popup.text = "Generating video..."
+
         video_builder = VideoBuilder()
-        video_builder.create_video_from_directory(
+        status = video_builder.create_video_from_directory(
             input_directory=self._input_images_loc,
             frames_per_sec=10,
             output_file_loc=self._output_file_loc,
         )
+
+        status_map = {
+            True: "Success",
+            False: "FAILED"
+        }
+
+        popup.text = f"{popup.text} {status_map[status]}"
+        time.sleep(1)
+        self.done = True
 
 
 class CellCountControls(BoxLayout):
