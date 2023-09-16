@@ -43,9 +43,15 @@ import numpy as np
 import csv
 import time
 import json
+import sys
 import glob
 from lvp_logger import logger
+from tkinter import filedialog as tkinter_filedialog
 from plyer import filechooser
+
+if getattr(sys, 'frozen', False):
+    import pyi_splash
+    pyi_splash.update_text("")
 
 # Deactivate kivy logging
 #os.environ["KIVY_NO_CONSOLELOG"] = "1"
@@ -139,6 +145,16 @@ def focus_log(positions, values):
         file.close()
         focus_round += 1
 
+
+def scope_leds_off():
+    global lumaview
+    if lumaview.scope.led:
+        lumaview.scope.leds_off()
+        logger.info('[LVP Main  ] lumaview.scope.leds_off()')
+    else:
+        logger.warning('[LVP Main  ] LED controller not available.')
+
+
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
 # -------------------------------------------------------------------------
@@ -226,8 +242,17 @@ class CompositeCapture(FloatLayout):
         for layer in layers:
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+
+                # Get the custom layer string value and remove any surrounding whitespace/underscores
+                custom_layer_str = lumaview.ids['imagesettings_id'].ids[layer].ids['root_text'].text
+                custom_layer_str = custom_layer_str.strip("_ ")
+
+                append = f'{well_label}_{custom_layer_str}'
+
                 if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
+                    
+                break       
             
         # lumaview.scope.get_image()
         lumaview.scope.save_live_image(save_folder, file_root, append, color)
@@ -263,12 +288,8 @@ class CompositeCapture(FloatLayout):
         use_color = color if false_color else 'BF'
         lumaview.scope.save_live_image(save_folder, file_root, append, use_color)
 
-        # Turn off LEDs
-        if lumaview.scope.led:
-            lumaview.scope.leds_off()
-            logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-        else:
-            logger.warning('LED controller not available.')
+        scope_leds_off()
+
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
@@ -301,11 +322,7 @@ class CompositeCapture(FloatLayout):
                 illumination = settings[layer]['ill']
 
                 # Dark field capture
-                if lumaview.scope.led:
-                    lumaview.scope.leds_off()
-                    logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-                else:
-                    logger.warning('LED controller not available.')
+                scope_leds_off()
 
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
@@ -339,11 +356,7 @@ class CompositeCapture(FloatLayout):
                 #     img[:,:,1] = img[:,:,1]*a + corrected*(1-a)
                 #     img[:,:,2] = img[:,:,2]*a + corrected*(1-a)
 
-            if lumaview.scope.led:
-                lumaview.scope.leds_off()
-                logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-            else:
-                logger.warning('LED controller not available.')
+            scope_leds_off()
 
             # turn off all LED toggle buttons and histograms
             lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
@@ -641,12 +654,12 @@ class CellCountControls(BoxLayout):
             },
             'filters': {
                 'area': {
-                    'min': 10,
-                    'max': 50000
+                    'min': 0,
+                    'max': 100
                 },
                 'perimeter': {
-                    'min': 5,
-                    'max': 5000
+                    'min': 0,
+                    'max': 100
                 },
                 'sphericity': {
                     'min': 0.0,
@@ -699,23 +712,105 @@ class CellCountControls(BoxLayout):
         return self._settings
 
 
+    @staticmethod
+    def _validate_method_settings_metadata(settings):
+        if 'metadata' not in settings:
+            raise Exception(f"No valid metadata found")
+        
+        metadata = settings['metadata']
+        
+        for key in ('type', 'version'):
+            if key not in metadata:
+                raise Exception(f"No {key} found in metadata")
+                
+
+    def _add_method_settings_metadata(self):
+        self._settings['metadata'] = {
+            'type': 'cell_count_method',
+            'version': '1'
+        }
+
+
     def load_settings(self, settings):
+        self._validate_method_settings_metadata(settings=settings)
         self._settings = settings
         self._set_ui_to_settings(settings)
+
+
+    def _area_range_slider_values_to_physical(self, slider_values):
+        if self._preview_source_image is None:
+            return slider_values
+        
+        xp = [0, 30, 60, 100]
+        max = self.calculate_area_filter_max(image=self._preview_source_image)
+        if max < 10001:
+            max = 10001
+
+        fp = [0, 1000, 10000, max]
+        fg = np.interp(slider_values, xp, fp)
+        return fg[0], fg[1]
+    
+    def _area_range_slider_physical_to_values(self, physical_values):
+        if self._preview_source_image is None:
+            return physical_values
+
+        max = self.calculate_area_filter_max(image=self._preview_source_image)
+        if max < 10001:
+            max = 10001
+
+        xp = [0, 1000, 10000, max]
+        fp = [0, 30, 60, 100]
+        fg = np.interp(physical_values, xp, fp)
+        return fg[0], fg[1]
+
+    def _perimeter_range_slider_values_to_physical(self, slider_values):
+        if self._preview_source_image is None:
+            return slider_values
+
+        xp = [0, 50, 100]
+
+        max = self.calculate_perimeter_filter_max(image=self._preview_source_image)
+        if max < 101:
+            max = 101
+
+        fp = [0, 100, max]
+        fg = np.interp(slider_values, xp, fp)
+        return fg[0], fg[1]
+    
+    def _perimeter_range_slider_physical_to_values(self, physical_values):
+        if self._preview_source_image is None:
+            return physical_values
+        
+        max = self.calculate_perimeter_filter_max(image=self._preview_source_image)
+        if max < 101:
+            max = 101
+
+        xp = [0, 100, max]
+        fp = [0, 50, 100]
+        fg = np.interp(physical_values, xp, fp)
+        return fg[0], fg[1]
 
 
     def _set_ui_to_settings(self, settings):
         self.ids.text_cell_count_pixels_per_um_id.text = str(settings['context']['pixels_per_um'])
         self.ids.cell_count_fluorescent_mode_id.active = settings['context']['fluorescent_mode']
         self.ids.slider_cell_count_threshold_id.value = settings['segmentation']['parameters']['threshold']
-        self.ids.slider_cell_count_area_id.value = (settings['filters']['area']['min'], settings['filters']['area']['max'])
-        self.ids.slider_cell_count_perimeter_id.value = (settings['filters']['perimeter']['min'], settings['filters']['perimeter']['max'])
+        self.ids.slider_cell_count_area_id.value = self._area_range_slider_physical_to_values(
+            (settings['filters']['area']['min'], settings['filters']['area']['max'])
+        )
+        
+        self.ids.slider_cell_count_perimeter_id.value = self._perimeter_range_slider_physical_to_values(
+            (settings['filters']['perimeter']['min'], settings['filters']['perimeter']['max'])
+        )
         self.ids.slider_cell_count_sphericity_id.value = (settings['filters']['sphericity']['min'], settings['filters']['sphericity']['max'])
         self.ids.slider_cell_count_min_intensity_id.value = (settings['filters']['intensity']['min']['min'], settings['filters']['intensity']['min']['max'])
         self.ids.slider_cell_count_mean_intensity_id.value = (settings['filters']['intensity']['mean']['min'], settings['filters']['intensity']['mean']['max'])
         self.ids.slider_cell_count_max_intensity_id.value = (settings['filters']['intensity']['max']['min'], settings['filters']['intensity']['max']['max'])
 
+        self.slider_adjustment_area()
+        self.slider_adjustment_perimeter()
         self._regenerate_image_preview()
+
 
     def set_preview_source_file(self, file) -> None:
         image = image_utils.image_file_to_image(image_file=file)
@@ -724,19 +819,35 @@ class CellCountControls(BoxLayout):
             
         self.set_preview_source(image=image)
 
-    def update_filter_max(self, image):
+
+    def calculate_area_filter_max(self, image):
         pixels_per_um = self._settings['context']['pixels_per_um']
 
         max_area_pixels = image.shape[0] * image.shape[1]
         max_area_um2 = max_area_pixels / (pixels_per_um**2)
+        return max_area_um2
+    
+
+    def calculate_perimeter_filter_max(self, image):
+        pixels_per_um = self._settings['context']['pixels_per_um']
 
         # Assume max perimeter will never need to be larger than 2x frame size border
         # The 2x is to provide margin for handling various curvatures
         max_perimeter_pixels = 2*((2*image.shape[0])+(2*image.shape[1]))
         max_perimeter_um = max_perimeter_pixels / pixels_per_um
+        return max_perimeter_um
+    
+
+    def update_filter_max(self, image):
+        max_area_um2 = self. calculate_area_filter_max(image=image)
+        max_perimeter_um = self.calculate_perimeter_filter_max(image=image)
         
-        self.ids.slider_cell_count_area_id.max = max_area_um2
-        self.ids.slider_cell_count_perimeter_id.max = max_perimeter_um
+        self.ids.slider_cell_count_area_id.max = int(self._area_range_slider_physical_to_values(physical_values=(0,max_area_um2))[1])
+        self.ids.slider_cell_count_perimeter_id.max = int(self._perimeter_range_slider_physical_to_values(physical_values=(0,max_perimeter_um))[1])
+
+        self.slider_adjustment_area()
+        self.slider_adjustment_perimeter()
+
 
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
@@ -745,10 +856,12 @@ class CellCountControls(BoxLayout):
         self.update_filter_max(image=image)
         self._regenerate_image_preview()
 
+
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
         logger.info(f'[LVP Main  ] CellCountControls.save_method_as({file})')
         os.chdir(source_path)
+        self._add_method_settings_metadata()
         with open(file, "w") as write_file:
             json.dump(self._settings, write_file, indent = 4)
 
@@ -756,7 +869,8 @@ class CellCountControls(BoxLayout):
         logger.info(f'[LVP Main  ] CellCountControls.load_method_from_file({file})')
         with open(file, "r") as f:
             method_settings = json.load(f)
-            self.load_settings(settings=method_settings)
+        
+        self.load_settings(settings=method_settings)
 
     
     def _regenerate_image_preview(self):
@@ -781,16 +895,26 @@ class CellCountControls(BoxLayout):
 
 
     def slider_adjustment_area(self):
-        self._settings['filters']['area']['min'] = self.ids['slider_cell_count_area_id'].value[0]
-        self._settings['filters']['area']['max'] = self.ids['slider_cell_count_area_id'].value[1]
+        low, high = self._area_range_slider_values_to_physical(
+            (self.ids['slider_cell_count_area_id'].value[0], self.ids['slider_cell_count_area_id'].value[1])
+        )
+
+        self._settings['filters']['area']['min'], self._settings['filters']['area']['max'] = low, high
+
+        self.ids['label_cell_count_area_id'].text = f"{int(low)}-{int(high)} μm²"
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
 
     def slider_adjustment_perimeter(self):
-        self._settings['filters']['perimeter']['min'] = self.ids['slider_cell_count_perimeter_id'].value[0]
-        self._settings['filters']['perimeter']['max'] = self.ids['slider_cell_count_perimeter_id'].value[1]
+        low, high = self._perimeter_range_slider_values_to_physical(
+            (self.ids['slider_cell_count_perimeter_id'].value[0], self.ids['slider_cell_count_perimeter_id'].value[1])
+        )
+
+        self._settings['filters']['perimeter']['min'], self._settings['filters']['perimeter']['max'] = low, high
+
+        self.ids['label_cell_count_perimeter_id'].text = f"{int(low)}-{int(high)} μm"
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -1146,11 +1270,7 @@ class ImageSettings(BoxLayout):
         # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
-        if lumaview.scope.led:
-            lumaview.scope.leds_off()
-            logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-        else:
-            logger.warning('LED controller not available.')
+        scope_leds_off()
 
         # turn off all LED toggle buttons and histograms
         layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
@@ -1608,8 +1728,13 @@ class XYStageControl(BoxLayout):
             # Convert from plate position to stage position
             protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
             stage_x, stage_y =  protocol_settings.stage_to_plate(x_target, y_target)
-            self.ids['x_pos_id'].text = format(max(0, stage_x), '.2f') # display coordinate in mm
-            self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
+
+            if not self.ids['x_pos_id'].focus:
+                self.ids['x_pos_id'].text = format(max(0, stage_x), '.2f') # display coordinate in mm
+
+            if not self.ids['y_pos_id'].focus:  
+                self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
+
             self.ids['stage_control_id'].draw_labware()
 
     def fine_left(self):
@@ -1668,7 +1793,7 @@ class XYStageControl(BoxLayout):
         # Find the coordinates for the stage
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         stage_x, stage_y =  protocol_settings.plate_to_stage(float(x_pos), 0)
-        logger.info('[LVP Main  ] X pos', x_pos, 'Stage X', stage_x)
+        logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
         lumaview.scope.move_absolute_position('X', stage_x)  # position in text is in mm
@@ -2285,11 +2410,7 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
 
             # toggle all LEDs AND TOGGLE BUTTONS OFF
-            if lumaview.scope.led:
-                lumaview.scope.leds_off()
-                logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-            else:
-                logger.warning('[LVP Main  ] LED controller not available.')
+            scope_leds_off()
 
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
@@ -2331,6 +2452,7 @@ class ProtocolSettings(CompositeCapture):
                 logger.info('[LVP Main  ] Autofocus Scan Complete')
                 self.ids['run_autofocus_btn'].state = 'normal'
                 self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+                scope_leds_off()
 
 
                 logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
@@ -2411,11 +2533,7 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
             # toggle all LEDs AND TOGGLE BUTTONS OFF
-            if lumaview.scope.led:
-                lumaview.scope.leds_off()
-                logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-            else:
-                logger.warning('[LVP Main  ] LED controller not available.')
+            scope_leds_off()
 
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
             for layer in layers:
@@ -2526,6 +2644,7 @@ class ProtocolSettings(CompositeCapture):
             logger.info('[LVP Main  ] Clock.unschedule(self.protocol_iterate)')
             Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
             # self.protocol_event.cancel()
+            scope_leds_off()
  
     def protocol_iterate(self, dt):
         logger.info('[LVP Main  ] ProtocolSettings.protocol_iterate()')
@@ -2570,6 +2689,7 @@ class ProtocolSettings(CompositeCapture):
                Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
                logger.info('[LVP Main  ] Clock.unschedule(self.protocol_iterate)')
                Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
+               scope_leds_off()
 
 # Widget for displaying Microscope Stage area, labware, and current position 
 class Stage(Widget):
@@ -3026,11 +3146,7 @@ class LayerControl(BoxLayout):
 
         else: # if the button is 'normal' meaning not active
             # In active channel, and turn off LED
-            if lumaview.scope.led:
-                lumaview.scope.leds_off()
-                logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-            else:
-                logger.warning('[LVP Main  ] LED controller not available.')
+            scope_leds_off()
 
         # update gain to currently selected settings
         # -----------------------------------------------------
@@ -3208,9 +3324,38 @@ class FolderChooseBTN(Button):
     selection = ListProperty([])
 
     def choose(self, context):
-        logger.info('[LVP Main  ] FolderChooseBTN.choose()')
+        logger.info(f'[LVP Main  ] FolderChooseBTN.choose({context})')
         self.context = context
-        filechooser.choose_dir(on_selection=self.handle_selection)
+        logger.info(f"Settings: {settings}")
+
+        # Show previously selected/default folder
+        selected_path = None
+        if (context == 'live_folder') and ('live_folder' in settings):
+            selected_path = settings['live_folder']
+        elif context in settings:
+            selected_path = settings[context]['save_folder']
+
+        # Note: Could likely use tkinter filedialog for all platforms
+        # but needs testing on Mac/Linux first
+        if sys.platform != 'win32':
+            filechooser.choose_dir(
+                on_selection=self.handle_selection
+                # path=selected_path
+            )
+            return
+        
+        else:
+            # Tested for Windows platforms
+            selection = tkinter_filedialog.askdirectory(
+                initialdir=selected_path
+            )
+
+            # Nothing selected/cancel
+            if selection == '':
+                return
+            
+            self.handle_selection(selection=[selection])
+        
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FolderChooseBTN.handle_selection()')
@@ -3218,7 +3363,9 @@ class FolderChooseBTN(Button):
             self.selection = selection
             self.on_selection_function()
 
+
     def on_selection_function(self, *a, **k):
+        global settings
         logger.info('[LVP Main  ] FolderChooseBTN.on_selection_function()')
         if self.selection:
             path = self.selection[0]
@@ -3332,6 +3479,9 @@ class LumaViewProApp(App):
             logger.exception('[LVP Main  ] Cannot open main display.')
             raise
 
+        if getattr(sys, 'frozen', False):
+            pyi_splash.close()
+
         # load settings file
         if os.path.exists("./data/current.json"):
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
@@ -3358,11 +3508,7 @@ class LumaViewProApp(App):
             settings['protocol']['filepath']=''
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
-        if lumaview.scope.led:
-            lumaview.scope.leds_off()
-            logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-        else:
-            logger.warning('[LVP Main  ] LED controller not available.')
+        scope_leds_off()
 
         return lumaview
 
@@ -3382,11 +3528,7 @@ class LumaViewProApp(App):
 
         global lumaview
 
-        if lumaview.scope.led:
-            lumaview.scope.leds_off()
-            logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-        else:
-            logger.warning('[LVP Main  ] LED controller not available.')
+        scope_leds_off()
 
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 

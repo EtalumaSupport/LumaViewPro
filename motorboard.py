@@ -297,26 +297,45 @@ class MotorBoard:
     def move_abs_pos(self, axis, pos):
         """ Move to absolute position (in um) of axis"""
         # logger.info('move_abs_pos', axis, pos)
-        if axis == 'Z': # Z bound between 0 to 14mm
-            if pos < 0:
-                pos = 0.
-            elif pos > 14000:
-                pos = 14000.
-            steps = self.z_um2ustep(pos)
-        elif axis == 'X': # X bound 0 to 120mm
-            if pos < 0:
-                pos = 0.
-            elif pos > 120000:
-                pos = 120000.
-            steps = self.xy_um2ustep(pos)
-        elif axis == 'Y': # y bound 0 to 80mm
-            if pos < 0:
-                pos = 0.
-            elif pos > 80000:
-                pos = 80000.
-            steps = self.xy_um2ustep(pos)
-        elif axis == 'T':
-            steps = self.t_deg2ustep(pos)
+
+        AXES_CONFIG = {
+            'Z': {
+                'limits': {
+                    'min': 0.,
+                    'max': 14000.,
+                },
+                'move_func': self.z_um2ustep
+            },
+            'X': {
+                'limits': {
+                    'min': 0.,
+                    'max': 120000.,
+                },
+                'move_func': self.xy_um2ustep
+            },
+            'Y': {
+                'limits': {
+                    'min': 0.,
+                    'max': 80000.,
+                },
+                'move_func': self.xy_um2ustep
+            },
+            'T': {
+                'move_func': self.t_deg2ustep
+            }
+        }
+
+        if axis not in AXES_CONFIG:
+            raise Exception(f"Unsupported axis ({axis})")
+        
+        axis_config = AXES_CONFIG[axis]
+
+        if 'limits' in axis_config:
+            axis_limits = axis_config['limits']
+            pos = max(pos, axis_limits['min'])
+            pos = min(pos, axis_limits['max'])
+        
+        steps = axis_config['move_func'](pos)
 
         if axis=='Z': # perform overshoot to always come from one direction
             # get current position
