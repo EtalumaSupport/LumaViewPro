@@ -1079,22 +1079,13 @@
 
         AccordionItem:
 			id: create_avi_accordion_id
-            title: 'Create AVI'
-			collapse: False
+            title: 'Create Video'
 			on_collapse: root.accordion_collapse()
-			
-			BoxLayout:
-				orientation: 'vertical'
+			collapse: False
 
-				FolderChooseBTN:
-					text: 'Load Folder'
-					size_hint_y: None
-					height: '30dp'
-					font_size: '12sp'
-					on_release: root.convert_to_avi()
+			VideoCreationControls:
+				id: video_creation_controls_id
 			
-				Widget:
-
         AccordionItem:
 			id: stitch_accordion_id
             title: 'Stitch'
@@ -2083,5 +2074,45 @@
 		font_size: '12sp'
 		on_release: self.choose('apply_cell_count_method_to_folder')
 
+	# Empty widget to consume space at bottom of controls panel
+	Widget:
+
+
+
+<VideoCreationControls>:
+	orientation: 'vertical'
+
+	# Pad
+	Widget:
+		size_hint_y: None
+		height: '30dp'
+
+	FolderChooseBTN:
+		text: 'Select Image Folder'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: self.choose('video_input_images_folder')
+
+	# Save method
+	FileSaveBTN:
+		text: 'Set Video Output Path'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: self.choose('video_output_path')
+
+	# Pad
+	Widget:
+		size_hint_y: None
+		height: '10dp'
+
+	Button:
+		text: 'Generate Video'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: root.create_video()
+	
 	# Empty widget to consume space at bottom of controls panel
 	Widget:
