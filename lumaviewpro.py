@@ -3504,8 +3504,6 @@ class FileSaveBTN(Button):
                 filepath = pathlib.Path(self.selection[0])
                 if filepath.suffix == "":
                     filepath = filepath.with_suffix(".avi")
-                # if os.path.splitext(filename)[1] == "":
-                #     filename += ".avi"
                 video_creation_controls.set_output_file_loc(file_loc=filepath)
 
 
