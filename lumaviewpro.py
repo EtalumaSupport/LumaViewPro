@@ -642,8 +642,22 @@ class VideoCreationControls(BoxLayout):
 
     @show_popup
     def create_video(self, popup) -> None:
+        status_map = {
+            True: "Success",
+            False: "FAILED"
+        }
+
         popup.title = "Video Builder"
         popup.text = "Generating video..."
+
+        if self._input_images_loc is None:
+            popup.text = f"{popup.text} {status_map[False]} - Set Image Folder"
+            time.sleep(2)
+            self.done = True
+            return
+
+        if self._output_file_loc is None:
+            self._output_file_loc = self._input_images_loc.joinpath("movie.avi")
 
         video_builder = VideoBuilder()
         status = video_builder.create_video_from_directory(
@@ -652,14 +666,17 @@ class VideoCreationControls(BoxLayout):
             output_file_loc=self._output_file_loc,
         )
 
-        status_map = {
-            True: "Success",
-            False: "FAILED"
-        }
-
-        popup.text = f"{popup.text} {status_map[status]}"
-        time.sleep(1)
+        popup.text = f"{popup.text} {status_map[status]}\n- Output: {self._output_file_loc}"
+        time.sleep(2)
         self.done = True
+        self._launch_video()
+
+    
+    def _launch_video(self) -> None:
+        try:
+            os.startfile(self._output_file_loc)
+        except Exception as e:
+            logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
 
 
 class CellCountControls(BoxLayout):
@@ -3449,7 +3466,7 @@ class FileSaveBTN(Button):
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
         elif self.context == 'saveas_cell_count_method':
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
-        elif self.context == 'saveas_video_creation':
+        elif self.context == 'video_output_path':
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.avi"])
 
 
@@ -3481,13 +3498,15 @@ class FileSaveBTN(Button):
                     filename += ".json"
                 cell_count_controls.save_method_as(file=filename)
         
-        elif self.context == 'saveas_video_creation':
+        elif self.context == 'video_output_path':
             if self.selection:
-                logger.info('[LVP Main  ] Set video creation output to file:' + self.selection[0])
-                filename = self.selection[0]
-                if os.path.splitext(filename)[1] == "":
-                    filename += ".avi"
-                video_creation_controls.set_output_file_loc(file_loc=filename)
+                logger.info('[LVP Main  ] Set video output path to file:' + self.selection[0])
+                filepath = pathlib.Path(self.selection[0])
+                if filepath.suffix == "":
+                    filepath = filepath.with_suffix(".avi")
+                # if os.path.splitext(filename)[1] == "":
+                #     filename += ".avi"
+                video_creation_controls.set_output_file_loc(file_loc=filepath)
 
 
 # -------------------------------------------------------------------------
