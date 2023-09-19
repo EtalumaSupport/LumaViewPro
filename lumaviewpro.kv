@@ -184,6 +184,15 @@
         background_down: './data/icons/left_arrow_right_arc.png'
         on_press: root.toggle_editor()
 
+
+<AccordionItemXyStageControl>:
+	title: 'XY Stage Control'
+	id: motionsettings_xystage_control_accordion_item_id
+	
+	XYStageControl:
+		id: xy_stagecontrol_id
+
+
 # MotionSettings - view and control motion control Board
 # ------------------------------------------
 <MotionSettings>:
@@ -191,6 +200,7 @@
 
 	Accordion:
 		orientation: 'vertical'
+		id: motionsettings_accordion_id
 
         # MICROSCOPE SETTINGS
         AccordionItem:
@@ -204,12 +214,6 @@
 			title: 'Objective Control'
 			VerticalControl:
 				id: verticalcontrol_id
-
-        # XY STAGE CONTROL
-		AccordionItem:
-			title: 'XY Stage Control'
-			XYStageControl:
-				id: xy_stagecontrol_id
 
         # PROTOCOL SETTINGS
 		AccordionItem:
@@ -389,16 +393,24 @@
 
 	Label:
 		text:'Turret Selection'
+		id: turret_selection_label
 		font_size: '16sp'
-		size_hint_y: None
-		height: '30dp'
+		size_hint_y: None if self.visible else 0
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
 		spacing: '5dp'
 		color: [51/255, 181/255, 229/255, 1]
+		visible: True
 
 	BoxLayout:
 		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
+		id: turret_btn_box
+		size_hint_y: None if self.visible else 0
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
+		visible: True
 
 		ToggleButton:
 			id: turret_pos_1_btn

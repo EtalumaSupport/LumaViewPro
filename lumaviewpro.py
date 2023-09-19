@@ -84,6 +84,7 @@ from kivy.metrics import dp
 from kivy.graphics import Line, Color, Rectangle, Ellipse
 
 # User Interface
+from kivy.uix.accordion import AccordionItem
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.scatter import Scatter
@@ -574,12 +575,50 @@ void main (void) {
 Factory.register('ShaderViewer', cls=ShaderViewer)
 
 
+class AccordionItemXyStageControl(AccordionItem):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    
+    def update_gui(self):
+        self.ids['xy_stagecontrol_id'].update_gui()
+
+
 class MotionSettings(BoxLayout):
     settings_width = dp(300)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] MotionSettings.__init__()')
+        self._accordion_item_xystagecontrol = AccordionItemXyStageControl()
+        self._accordion_item_xystagecontrol_visible = False
+
+    
+    def set_xystage_control_visibility(self, visible: bool) -> None:
+        if visible:
+            self._show_xystage_control()
+        else:
+            self._hide_xystage_control()
+
+
+    def _show_xystage_control(self):
+        if not self._accordion_item_xystagecontrol_visible:
+            self._accordion_item_xystagecontrol_visible = True
+            self.ids['motionsettings_accordion_id'].add_widget(self._accordion_item_xystagecontrol, 2)
+
+
+    def _hide_xystage_control(self):
+        if self._accordion_item_xystagecontrol_visible:
+            self._accordion_item_xystagecontrol_visible = False
+            self.ids['motionsettings_accordion_id'].remove_widget(self._accordion_item_xystagecontrol)
+
+
+    def set_turret_control_visibility(self, visible: bool) -> None:
+        vert_control = self.ids['verticalcontrol_id']
+        for turret_id in ('turret_selection_label', 'turret_btn_box'):
+            vert_control.ids[turret_id].visible = visible
+
 
     # Hide (and unhide) motion settings
     def toggle_settings(self):
@@ -588,7 +627,7 @@ class MotionSettings(BoxLayout):
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
         self.ids['verticalcontrol_id'].update_gui()
-        self.ids['xy_stagecontrol_id'].update_gui()
+        self.update_xy_stage_control_gui()
 
         # move position of motion control
         if self.ids['toggle_motionsettings'].state == 'normal':
@@ -598,6 +637,11 @@ class MotionSettings(BoxLayout):
 
         if scope_display.play == True:
             scope_display.start()
+
+    
+    def update_xy_stage_control_gui(self, *args):
+        self._accordion_item_xystagecontrol.update_gui()
+
 
     def check_settings(self, *args):
         logger.info('[LVP Main  ] MotionSettings.check_settings()')
@@ -2323,7 +2367,7 @@ class ProtocolSettings(CompositeCapture):
         layer.ids['exp_slider'].value = float(exp)
 
         # update position in stage control
-        lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+        lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
 
 
     # Delete Current Step of Protocol
@@ -2801,7 +2845,7 @@ class Stage(Widget):
 
             lumaview.scope.move_absolute_position('X', stage_x)
             lumaview.scope.move_absolute_position('Y', stage_y)
-            lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+            lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
     
 
     def draw_labware(self, *args): # View the labware from front and above
@@ -3015,6 +3059,17 @@ class MicroscopeSettings(BoxLayout):
         spinner = self.ids['scope_spinner']
         settings['microscope'] = spinner.text
 
+        self.set_ui_features_for_scope()
+
+
+    def set_ui_features_for_scope(self) -> None:
+        scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+        motionsettings =  lumaview.ids['motionsettings_id']
+        motionsettings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
+        motionsettings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
+           
+            
     def load_ojectives(self):
         logger.info('[LVP Main  ] MicroscopeSettings.load_ojectives()')
         spinner = self.ids['objective_spinner']
@@ -3559,7 +3614,7 @@ class LumaViewProApp(App):
         
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
-        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui, 0.1) # Includes text boxes, not just stage
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].draw_labware, 0.1)
 
         try:
