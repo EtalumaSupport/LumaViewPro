@@ -2042,8 +2042,8 @@ class ProtocolSettings(CompositeCapture):
 
     # Labware Selection
     def select_labware(self, labware : str = None):
+        global settings
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
-
         if labware is None:
             spinner = self.ids['labware_spinner']
             spinner.values = list(self.labware['Wellplate'].keys())
@@ -2184,6 +2184,22 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['filepath'] = ''        
         self.ids['protocol_filename'].text = ''
 
+
+    def _validate_labware(self, labware: str):
+        scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+
+        # If XY motion is available, any type of labware is acceptable
+        if selected_scope_config['XYStage'] is True:
+            return True, labware
+        
+        # If XY motion is not available, only Center Dish
+        if labware == "Center Dish":
+            return True, labware
+        else:
+            return False, "Center Dish"
+            
+
     # Load Protocol from File
     def load_protocol(self, filepath="./data/example_protocol.tsv"):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
@@ -2200,6 +2216,12 @@ class ProtocolSettings(CompositeCapture):
         duration = float(duration[1])
         labware = next(csvreader)
         labware = labware[1]
+
+        orig_labware = labware
+        labware_valid, labware = self._validate_labware(labware=orig_labware)
+        if not labware_valid:
+            logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
+
         header = next(csvreader) # skip a line
 
         self.step_names = list()
