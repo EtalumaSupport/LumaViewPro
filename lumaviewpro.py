@@ -2041,11 +2041,27 @@ class ProtocolSettings(CompositeCapture):
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
 
     # Labware Selection
-    def select_labware(self):
+    def select_labware(self, labware : str = None):
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
-        spinner = self.ids['labware_spinner']
-        spinner.values = list(self.labware['Wellplate'].keys())
-        settings['protocol']['labware'] = spinner.text
+
+        if labware is None:
+            spinner = self.ids['labware_spinner']
+            spinner.values = list(self.labware['Wellplate'].keys())
+            settings['protocol']['labware'] = spinner.text
+        else:
+            spinner = self.ids['labware_spinner']
+            spinner.values = list('Center Dish',)
+            settings['protocol']['labware'] = labware
+
+
+    def set_labware_selection_visibility(self, visible):
+        labware_spinner = self.ids['labware_spinner']
+        labware_spinner.visible = visible
+        labware_spinner.size_hint_y = None if visible else 0
+        labware_spinner.height = '30dp' if visible else 0
+        labware_spinner.opacity = 1 if visible else 0
+        labware_spinner.disabled = not visible
+    
     
     def plate_to_stage(self, px, py):
         # plate coordinates in mm from top left
@@ -2811,9 +2827,18 @@ class Stage(Widget):
         logger.info('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0,0]
         self.ROI_max = [0,0]
+        self._motion_enabled = True
+
+    
+    def set_motion_capability(self, enabled: bool):
+        self._motion_enabled = enabled
+
 
     def on_touch_down(self, touch):
         logger.info('[LVP Main  ] Stage.on_touch_down()')
+
+        if not self._motion_enabled:
+            return
 
         if self.collide_point(*touch.pos) and touch.button == 'left':
 
@@ -2948,16 +2973,17 @@ class Stage(Widget):
             
             #  Red Crosshairs
             # ------------------
-            x_current = lumaview.scope.get_current_position('X')
-            x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-            y_current = lumaview.scope.get_current_position('Y')
-            y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+            if self._motion_enabled:
+                x_current = lumaview.scope.get_current_position('X')
+                x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+                y_current = lumaview.scope.get_current_position('Y')
+                y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
 
-            # Convert stage coordinates to relative pixel coordinates
-            pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
-            Color(1., 0., 0., 1.)
-            Line(points=(x+pixel_x-10, y+pixel_y, x+pixel_x+10, y+pixel_y), width = 1) # horizontal line
-            Line(points=(x+pixel_x, y+pixel_y-10, x+pixel_x, y+pixel_y+10), width = 1) # vertical line
+                # Convert stage coordinates to relative pixel coordinates
+                pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
+                Color(1., 0., 0., 1.)
+                Line(points=(x+pixel_x-10, y+pixel_y, x+pixel_x+10, y+pixel_y), width = 1) # horizontal line
+                Line(points=(x+pixel_x, y+pixel_y-10, x+pixel_x, y+pixel_y+10), width = 1) # vertical line
 
 
 class MicroscopeSettings(BoxLayout):
@@ -3037,6 +3063,9 @@ class MicroscopeSettings(BoxLayout):
                 lumaview.scope.set_frame_size(settings['frame']['width'], settings['frame']['height'])
             except:
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
+        
+        self.set_ui_features_for_scope()
+
 
     # Save settings to JSON file
     def save_settings(self, file="./data/current.json"):
@@ -3065,11 +3094,20 @@ class MicroscopeSettings(BoxLayout):
     def set_ui_features_for_scope(self) -> None:
         scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
         selected_scope_config = scope_configs[settings['microscope']]
-        motionsettings =  lumaview.ids['motionsettings_id']
-        motionsettings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
-        motionsettings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
+        motion_settings =  lumaview.ids['motionsettings_id']
+        motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
+        motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
+
+        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+        protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
+
+        if selected_scope_config['XYStage'] is False:
+            protocol_settings.select_labware(labware="Center Dish")
+
+        protocol_settings.ids['stage_widget_id'].set_motion_capability(enabled=selected_scope_config['XYStage'])
+        protocol_settings.ids['stage_widget_id'].draw_labware()
+
            
-            
     def load_ojectives(self):
         logger.info('[LVP Main  ] MicroscopeSettings.load_ojectives()')
         spinner = self.ids['objective_spinner']
