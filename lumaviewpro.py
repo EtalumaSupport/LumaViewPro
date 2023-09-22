@@ -39,6 +39,7 @@ June 24, 2023
 
 # General
 import os
+import pathlib
 import numpy as np
 import csv
 import time
@@ -83,6 +84,7 @@ from kivy.metrics import dp
 from kivy.graphics import Line, Color, Rectangle, Ellipse
 
 # User Interface
+from kivy.uix.accordion import AccordionItem
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.scatter import Scatter
@@ -103,6 +105,7 @@ from custom_widgets.progress_popup import show_popup
 
 #post processing
 from image_stitcher import image_stitcher
+from modules.video_builder import VideoBuilder
 
 import cv2
 
@@ -572,12 +575,50 @@ void main (void) {
 Factory.register('ShaderViewer', cls=ShaderViewer)
 
 
+class AccordionItemXyStageControl(AccordionItem):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    
+    def update_gui(self):
+        self.ids['xy_stagecontrol_id'].update_gui()
+
+
 class MotionSettings(BoxLayout):
     settings_width = dp(300)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] MotionSettings.__init__()')
+        self._accordion_item_xystagecontrol = AccordionItemXyStageControl()
+        self._accordion_item_xystagecontrol_visible = False
+
+    
+    def set_xystage_control_visibility(self, visible: bool) -> None:
+        if visible:
+            self._show_xystage_control()
+        else:
+            self._hide_xystage_control()
+
+
+    def _show_xystage_control(self):
+        if not self._accordion_item_xystagecontrol_visible:
+            self._accordion_item_xystagecontrol_visible = True
+            self.ids['motionsettings_accordion_id'].add_widget(self._accordion_item_xystagecontrol, 2)
+
+
+    def _hide_xystage_control(self):
+        if self._accordion_item_xystagecontrol_visible:
+            self._accordion_item_xystagecontrol_visible = False
+            self.ids['motionsettings_accordion_id'].remove_widget(self._accordion_item_xystagecontrol)
+
+
+    def set_turret_control_visibility(self, visible: bool) -> None:
+        vert_control = self.ids['verticalcontrol_id']
+        for turret_id in ('turret_selection_label', 'turret_btn_box'):
+            vert_control.ids[turret_id].visible = visible
+
 
     # Hide (and unhide) motion settings
     def toggle_settings(self):
@@ -586,7 +627,7 @@ class MotionSettings(BoxLayout):
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
         self.ids['verticalcontrol_id'].update_gui()
-        self.ids['xy_stagecontrol_id'].update_gui()
+        self.update_xy_stage_control_gui()
 
         # move position of motion control
         if self.ids['toggle_motionsettings'].state == 'normal':
@@ -597,12 +638,89 @@ class MotionSettings(BoxLayout):
         if scope_display.play == True:
             scope_display.start()
 
+    
+    def update_xy_stage_control_gui(self, *args):
+        self._accordion_item_xystagecontrol.update_gui()
+
+
     def check_settings(self, *args):
         logger.info('[LVP Main  ] MotionSettings.check_settings()')
         if self.ids['toggle_motionsettings'].state == 'normal':
             self.pos = -self.settings_width+30, 0
         else:
             self.pos = 0, 0
+
+
+class VideoCreationControls(BoxLayout):
+
+
+    done = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        global video_creation_controls
+        super().__init__(**kwargs)
+        logger.info('LVP Main: VideoCreationControls.__init__()')
+        self._post = post_processing.PostProcessing()
+        video_creation_controls = self
+        self._first_open = False
+        self._input_images_loc = None
+        self._output_file_loc = None
+
+    
+    def activate(self):
+        if self._first_open is False:
+            self._first_open = True
+
+
+    def deactivate(self):
+        pass
+
+
+    def set_input_images_loc(self, directory: str | pathlib.Path) -> None:
+        self._input_images_loc = pathlib.Path(directory)
+
+    
+    def set_output_file_loc(self, file_loc: str | pathlib.Path) -> None:
+        self._output_file_loc = pathlib.Path(file_loc)
+
+
+    @show_popup
+    def create_video(self, popup) -> None:
+        status_map = {
+            True: "Success",
+            False: "FAILED"
+        }
+
+        popup.title = "Video Builder"
+        popup.text = "Generating video..."
+
+        if self._input_images_loc is None:
+            popup.text = f"{popup.text} {status_map[False]} - Set Image Folder"
+            time.sleep(2)
+            self.done = True
+            return
+
+        if self._output_file_loc is None:
+            self._output_file_loc = self._input_images_loc.joinpath("movie.avi")
+
+        video_builder = VideoBuilder()
+        status = video_builder.create_video_from_directory(
+            input_directory=self._input_images_loc,
+            frames_per_sec=10,
+            output_file_loc=self._output_file_loc,
+        )
+
+        popup.text = f"{popup.text} {status_map[status]}\n- Output: {self._output_file_loc}"
+        time.sleep(2)
+        self.done = True
+        self._launch_video()
+
+    
+    def _launch_video(self) -> None:
+        try:
+            os.startfile(self._output_file_loc)
+        except Exception as e:
+            logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
 
 
 class CellCountControls(BoxLayout):
@@ -614,10 +732,9 @@ class CellCountControls(BoxLayout):
     def __init__(self, **kwargs):
         global cell_count_controls
         super().__init__(**kwargs)
-        logger.info('LVP Main: CellCountPopup.__init__()')
+        logger.info('LVP Main: CellCountControls.__init__()')
         self._preview_source_image = None
         self._preview_image = None
-        self._post = None
         self._post = post_processing.PostProcessing()
         self._settings = self._get_init_settings()
         cell_count_controls = self
@@ -1931,11 +2048,27 @@ class ProtocolSettings(CompositeCapture):
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
 
     # Labware Selection
-    def select_labware(self):
+    def select_labware(self, labware : str = None):
+        global settings
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
-        spinner = self.ids['labware_spinner']
-        spinner.values = list(self.labware['Wellplate'].keys())
-        settings['protocol']['labware'] = spinner.text
+        if labware is None:
+            spinner = self.ids['labware_spinner']
+            spinner.values = list(self.labware['Wellplate'].keys())
+            settings['protocol']['labware'] = spinner.text
+        else:
+            spinner = self.ids['labware_spinner']
+            spinner.values = list('Center Dish',)
+            settings['protocol']['labware'] = labware
+
+
+    def set_labware_selection_visibility(self, visible):
+        labware_spinner = self.ids['labware_spinner']
+        labware_spinner.visible = visible
+        labware_spinner.size_hint_y = None if visible else 0
+        labware_spinner.height = '30dp' if visible else 0
+        labware_spinner.opacity = 1 if visible else 0
+        labware_spinner.disabled = not visible
+    
     
     def plate_to_stage(self, px, py):
         # plate coordinates in mm from top left
@@ -2058,6 +2191,22 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['filepath'] = ''        
         self.ids['protocol_filename'].text = ''
 
+
+    def _validate_labware(self, labware: str):
+        scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+
+        # If XY motion is available, any type of labware is acceptable
+        if selected_scope_config['XYStage'] is True:
+            return True, labware
+        
+        # If XY motion is not available, only Center Dish
+        if labware == "Center Dish":
+            return True, labware
+        else:
+            return False, "Center Dish"
+            
+
     # Load Protocol from File
     def load_protocol(self, filepath="./data/example_protocol.tsv"):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
@@ -2074,6 +2223,12 @@ class ProtocolSettings(CompositeCapture):
         duration = float(duration[1])
         labware = next(csvreader)
         labware = labware[1]
+
+        orig_labware = labware
+        labware_valid, labware = self._validate_labware(labware=orig_labware)
+        if not labware_valid:
+            logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
+
         header = next(csvreader) # skip a line
 
         self.step_names = list()
@@ -2257,7 +2412,7 @@ class ProtocolSettings(CompositeCapture):
         layer.ids['exp_slider'].value = float(exp)
 
         # update position in stage control
-        lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+        lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
 
 
     # Delete Current Step of Protocol
@@ -2701,9 +2856,18 @@ class Stage(Widget):
         logger.info('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0,0]
         self.ROI_max = [0,0]
+        self._motion_enabled = True
+
+    
+    def set_motion_capability(self, enabled: bool):
+        self._motion_enabled = enabled
+
 
     def on_touch_down(self, touch):
         logger.info('[LVP Main  ] Stage.on_touch_down()')
+
+        if not self._motion_enabled:
+            return
 
         if self.collide_point(*touch.pos) and touch.button == 'left':
 
@@ -2735,7 +2899,7 @@ class Stage(Widget):
 
             lumaview.scope.move_absolute_position('X', stage_x)
             lumaview.scope.move_absolute_position('Y', stage_y)
-            lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui()
+            lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
     
 
     def draw_labware(self, *args): # View the labware from front and above
@@ -2838,16 +3002,17 @@ class Stage(Widget):
             
             #  Red Crosshairs
             # ------------------
-            x_current = lumaview.scope.get_current_position('X')
-            x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-            y_current = lumaview.scope.get_current_position('Y')
-            y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+            if self._motion_enabled:
+                x_current = lumaview.scope.get_current_position('X')
+                x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+                y_current = lumaview.scope.get_current_position('Y')
+                y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
 
-            # Convert stage coordinates to relative pixel coordinates
-            pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
-            Color(1., 0., 0., 1.)
-            Line(points=(x+pixel_x-10, y+pixel_y, x+pixel_x+10, y+pixel_y), width = 1) # horizontal line
-            Line(points=(x+pixel_x, y+pixel_y-10, x+pixel_x, y+pixel_y+10), width = 1) # vertical line
+                # Convert stage coordinates to relative pixel coordinates
+                pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
+                Color(1., 0., 0., 1.)
+                Line(points=(x+pixel_x-10, y+pixel_y, x+pixel_x+10, y+pixel_y), width = 1) # horizontal line
+                Line(points=(x+pixel_x, y+pixel_y-10, x+pixel_x, y+pixel_y+10), width = 1) # vertical line
 
 
 class MicroscopeSettings(BoxLayout):
@@ -2927,6 +3092,9 @@ class MicroscopeSettings(BoxLayout):
                 lumaview.scope.set_frame_size(settings['frame']['width'], settings['frame']['height'])
             except:
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
+        
+        self.set_ui_features_for_scope()
+
 
     # Save settings to JSON file
     def save_settings(self, file="./data/current.json"):
@@ -2949,6 +3117,26 @@ class MicroscopeSettings(BoxLayout):
         spinner = self.ids['scope_spinner']
         settings['microscope'] = spinner.text
 
+        self.set_ui_features_for_scope()
+
+
+    def set_ui_features_for_scope(self) -> None:
+        scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+        motion_settings =  lumaview.ids['motionsettings_id']
+        motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
+        motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
+
+        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+        protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
+
+        if selected_scope_config['XYStage'] is False:
+            protocol_settings.select_labware(labware="Center Dish")
+
+        protocol_settings.ids['stage_widget_id'].set_motion_capability(enabled=selected_scope_config['XYStage'])
+        protocol_settings.ids['stage_widget_id'].draw_labware()
+
+           
     def load_ojectives(self):
         logger.info('[LVP Main  ] MicroscopeSettings.load_ojectives()')
         spinner = self.ids['objective_spinner']
@@ -3375,21 +3563,8 @@ class FolderChooseBTN(Button):
         if self.context == 'live_folder':
             settings['live_folder'] = path
 
-        elif self.context == 'movie_folder':
-            save_location = path + '/movie.avi'
-
-            img_array = []
-            for filename in glob.glob(path + '/*.tiff'):
-                img = cv2.imread(filename)
-                height, width, layers = img.shape
-                size = (width,height)
-                img_array.append(img)
-
-            out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-
-            for i in range(len(img_array)):
-                out.write(img_array[i])
-            out.release()
+        elif self.context == 'video_input_images_folder':
+            video_creation_controls.set_input_images_loc(directory=path)
 
         elif self.context == 'apply_cell_count_method_to_folder':
             cell_count_controls.apply_method_to_folder(
@@ -3413,6 +3588,8 @@ class FileSaveBTN(Button):
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
         elif self.context == 'saveas_cell_count_method':
             filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
+        elif self.context == 'video_output_path':
+            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.avi"])
 
 
     def handle_selection(self, selection):
@@ -3442,6 +3619,14 @@ class FileSaveBTN(Button):
                 if os.path.splitext(filename)[1] == "":
                     filename += ".json"
                 cell_count_controls.save_method_as(file=filename)
+        
+        elif self.context == 'video_output_path':
+            if self.selection:
+                logger.info('[LVP Main  ] Set video output path to file:' + self.selection[0])
+                filepath = pathlib.Path(self.selection[0])
+                if filepath.suffix == "":
+                    filepath = filepath.with_suffix(".avi")
+                video_creation_controls.set_output_file_loc(file_loc=filepath)
 
 
 # -------------------------------------------------------------------------
@@ -3468,6 +3653,7 @@ class LumaViewProApp(App):
         global Window
         global lumaview
         global cell_count_controls
+        global video_creation_controls
         self.icon = './data/icons/icon.png'
 
         try:
@@ -3495,7 +3681,7 @@ class LumaViewProApp(App):
         
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
-        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['xy_stagecontrol_id'].update_gui, 0.1) # Includes text boxes, not just stage
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].draw_labware, 0.1)
 
         try:
