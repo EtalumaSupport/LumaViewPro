@@ -1272,9 +1272,8 @@ class PostProcessingAccordion(BoxLayout):
     def select_tiling_size(self):
         logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() not yet implemented')
         #logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
-        spinner = self.ids['labware_spinner']
-        spinner.values = list(self.labware['Wellplate'].keys())
-        settings['protocol']['labware'] = spinner.text
+        spinner = self.ids['tiling_size_spinner']
+        #settings['protocol']['labware'] = spinner.text #TODO change key
         
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')

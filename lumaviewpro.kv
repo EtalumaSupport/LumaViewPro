@@ -1148,9 +1148,9 @@
 						font_size: '12sp'
 						on_release: root.start_tiling()
                     
-                    # Select Labware
+                    # Select tiling size
                     Spinner:
-                        id: labware_spinner
+                        id: tiling_size_spinner
                         sync_height: True
                         text: 'New'
                         font_size: '12dp'
@@ -1158,6 +1158,8 @@
                         height: '30dp'
                         text_autoupdate: True
                         on_text: root.select_tiling_size()
+                        #text: '1x1'
+                        values: '1x1', '2x2', '3x3', '4x4'
                 
 				Label:
 
