@@ -1277,10 +1277,16 @@ class PostProcessingAccordion(BoxLayout):
         self.tiling_count = int(spinner.text[0])
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].tiling_count = self.tiling_count
         #print(self.tiling_count)
-        '''
-        self.tiling_min = [min(x_current, self.tiling_min[0]), min(y_current, self.tiling_min[1])]
-        self.tiling_max = [max(x_current, self.tiling_max[0]), max(y_current, self.tiling_max[1])]
-        print(new_step)
+        x_fov = 10000 # TODO tie to objective lookup
+        y_fov = 10000 # TODO tie to objective lookup
+        #x_current = lumaview.scope.get_current_position('X')
+        #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+        x_center = 60000 # TODO make center of a well
+        #y_current = lumaview.scope.get_current_position('Y')
+        #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+        y_center = 40000 # TODO make center of a well
+        self.tiling_min = [x_center - self.tiling_count*x_fov/2, y_center - self.tiling_count*y_fov/2]
+        self.tiling_max = [x_center + self.tiling_count*x_fov/2, y_center + self.tiling_count*y_fov/2]
         print(self.tiling_min)
         print(self.tiling_max)
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
@@ -1288,7 +1294,6 @@ class PostProcessingAccordion(BoxLayout):
         print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
         print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
         return
-        '''
         
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
