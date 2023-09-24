@@ -2057,7 +2057,7 @@ class ProtocolSettings(CompositeCapture):
             settings['protocol']['labware'] = spinner.text
         else:
             spinner = self.ids['labware_spinner']
-            spinner.values = list('Center Dish',)
+            spinner.values = list('Center Plate',)
             settings['protocol']['labware'] = labware
 
 
@@ -2200,11 +2200,11 @@ class ProtocolSettings(CompositeCapture):
         if selected_scope_config['XYStage'] is True:
             return True, labware
         
-        # If XY motion is not available, only Center Dish
-        if labware == "Center Dish":
+        # If XY motion is not available, only Center Plate
+        if labware == "Center Plate":
             return True, labware
         else:
-            return False, "Center Dish"
+            return False, "Center Plate"
             
 
     # Load Protocol from File
@@ -3131,7 +3131,7 @@ class MicroscopeSettings(BoxLayout):
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
 
         if selected_scope_config['XYStage'] is False:
-            protocol_settings.select_labware(labware="Center Dish")
+            protocol_settings.select_labware(labware="Center Plate")
 
         protocol_settings.ids['stage_widget_id'].set_motion_capability(enabled=selected_scope_config['XYStage'])
         protocol_settings.ids['stage_widget_id'].draw_labware()
