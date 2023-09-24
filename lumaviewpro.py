@@ -1274,6 +1274,21 @@ class PostProcessingAccordion(BoxLayout):
         #logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
         spinner = self.ids['tiling_size_spinner']
         #settings['protocol']['labware'] = spinner.text #TODO change key
+        self.tiling_count = int(spinner.text[0])
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].tiling_count = self.tiling_count
+        #print(self.tiling_count)
+        '''
+        self.tiling_min = [min(x_current, self.tiling_min[0]), min(y_current, self.tiling_min[1])]
+        self.tiling_max = [max(x_current, self.tiling_max[0]), max(y_current, self.tiling_max[1])]
+        print(new_step)
+        print(self.tiling_min)
+        print(self.tiling_max)
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
+        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
+        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
+        return
+        '''
         
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
