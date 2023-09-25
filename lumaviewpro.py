@@ -1243,7 +1243,7 @@ class PostProcessingAccordion(BoxLayout):
                                              pos2pix = self.pos2pix,post_process = False)
 
     def add_tiling_step(self):
-        #logger.debug('[LVP Main  ] PostProcessing.add_tiling_step() not fully implemented')
+        logger.info('[LVP Main  ] PostProcessing.add_tiling_step()')
         x_current = lumaview.scope.get_current_position('X')
         x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
         y_current = lumaview.scope.get_current_position('Y')
@@ -1259,36 +1259,40 @@ class PostProcessingAccordion(BoxLayout):
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
         print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
         print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
+        #TODO add cacluation of nearest
         return
                                              
     def start_tiling(self):
         logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
-        for i in range(10):
-            for j in range(10):
+        for i in range(self.x_tiling_count):
+            for j in range(self.y_tiling_count):
                 pass
 
         return
 
     def select_tiling_size(self):
-        logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() not yet implemented')
-        #logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
+        logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() partially implemented')
+        logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
         spinner = self.ids['tiling_size_spinner']
         #settings['protocol']['labware'] = spinner.text #TODO change key
-        self.tiling_count = int(spinner.text[0])
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].tiling_count = self.tiling_count
-        #print(self.tiling_count)
-        x_fov = 10000 # TODO tie to objective lookup
-        y_fov = 10000 # TODO tie to objective lookup
+        self.x_tiling_count = int(spinner.text[0])
+        self.y_tiling_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
+        #print(self.x_tiling_count)
+        self.x_fov = 4000 # TODO tie to objective lookup
+        self.y_fov = 3000 # TODO tie to objective lookup
         #x_current = lumaview.scope.get_current_position('X')
         #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
         x_center = 60000 # TODO make center of a well
         #y_current = lumaview.scope.get_current_position('Y')
         #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
         y_center = 40000 # TODO make center of a well
-        self.tiling_min = [x_center - self.tiling_count*x_fov/2, y_center - self.tiling_count*y_fov/2]
-        self.tiling_max = [x_center + self.tiling_count*x_fov/2, y_center + self.tiling_count*y_fov/2]
-        print(self.tiling_min)
-        print(self.tiling_max)
+        self.tiling_min = [x_center - self.x_tiling_count*self.x_fov/2,
+                           y_center - self.y_tiling_count*self.y_fov/2]
+        #print(self.tiling_min)
+        self.tiling_max = [x_center + self.x_tiling_count*self.x_fov/2,
+                           y_center + self.y_tiling_count*self.y_fov/2]
+        #print(self.tiling_max)
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = [self.x_tiling_count, self.y_tiling_count]
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
         print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
