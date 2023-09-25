@@ -1163,6 +1163,7 @@ class PostProcessingAccordion(BoxLayout):
         self.tiling_target = []
         self.tiling_min = [120000, 80000]
         self.tiling_max = [0, 0]
+        self.tiling_count = [1, 1]
 
         self.accordion_item_states = {
             'cell_count_accordion_id': None,
@@ -1259,15 +1260,7 @@ class PostProcessingAccordion(BoxLayout):
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
         print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
         print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
-        #TODO add cacluation of nearest
-        return
-                                             
-    def start_tiling(self):
-        logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
-        for i in range(self.x_tiling_count):
-            for j in range(self.y_tiling_count):
-                pass
-
+        #TODO add cacluation of nearest tiling count
         return
 
     def select_tiling_size(self):
@@ -1275,28 +1268,34 @@ class PostProcessingAccordion(BoxLayout):
         logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
         spinner = self.ids['tiling_size_spinner']
         #settings['protocol']['labware'] = spinner.text #TODO change key
-        self.x_tiling_count = int(spinner.text[0])
-        self.y_tiling_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
+        x_count = int(spinner.text[0])
+        y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
+        self.tiling_count = [x_count, y_count]
         #print(self.x_tiling_count)
-        self.x_fov = 4000 # TODO tie to objective lookup
-        self.y_fov = 3000 # TODO tie to objective lookup
+        x_fov = 4000 # TODO tie to objective lookup
+        y_fov = 3000 # TODO tie to objective lookup
         #x_current = lumaview.scope.get_current_position('X')
         #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
         x_center = 60000 # TODO make center of a well
         #y_current = lumaview.scope.get_current_position('Y')
         #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
         y_center = 40000 # TODO make center of a well
-        self.tiling_min = [x_center - self.x_tiling_count*self.x_fov/2,
-                           y_center - self.y_tiling_count*self.y_fov/2]
+        self.tiling_min = [x_center - x_count*x_fov/2, y_center - y_count*y_fov/2]
         #print(self.tiling_min)
-        self.tiling_max = [x_center + self.x_tiling_count*self.x_fov/2,
-                           y_center + self.y_tiling_count*self.y_fov/2]
+        self.tiling_max = [x_center + x_count*x_fov/2, y_center + y_count*y_fov/2]
         #print(self.tiling_max)
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = [self.x_tiling_count, self.y_tiling_count]
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
         print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
         print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
+        return
+        
+    def start_tiling(self):
+        logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
+        for i in range(self.tiling_count[0]):
+            for j in range(self.tiling_count[1]):
+                pass
         return
         
     def open_folder(self):
@@ -3547,8 +3546,9 @@ class FolderChooseBTN(Button):
             selected_path = settings[context]['save_folder']
 
         # Note: Could likely use tkinter filedialog for all platforms
-        # but needs testing on Mac/Linux first
-        if sys.platform != 'win32':
+        # works on windows and MacOSX
+        # but needs testing on Linux
+        if sys.platform != 'win32' or sys.platform != 'darwin':
             filechooser.choose_dir(
                 on_selection=self.handle_selection
                 # path=selected_path
