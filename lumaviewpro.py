@@ -1293,13 +1293,19 @@ class PostProcessingAccordion(BoxLayout):
         
     def start_tiling(self):
         logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
+        return self.get_tile_centers()
+        
+    def get_tile_centers(self):
+        logger.info('[LVP Main  ] PostProcessing.get_tile_centers()')
         tiles = []
+        ax = (self.tiling_max[0] + self.tiling_min[0])/2
+        ay = (self.tiling_max[1] + self.tiling_min[1])/2
         dx = (self.tiling_max[0] - self.tiling_min[0])/self.tiling_count[0]
         dy = (self.tiling_max[1] - self.tiling_min[1])/self.tiling_count[1]
         for i in range(self.tiling_count[0]):
             for j in range(self.tiling_count[1]):
-                x = self.tiling_min[0] + (i+0.5)*dx
-                y = self.tiling_min[1] + (j+0.5)*dy
+                x = self.tiling_min[0] + (i+0.5)*dx - ax
+                y = self.tiling_min[1] + (j+0.5)*dy - ay
                 tiles.append([x, y])
                 print(x,y)
         return tiles
