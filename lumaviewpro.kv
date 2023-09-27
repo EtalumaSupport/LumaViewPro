@@ -1061,9 +1061,55 @@
                 size_hint_y: None
                 height: '30dp'
                 text_autoupdate: True
-                on_text: root.select_tiling_size()
+                # TODO on_text: root.select_tiling_size()
                 #text: '1x1'
                 values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9', '10x10'
+                
+        # Z-stack
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '30dp'
+            spacing: '5dp'
+           
+            Label:
+                text: 'Z Stack'
+                size_hint_x: None
+                width: '75dp'
+                font_size: '12sp'
+            
+            Button:
+                id: z_down_btn
+                border: 0, 0, 0, 0
+                size_hint: None, None
+                size: '30dp', '30dp'
+                pos_hint: {'center_x': 0.35, 'center_y': 0.5}
+                background_normal: './data/icons/L_normal.png'
+                background_down: './data/icons/L_down.png'
+                # TODO on_release: root.z_down_button()
+                
+            TextInput:
+                id: z_number_input
+                text: '0'
+                size_hint_y: None
+                height: '30dp'
+                font_size: '12sp'
+                halign: 'center'
+                multiline: False
+                input_filter: 'int'
+                #on_text_validate: root.go_to_step()
+                #on_focus: if not self.focus: root.go_to_step()
+            
+            Button:
+                id: z_up_btn
+                border: 0, 0, 0, 0
+                size_hint: None, None
+                size: '30dp', '30dp'
+                pos_hint: {'center_x': 0.65, 'center_y': 0.5}
+                background_normal: './data/icons/R_normal.png'
+                background_down: './data/icons/R_down.png'
+                # TODO on_release: root.z_up_button()
+                
                 
 		ToggleButton:
 			id: run_autofocus_btn
