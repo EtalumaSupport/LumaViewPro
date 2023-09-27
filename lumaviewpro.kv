@@ -1109,7 +1109,51 @@
                 background_normal: './data/icons/R_normal.png'
                 background_down: './data/icons/R_down.png'
                 # TODO on_release: root.z_up_button()
+        
+        # Multiple exposure
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '30dp'
+            spacing: '5dp'
+           
+            Label:
+                text: 'Multiplicity'
+                size_hint_x: None
+                width: '75dp'
+                font_size: '12sp'
+            
+            Button:
+                id: multiplcity_down_btn
+                border: 0, 0, 0, 0
+                size_hint: None, None
+                size: '30dp', '30dp'
+                pos_hint: {'center_x': 0.35, 'center_y': 0.5}
+                background_normal: './data/icons/L_normal.png'
+                background_down: './data/icons/L_down.png'
+                # TODO on_release: root.multiplicity_down_button()
                 
+            TextInput:
+                id: multiplicity_number_input
+                text: '0'
+                size_hint_y: None
+                height: '30dp'
+                font_size: '12sp'
+                halign: 'center'
+                multiline: False
+                input_filter: 'int'
+                #on_text_validate: root.go_to_step()
+                #on_focus: if not self.focus: root.go_to_step()
+            
+            Button:
+                id: multiplicity_up_btn
+                border: 0, 0, 0, 0
+                size_hint: None, None
+                size: '30dp', '30dp'
+                pos_hint: {'center_x': 0.65, 'center_y': 0.5}
+                background_normal: './data/icons/R_normal.png'
+                background_down: './data/icons/R_down.png'
+                # TODO on_release: root.multiplicity_up_button()
                 
 		ToggleButton:
 			id: run_autofocus_btn
