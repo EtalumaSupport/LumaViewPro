@@ -982,6 +982,7 @@ class CellCountControls(BoxLayout):
         with open(file, "w") as write_file:
             json.dump(self._settings, write_file, indent = 4)
 
+    
     def load_method_from_file(self, file):
         logger.info(f'[LVP Main  ] CellCountControls.load_method_from_file({file})')
         with open(file, "r") as f:
