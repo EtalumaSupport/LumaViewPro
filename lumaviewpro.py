@@ -1293,10 +1293,16 @@ class PostProcessingAccordion(BoxLayout):
         
     def start_tiling(self):
         logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
+        tiles = []
+        dx = (self.tiling_max[0] - self.tiling_min[0])/self.tiling_count[0]
+        dy = (self.tiling_max[1] - self.tiling_min[1])/self.tiling_count[1]
         for i in range(self.tiling_count[0]):
             for j in range(self.tiling_count[1]):
-                pass
-        return
+                x = self.tiling_min[0] + (i+0.5)*dx
+                y = self.tiling_min[1] + (j+0.5)*dy
+                tiles.append([x, y])
+                print(x,y)
+        return tiles
         
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
@@ -2179,24 +2185,25 @@ class ProtocolSettings(CompositeCapture):
 
          # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
+            for tile in tiling.pos_list:
 
-            # Iterate through all the colors to create the steps
-            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-            for layer in layers:
-                if settings[layer]['acquire'] == True:
+                # Iterate through all the colors to create the steps
+                layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
+                for layer in layers:
+                    if settings[layer]['acquire'] == True:
 
-                    x = pos[0] # in 'plate' coordinates
-                    y = pos[1] # in 'plate' coordinates
-                    z = settings[layer]['focus']
-                    af = settings[layer]['autofocus']
-                    ch = lumaview.scope.color2ch(layer)
-                    fc = settings[layer]['false_color']
-                    ill = settings[layer]['ill']
-                    gain = settings[layer]['gain']
-                    auto_gain = int(settings[layer]['auto_gain'])
-                    exp = settings[layer]['exp']
+                        x = pos[0] + tile[0] # in 'plate' coordinates
+                        y = pos[1] + tile[1] # in 'plate' coordinates
+                        z = settings[layer]['focus']
+                        af = settings[layer]['autofocus']
+                        ch = lumaview.scope.color2ch(layer)
+                        fc = settings[layer]['false_color']
+                        ill = settings[layer]['ill']
+                        gain = settings[layer]['gain']
+                        auto_gain = int(settings[layer]['auto_gain'])
+                        exp = settings[layer]['exp']
 
-                    self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp])
+                        self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp])
 
         self.step_values = np.array(self.step_values)
 
