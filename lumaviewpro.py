@@ -1161,6 +1161,7 @@ class PostProcessingAccordion(BoxLayout):
         self.stitched_save_name = "last_composite_img.tiff"
         self.positions_file = None #relevant if stitching method is position, will read positions from that file
         self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
+        
         self.tiling_target = []
         self.tiling_min = [120000, 80000]
         self.tiling_max = [0, 0]
@@ -1313,6 +1314,8 @@ class PostProcessingAccordion(BoxLayout):
         
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
+
+
 
 
 
@@ -2065,6 +2068,11 @@ class ProtocolSettings(CompositeCapture):
         self.step_names = list()
         self.step_values = []
         self.curr_step = 0
+        
+        self.tiling_target = []
+        #self.tiling_min = [120000, 80000]
+        #self.tiling_max = [0, 0]
+        self.tiling_count = [1, 1]
 
     # Update Protocol Period   
     def update_period(self):
@@ -2187,20 +2195,21 @@ class ProtocolSettings(CompositeCapture):
         current_labware.load_plate(settings['protocol']['labware'])
         current_labware.set_positions()
         
+        tiling_pos_list = self.get_tile_centers()
+        
         self.step_names = list()
         self.step_values = []
 
          # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
-            for tile in tiling.pos_list:
-
+            for tile in tiling_pos_list:
                 # Iterate through all the colors to create the steps
                 layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
                 for layer in layers:
                     if settings[layer]['acquire'] == True:
 
-                        x = pos[0] + tile[0] # in 'plate' coordinates
-                        y = pos[1] + tile[1] # in 'plate' coordinates
+                        x = pos[0] + tile[0]/1000 # in 'plate' coordinates
+                        y = pos[1] + tile[1]/1000 # in 'plate' coordinates
                         z = settings[layer]['focus']
                         af = settings[layer]['autofocus']
                         ch = lumaview.scope.color2ch(layer)
@@ -2558,6 +2567,54 @@ class ProtocolSettings(CompositeCapture):
 
         self.ids['step_total_input'].text = str(len(self.step_names))
 
+
+    def select_tiling_size(self):
+        logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() partially implemented')
+        logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
+        spinner = self.ids['tiling_size_spinner']
+        #settings['protocol']['labware'] = spinner.text #TODO change key
+        x_count = int(spinner.text[0])
+        y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
+        self.tiling_count = [x_count, y_count]
+        #print(self.x_tiling_count)
+        x_fov = 4000 # TODO tie to objective lookup
+        y_fov = 3000 # TODO tie to objective lookup
+        #x_current = lumaview.scope.get_current_position('X')
+        #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+        x_center = 60000 # TODO make center of a well
+        #y_current = lumaview.scope.get_current_position('Y')
+        #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+        y_center = 40000 # TODO make center of a well
+        self.tiling_min = [x_center - x_count*x_fov/2, y_center - y_count*y_fov/2]
+        #print(self.tiling_min)
+        self.tiling_max = [x_center + x_count*x_fov/2, y_center + y_count*y_fov/2]
+        #print(self.tiling_max)
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
+        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
+        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
+        return
+        
+    def start_tiling(self):
+        logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
+        return self.get_tile_centers()
+        
+    def get_tile_centers(self):
+        logger.info('[LVP Main  ] PostProcessing.get_tile_centers()')
+        tiles = []
+        ax = (self.tiling_max[0] + self.tiling_min[0])/2
+        ay = (self.tiling_max[1] + self.tiling_min[1])/2
+        dx = (self.tiling_max[0] - self.tiling_min[0])/self.tiling_count[0]
+        dy = (self.tiling_max[1] - self.tiling_min[1])/self.tiling_count[1]
+        for i in range(self.tiling_count[0]):
+            for j in range(self.tiling_count[1]):
+                x = self.tiling_min[0] + (i+0.5)*dx - ax
+                y = self.tiling_min[1] + (j+0.5)*dy - ay
+                tiles.append([x, y])
+                print(x,y)
+        return tiles
+        
         
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_autofocus_scan(self):
