@@ -760,7 +760,7 @@ class CellCountControls(BoxLayout):
     def _get_init_settings(self):
         return {
             'context': {
-                'pixels_per_um': 1.0,
+                'pixels_per_um': 1.0,       # TODO Isn't this supposed to be 0.5 ?
                 'fluorescent_mode': True
             },
             'segmentation': {
