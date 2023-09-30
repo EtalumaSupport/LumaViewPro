@@ -1245,6 +1245,7 @@ class PostProcessingAccordion(BoxLayout):
                                              positions_file = self.positions_file,
                                              pos2pix = self.pos2pix,post_process = False)
 
+    '''
     def add_tiling_step(self):
         logger.info('[LVP Main  ] PostProcessing.add_tiling_step()')
         x_current = lumaview.scope.get_current_position('X')
@@ -1311,6 +1312,7 @@ class PostProcessingAccordion(BoxLayout):
                 tiles.append([x, y])
                 print(x,y)
         return tiles
+    '''
         
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
@@ -3062,7 +3064,14 @@ class Stage(Widget):
             # Draw all ROI rectangles
             # ------------------
             # TODO (for each step)
-            
+            '''
+            for ROI in self.ROIs:
+                if self.ROI_max[0] > self.ROI_min[0]:
+                    roi_min_x, roi_min_y = protocol_settings.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
+                    roi_max_x, roi_max_y = protocol_settings.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
+                    Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
+                    Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
+            '''
             # Draw all wells
             # ------------------
             cols = current_labware.plate['columns']
