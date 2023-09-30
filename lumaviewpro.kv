@@ -1065,6 +1065,7 @@
                 #text: '1x1'
                 values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9', '10x10'
                 
+                
         # Z-stack
         BoxLayout:
             orientation: 'horizontal'
@@ -1077,38 +1078,19 @@
                 size_hint_x: None
                 width: '75dp'
                 font_size: '12sp'
-            
-            Button:
-                id: z_down_btn
-                border: 0, 0, 0, 0
-                size_hint: None, None
-                size: '30dp', '30dp'
-                pos_hint: {'center_x': 0.35, 'center_y': 0.5}
-                background_normal: './data/icons/L_normal.png'
-                background_down: './data/icons/L_down.png'
-                # TODO on_release: root.z_down_button()
                 
-            TextInput:
-                id: z_number_input
-                text: '0'
-                size_hint_y: None
-                height: '30dp'
+            CheckBox:
+                id: acquire_zstack_id
+                size_hint_x: None
+                width: '30dp'
+                active: False
+                # TODO on_release: root.update_acquire_zstack()
+            Label:
+                text: 'Acquire'
                 font_size: '12sp'
-                halign: 'center'
-                multiline: False
-                input_filter: 'int'
-                #on_text_validate: root.go_to_step()
-                #on_focus: if not self.focus: root.go_to_step()
-            
-            Button:
-                id: z_up_btn
-                border: 0, 0, 0, 0
-                size_hint: None, None
-                size: '30dp', '30dp'
-                pos_hint: {'center_x': 0.65, 'center_y': 0.5}
-                background_normal: './data/icons/R_normal.png'
-                background_down: './data/icons/R_down.png'
-                # TODO on_release: root.z_up_button()
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
         
         # Multiple exposure
         BoxLayout:
@@ -1118,42 +1100,41 @@
             spacing: '5dp'
            
             Label:
-                text: 'Multiplicity'
+                text: 'Exposures'
                 size_hint_x: None
                 width: '75dp'
                 font_size: '12sp'
             
             Button:
-                id: multiplcity_down_btn
+                id: exposures_down_btn
                 border: 0, 0, 0, 0
                 size_hint: None, None
                 size: '30dp', '30dp'
                 pos_hint: {'center_x': 0.35, 'center_y': 0.5}
                 background_normal: './data/icons/L_normal.png'
                 background_down: './data/icons/L_down.png'
-                # TODO on_release: root.multiplicity_down_button()
+                on_release: root.exposures_down_button()
                 
             TextInput:
-                id: multiplicity_number_input
-                text: '0'
+                id: exposures_number_input
+                text: '1'
                 size_hint_y: None
                 height: '30dp'
                 font_size: '12sp'
                 halign: 'center'
                 multiline: False
                 input_filter: 'int'
-                #on_text_validate: root.go_to_step()
-                #on_focus: if not self.focus: root.go_to_step()
+                #on_text_validate: root.set_exposures()
             
             Button:
-                id: multiplicity_up_btn
+                id: exposures_up_btn
                 border: 0, 0, 0, 0
                 size_hint: None, None
                 size: '30dp', '30dp'
                 pos_hint: {'center_x': 0.65, 'center_y': 0.5}
                 background_normal: './data/icons/R_normal.png'
                 background_down: './data/icons/R_down.png'
-                # TODO on_release: root.multiplicity_up_button()
+                on_release: root.exposures_up_button()
                 
 		ToggleButton:
 			id: run_autofocus_btn

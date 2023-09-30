@@ -2069,12 +2069,14 @@ class ProtocolSettings(CompositeCapture):
 
         self.step_names = list()
         self.step_values = []
-        self.curr_step = 0
+        self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
         
         self.tiling_target = []
         #self.tiling_min = [120000, 80000]
         #self.tiling_max = [0, 0]
         self.tiling_count = [1, 1]
+
+        self.exposures = 1  # 1 indexed
 
     # Update Protocol Period   
     def update_period(self):
@@ -2355,6 +2357,26 @@ class ProtocolSettings(CompositeCapture):
         # Close the TSV file
         file_pointer.close()
 
+    #
+    # Multiple Exposures
+    # ------------------------------
+    #
+    # increase exposure count
+    def exposures_down_button(self):
+        logger.info('[LVP Main  ] ProtocolSettings.exposures_up_button()')
+        self.exposures = max(self.exposures-1,1)
+        self.ids['exposures_number_input'].text = str(self.exposures)
+        
+    # increase exposure count
+    def exposures_up_button(self):
+        logger.info('[LVP Main  ] ProtocolSettings.exposures_up_button()')
+        self.exposures = self.exposures+1
+        self.ids['exposures_number_input'].text = str(self.exposures)
+    
+    #
+    # Edit steps
+    # ------------------------------
+    #
     # Goto to Previous Step
     def prev_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.prev_step()')
@@ -2632,6 +2654,10 @@ class ProtocolSettings(CompositeCapture):
                 tiles.append([x, y])
                 print(x,y)
         return tiles
+        
+    # Run one scan of protocol, autofocus at each step, and update protocol
+    def run_zstack_scan(self):
+        logger.info('[LVP Main  ] ProtocolSettings.run_zstack_scan()')
         
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_autofocus_scan(self):
