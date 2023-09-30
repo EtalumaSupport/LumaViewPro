@@ -1,7 +1,7 @@
 {
   "4x": {
       "desc": "4x description",
-      "magnification": 4,
+      "magnification": 1.063,
       "aperture": 0.1,
       "DOF": 55.5,
       "AF_min": 20.0,
@@ -14,7 +14,7 @@
   },
     "10x": {
         "desc": "10x description",
-        "magnification": 10,
+        "magnification": 2.656,
         "aperture": 0.25,
         "DOF": 8.5,
         "AF_min": 8.0,
@@ -27,7 +27,7 @@
     },
     "20x": {
         "desc": "20x description",
-        "magnification": 20,
+        "magnification": 5.311,
         "aperture": 0.4,
         "DOF": 5.8,
         "AF_min": 2.0,
@@ -40,7 +40,7 @@
     },
     "40x": {
         "desc": "40x description",
-        "magnification": 40,
+        "magnification": 10.622,
         "aperture": 0.65,
         "DOF": 1.0,
         "AF_min": 1.0,
@@ -53,7 +53,7 @@
     },
     "60x": {
         "desc": "60x description",
-        "magnification": 60,
+        "magnification": 15.933,
         "aperture": 0.85,
         "DOF": 0.4,
         "AF_min": 0.5,
@@ -66,7 +66,20 @@
     },
     "100x": {
         "desc": "100x description",
-        "magnification": 100,
+        "magnification": 23.900,
+        "aperture": 0.95,
+        "DOF": 0.19,
+        "AF_min": 0.2,
+        "AF_max": 4.0,
+        "AF_range": 10.0,
+        "z_fine": 0.11,
+        "z_coarse": 1.1,
+        "xy_fine": 2.0,
+        "xy_coarse": 20.0
+    },
+    "100x (oil)": {
+        "desc": "100x (oil) description",
+        "magnification": 26.556,
         "aperture": 0.95,
         "DOF": 0.19,
         "AF_min": 0.2,

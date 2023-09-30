@@ -2579,11 +2579,15 @@ class ProtocolSettings(CompositeCapture):
         y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
         self.tiling_count = [x_count, y_count]
         #print(self.x_tiling_count)
-        magnification = settings['objective']['magnification']
-        fillfactor = 0.75
-        print(magnification)
-        x_fov = 4*4200*fillfactor/magnification # Not sure where the factor of 4 comes from
-        y_fov = 4*4200*fillfactor/magnification
+        um_per_pixel = 2.0 / settings['objective']['magnification'] # imager is 2.0um/pixel
+        fov_size_x = um_per_pixel * settings['frame']['width']
+        fov_size_y = um_per_pixel * settings['frame']['height']
+        fillfactor = 0.75 # this is to insure some of the tile images overlap. TODO this should be a setting in the gui
+        #print(magnification)
+        #print(settings['frame']['width'])
+        
+        x_fov = fillfactor * fov_size_x
+        y_fov = fillfactor * fov_size_y
         #x_current = lumaview.scope.get_current_position('X')
         #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
         x_center = 60000 # TODO make center of a well
@@ -2594,11 +2598,13 @@ class ProtocolSettings(CompositeCapture):
         #print(self.tiling_min)
         self.tiling_max = [x_center + x_count*x_fov/2, y_center + y_count*y_fov/2]
         #print(self.tiling_max)
+        
+        # DEPRICATED this talks to the wrong stage view
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
-        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
-        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
+        #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
+        #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
         return
         
     def start_tiling(self):
