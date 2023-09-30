@@ -2231,7 +2231,7 @@ class ProtocolSettings(CompositeCapture):
         length =  self.step_values.shape[0]
               
         # Update text with current step and number of steps in protocol
-        self.curr_step = -1
+        self.curr_step = 0 # start at the first step
         self.ids['step_number_input'].text = str(self.curr_step+1)
         self.ids['step_total_input'].text = str(length)
 
