@@ -2580,11 +2580,12 @@ class ProtocolSettings(CompositeCapture):
         self.tiling_count = [x_count, y_count]
         #print(self.x_tiling_count)
         focal_length = settings['objective']['focal_length']
-        magnification = 47.8 / focal_length # Etaluma Tube focal length over objective focal length
-        #um_per_pixel = 2.0 / settings['objective']['magnification'] # imager is 2.0um/pixel
-        pixel_width = 2.0 # [um] Basler pixel size (could be looked up from Camera class)
+        magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
+                                            # in theory could be different in different scopes
+                                            # could be looked up by model number
+                                            # although all are currently the same
+        pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
         um_per_pixel = pixel_width / magnification
-        #um_per_pixel = 2.0 / settings['objective']['magnification'] # imager is 2.0um/pixel
 
         fov_size_x = um_per_pixel * settings['frame']['width']
         fov_size_y = um_per_pixel * settings['frame']['height']
