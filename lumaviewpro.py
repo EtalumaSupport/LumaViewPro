@@ -2577,8 +2577,11 @@ class ProtocolSettings(CompositeCapture):
         y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
         self.tiling_count = [x_count, y_count]
         #print(self.x_tiling_count)
-        x_fov = 4000 # TODO tie to objective lookup
-        y_fov = 3000 # TODO tie to objective lookup
+        magnification = settings['objective']['magnification']
+        fillfactor = 0.75
+        print(magnification)
+        x_fov = 4*4200*fillfactor/magnification # Not sure where the factor of 4 comes from
+        y_fov = 4*4200*fillfactor/magnification
         #x_current = lumaview.scope.get_current_position('X')
         #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
         x_center = 60000 # TODO make center of a well
@@ -2614,7 +2617,6 @@ class ProtocolSettings(CompositeCapture):
                 tiles.append([x, y])
                 print(x,y)
         return tiles
-        
         
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_autofocus_scan(self):
@@ -3036,7 +3038,6 @@ class Stage(Widget):
             # Get target position
             # Outline of Stage Area from Above
             # ------------------
-            
             Color(.2, .2, .2 , 0.5)                # dark grey
             Rectangle(pos=(x+(x_max-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
                            size=(stage_w*scale_x, stage_h*scale_y))
@@ -3057,7 +3058,10 @@ class Stage(Widget):
                 roi_max_x, roi_max_y = protocol_settings.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
                 Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
                 Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
-
+            
+            # Draw all ROI rectangles
+            # ------------------
+            # TODO (for each step)
             
             # Draw all wells
             # ------------------
