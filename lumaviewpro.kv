@@ -1463,6 +1463,24 @@
         size_hint_y: None
         height: '30dp'
         Label:
+            text: 'Focal Length'
+            size_hint_x: None
+            width: '120dp'
+            font_size: '12sp'
+        TextInput:
+            id: focal_length_id
+            multiline: False
+            padding: ['5dp', (self.height-self.line_height)/2]
+            halign: 'center'
+            text: 'tbd'
+            disabled: True
+            font_size: '12sp'
+
+    BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
             text: 'Field of View'
             size_hint_x: None
             width: '120dp'
@@ -1495,7 +1513,7 @@
 			text_size: self.size
 
 		TextInput:
-			id: frame_width
+			id: frame_width_id
 			multiline: False
 			padding: ['2dp', (self.height-self.line_height)/2]
 			halign: 'center'
@@ -1511,7 +1529,7 @@
 			font_size: '12sp'
 			halign: 'center'
 		TextInput:
-			id: frame_height
+			id: frame_height_id
 			multiline: False
 			padding: ['5dp', (self.height-self.line_height)/2]
 			halign: 'center'

@@ -3169,9 +3169,11 @@ class MicroscopeSettings(BoxLayout):
                 # update GUI values from JSON data:
                 self.ids['scope_spinner'].text = settings['microscope']
                 self.ids['objective_spinner'].text = settings['objective']['ID']
+                # TODO self.ids['objective_spinner'].text = settings['objective']['description']
                 self.ids['magnification_id'].text = str(settings['objective']['magnification'])
-                self.ids['frame_width'].text = str(settings['frame']['width'])
-                self.ids['frame_height'].text = str(settings['frame']['height'])
+                self.ids['focal_length_id'].text = str(settings['objective']['focal_length'])
+                self.ids['frame_width_id'].text = str(settings['frame']['width'])
+                self.ids['frame_height_id'].text = str(settings['frame']['height'])
 
                 protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
                 protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
@@ -3264,6 +3266,8 @@ class MicroscopeSettings(BoxLayout):
         settings['objective']['ID'] = spinner.text
         microscope_settings_id = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
         microscope_settings_id.ids['magnification_id'].text = str(settings['objective']['magnification'])
+        microscope_settings_id.ids['focal_length_id'].text = str(settings['objective']['focal_length'])
+
 
     def frame_size(self):
         logger.info('[LVP Main  ] MicroscopeSettings.frame_size()')
