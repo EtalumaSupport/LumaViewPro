@@ -2072,8 +2072,8 @@ class ProtocolSettings(CompositeCapture):
         self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
         
         self.tiling_target = []
-        #self.tiling_min = [120000, 80000]
-        #self.tiling_max = [0, 0]
+        self.tiling_min = [120000, 80000]
+        self.tiling_max = [0, 0]
         self.tiling_count = [1, 1]
 
         self.exposures = 1  # 1 indexed
