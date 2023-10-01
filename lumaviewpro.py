@@ -3000,11 +3000,15 @@ class Stage(Widget):
         self.ROI_min = [0,0]
         self.ROI_max = [0,0]
         self._motion_enabled = True
-
+        self.ROIs = []
+        
+    def append_ROI(self, x_min, y_min, x_max, y_max):
+        self.ROI_min = [x_min, y_min]
+        self.ROI_max = [x_max, y_max]
+        self.ROIs.append([self.ROI_min, self.ROI_max])
     
     def set_motion_capability(self, enabled: bool):
         self._motion_enabled = enabled
-
 
     def on_touch_down(self, touch):
         logger.info('[LVP Main  ] Stage.on_touch_down()')
