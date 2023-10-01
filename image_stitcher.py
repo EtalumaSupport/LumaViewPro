@@ -13,6 +13,7 @@ import cv2
 import glob
 import imutils
 from color_transfer import color_transfer, image_stats #use pip install color_transfer
+from lvp_logger import logger
 
 MAX_TRIES = 20 #number of tries to tolerate without any results before quiting with an error
 N_RESULTS = 5 #number of times the Low algorithm is run and gets result, to select the best result
@@ -78,11 +79,16 @@ def image_stitcher(images_folder, combine_colors = False,  ext = "tiff",method =
     elif method == "s_shape":
         stitched_img = s_shape_stitcher(images_folder,ext = ext,n_images_per_row = 3)
         
-    if post_process: stitched_img = zoom_frame(stitched_img)
+    if post_process:
+        stitched_img = zoom_frame(stitched_img)
     
-    cv2.imwrite(save_name, stitched_img)
+    try:
+        cv2.imwrite(save_name, stitched_img)
+    except:
+        logger.error(f"Failed to save stiched image.")
 
-    if display_image: display_img(stitched_img)
+    if display_image:
+        display_img(stitched_img)
     
     return  stitched_img
 
@@ -101,7 +107,12 @@ def feature_stitcher(images_folder,ext = 'tiff',n_results = 5):
         if not error:
             results.append(stitched_img)
             #display_img(stitched_img)
-    assert results, "error: failed to stich images, likely insufficient matching keypoints detected, error code:"+str(error)+" "+error_codes[error]
+    try:
+        assert results, "error: failed to stich images, likely insufficient matching keypoints detected, error code:"+str(error)+" "+error_codes[error]
+    except:
+        logger.error(f"Failed to stich images, likely insufficient matching keypoints detected.")
+        return
+
     #im_sizes = np.array([im.shape[0]*im.shape[1] for im in results])
     im_total_luminance = np.array([im.sum() for im in results])
     stitched_img = results[np.argmax(im_total_luminance)]
@@ -219,8 +230,13 @@ def grab_images(images_folder="",image_list=[],ext = 'tiff',to_sort = True):
     """
     assert image_list or images_folder, "you must provide either the folder with the images or the list of images in order"
     if not image_list:
-        image_paths = glob.glob(os.path.join(images_folder,'*.'+ext))
-        assert image_paths,"Could not find any images with extension "+ext+". Please check the directory and extension."
+        try:
+            image_paths = glob.glob(os.path.join(images_folder,'*.'+ext))
+            assert image_paths,"Could not find any images with extension "+ext+". Please check the directory and extension."
+        except:
+            logger.error(f"Could not find any images with extension {ext}. Please check the directory and extension.")
+            return
+            
         if to_sort:
             image_paths = np.array(image_paths)
             image_paths.sort()            

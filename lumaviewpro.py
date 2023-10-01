@@ -1155,12 +1155,14 @@ class PostProcessingAccordion(BoxLayout):
         #global settings
         #stitching params (see more info in image_stitcher.py):
         #self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        self.raw_images_folder = './capture/' # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
         self.ext = "tiff" #or read it from settings?
         self.stitching_method = "features" # "features" - Low method, "position" - based on position information
         self.stitched_save_name = "last_composite_img.tiff"
         self.positions_file = None #relevant if stitching method is position, will read positions from that file
         self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
+        
         
         self.tiling_target = []
         self.tiling_min = [120000, 80000]
@@ -3114,7 +3116,6 @@ class Stage(Widget):
             # Draw all ROI rectangles
             # ------------------
             # TODO (for each step)
-
             '''
             for ROI in self.ROIs:
                 if self.ROI_max[0] > self.ROI_min[0]:
@@ -3123,6 +3124,7 @@ class Stage(Widget):
                     Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
                     Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
             '''
+            
             # Draw all wells
             # ------------------
             cols = current_labware.plate['columns']
@@ -3479,8 +3481,6 @@ class LayerControl(BoxLayout):
                 logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(self.layer), illumination)')
             else:
                 logger.warning('[LVP Main  ] LED controller not available.')
-            
-
             
             #  turn the state of remaining channels to 'normal' and text to 'OFF'
             layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
