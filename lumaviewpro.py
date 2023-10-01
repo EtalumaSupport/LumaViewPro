@@ -2295,7 +2295,7 @@ class ProtocolSettings(CompositeCapture):
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         # Update GUI
-        self.curr_step = -1
+        self.curr_step = 0 # start at first step
         self.ids['step_number_input'].text = str(self.curr_step+1)
         self.ids['step_name_input'].text = ''
         self.ids['step_total_input'].text = str(len(self.step_names))
@@ -2592,6 +2592,10 @@ class ProtocolSettings(CompositeCapture):
         self.ids['step_total_input'].text = str(len(self.step_names))
 
 
+    #
+    # Tiling
+    # ---------------------------
+    #
     def select_tiling_size(self):
         logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() partially implemented')
         logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
@@ -2611,7 +2615,8 @@ class ProtocolSettings(CompositeCapture):
 
         fov_size_x = um_per_pixel * settings['frame']['width']
         fov_size_y = um_per_pixel * settings['frame']['height']
-        fillfactor = 0.75 # this is to insure some of the tile images overlap. TODO this should be a setting in the gui
+        fillfactor = 0.75 # this is to ensure some of the tile images overlap.
+                          # TODO this should be a setting in the gui
         #print(magnification)
         #print(settings['frame']['width'])
         
@@ -2627,7 +2632,7 @@ class ProtocolSettings(CompositeCapture):
         #print(self.tiling_min)
         self.tiling_max = [x_center + x_count*x_fov/2, y_center + y_count*y_fov/2]
         #print(self.tiling_max)
-        
+       
         # DEPRICATED this talks to the wrong stage view
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
         lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
@@ -2657,7 +2662,9 @@ class ProtocolSettings(CompositeCapture):
         
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_zstack_scan(self):
-        logger.info('[LVP Main  ] ProtocolSettings.run_zstack_scan()')
+        logger.debug('[LVP Main  ] ProtocolSettings.run_zstack_scan() not yet implemented')
+        #logger.info('[LVP Main  ] ProtocolSettings.run_zstack_scan()')
+        # TODO
         
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_autofocus_scan(self):
@@ -3103,6 +3110,7 @@ class Stage(Widget):
             # Draw all ROI rectangles
             # ------------------
             # TODO (for each step)
+
             '''
             for ROI in self.ROIs:
                 if self.ROI_max[0] > self.ROI_min[0]:

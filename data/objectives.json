@@ -1,7 +1,8 @@
 {
     "2.5x": {
         "description": "2.5x",
-        "magnification": 0.598,
+        "magnification": 2.5,
+        "system_magnification": 0.598,
         "focal_length": 80.0,
         "aperture": 0,
         "DOF": 0,
@@ -15,7 +16,8 @@
     },
     "4x": {
         "description": "4x",
-        "magnification": 1.063,
+        "magnification": 4,
+        "system_magnification": 1.063,
         "focal_length": 45.0,
         "aperture": 0.1,
         "DOF": 55.5,
@@ -29,7 +31,8 @@
     },
     "10x": {
         "description": "10x",
-        "magnification": 2.656,
+        "magnification": 10,
+        "system_magnification": 2.656,
         "focal_length": 18.0,
         "aperture": 0.25,
         "DOF": 8.5,
@@ -43,7 +46,8 @@
     },
     "20x": {
         "description": "20x",
-        "magnification": 5.311,
+        "magnification": 20,
+        "system_magnification": 5.311,
         "focal_length": 9.0,
         "aperture": 0.4,
         "DOF": 5.8,
@@ -57,7 +61,8 @@
     },
     "40x": {
         "description": "40x",
-        "magnification": 10.622,
+        "magnification": 40,
+        "system_magnification": 10.622,
         "focal_length": 4.5,
         "aperture": 0.65,
         "DOF": 1.0,
@@ -71,7 +76,8 @@
     },
     "60x": {
         "description": "60x",
-        "magnification": 15.933,
+        "magnification": 60,
+        "system_magnification": 15.933,
         "focal_length": 3.0,
         "aperture": 0.85,
         "DOF": 0.4,
@@ -85,7 +91,8 @@
     },
     "100x": {
         "description": "100x",
-        "magnification": 23.900,
+        "magnification": 100,
+        "system_magnification": 23.900,
         "focal_length": 2.0,
         "aperture": 0.95,
         "DOF": 0.19,
@@ -99,7 +106,8 @@
     },
     "100x (oil)": {
         "description": "100x (oil)",
-        "magnification": 26.556,
+        "magnification": 111,
+        "system_magnification": 26.556,
         "focal_length": 1.8,
         "aperture": 0.95,
         "DOF": 0.19,
