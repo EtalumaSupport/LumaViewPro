@@ -1216,48 +1216,48 @@
 					on_release: root.stitch()
 
 				# Tiling Stage Display
-				FloatLayout:
-					padding: '5dp'
-					size_hint_y: None
-					height: '128dp'
-					height: self.width * 2 / 3
-					
-					Stage:
-						id: tiling_stage_id
-						pos_hint:{'center_x':0.5, 'center_y':0.5}
-
-				BoxLayout:
-					orientation: 'horizontal'
-					size_hint_y: None
-					height: '30dp'
-					spacing: '5dp'
-					Button:
-						id: add_tiling_pos_btn
-						text: 'Add'
-						size_hint_y: None
-						height: '30dp'
-						font_size: '12sp'
-						on_release: root.add_tiling_step()
-					Button:
-						id: start_tiling_btn
-						text: 'Start'
-						size_hint_y: None
-						height: '30dp'
-						font_size: '12sp'
-						on_release: root.start_tiling()
+#				FloatLayout:
+#					padding: '5dp'
+#					size_hint_y: None
+#					height: '128dp'
+#					height: self.width * 2 / 3
+#
+#					Stage:
+#						id: tiling_stage_id
+#						pos_hint:{'center_x':0.5, 'center_y':0.5}
+#
+#				BoxLayout:
+#					orientation: 'horizontal'
+#					size_hint_y: None
+#					height: '30dp'
+#					spacing: '5dp'
+#					Button:
+#						id: add_tiling_pos_btn
+#						text: 'Add'
+#						size_hint_y: None
+#						height: '30dp'
+#						font_size: '12sp'
+#						on_release: root.add_tiling_step()
+#					Button:
+#						id: start_tiling_btn
+#						text: 'Start'
+#						size_hint_y: None
+#						height: '30dp'
+#						font_size: '12sp'
+#						on_release: root.start_tiling()
                     
-                    # Select tiling size
-                    Spinner:
-                        id: tiling_size_spinner
-                        sync_height: True
-                        text: 'New'
-                        font_size: '12dp'
-                        size_hint_y: None
-                        height: '30dp'
-                        text_autoupdate: True
-                        on_text: root.select_tiling_size()
-                        #text: '1x1'
-                        values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9', '10x10'
+#                    # Select tiling size
+#                    Spinner:
+#                       id: tiling_size_spinner
+#                        sync_height: True
+#                       text: 'New'
+#                        font_size: '12dp'
+#                        size_hint_y: None
+#                        height: '30dp'
+#                        text_autoupdate: True
+#                        on_text: root.select_tiling_size()
+#                        #text: '1x1'
+#                        values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9', '10x10'
                 
 				Label:
 

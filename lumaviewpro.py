@@ -2636,9 +2636,9 @@ class ProtocolSettings(CompositeCapture):
         #print(self.tiling_max)
        
         # DEPRICATED this talks to the wrong stage view
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
+        #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
+        #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
+        #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
         #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
         #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
         return
@@ -3844,7 +3844,7 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
-        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].draw_labware, 0.1)
+        #Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].draw_labware, 0.1)
 
         try:
             filepath = settings['protocol']['filepath']

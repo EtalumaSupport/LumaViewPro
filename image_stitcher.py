@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Jun 20 12:36:12 2022
+Modified on October 1, 2023
 
 @author: oriamir
 """
@@ -22,7 +23,16 @@ error_codes = ["OK","ERR_NEED_MORE_IMGS","ERR_HOMOGRAPHY_EST_FAIL","ERR_CAMERA_P
   
 
 
-def image_stitcher(images_folder, combine_colors = False,  ext = "tiff",method = "features",match_colors=False,save_name = "last_composite_img.tiff",display_image = False, positions_file = None,pos2pix = 2630,post_process = False):
+def image_stitcher(images_folder,
+                   combine_colors = False,
+                   ext = "tiff",
+                   method = "features",
+                   match_colors=False,
+                   save_name = "./capture/last_composite_img.tiff",
+                   display_image = False,
+                   positions_file = None,
+                   pos2pix = 2630,
+                   post_process = False):
     """
     The function stitches together multiple images that partially overlap into a single composite image.
 
@@ -71,7 +81,7 @@ def image_stitcher(images_folder, combine_colors = False,  ext = "tiff",method =
         match_color_space(images_folder = images_folder,ext = ext)
     
     if method == "features":
-        stitched_img = feature_stitcher(images_folder,ext = ext,n_results = N_RESULTS)
+        stitched_img = feature_stitcher(images_folder, ext = ext, n_results = N_RESULTS)
         
     elif method == "position":
         assert positions_file, "please provide the textfile name with the positions of the aquired images for argument positions_file (or choose method = 'features') "
@@ -83,31 +93,35 @@ def image_stitcher(images_folder, combine_colors = False,  ext = "tiff",method =
         stitched_img = zoom_frame(stitched_img)
     
     try:
-        cv2.imwrite(save_name, stitched_img)
+        if cv2.imwrite(save_name, stitched_img):
+            logger.info(f"[LVP Stitch] image_stitcher() saved file {save_name}")
+        else:
+            logger.error(f"[LVP stitch] did not save stitched image {save_name}.")
     except:
-        logger.error(f"Failed to save stiched image.")
+        logger.error(f"Failed to stitched image {save_name}.")
 
     if display_image:
         display_img(stitched_img)
     
     return  stitched_img
 
-def feature_stitcher(images_folder,ext = 'tiff',n_results = 5):
+
+def feature_stitcher(images_folder, ext = 'tiff', n_results = 5):
     
     images = grab_images(images_folder,ext = ext,to_sort = True)
     imageStitcher = cv2.Stitcher_create(mode = cv2.STITCHER_SCANS)
     results = []
-    for k in range(n_results):
-        error=True 
-        tries = 0
-        while error and tries < MAX_TRIES:
-            tries += 1
-            #print("stitching: try #",tries)
-            error, stitched_img = imageStitcher.stitch(images)
-        if not error:
-            results.append(stitched_img)
-            #display_img(stitched_img)
     try:
+        for k in range(n_results):
+            error=True
+            tries = 0
+            while error and tries < MAX_TRIES:
+                tries += 1
+                #print("stitching: try #",tries)
+                error, stitched_img = imageStitcher.stitch(images)
+            if not error:
+                results.append(stitched_img)
+                #display_img(stitched_img)
         assert results, "error: failed to stich images, likely insufficient matching keypoints detected, error code:"+str(error)+" "+error_codes[error]
     except:
         logger.error(f"Failed to stich images, likely insufficient matching keypoints detected.")
@@ -117,6 +131,7 @@ def feature_stitcher(images_folder,ext = 'tiff',n_results = 5):
     im_total_luminance = np.array([im.sum() for im in results])
     stitched_img = results[np.argmax(im_total_luminance)]
     return stitched_img
+
 
 def s_shape_stitcher(images_folder="",image_list=[],ext = 'tiff',n_images_per_row = 3):
     
