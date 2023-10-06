@@ -2,10 +2,20 @@
 # -*- coding: utf-8 -*-
 """
 Created on Jun 20 12:36:12 2022
-Modified on October 1, 2023
 
 @author: oriamir
 """
+
+#-------------------------------------------------------------------------------
+# This open source software was developed for use with Etaluma microscopes.
+#
+# AUTHORS:
+# Ori Amir, The Earthineering Company
+# Kevin Peter Hickerson, The Earthineering Company
+#
+# MODIFIED:
+# Ocotber 5, 2023
+#-------------------------------------------------------------------------------
 
 import numpy as np
 import pandas as pd

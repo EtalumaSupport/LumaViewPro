@@ -1202,18 +1202,34 @@
             title: 'Stitch'
 			on_collapse: root.accordion_collapse()
 
-			BoxLayout:
-				orientation: 'vertical'
-				size_hint_y: None
-				height: '600dp'
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp'
+                spacing: '5dp'
+                width: '75dp'
+                
+                # Select stiching method
+                Spinner:
+                    id: stitching_method_spinner
+                    sync_height: True
+                    font_size: '12dp'
+                    size_hint_y: None
+                    height: '30dp'
+                    text_autoupdate: True
+                    on_text: root.select_stitching_method
+                    values: 'Features', 'Position'
+                    orientation: 'vertical'
 
 				# Select image to load
-				FolderChooseBTN:
-					text: 'Load Folder'
+				Button:
+					text: 'Stitch'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.stitch()
+                
+            Label:
 
 				# Tiling Stage Display
 #				FloatLayout:
@@ -1259,7 +1275,6 @@
 #                        #text: '1x1'
 #                        values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9', '10x10'
                 
-				Label:
 
 
 		AccordionItem:
