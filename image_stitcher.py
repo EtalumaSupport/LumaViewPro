@@ -177,6 +177,43 @@ def s_shape_stitcher(images_folder="",image_list=[],ext = 'tiff',n_images_per_ro
             stitched_img = temp_stitched
     return stitched_img
 
+def protocol_sticher(images_folder, protocol_filename, pos2pix, ext = 'tiff'):
+    # should call the same code as used to load a protocol in lumaviewpro.py rather than rewite here
+    '''
+    logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
+
+    # Load protocol
+    file_pointer = open(filepath, 'r')                      # open the file
+    csvreader = csv.reader(file_pointer, delimiter='\t') # access the file using the CSV library
+    verify = next(csvreader)
+    if not (verify[0] == 'LumaViewPro Protocol'):
+        return
+    period = next(csvreader)
+    period = float(period[1])
+    duration = next(csvreader)
+    duration = float(duration[1])
+    labware = next(csvreader)
+    labware = labware[1]
+
+    orig_labware = labware
+    labware_valid, labware = self._validate_labware(labware=orig_labware)
+    if not labware_valid:
+        logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
+
+    header = next(csvreader) # skip a line
+
+    self.step_names = list()
+    self.step_values = []
+
+    for row in csvreader:
+        self.step_names.append(row[0])
+        self.step_values.append(row[1:])
+
+    file_pointer.close()
+    self.step_values = np.array(self.step_values)
+    self.step_values = self.step_values.astype(float)
+    '''
+
 def position_stitcher(images_folder, positions_file, pos2pix, ext = 'tiff'):
     """
     Stitches the images based on position information rather than features. Assumes the 
@@ -199,12 +236,12 @@ def position_stitcher(images_folder, positions_file, pos2pix, ext = 'tiff'):
 
     """
     reverse_y = True
-    positions = pd.read_csv(positions_file,names = ["X","Y"],delimiter= " ")
+    positions = pd.read_csv(positions_file, names = ["X","Y"], delimiter= " ")
     positions -= positions.min(axis=0)
     positions *= pos2pix
-    positions = positions.sort_values(['X','Y'],ascending = False)
+    positions = positions.sort_values(['X','Y'], ascending = False)
     positions = positions.apply(np.floor).astype(int)
-    images = grab_images(images_folder,ext = ext,to_sort = True)
+    images = grab_images(images_folder, ext = ext, to_sort = True)
     imx = images[0].shape[1]+positions['X'].max() #width of composite image
     imy = images[0].shape[0]+positions['Y'].max() #width of composite image  
     if reverse_y: positions["Y"] = imy - positions["Y"]

@@ -2302,15 +2302,16 @@ class ProtocolSettings(CompositeCapture):
 
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
-        # Write a TSV file
-        file_pointer = open(filepath, 'w')                      # open the file
-        csvwriter = csv.writer(file_pointer, delimiter='\t', lineterminator='\n') # access the file using the CSV library
+        # Write a protocol TSV file
+        protocol_file = open(filepath, 'w')                      # open the file
+        csvwriter = csv.writer(protocol_file, delimiter='\t', lineterminator='\n') # access the file using the CSV library
 
         csvwriter.writerow(['LumaViewPro Protocol'])
         csvwriter.writerow(['Period', period])
         csvwriter.writerow(['Duration', duration])
         csvwriter.writerow(['Labware', labware])
         csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+        
 
         for i in range(len(self.step_names)):
             c_name = self.step_names[i]
