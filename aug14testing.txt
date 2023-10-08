@@ -1,8 +1,0 @@
-LumaViewPro Protocol
-Period	0.1
-Duration	1.2
-Labware	Center Plate
-Name	X	Y	Z	Auto_Focus	Channel	False_Color	Illumination	Gain	Auto_Gain	Exposure
-	63.88	42.74	7447.43884	0.0	0.0	1.0	250.0	10.200000000000001	0.0	101.34
-	63.88	42.74	7447.43884	0.0	1.0	1.0	250.0	21.1	0.0	98.67
-	63.88	42.74	7447.43884	0.0	2.0	1.0	350.0	35.800000000000004	0.0	100.0
