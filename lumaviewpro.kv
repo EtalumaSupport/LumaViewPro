@@ -1203,11 +1203,10 @@
 			on_collapse: root.accordion_collapse()
 
             BoxLayout:
-                orientation: 'horizontal'
-                size_hint_y: None
-                height: '30dp'
+                padding: '5dp'
                 spacing: '5dp'
-                width: '75dp'
+                orientation: 'vertical'
+                pos_hint: {'x': 0.0, 'y': 0.0}
                 
                 # Select stiching method
                 Spinner:

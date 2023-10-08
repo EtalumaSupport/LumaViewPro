@@ -36,7 +36,8 @@ error_codes = ["OK","ERR_NEED_MORE_IMGS","ERR_HOMOGRAPHY_EST_FAIL","ERR_CAMERA_P
 def image_stitcher(images_folder,
                    combine_colors = False,
                    ext = "tiff",
-                   method = "features",
+                   #method = "features",
+                   method = "position",
                    match_colors=False,
                    save_name = "./capture/last_composite_img.tiff",
                    display_image = False,
@@ -83,24 +84,27 @@ def image_stitcher(images_folder,
         The composite image.
 
     """
-    if combine_colors:
-        combine_rgb(images_folder,ext=ext)
-        images_folder = os.path.join(images_folder,'ims_color')
-    
-    if match_colors:
-        match_color_space(images_folder = images_folder,ext = ext)
-    
-    if method == "features":
-        stitched_img = feature_stitcher(images_folder, ext = ext, n_results = N_RESULTS)
+    try:
+        if combine_colors:
+            combine_rgb(images_folder,ext=ext)
+            images_folder = os.path.join(images_folder,'ims_color')
         
-    elif method == "position":
-        assert positions_file, "please provide the textfile name with the positions of the aquired images for argument positions_file (or choose method = 'features') "
-        stitched_img = position_stitcher(images_folder,positions_file,pos2pix=pos2pix,ext=ext)
-    elif method == "s_shape":
-        stitched_img = s_shape_stitcher(images_folder,ext = ext,n_images_per_row = 3)
+        if match_colors:
+            match_color_space(images_folder = images_folder,ext = ext)
         
-    if post_process:
-        stitched_img = zoom_frame(stitched_img)
+        if method == "features":
+            stitched_img = feature_stitcher(images_folder, ext = ext, n_results = N_RESULTS)
+            
+        elif method == "position":
+            assert positions_file, "please provide the textfile name with the positions of the aquired images for argument positions_file (or choose method = 'features') "
+            stitched_img = position_stitcher(images_folder,positions_file,pos2pix=pos2pix,ext=ext)
+        elif method == "s_shape":
+            stitched_img = s_shape_stitcher(images_folder,ext = ext,n_images_per_row = 3)
+            
+        if post_process:
+            stitched_img = zoom_frame(stitched_img)
+    except:
+        logger.error(f"Failed to stitched image.")
     
     try:
         if cv2.imwrite(save_name, stitched_img):
@@ -108,7 +112,7 @@ def image_stitcher(images_folder,
         else:
             logger.error(f"[LVP stitch] did not save stitched image {save_name}.")
     except:
-        logger.error(f"Failed to stitched image {save_name}.")
+        logger.error(f"Failed to save stitched image {save_name}.")
 
     if display_image:
         display_img(stitched_img)
@@ -173,7 +177,7 @@ def s_shape_stitcher(images_folder="",image_list=[],ext = 'tiff',n_images_per_ro
             stitched_img = temp_stitched
     return stitched_img
 
-def position_stitcher(images_folder,positions_file,pos2pix,ext = 'tiff'):
+def position_stitcher(images_folder, positions_file, pos2pix, ext = 'tiff'):
     """
     Stitches the images based on position information rather than features. Assumes the 
     image file names once sorted correspond to the order of the positions in the positions_file.
@@ -212,7 +216,7 @@ def position_stitcher(images_folder,positions_file,pos2pix,ext = 'tiff'):
             stitched_img[row['Y']:row['Y']+images[i].shape[0],row['X']:row['X']+images[i].shape[1],:] = images[i]
     return stitched_img
 
-def match_color_space(images_folder,ext = "tiff"):
+def match_color_space(images_folder, ext = "tiff"):
     
     image_paths = glob.glob(os.path.join(images_folder,'*.'+ext))
     image_paths = np.array(image_paths)
