@@ -3651,15 +3651,8 @@ class FolderChooseBTN(Button):
         # Note: Could likely use tkinter filedialog for all platforms
         # works on windows and MacOSX
         # but needs testing on Linux
-        if sys.platform != 'win32' or sys.platform != 'darwin':
-            filechooser.choose_dir(
-                on_selection=self.handle_selection
-                # path=selected_path
-            )
-            return
-        
-        else:
-            # Tested for Windows platforms
+        if sys.platform in ('win32','darwin'):
+            # Tested for Windows/Mac platforms
             selection = tkinter_filedialog.askdirectory(
                 initialdir=selected_path
             )
@@ -3668,7 +3661,13 @@ class FolderChooseBTN(Button):
             if selection == '':
                 return
             
-            self.handle_selection(selection=[selection])
+            self.handle_selection(selection=[selection])     
+        else:
+            filechooser.choose_dir(
+                on_selection=self.handle_selection
+                # path=selected_path
+            )
+            return
         
 
     def handle_selection(self, selection):
