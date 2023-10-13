@@ -2327,17 +2327,17 @@ class ProtocolSettings(CompositeCapture):
     # Multiple Exposures
     # ------------------------------
     #
-    # increase exposure count
-    def exposures_down_button(self):
-        logger.info('[LVP Main  ] ProtocolSettings.exposures_up_button()')
-        self.exposures = max(self.exposures-1,1)
-        self.ids['exposures_number_input'].text = str(self.exposures)
+    # # increase exposure count
+    # def exposures_down_button(self):
+    #     logger.info('[LVP Main  ] ProtocolSettings.exposures_up_button()')
+    #     self.exposures = max(self.exposures-1,1)
+    #     self.ids['exposures_number_input'].text = str(self.exposures)
         
-    # increase exposure count
-    def exposures_up_button(self):
-        logger.info('[LVP Main  ] ProtocolSettings.exposures_up_button()')
-        self.exposures = self.exposures+1
-        self.ids['exposures_number_input'].text = str(self.exposures)
+    # # increase exposure count
+    # def exposures_up_button(self):
+    #     logger.info('[LVP Main  ] ProtocolSettings.exposures_up_button()')
+    #     self.exposures = self.exposures+1
+    #     self.ids['exposures_number_input'].text = str(self.exposures)
     
     #
     # Edit steps

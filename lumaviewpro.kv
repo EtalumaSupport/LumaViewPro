@@ -1092,49 +1092,49 @@
                 valign: 'middle'
                 text_size: self.size
         
-        # Multiple exposure
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_y: None
-            height: '30dp'
-            spacing: '5dp'
+        # # Multiple exposure
+        # BoxLayout:
+        #     orientation: 'horizontal'
+        #     size_hint_y: None
+        #     height: '30dp'
+        #     spacing: '5dp'
            
-            Label:
-                text: 'Exposures'
-                size_hint_x: None
-                width: '75dp'
-                font_size: '12sp'
+        #     Label:
+        #         text: 'Exposures'
+        #         size_hint_x: None
+        #         width: '75dp'
+        #         font_size: '12sp'
             
-            Button:
-                id: exposures_down_btn
-                border: 0, 0, 0, 0
-                size_hint: None, None
-                size: '30dp', '30dp'
-                pos_hint: {'center_x': 0.35, 'center_y': 0.5}
-                background_normal: './data/icons/L_normal.png'
-                background_down: './data/icons/L_down.png'
-                on_release: root.exposures_down_button()
+        #     Button:
+        #         id: exposures_down_btn
+        #         border: 0, 0, 0, 0
+        #         size_hint: None, None
+        #         size: '30dp', '30dp'
+        #         pos_hint: {'center_x': 0.35, 'center_y': 0.5}
+        #         background_normal: './data/icons/L_normal.png'
+        #         background_down: './data/icons/L_down.png'
+        #         on_release: root.exposures_down_button()
                 
-            TextInput:
-                id: exposures_number_input
-                text: '1'
-                size_hint_y: None
-                height: '30dp'
-                font_size: '12sp'
-                halign: 'center'
-                multiline: False
-                input_filter: 'int'
-                #on_text_validate: root.set_exposures()
+        #     TextInput:
+        #         id: exposures_number_input
+        #         text: '1'
+        #         size_hint_y: None
+        #         height: '30dp'
+        #         font_size: '12sp'
+        #         halign: 'center'
+        #         multiline: False
+        #         input_filter: 'int'
+        #         #on_text_validate: root.set_exposures()
             
-            Button:
-                id: exposures_up_btn
-                border: 0, 0, 0, 0
-                size_hint: None, None
-                size: '30dp', '30dp'
-                pos_hint: {'center_x': 0.65, 'center_y': 0.5}
-                background_normal: './data/icons/R_normal.png'
-                background_down: './data/icons/R_down.png'
-                on_release: root.exposures_up_button()
+        #     Button:
+        #         id: exposures_up_btn
+        #         border: 0, 0, 0, 0
+        #         size_hint: None, None
+        #         size: '30dp', '30dp'
+        #         pos_hint: {'center_x': 0.65, 'center_y': 0.5}
+        #         background_normal: './data/icons/R_normal.png'
+        #         background_down: './data/icons/R_down.png'
+        #         on_release: root.exposures_up_button()
                 
 		ToggleButton:
 			id: run_autofocus_btn
