@@ -1066,31 +1066,31 @@
                 values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9', '10x10'
                 
                 
-        # Z-stack
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_y: None
-            height: '30dp'
-            spacing: '5dp'
+        # # Z-stack
+        # BoxLayout:
+        #     orientation: 'horizontal'
+        #     size_hint_y: None
+        #     height: '30dp'
+        #     spacing: '5dp'
            
-            Label:
-                text: 'Z Stack'
-                size_hint_x: None
-                width: '75dp'
-                font_size: '12sp'
+        #     Label:
+        #         text: 'Z Stack'
+        #         size_hint_x: None
+        #         width: '75dp'
+        #         font_size: '12sp'
                 
-            CheckBox:
-                id: acquire_zstack_id
-                size_hint_x: None
-                width: '30dp'
-                active: False
-                # TODO on_release: root.update_acquire_zstack()
-            Label:
-                text: 'Acquire All Steps'
-                font_size: '12sp'
-                halign: 'left'
-                valign: 'middle'
-                text_size: self.size
+        #     CheckBox:
+        #         id: acquire_zstack_id
+        #         size_hint_x: None
+        #         width: '30dp'
+        #         active: False
+        #         # TODO on_release: root.update_acquire_zstack()
+        #     Label:
+        #         text: 'Acquire All Steps'
+        #         font_size: '12sp'
+        #         halign: 'left'
+        #         valign: 'middle'
+        #         text_size: self.size
         
         # # Multiple exposure
         # BoxLayout:
