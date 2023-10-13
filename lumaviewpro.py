@@ -3559,13 +3559,13 @@ class ZStack(CompositeCapture):
         self.n_pos = 0
         lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
 
-        if self.ids['ztack_aqr_btn'].state == 'down':
+        if self.ids['zstack_aqr_btn'].state == 'down':
             logger.info('[LVP Main  ] Clock.schedule_interval(self.zstack_iterate, 0.01)')
             Clock.schedule_interval(self.zstack_iterate, 0.01)
-            self.ids['ztack_aqr_btn'].text = 'Acquiring ZStack'
+            self.ids['zstack_aqr_btn'].text = 'Acquiring ZStack'
 
         else:
-            self.ids['ztack_aqr_btn'].text = 'Acquire'
+            self.ids['zstack_aqr_btn'].text = 'Acquire'
             # self.zstack_event.cancel()
             logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
             Clock.unschedule(self.zstack_iterate)
@@ -3581,8 +3581,8 @@ class ZStack(CompositeCapture):
             if self.n_pos < len(self.positions):
                 lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
             else:
-                self.ids['ztack_aqr_btn'].text = 'Acquire'
-                self.ids['ztack_aqr_btn'].state = 'normal'
+                self.ids['zstack_aqr_btn'].text = 'Acquire'
+                self.ids['zstack_aqr_btn'].state = 'normal'
                 logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
                 Clock.unschedule(self.zstack_iterate)
 
