@@ -118,7 +118,7 @@ import image_utils
 
 global lumaview
 global settings
-global cell_count_controls
+global cell_count_content
 
 abspath = os.path.abspath(__file__)
 basename = os.path.basename(__file__)
@@ -730,31 +730,13 @@ class CellCountControls(BoxLayout):
     done = BooleanProperty(False)
 
     def __init__(self, **kwargs):
-        global cell_count_controls
         super().__init__(**kwargs)
         logger.info('LVP Main: CellCountControls.__init__()')
         self._preview_source_image = None
         self._preview_image = None
         self._post = post_processing.PostProcessing()
         self._settings = self._get_init_settings()
-        cell_count_controls = self
-        self._first_open = False
-        
-        
-    def activate(self):
-        if self._first_open is False:
-            self._first_open = True
-            self._set_ui_to_settings(self._settings)
-
-        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        scope_display.play = False
-        scope_display.stop()
-
-
-    def deactivate(self):
-        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        scope_display.play = True
-        scope_display.start()
+        self._set_ui_to_settings(self._settings)
 
 
     def _get_init_settings(self):
@@ -824,6 +806,8 @@ class CellCountControls(BoxLayout):
         time.sleep(1)
         self.done = True
 
+    def set_post_processing_module(self, post_processing_module):
+        self._post = post_processing_module
 
     def get_current_settings(self):
         return self._settings
@@ -969,14 +953,14 @@ class CellCountControls(BoxLayout):
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
         self._preview_image = image
-        lumaview.ids['viewer_id'].ids['scope_display_id'].texture = image_utils.image_to_texture(image=image)
+        self.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
         self.update_filter_max(image=image)
         self._regenerate_image_preview()
 
 
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
-        logger.info(f'[LVP Main  ] CellCountControls.save_method_as({file})')
+        logger.info(f'[LVP Main  ] CellCountContent.save_method_as({file})')
         os.chdir(source_path)
         self._add_method_settings_metadata()
         with open(file, "w") as write_file:
@@ -984,7 +968,7 @@ class CellCountControls(BoxLayout):
 
     
     def load_method_from_file(self, file):
-        logger.info(f'[LVP Main  ] CellCountControls.load_method_from_file({file})')
+        logger.info(f'[LVP Main  ] CellCountContent.load_method_from_file({file})')
         with open(file, "r") as f:
             method_settings = json.load(f)
         
@@ -1002,7 +986,7 @@ class CellCountControls(BoxLayout):
 
         self._preview_image = image
 
-        lumaview.ids['viewer_id'].ids['scope_display_id'].texture = image_utils.image_to_texture(image=image)
+        cell_count_content.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
 
 
     def slider_adjustment_threshold(self):
@@ -1088,7 +1072,7 @@ class CellCountControls(BoxLayout):
                 
             return True, value
 
-        value_str = self.ids['text_cell_count_pixels_per_um_id'].text
+        value_str = cell_count_content.ids['text_cell_count_pixels_per_um_id'].text
 
         valid, value = _validate(value_str)
         if not valid:
@@ -1134,7 +1118,9 @@ class PostProcessingAccordion(BoxLayout):
             'open_last_save_folder_accordion_id': None,
             'create_avi_accordion_id': None
         }
-     
+
+        self.init_cell_count()
+
 
     @staticmethod
     def accordion_item_state(accordion_item):
@@ -1166,12 +1152,20 @@ class PostProcessingAccordion(BoxLayout):
             self.accordion_item_states[accordion_item_id] = self.accordion_item_state(self.ids[accordion_item_id])
             changed_items.append(accordion_item_id)
 
-        if 'cell_count_accordion_id' in changed_items:
-            if self.accordion_item_states['cell_count_accordion_id'] == 'open':
-                cell_count_controls.activate()
-            else:
-                cell_count_controls.deactivate()
+        # TODO not currently needed to detect accordion item state changes, but an example is shown below
+        # if 'cell_count_accordion_id' in changed_items:
+        #     if self.accordion_item_states['cell_count_accordion_id'] == 'open':
+        #         cell_count_content.activate()
+        #     else:
+        #         cell_count_content.deactivate()
 
+
+    
+
+    
+    def init_cell_count(self):
+        self._cell_count_popup = None
+        
 
     def convert_to_avi(self):
         logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
@@ -1195,7 +1189,6 @@ class PostProcessingAccordion(BoxLayout):
         # out.release()
 
     def stitch(self):
-        # global lumaview
         logger.debug('[LVP Main  ] PostProcessingAccordian.stitch() not fully implemented')
         #error_log('PostProcessing.stitch()')
         try:
@@ -1283,6 +1276,24 @@ class PostProcessingAccordion(BoxLayout):
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
 
+    def open_cell_count(self):
+        global cell_count_content
+        if self._cell_count_popup is None:
+            cell_count_content.set_post_processing_module(self.post)
+            self._cell_count_popup = Popup(
+                title="Post Processing - Cell Count",
+                content=cell_count_content,
+                size_hint=(0.85,0.85),
+                auto_dismiss=True
+            )
+
+        self._cell_count_popup.open()
+
+
+class CellCountDisplay(FloatLayout):
+
+    def __init__(self, **kwargs):
+        super(CellCountDisplay,self).__init__(**kwargs)
 
 
 
@@ -3623,10 +3634,10 @@ class FileChooseBTN(Button):
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
             
             elif self.context == 'load_cell_count_input_image':
-                cell_count_controls.set_preview_source_file(file=self.selection[0])
+                cell_count_content.set_preview_source_file(file=self.selection[0])
 
             elif self.context == 'load_cell_count_method':
-                cell_count_controls.load_method_from_file(file=self.selection[0])
+                cell_count_content.load_method_from_file(file=self.selection[0])
 
         else:
             return
@@ -3692,7 +3703,7 @@ class FolderChooseBTN(Button):
             video_creation_controls.set_input_images_loc(directory=path)
 
         elif self.context == 'apply_cell_count_method_to_folder':
-            cell_count_controls.apply_method_to_folder(
+            cell_count_content.apply_method_to_folder(
                 path=path
             )
 
@@ -3743,7 +3754,7 @@ class FileSaveBTN(Button):
                 filename = self.selection[0]
                 if os.path.splitext(filename)[1] == "":
                     filename += ".json"
-                cell_count_controls.save_method_as(file=filename)
+                cell_count_content.save_method_as(file=filename)
         
         elif self.context == 'video_output_path':
             if self.selection:
@@ -3777,7 +3788,7 @@ class LumaViewProApp(App):
 
         global Window
         global lumaview
-        global cell_count_controls
+        global cell_count_content
         global video_creation_controls
         self.icon = './data/icons/icon.png'
 
@@ -3785,6 +3796,7 @@ class LumaViewProApp(App):
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
+            cell_count_content = CellCountControls()
             #Window.maximize()
         except:
             logger.exception('[LVP Main  ] Cannot open main display.')
