@@ -1,0 +1,113 @@
+
+import json
+
+
+class TilingConfig:
+
+    def __init__(self, x_range, y_range):
+        self._x_range = x_range
+        self._y_range = y_range
+
+        with open('./data/tiling.json', "r") as fp:
+            self._available_configs = json.load(fp)
+
+
+    def available_configs(self) -> list[str]:
+        return list(self._available_configs['data'].keys())
+    
+
+    def get_mxn_size(self, config_label: str) -> dict:
+        return self._available_configs['data'][config_label]
+    
+
+    def default_config(self) -> str:
+        return self._available_configs["metadata"]["default"]
+
+
+    def _calc_range(
+        self, 
+        config_label: str,
+        focal_length: float,
+        frame_size: dict[int],
+        fill_factor: int
+    ) -> dict[dict]:
+        tiling_mxn = self.get_mxn_size(config_label)
+        
+        # x_count = int(spinner.text[0])
+        # y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
+        # self.tiling_count = (x_count, y_count)
+        # focal_length = focal_
+        magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
+                                            # in theory could be different in different scopes
+                                            # could be looked up by model number
+                                            # although all are currently the same
+        pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
+        um_per_pixel = pixel_width / magnification
+
+        fov_size_x = um_per_pixel * frame_size['width']
+        fov_size_y = um_per_pixel * frame_size['height']
+        # fill_factor = 0.75 # this is to ensure some of the tile images overlap.
+                             # TODO this should be a setting in the gui
+        # fill_factor = 1
+        #print(magnification)
+        #print(settings['frame']['width'])
+        
+        x_fov = fill_factor * fov_size_x
+        y_fov = fill_factor * fov_size_y
+        #x_current = lumaview.scope.get_current_position('X')
+        #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+        x_center = 60000 # TODO make center of a well
+        #y_current = lumaview.scope.get_current_position('Y')
+        #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+        y_center = 40000 # TODO make center of a well
+        tiling_min = {
+            "x": x_center - tiling_mxn["n"]*x_fov/2,
+            "y": y_center - tiling_mxn["m"]*y_fov/2
+        }
+
+        #print(self.tiling_min)
+        tiling_max = {
+            "x": x_center + tiling_mxn["n"]*x_fov/2,
+            "y": y_center + tiling_mxn["m"]*y_fov/2
+        }
+
+        return {
+            'mxn': tiling_mxn,
+            'min': tiling_min,
+            'max': tiling_max,
+        }
+
+
+    def get_tile_centers(
+            self,
+            config_label: str,
+            focal_length: float,
+            frame_size: dict[int],
+            fill_factor: int
+        ):
+        # logger.info('[LVP Main  ] PostProcessing.get_tile_centers()')
+        ranges = self._calc_range(
+            config_label=config_label,
+            focal_length=focal_length,
+            frame_size=frame_size,
+            fill_factor=fill_factor
+        )
+
+        mxn = ranges['mxn']
+        min = ranges['min']
+        max = ranges['max']
+
+        tiles = []
+        ax = (max["x"] + min["x"])/2
+        ay = (max["y"] + min["y"])/2
+        dx = (max["x"] - min["x"])/mxn["n"]
+        dy = (max["y"] - min["y"])/mxn["m"]
+        for i in range(mxn["n"]):
+            for j in range(mxn["m"]):
+                tiles.append(
+                    {
+                        "x": min["x"] + (i+0.5)*dx - ax,
+                        "y": max["y"] + (j+0.5)*dy - ay
+                    }
+                )
+        return tiles

@@ -107,6 +107,8 @@ from custom_widgets.progress_popup import show_popup
 from image_stitcher import image_stitcher
 from modules.video_builder import VideoBuilder
 
+from modules.tiling_config import TilingConfig
+
 import cv2
 
 # Hardware
@@ -1107,10 +1109,21 @@ class PostProcessingAccordion(BoxLayout):
         self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
         
         
-        self.tiling_target = []
-        self.tiling_min = [120000, 80000]
-        self.tiling_max = [0, 0]
-        self.tiling_count = [1, 1]
+        # self.tiling_target = []
+        self.tiling_min = {
+            "x": 120000,
+            "y": 80000
+        }
+
+        self.tiling_max = {
+            "x": 0,
+            "y": 0
+        }
+
+        self.tiling_count = {
+            "x": 1,
+            "y": 1
+        }
 
         self.accordion_item_states = {
             'cell_count_accordion_id': None,
@@ -2044,16 +2057,32 @@ class ProtocolSettings(CompositeCapture):
             self.labware = json.load(read_file)
             read_file.close()
 
+        
+
         self.step_names = list()
         self.step_values = []
         self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
         
-        self.tiling_target = []
-        self.tiling_min = [120000, 80000]
-        self.tiling_max = [0, 0]
-        self.tiling_count = [1, 1]
+        self.tiling_config = TilingConfig()
+        self.tiling_min = {
+            "x": 120000,
+            "y": 80000
+        }
+        self.tiling_max = {
+            "x": 0,
+            "y": 0
+        }
+
+        self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
         self.exposures = 1  # 1 indexed
+        Clock.schedule_once(self._init_ui, 0)
+
+
+    def _init_ui(self, dt=0):
+        self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
+        self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
+
 
     # Update Protocol Period   
     def update_period(self):
@@ -2176,7 +2205,12 @@ class ProtocolSettings(CompositeCapture):
         current_labware.load_plate(settings['protocol']['labware'])
         current_labware.set_positions()
         
-        tiling_pos_list = self.get_tile_centers()
+        tiling_pos_list = self.tiling_config.get_tile_centers(
+            config_label=self.ids['tiling_size_spinner'].text,
+            focal_length=settings['objective']['focal_length'],
+            frame_size=settings['frame'],
+            fill_factor=1
+        )
         
         self.step_names = list()
         self.step_values = []
@@ -2573,69 +2607,80 @@ class ProtocolSettings(CompositeCapture):
     # Tiling
     # ---------------------------
     #
-    def select_tiling_size(self):
-        logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() partially implemented')
-        logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
-        spinner = self.ids['tiling_size_spinner']
+    # def select_tiling_size(self):
+    #     logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() partially implemented')
+    #     logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
+    #     spinner = self.ids['tiling_size_spinner']
         #settings['protocol']['labware'] = spinner.text #TODO change key
-        x_count = int(spinner.text[0])
-        y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
-        self.tiling_count = [x_count, y_count]
-        #print(self.x_tiling_count)
-        focal_length = settings['objective']['focal_length']
-        magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
-                                            # in theory could be different in different scopes
-                                            # could be looked up by model number
-                                            # although all are currently the same
-        pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
-        um_per_pixel = pixel_width / magnification
-
-        fov_size_x = um_per_pixel * settings['frame']['width']
-        fov_size_y = um_per_pixel * settings['frame']['height']
-        fillfactor = 0.75 # this is to ensure some of the tile images overlap.
-                          # TODO this should be a setting in the gui
-        #print(magnification)
-        #print(settings['frame']['width'])
+        # self.tiling_count = self.tiling_config.get_mxn_size(spinner.text)
         
-        x_fov = fillfactor * fov_size_x
-        y_fov = fillfactor * fov_size_y
-        #x_current = lumaview.scope.get_current_position('X')
-        #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-        x_center = 60000 # TODO make center of a well
-        #y_current = lumaview.scope.get_current_position('Y')
-        #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
-        y_center = 40000 # TODO make center of a well
-        self.tiling_min = [x_center - x_count*x_fov/2, y_center - y_count*y_fov/2]
-        #print(self.tiling_min)
-        self.tiling_max = [x_center + x_count*x_fov/2, y_center + y_count*y_fov/2]
+        # # x_count = int(spinner.text[0])
+        # # y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
+        # # self.tiling_count = (x_count, y_count)
+        # focal_length = settings['objective']['focal_length']
+        # magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
+        #                                     # in theory could be different in different scopes
+        #                                     # could be looked up by model number
+        #                                     # although all are currently the same
+        # pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
+        # um_per_pixel = pixel_width / magnification
+
+        # fov_size_x = um_per_pixel * settings['frame']['width']
+        # fov_size_y = um_per_pixel * settings['frame']['height']
+        # # fill_factor = 0.75 # this is to ensure some of the tile images overlap.
+        #                      # TODO this should be a setting in the gui
+        # fill_factor = 1
+        # #print(magnification)
+        # #print(settings['frame']['width'])
+        
+        # x_fov = fill_factor * fov_size_x
+        # y_fov = fill_factor * fov_size_y
+        # #x_current = lumaview.scope.get_current_position('X')
+        # #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+        # x_center = 60000 # TODO make center of a well
+        # #y_current = lumaview.scope.get_current_position('Y')
+        # #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+        # y_center = 40000 # TODO make center of a well
+        # self.tiling_min = {
+        #     "x": x_center - self.tiling_count["n"]*x_fov/2,
+        #     "y": y_center - self.tiling_count["m"]*y_fov/2
+        # }
+
+        # #print(self.tiling_min)
+        # self.tiling_max = {
+        #     "x": x_center + self.tiling_count["n"]*x_fov/2,
+        #     "y": y_center + self.tiling_count["m"]*y_fov/2
+        # }
         #print(self.tiling_max)
        
-        # DEPRICATED this talks to the wrong stage view
+        # DEPRECATED this talks to the wrong stage view
         #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
         #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
         #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
         #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
         #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
-        return
+        # return
         
-    def start_tiling(self):
-        logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
-        return self.get_tile_centers()
+    # def start_tiling(self):
+    #     logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
+    #     return self.get_tile_centers()
         
-    def get_tile_centers(self):
-        logger.info('[LVP Main  ] PostProcessing.get_tile_centers()')
-        tiles = []
-        ax = (self.tiling_max[0] + self.tiling_min[0])/2
-        ay = (self.tiling_max[1] + self.tiling_min[1])/2
-        dx = (self.tiling_max[0] - self.tiling_min[0])/self.tiling_count[0]
-        dy = (self.tiling_max[1] - self.tiling_min[1])/self.tiling_count[1]
-        for i in range(self.tiling_count[0]):
-            for j in range(self.tiling_count[1]):
-                x = self.tiling_min[0] + (i+0.5)*dx - ax
-                y = self.tiling_min[1] + (j+0.5)*dy - ay
-                tiles.append([x, y])
-                print(x,y)
-        return tiles
+    # def get_tile_centers(self):
+    #     logger.info('[LVP Main  ] PostProcessing.get_tile_centers()')
+    #     tiles = []
+    #     ax = (self.tiling_max["x"] + self.tiling_min["x"])/2
+    #     ay = (self.tiling_max["y"] + self.tiling_min["y"])/2
+    #     dx = (self.tiling_max["x"] - self.tiling_min["x"])/self.tiling_count["x"]
+    #     dy = (self.tiling_max["y"] - self.tiling_min["y"])/self.tiling_count["y"]
+    #     for i in range(self.tiling_count["x"]):
+    #         for j in range(self.tiling_count["y"]):
+    #             tiles.append(
+    #                 {
+    #                     "x": self.tiling_min["x"] + (i+0.5)*dx - ax,
+    #                     "y": self.tiling_min["y"] + (j+0.5)*dy - ay
+    #                 }
+    #             )
+    #     return tiles
         
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_zstack_scan(self):
