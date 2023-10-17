@@ -2592,7 +2592,7 @@ class ProtocolSettings(CompositeCapture):
 
         fov_size_x = um_per_pixel * settings['frame']['width']
         fov_size_y = um_per_pixel * settings['frame']['height']
-        fillfactor = 0.75 # this is to ensure some of the tile images overlap.
+        fillfactor = 0.85 # this is to ensure some of the tile images overlap.
                           # TODO this should be a setting in the gui
         #print(magnification)
         #print(settings['frame']['width'])
