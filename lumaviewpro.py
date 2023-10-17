@@ -2209,7 +2209,7 @@ class ProtocolSettings(CompositeCapture):
             config_label=self.ids['tiling_size_spinner'].text,
             focal_length=settings['objective']['focal_length'],
             frame_size=settings['frame'],
-            fill_factor=1
+            fill_factor=0.85
         )
         
         self.step_names = list()
