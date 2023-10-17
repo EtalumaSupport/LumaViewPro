@@ -2223,8 +2223,8 @@ class ProtocolSettings(CompositeCapture):
                 for layer in layers:
                     if settings[layer]['acquire'] == True:
 
-                        x = pos[0] + tile[0]/1000 # in 'plate' coordinates
-                        y = pos[1] + tile[1]/1000 # in 'plate' coordinates
+                        x = pos[0] + tile["x"]/1000 # in 'plate' coordinates
+                        y = pos[1] + tile["y"]/1000 # in 'plate' coordinates
                         z = settings[layer]['focus']
                         af = settings[layer]['autofocus']
                         ch = lumaview.scope.color2ch(layer)
