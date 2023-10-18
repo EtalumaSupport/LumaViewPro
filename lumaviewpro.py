@@ -262,7 +262,15 @@ class CompositeCapture(FloatLayout):
         # lumaview.scope.get_image()
         lumaview.scope.save_live_image(save_folder, file_root, append, color)
 
-    def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
+    def custom_capture(
+        self,
+        channel,
+        illumination,
+        gain,
+        exposure,
+        false_color = True,
+        tile_label = None
+    ):
         print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
         global lumaview
@@ -278,6 +286,10 @@ class CompositeCapture(FloatLayout):
         file_root = settings[color]['file_root']
         well_label = self.get_well_label()
         append = f'{well_label}_{color}'
+
+        # Add tile label if present
+        if tile_label not in (None, ""):
+            append = f'{append}_T{tile_label}'
 
         # Illuminate
         if lumaview.scope.led:
@@ -2434,6 +2446,14 @@ class ProtocolSettings(CompositeCapture):
         auto_gain = self.step_values[self.curr_step, 8]
         exp =       self.step_values[self.curr_step, 9]
 
+        x = x.astype(float)
+        y = y.astype(float)
+        z = z.astype(float)
+        gain = gain.astype(float)
+        exp = exp.astype(float)
+        ch = ch.astype(float)
+        ill = ill.astype(float)
+
         self.ids['step_name_input'].text = name
 
         # Convert plate coordinates to stage coordinates
@@ -2836,6 +2856,10 @@ class ProtocolSettings(CompositeCapture):
             x = self.step_values[self.curr_step, 0]
             y = self.step_values[self.curr_step, 1]
             z = self.step_values[self.curr_step, 2]
+
+            x = x.astype(float)
+            y = y.astype(float)
+            z = z.astype(float)
  
             # Convert plate coordinates to stage coordinates
             sx, sy = self.plate_to_stage(x, y)
@@ -2879,59 +2903,74 @@ class ProtocolSettings(CompositeCapture):
         y_status = lumaview.scope.get_target_status('Y')
         z_status = lumaview.scope.get_target_status('Z')
 
-        # If target location has been reached
-        if x_status and y_status and z_status and not lumaview.scope.get_overshoot():
-            logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.curr_step]))
+        # Check if target location has not been reached yet
+        if (not x_status) or (not y_status) or (not z_status) or lumaview.scope.get_overshoot():
+            return
+        
+        logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.curr_step]))
 
-            # identify image settings
-            af =        self.step_values[self.curr_step, 3] # autofocus
-            ch =        self.step_values[self.curr_step, 4] # LED channel
-            fc =        self.step_values[self.curr_step, 5] # image false color
-            ill =       self.step_values[self.curr_step, 6] # LED illumination
-            gain =      self.step_values[self.curr_step, 7] # camera gain
-            auto_gain = self.step_values[self.curr_step, 8] # camera autogain
-            exp =       self.step_values[self.curr_step, 9] # camera exposure
+        # identify image settings
+        af =         self.step_values[self.curr_step, 3] # autofocus
+        ch =         self.step_values[self.curr_step, 4] # LED channel
+        fc =         self.step_values[self.curr_step, 5] # image false color
+        ill =        self.step_values[self.curr_step, 6] # LED illumination
+        gain =       self.step_values[self.curr_step, 7] # camera gain
+        auto_gain =  self.step_values[self.curr_step, 8] # camera autogain
+        exp =        self.step_values[self.curr_step, 9] # camera exposure
+        tile_label = self.step_values[self.curr_step, 10] # tile label
+
+        gain = gain.astype(float)
+        exp = exp.astype(float)
+        ch = ch.astype(float)
+        ill = ill.astype(float)
+        
+        # Set camera settings
+        lumaview.scope.set_gain(gain)
+        lumaview.scope.set_auto_gain(bool(auto_gain))
+        lumaview.scope.set_exposure_time(exp)
+        
+        # If the autofocus is selected, is not currently running and has not completed, begin autofocus
+        if af and not is_complete:
+            # turn on LED
+            lumaview.scope.leds_off()
+            lumaview.scope.led_on(ch, ill)
+
+            # Begin autofocus routine
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
             
-            # Set camera settings
-            lumaview.scope.set_gain(gain)
-            lumaview.scope.set_auto_gain(bool(auto_gain))
-            lumaview.scope.set_exposure_time(exp)
-            
-            # If the autofocus is selected, is not currently running and has not completed, begin autofocus
-            if af and not is_complete:
-                # turn on LED
-                lumaview.scope.leds_off()
-                lumaview.scope.led_on(ch, ill)
+            return
+        
+        # reset the is_complete flag on autofocus
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
-                # Begin autofocus routine
-                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
-                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
-                
-                return
-            
-            # reset the is_complete flag on autofocus
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
+        # capture image
+        self.custom_capture(
+            channel=ch,
+            illumination=ill,
+            gain=gain,
+            exposure=exp,
+            false_color=bool(fc),
+            tile_label=tile_label
+        )
 
-            # capture image
-            self.custom_capture(ch, ill, gain, exp, bool(fc))
+        # increment to the next step
+        self.curr_step += 1
 
-            # increment to the next step
-            self.curr_step += 1
+        if self.curr_step < len(self.step_names):
 
-            if self.curr_step < len(self.step_names):
+            # Update Step number text
+            self.ids['step_number_input'].text = str(self.curr_step+1)
+            self.go_to_step()
 
-                # Update Step number text
-                self.ids['step_number_input'].text = str(self.curr_step+1)
-                self.go_to_step()
+        # if all positions have already been reached
+        else:
+            logger.info('[LVP Main  ] Scan Complete')
+            self.ids['run_scan_btn'].state = 'normal'
+            self.ids['run_scan_btn'].text = 'Run One Scan'
 
-            # if all positions have already been reached
-            else:
-                logger.info('[LVP Main  ] Scan Complete')
-                self.ids['run_scan_btn'].state = 'normal'
-                self.ids['run_scan_btn'].text = 'Run One Scan'
-
-                logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
-                Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+            logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
+            Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
 
     # Run protocol without xy movement
     def run_stationary(self):

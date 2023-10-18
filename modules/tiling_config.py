@@ -92,6 +92,8 @@ class TilingConfig:
         dx = (max["x"] - min["x"])/mxn["n"]
         dy = (max["y"] - min["y"])/mxn["m"]
 
+        PRECISION = 6 # Digits
+
         for i, j in itertools.product(range(mxn["m"]), range(mxn["n"])):
             
             if (mxn["m"] == 1) and (mxn["n"] == 1):
@@ -103,8 +105,8 @@ class TilingConfig:
                 tile_label = f"{row_letter}{col_number}"
 
             tiles[tile_label] = {
-                "x": min["x"] + (j+0.5)*dx - ax,
-                "y": max["y"] + (i+0.5)*dy - ay
+                "x": round(min["x"] + (j+0.5)*dx - ax, PRECISION),
+                "y": round(max["y"] + (i+0.5)*dy - ay, PRECISION)
             }
 
         return tiles
