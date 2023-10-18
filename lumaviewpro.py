@@ -2205,7 +2205,7 @@ class ProtocolSettings(CompositeCapture):
         current_labware.load_plate(settings['protocol']['labware'])
         current_labware.set_positions()
         
-        tiling_pos_list = self.tiling_config.get_tile_centers(
+        tiles = self.tiling_config.get_tile_centers(
             config_label=self.ids['tiling_size_spinner'].text,
             focal_length=settings['objective']['focal_length'],
             frame_size=settings['frame'],
@@ -2217,14 +2217,14 @@ class ProtocolSettings(CompositeCapture):
 
          # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
-            for tile in tiling_pos_list:
+            for tile_label, tile_position in tiles.items():
                 # Iterate through all the colors to create the steps
                 layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
                 for layer in layers:
                     if settings[layer]['acquire'] == True:
 
-                        x = pos[0] + tile["x"]/1000 # in 'plate' coordinates
-                        y = pos[1] + tile["y"]/1000 # in 'plate' coordinates
+                        x = pos[0] + tile_position["x"]/1000 # in 'plate' coordinates
+                        y = pos[1] + tile_position["y"]/1000 # in 'plate' coordinates
                         z = settings[layer]['focus']
                         af = settings[layer]['autofocus']
                         ch = lumaview.scope.color2ch(layer)
@@ -2234,7 +2234,7 @@ class ProtocolSettings(CompositeCapture):
                         auto_gain = int(settings[layer]['auto_gain'])
                         exp = settings[layer]['exp']
 
-                        self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp])
+                        self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp, tile_label])
 
         self.step_values = np.array(self.step_values)
 
@@ -2355,7 +2355,7 @@ class ProtocolSettings(CompositeCapture):
         csvwriter.writerow(['Period', period])
         csvwriter.writerow(['Duration', duration])
         csvwriter.writerow(['Labware', labware])
-        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Tile Label'])
 
         for i in range(len(self.step_names)):
             c_name = self.step_names[i]

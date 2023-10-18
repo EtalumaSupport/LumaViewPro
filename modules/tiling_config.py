@@ -74,7 +74,7 @@ class TilingConfig:
             focal_length: float,
             frame_size: dict[int],
             fill_factor: int
-    ) -> list:
+    ) -> dict:
         ranges = self._calc_range(
             config_label=config_label,
             focal_length=focal_length,
@@ -86,18 +86,25 @@ class TilingConfig:
         min = ranges['min']
         max = ranges['max']
 
-        tiles = []
+        tiles = {}
         ax = (max["x"] + min["x"])/2
         ay = (max["y"] + min["y"])/2
         dx = (max["x"] - min["x"])/mxn["n"]
         dy = (max["y"] - min["y"])/mxn["m"]
 
         for i, j in itertools.product(range(mxn["m"]), range(mxn["n"])):
-            tiles.append(
-                {
-                    "x": min["x"] + (j+0.5)*dx - ax,
-                    "y": max["y"] + (i+0.5)*dy - ay
-                }
-            )
+            
+            if (mxn["m"] == 1) and (mxn["n"] == 1):
+                # Handle special case where tiling is 1x1 (i.e. no tiling)
+                tile_label = ""
+            else:
+                row_letter = chr(i+65)
+                col_number = j+1
+                tile_label = f"{row_letter}{col_number}"
+
+            tiles[tile_label] = {
+                "x": min["x"] + (j+0.5)*dx - ax,
+                "y": max["y"] + (i+0.5)*dy - ay
+            }
 
         return tiles
