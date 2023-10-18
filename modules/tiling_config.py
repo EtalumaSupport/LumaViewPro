@@ -100,7 +100,7 @@ class TilingConfig:
                 # Handle special case where tiling is 1x1 (i.e. no tiling)
                 tile_label = ""
             else:
-                row_letter = chr(i+65)
+                row_letter = chr(i+ord('A'))
                 col_number = j+1
                 tile_label = f"{row_letter}{col_number}"
 
