@@ -622,8 +622,11 @@ class MotionSettings(BoxLayout):
     
     def set_tiling_control_visibility(self, visible: bool) -> None:
         vert_control = self.ids['protocol_settings_id']
-        for tiling_id in ('tiling_selection_label', 'tiling_size_spinner'):
+        for tiling_id in ('tiling_box_layout_id',):
             vert_control.ids[tiling_id].visible = visible
+
+        if not visible:
+            vert_control.ids['tiling_size_spinner'].text = '1x1'
 
 
     # Hide (and unhide) motion settings
