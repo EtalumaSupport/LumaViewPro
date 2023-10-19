@@ -1042,12 +1042,17 @@
         # Tiling
         BoxLayout:
             orientation: 'horizontal'
-            size_hint_y: None
-            height: '30dp'
+			id: tiling_box_layout_id
+            size_hint_y: None if self.visible else 0
+            height: '30dp' if self.visible else 0
+			opacity: 1 if self.visible else 0
             spacing: '5dp'
+			visible: True
            
             Label:
                 text: 'Tiling'
+				size_hint_y: None
+				height: '30dp'
                 size_hint_x: None
                 width: '75dp'
                 font_size: '12sp'
@@ -1062,7 +1067,6 @@
                 height: '30dp'
                 text_autoupdate: True
                 on_text: root.select_tiling_size()
-                #text: '1x1'
                 values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9'
                 
                 

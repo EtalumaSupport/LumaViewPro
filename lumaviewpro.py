@@ -619,6 +619,15 @@ class MotionSettings(BoxLayout):
         for turret_id in ('turret_selection_label', 'turret_btn_box'):
             vert_control.ids[turret_id].visible = visible
 
+    
+    def set_tiling_control_visibility(self, visible: bool) -> None:
+        vert_control = self.ids['protocol_settings_id']
+        for tiling_id in ('tiling_box_layout_id',):
+            vert_control.ids[tiling_id].visible = visible
+
+        if not visible:
+            vert_control.ids['tiling_size_spinner'].text = '1x1'
+
 
     # Hide (and unhide) motion settings
     def toggle_settings(self):
@@ -3262,6 +3271,7 @@ class MicroscopeSettings(BoxLayout):
         motion_settings =  lumaview.ids['motionsettings_id']
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
         motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
+        motion_settings.set_tiling_control_visibility(visible=selected_scope_config['XYStage'])
 
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
