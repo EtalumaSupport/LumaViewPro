@@ -233,7 +233,7 @@ class CompositeCapture(FloatLayout):
         return f'{letter}{well_x + 1}'
 
     def live_capture(self):
-        print("Custom capture")
+        print("Live capture")
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
@@ -257,7 +257,7 @@ class CompositeCapture(FloatLayout):
                 if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
                     
-                break       
+                break
             
         # lumaview.scope.get_image()
         lumaview.scope.save_live_image(save_folder, file_root, append, color)
