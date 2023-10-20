@@ -51,12 +51,16 @@ Set-Location -Path $repo_dir
 Copy-Item '.\scripts\config\lumaviewpro_win_release.spec' '.\lumaviewpro.spec'
 pyinstaller --log-level INFO .\lumaviewpro.spec
 
-echo "Rename output directory"
+
 $orig_output_dir = ".\dist\lumaviewpro"
 $new_output_dir = ".\dist\$lvp_base_w_version"
 
+# Remove unneeded files for the camera library to reduce release size
+Remove-Item "$orig_output_dir\pypylon\pylonCXP" -Recurse -Force
+
 # Note: Encountered access denied issue when trying to use Rename-Item. For now
 # make a new directory and copy the contents instead.
+echo "Rename output directory"
 New-Item -Path $new_output_dir -ItemType Directory
 Copy-Item -Path "$orig_output_dir\*" -Destination $new_output_dir -Recurse
 
