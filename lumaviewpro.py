@@ -269,7 +269,9 @@ class CompositeCapture(FloatLayout):
         gain,
         exposure,
         false_color = True,
-        tile_label = None
+        tile_label = None,
+        z_height = None,
+        scan_count = None
     ):
         print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
@@ -287,6 +289,15 @@ class CompositeCapture(FloatLayout):
         well_label = self.get_well_label()
         append = f'{well_label}_{color}'
 
+        # Add Z-height if present
+        if z_height not in (None, ""):
+            append = f'{append}_Z{z_height}'
+
+        # Add scan count if present
+        DESIRED_SCAN_COUNT_DIGITS = 6
+        if scan_count not in (None, ""):
+            append = f'{append}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}'
+
         # Add tile label if present
         if tile_label not in (None, ""):
             append = f'{append}_T{tile_label}'
@@ -303,7 +314,7 @@ class CompositeCapture(FloatLayout):
         time.sleep(2*exposure/1000+0.2)
         
         use_color = color if false_color else 'BF'
-        lumaview.scope.save_live_image(save_folder, file_root, append, use_color)
+        lumaview.scope.save_live_image(save_folder, file_root, append, use_color, tail_id_mode=None)
 
         scope_leds_off()
 
@@ -2096,6 +2107,8 @@ class ProtocolSettings(CompositeCapture):
 
         self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
+        self.scan_count = 0
+
         self.exposures = 1  # 1 indexed
         Clock.schedule_once(self._init_ui, 0)
 
@@ -2321,7 +2334,23 @@ class ProtocolSettings(CompositeCapture):
 
         file_pointer.close()
         self.step_values = np.array(self.step_values)
-        self.step_values = self.step_values.astype(float)
+        # self.step_values = self.step_values.astype(float)
+        # self.step_values = self.step_values.astype('object')
+        # self.step_values[:,0] = self.step_values[:,0].astype('float') # X
+        # self.step_values[:,1] = self.step_values[:,1].astype('float') # Y
+        # self.step_values[:,2] = self.step_values[:,2].astype('float') # Z
+        # self.step_values[:,3] = self.step_values[:,3].astype('bool')  # Autofocus
+        # self.step_values[:,4] = self.step_values[:,4].astype('int')   # Channel
+        # self.step_values[:,5] = self.step_values[:,5].astype('bool')  # False color
+        # self.step_values[:,6] = self.step_values[:,6].astype('float') # Illumination
+        # self.step_values[:,7] = self.step_values[:,7].astype('float') # Gain
+        # self.step_values[:,8] = self.step_values[:,8].astype('bool')  # Auto-gain
+        # self.step_values[:,9] = self.step_values[:,9].astype('float') # Exposure
+        # self.step_values[:,10] = self.step_values[:,10].astype('str') # Tile label
+
+        # TODO convert this all to a dataframe
+        if self.step_values.shape[1] != 11:
+            raise Exception("Update casting table above since the shape has changed")
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
@@ -2455,13 +2484,13 @@ class ProtocolSettings(CompositeCapture):
         auto_gain = self.step_values[self.curr_step, 8]
         exp =       self.step_values[self.curr_step, 9]
 
-        x = x.astype(float)
-        y = y.astype(float)
-        z = z.astype(float)
-        gain = gain.astype(float)
-        exp = exp.astype(float)
-        ch = ch.astype(float)
-        ill = ill.astype(float)
+        # x = x.astype(float)
+        # y = y.astype(float)
+        # z = z.astype(float)
+        # gain = gain.astype(float)
+        # exp = exp.astype(float)
+        # ch = ch.astype(float)
+        # ill = ill.astype(float)
 
         self.ids['step_name_input'].text = name
 
@@ -2866,9 +2895,9 @@ class ProtocolSettings(CompositeCapture):
             y = self.step_values[self.curr_step, 1]
             z = self.step_values[self.curr_step, 2]
 
-            x = x.astype(float)
-            y = y.astype(float)
-            z = z.astype(float)
+            # x = x.astype(float)
+            # y = y.astype(float)
+            # z = z.astype(float)
  
             # Convert plate coordinates to stage coordinates
             sx, sy = self.plate_to_stage(x, y)
@@ -2919,6 +2948,7 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.curr_step]))
 
         # identify image settings
+        z_height =   self.step_values[self.curr_step, 2] # Z-height
         af =         self.step_values[self.curr_step, 3] # autofocus
         ch =         self.step_values[self.curr_step, 4] # LED channel
         fc =         self.step_values[self.curr_step, 5] # image false color
@@ -2928,10 +2958,11 @@ class ProtocolSettings(CompositeCapture):
         exp =        self.step_values[self.curr_step, 9] # camera exposure
         tile_label = self.step_values[self.curr_step, 10] # tile label
 
-        gain = gain.astype(float)
-        exp = exp.astype(float)
-        ch = ch.astype(float)
-        ill = ill.astype(float)
+        # z_height = z_height.astype(float)
+        # gain = gain.astype(float)
+        # exp = exp.astype(float)
+        # ch = ch.astype(float)
+        # ill = ill.astype(float)
         
         # Set camera settings
         lumaview.scope.set_gain(gain)
@@ -2960,7 +2991,9 @@ class ProtocolSettings(CompositeCapture):
             gain=gain,
             exposure=exp,
             false_color=bool(fc),
-            tile_label=tile_label
+            tile_label=tile_label,
+            z_height=z_height,
+            scan_count=self.scan_count
         )
 
         # increment to the next step
@@ -2974,6 +3007,7 @@ class ProtocolSettings(CompositeCapture):
 
         # if all positions have already been reached
         else:
+            self.scan_count += 1
             logger.info('[LVP Main  ] Scan Complete')
             self.ids['run_scan_btn'].state = 'normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
@@ -2995,6 +3029,7 @@ class ProtocolSettings(CompositeCapture):
     def run_protocol(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
+        self.scan_count = 0
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
