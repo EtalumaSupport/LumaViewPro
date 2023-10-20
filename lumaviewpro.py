@@ -2334,19 +2334,6 @@ class ProtocolSettings(CompositeCapture):
 
         file_pointer.close()
         self.step_values = np.array(self.step_values)
-        # self.step_values = self.step_values.astype(float)
-        # self.step_values = self.step_values.astype('object')
-        # self.step_values[:,0] = self.step_values[:,0].astype('float') # X
-        # self.step_values[:,1] = self.step_values[:,1].astype('float') # Y
-        # self.step_values[:,2] = self.step_values[:,2].astype('float') # Z
-        # self.step_values[:,3] = self.step_values[:,3].astype('bool')  # Autofocus
-        # self.step_values[:,4] = self.step_values[:,4].astype('int')   # Channel
-        # self.step_values[:,5] = self.step_values[:,5].astype('bool')  # False color
-        # self.step_values[:,6] = self.step_values[:,6].astype('float') # Illumination
-        # self.step_values[:,7] = self.step_values[:,7].astype('float') # Gain
-        # self.step_values[:,8] = self.step_values[:,8].astype('bool')  # Auto-gain
-        # self.step_values[:,9] = self.step_values[:,9].astype('float') # Exposure
-        # self.step_values[:,10] = self.step_values[:,10].astype('str') # Tile label
 
         # TODO convert this all to a dataframe
         if self.step_values.shape[1] != 11:
@@ -2472,26 +2459,33 @@ class ProtocolSettings(CompositeCapture):
             return
 
         # Extract Values from protocol list and array
-        name =      str(self.step_names[self.curr_step])
-        x =         self.step_values[self.curr_step, 0]
-        y =         self.step_values[self.curr_step, 1]
-        z =         self.step_values[self.curr_step, 2]
-        af =        self.step_values[self.curr_step, 3]
-        ch =        self.step_values[self.curr_step, 4]
-        fc =        self.step_values[self.curr_step, 5]
-        ill =       self.step_values[self.curr_step, 6]
-        gain =      self.step_values[self.curr_step, 7]
-        auto_gain = self.step_values[self.curr_step, 8]
-        exp =       self.step_values[self.curr_step, 9]
+        name =       str(self.step_names[self.curr_step])
+        x =          self.step_values[self.curr_step, 0]
+        y =          self.step_values[self.curr_step, 1]
+        z =          self.step_values[self.curr_step, 2]
+        af =         self.step_values[self.curr_step, 3]
+        ch =         self.step_values[self.curr_step, 4]
+        fc =         self.step_values[self.curr_step, 5]
+        ill =        self.step_values[self.curr_step, 6]
+        gain =       self.step_values[self.curr_step, 7]
+        auto_gain =  self.step_values[self.curr_step, 8]
+        exp =        self.step_values[self.curr_step, 9]
+        tile_label = self.step_values[self.curr_step, 10]
 
-        # x = x.astype(float)
-        # y = y.astype(float)
-        # z = z.astype(float)
-        # gain = gain.astype(float)
-        # exp = exp.astype(float)
-        # ch = ch.astype(float)
-        # ill = ill.astype(float)
-
+        if 'numpy' in str(type(x)):
+            x = x.astype(float)
+            y = y.astype(float)
+            z = z.astype(float)
+            af = True if af == "True" else False
+            ch = ch.astype(int)
+            fc = True if fc == "True" else False
+            ill = ill.astype(float)
+            gain = gain.astype(float)
+            auto_gain = True if auto_gain == "True" else False
+            exp = exp.astype(float)
+            tile_label = tile_label.astype(str)
+            
+    
         self.ids['step_name_input'].text = name
 
         # Convert plate coordinates to stage coordinates
@@ -2895,9 +2889,11 @@ class ProtocolSettings(CompositeCapture):
             y = self.step_values[self.curr_step, 1]
             z = self.step_values[self.curr_step, 2]
 
-            # x = x.astype(float)
-            # y = y.astype(float)
-            # z = z.astype(float)
+            # TODO fix these type casts depending on how these values are loaded
+            if 'numpy' in str(type(x)):
+                x = x.astype(float)
+                y = y.astype(float)
+                z = z.astype(float)
  
             # Convert plate coordinates to stage coordinates
             sx, sy = self.plate_to_stage(x, y)
@@ -2958,12 +2954,18 @@ class ProtocolSettings(CompositeCapture):
         exp =        self.step_values[self.curr_step, 9] # camera exposure
         tile_label = self.step_values[self.curr_step, 10] # tile label
 
-        # z_height = z_height.astype(float)
-        # gain = gain.astype(float)
-        # exp = exp.astype(float)
-        # ch = ch.astype(float)
-        # ill = ill.astype(float)
-        
+        # TODO fix these casts
+        if 'numpy' in str(type(z_height)):
+            z_height = z_height.astype(float)
+            af = True if af == "True" else False
+            ch = ch.astype(int)
+            fc = True if fc == "True" else False
+            ill = ill.astype(float)
+            gain = gain.astype(float)
+            auto_gain = True if auto_gain == "True" else False
+            exp = exp.astype(float)
+            tile_label = tile_label.astype(str)
+            
         # Set camera settings
         lumaview.scope.set_gain(gain)
         lumaview.scope.set_auto_gain(bool(auto_gain))
