@@ -38,6 +38,7 @@ June 24, 2023
 '''
 
 # General
+import datetime
 import os
 import pathlib
 import numpy as np
@@ -3024,12 +3025,23 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_stationary_btn'].text = 'Run Stationary Protocol' # 'normal'
 
 
+    @staticmethod
+    def _create_protocol_run_folder(parent_dir: str | pathlib.Path):
+        now = datetime.datetime.now()
+        time_string = now.strftime("%Y%m%d_%H%M%S")
+        parent_dir = pathlib.Path(parent_dir)
+        dir_name = f"protocol_run_{time_string}"
+        parent_dir.mkdir(dir_name)
+        return pathlib.Path(parent_dir) / dir_name
+
+
     # Run the complete protocol 
     def run_protocol(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.scan_count = 0
         self.start_t = time.time() # start of cycle in seconds
+        self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=settings['live_folder'])
 
         if self.ids['run_protocol_btn'].state == 'down':
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
@@ -3047,6 +3059,7 @@ class ProtocolSettings(CompositeCapture):
             Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
             # self.protocol_event.cancel()
             scope_leds_off()
+ 
  
     def protocol_iterate(self, dt):
         logger.info('[LVP Main  ] ProtocolSettings.protocol_iterate()')
