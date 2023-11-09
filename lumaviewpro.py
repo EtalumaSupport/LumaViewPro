@@ -108,6 +108,7 @@ from image_stitcher import image_stitcher
 from modules.video_builder import VideoBuilder
 
 from modules.tiling_config import TilingConfig
+from modules.common_utils import generate_default_step_name
 
 import cv2
 
@@ -213,24 +214,25 @@ class CompositeCapture(FloatLayout):
         super(CompositeCapture,self).__init__(**kwargs)
 
     # Gets the current well label (ex. A1, C2, ...) 
-    def get_well_label(self):
+    def get_well_label(self, x = None, y = None):
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
 
         # Get target position
-        try:
-            x_target = lumaview.scope.get_target_position('X')
-            y_target = lumaview.scope.get_target_position('Y')
-        except:
-            logger.exception('[LVP Main  ] Error talking to Motor board.')
-            raise
+        if (x is not None) and (y is not None):
+            try:
+                x_target = lumaview.scope.get_target_position('X')
+                y_target = lumaview.scope.get_target_position('Y')
+            except:
+                logger.exception('[LVP Main  ] Error talking to Motor board.')
+                raise
+        
 
         x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
-        well_x, well_y = current_labware.get_well_index(x_target, y_target)
-        letter = chr(ord('A') + well_y)
-        return f'{letter}{well_x + 1}'
+        return current_labware.get_well_label(x=x_target, y=y_target)
+
 
     def live_capture(self):
         print("Live capture")
@@ -286,21 +288,14 @@ class CompositeCapture(FloatLayout):
         color = lumaview.scope.ch2color(channel)
         save_folder =  settings[color]['save_folder']
         file_root = settings[color]['file_root']
-        well_label = self.get_well_label()
-        append = f'{well_label}_{color}'
 
-        # Add Z-height if present
-        if z_height not in (None, ""):
-            append = f'{append}_Z{z_height}'
-
-        # Add scan count if present
-        DESIRED_SCAN_COUNT_DIGITS = 6
-        if scan_count not in (None, ""):
-            append = f'{append}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}'
-
-        # Add tile label if present
-        if tile_label not in (None, ""):
-            append = f'{append}_T{tile_label}'
+        name = generate_default_step_name(
+            well_label=self.get_well_label(),
+            color=color,
+            z_height=z_height,
+            scan_count=scan_count,
+            tile_label=tile_label
+        )
 
         # Illuminate
         if lumaview.scope.led:
@@ -314,7 +309,7 @@ class CompositeCapture(FloatLayout):
         time.sleep(2*exposure/1000+0.2)
         
         use_color = color if false_color else 'BF'
-        lumaview.scope.save_live_image(save_folder, file_root, append, use_color, tail_id_mode=None)
+        lumaview.scope.save_live_image(save_folder, file_root, name, use_color, tail_id_mode=None)
 
         scope_leds_off()
 
@@ -2249,26 +2244,35 @@ class ProtocolSettings(CompositeCapture):
         self.step_names = list()
         self.step_values = []
 
-         # Iterate through all the positions in the scan
+        # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
             for tile_label, tile_position in tiles.items():
                 # Iterate through all the colors to create the steps
                 layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
                 for layer in layers:
-                    if settings[layer]['acquire'] == True:
+                    if settings[layer]['acquire'] == False:
+                        continue
 
-                        x = pos[0] + tile_position["x"]/1000 # in 'plate' coordinates
-                        y = pos[1] + tile_position["y"]/1000 # in 'plate' coordinates
-                        z = settings[layer]['focus']
-                        af = settings[layer]['autofocus']
-                        ch = lumaview.scope.color2ch(layer)
-                        fc = settings[layer]['false_color']
-                        ill = settings[layer]['ill']
-                        gain = settings[layer]['gain']
-                        auto_gain = int(settings[layer]['auto_gain'])
-                        exp = settings[layer]['exp']
+                    x = pos[0] + tile_position["x"]/1000 # in 'plate' coordinates
+                    y = pos[1] + tile_position["y"]/1000 # in 'plate' coordinates
+                    z = settings[layer]['focus']
+                    af = settings[layer]['autofocus']
+                    ch = lumaview.scope.color2ch(layer)
+                    fc = settings[layer]['false_color']
+                    ill = settings[layer]['ill']
+                    gain = settings[layer]['gain']
+                    auto_gain = int(settings[layer]['auto_gain'])
+                    exp = settings[layer]['exp']
+                    step_name = generate_default_step_name(
+                        well_label=current_labware.get_well_label(x=x, y=y),
+                        color=layer,
+                        z_height=z,
+                        scan_count=None,
+                        tile_label=tile_label
+                    )
+                    self.step_names.append(step_name)
 
-                        self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp, tile_label])
+                    self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp, tile_label])
 
         self.step_values = np.array(self.step_values)
 
@@ -2279,9 +2283,10 @@ class ProtocolSettings(CompositeCapture):
         self.curr_step = 0 # start at the first step
         self.ids['step_number_input'].text = str(self.curr_step+1)
         self.ids['step_total_input'].text = str(length)
+        self.ids['step_name_input'].text = self.step_names[0]
 
         # self.step_names = [self.ids['step_name_input'].text] * length
-        self.step_names = [''] * length
+        # self.step_names = [''] * length
         settings['protocol']['filepath'] = ''        
         self.ids['protocol_filename'].text = ''
 
