@@ -2344,7 +2344,7 @@ class ProtocolSettings(CompositeCapture):
         # Update GUI
         self.curr_step = 0 # start at first step
         self.ids['step_number_input'].text = str(self.curr_step+1)
-        self.ids['step_name_input'].text = ''
+        self.ids['step_name_input'].text = str(self.step_names[self.curr_step])
         self.ids['step_total_input'].text = str(len(self.step_names))
         self.ids['capture_period'].text = str(period)
         self.ids['capture_dur'].text = str(duration)

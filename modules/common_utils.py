@@ -21,9 +21,9 @@ def generate_default_step_name(
     return name
 
 
-def get_layers() -> list(str):
+def get_layers() -> list[str]:
     return ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
 
 
-def get_transmitted_layers() -> list(str):
+def get_transmitted_layers() -> list[str]:
     return ['BF', 'PC', 'EP']
