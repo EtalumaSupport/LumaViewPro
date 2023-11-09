@@ -2641,16 +2641,18 @@ class ProtocolSettings(CompositeCapture):
         sy = lumaview.scope.get_current_position('Y')
         px, py = self.stage_to_plate(sx, sy)
 
-        step = [px,                                      # x
-                py,                                      # y
-                lumaview.scope.get_current_position('Z'),# z
-                int(layer_id.ids['autofocus'].active),   # autofocus
-                ch,                                      # ch 
-                int(layer_id.ids['false_color'].active), # false color
-                layer_id.ids['ill_slider'].value,        # ill
-                layer_id.ids['gain_slider'].value,       # gain
-                int(layer_id.ids['auto_gain'].active),   # auto_gain
-                layer_id.ids['exp_slider'].value,        # exp
+        step = [
+            px,                                      # x
+            py,                                      # y
+            lumaview.scope.get_current_position('Z'),# z
+            int(layer_id.ids['autofocus'].active),   # autofocus
+            ch,                                      # ch 
+            int(layer_id.ids['false_color'].active), # false color
+            layer_id.ids['ill_slider'].value,        # ill
+            layer_id.ids['gain_slider'].value,       # gain
+            int(layer_id.ids['auto_gain'].active),   # auto_gain
+            layer_id.ids['exp_slider'].value,        # exp
+            ""                                       # tile_label
         ]
 
         # Insert into List and Array
