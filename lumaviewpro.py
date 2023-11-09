@@ -2247,9 +2247,10 @@ class ProtocolSettings(CompositeCapture):
                 for layer in common_utils.get_layers():
                     if settings[layer]['acquire'] == False:
                         continue
-
-                    x = pos[0] + tile_position["x"]/1000 # in 'plate' coordinates
-                    y = pos[1] + tile_position["y"]/1000 # in 'plate' coordinates
+                    
+                    PRECISION = 2
+                    x = round(pos[0] + tile_position["x"]/1000, PRECISION) # in 'plate' coordinates
+                    y = round(pos[1] + tile_position["y"]/1000, PRECISION) # in 'plate' coordinates
                     z = settings[layer]['focus']
                     af = settings[layer]['autofocus']
                     ch = lumaview.scope.color2ch(layer)
@@ -3060,7 +3061,7 @@ class ProtocolSettings(CompositeCapture):
             # self.protocol_event.cancel()
             scope_leds_off()
  
- 
+
     def protocol_iterate(self, dt):
         logger.info('[LVP Main  ] ProtocolSettings.protocol_iterate()')
 

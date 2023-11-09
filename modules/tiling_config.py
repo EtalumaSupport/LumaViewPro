@@ -5,9 +5,7 @@ import json
 
 class TilingConfig:
 
-    def __init__(self): #, x_range, y_range):
-        # self._x_range = x_range
-        # self._y_range = y_range
+    def __init__(self):
 
         with open('./data/tiling.json', "r") as fp:
             self._available_configs = json.load(fp)
@@ -92,7 +90,7 @@ class TilingConfig:
         dx = (max["x"] - min["x"])/mxn["n"]
         dy = (max["y"] - min["y"])/mxn["m"]
 
-        PRECISION = 6 # Digits
+        PRECISION = 2 # Digits
 
         for i, j in itertools.product(range(mxn["m"]), range(mxn["n"])):
             
