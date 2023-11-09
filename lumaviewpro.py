@@ -215,21 +215,19 @@ class CompositeCapture(FloatLayout):
         super(CompositeCapture,self).__init__(**kwargs)
 
     # Gets the current well label (ex. A1, C2, ...) 
-    def get_well_label(self, x = None, y = None):
+    def get_well_label(self):
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
 
         # Get target position
-        if (x is not None) and (y is not None):
-            try:
-                x_target = lumaview.scope.get_target_position('X')
-                y_target = lumaview.scope.get_target_position('Y')
-            except:
-                logger.exception('[LVP Main  ] Error talking to Motor board.')
-                raise
+        try:
+            x_target = lumaview.scope.get_target_position('X')
+            y_target = lumaview.scope.get_target_position('Y')
+        except:
+            logger.exception('[LVP Main  ] Error talking to Motor board.')
+            raise
         
-
         x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
         return current_labware.get_well_label(x=x_target, y=y_target)
