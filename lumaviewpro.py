@@ -3427,8 +3427,8 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
         global settings
 
-        w = int(self.ids['frame_width'].text)
-        h = int(self.ids['frame_height'].text)
+        w = int(self.ids['frame_width_id'].text)
+        h = int(self.ids['frame_height_id'].text)
 
         width = int(min(int(w), lumaview.scope.get_max_width())/4)*4
         height = int(min(int(h), lumaview.scope.get_max_height())/4)*4
@@ -3436,8 +3436,8 @@ class MicroscopeSettings(BoxLayout):
         settings['frame']['width'] = width
         settings['frame']['height'] = height
 
-        self.ids['frame_width'].text = str(width)
-        self.ids['frame_height'].text = str(height)
+        self.ids['frame_width_id'].text = str(width)
+        self.ids['frame_height_id'].text = str(height)
 
         lumaview.scope.set_frame_size(width, height)
 
