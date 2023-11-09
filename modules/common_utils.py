@@ -7,7 +7,7 @@ def generate_default_step_name(
     tile_label = None 
 ):
     name = f"{well_label}_{color}"
-    
+
     if z_height not in (None, ""):
         name = f"{name}_Z{z_height}"
 
@@ -21,4 +21,9 @@ def generate_default_step_name(
     return name
 
 
+def get_layers() -> list(str):
+    return ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
 
+
+def get_transmitted_layers() -> list(str):
+    return ['BF', 'PC', 'EP']

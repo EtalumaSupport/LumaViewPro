@@ -108,7 +108,7 @@ from image_stitcher import image_stitcher
 from modules.video_builder import VideoBuilder
 
 from modules.tiling_config import TilingConfig
-from modules.common_utils import generate_default_step_name
+import modules.common_utils as common_utils
 
 import cv2
 
@@ -245,8 +245,7 @@ class CompositeCapture(FloatLayout):
         well_label = self.get_well_label()
         append = f'{well_label}_{color}'
 
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
 
@@ -289,7 +288,7 @@ class CompositeCapture(FloatLayout):
         save_folder =  settings[color]['save_folder']
         file_root = settings[color]['file_root']
 
-        name = generate_default_step_name(
+        name = common_utils.generate_default_step_name(
             well_label=self.get_well_label(),
             color=color,
             z_height=z_height,
@@ -325,8 +324,7 @@ class CompositeCapture(FloatLayout):
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
 
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             if settings[layer]['acquire'] == True:
 
                 # Go to focus and wait for arrival
@@ -1414,8 +1412,7 @@ class ImageSettings(BoxLayout):
         if self.ids['toggle_imagesettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
 
-            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-            for layer in layers:
+            for layer in common_utils.get_layers():
                 Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
                 logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
@@ -1425,8 +1422,7 @@ class ImageSettings(BoxLayout):
             scope_display.start()
 
     def update_transmitted(self):
-        layers = ['BF', 'PC', 'EP']
-        for layer in layers:
+        for layer in common_utils.get_transmitted_layers():
             accordion = layer + '_accordion'
 
             # Remove 'Colorize' option in transmitted channels control
@@ -1447,8 +1443,7 @@ class ImageSettings(BoxLayout):
         scope_leds_off()
 
         # turn off all LED toggle buttons and histograms
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
@@ -2248,8 +2243,7 @@ class ProtocolSettings(CompositeCapture):
         for pos in current_labware.pos_list:
             for tile_label, tile_position in tiles.items():
                 # Iterate through all the colors to create the steps
-                layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-                for layer in layers:
+                for layer in common_utils.get_layers():
                     if settings[layer]['acquire'] == False:
                         continue
 
@@ -2263,7 +2257,7 @@ class ProtocolSettings(CompositeCapture):
                     gain = settings[layer]['gain']
                     auto_gain = int(settings[layer]['auto_gain'])
                     exp = settings[layer]['exp']
-                    step_name = generate_default_step_name(
+                    step_name = common_utils.generate_default_step_name(
                         well_label=current_labware.get_well_label(x=x, y=y),
                         color=layer,
                         z_height=z,
@@ -2590,8 +2584,7 @@ class ProtocolSettings(CompositeCapture):
 
         c_layer = False
 
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
                 c_layer = layer
@@ -2623,8 +2616,7 @@ class ProtocolSettings(CompositeCapture):
         name = self.ids['step_name_input'].text
         c_layer = False
 
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
                 c_layer = layer
@@ -2791,8 +2783,7 @@ class ProtocolSettings(CompositeCapture):
             # toggle all LEDs AND TOGGLE BUTTONS OFF
             scope_leds_off()
 
-            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-            for layer in layers:
+            for layer in common_utils.get_layers():
                 lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
@@ -2920,8 +2911,7 @@ class ProtocolSettings(CompositeCapture):
             # toggle all LEDs AND TOGGLE BUTTONS OFF
             scope_leds_off()
 
-            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-            for layer in layers:
+            for layer in common_utils.get_layers():
                 lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
@@ -3351,8 +3341,7 @@ class MicroscopeSettings(BoxLayout):
                 else:
                     zstack_settings.ids['zstack_steps_id'].text = '0'
 
-                layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-                for layer in layers:
+                for layer in common_utils.get_layers():
                     lumaview.ids['imagesettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
@@ -3595,10 +3584,8 @@ class LayerControl(BoxLayout):
             else:
                 logger.warning('[LVP Main  ] LED controller not available.')
             
-            #  turn the state of remaining channels to 'normal' and text to 'OFF'
-            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-            
-            for layer in layers:
+            #  turn the state of remaining channels to 'normal' and text to 'OFF'       
+            for layer in common_utils.get_layers():
                 Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
                 if layer == self.layer:
                     Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.5)
