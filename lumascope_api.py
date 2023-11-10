@@ -43,6 +43,7 @@ from pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger
+import pathlib
 import time
 import threading
 import os
@@ -213,11 +214,14 @@ class Lumascope():
         # else:
         #     append = ''
 
+        if type(save_folder) == str:
+            save_folder = pathlib.Path(save_folder)
+
         # generate filename and save path string
         if tail_id_mode == "increment":
             initial_id = '_000001'
             filename =  file_root + append + initial_id + '.tiff'
-            path = save_folder + '/' + filename
+            path = save_folder / filename
 
             # Obtain next save path if current directory already exists
             while os.path.exists(path):
@@ -225,14 +229,14 @@ class Lumascope():
 
         elif tail_id_mode == None:
             filename =  file_root + append + '.tiff'
-            path = os.path.join(save_folder, filename)
+            path = save_folder / filename
         
         else:
             raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
         
 
         try:
-            cv2.imwrite(path, img.astype(np.uint8))
+            cv2.imwrite(str(path), img.astype(np.uint8))
             logger.info(f'[SCOPE API ] Saving Image to {path}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")

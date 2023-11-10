@@ -22,14 +22,13 @@
         "width": 1900,
         "height": 1900
     },
-    "live_folder": "./capture",
+    "save_folder": "./capture",
     "bookmark": {
         "x": 50000.0,
         "y": 75000.0,
         "z": 4950.0
     },
     "BF": {
-        "save_folder": "./capture",
         "file_root": "BF_",
         "focus": 4950.0,
         "autofocus": false,
@@ -41,7 +40,6 @@
         "acquire": false
     },
     "PC": {
-        "save_folder": "./capture",
         "file_root": "PC_",
         "focus": 4950.0,
         "autofocus": false,
@@ -53,7 +51,6 @@
         "acquire": false
     },
     "EP": {
-        "save_folder": "./capture",
         "file_root": "EP_",
         "focus": 4950.0,
         "autofocus": true,
@@ -65,7 +62,6 @@
         "acquire": false
     },
     "Blue": {
-        "save_folder": "./capture",
         "file_root": "B_",
         "focus": 4950.0,
         "autofocus": false,
@@ -77,7 +73,6 @@
         "acquire": false
     },
     "Green": {
-        "save_folder": "./capture",
         "file_root": "G_",
         "focus": 4950.0,
         "autofocus": false,
@@ -89,7 +84,6 @@
         "acquire": false
     },
     "Red": {
-        "save_folder": "./capture",
         "file_root": "R_",
         "focus": 4950.0,
         "autofocus": false,

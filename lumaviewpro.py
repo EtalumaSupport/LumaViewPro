@@ -238,7 +238,8 @@ class CompositeCapture(FloatLayout):
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
-        save_folder = settings['live_folder']
+        save_folder = pathlib.Path(settings['save_folder']) / "Manual"
+        save_folder.mkdir(parents=True, exist_ok=True)
         file_root = 'live_'
         color = 'BF'
         well_label = self.get_well_label()
@@ -264,6 +265,7 @@ class CompositeCapture(FloatLayout):
 
     def custom_capture(
         self,
+        save_folder,
         channel,
         illumination,
         gain,
@@ -284,7 +286,6 @@ class CompositeCapture(FloatLayout):
  
         # Save Settings
         color = lumaview.scope.ch2color(channel)
-        save_folder =  settings[color]['save_folder']
         file_root = settings[color]['file_root']
 
         name = common_utils.generate_default_step_name(
@@ -388,7 +389,7 @@ class CompositeCapture(FloatLayout):
 
         img = np.flip(img, 0)
 
-        save_folder = settings['live_folder']
+        save_folder = settings['save_folder']
         file_root = 'composite_'
 
         # append = str(int(round(time.time() * 1000)))
@@ -1121,7 +1122,7 @@ class PostProcessingAccordion(BoxLayout):
         self.post = post_processing.PostProcessing()
         #global settings
         #stitching params (see more info in image_stitcher.py):
-        #self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        #self.raw_images_folder = settings['save_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.raw_images_folder = './capture/' # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
         self.ext = "tiff" #or read it from settings?
@@ -2985,6 +2986,7 @@ class ProtocolSettings(CompositeCapture):
 
         # capture image
         self.custom_capture(
+            save_folder=self.protocol_run_dir,
             channel=ch,
             illumination=ill,
             gain=gain,
@@ -3027,9 +3029,9 @@ class ProtocolSettings(CompositeCapture):
     @staticmethod
     def _create_protocol_run_folder(parent_dir: str | pathlib.Path):
         now = datetime.datetime.now()
-        time_string = now.strftime("%Y%m%d_%H%M%S")
+        time_string = now.strftime("%Y-%m-%d-%H-%M-%S")
         parent_dir = pathlib.Path(parent_dir)
-        protocol_run_dir = parent_dir / f"protocol_run_{time_string}"
+        protocol_run_dir = parent_dir / time_string
         protocol_run_dir.mkdir()
         return protocol_run_dir
 
@@ -3040,7 +3042,11 @@ class ProtocolSettings(CompositeCapture):
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.scan_count = 0
         self.start_t = time.time() # start of cycle in seconds
-        self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=settings['live_folder'])
+
+        # Create the folder to save the protocol captures and protocol itself
+        save_folder = pathlib.Path(settings['save_folder']) / "Protocol"
+        save_folder.mkdir(parents=True, exist_ok=True)
+        self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
         protocol_filepath = self.protocol_run_dir / "protocol.tsv"
         self.save_protocol(filepath=protocol_filepath)
 
@@ -3329,6 +3335,7 @@ class MicroscopeSettings(BoxLayout):
         else:
             try:
                 settings = json.load(read_file)
+
                 # update GUI values from JSON data:
                 self.ids['scope_spinner'].text = settings['microscope']
                 self.ids['objective_spinner'].text = settings['objective']['ID']
@@ -3370,6 +3377,11 @@ class MicroscopeSettings(BoxLayout):
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
         
         self.set_ui_features_for_scope()
+
+        # Transition from 'live_folder' to 'save_folder' key
+        if 'save_folder' not in settings:
+            settings['save_folder'] = settings['live_folder']
+            del settings['live_folder']
 
 
     # Save settings to JSON file
@@ -3793,8 +3805,8 @@ class FolderChooseBTN(Button):
 
         # Show previously selected/default folder
         selected_path = None
-        if (context == 'live_folder') and ('live_folder' in settings):
-            selected_path = settings['live_folder']
+        if (context == 'save_folder') and ('save_folder' in settings):
+            selected_path = settings['save_folder']
         elif context in settings:
             selected_path = settings[context]['save_folder']
 
@@ -3835,8 +3847,8 @@ class FolderChooseBTN(Button):
         else:
             return
 
-        if self.context == 'live_folder':
-            settings['live_folder'] = path
+        if self.context == 'save_folder':
+            settings['save_folder'] = path
 
         elif self.context == 'video_input_images_folder':
             video_creation_controls.set_input_images_loc(directory=path)
