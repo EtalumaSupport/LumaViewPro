@@ -2368,7 +2368,7 @@ class ProtocolSettings(CompositeCapture):
         self.step_names
         self.step_values
 
-        if len(filepath)==0:
+        if (type(filepath) == str) and len(filepath)==0:
             # If there is no current file path, "save" button will act as "save as" 
             if len(settings['protocol']['filepath']) == 0:
                 FileSaveBTN_instance=FileSaveBTN()
@@ -2378,7 +2378,7 @@ class ProtocolSettings(CompositeCapture):
         else:
             settings['protocol']['filepath'] = filepath
 
-        if filepath[-4:].lower() != '.tsv':
+        if (type(filepath) == str) and (filepath[-4:].lower() != '.tsv'):
             filepath = filepath+'.tsv'
 
         self.ids['protocol_filename'].text = os.path.basename(filepath)
@@ -3029,9 +3029,9 @@ class ProtocolSettings(CompositeCapture):
         now = datetime.datetime.now()
         time_string = now.strftime("%Y%m%d_%H%M%S")
         parent_dir = pathlib.Path(parent_dir)
-        dir_name = f"protocol_run_{time_string}"
-        parent_dir.mkdir(dir_name)
-        return pathlib.Path(parent_dir) / dir_name
+        protocol_run_dir = parent_dir / f"protocol_run_{time_string}"
+        protocol_run_dir.mkdir()
+        return protocol_run_dir
 
 
     # Run the complete protocol 
@@ -3041,6 +3041,8 @@ class ProtocolSettings(CompositeCapture):
         self.scan_count = 0
         self.start_t = time.time() # start of cycle in seconds
         self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=settings['live_folder'])
+        protocol_filepath = self.protocol_run_dir / "protocol.tsv"
+        self.save_protocol(filepath=protocol_filepath)
 
         if self.ids['run_protocol_btn'].state == 'down':
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
