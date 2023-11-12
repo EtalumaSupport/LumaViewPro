@@ -3042,11 +3042,16 @@ class ProtocolSettings(CompositeCapture):
         self.scan_count = 0
         self.start_t = time.time() # start of cycle in seconds
 
+        if os.path.basename(settings['protocol']['filepath']) == "":
+            protocol_filename = "unsaved_protocol.tsv"
+        else:
+            protocol_filename = os.path.basename(settings['protocol']['filepath'])
+
         # Create the folder to save the protocol captures and protocol itself
-        save_folder = pathlib.Path(settings['live_folder']) / "Protocol"
+        save_folder = pathlib.Path(settings['live_folder']) / "ProtocolData"
         save_folder.mkdir(parents=True, exist_ok=True)
         self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
-        protocol_filepath = self.protocol_run_dir / "protocol.tsv"
+        protocol_filepath = self.protocol_run_dir / protocol_filename
         self.save_protocol(filepath=protocol_filepath)
 
         if self.ids['run_protocol_btn'].state == 'down':
