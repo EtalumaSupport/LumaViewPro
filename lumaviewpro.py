@@ -238,7 +238,7 @@ class CompositeCapture(FloatLayout):
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
-        save_folder = pathlib.Path(settings['save_folder']) / "Manual"
+        save_folder = pathlib.Path(settings['live_folder']) / "Manual"
         save_folder.mkdir(parents=True, exist_ok=True)
         file_root = 'live_'
         color = 'BF'
@@ -384,7 +384,7 @@ class CompositeCapture(FloatLayout):
 
         img = np.flip(img, 0)
 
-        save_folder = settings['save_folder']
+        save_folder = settings['live_folder']
         file_root = 'composite_'
 
         # append = str(int(round(time.time() * 1000)))
@@ -3039,7 +3039,7 @@ class ProtocolSettings(CompositeCapture):
         self.start_t = time.time() # start of cycle in seconds
 
         # Create the folder to save the protocol captures and protocol itself
-        save_folder = pathlib.Path(settings['save_folder']) / "Protocol"
+        save_folder = pathlib.Path(settings['live_folder']) / "Protocol"
         save_folder.mkdir(parents=True, exist_ok=True)
         self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
         protocol_filepath = self.protocol_run_dir / "protocol.tsv"
@@ -3371,11 +3371,6 @@ class MicroscopeSettings(BoxLayout):
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
         
         self.set_ui_features_for_scope()
-
-        # Transition from 'live_folder' to 'save_folder' key
-        if 'save_folder' not in settings:
-            settings['save_folder'] = settings['live_folder']
-            del settings['live_folder']
 
 
     # Save settings to JSON file
@@ -3791,14 +3786,10 @@ class FolderChooseBTN(Button):
     def choose(self, context):
         logger.info(f'[LVP Main  ] FolderChooseBTN.choose({context})')
         self.context = context
-        logger.info(f"Settings: {settings}")
 
         # Show previously selected/default folder
-        selected_path = None
-        if (context == 'save_folder') and ('save_folder' in settings):
-            selected_path = settings['save_folder']
-        elif context in settings:
-            selected_path = settings[context]['save_folder']
+        selected_path = settings['live_folder']
+
 
         # Note: Could likely use tkinter filedialog for all platforms
         # works on windows and MacOSX
@@ -3837,8 +3828,8 @@ class FolderChooseBTN(Button):
         else:
             return
 
-        if self.context == 'save_folder':
-            settings['save_folder'] = path
+        if self.context == 'live_folder':
+            settings['live_folder'] = path
 
         elif self.context == 'video_input_images_folder':
             video_creation_controls.set_input_images_loc(directory=path)
@@ -3847,9 +3838,9 @@ class FolderChooseBTN(Button):
             cell_count_content.apply_method_to_folder(
                 path=path
             )
+        else:
+            raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 
-        else: # Channel Save Folder selections
-            settings[self.context]['save_folder'] = path
 
 # Button the triggers 'filechooser.save_file()' from plyer
 class FileSaveBTN(Button):

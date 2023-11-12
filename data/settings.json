@@ -22,7 +22,7 @@
         "width": 1900,
         "height": 1900
     },
-    "save_folder": "./capture",
+    "live_folder": "./capture",
     "bookmark": {
         "x": 50000.0,
         "y": 75000.0,

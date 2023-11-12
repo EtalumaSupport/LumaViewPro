@@ -75,13 +75,13 @@
         pos: (root.width-7*40)/2, 0
 
         FolderChooseBTN:
-            id: save_folder_btn
+            id: live_folder_btn
             border: 0, 0, 0, 0
             background_normal: './data/icons/folder.png' # Press to Select Folder
             background_down: './data/icons/folder_down.png'
             size_hint: None, None
             size: '40dp', '40dp'
-            on_release: self.choose('save_folder')
+            on_release: self.choose('live_folder')
 
         ToggleButton:
             id: live_btn
