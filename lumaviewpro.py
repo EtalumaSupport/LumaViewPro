@@ -267,7 +267,7 @@ class CompositeCapture(FloatLayout):
         exposure,
         false_color = True,
         tile_label = None,
-        z_height = None,
+        z_height_idx = None,
         scan_count = None
     ):
         print("Custom capture")
@@ -286,7 +286,7 @@ class CompositeCapture(FloatLayout):
         name = common_utils.generate_default_step_name(
             well_label=self.get_well_label(),
             color=color,
-            z_height=z_height,
+            z_height_idx=z_height_idx,
             scan_count=scan_count,
             tile_label=tile_label
         )
@@ -2079,6 +2079,8 @@ class ProtocolSettings(CompositeCapture):
         self.step_names = list()
         self.step_values = []
         self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
+
+        self.z_height_map = {}
         
         self.tiling_config = TilingConfig()
         self.tiling_min = {
@@ -2253,10 +2255,13 @@ class ProtocolSettings(CompositeCapture):
                     gain = settings[layer]['gain']
                     auto_gain = int(settings[layer]['auto_gain'])
                     exp = settings[layer]['exp']
+
+                    z_height_idx = self.z_height_map.get(z, None)
+
                     step_name = common_utils.generate_default_step_name(
                         well_label=current_labware.get_well_label(x=x, y=y),
                         color=layer,
-                        z_height=z,
+                        z_height_idx=z_height_idx,
                         scan_count=None,
                         tile_label=tile_label
                     )
@@ -2333,6 +2338,10 @@ class ProtocolSettings(CompositeCapture):
         # TODO convert this all to a dataframe
         if self.step_values.shape[1] != 11:
             raise Exception("Update casting table above since the shape has changed")
+        
+        # Index and build a map of Z-heights. Indicies will be used in step/file naming
+        z_heights = sorted(set(self.step_values[:,2].astype('float').tolist()))
+        self.z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
@@ -2979,6 +2988,8 @@ class ProtocolSettings(CompositeCapture):
         # reset the is_complete flag on autofocus
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
+        z_height_idx = self.z_height_map.get(z_height, None)
+
         # capture image
         self.custom_capture(
             save_folder=self.protocol_run_dir,
@@ -2988,7 +2999,7 @@ class ProtocolSettings(CompositeCapture):
             exposure=exp,
             false_color=bool(fc),
             tile_label=tile_label,
-            z_height=z_height,
+            z_height_idx=z_height_idx,
             scan_count=self.scan_count
         )
 

@@ -2,14 +2,14 @@
 def generate_default_step_name(
     well_label,
     color,
-    z_height = None,
+    z_height_idx = None,
     scan_count = None,
     tile_label = None 
 ):
     name = f"{well_label}_{color}"
 
-    if z_height not in (None, ""):
-        name = f"{name}_Z{z_height}"
+    if z_height_idx not in (None, ""):
+        name = f"{name}_Z{z_height_idx}"
 
     DESIRED_SCAN_COUNT_DIGITS = 6
     if scan_count not in (None, ""):
