@@ -21,6 +21,16 @@ def generate_default_step_name(
     return name
 
 
+def get_tile_label_from_name(name: str) -> str | None:
+    name = name.split('_')
+
+    last_segment = name[:-1]
+    if last_segment.startswith('T'):
+        return last_segment[1:]
+    
+    return None
+
+
 def get_layers() -> list[str]:
     return ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
 

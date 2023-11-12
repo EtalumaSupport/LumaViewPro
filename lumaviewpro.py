@@ -2267,7 +2267,7 @@ class ProtocolSettings(CompositeCapture):
                     )
                     self.step_names.append(step_name)
 
-                    self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp, tile_label])
+                    self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp])
 
         self.step_values = np.array(self.step_values)
 
@@ -2311,7 +2311,7 @@ class ProtocolSettings(CompositeCapture):
         verify = next(csvreader)
         if not (verify[0] == 'LumaViewPro Protocol'):
             return
-        period = next(csvreader)
+        period = next(csvreader)        
         period = float(period[1])
         duration = next(csvreader)
         duration = float(duration[1])
@@ -2334,10 +2334,6 @@ class ProtocolSettings(CompositeCapture):
 
         file_pointer.close()
         self.step_values = np.array(self.step_values)
-
-        # TODO convert this all to a dataframe
-        if self.step_values.shape[1] != 11:
-            raise Exception("Update casting table above since the shape has changed")
         
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
         z_heights = sorted(set(self.step_values[:,2].astype('float').tolist()))
@@ -2358,10 +2354,11 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['period'] = period
         settings['protocol']['duration'] = duration
         settings['protocol']['labware'] = labware
-
+        
         # Update Labware Selection in Spinner
         self.ids['labware_spinner'].text = settings['protocol']['labware']
     
+
     # Save Protocol to File
     def save_protocol(self, filepath=''):
         logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
@@ -2396,7 +2393,7 @@ class ProtocolSettings(CompositeCapture):
         csvwriter.writerow(['Period', period])
         csvwriter.writerow(['Duration', duration])
         csvwriter.writerow(['Labware', labware])
-        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Tile Label'])
+        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
 
         for i in range(len(self.step_names)):
             c_name = self.step_names[i]
@@ -2474,7 +2471,6 @@ class ProtocolSettings(CompositeCapture):
         gain =       self.step_values[self.curr_step, 7]
         auto_gain =  self.step_values[self.curr_step, 8]
         exp =        self.step_values[self.curr_step, 9]
-        tile_label = self.step_values[self.curr_step, 10]
 
         if 'numpy' in str(type(x)):
             x = x.astype(float)
@@ -2486,9 +2482,7 @@ class ProtocolSettings(CompositeCapture):
             ill = ill.astype(float)
             gain = gain.astype(float)
             auto_gain = True if auto_gain == "True" else False
-            exp = exp.astype(float)
-            tile_label = tile_label.astype(str)
-            
+            exp = exp.astype(float)           
     
         self.ids['step_name_input'].text = name
 
@@ -2648,8 +2642,7 @@ class ProtocolSettings(CompositeCapture):
             layer_id.ids['ill_slider'].value,        # ill
             layer_id.ids['gain_slider'].value,       # gain
             int(layer_id.ids['auto_gain'].active),   # auto_gain
-            layer_id.ids['exp_slider'].value,        # exp
-            ""                                       # tile_label
+            layer_id.ids['exp_slider'].value         # exp
         ]
 
         # Insert into List and Array
@@ -2954,7 +2947,6 @@ class ProtocolSettings(CompositeCapture):
         gain =       self.step_values[self.curr_step, 7] # camera gain
         auto_gain =  self.step_values[self.curr_step, 8] # camera autogain
         exp =        self.step_values[self.curr_step, 9] # camera exposure
-        tile_label = self.step_values[self.curr_step, 10] # tile label
 
         # TODO fix these casts
         if 'numpy' in str(type(z_height)):
@@ -2966,7 +2958,6 @@ class ProtocolSettings(CompositeCapture):
             gain = gain.astype(float)
             auto_gain = True if auto_gain == "True" else False
             exp = exp.astype(float)
-            tile_label = tile_label.astype(str)
             
         # Set camera settings
         lumaview.scope.set_gain(gain)
@@ -2989,6 +2980,8 @@ class ProtocolSettings(CompositeCapture):
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
         z_height_idx = self.z_height_map.get(z_height, None)
+
+        tile_label = common_utils.get_tile_label_from_name(name=self.curr_step)
 
         # capture image
         self.custom_capture(
