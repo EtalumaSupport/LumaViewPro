@@ -3342,8 +3342,8 @@ class MicroscopeSettings(BoxLayout):
                 # TODO self.ids['objective_spinner'].text = settings['objective']['description']
                 self.ids['magnification_id'].text = str(settings['objective']['magnification'])
                 self.ids['focal_length_id'].text = str(settings['objective']['focal_length'])
-                self.ids['frame_width_id'].text = str(settings['frame']['width'])
-                self.ids['frame_height_id'].text = str(settings['frame']['height'])
+                # self.ids['frame_width_id'].text = str(settings['frame']['width'])
+                # self.ids['frame_height_id'].text = str(settings['frame']['height'])
 
                 protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
                 protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
@@ -3449,17 +3449,17 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
         global settings
 
-        w = int(self.ids['frame_width_id'].text)
-        h = int(self.ids['frame_height_id'].text)
+        w = int(settings['frame']['width']) #int(self.ids['frame_width_id'].text)
+        h = int(settings['frame']['height']) #int(self.ids['frame_height_id'].text)
 
-        width = int(min(int(w), lumaview.scope.get_max_width())/4)*4
-        height = int(min(int(h), lumaview.scope.get_max_height())/4)*4
+        width = int(min(w, lumaview.scope.get_max_width())/4)*4
+        height = int(min(h, lumaview.scope.get_max_height())/4)*4
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
 
-        self.ids['frame_width_id'].text = str(width)
-        self.ids['frame_height_id'].text = str(height)
+        # self.ids['frame_width_id'].text = str(width)
+        # self.ids['frame_height_id'].text = str(height)
 
         lumaview.scope.set_frame_size(width, height)
 
