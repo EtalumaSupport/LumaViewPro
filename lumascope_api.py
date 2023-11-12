@@ -217,6 +217,9 @@ class Lumascope():
         if type(save_folder) == str:
             save_folder = pathlib.Path(save_folder)
 
+        if file_root is None:
+            file_root = ""
+            
         # generate filename and save path string
         if tail_id_mode == "increment":
             initial_id = '_000001'
@@ -241,7 +244,15 @@ class Lumascope():
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
-    def save_live_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', tail_id_mode = "increment"):
+    def save_live_image(
+            self,
+            save_folder = './capture',
+            file_root = 'img_',
+            append = 'ms',
+            color = 'BF',
+            tail_id_mode = "increment"
+        ):
+
         """CAMERA FUNCTIONS
         Grab the current live image and save to file
         """

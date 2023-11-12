@@ -281,7 +281,7 @@ class CompositeCapture(FloatLayout):
  
         # Save Settings
         color = lumaview.scope.ch2color(channel)
-        file_root = settings[color]['file_root']
+        # file_root = settings[color]['file_root']
 
         name = common_utils.generate_default_step_name(
             well_label=self.get_well_label(),
@@ -303,7 +303,13 @@ class CompositeCapture(FloatLayout):
         time.sleep(2*exposure/1000+0.2)
         
         use_color = color if false_color else 'BF'
-        lumaview.scope.save_live_image(save_folder, file_root, name, use_color, tail_id_mode=None)
+        lumaview.scope.save_live_image(
+            save_folder=save_folder,
+            file_root=None,
+            append=name,
+            color=use_color,
+            tail_id_mode=None
+        )
 
         scope_leds_off()
 
@@ -2342,6 +2348,29 @@ class ProtocolSettings(CompositeCapture):
         if len(z_heights) >= 2:
             self.z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
 
+        # Extract tiling config from step names
+        label_letters = set()
+        label_numbers = set()
+        for name in self.step_names:
+            label = common_utils.get_tile_label_from_name(name=name)
+            if label is None:
+                continue
+
+            label_letter = label[0]
+            label_number = int(label[1:])
+
+            label_letters.add(label_letter)
+            label_numbers.add(label_number)
+
+        m = len(label_letters)
+        n = len(label_numbers)
+        if m != n:
+            raise Exception(f"Tiling configuration requires equal dimensions, but found {m}x{n}")
+        
+        tiling_config_label = self.tiling_config.get_label_from_mxn_size(m=m, n=n)
+        if tiling_config_label is not None:
+            self.ids['tiling_size_spinner'].text = tiling_config_label
+
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
@@ -2363,7 +2392,7 @@ class ProtocolSettings(CompositeCapture):
     
 
     # Save Protocol to File
-    def save_protocol(self, filepath=''):
+    def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
         logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
 
         # Gather information
@@ -2381,7 +2410,9 @@ class ProtocolSettings(CompositeCapture):
                 return
             filepath = settings['protocol']['filepath']
         else:
-            settings['protocol']['filepath'] = filepath
+
+            if update_protocol_filepath:
+                settings['protocol']['filepath'] = filepath
 
         if (type(filepath) == str) and (filepath[-4:].lower() != '.tsv'):
             filepath = filepath+'.tsv'
@@ -2480,7 +2511,7 @@ class ProtocolSettings(CompositeCapture):
             y = y.astype(float)
             z = z.astype(float)
             af = True if af == "True" else False
-            ch = ch.astype(int)
+            ch = int(ch.astype(float))
             fc = True if fc == "True" else False
             ill = ill.astype(float)
             gain = gain.astype(float)
@@ -2955,7 +2986,7 @@ class ProtocolSettings(CompositeCapture):
         if 'numpy' in str(type(z_height)):
             z_height = z_height.astype(float)
             af = True if af == "True" else False
-            ch = ch.astype(int)
+            ch = int(ch.astype(float))
             fc = True if fc == "True" else False
             ill = ill.astype(float)
             gain = gain.astype(float)
@@ -2984,7 +3015,7 @@ class ProtocolSettings(CompositeCapture):
 
         z_height_idx = self.z_height_map.get(z_height, None)
 
-        tile_label = common_utils.get_tile_label_from_name(name=self.curr_step)
+        tile_label = common_utils.get_tile_label_from_name(name=self.step_names[self.curr_step])
 
         # capture image
         self.custom_capture(
@@ -3034,7 +3065,7 @@ class ProtocolSettings(CompositeCapture):
         time_string = now.strftime("%Y-%m-%d-%H-%M-%S")
         parent_dir = pathlib.Path(parent_dir)
         protocol_run_dir = parent_dir / time_string
-        protocol_run_dir.mkdir()
+        protocol_run_dir.mkdir(exist_ok=True)
         return protocol_run_dir
 
 
@@ -3045,19 +3076,23 @@ class ProtocolSettings(CompositeCapture):
         self.scan_count = 0
         self.start_t = time.time() # start of cycle in seconds
 
-        if os.path.basename(settings['protocol']['filepath']) == "":
-            protocol_filename = "unsaved_protocol.tsv"
-        else:
-            protocol_filename = os.path.basename(settings['protocol']['filepath'])
-
-        # Create the folder to save the protocol captures and protocol itself
-        save_folder = pathlib.Path(settings['live_folder']) / "ProtocolData"
-        save_folder.mkdir(parents=True, exist_ok=True)
-        self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
-        protocol_filepath = self.protocol_run_dir / protocol_filename
-        self.save_protocol(filepath=protocol_filepath)
-
         if self.ids['run_protocol_btn'].state == 'down':
+            
+            if os.path.basename(settings['protocol']['filepath']) == "":
+                protocol_filename = "unsaved_protocol.tsv"
+            else:
+                protocol_filename = os.path.basename(settings['protocol']['filepath'])
+
+            # Create the folder to save the protocol captures and protocol itself
+            save_folder = pathlib.Path(settings['live_folder']) / "ProtocolData"
+            save_folder.mkdir(parents=True, exist_ok=True)
+            self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
+            protocol_filepath = self.protocol_run_dir / protocol_filename
+            self.save_protocol(
+                filepath=protocol_filepath,
+                update_protocol_filepath=False
+            )
+
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
             self.run_scan(protocol = True)

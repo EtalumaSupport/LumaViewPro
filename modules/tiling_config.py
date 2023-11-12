@@ -18,6 +18,14 @@ class TilingConfig:
     def get_mxn_size(self, config_label: str) -> dict:
         return self._available_configs['data'][config_label]
     
+    
+    def get_label_from_mxn_size(self, m: int, n: int) -> str | None:
+        for config_label, config_data in self._available_configs['data'].items():
+            if (config_data['m'] == m) and (config_data['n'] == n):
+                return config_label
+            
+        return None
+    
 
     def default_config(self) -> str:
         return self._available_configs["metadata"]["default"]

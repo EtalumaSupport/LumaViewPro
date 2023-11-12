@@ -24,7 +24,7 @@ def generate_default_step_name(
 def get_tile_label_from_name(name: str) -> str | None:
     name = name.split('_')
 
-    last_segment = name[:-1]
+    last_segment = name[-1]
     if last_segment.startswith('T'):
         return last_segment[1:]
     
