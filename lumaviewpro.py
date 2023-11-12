@@ -2336,8 +2336,11 @@ class ProtocolSettings(CompositeCapture):
         self.step_values = np.array(self.step_values)
         
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
+        # Only build the height map if we have at least 2 heights in the protocol.
+        # Otherwise, we don't want "_Z<slice>" added to the name
         z_heights = sorted(set(self.step_values[:,2].astype('float').tolist()))
-        self.z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
+        if len(z_heights) >= 2:
+            self.z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
