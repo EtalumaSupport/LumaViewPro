@@ -243,17 +243,12 @@ class CompositeCapture(FloatLayout):
         file_root = 'live_'
         color = 'BF'
         well_label = self.get_well_label()
-        append = f'{well_label}_{color}'
 
         for layer in common_utils.get_layers():
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
 
-                # Get the custom layer string value and remove any surrounding whitespace/underscores
-                custom_layer_str = lumaview.ids['imagesettings_id'].ids[layer].ids['root_text'].text
-                custom_layer_str = custom_layer_str.strip("_ ")
-
-                append = f'{well_label}_{custom_layer_str}'
+                append = f'{well_label}_{layer}'
 
                 if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
@@ -3367,7 +3362,6 @@ class MicroscopeSettings(BoxLayout):
                     lumaview.ids['imagesettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
                     # lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['root_text'].text = settings[layer]['file_root']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
@@ -3562,10 +3556,6 @@ class LayerControl(BoxLayout):
         self.ids['exp_text'].text = str(exposure)
 
         self.apply_settings()
-
-    def root_text(self):
-        logger.info('[LVP Main  ] LayerControl.root_text()')
-        settings[self.layer]['file_root'] = self.ids['root_text'].text
 
     def false_color(self):
         logger.info('[LVP Main  ] LayerControl.false_color()')

@@ -1897,22 +1897,6 @@
 					valign: 'middle'
 					text_size: self.size
 
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				spacing: '5dp'
-				TextInput:
-					id: root_text
-					# size_hint_y: None
-					# height: '30dp'
-					font_size: '12sp'
-					multiline: False
-					text: 'File Root'
-					padding: ['5dp', (self.height-self.line_height)/2]
-					on_text: root.root_text()
-					hint_text: 'Filename Root'
-
 			Label:
 
 <Histogram>:
