@@ -169,6 +169,10 @@ class Lumascope():
 
         """
 
+        # TODO for now converting pathlib.Path's to strings for the algorithm below
+        if issubclass(type(path), pathlib.Path):
+            path = str(path)
+
         # Extract file extension (.tiff) and file_id (00001)
         dot_idx = path.rfind('.') 
         under_idx = path.rfind('_')
@@ -219,7 +223,7 @@ class Lumascope():
 
         if file_root is None:
             file_root = ""
-            
+
         # generate filename and save path string
         if tail_id_mode == "increment":
             initial_id = '_000001'
