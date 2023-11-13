@@ -88,21 +88,21 @@ class TilingConfig:
             fill_factor=fill_factor
         )
 
-        mxn = ranges['mxn']
-        min = ranges['min']
-        max = ranges['max']
+        tiling_mxn = ranges['mxn']
+        tiling_min = ranges['min']
+        tiling_max = ranges['max']
 
         tiles = {}
-        ax = (max["x"] + min["x"])/2
-        ay = (max["y"] + min["y"])/2
-        dx = (max["x"] - min["x"])/mxn["n"]
-        dy = (max["y"] - min["y"])/mxn["m"]
+        ax = (tiling_max["x"] + tiling_min["x"])/2
+        ay = (tiling_max["y"] + tiling_min["y"])/2
+        dx = (tiling_max["x"] - tiling_min["x"])/tiling_mxn["n"]
+        dy = (tiling_max["y"] - tiling_min["y"])/tiling_mxn["m"]
 
         PRECISION = 2 # Digits
 
-        for i, j in itertools.product(range(mxn["m"]), range(mxn["n"])):
+        for i, j in itertools.product(range(tiling_mxn["m"]), range(tiling_mxn["n"])):
             
-            if (mxn["m"] == 1) and (mxn["n"] == 1):
+            if (tiling_mxn["m"] == 1) and (tiling_mxn["n"] == 1):
                 # Handle special case where tiling is 1x1 (i.e. no tiling)
                 tile_label = ""
             else:
@@ -111,8 +111,8 @@ class TilingConfig:
                 tile_label = f"{row_letter}{col_number}"
 
             tiles[tile_label] = {
-                "x": round(min["x"] + (j+0.5)*dx - ax, PRECISION),
-                "y": round(max["y"] + (i+0.5)*dy - ay, PRECISION)
+                "x": round(tiling_min["x"] + (j+0.5)*dx - ax, PRECISION),
+                "y": round(tiling_min["y"] + (i+0.5)*dy - ay, PRECISION)
             }
 
         return tiles
