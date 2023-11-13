@@ -3062,7 +3062,7 @@ class ProtocolSettings(CompositeCapture):
     @staticmethod
     def _create_protocol_run_folder(parent_dir: str | pathlib.Path):
         now = datetime.datetime.now()
-        time_string = now.strftime("%Y-%m-%d-%H-%M-%S")
+        time_string = now.strftime("%Y%m%d_%H%M%S")
         parent_dir = pathlib.Path(parent_dir)
         protocol_run_dir = parent_dir / time_string
         protocol_run_dir.mkdir(exist_ok=True)
