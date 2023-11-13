@@ -2510,12 +2510,12 @@ class ProtocolSettings(CompositeCapture):
             x = x.astype(float)
             y = y.astype(float)
             z = z.astype(float)
-            af = True if af == "True" else False
+            af = bool(af.astype(float))
             ch = int(ch.astype(float))
-            fc = True if fc == "True" else False
+            fc = bool(fc.astype(float))
             ill = ill.astype(float)
             gain = gain.astype(float)
-            auto_gain = True if auto_gain == "True" else False
+            auto_gain = bool(auto_gain.astype(float))
             exp = exp.astype(float)           
     
         self.ids['step_name_input'].text = name
@@ -2878,6 +2878,15 @@ class ProtocolSettings(CompositeCapture):
             gain =      self.step_values[self.curr_step, 7] # camera gain
             auto_gain = self.step_values[self.curr_step, 8] # camera autogain
             exp =       self.step_values[self.curr_step, 9] # camera exposure
+
+             # TODO fix these casts
+            if 'numpy' in str(type(ch)):
+                ch = int(ch.astype(float))
+                fc = bool(fc.astype(float))
+                ill = ill.astype(float)
+                gain = gain.astype(float)
+                auto_gain = bool(auto_gain.astype(float))
+                exp = exp.astype(float)
             
             # set camera settings and turn on LED
             lumaview.scope.leds_off()
@@ -2985,12 +2994,12 @@ class ProtocolSettings(CompositeCapture):
         # TODO fix these casts
         if 'numpy' in str(type(z_height)):
             z_height = z_height.astype(float)
-            af = True if af == "True" else False
+            af = bool(af.astype(float))
             ch = int(ch.astype(float))
-            fc = True if fc == "True" else False
+            fc = bool(fc.astype(float))
             ill = ill.astype(float)
             gain = gain.astype(float)
-            auto_gain = True if auto_gain == "True" else False
+            auto_gain = bool(auto_gain.astype(float))
             exp = exp.astype(float)
             
         # Set camera settings
