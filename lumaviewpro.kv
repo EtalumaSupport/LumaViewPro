@@ -1527,6 +1527,50 @@
             disabled: True
             font_size: '12sp'
 
+	# Frame Size
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
+		Label:
+			text: 'Frame Size'
+			halign: 'left'
+			valign: 'middle'
+			font_size: '12sp'
+			size_hint_x: None
+			width: '80dp'
+			text_size: self.size
+
+		TextInput:
+			id: frame_width_id
+			multiline: False
+			padding: ['2dp', (self.height-self.line_height)/2]
+			halign: 'center'
+			input_filter: 'int'
+			text: '1900'
+			on_text_validate: root.frame_size()
+			on_focus: if not self.focus: root.frame_size()
+			font_size: '12sp'
+		Label:
+			text: 'x'
+			size_hint_x: None
+			width: '15dp'
+			font_size: '12sp'
+			halign: 'center'
+		TextInput:
+			id: frame_height_id
+			multiline: False
+			padding: ['5dp', (self.height-self.line_height)/2]
+			halign: 'center'
+			input_filter: 'int'
+			text: '1900'
+			on_text_validate: root.frame_size()
+			on_focus: if not self.focus: root.frame_size()
+			font_size: '12sp'
+
 	FileChooseBTN:
 		text: 'Load'
 		size_hint_y: None
