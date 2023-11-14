@@ -2083,7 +2083,7 @@ class ProtocolSettings(CompositeCapture):
         
 
         self.step_names = list()
-        self.step_values = []
+        self.step_values = np.empty((0,10), float)
         self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
 
         self.z_height_map = {}
@@ -2240,7 +2240,7 @@ class ProtocolSettings(CompositeCapture):
         )
         
         self.step_names = list()
-        self.step_values = []
+        self.step_values = np.empty((0,10), float)
 
         # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
@@ -2273,22 +2273,24 @@ class ProtocolSettings(CompositeCapture):
                     )
                     self.step_names.append(step_name)
 
-                    self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp])
+                    np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp]]), axis=0)
 
-        self.step_values = np.array(self.step_values)
+        # self.step_values = np.array(self.step_values)
 
         # Number of Steps
         length =  self.step_values.shape[0]
               
         # Update text with current step and number of steps in protocol
         self.curr_step = 0 # start at the first step
-        self.ids['step_number_input'].text = str(self.curr_step+1)
-        self.ids['step_total_input'].text = str(length)
 
         if len(self.step_names) > 0:
             self.ids['step_name_input'].text = self.step_names[self.curr_step]
+            self.ids['step_number_input'].text = str(self.curr_step+1)
         else:
+            self.ids['step_number_input'].text = '0'
             self.ids['step_name_input'].text = ''
+
+        self.ids['step_total_input'].text = str(length)
 
         # self.step_names = [self.ids['step_name_input'].text] * length
         # self.step_names = [''] * length
@@ -2312,7 +2314,7 @@ class ProtocolSettings(CompositeCapture):
             
 
     # Load Protocol from File
-    def load_protocol(self, filepath="./data/example_protocol.tsv"):
+    def load_protocol(self, filepath="./data/new_default_protocol.tsv"):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
         # Load protocol
@@ -2380,8 +2382,14 @@ class ProtocolSettings(CompositeCapture):
 
         # Update GUI
         self.curr_step = 0 # start at first step
-        self.ids['step_number_input'].text = str(self.curr_step+1)
-        self.ids['step_name_input'].text = str(self.step_names[self.curr_step])
+
+        if len(self.step_names) > 0:
+            self.ids['step_name_input'].text = self.step_names[self.curr_step]
+            self.ids['step_number_input'].text = str(self.curr_step+1)
+        else:
+            self.ids['step_number_input'].text = '0'
+            self.ids['step_name_input'].text = ''
+
         self.ids['step_total_input'].text = str(len(self.step_names))
         self.ids['capture_period'].text = str(period)
         self.ids['capture_dur'].text = str(duration)
@@ -2688,6 +2696,11 @@ class ProtocolSettings(CompositeCapture):
         self.step_values = np.insert(self.step_values, self.curr_step, step, axis=0)
 
         self.ids['step_total_input'].text = str(len(self.step_names))
+
+        # Handle special case for inserting a step from an empty protocol
+        if len(self.step_names) == 1:
+            self.ids['step_number_input'].text = '1'
+            self.go_to_step()
 
 
     #
