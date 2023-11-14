@@ -2284,7 +2284,11 @@ class ProtocolSettings(CompositeCapture):
         self.curr_step = 0 # start at the first step
         self.ids['step_number_input'].text = str(self.curr_step+1)
         self.ids['step_total_input'].text = str(length)
-        self.ids['step_name_input'].text = self.step_names[0]
+
+        if len(self.step_names) > 0:
+            self.ids['step_name_input'].text = self.step_names[self.curr_step]
+        else:
+            self.ids['step_name_input'].text = ''
 
         # self.step_names = [self.ids['step_name_input'].text] * length
         # self.step_names = [''] * length
