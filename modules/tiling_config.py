@@ -52,7 +52,11 @@ class TilingConfig:
 
     def default_config(self) -> str:
         return self._available_configs["metadata"]["default"]
+    
 
+    def no_tiling_label(self) -> str:
+        return "1x1"
+    
 
     def _calc_range(
         self, 

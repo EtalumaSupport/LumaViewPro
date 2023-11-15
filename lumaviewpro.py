@@ -2358,6 +2358,8 @@ class ProtocolSettings(CompositeCapture):
         tiling_config_label = self.tiling_config.determine_tiling_label_from_names(names=self.step_names)
         if tiling_config_label is not None:
             self.ids['tiling_size_spinner'].text = tiling_config_label
+        else:
+            self.ids['tiling_size_spinner'].text = self.tiling_config.no_tiling_label()
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
