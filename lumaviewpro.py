@@ -2273,7 +2273,7 @@ class ProtocolSettings(CompositeCapture):
                     )
                     self.step_names.append(step_name)
 
-                    np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp]]), axis=0)
+                    self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp]]), axis=0)
 
         # self.step_values = np.array(self.step_values)
 
@@ -2338,14 +2338,14 @@ class ProtocolSettings(CompositeCapture):
         header = next(csvreader) # skip a line
 
         self.step_names = list()
-        self.step_values = []
+        self.step_values = np.empty((0,10), float)
 
         for row in csvreader:
             self.step_names.append(row[0])
-            self.step_values.append(row[1:])
+            self.step_values = np.append(self.step_values, np.array([row[1:]]), axis=0)
 
         file_pointer.close()
-        self.step_values = np.array(self.step_values)
+        # self.step_values = np.array(self.step_values)
         
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
         # Only build the height map if we have at least 2 heights in the protocol.
@@ -2354,26 +2354,8 @@ class ProtocolSettings(CompositeCapture):
         if len(z_heights) >= 2:
             self.z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
 
-        # Extract tiling config from step names
-        label_letters = set()
-        label_numbers = set()
-        for name in self.step_names:
-            label = common_utils.get_tile_label_from_name(name=name)
-            if label is None:
-                continue
-
-            label_letter = label[0]
-            label_number = int(label[1:])
-
-            label_letters.add(label_letter)
-            label_numbers.add(label_number)
-
-        m = len(label_letters)
-        n = len(label_numbers)
-        if m != n:
-            raise Exception(f"Tiling configuration requires equal dimensions, but found {m}x{n}")
-        
-        tiling_config_label = self.tiling_config.get_label_from_mxn_size(m=m, n=n)
+        # Extract tiling config from step names      
+        tiling_config_label = self.tiling_config.determine_tiling_label_from_names(names=self.step_names)
         if tiling_config_label is not None:
             self.ids['tiling_size_spinner'].text = tiling_config_label
 
@@ -2401,6 +2383,8 @@ class ProtocolSettings(CompositeCapture):
         
         # Update Labware Selection in Spinner
         self.ids['labware_spinner'].text = settings['protocol']['labware']
+
+        self.go_to_step()
     
 
     # Save Protocol to File
@@ -2600,10 +2584,14 @@ class ProtocolSettings(CompositeCapture):
         
         self.step_names.pop(self.curr_step)
         self.step_values = np.delete(self.step_values, self.curr_step, axis = 0)
-        self.curr_step = self.curr_step - 1
+        self.curr_step = max(self.curr_step - 1, 0)
 
         # Update total number of steps to GUI
         self.ids['step_total_input'].text = str(len(self.step_names))
+
+        if len(self.step_names) == 0:
+            self.ids['step_number_input'].text = '0'
+
         self.next_step()
 
     # Modify Current Step of Protocol
