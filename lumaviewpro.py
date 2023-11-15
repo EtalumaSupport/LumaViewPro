@@ -2930,7 +2930,8 @@ class ProtocolSettings(CompositeCapture):
             # begin at current step set to 0 (curr_step = 0)
             self.curr_step = 0
             self.ids['step_number_input'].text = str(self.curr_step+1)
-
+            self.go_to_step()
+            
             x = self.step_values[self.curr_step, 0]
             y = self.step_values[self.curr_step, 1]
             z = self.step_values[self.curr_step, 2]
@@ -3113,6 +3114,12 @@ class ProtocolSettings(CompositeCapture):
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
             self.run_scan(protocol = True)
             logger.info('[LVP Main  ] Clock.schedule_interval(self.protocol_iterate, 1)')
+
+            # Move to first step when starting run
+            self.curr_step = 0
+            self.ids['step_number_input'].text = str(self.curr_step+1)
+            self.go_to_step()
+
             Clock.schedule_interval(self.protocol_iterate, 1)
 
         else:
