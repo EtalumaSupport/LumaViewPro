@@ -38,6 +38,7 @@ June 24, 2023
 '''
 
 # General
+import datetime
 import os
 import pathlib
 import numpy as np
@@ -106,6 +107,9 @@ from custom_widgets.progress_popup import show_popup
 #post processing
 from image_stitcher import image_stitcher
 from modules.video_builder import VideoBuilder
+
+from modules.tiling_config import TilingConfig
+import modules.common_utils as common_utils
 
 import cv2
 
@@ -223,44 +227,49 @@ class CompositeCapture(FloatLayout):
         except:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             raise
-
+        
         x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
-        well_x, well_y = current_labware.get_well_index(x_target, y_target)
-        letter = chr(ord('A') + well_y)
-        return f'{letter}{well_x + 1}'
+        return current_labware.get_well_label(x=x_target, y=y_target)
+
 
     def live_capture(self):
-        print("Custom capture")
+        print("Live capture")
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
-        save_folder = settings['live_folder']
+        save_folder = pathlib.Path(settings['live_folder']) / "Manual"
+        save_folder.mkdir(parents=True, exist_ok=True)
         file_root = 'live_'
         color = 'BF'
         well_label = self.get_well_label()
-        append = f'{well_label}_{color}'
 
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
 
-                # Get the custom layer string value and remove any surrounding whitespace/underscores
-                custom_layer_str = lumaview.ids['imagesettings_id'].ids[layer].ids['root_text'].text
-                custom_layer_str = custom_layer_str.strip("_ ")
-
-                append = f'{well_label}_{custom_layer_str}'
+                append = f'{well_label}_{layer}'
 
                 if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
                     color = layer
                     
-                break       
+                break
             
         # lumaview.scope.get_image()
         lumaview.scope.save_live_image(save_folder, file_root, append, color)
 
-    def custom_capture(self, channel, illumination, gain, exposure, false_color = True):
+    def custom_capture(
+        self,
+        save_folder,
+        channel,
+        illumination,
+        gain,
+        exposure,
+        false_color = True,
+        tile_label = None,
+        z_height_idx = None,
+        scan_count = None
+    ):
         print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
         global lumaview
@@ -272,10 +281,15 @@ class CompositeCapture(FloatLayout):
  
         # Save Settings
         color = lumaview.scope.ch2color(channel)
-        save_folder =  settings[color]['save_folder']
-        file_root = settings[color]['file_root']
-        well_label = self.get_well_label()
-        append = f'{well_label}_{color}'
+        # file_root = settings[color]['file_root']
+
+        name = common_utils.generate_default_step_name(
+            well_label=self.get_well_label(),
+            color=color,
+            z_height_idx=z_height_idx,
+            scan_count=scan_count,
+            tile_label=tile_label
+        )
 
         # Illuminate
         if lumaview.scope.led:
@@ -289,7 +303,13 @@ class CompositeCapture(FloatLayout):
         time.sleep(2*exposure/1000+0.2)
         
         use_color = color if false_color else 'BF'
-        lumaview.scope.save_live_image(save_folder, file_root, append, use_color)
+        lumaview.scope.save_live_image(
+            save_folder=save_folder,
+            file_root=None,
+            append=name,
+            color=use_color,
+            tail_id_mode=None
+        )
 
         scope_leds_off()
 
@@ -305,8 +325,7 @@ class CompositeCapture(FloatLayout):
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
 
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             if settings[layer]['acquire'] == True:
 
                 # Go to focus and wait for arrival
@@ -1104,7 +1123,7 @@ class PostProcessingAccordion(BoxLayout):
         self.post = post_processing.PostProcessing()
         #global settings
         #stitching params (see more info in image_stitcher.py):
-        #self.raw_images_folder = settings['live_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        #self.raw_images_folder = settings['save_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.raw_images_folder = './capture/' # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
         self.ext = "tiff" #or read it from settings?
@@ -1116,10 +1135,21 @@ class PostProcessingAccordion(BoxLayout):
         self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
         
         
-        self.tiling_target = []
-        self.tiling_min = [120000, 80000]
-        self.tiling_max = [0, 0]
-        self.tiling_count = [1, 1]
+        # self.tiling_target = []
+        self.tiling_min = {
+            "x": 120000,
+            "y": 80000
+        }
+
+        self.tiling_max = {
+            "x": 0,
+            "y": 0
+        }
+
+        self.tiling_count = {
+            "x": 1,
+            "y": 1
+        }
 
         self.accordion_item_states = {
             'cell_count_accordion_id': None,
@@ -1383,8 +1413,7 @@ class ImageSettings(BoxLayout):
         if self.ids['toggle_imagesettings'].state == 'normal':
             self.pos = lumaview.width - 30, 0
 
-            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-            for layer in layers:
+            for layer in common_utils.get_layers():
                 Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
                 logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
@@ -1394,8 +1423,7 @@ class ImageSettings(BoxLayout):
             scope_display.start()
 
     def update_transmitted(self):
-        layers = ['BF', 'PC', 'EP']
-        for layer in layers:
+        for layer in common_utils.get_transmitted_layers():
             accordion = layer + '_accordion'
 
             # Remove 'Colorize' option in transmitted channels control
@@ -1416,8 +1444,7 @@ class ImageSettings(BoxLayout):
         scope_leds_off()
 
         # turn off all LED toggle buttons and histograms
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
@@ -2053,16 +2080,36 @@ class ProtocolSettings(CompositeCapture):
             self.labware = json.load(read_file)
             read_file.close()
 
-        self.step_names = list()
-        self.step_values = []
-        self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
         
-        self.tiling_target = []
-        self.tiling_min = [120000, 80000]
-        self.tiling_max = [0, 0]
-        self.tiling_count = [1, 1]
+
+        self.step_names = list()
+        self.step_values = np.empty((0,10), float)
+        self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
+
+        self.z_height_map = {}
+        
+        self.tiling_config = TilingConfig()
+        self.tiling_min = {
+            "x": 120000,
+            "y": 80000
+        }
+        self.tiling_max = {
+            "x": 0,
+            "y": 0
+        }
+
+        self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
+
+        self.scan_count = 0
 
         self.exposures = 1  # 1 indexed
+        Clock.schedule_once(self._init_ui, 0)
+
+
+    def _init_ui(self, dt=0):
+        self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
+        self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
+
 
     # Update Protocol Period   
     def update_period(self):
@@ -2185,44 +2232,68 @@ class ProtocolSettings(CompositeCapture):
         current_labware.load_plate(settings['protocol']['labware'])
         current_labware.set_positions()
         
-        tiling_pos_list = self.get_tile_centers()
+        tiles = self.tiling_config.get_tile_centers(
+            config_label=self.ids['tiling_size_spinner'].text,
+            focal_length=settings['objective']['focal_length'],
+            frame_size=settings['frame'],
+            fill_factor=0.85
+        )
         
         self.step_names = list()
-        self.step_values = []
+        self.step_values = np.empty((0,10), float)
 
-         # Iterate through all the positions in the scan
+        # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
-            for tile in tiling_pos_list:
+            for tile_label, tile_position in tiles.items():
                 # Iterate through all the colors to create the steps
-                layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-                for layer in layers:
-                    if settings[layer]['acquire'] == True:
+                for layer in common_utils.get_layers():
+                    if settings[layer]['acquire'] == False:
+                        continue
+                    
+                    PRECISION = 2
+                    x = round(pos[0] + tile_position["x"]/1000, PRECISION) # in 'plate' coordinates
+                    y = round(pos[1] + tile_position["y"]/1000, PRECISION) # in 'plate' coordinates
+                    z = settings[layer]['focus']
+                    af = settings[layer]['autofocus']
+                    ch = lumaview.scope.color2ch(layer)
+                    fc = settings[layer]['false_color']
+                    ill = settings[layer]['ill']
+                    gain = settings[layer]['gain']
+                    auto_gain = int(settings[layer]['auto_gain'])
+                    exp = settings[layer]['exp']
 
-                        x = pos[0] + tile[0]/1000 # in 'plate' coordinates
-                        y = pos[1] + tile[1]/1000 # in 'plate' coordinates
-                        z = settings[layer]['focus']
-                        af = settings[layer]['autofocus']
-                        ch = lumaview.scope.color2ch(layer)
-                        fc = settings[layer]['false_color']
-                        ill = settings[layer]['ill']
-                        gain = settings[layer]['gain']
-                        auto_gain = int(settings[layer]['auto_gain'])
-                        exp = settings[layer]['exp']
+                    z_height_idx = self.z_height_map.get(z, None)
 
-                        self.step_values.append([x, y, z, af, ch, fc, ill, gain, auto_gain, exp])
+                    step_name = common_utils.generate_default_step_name(
+                        well_label=current_labware.get_well_label(x=x, y=y),
+                        color=layer,
+                        z_height_idx=z_height_idx,
+                        scan_count=None,
+                        tile_label=tile_label
+                    )
+                    self.step_names.append(step_name)
 
-        self.step_values = np.array(self.step_values)
+                    self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp]]), axis=0)
+
+        # self.step_values = np.array(self.step_values)
 
         # Number of Steps
         length =  self.step_values.shape[0]
               
         # Update text with current step and number of steps in protocol
         self.curr_step = 0 # start at the first step
-        self.ids['step_number_input'].text = str(self.curr_step+1)
+
+        if len(self.step_names) > 0:
+            self.ids['step_name_input'].text = self.step_names[self.curr_step]
+            self.ids['step_number_input'].text = str(self.curr_step+1)
+        else:
+            self.ids['step_number_input'].text = '0'
+            self.ids['step_name_input'].text = ''
+
         self.ids['step_total_input'].text = str(length)
 
         # self.step_names = [self.ids['step_name_input'].text] * length
-        self.step_names = [''] * length
+        # self.step_names = [''] * length
         settings['protocol']['filepath'] = ''        
         self.ids['protocol_filename'].text = ''
 
@@ -2243,7 +2314,7 @@ class ProtocolSettings(CompositeCapture):
             
 
     # Load Protocol from File
-    def load_protocol(self, filepath="./data/example_protocol.tsv"):
+    def load_protocol(self, filepath="./data/new_default_protocol.tsv"):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
         # Load protocol
@@ -2252,7 +2323,7 @@ class ProtocolSettings(CompositeCapture):
         verify = next(csvreader)
         if not (verify[0] == 'LumaViewPro Protocol'):
             return
-        period = next(csvreader)
+        period = next(csvreader)        
         period = float(period[1])
         duration = next(csvreader)
         duration = float(duration[1])
@@ -2267,23 +2338,42 @@ class ProtocolSettings(CompositeCapture):
         header = next(csvreader) # skip a line
 
         self.step_names = list()
-        self.step_values = []
+        self.step_values = np.empty((0,10), float)
 
         for row in csvreader:
             self.step_names.append(row[0])
-            self.step_values.append(row[1:])
+            self.step_values = np.append(self.step_values, np.array([row[1:]]), axis=0)
 
         file_pointer.close()
-        self.step_values = np.array(self.step_values)
-        self.step_values = self.step_values.astype(float)
+        # self.step_values = np.array(self.step_values)
+        
+        # Index and build a map of Z-heights. Indicies will be used in step/file naming
+        # Only build the height map if we have at least 2 heights in the protocol.
+        # Otherwise, we don't want "_Z<slice>" added to the name
+        z_heights = sorted(set(self.step_values[:,2].astype('float').tolist()))
+        if len(z_heights) >= 2:
+            self.z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
+
+        # Extract tiling config from step names      
+        tiling_config_label = self.tiling_config.determine_tiling_label_from_names(names=self.step_names)
+        if tiling_config_label is not None:
+            self.ids['tiling_size_spinner'].text = tiling_config_label
+        else:
+            self.ids['tiling_size_spinner'].text = self.tiling_config.no_tiling_label()
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         # Update GUI
         self.curr_step = 0 # start at first step
-        self.ids['step_number_input'].text = str(self.curr_step+1)
-        self.ids['step_name_input'].text = ''
+
+        if len(self.step_names) > 0:
+            self.ids['step_name_input'].text = self.step_names[self.curr_step]
+            self.ids['step_number_input'].text = str(self.curr_step+1)
+        else:
+            self.ids['step_number_input'].text = '0'
+            self.ids['step_name_input'].text = ''
+
         self.ids['step_total_input'].text = str(len(self.step_names))
         self.ids['capture_period'].text = str(period)
         self.ids['capture_dur'].text = str(duration)
@@ -2292,12 +2382,15 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['period'] = period
         settings['protocol']['duration'] = duration
         settings['protocol']['labware'] = labware
-
+        
         # Update Labware Selection in Spinner
         self.ids['labware_spinner'].text = settings['protocol']['labware']
+
+        self.go_to_step()
     
+
     # Save Protocol to File
-    def save_protocol(self, filepath=''):
+    def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
         logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
 
         # Gather information
@@ -2307,7 +2400,7 @@ class ProtocolSettings(CompositeCapture):
         self.step_names
         self.step_values
 
-        if len(filepath)==0:
+        if (type(filepath) == str) and len(filepath)==0:
             # If there is no current file path, "save" button will act as "save as" 
             if len(settings['protocol']['filepath']) == 0:
                 FileSaveBTN_instance=FileSaveBTN()
@@ -2315,9 +2408,11 @@ class ProtocolSettings(CompositeCapture):
                 return
             filepath = settings['protocol']['filepath']
         else:
-            settings['protocol']['filepath'] = filepath
 
-        if filepath[-4:].lower() != '.tsv':
+            if update_protocol_filepath:
+                settings['protocol']['filepath'] = filepath
+
+        if (type(filepath) == str) and (filepath[-4:].lower() != '.tsv'):
             filepath = filepath+'.tsv'
 
         self.ids['protocol_filename'].text = os.path.basename(filepath)
@@ -2397,18 +2492,30 @@ class ProtocolSettings(CompositeCapture):
             return
 
         # Extract Values from protocol list and array
-        name =      str(self.step_names[self.curr_step])
-        x =         self.step_values[self.curr_step, 0]
-        y =         self.step_values[self.curr_step, 1]
-        z =         self.step_values[self.curr_step, 2]
-        af =        self.step_values[self.curr_step, 3]
-        ch =        self.step_values[self.curr_step, 4]
-        fc =        self.step_values[self.curr_step, 5]
-        ill =       self.step_values[self.curr_step, 6]
-        gain =      self.step_values[self.curr_step, 7]
-        auto_gain = self.step_values[self.curr_step, 8]
-        exp =       self.step_values[self.curr_step, 9]
+        name =       str(self.step_names[self.curr_step])
+        x =          self.step_values[self.curr_step, 0]
+        y =          self.step_values[self.curr_step, 1]
+        z =          self.step_values[self.curr_step, 2]
+        af =         self.step_values[self.curr_step, 3]
+        ch =         self.step_values[self.curr_step, 4]
+        fc =         self.step_values[self.curr_step, 5]
+        ill =        self.step_values[self.curr_step, 6]
+        gain =       self.step_values[self.curr_step, 7]
+        auto_gain =  self.step_values[self.curr_step, 8]
+        exp =        self.step_values[self.curr_step, 9]
 
+        if 'numpy' in str(type(x)):
+            x = x.astype(float)
+            y = y.astype(float)
+            z = z.astype(float)
+            af = bool(af.astype(float))
+            ch = int(ch.astype(float))
+            fc = bool(fc.astype(float))
+            ill = ill.astype(float)
+            gain = gain.astype(float)
+            auto_gain = bool(auto_gain.astype(float))
+            exp = exp.astype(float)           
+    
         self.ids['step_name_input'].text = name
 
         # Convert plate coordinates to stage coordinates
@@ -2479,10 +2586,14 @@ class ProtocolSettings(CompositeCapture):
         
         self.step_names.pop(self.curr_step)
         self.step_values = np.delete(self.step_values, self.curr_step, axis = 0)
-        self.curr_step = self.curr_step - 1
+        self.curr_step = max(self.curr_step - 1, 0)
 
         # Update total number of steps to GUI
         self.ids['step_total_input'].text = str(len(self.step_names))
+
+        if len(self.step_names) == 0:
+            self.ids['step_number_input'].text = '0'
+
         self.next_step()
 
     # Modify Current Step of Protocol
@@ -2508,8 +2619,7 @@ class ProtocolSettings(CompositeCapture):
 
         c_layer = False
 
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
                 c_layer = layer
@@ -2541,8 +2651,7 @@ class ProtocolSettings(CompositeCapture):
         name = self.ids['step_name_input'].text
         c_layer = False
 
-        layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-        for layer in layers:
+        for layer in common_utils.get_layers():
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
                 c_layer = layer
@@ -2559,16 +2668,17 @@ class ProtocolSettings(CompositeCapture):
         sy = lumaview.scope.get_current_position('Y')
         px, py = self.stage_to_plate(sx, sy)
 
-        step = [px,                                      # x
-                py,                                      # y
-                lumaview.scope.get_current_position('Z'),# z
-                int(layer_id.ids['autofocus'].active),   # autofocus
-                ch,                                      # ch 
-                int(layer_id.ids['false_color'].active), # false color
-                layer_id.ids['ill_slider'].value,        # ill
-                layer_id.ids['gain_slider'].value,       # gain
-                int(layer_id.ids['auto_gain'].active),   # auto_gain
-                layer_id.ids['exp_slider'].value,        # exp
+        step = [
+            px,                                      # x
+            py,                                      # y
+            lumaview.scope.get_current_position('Z'),# z
+            int(layer_id.ids['autofocus'].active),   # autofocus
+            ch,                                      # ch 
+            int(layer_id.ids['false_color'].active), # false color
+            layer_id.ids['ill_slider'].value,        # ill
+            layer_id.ids['gain_slider'].value,       # gain
+            int(layer_id.ids['auto_gain'].active),   # auto_gain
+            layer_id.ids['exp_slider'].value         # exp
         ]
 
         # Insert into List and Array
@@ -2577,74 +2687,90 @@ class ProtocolSettings(CompositeCapture):
 
         self.ids['step_total_input'].text = str(len(self.step_names))
 
+        # Handle special case for inserting a step from an empty protocol
+        if len(self.step_names) == 1:
+            self.ids['step_number_input'].text = '1'
+            self.go_to_step()
+
 
     #
     # Tiling
     # ---------------------------
     #
-    def select_tiling_size(self):
-        logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() partially implemented')
-        logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
-        spinner = self.ids['tiling_size_spinner']
+    # def select_tiling_size(self):
+    #     logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() partially implemented')
+    #     logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
+    #     spinner = self.ids['tiling_size_spinner']
         #settings['protocol']['labware'] = spinner.text #TODO change key
-        x_count = int(spinner.text[0])
-        y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
-        self.tiling_count = [x_count, y_count]
-        #print(self.x_tiling_count)
-        focal_length = settings['objective']['focal_length']
-        magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
-                                            # in theory could be different in different scopes
-                                            # could be looked up by model number
-                                            # although all are currently the same
-        pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
-        um_per_pixel = pixel_width / magnification
-
-        fov_size_x = um_per_pixel * settings['frame']['width']
-        fov_size_y = um_per_pixel * settings['frame']['height']
-        fillfactor = 0.85 # this is to ensure some of the tile images overlap.
-                          # TODO this should be a setting in the gui
-        #print(magnification)
-        #print(settings['frame']['width'])
+        # self.tiling_count = self.tiling_config.get_mxn_size(spinner.text)
         
-        x_fov = fillfactor * fov_size_x
-        y_fov = fillfactor * fov_size_y
-        #x_current = lumaview.scope.get_current_position('X')
-        #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-        x_center = 60000 # TODO make center of a well
-        #y_current = lumaview.scope.get_current_position('Y')
-        #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
-        y_center = 40000 # TODO make center of a well
-        self.tiling_min = [x_center - x_count*x_fov/2, y_center - y_count*y_fov/2]
-        #print(self.tiling_min)
-        self.tiling_max = [x_center + x_count*x_fov/2, y_center + y_count*y_fov/2]
+        # # x_count = int(spinner.text[0])
+        # # y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
+        # # self.tiling_count = (x_count, y_count)
+        # focal_length = settings['objective']['focal_length']
+        # magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
+        #                                     # in theory could be different in different scopes
+        #                                     # could be looked up by model number
+        #                                     # although all are currently the same
+        # pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
+        # um_per_pixel = pixel_width / magnification
+
+        # fov_size_x = um_per_pixel * settings['frame']['width']
+        # fov_size_y = um_per_pixel * settings['frame']['height']
+        # # fill_factor = 0.75 # this is to ensure some of the tile images overlap.
+        #                      # TODO this should be a setting in the gui
+        # fill_factor = 1
+        # #print(magnification)
+        # #print(settings['frame']['width'])
+        
+        # x_fov = fill_factor * fov_size_x
+        # y_fov = fill_factor * fov_size_y
+        # #x_current = lumaview.scope.get_current_position('X')
+        # #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+        # x_center = 60000 # TODO make center of a well
+        # #y_current = lumaview.scope.get_current_position('Y')
+        # #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+        # y_center = 40000 # TODO make center of a well
+        # self.tiling_min = {
+        #     "x": x_center - self.tiling_count["n"]*x_fov/2,
+        #     "y": y_center - self.tiling_count["m"]*y_fov/2
+        # }
+
+        # #print(self.tiling_min)
+        # self.tiling_max = {
+        #     "x": x_center + self.tiling_count["n"]*x_fov/2,
+        #     "y": y_center + self.tiling_count["m"]*y_fov/2
+        # }
         #print(self.tiling_max)
        
-        # DEPRICATED this talks to the wrong stage view
+        # DEPRECATED this talks to the wrong stage view
         #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
         #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
         #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
         #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
         #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
-        return
+        # return
         
-    def start_tiling(self):
-        logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
-        return self.get_tile_centers()
+    # def start_tiling(self):
+    #     logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
+    #     return self.get_tile_centers()
         
-    def get_tile_centers(self):
-        logger.info('[LVP Main  ] PostProcessing.get_tile_centers()')
-        tiles = []
-        ax = (self.tiling_max[0] + self.tiling_min[0])/2
-        ay = (self.tiling_max[1] + self.tiling_min[1])/2
-        dx = (self.tiling_max[0] - self.tiling_min[0])/self.tiling_count[0]
-        dy = (self.tiling_max[1] - self.tiling_min[1])/self.tiling_count[1]
-        for i in range(self.tiling_count[0]):
-            for j in range(self.tiling_count[1]):
-                x = self.tiling_min[0] + (i+0.5)*dx - ax
-                y = self.tiling_min[1] + (j+0.5)*dy - ay
-                tiles.append([x, y])
-                print(x,y)
-        return tiles
+    # def get_tile_centers(self):
+    #     logger.info('[LVP Main  ] PostProcessing.get_tile_centers()')
+    #     tiles = []
+    #     ax = (self.tiling_max["x"] + self.tiling_min["x"])/2
+    #     ay = (self.tiling_max["y"] + self.tiling_min["y"])/2
+    #     dx = (self.tiling_max["x"] - self.tiling_min["x"])/self.tiling_count["x"]
+    #     dy = (self.tiling_max["y"] - self.tiling_min["y"])/self.tiling_count["y"]
+    #     for i in range(self.tiling_count["x"]):
+    #         for j in range(self.tiling_count["y"]):
+    #             tiles.append(
+    #                 {
+    #                     "x": self.tiling_min["x"] + (i+0.5)*dx - ax,
+    #                     "y": self.tiling_min["y"] + (j+0.5)*dy - ay
+    #                 }
+    #             )
+    #     return tiles
         
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_zstack_scan(self):
@@ -2696,8 +2822,7 @@ class ProtocolSettings(CompositeCapture):
             # toggle all LEDs AND TOGGLE BUTTONS OFF
             scope_leds_off()
 
-            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-            for layer in layers:
+            for layer in common_utils.get_layers():
                 lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
@@ -2760,6 +2885,15 @@ class ProtocolSettings(CompositeCapture):
             gain =      self.step_values[self.curr_step, 7] # camera gain
             auto_gain = self.step_values[self.curr_step, 8] # camera autogain
             exp =       self.step_values[self.curr_step, 9] # camera exposure
+
+             # TODO fix these casts
+            if 'numpy' in str(type(ch)):
+                ch = int(ch.astype(float))
+                fc = bool(fc.astype(float))
+                ill = ill.astype(float)
+                gain = gain.astype(float)
+                auto_gain = bool(auto_gain.astype(float))
+                exp = exp.astype(float)
             
             # set camera settings and turn on LED
             lumaview.scope.leds_off()
@@ -2796,10 +2930,17 @@ class ProtocolSettings(CompositeCapture):
             # begin at current step set to 0 (curr_step = 0)
             self.curr_step = 0
             self.ids['step_number_input'].text = str(self.curr_step+1)
-
+            self.go_to_step()
+            
             x = self.step_values[self.curr_step, 0]
             y = self.step_values[self.curr_step, 1]
             z = self.step_values[self.curr_step, 2]
+
+            # TODO fix these type casts depending on how these values are loaded
+            if 'numpy' in str(type(x)):
+                x = x.astype(float)
+                y = y.astype(float)
+                z = z.astype(float)
  
             # Convert plate coordinates to stage coordinates
             sx, sy = self.plate_to_stage(x, y)
@@ -2819,8 +2960,7 @@ class ProtocolSettings(CompositeCapture):
             # toggle all LEDs AND TOGGLE BUTTONS OFF
             scope_leds_off()
 
-            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-            for layer in layers:
+            for layer in common_utils.get_layers():
                 lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
@@ -2843,59 +2983,88 @@ class ProtocolSettings(CompositeCapture):
         y_status = lumaview.scope.get_target_status('Y')
         z_status = lumaview.scope.get_target_status('Z')
 
-        # If target location has been reached
-        if x_status and y_status and z_status and not lumaview.scope.get_overshoot():
-            logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.curr_step]))
+        # Check if target location has not been reached yet
+        if (not x_status) or (not y_status) or (not z_status) or lumaview.scope.get_overshoot():
+            return
+        
+        logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.curr_step]))
 
-            # identify image settings
-            af =        self.step_values[self.curr_step, 3] # autofocus
-            ch =        self.step_values[self.curr_step, 4] # LED channel
-            fc =        self.step_values[self.curr_step, 5] # image false color
-            ill =       self.step_values[self.curr_step, 6] # LED illumination
-            gain =      self.step_values[self.curr_step, 7] # camera gain
-            auto_gain = self.step_values[self.curr_step, 8] # camera autogain
-            exp =       self.step_values[self.curr_step, 9] # camera exposure
+        # identify image settings
+        z_height =   self.step_values[self.curr_step, 2] # Z-height
+        af =         self.step_values[self.curr_step, 3] # autofocus
+        ch =         self.step_values[self.curr_step, 4] # LED channel
+        fc =         self.step_values[self.curr_step, 5] # image false color
+        ill =        self.step_values[self.curr_step, 6] # LED illumination
+        gain =       self.step_values[self.curr_step, 7] # camera gain
+        auto_gain =  self.step_values[self.curr_step, 8] # camera autogain
+        exp =        self.step_values[self.curr_step, 9] # camera exposure
+
+        # TODO fix these casts
+        if 'numpy' in str(type(z_height)):
+            z_height = z_height.astype(float)
+            af = bool(af.astype(float))
+            ch = int(ch.astype(float))
+            fc = bool(fc.astype(float))
+            ill = ill.astype(float)
+            gain = gain.astype(float)
+            auto_gain = bool(auto_gain.astype(float))
+            exp = exp.astype(float)
             
-            # Set camera settings
-            lumaview.scope.set_gain(gain)
-            lumaview.scope.set_auto_gain(bool(auto_gain))
-            lumaview.scope.set_exposure_time(exp)
+        # Set camera settings
+        lumaview.scope.set_gain(gain)
+        lumaview.scope.set_auto_gain(bool(auto_gain))
+        lumaview.scope.set_exposure_time(exp)
+        
+        # If the autofocus is selected, is not currently running and has not completed, begin autofocus
+        if af and not is_complete:
+            # turn on LED
+            lumaview.scope.leds_off()
+            lumaview.scope.led_on(ch, ill)
+
+            # Begin autofocus routine
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
             
-            # If the autofocus is selected, is not currently running and has not completed, begin autofocus
-            if af and not is_complete:
-                # turn on LED
-                lumaview.scope.leds_off()
-                lumaview.scope.led_on(ch, ill)
+            return
+        
+        # reset the is_complete flag on autofocus
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
-                # Begin autofocus routine
-                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
-                lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
-                
-                return
-            
-            # reset the is_complete flag on autofocus
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
+        z_height_idx = self.z_height_map.get(z_height, None)
 
-            # capture image
-            self.custom_capture(ch, ill, gain, exp, bool(fc))
+        tile_label = common_utils.get_tile_label_from_name(name=self.step_names[self.curr_step])
 
-            # increment to the next step
-            self.curr_step += 1
+        # capture image
+        self.custom_capture(
+            save_folder=self.protocol_run_dir,
+            channel=ch,
+            illumination=ill,
+            gain=gain,
+            exposure=exp,
+            false_color=bool(fc),
+            tile_label=tile_label,
+            z_height_idx=z_height_idx,
+            scan_count=self.scan_count
+        )
 
-            if self.curr_step < len(self.step_names):
+        # increment to the next step
+        self.curr_step += 1
 
-                # Update Step number text
-                self.ids['step_number_input'].text = str(self.curr_step+1)
-                self.go_to_step()
+        if self.curr_step < len(self.step_names):
 
-            # if all positions have already been reached
-            else:
-                logger.info('[LVP Main  ] Scan Complete')
-                self.ids['run_scan_btn'].state = 'normal'
-                self.ids['run_scan_btn'].text = 'Run One Scan'
+            # Update Step number text
+            self.ids['step_number_input'].text = str(self.curr_step+1)
+            self.go_to_step()
 
-                logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
-                Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+        # if all positions have already been reached
+        else:
+            self.scan_count += 1
+            logger.info('[LVP Main  ] Scan Complete')
+            self.ids['run_scan_btn'].state = 'normal'
+            self.ids['run_scan_btn'].text = 'Run One Scan'
+
+            logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
+            Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
 
     # Run protocol without xy movement
     def run_stationary(self):
@@ -2907,17 +3076,50 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_stationary_btn'].text = 'Run Stationary Protocol' # 'normal'
 
 
+    @staticmethod
+    def _create_protocol_run_folder(parent_dir: str | pathlib.Path):
+        now = datetime.datetime.now()
+        time_string = now.strftime("%Y%m%d_%H%M%S")
+        parent_dir = pathlib.Path(parent_dir)
+        protocol_run_dir = parent_dir / time_string
+        protocol_run_dir.mkdir(exist_ok=True)
+        return protocol_run_dir
+
+
     # Run the complete protocol 
     def run_protocol(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
+        self.scan_count = 0
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
+            
+            if os.path.basename(settings['protocol']['filepath']) == "":
+                protocol_filename = "unsaved_protocol.tsv"
+            else:
+                protocol_filename = os.path.basename(settings['protocol']['filepath'])
+
+            # Create the folder to save the protocol captures and protocol itself
+            save_folder = pathlib.Path(settings['live_folder']) / "ProtocolData"
+            save_folder.mkdir(parents=True, exist_ok=True)
+            self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
+            protocol_filepath = self.protocol_run_dir / protocol_filename
+            self.save_protocol(
+                filepath=protocol_filepath,
+                update_protocol_filepath=False
+            )
+
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
             self.run_scan(protocol = True)
             logger.info('[LVP Main  ] Clock.schedule_interval(self.protocol_iterate, 1)')
+
+            # Move to first step when starting run
+            self.curr_step = 0
+            self.ids['step_number_input'].text = str(self.curr_step+1)
+            self.go_to_step()
+
             Clock.schedule_interval(self.protocol_iterate, 1)
 
         else:
@@ -2930,6 +3132,7 @@ class ProtocolSettings(CompositeCapture):
             # self.protocol_event.cancel()
             scope_leds_off()
  
+
     def protocol_iterate(self, dt):
         logger.info('[LVP Main  ] ProtocolSettings.protocol_iterate()')
 
@@ -3197,6 +3400,7 @@ class MicroscopeSettings(BoxLayout):
         else:
             try:
                 settings = json.load(read_file)
+
                 # update GUI values from JSON data:
                 self.ids['scope_spinner'].text = settings['microscope']
                 self.ids['objective_spinner'].text = settings['objective']['ID']
@@ -3223,13 +3427,11 @@ class MicroscopeSettings(BoxLayout):
                 else:
                     zstack_settings.ids['zstack_steps_id'].text = '0'
 
-                layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-                for layer in layers:
+                for layer in common_utils.get_layers():
                     lumaview.ids['imagesettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
                     # lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['root_text'].text = settings[layer]['file_root']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
@@ -3309,8 +3511,8 @@ class MicroscopeSettings(BoxLayout):
         w = int(self.ids['frame_width_id'].text)
         h = int(self.ids['frame_height_id'].text)
 
-        width = int(min(int(w), lumaview.scope.get_max_width())/4)*4
-        height = int(min(int(h), lumaview.scope.get_max_height())/4)*4
+        width = int(min(w, lumaview.scope.get_max_width())/4)*4
+        height = int(min(h, lumaview.scope.get_max_height())/4)*4
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
@@ -3420,10 +3622,6 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
-    def root_text(self):
-        logger.info('[LVP Main  ] LayerControl.root_text()')
-        settings[self.layer]['file_root'] = self.ids['root_text'].text
-
     def false_color(self):
         logger.info('[LVP Main  ] LayerControl.false_color()')
         settings[self.layer]['false_color'] = self.ids['false_color'].active
@@ -3467,10 +3665,8 @@ class LayerControl(BoxLayout):
             else:
                 logger.warning('[LVP Main  ] LED controller not available.')
             
-            #  turn the state of remaining channels to 'normal' and text to 'OFF'
-            layers = ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
-            
-            for layer in layers:
+            #  turn the state of remaining channels to 'normal' and text to 'OFF'       
+            for layer in common_utils.get_layers():
                 Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
                 if layer == self.layer:
                     Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.5)
@@ -3660,14 +3856,10 @@ class FolderChooseBTN(Button):
     def choose(self, context):
         logger.info(f'[LVP Main  ] FolderChooseBTN.choose({context})')
         self.context = context
-        logger.info(f"Settings: {settings}")
 
         # Show previously selected/default folder
-        selected_path = None
-        if (context == 'live_folder') and ('live_folder' in settings):
-            selected_path = settings['live_folder']
-        elif context in settings:
-            selected_path = settings[context]['save_folder']
+        selected_path = settings['live_folder']
+
 
         # Note: Could likely use tkinter filedialog for all platforms
         # works on windows and MacOSX
@@ -3716,9 +3908,9 @@ class FolderChooseBTN(Button):
             cell_count_content.apply_method_to_folder(
                 path=path
             )
+        else:
+            raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 
-        else: # Channel Save Folder selections
-            settings[self.context]['save_folder'] = path
 
 # Button the triggers 'filechooser.save_file()' from plyer
 class FileSaveBTN(Button):

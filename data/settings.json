@@ -29,7 +29,6 @@
         "z": 4950.0
     },
     "BF": {
-        "save_folder": "./capture",
         "file_root": "BF_",
         "focus": 4950.0,
         "autofocus": false,
@@ -41,7 +40,6 @@
         "acquire": false
     },
     "PC": {
-        "save_folder": "./capture",
         "file_root": "PC_",
         "focus": 4950.0,
         "autofocus": false,
@@ -53,10 +51,9 @@
         "acquire": false
     },
     "EP": {
-        "save_folder": "./capture",
         "file_root": "EP_",
         "focus": 4950.0,
-        "autofocus": true,
+        "autofocus": false,
         "false_color": false,
         "ill": 100.0,
         "gain": 1.0,
@@ -65,7 +62,6 @@
         "acquire": false
     },
     "Blue": {
-        "save_folder": "./capture",
         "file_root": "B_",
         "focus": 4950.0,
         "autofocus": false,
@@ -77,7 +73,6 @@
         "acquire": false
     },
     "Green": {
-        "save_folder": "./capture",
         "file_root": "G_",
         "focus": 4950.0,
         "autofocus": false,
@@ -89,7 +84,6 @@
         "acquire": false
     },
     "Red": {
-        "save_folder": "./capture",
         "file_root": "R_",
         "focus": 4950.0,
         "autofocus": false,
@@ -107,8 +101,8 @@
     },
     "protocol": {
         "period": 20,
-        "duration": 20,
+        "duration": 48,
         "labware": "96 well microplate",
-        "filepath": "./data/example_protocol.tsv"
+        "filepath": "./data/new_default_protocol.tsv"
     }
 }

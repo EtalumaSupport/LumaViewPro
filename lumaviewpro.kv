@@ -1061,13 +1061,12 @@
             Spinner:
                 id: tiling_size_spinner
                 sync_height: True
-                text: 'New'
+                text: ''
                 font_size: '12dp'
                 size_hint_y: None
                 height: '30dp'
                 text_autoupdate: True
-                on_text: root.select_tiling_size()
-                values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9'
+                values: ''
                 
                 
         # # Z-stack
@@ -1528,25 +1527,6 @@
             disabled: True
             font_size: '12sp'
 
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Field of View'
-            size_hint_x: None
-            width: '120dp'
-			font_size: '12sp'
-        TextInput:
-            id: FOV_id
-            multiline: False
-            padding: ['5dp', (self.height-self.line_height)/2]
-            halign: 'center'
-            # input_filter: 'int'
-            text: 'tbd'
-			disabled: True
-			font_size: '12sp'
-
 	# Frame Size
 	BoxLayout:
 		orientation: 'horizontal'
@@ -1960,34 +1940,6 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				spacing: '5dp'
-				FolderChooseBTN:
-					id: folder_btn
-					# size_hint_y: None
-					# height: '30dp'
-					# font_size: '12sp'
-					# text: 'Folder'
-					border: 0, 0, 0, 0
-					background_normal: './data/icons/folder.png' # Press to Select Folder
-					background_down: './data/icons/folder_down.png'
-					size_hint: None, None
-					size: '30dp', '30dp'
-					on_release: self.choose(root.layer)
-				TextInput:
-					id: root_text
-					# size_hint_y: None
-					# height: '30dp'
-					font_size: '12sp'
-					multiline: False
-					text: 'File Root'
-					padding: ['5dp', (self.height-self.line_height)/2]
-					on_text: root.root_text()
-					hint_text: 'Filename Root'
 
 			Label:
 
