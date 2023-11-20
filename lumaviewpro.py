@@ -2907,10 +2907,28 @@ class ProtocolSettings(CompositeCapture):
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
             return
    
+
+    def _initialize_protocol_data_folder(self):
+        if os.path.basename(settings['protocol']['filepath']) == "":
+            protocol_filename = "unsaved_protocol.tsv"
+        else:
+            protocol_filename = os.path.basename(settings['protocol']['filepath'])
+
+        # Create the folder to save the protocol captures and protocol itself
+        save_folder = pathlib.Path(settings['live_folder']) / "ProtocolData"
+        save_folder.mkdir(parents=True, exist_ok=True)
+        self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
+        protocol_filepath = self.protocol_run_dir / protocol_filename
+        self.save_protocol(
+            filepath=protocol_filepath,
+            update_protocol_filepath=False
+        )
+
+
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
         logger.info('[LVP Main  ] ProtocolSettings.run_scan()')
- 
+
         # If there are no steps, do not continue
         if len(self.step_names) < 1:
             logger.warning('[LVP Main  ] Protocol has no steps.')
@@ -2922,6 +2940,11 @@ class ProtocolSettings(CompositeCapture):
         if self.ids['run_scan_btn'].state == 'down' or protocol == True:
             self.ids['run_scan_btn'].text = 'Running Scan'
 
+            # When only running a single scan (instead of a protocol)
+            # do similar setup as is done for protocol
+            if protocol is False:
+                self._initialize_protocol_data_folder()
+                
             # TODO: shut off live updates
 
             # reset the is_complete flag on autofocus
@@ -3094,21 +3117,7 @@ class ProtocolSettings(CompositeCapture):
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
-            
-            if os.path.basename(settings['protocol']['filepath']) == "":
-                protocol_filename = "unsaved_protocol.tsv"
-            else:
-                protocol_filename = os.path.basename(settings['protocol']['filepath'])
-
-            # Create the folder to save the protocol captures and protocol itself
-            save_folder = pathlib.Path(settings['live_folder']) / "ProtocolData"
-            save_folder.mkdir(parents=True, exist_ok=True)
-            self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
-            protocol_filepath = self.protocol_run_dir / protocol_filename
-            self.save_protocol(
-                filepath=protocol_filepath,
-                update_protocol_filepath=False
-            )
+            self._initialize_protocol_data_folder()
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
