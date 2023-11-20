@@ -248,6 +248,9 @@ class Lumascope():
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
+        return path
+    
+
     def save_live_image(
             self,
             save_folder = './capture',
@@ -263,7 +266,7 @@ class Lumascope():
         array = self.get_image()
         if array is False:
             return 
-        self.save_image(array, save_folder, file_root, append, color, tail_id_mode)
+        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode)
  
     def get_max_width(self):
         """CAMERA FUNCTIONS

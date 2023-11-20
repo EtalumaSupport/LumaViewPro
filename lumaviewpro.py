@@ -111,6 +111,8 @@ from modules.video_builder import VideoBuilder
 from modules.tiling_config import TilingConfig
 import modules.common_utils as common_utils
 
+from modules.protocol_execution_record import ProtocolExecutionRecord
+
 import cv2
 
 # Hardware
@@ -256,7 +258,8 @@ class CompositeCapture(FloatLayout):
                 break
             
         # lumaview.scope.get_image()
-        lumaview.scope.save_live_image(save_folder, file_root, append, color)
+        return lumaview.scope.save_live_image(save_folder, file_root, append, color)
+    
 
     def custom_capture(
         self,
@@ -303,7 +306,7 @@ class CompositeCapture(FloatLayout):
         time.sleep(2*exposure/1000+0.2)
         
         use_color = color if false_color else 'BF'
-        lumaview.scope.save_live_image(
+        image_filepath = lumaview.scope.save_live_image(
             save_folder=save_folder,
             file_root=None,
             append=name,
@@ -312,6 +315,8 @@ class CompositeCapture(FloatLayout):
         )
 
         scope_leds_off()
+
+        return image_filepath
 
 
     # capture and save a composite image using the current settings
@@ -3035,7 +3040,7 @@ class ProtocolSettings(CompositeCapture):
         tile_label = common_utils.get_tile_label_from_name(name=self.step_names[self.curr_step])
 
         # capture image
-        self.custom_capture(
+        image_filepath = self.custom_capture(
             save_folder=self.protocol_run_dir,
             channel=ch,
             illumination=ill,
@@ -3045,6 +3050,13 @@ class ProtocolSettings(CompositeCapture):
             tile_label=tile_label,
             z_height_idx=z_height_idx,
             scan_count=self.scan_count
+        )
+
+        self.protocol_execution_record.add_step(
+            image_file_name=image_filepath.name,
+            step_name=str(self.step_names[self.curr_step]),
+            step_index=self.curr_step,
+            timestamp=datetime.datetime.now()
         )
 
         # increment to the next step
@@ -3109,6 +3121,9 @@ class ProtocolSettings(CompositeCapture):
                 filepath=protocol_filepath,
                 update_protocol_filepath=False
             )
+
+            protocol_record_filepath = self.protocol_run_dir / 'protocol_record.tsv'
+            self.protocol_execution_record = ProtocolExecutionRecord(outfile=protocol_record_filepath)
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
@@ -3177,6 +3192,9 @@ class ProtocolSettings(CompositeCapture):
                logger.info('[LVP Main  ] Clock.unschedule(self.protocol_iterate)')
                Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
                scope_leds_off()
+
+               self.protocol_execution_record.complete()
+               
 
 # Widget for displaying Microscope Stage area, labware, and current position 
 class Stage(Widget):
