@@ -6,7 +6,9 @@ import numpy as np
 import pandas as pd
 import os
 import pathlib
+import re
 
+import modules.color_channels as color_channels
 import modules.tiling_config as tiling_config
 import modules.protocol_step as protocol_step
 
@@ -14,6 +16,7 @@ import modules.protocol_step as protocol_step
 class Protocol:
 
     PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
+    STEP_NAME_PATTERN = r"^(?P<well_label>[A-Z][0-9]+)_(?P<color>(Blue|Green|Red|BF|EP|PC))_(Z(?P<z_slice>[0-9]+))?_[0-9]*_T(?P<tile_label>[A-Z][0-9]+).tif[f]$"
 
     def __init__(self, config=None):
 
@@ -21,6 +24,8 @@ class Protocol:
             self._config = {}
         else:
             self._config = config
+
+        self._step_name_pattern = re.compile(self.STEP_NAME_PATTERN)
 
     
     @staticmethod
@@ -84,22 +89,31 @@ class Protocol:
                     }
                 )
 
-        config['steps_df'] = pd.DataFrame(steps)
+        steps_df = pd.DataFrame(steps)
+
+        steps_df['color'] = steps_df['channel'].map(color_channels.ColorChannel)
 
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
         # Only build the height map if we have at least 2 heights in the protocol.
         # Otherwise, we don't want "_Z<slice>" added to the name
-        config['z_height_map'] = cls._build_z_height_map(values=config['steps_df']['z'])
+        config['z_height_map'] = cls._build_z_height_map(values=steps_df['z'])
 
         # Extract tiling config from step names 
         tc = tiling_config.TilingConfig()
         config['tiling_config_label'] = tc.determine_tiling_label_from_names(
-             names=config['steps_df']['name'].to_list()
+             names=steps_df['name'].to_list()
         )
+
+        config['steps'] = steps_df
 
         return Protocol(
             config=config
         )
+    
+
+    def extract_data_from_step_name(name: str) -> dict | None:
+        pattern = "^(?P<well_label>[A-Z][0-9]+)_(?P<color>(Blue|Green|Red|BF|EP|PC))_(Z(?P<z_slice>[0-9]+))?_[0-9]*_T(?P<tile_label>[A-Z][0-9]+).tif[f]$"
+
 
 
 if __name__ == "__main__":
