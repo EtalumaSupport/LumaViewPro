@@ -16,8 +16,8 @@ import modules.protocol_step as protocol_step
 class Protocol:
 
     PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
-    STEP_NAME_PATTERN = r"^(?P<well_label>[A-Z][0-9]+)_(?P<color>(Blue|Green|Red|BF|EP|PC))_(Z(?P<z_slice>[0-9]+))?_[0-9]*_T(?P<tile_label>[A-Z][0-9]+).tif[f]$"
-
+    STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)_(?P<color>(Blue|Green|Red|BF|EP|PC))_(Z(?P<z_slice>[0-9]+)_)?([0-9]*_)?T(?P<tile_label>[A-Z][0-9]+)(.tif[f])?$")
+    
     def __init__(self, config=None):
 
         if config is None:
@@ -25,9 +25,7 @@ class Protocol:
         else:
             self._config = config
 
-        self._step_name_pattern = re.compile(self.STEP_NAME_PATTERN)
-
-    
+        
     @staticmethod
     def _build_z_height_map(values) -> dict:
             z_height_map = {}
@@ -91,7 +89,7 @@ class Protocol:
 
         steps_df = pd.DataFrame(steps)
 
-        steps_df['color'] = steps_df['channel'].map(color_channels.ColorChannel)
+        steps_df['color'] = steps_df.apply(lambda s: color_channels.ColorChannel(s['channel']).name, axis=1)
 
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
         # Only build the height map if we have at least 2 heights in the protocol.
@@ -104,6 +102,7 @@ class Protocol:
              names=steps_df['name'].to_list()
         )
 
+        steps_df = steps_df.apply(cls.extract_data_from_step_name, axis=1)
         config['steps'] = steps_df
 
         return Protocol(
@@ -111,11 +110,50 @@ class Protocol:
         )
     
 
-    def extract_data_from_step_name(name: str) -> dict | None:
-        pattern = "^(?P<well_label>[A-Z][0-9]+)_(?P<color>(Blue|Green|Red|BF|EP|PC))_(Z(?P<z_slice>[0-9]+))?_[0-9]*_T(?P<tile_label>[A-Z][0-9]+).tif[f]$"
+    @classmethod
+    def extract_data_from_step_name(cls, s):
+        result = cls.STEP_NAME_PATTERN.match(string=s['name'])
+        if result is None:
+            return s
+        
+        details = result.groupdict()
 
+        if 'well_label' in details:
+            s['well'] = details['well_label']
+        
+        if ('z_slice' in details) and (details['z_slice'] is not None):
+            s['z_slice'] = details['z_slice']
+        else:
+            s['z_slice'] = -1
+
+        if 'tile_label' in details:
+            s['tile'] = details['tile_label']
+
+        return s
+    
+    
+    def get_tile_groups(self):
+        steps = self._config['steps']
+        tile_groups = steps.groupby(
+            by=[
+                'well',
+                'color',
+                'z'
+            ]
+        )
+
+        tile_dict = {}
+        for idx, (group_name, group_info) in enumerate(tile_groups):
+            tile_dict[idx] = group_info[['name','x','y','color','well','tile']]
+        
+        return tile_dict
+    
+
+    
+        
 
 
 if __name__ == "__main__":
     protocol = Protocol.from_file(file_path=pathlib.Path("modules/protocol_test6.tsv"))
+    tile_groups = protocol.get_tile_groups()
     print("Done")
