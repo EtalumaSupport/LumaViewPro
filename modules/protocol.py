@@ -89,6 +89,7 @@ class Protocol:
 
         steps_df = pd.DataFrame(steps)
 
+        steps_df['step_index'] = steps_df.index
         steps_df['color'] = steps_df.apply(lambda s: color_channels.ColorChannel(s['channel']).name, axis=1)
 
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
@@ -143,15 +144,11 @@ class Protocol:
         )
 
         tile_dict = {}
-        for idx, (group_name, group_info) in enumerate(tile_groups):
-            tile_dict[idx] = group_info[['name','x','y','color','well','tile']]
+        for idx, (_, group_info) in enumerate(tile_groups):
+            tile_dict[idx] = group_info[['name','x','y','color','well','tile', 'step_index']]
         
         return tile_dict
     
-
-    
-        
-
 
 if __name__ == "__main__":
     protocol = Protocol.from_file(file_path=pathlib.Path("modules/protocol_test6.tsv"))

@@ -10,7 +10,8 @@ class ProtocolExecutionRecord:
 
     FILE_HEADER = "LumaViewPro Protocol Execution Record"
     CURRENT_VERSION = 1
-    COLUMNS = ('Filename', 'Step Name', 'Step Index', 'Timestamp')
+    DEFAULT_FILENAME = 'protocol_record.tsv'
+    COLUMNS = ('Filename', 'Step Name', 'Step Index', 'Scan Count', 'Timestamp')
 
     def __init__(
         self,
@@ -53,15 +54,27 @@ class ProtocolExecutionRecord:
         image_file_name: pathlib.Path,
         step_name: str,
         step_index: int,
+        scan_count: int,
         timestamp: datetime.datetime
     ):
         if self._mode != "to_file":
             raise Exception(f"add_step() can only be called when the instance is initialized with an 'outfile'.")
         
-        self._outfile_fp.write(f"{image_file_name}\t{step_name}\t{step_index}\t{timestamp}\n")
+        self._outfile_fp.write(f"{image_file_name}\t{step_name}\t{step_index}\t{scan_count}\t{timestamp}\n")
         self._outfile_fp.flush()
         
     
+    def get_data_from_filename(self, filename: str | pathlib.Path) -> int | None:
+        record = self._records.loc[self._records['filename'] == filename]
+        if len(record) != 1:
+            return None
+        
+        return {
+            'step_index': record['step_index'].values[0],
+            'scan_count': record['scan_count'].values[0]
+        }
+
+
     @classmethod
     def from_file(cls, file_path: pathlib.Path):
         with open(file_path, 'r') as fp:
@@ -86,7 +99,7 @@ class ProtocolExecutionRecord:
                         'filename': row[0],
                         'step_name': row[1],
                         'step_index': int(row[2]),
-                        'timestamp': datetime.datetime(row[3])
+                        'scan_count': int(row[3])
                     }
                 )
 

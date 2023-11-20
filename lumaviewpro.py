@@ -2929,7 +2929,7 @@ class ProtocolSettings(CompositeCapture):
             update_protocol_filepath=False
         )
 
-        protocol_record_filepath = self.protocol_run_dir / 'protocol_record.tsv'
+        protocol_record_filepath = self.protocol_run_dir / ProtocolExecutionRecord.DEFAULT_FILENAME
         self.protocol_execution_record = ProtocolExecutionRecord(outfile=protocol_record_filepath)
 
 
@@ -2997,7 +2997,7 @@ class ProtocolSettings(CompositeCapture):
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
             self.protocol_execution_record.complete()
-            
+
     
     def scan_iterate(self, dt):
         global lumaview
@@ -3084,6 +3084,7 @@ class ProtocolSettings(CompositeCapture):
             image_file_name=image_filepath.name,
             step_name=str(self.step_names[self.curr_step]),
             step_index=self.curr_step,
+            scan_count=self.scan_count,
             timestamp=datetime.datetime.now()
         )
 
