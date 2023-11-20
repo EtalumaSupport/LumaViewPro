@@ -35,10 +35,10 @@ class ProtocolExecutionRecord:
     
     def _initialize_outfile(self, outfile: pathlib.Path):
         self._outfile_fp = open(outfile, 'w')
-        self._outfile_fp.write(f"{self.FILE_HEADER}\n")
-        self._outfile_fp.write(f"Version\t{self.CURRENT_VERSION}\n")
-        column_line = '\t'.join(self.COLUMNS)
-        self._outfile_fp.write(f"{column_line}\n")
+        self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
+        self._outfile_csv.writerow([self.FILE_HEADER])
+        self._outfile_csv.writerow(['Version', self.CURRENT_VERSION])
+        self._outfile_csv.writerow(self.COLUMNS)
 
     
     def complete(self):
@@ -60,7 +60,7 @@ class ProtocolExecutionRecord:
         if self._mode != "to_file":
             raise Exception(f"add_step() can only be called when the instance is initialized with an 'outfile'.")
         
-        self._outfile_fp.write(f"{image_file_name}\t{step_name}\t{step_index}\t{scan_count}\t{timestamp}\n")
+        self._outfile_csv.writerow([image_file_name, step_name, step_index, scan_count, timestamp])
         self._outfile_fp.flush()
         
     

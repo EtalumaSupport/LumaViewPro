@@ -2402,8 +2402,6 @@ class ProtocolSettings(CompositeCapture):
         period = settings['protocol']['period']
         duration = settings['protocol']['duration']
         labware = settings['protocol']['labware'] 
-        self.step_names
-        self.step_values
 
         if (type(filepath) == str) and len(filepath)==0:
             # If there is no current file path, "save" button will act as "save as" 
