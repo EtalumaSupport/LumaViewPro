@@ -3,6 +3,7 @@
 import csv
 import datetime
 import numpy as np
+import pandas as pd
 import os
 import pathlib
 
@@ -32,12 +33,15 @@ class Protocol:
 
             return z_height_map
     
-    
+    @staticmethod
+    def _get_column_index_map(column_names: list) -> dict[str, int]:
+        return {column_name: idx for idx, column_name in enumerate(column_names)}
+            
+
     @classmethod
     def from_file(cls, file_path: pathlib.Path):
         
         config = {}
-        print(os.getcwd())
         with open(file_path, 'r') as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             verify = next(csvreader)
@@ -59,42 +63,38 @@ class Protocol:
                 # raise Exception(f"Invalid labware: {labware}")
                 # logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
 
-            _ = next(csvreader) # Skip the column header line
+            columns = next(csvreader)
+            column_map = cls._get_column_index_map(column_names=columns)
 
-            step_names = list()
-            step_values = np.empty((0,10), float)
-
+            steps = []
             for row in csvreader:
                 steps.append(
-                    protocol_step.ProtocolStep(
-                        name=row[0],
-                        x=row[1],
-                        y=row[2],
-                        z=row[3],
-                        auto_focus=row[4],
-                        channel=row[5],
-                        false_color=row[6],
-                        illumination=row[7],
-                        gain=row[8]
-                        auto_gain=row[9]
-                        exposure=row[10]
-                    )
+                    {
+                        'name': row[column_map['Name']],
+                        'x':float(row[column_map['X']]),
+                        'y': float(row[column_map['Y']]),
+                        'z': float(row[column_map['Z']]),
+                        'auto_focus': bool(float(row[column_map['Auto_Focus']])),
+                        'channel': int(float(row[column_map['Channel']])),
+                        'false_color': bool(float(row[column_map['False_Color']])),
+                        'illumination': float(row[column_map['Illumination']]),
+                        'gain': float(row[column_map['Gain']]),
+                        'auto_gain': bool(float(row[column_map['Auto_Gain']])),
+                        'exposure': float(row[column_map['Exposure']])
+                    }
                 )
-                # step_names.append(row[0])
-                # step_values = np.append(step_values, np.array([row[1:]]), axis=0)
 
-        config['step_names'] = step_names
-        config['step_values'] = step_values
+        config['steps_df'] = pd.DataFrame(steps)
 
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
         # Only build the height map if we have at least 2 heights in the protocol.
         # Otherwise, we don't want "_Z<slice>" added to the name
-        config['z_height_map'] = cls._build_z_height_map(values=step_values[:,2])
+        config['z_height_map'] = cls._build_z_height_map(values=config['steps_df']['z'])
 
         # Extract tiling config from step names 
         tc = tiling_config.TilingConfig()
         config['tiling_config_label'] = tc.determine_tiling_label_from_names(
-             names=step_names
+             names=config['steps_df']['name'].to_list()
         )
 
         return Protocol(
