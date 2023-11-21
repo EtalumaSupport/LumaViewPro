@@ -10,6 +10,7 @@ import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 import modules.tiling_config as tiling_config
+from lvp_logger import logger
 
 
 class Stitcher:
@@ -52,12 +53,14 @@ class Stitcher:
         
 
     def load_folder(self, path: str | pathlib.Path):
+        logger.info(f'Stitcher: Loading folder {path}')
         path = pathlib.Path(path)
 
         protocol_tsvs = self._find_protocol_tsvs(path=path)
         if protocol_tsvs is None:
             return False
         
+        logger.info(f"Stitcher: Found -> protocol {protocol_tsvs['protocol']}, protocol execution record {protocol_tsvs['protocol_execution_record']}")
         protocol = Protocol.from_file(file_path=protocol_tsvs['protocol'])
         protocol_execution_record = ProtocolExecutionRecord.from_file(file_path=protocol_tsvs['protocol_execution_record'])
 
@@ -65,6 +68,7 @@ class Stitcher:
         protocol_tile_groups = protocol.get_tile_groups()
         image_tile_groups = []
 
+        logger.info(f"Stitcher: Matching images to stitching groups")
         for image_name in image_names:
             file_data = protocol_execution_record.get_data_from_filename(filename=image_name)
             if file_data is None:
@@ -89,7 +93,8 @@ class Stitcher:
                         'x': match['x'].values[0],
                         'y': match['y'].values[0],
                         'well': match['well'].values[0],
-                        'color': match['color'].values[0]
+                        'color': match['color'].values[0],
+                        'objective': match['objective'].values[0]
                     }
                 )
 
@@ -98,33 +103,41 @@ class Stitcher:
         df = pd.DataFrame(image_tile_groups)
         df['stitch_group_index'] = df.groupby(by=['protocol_group_index','scan_count']).ngroup()
         
+        logger.info(f"Stitcher: Generating stitched images")
         for _, stitch_group in df.groupby(by=['stitch_group_index']):
+            pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
             stitched_image = self.position_stitcher(
                 path=path,
                 df=stitch_group[['filename', 'x', 'y']],
-                # pos2pix=2630
-                # pos2pix=1000
-                # pos2pix=620 # Emperically ~550 for 4x objective
-                pos2pix=int(550* tiling_config.TilingConfig.DEFAULT_FILL_FACTOR)
-                # pos2pix=int(620* 0.85)
-                # pos2pix=3953
+                pos2pix=int(pos2pix * tiling_config.TilingConfig.DEFAULT_FILL_FACTOR)
             )
-
+            
             stitched_filename = self._generate_stitched_filename(df=stitch_group)
+            logger.debug(f"Stitcher: - {stitched_filename}")
 
             cv2.imwrite(
                 filename=str(path / stitched_filename),
                 img=stitched_image
             )
+        
+        logger.info(f"Stitcher: Complete")
 
+
+    @staticmethod
+    def _calc_pos2pix_from_objective(objective: str) -> int:
+        # TODO
+        if objective == '4x':
+            return 625 #550
+        else:
+            raise NotImplementedError(f"Image stitching for objectives other than 4x is not implemented")
     
+
     @staticmethod
     def _generate_stitched_filename(df: pd.DataFrame) -> str:
         row0 = df.iloc[0]
         name = common_utils.generate_default_step_name(
             well_label=row0['well'],
             color=row0['color'],
-            # z_height_idx=,
             scan_count=row0['scan_count']
         )
 

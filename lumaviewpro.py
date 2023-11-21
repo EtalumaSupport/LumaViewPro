@@ -111,6 +111,7 @@ from modules.video_builder import VideoBuilder
 from modules.tiling_config import TilingConfig
 import modules.common_utils as common_utils
 
+from modules.stitcher import Stitcher
 from modules.protocol_execution_record import ProtocolExecutionRecord
 
 import cv2
@@ -683,6 +684,9 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
+class StitchControls(BoxLayout):
+    pass
+
 
 class VideoCreationControls(BoxLayout):
 
@@ -1232,20 +1236,20 @@ class PostProcessingAccordion(BoxLayout):
         #     out.write(img_array[i])
         # out.release()
 
-    def stitch(self):
-        logger.debug('[LVP Main  ] PostProcessingAccordian.stitch() not fully implemented')
-        #error_log('PostProcessing.stitch()')
-        try:
-            self.stitched_image = image_stitcher(images_folder=self.raw_images_folder,
-                                                combine_colors = self.combine_colors,
-                                                ext = self.ext,
-                                                method = self.stitching_method,
-                                                save_name = self.stitched_save_name,
-                                                #positions_file = self.positions_file,
-                                                positions_file = "./capture/2x2.tsv",
-                                                pos2pix = self.pos2pix,post_process = False)
-        except:
-            logger.error('[LVP Main  ] PostProcessingAccordian.stitch() faled to stich')
+    # def stitch(self):
+    #     logger.debug('[LVP Main  ] PostProcessingAccordian.stitch() not fully implemented')
+    #     #error_log('PostProcessing.stitch()')
+    #     try:
+    #         self.stitched_image = image_stitcher(images_folder=self.raw_images_folder,
+    #                                             combine_colors = self.combine_colors,
+    #                                             ext = self.ext,
+    #                                             method = self.stitching_method,
+    #                                             save_name = self.stitched_save_name,
+    #                                             #positions_file = self.positions_file,
+    #                                             positions_file = "./capture/2x2.tsv",
+    #                                             pos2pix = self.pos2pix,post_process = False)
+    #     except:
+    #         logger.error('[LVP Main  ] PostProcessingAccordian.stitch() faled to stich')
             
 
     '''
@@ -3907,6 +3911,9 @@ class FolderChooseBTN(Button):
             cell_count_content.apply_method_to_folder(
                 path=path
             )
+        elif self.context == 'apply_stitching_to_folder':
+            stitcher = Stitcher()
+            stitcher.load_folder(path=pathlib.Path(path))
         else:
             raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 

@@ -190,13 +190,14 @@ class Protocol:
             by=[
                 'well',
                 'color',
-                'z'
+                'z',
+                'objective'
             ]
         )
 
         tile_dict = {}
         for idx, (_, group_info) in enumerate(tile_groups):
-            tile_dict[idx] = group_info[['name','x','y','color','well','tile', 'step_index']]
+            tile_dict[idx] = group_info[['name','x','y','color','well','tile','step_index','objective']]
         
         return tile_dict
     
