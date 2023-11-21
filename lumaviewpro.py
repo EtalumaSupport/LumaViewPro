@@ -2088,7 +2088,7 @@ class ProtocolSettings(CompositeCapture):
         
 
         self.step_names = list()
-        self.step_values = np.empty((0,10), float)
+        self.step_values = np.empty((0,11), float)
         self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
 
         self.z_height_map = {}
@@ -2241,11 +2241,11 @@ class ProtocolSettings(CompositeCapture):
             config_label=self.ids['tiling_size_spinner'].text,
             focal_length=settings['objective']['focal_length'],
             frame_size=settings['frame'],
-            fill_factor=0.85
+            fill_factor=TilingConfig.DEFAULT_FILL_FACTOR
         )
         
         self.step_names = list()
-        self.step_values = np.empty((0,10), float)
+        self.step_values = np.empty((0,11), float)
 
         # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
@@ -2266,6 +2266,7 @@ class ProtocolSettings(CompositeCapture):
                     gain = settings[layer]['gain']
                     auto_gain = int(settings[layer]['auto_gain'])
                     exp = settings[layer]['exp']
+                    objective = settings['objective']['ID']
 
                     z_height_idx = self.z_height_map.get(z, None)
 
@@ -2278,7 +2279,7 @@ class ProtocolSettings(CompositeCapture):
                     )
                     self.step_names.append(step_name)
 
-                    self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp]]), axis=0)
+                    self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective]]), axis=0)
 
         # self.step_values = np.array(self.step_values)
 
@@ -2343,11 +2344,17 @@ class ProtocolSettings(CompositeCapture):
         header = next(csvreader) # skip a line
 
         self.step_names = list()
-        self.step_values = np.empty((0,10), float)
+        self.step_values = np.empty((0,11), float)
 
+        # Since there is currently no versioning in the protocol file, this is a workaround to add 'Objective'
+        # to the protocol file, and still be able to load older protocol files which do not contain an 'Objective' column
         for row in csvreader:
             self.step_names.append(row[0])
-            self.step_values = np.append(self.step_values, np.array([row[1:]]), axis=0)
+            if 'Objective' in header:
+                self.step_values = np.append(self.step_values, np.array([row[1:]]), axis=0)
+            else:
+                self.step_values = np.append(self.step_values, np.array([row[1:], 'Undefined']), axis=0)
+
 
         file_pointer.close()
         # self.step_values = np.array(self.step_values)
@@ -2428,7 +2435,7 @@ class ProtocolSettings(CompositeCapture):
         csvwriter.writerow(['Period', period])
         csvwriter.writerow(['Duration', duration])
         csvwriter.writerow(['Labware', labware])
-        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure'])
+        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective'])
 
         for i in range(len(self.step_names)):
             c_name = self.step_names[i]
@@ -2496,28 +2503,18 @@ class ProtocolSettings(CompositeCapture):
 
         # Extract Values from protocol list and array
         name =       str(self.step_names[self.curr_step])
-        x =          self.step_values[self.curr_step, 0]
-        y =          self.step_values[self.curr_step, 1]
-        z =          self.step_values[self.curr_step, 2]
-        af =         self.step_values[self.curr_step, 3]
-        ch =         self.step_values[self.curr_step, 4]
-        fc =         self.step_values[self.curr_step, 5]
-        ill =        self.step_values[self.curr_step, 6]
-        gain =       self.step_values[self.curr_step, 7]
-        auto_gain =  self.step_values[self.curr_step, 8]
-        exp =        self.step_values[self.curr_step, 9]
-
-        if 'numpy' in str(type(x)):
-            x = x.astype(float)
-            y = y.astype(float)
-            z = z.astype(float)
-            af = bool(af.astype(float))
-            ch = int(ch.astype(float))
-            fc = bool(fc.astype(float))
-            ill = ill.astype(float)
-            gain = gain.astype(float)
-            auto_gain = bool(auto_gain.astype(float))
-            exp = exp.astype(float)           
+        x =          common_utils.to_float(val=self.step_values[self.curr_step, 0])
+        y =          common_utils.to_float(val=self.step_values[self.curr_step, 1])
+        z =          common_utils.to_float(val=self.step_values[self.curr_step, 2])
+        af =         common_utils.to_bool(val=self.step_values[self.curr_step, 3])
+        ch =         common_utils.to_int(val=self.step_values[self.curr_step, 4])
+        fc =         common_utils.to_bool(val=self.step_values[self.curr_step, 5])
+        ill =        common_utils.to_float(val=self.step_values[self.curr_step, 6])
+        gain =       common_utils.to_float(val=self.step_values[self.curr_step, 7])
+        auto_gain =  common_utils.to_bool(val=self.step_values[self.curr_step, 8])
+        exp =        common_utils.to_float(val=self.step_values[self.curr_step, 9])
+        objective =  common_utils.to_bool(self.step_values[self.curr_step, 10])
+       
     
         self.ids['step_name_input'].text = name
 
@@ -2882,21 +2879,12 @@ class ProtocolSettings(CompositeCapture):
             logger.info('[LVP Main  ] Autofocus Scan Step:' + str(self.step_names[self.curr_step]) )
 
             # identify image settings
-            ch =        self.step_values[self.curr_step, 4] # LED channel
-            fc =        self.step_values[self.curr_step, 5] # image false color
-            ill =       self.step_values[self.curr_step, 6] # LED illumination
-            gain =      self.step_values[self.curr_step, 7] # camera gain
-            auto_gain = self.step_values[self.curr_step, 8] # camera autogain
-            exp =       self.step_values[self.curr_step, 9] # camera exposure
-
-             # TODO fix these casts
-            if 'numpy' in str(type(ch)):
-                ch = int(ch.astype(float))
-                fc = bool(fc.astype(float))
-                ill = ill.astype(float)
-                gain = gain.astype(float)
-                auto_gain = bool(auto_gain.astype(float))
-                exp = exp.astype(float)
+            ch =        common_utils.to_int(val=self.step_values[self.curr_step, 4]) # LED channel
+            fc =        common_utils.to_bool(val=self.step_values[self.curr_step, 5]) # image false color
+            ill =       common_utils.to_float(val=self.step_values[self.curr_step, 6]) # LED illumination
+            gain =      common_utils.to_float(val=self.step_values[self.curr_step, 7]) # camera gain
+            auto_gain = common_utils.to_bool(self.step_values[self.curr_step, 8]) # camera autogain
+            exp =       common_utils.to_float(val=self.step_values[self.curr_step, 9]) # camera exposure
             
             # set camera settings and turn on LED
             lumaview.scope.leds_off()
@@ -2961,15 +2949,9 @@ class ProtocolSettings(CompositeCapture):
             self.ids['step_number_input'].text = str(self.curr_step+1)
             self.go_to_step()
             
-            x = self.step_values[self.curr_step, 0]
-            y = self.step_values[self.curr_step, 1]
-            z = self.step_values[self.curr_step, 2]
-
-            # TODO fix these type casts depending on how these values are loaded
-            if 'numpy' in str(type(x)):
-                x = x.astype(float)
-                y = y.astype(float)
-                z = z.astype(float)
+            x = common_utils.to_float(val=self.step_values[self.curr_step, 0])
+            y = common_utils.to_float(val=self.step_values[self.curr_step, 1])
+            z = common_utils.to_float(val=self.step_values[self.curr_step, 2])
  
             # Convert plate coordinates to stage coordinates
             sx, sy = self.plate_to_stage(x, y)
@@ -3021,25 +3003,14 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.curr_step]))
 
         # identify image settings
-        z_height =   self.step_values[self.curr_step, 2] # Z-height
-        af =         self.step_values[self.curr_step, 3] # autofocus
-        ch =         self.step_values[self.curr_step, 4] # LED channel
-        fc =         self.step_values[self.curr_step, 5] # image false color
-        ill =        self.step_values[self.curr_step, 6] # LED illumination
-        gain =       self.step_values[self.curr_step, 7] # camera gain
-        auto_gain =  self.step_values[self.curr_step, 8] # camera autogain
-        exp =        self.step_values[self.curr_step, 9] # camera exposure
-
-        # TODO fix these casts
-        if 'numpy' in str(type(z_height)):
-            z_height = z_height.astype(float)
-            af = bool(af.astype(float))
-            ch = int(ch.astype(float))
-            fc = bool(fc.astype(float))
-            ill = ill.astype(float)
-            gain = gain.astype(float)
-            auto_gain = bool(auto_gain.astype(float))
-            exp = exp.astype(float)
+        z_height =   common_utils.to_float(val=self.step_values[self.curr_step, 2]) # Z-height
+        af =         common_utils.to_bool(val=self.step_values[self.curr_step, 3]) # autofocus
+        ch =         common_utils.to_int(val=self.step_values[self.curr_step, 4]) # LED channel
+        fc =         common_utils.to_bool(val=self.step_values[self.curr_step, 5]) # image false color
+        ill =        common_utils.to_float(val=self.step_values[self.curr_step, 6]) # LED illumination
+        gain =       common_utils.to_float(val=self.step_values[self.curr_step, 7]) # camera gain
+        auto_gain =  common_utils.to_bool(val=self.step_values[self.curr_step, 8]) # camera autogain
+        exp =        common_utils.to_float(val=self.step_values[self.curr_step, 9]) # camera exposure
             
         # Set camera settings
         lumaview.scope.set_gain(gain)

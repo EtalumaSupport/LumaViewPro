@@ -9,15 +9,15 @@ import pathlib
 import re
 
 import modules.color_channels as color_channels
+import modules.common_utils as common_utils
 import modules.tiling_config as tiling_config
-import modules.protocol_step as protocol_step
 
 
 class Protocol:
 
     PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
-    COLUMNS_V1 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure']
-    COLUMNS_V2 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Well', 'Tile', 'Z-Slice', 'Step Index', 'Color']
+    COLUMNS_V1 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective']
+    COLUMNS_V2 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Step Index', 'Color']
     CURRENT_VERSION = 2
     CURRENT_COLUMNS = COLUMNS_V2
     STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)_(?P<color>(Blue|Green|Red|BF|EP|PC))_(Z(?P<z_slice>[0-9]+)_)?([0-9]*_)?T(?P<tile_label>[A-Z][0-9]+)(.tif[f])?$")
@@ -45,7 +45,10 @@ class Protocol:
         return {column_name: idx for idx, column_name in enumerate(column_names)}
     
 
+    # Not used yet
     def to_file(self, file_path: pathlib.Path):
+        raise NotImplementedError(f"Not implemented")
+    
         period_minutes = self._config['period'].total_seconds() / 60.0
         duration_hours = self._config['duration'].total_seconds() / 3600.0
 
@@ -108,20 +111,21 @@ class Protocol:
             for row in csvreader:
                 step = {
                     'name': row[column_map['Name']],
-                    'x':float(row[column_map['X']]),
-                    'y': float(row[column_map['Y']]),
-                    'z': float(row[column_map['Z']]),
-                    'auto_focus': bool(float(row[column_map['Auto_Focus']])),
+                    'x': common_utils.to_float(val=row[column_map['X']]),
+                    'y': common_utils.to_float(val=row[column_map['Y']]),
+                    'z': common_utils.to_float(val=row[column_map['Z']]),
+                    'auto_focus': common_utils.to_bool(val=row[column_map['Auto_Focus']]),
                     # 'channel': int(float(row[column_map['Channel']])),
-                    'false_color': bool(float(row[column_map['False_Color']])),
-                    'illumination': float(row[column_map['Illumination']]),
-                    'gain': float(row[column_map['Gain']]),
-                    'auto_gain': bool(float(row[column_map['Auto_Gain']])),
-                    'exposure': float(row[column_map['Exposure']])
+                    'false_color': common_utils.to_bool(val=row[column_map['False_Color']]),
+                    'illumination': common_utils.to_float(val=row[column_map['Illumination']]),
+                    'gain': common_utils.to_float(val=row[column_map['Gain']]),
+                    'auto_gain': common_utils.to_bool(val=row[column_map['Auto_Gain']]),
+                    'exposure': common_utils.to_float(val=row[column_map['Exposure']]),
+                    'objective': row[column_map['Objective']]
                 }
 
                 if config['version'] == 1:
-                    step['channel'] = int(float(row[column_map['Channel']]))
+                    step['channel'] = common_utils.to_int(val=row[column_map['Channel']])
 
                 if config['version'] >= 2:
                     step['well'] = row[column_map['Well']]

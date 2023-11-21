@@ -6,6 +6,8 @@ import modules.common_utils as common_utils
 
 class TilingConfig:
 
+    DEFAULT_FILL_FACTOR = 0.85
+
     def __init__(self):
 
         with open('./data/tiling.json', "r") as fp:

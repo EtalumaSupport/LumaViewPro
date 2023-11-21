@@ -37,3 +37,24 @@ def get_layers() -> list[str]:
 
 def get_transmitted_layers() -> list[str]:
     return ['BF', 'PC', 'EP']
+
+
+def to_bool(val) -> bool:
+    if 'str' in str(type(val)):
+        return True if val.lower() == "true" else False
+    else:
+        return bool(float(val))
+
+
+def to_float(val) -> float:
+    if 'numpy' in str(type(val)):
+        return val.astype(float)
+    else:
+        return float(val)
+    
+    
+def to_int(val) -> int:
+    if 'numpy' in str(type(val)):
+        return int(val.astype(float))
+    else:
+        return int(float(val))

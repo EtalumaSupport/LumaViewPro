@@ -9,6 +9,7 @@ import pandas as pd
 import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
+import modules.tiling_config as tiling_config
 
 
 class Stitcher:
@@ -101,7 +102,12 @@ class Stitcher:
             stitched_image = self.position_stitcher(
                 path=path,
                 df=stitch_group[['filename', 'x', 'y']],
-                pos2pix=2630
+                # pos2pix=2630
+                # pos2pix=1000
+                # pos2pix=620 # Emperically ~550 for 4x objective
+                pos2pix=int(550* tiling_config.TilingConfig.DEFAULT_FILL_FACTOR)
+                # pos2pix=int(620* 0.85)
+                # pos2pix=3953
             )
 
             stitched_filename = self._generate_stitched_filename(df=stitch_group)
@@ -140,16 +146,20 @@ class Stitcher:
         df['y_pos_range'] = df['y'] - df['y'].min()
         df['x_pix_range'] = df['x_pos_range']*pos2pix
         df['y_pix_range'] = df['y_pos_range']*pos2pix
-        df = df.sort_values(['x','y'], ascending=False)
-        df[['x','y']] = df[['x','y']].apply(np.floor).astype(int)
+        df = df.sort_values(['x_pix_range','y_pix_range'], ascending=False)
+        df[['x_pix_range','y_pix_range']] = df[['x_pix_range','y_pix_range']].apply(np.floor).astype(int)
 
         source_image_sample = df['filename'].values[0]
-        stitched_im_x = images[source_image_sample].shape[1] + df['x'].max()
-        stitched_im_y = images[source_image_sample].shape[0] + df['y'].max()
+        stitched_im_x = images[source_image_sample].shape[1] + df['x_pix_range'].max()
+        stitched_im_y = images[source_image_sample].shape[0] + df['y_pix_range'].max()
 
-        reverse_y = True
+        reverse_x = True
+        reverse_y = False
+        if reverse_x:
+            df['x_pix_range'] = stitched_im_x - df['x_pix_range']
+
         if reverse_y:
-            df['y'] = stitched_im_y - df['y']
+            df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
         stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype='uint8')
         for _, row in df.iterrows():
@@ -158,10 +168,22 @@ class Stitcher:
             im_x = image.shape[1]
             im_y = image.shape[0]
 
+            x_val = row['x_pix_range']
+            y_val = row['y_pix_range']
+
             if reverse_y:
-                stitched_img[row['y']-im_y:row['y'], row['x']:row['x']+im_x,:] = image
+                if reverse_x:
+                    stitched_img[y_val-im_y:y_val, x_val-im_x:x_val,:] = image
+                else:
+                    stitched_img[y_val-im_y:y_val, x_val:x_val+im_x,:] = image
+
             else:
-                stitched_img[row['y']:row['y']+im_y, row['x']:row['x']+im_x,:] = image
+
+                if reverse_x:
+                    stitched_img[y_val:y_val+im_y, x_val-im_x:x_val,:] = image
+                else:
+                    stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
+
 
         return stitched_img
             
