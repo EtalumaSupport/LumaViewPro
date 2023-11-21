@@ -130,8 +130,7 @@ class Protocol:
                     step['step_index'] = row[column_map['Step Index']]
                     step['color'] = row[column_map['Color']]
 
-
-            steps.append(step) 
+                steps.append(step) 
 
         steps_df = pd.DataFrame(steps)
 
