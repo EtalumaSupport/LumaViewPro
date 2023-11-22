@@ -6,7 +6,9 @@ import modules.common_utils as common_utils
 
 class TilingConfig:
 
-    DEFAULT_FILL_FACTOR = 0.85
+    DEFAULT_FILL_FACTORS = {
+        'position': 1.0 # No overlap needed for position-based tiling
+    }
 
     def __init__(self):
 

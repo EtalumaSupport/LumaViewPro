@@ -2247,7 +2247,7 @@ class ProtocolSettings(CompositeCapture):
             config_label=self.ids['tiling_size_spinner'].text,
             focal_length=settings['objective']['focal_length'],
             frame_size=settings['frame'],
-            fill_factor=TilingConfig.DEFAULT_FILL_FACTOR
+            fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position']
         )
         
         self.step_names = list()
@@ -2347,7 +2347,7 @@ class ProtocolSettings(CompositeCapture):
         if not labware_valid:
             logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
 
-        header = next(csvreader) # skip a line
+        header = next(csvreader)
 
         self.step_names = list()
         self.step_values = np.empty((0,11), float)
@@ -2414,7 +2414,7 @@ class ProtocolSettings(CompositeCapture):
         # Gather information
         period = settings['protocol']['period']
         duration = settings['protocol']['duration']
-        labware = settings['protocol']['labware'] 
+        labware = settings['protocol']['labware']
 
         if (type(filepath) == str) and len(filepath)==0:
             # If there is no current file path, "save" button will act as "save as" 

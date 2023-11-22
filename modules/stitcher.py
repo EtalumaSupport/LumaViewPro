@@ -105,12 +105,18 @@ class Stitcher:
         
         logger.info(f"Stitcher: Generating stitched images")
         for _, stitch_group in df.groupby(by=['stitch_group_index']):
-            pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
-            stitched_image = self.position_stitcher(
+            # pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
+
+            stitched_image = self.simple_position_stitcher(
                 path=path,
-                df=stitch_group[['filename', 'x', 'y']],
-                pos2pix=int(pos2pix * tiling_config.TilingConfig.DEFAULT_FILL_FACTOR)
+                df=stitch_group[['filename', 'x', 'y']]
             )
+
+            # stitched_image = self.position_stitcher(
+            #     path=path,
+            #     df=stitch_group[['filename', 'x', 'y']],
+            #     pos2pix=int(pos2pix * tiling_config.TilingConfig.DEFAULT_FILL_FACTORS['position'])
+            # )
             
             stitched_filename = self._generate_stitched_filename(df=stitch_group)
             logger.debug(f"Stitcher: - {stitched_filename}")
@@ -142,6 +148,71 @@ class Stitcher:
         )
 
         return f"{name}_stitched.tiff"
+
+
+    @staticmethod
+    def simple_position_stitcher(path: pathlib.Path, df: pd.DataFrame):
+        '''
+        Performs a simple concatenation of images, given a set of X/Y positions the images were captured from.
+        Assumes no overlap between images.
+        '''
+        # Load source images
+        images = {}
+        for _, row in df.iterrows():
+            image_filepath = path / row['filename']
+            images[row['filename']] = cv2.imread(str(image_filepath))
+
+        df = df.copy()
+
+        num_x_tiles = df['x'].nunique()
+        num_y_tiles = df['y'].nunique()
+
+        source_image_sample = df['filename'].values[0]
+        source_image_w = images[source_image_sample].shape[1]
+        source_image_h = images[source_image_sample].shape[0]
+        
+        df = df.sort_values(['x','y'], ascending=False)
+        df['x_index'] = df.groupby(by=['x']).ngroup()
+        df['y_index'] = df.groupby(by=['y']).ngroup()
+        df['x_pix_range'] = df['x_index'] * source_image_w
+        df['y_pix_range'] = df['y_index'] * source_image_h
+            
+        stitched_im_x = source_image_w * num_x_tiles
+        stitched_im_y = source_image_h * num_y_tiles
+
+        reverse_x = True
+        reverse_y = False
+        if reverse_x:
+            df['x_pix_range'] = stitched_im_x - df['x_pix_range']
+
+        if reverse_y:
+            df['y_pix_range'] = stitched_im_y - df['y_pix_range']
+
+        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype='uint8')
+        for _, row in df.iterrows():
+            filename = row['filename']
+            image = images[filename]
+            im_x = image.shape[1]
+            im_y = image.shape[0]
+
+            x_val = row['x_pix_range']
+            y_val = row['y_pix_range']
+
+            if reverse_y:
+                if reverse_x:
+                    stitched_img[y_val-im_y:y_val, x_val-im_x:x_val,:] = image
+                else:
+                    stitched_img[y_val-im_y:y_val, x_val:x_val+im_x,:] = image
+
+            else:
+
+                if reverse_x:
+                    stitched_img[y_val:y_val+im_y, x_val-im_x:x_val,:] = image
+                else:
+                    stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
+
+
+        return stitched_img
 
 
     @staticmethod
