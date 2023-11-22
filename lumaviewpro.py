@@ -2423,6 +2423,9 @@ class ProtocolSettings(CompositeCapture):
             filepath = settings['protocol']['filepath']
         else:
 
+            if (type(filepath) == str) and (filepath[-4:].lower() != '.tsv'):
+                filepath = filepath+'.tsv'
+                
             if update_protocol_filepath:
                 settings['protocol']['filepath'] = filepath
 
