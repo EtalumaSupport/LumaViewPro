@@ -12,3 +12,4 @@ tmp/
 .DS_Store
 capture/.DS_Store
 logs/.DS_Store
+logs/LVP_Log/.DS_Store
