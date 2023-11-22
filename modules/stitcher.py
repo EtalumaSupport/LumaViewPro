@@ -52,13 +52,17 @@ class Stitcher:
         }
         
 
-    def load_folder(self, path: str | pathlib.Path):
+    def load_folder(self, path: str | pathlib.Path) -> dict:
         logger.info(f'Stitcher: Loading folder {path}')
         path = pathlib.Path(path)
 
         protocol_tsvs = self._find_protocol_tsvs(path=path)
         if protocol_tsvs is None:
-            return False
+            logger.error(f"Stitcher: Protocol and/or protocol record not found in folder")
+            return {
+                'status': False,
+                'message': 'Protocol and/or Protocol Record not found in folder'
+            }
         
         logger.info(f"Stitcher: Found -> protocol {protocol_tsvs['protocol']}, protocol execution record {protocol_tsvs['protocol_execution_record']}")
         protocol = Protocol.from_file(file_path=protocol_tsvs['protocol'])
@@ -99,7 +103,7 @@ class Stitcher:
                 )
 
                 break
-
+        
         df = pd.DataFrame(image_tile_groups)
         df['stitch_group_index'] = df.groupby(by=['protocol_group_index','scan_count']).ngroup()
         
@@ -127,6 +131,10 @@ class Stitcher:
             )
         
         logger.info(f"Stitcher: Complete")
+        return {
+            'status': True,
+            'message': 'Success'
+        }
 
 
     @staticmethod

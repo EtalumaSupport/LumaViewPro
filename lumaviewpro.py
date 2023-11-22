@@ -687,11 +687,35 @@ class MotionSettings(BoxLayout):
             self.pos = 0, 0
 
 class StitchControls(BoxLayout):
-    pass
+
+    done = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        global stitch_controls
+        super().__init__(**kwargs)
+        stitch_controls = self
+
+
+    @show_popup
+    def run_stitcher(self, popup, path):
+        status_map = {
+            True: "Success",
+            False: "FAILED"
+        }
+        popup.title = "Stitcher"
+        popup.text = "Generating stitched images..."
+        stitcher = Stitcher()
+        result = stitcher.load_folder(path=pathlib.Path(path))
+        final_text = f"Generating stitched images - {status_map[result['status']]}"
+        if result['status'] is False:
+            final_text += f"\n{result['message']}"
+        popup.text = final_text
+        
+        time.sleep(2)
+        self.done = True
 
 
 class VideoCreationControls(BoxLayout):
-
 
     done = BooleanProperty(False)
 
@@ -3923,8 +3947,7 @@ class FolderChooseBTN(Button):
                 path=path
             )
         elif self.context == 'apply_stitching_to_folder':
-            stitcher = Stitcher()
-            stitcher.load_folder(path=pathlib.Path(path))
+            stitch_controls.run_stitcher(path=pathlib.Path(path))
         else:
             raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 
@@ -4009,6 +4032,7 @@ class LumaViewProApp(App):
         global lumaview
         global cell_count_content
         global video_creation_controls
+        global stitch_controls
         self.icon = './data/icons/icon.png'
 
         try:
