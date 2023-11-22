@@ -10,3 +10,5 @@ build/
 dist/
 tmp/
 .DS_Store
+capture/.DS_Store
+logs/.DS_Store
