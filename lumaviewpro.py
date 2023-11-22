@@ -127,6 +127,8 @@ global lumaview
 global settings
 global cell_count_content
 
+PROTOCOL_DATA_DIR_NAME = "ProtocolData"
+
 abspath = os.path.abspath(__file__)
 basename = os.path.basename(__file__)
 source_path = abspath[:-len(basename)]
@@ -2425,7 +2427,7 @@ class ProtocolSettings(CompositeCapture):
 
             if (type(filepath) == str) and (filepath[-4:].lower() != '.tsv'):
                 filepath = filepath+'.tsv'
-                
+
             if update_protocol_filepath:
                 settings['protocol']['filepath'] = filepath
 
@@ -2904,7 +2906,6 @@ class ProtocolSettings(CompositeCapture):
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
             return
-   
 
     def _initialize_protocol_data_folder(self):
         if os.path.basename(settings['protocol']['filepath']) == "":
@@ -2913,7 +2914,7 @@ class ProtocolSettings(CompositeCapture):
             protocol_filename = os.path.basename(settings['protocol']['filepath'])
 
         # Create the folder to save the protocol captures and protocol itself
-        save_folder = pathlib.Path(settings['live_folder']) / "ProtocolData"
+        save_folder = pathlib.Path(settings['live_folder']) / PROTOCOL_DATA_DIR_NAME
         save_folder.mkdir(parents=True, exist_ok=True)
         self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
         protocol_filepath = self.protocol_run_dir / protocol_filename
@@ -3864,7 +3865,14 @@ class FolderChooseBTN(Button):
         self.context = context
 
         # Show previously selected/default folder
-        selected_path = settings['live_folder']
+        if self.context == "apply_stitching_to_folder":
+            selected_path = pathlib.Path(settings['live_folder']) / PROTOCOL_DATA_DIR_NAME
+            if selected_path.exists() is False:
+                selected_path = pathlib.Path(settings['live_folder'])
+            
+            selected_path = str(selected_path)
+        else:
+            selected_path = settings['live_folder']
 
 
         # Note: Could likely use tkinter filedialog for all platforms
