@@ -2744,11 +2744,6 @@ class ProtocolSettings(CompositeCapture):
         # }
         #print(self.tiling_max)
        
-<<<<<<< HEAD
-        # DEPRICATED this talks to the wrong stage view
-=======
-        # DEPRECATED this talks to the wrong stage view
->>>>>>> main
         #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
         #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
         #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max

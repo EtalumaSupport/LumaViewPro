@@ -177,46 +177,6 @@ def s_shape_stitcher(images_folder="",image_list=[],ext = 'tiff',n_images_per_ro
             stitched_img = temp_stitched
     return stitched_img
 
-<<<<<<< HEAD
-def protocol_sticher(images_folder, protocol_filename, pos2pix, ext = 'tiff'):
-    # should call the same code as used to load a protocol in lumaviewpro.py rather than rewite here
-    '''
-    logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
-
-    # Load protocol
-    file_pointer = open(filepath, 'r')                      # open the file
-    csvreader = csv.reader(file_pointer, delimiter='\t') # access the file using the CSV library
-    verify = next(csvreader)
-    if not (verify[0] == 'LumaViewPro Protocol'):
-        return
-    period = next(csvreader)
-    period = float(period[1])
-    duration = next(csvreader)
-    duration = float(duration[1])
-    labware = next(csvreader)
-    labware = labware[1]
-
-    orig_labware = labware
-    labware_valid, labware = self._validate_labware(labware=orig_labware)
-    if not labware_valid:
-        logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
-
-    header = next(csvreader) # skip a line
-
-    self.step_names = list()
-    self.step_values = []
-
-    for row in csvreader:
-        self.step_names.append(row[0])
-        self.step_values.append(row[1:])
-
-    file_pointer.close()
-    self.step_values = np.array(self.step_values)
-    self.step_values = self.step_values.astype(float)
-    '''
-
-=======
->>>>>>> main
 def position_stitcher(images_folder, positions_file, pos2pix, ext = 'tiff'):
     """
     Stitches the images based on position information rather than features. Assumes the 
