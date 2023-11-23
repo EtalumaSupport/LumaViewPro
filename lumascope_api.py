@@ -43,6 +43,7 @@ from pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger
+import pathlib
 import time
 import threading
 import os
@@ -168,6 +169,10 @@ class Lumascope():
 
         """
 
+        # TODO for now converting pathlib.Path's to strings for the algorithm below
+        if issubclass(type(path), pathlib.Path):
+            path = str(path)
+
         # Extract file extension (.tiff) and file_id (00001)
         dot_idx = path.rfind('.') 
         under_idx = path.rfind('_')
@@ -185,7 +190,7 @@ class Lumascope():
 
         return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
 
-    def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
+    def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', tail_id_mode = "increment"):
         """CAMERA FUNCTIONS
         save image (as array) to file
         """
@@ -213,29 +218,52 @@ class Lumascope():
         # else:
         #     append = ''
 
-        # generate filename and save path string
-        initial_id = '_000001'
-        filename =  file_root + append + initial_id + '.tiff'
-        path = save_folder + '/' + filename
+        if type(save_folder) == str:
+            save_folder = pathlib.Path(save_folder)
 
-        # Obtain next save path if current directory already exists
-        while os.path.exists(path):
-            path = self.get_next_save_path(path)
+        if file_root is None:
+            file_root = ""
+
+        # generate filename and save path string
+        if tail_id_mode == "increment":
+            initial_id = '_000001'
+            filename =  file_root + append + initial_id + '.tiff'
+            path = save_folder / filename
+
+            # Obtain next save path if current directory already exists
+            while os.path.exists(path):
+                path = self.get_next_save_path(path)
+
+        elif tail_id_mode == None:
+            filename =  file_root + append + '.tiff'
+            path = save_folder / filename
+        
+        else:
+            raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
+        
 
         try:
-            cv2.imwrite(path, img.astype(np.uint8))
+            cv2.imwrite(str(path), img.astype(np.uint8))
             logger.info(f'[SCOPE API ] Saving Image to {path}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
-    def save_live_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
+    def save_live_image(
+            self,
+            save_folder = './capture',
+            file_root = 'img_',
+            append = 'ms',
+            color = 'BF',
+            tail_id_mode = "increment"
+        ):
+
         """CAMERA FUNCTIONS
         Grab the current live image and save to file
         """
         array = self.get_image()
         if array is False:
             return 
-        self.save_image(array, save_folder, file_root, append, color)
+        self.save_image(array, save_folder, file_root, append, color, tail_id_mode)
  
     def get_max_width(self):
         """CAMERA FUNCTIONS

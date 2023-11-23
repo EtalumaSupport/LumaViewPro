@@ -177,6 +177,7 @@ def s_shape_stitcher(images_folder="",image_list=[],ext = 'tiff',n_images_per_ro
             stitched_img = temp_stitched
     return stitched_img
 
+<<<<<<< HEAD
 def protocol_sticher(images_folder, protocol_filename, pos2pix, ext = 'tiff'):
     # should call the same code as used to load a protocol in lumaviewpro.py rather than rewite here
     '''
@@ -214,6 +215,8 @@ def protocol_sticher(images_folder, protocol_filename, pos2pix, ext = 'tiff'):
     self.step_values = self.step_values.astype(float)
     '''
 
+=======
+>>>>>>> main
 def position_stitcher(images_folder, positions_file, pos2pix, ext = 'tiff'):
     """
     Stitches the images based on position information rather than features. Assumes the 
