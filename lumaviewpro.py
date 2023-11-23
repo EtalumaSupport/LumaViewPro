@@ -2546,7 +2546,7 @@ class ProtocolSettings(CompositeCapture):
         gain =       common_utils.to_float(val=self.step_values[self.curr_step, 7])
         auto_gain =  common_utils.to_bool(val=self.step_values[self.curr_step, 8])
         exp =        common_utils.to_float(val=self.step_values[self.curr_step, 9])
-        objective =  common_utils.to_bool(self.step_values[self.curr_step, 10])
+        objective =  common_utils.to_bool(val=self.step_values[self.curr_step, 10])
        
     
         self.ids['step_name_input'].text = name
@@ -2833,9 +2833,9 @@ class ProtocolSettings(CompositeCapture):
             self.curr_step = 0
             self.ids['step_number_input'].text = str(self.curr_step+1)
 
-            x = self.step_values[self.curr_step, 0]
-            y = self.step_values[self.curr_step, 1]
-            z = self.step_values[self.curr_step, 2]
+            x = common_utils.to_float(val=self.step_values[self.curr_step, 0])
+            y = common_utils.to_float(val=self.step_values[self.curr_step, 1])
+            z = common_utils.to_float(val=self.step_values[self.curr_step, 2])
  
             # Convert plate coordinates to stage coordinates
             sx, sy = self.plate_to_stage(x, y)
@@ -2908,28 +2908,30 @@ class ProtocolSettings(CompositeCapture):
         z_status = lumaview.scope.get_target_status('Z')
 
         # If target location has been reached
-        if x_status and y_status and z_status and not lumaview.scope.get_overshoot():
-            logger.info('[LVP Main  ] Autofocus Scan Step:' + str(self.step_names[self.curr_step]) )
-
-            # identify image settings
-            ch =        common_utils.to_int(val=self.step_values[self.curr_step, 4]) # LED channel
-            fc =        common_utils.to_bool(val=self.step_values[self.curr_step, 5]) # image false color
-            ill =       common_utils.to_float(val=self.step_values[self.curr_step, 6]) # LED illumination
-            gain =      common_utils.to_float(val=self.step_values[self.curr_step, 7]) # camera gain
-            auto_gain = common_utils.to_bool(self.step_values[self.curr_step, 8]) # camera autogain
-            exp =       common_utils.to_float(val=self.step_values[self.curr_step, 9]) # camera exposure
-            
-            # set camera settings and turn on LED
-            lumaview.scope.leds_off()
-            lumaview.scope.led_on(ch, ill)
-            lumaview.scope.set_gain(gain)
-            lumaview.scope.set_auto_gain(bool(auto_gain))
-            lumaview.scope.set_exposure_time(exp)
-
-            # Begin autofocus routine
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
+        if (not x_status) or (not y_status) or (not z_status) or lumaview.scope.get_overshoot():
             return
+        
+        logger.info('[LVP Main  ] Autofocus Scan Step:' + str(self.step_names[self.curr_step]) )
+
+        # identify image settings
+        ch =        common_utils.to_int(val=self.step_values[self.curr_step, 4]) # LED channel
+        fc =        common_utils.to_bool(val=self.step_values[self.curr_step, 5]) # image false color
+        ill =       common_utils.to_float(val=self.step_values[self.curr_step, 6]) # LED illumination
+        gain =      common_utils.to_float(val=self.step_values[self.curr_step, 7]) # camera gain
+        auto_gain = common_utils.to_bool(val=self.step_values[self.curr_step, 8]) # camera autogain
+        exp =       common_utils.to_float(val=self.step_values[self.curr_step, 9]) # camera exposure
+        
+        # set camera settings and turn on LED
+        lumaview.scope.leds_off()
+        lumaview.scope.led_on(ch, ill)
+        lumaview.scope.set_gain(gain)
+        lumaview.scope.set_auto_gain(bool(auto_gain))
+        lumaview.scope.set_exposure_time(exp)
+
+        # Begin autofocus routine
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
+        return
 
     def _initialize_protocol_data_folder(self):
         if os.path.basename(settings['protocol']['filepath']) == "":
