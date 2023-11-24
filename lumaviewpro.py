@@ -2609,6 +2609,8 @@ class ProtocolSettings(CompositeCapture):
         # update position in stage control
         lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
 
+        layer.apply_settings()
+
 
     # Delete Current Step of Protocol
     def delete_step(self):
