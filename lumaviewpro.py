@@ -2664,13 +2664,14 @@ class ProtocolSettings(CompositeCapture):
         ch = lumaview.scope.color2ch(c_layer)
 
         layer_id = lumaview.ids['imagesettings_id'].ids[c_layer]
-        self.step_values[self.curr_step, 3] = int(layer_id.ids['autofocus'].active) # autofocus
-        self.step_values[self.curr_step, 4] = ch # channel
-        self.step_values[self.curr_step, 5] = int(layer_id.ids['false_color'].active) # false color
-        self.step_values[self.curr_step, 6] = layer_id.ids['ill_slider'].value # ill
-        self.step_values[self.curr_step, 7] = layer_id.ids['gain_slider'].value # gain
-        self.step_values[self.curr_step, 8] = int(layer_id.ids['auto_gain'].active) # auto_gain
-        self.step_values[self.curr_step, 9] = layer_id.ids['exp_slider'].value # exp
+        self.step_values[self.curr_step, 3]  = bool(layer_id.ids['autofocus'].active) # autofocus
+        self.step_values[self.curr_step, 4]  = int(ch) # channel
+        self.step_values[self.curr_step, 5]  = bool(layer_id.ids['false_color'].active) # false color
+        self.step_values[self.curr_step, 6]  = layer_id.ids['ill_slider'].value # ill
+        self.step_values[self.curr_step, 7]  = layer_id.ids['gain_slider'].value # gain
+        self.step_values[self.curr_step, 8]  = bool(layer_id.ids['auto_gain'].active) # auto_gain
+        self.step_values[self.curr_step, 9]  = layer_id.ids['exp_slider'].value # exp
+        self.step_values[self.curr_step, 10] = settings['objective']['ID']
 
     # Append Current Step to Protocol at Current Position
     def append_step(self):
@@ -2702,16 +2703,17 @@ class ProtocolSettings(CompositeCapture):
         px, py = self.stage_to_plate(sx, sy)
 
         step = [
-            px,                                      # x
-            py,                                      # y
-            lumaview.scope.get_current_position('Z'),# z
-            int(layer_id.ids['autofocus'].active),   # autofocus
-            ch,                                      # ch 
-            int(layer_id.ids['false_color'].active), # false color
-            layer_id.ids['ill_slider'].value,        # ill
-            layer_id.ids['gain_slider'].value,       # gain
-            int(layer_id.ids['auto_gain'].active),   # auto_gain
-            layer_id.ids['exp_slider'].value         # exp
+            px,                                       # x
+            py,                                       # y
+            lumaview.scope.get_current_position('Z'), # z
+            bool(layer_id.ids['autofocus'].active),   # autofocus
+            int(ch),                                  # ch 
+            bool(layer_id.ids['false_color'].active), # false color
+            layer_id.ids['ill_slider'].value,         # ill
+            layer_id.ids['gain_slider'].value,        # gain
+            bool(layer_id.ids['auto_gain'].active),   # auto_gain
+            layer_id.ids['exp_slider'].value,         # exp
+            settings['objective']['ID']               # objective
         ]
 
         # Insert into List and Array
