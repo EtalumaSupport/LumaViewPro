@@ -8,25 +8,25 @@ def generate_default_step_name(
 ):
     name = f"{well_label}_{color}"
 
-    if z_height_idx not in (None, ""):
-        name = f"{name}_Z{z_height_idx}"
-
-    DESIRED_SCAN_COUNT_DIGITS = 6
-    if scan_count not in (None, ""):
-        name = f'{name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}'
-    
     if tile_label not in (None, ""):
         name = f"{name}_T{tile_label}"
 
+    if z_height_idx not in (None, ""):
+        name = f"{name}_Z{z_height_idx}"
+
+    DESIRED_SCAN_COUNT_DIGITS = 4
+    if scan_count not in (None, ""):
+        name = f'{name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}'
+    
     return name
 
 
 def get_tile_label_from_name(name: str) -> str | None:
     name = name.split('_')
 
-    last_segment = name[-1]
-    if last_segment.startswith('T'):
-        return last_segment[1:]
+    tile_label_segment = name[2]
+    if tile_label_segment.startswith('T'):
+        return tile_label_segment[1:]
     
     return None
 

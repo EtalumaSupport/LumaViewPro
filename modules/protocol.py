@@ -20,7 +20,7 @@ class Protocol:
     COLUMNS_V2 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Step Index', 'Color']
     CURRENT_VERSION = 2
     CURRENT_COLUMNS = COLUMNS_V2
-    STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)_(?P<color>(Blue|Green|Red|BF|EP|PC))_(Z(?P<z_slice>[0-9]+)_)?([0-9]*_)?T(?P<tile_label>[A-Z][0-9]+)(.tif[f])?$")
+    STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|EP|PC)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
     
     def __init__(self, config=None):
 
