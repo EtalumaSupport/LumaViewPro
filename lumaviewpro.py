@@ -3502,7 +3502,6 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['objective_spinner'].text = settings['objective']['ID']
                 # TODO self.ids['objective_spinner'].text = settings['objective']['description']
                 self.ids['magnification_id'].text = str(settings['objective']['magnification'])
-                self.ids['focal_length_id'].text = str(settings['objective']['focal_length'])
                 self.ids['frame_width_id'].text = str(settings['frame']['width'])
                 self.ids['frame_height_id'].text = str(settings['frame']['height'])
 
@@ -3601,7 +3600,13 @@ class MicroscopeSettings(BoxLayout):
         settings['objective']['ID'] = spinner.text
         microscope_settings_id = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
         microscope_settings_id.ids['magnification_id'].text = str(settings['objective']['magnification'])
-        microscope_settings_id.ids['focal_length_id'].text = str(settings['objective']['focal_length'])
+
+        fov_size = common_utils.get_field_of_view(
+            focal_length=settings['objective']['focal_length'],
+            frame_size=settings['frame']
+        )
+        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
+        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
 
 
     def frame_size(self):
@@ -3620,6 +3625,13 @@ class MicroscopeSettings(BoxLayout):
 
         self.ids['frame_width_id'].text = str(width)
         self.ids['frame_height_id'].text = str(height)
+
+        fov_size = common_utils.get_field_of_view(
+            focal_length=settings['objective']['focal_length'],
+            frame_size=settings['frame']
+        )
+        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
+        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
 
         lumaview.scope.set_frame_size(width, height)
 

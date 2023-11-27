@@ -1506,24 +1506,6 @@
 			disabled: True
 			font_size: '12sp'
 
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Focal Length'
-            size_hint_x: None
-            width: '120dp'
-            font_size: '12sp'
-        TextInput:
-            id: focal_length_id
-            multiline: False
-            padding: ['5dp', (self.height-self.line_height)/2]
-            halign: 'center'
-            text: 'tbd'
-            disabled: True
-            font_size: '12sp'
-
 	# Frame Size
 	BoxLayout:
 		orientation: 'horizontal'
@@ -1567,6 +1549,48 @@
 			on_text_validate: root.frame_size()
 			on_focus: if not self.focus: root.frame_size()
 			font_size: '12sp'
+	
+	# Field of View
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Field of View'
+            size_hint_x: None
+            width: '120dp'
+            font_size: '12sp'
+
+		TextInput:
+			id: field_of_view_width_id
+			multiline: False
+			padding: ['2dp', (self.height-self.line_height)/2]
+			halign: 'center'
+			input_filter: 'int'
+			text: ''
+			font_size: '12sp'
+			disabled: True
+		Label:
+			text: 'x'
+			size_hint_x: None
+			width: '15dp'
+			font_size: '12sp'
+			halign: 'center'
+		TextInput:
+			id: field_of_view_height_id
+			multiline: False
+			padding: ['5dp', (self.height-self.line_height)/2]
+			halign: 'center'
+			input_filter: 'int'
+			text: ''
+			font_size: '12sp'
+			disabled: True
+		Label:
+			text: ' um'
+			size_hint_x: None
+			width: '15dp'
+			font_size: '12sp'
+			halign: 'center'
 
 	FileChooseBTN:
 		text: 'Load'

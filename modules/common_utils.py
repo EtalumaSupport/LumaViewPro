@@ -92,3 +92,23 @@ def to_int(val) -> int:
         return int(val.astype(float))
     else:
         return int(float(val))
+
+
+def get_field_of_view(
+    focal_length: float,
+    frame_size: dict
+):
+    magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
+                                        # in theory could be different in different scopes
+                                        # could be looked up by model number
+                                        # although all are currently the same
+    pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
+    um_per_pixel = pixel_width / magnification
+
+    fov_x = um_per_pixel * frame_size['width']
+    fov_y = um_per_pixel * frame_size['height']
+    
+    return {
+        'width': fov_x,
+        'height': fov_y
+    }
