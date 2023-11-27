@@ -24,13 +24,36 @@ def generate_default_step_name(
 def get_tile_label_from_name(name: str) -> str | None:
     name = name.split('_')
 
-    tile_label_segment = name[2]
-    if tile_label_segment.startswith('T'):
-        return tile_label_segment[1:]
+    segment = name[2]
+    if segment.startswith('T'):
+        return segment[1:]
+    
+    return None
+
+def get_z_slice_from_name(name: str) -> int | None:
+    name = name.split('_')
+
+    # Z-slice info can either be at segment index 2 (if no tile label is present), or segment index 3 (if tile label is present)
+    for segment in (name[2], name[3]):
+        if segment.startswith('Z'):
+            return segment[1:]
     
     return None
 
 
+def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
+    LABEL_MAP = {
+        'Current Position at Top': 'top',
+        'Current Position at Center': 'center',
+        'Current Position at Bottom': 'bottom'
+    }
+
+    if text_label in LABEL_MAP:
+          return LABEL_MAP[text_label]
+    
+    raise Exception(f"Unknown Z-stack position reference: {text_label}")
+
+                    
 def get_layers() -> list[str]:
     return ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
 

@@ -154,7 +154,7 @@ class Protocol:
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
         # Only build the height map if we have at least 2 heights in the protocol.
         # Otherwise, we don't want "_Z<slice>" added to the name
-        config['z_height_map'] = cls._build_z_height_map(values=steps_df['z'])
+        # config['z_height_map'] = cls._build_z_height_map(values=steps_df['z'])
         config['steps'] = steps_df
 
         return Protocol(
@@ -176,7 +176,7 @@ class Protocol:
         if ('z_slice' in details) and (details['z_slice'] is not None):
             s['z_slice'] = details['z_slice']
         else:
-            s['z_slice'] = -1
+            s['z_slice'] = None
 
         if 'tile_label' in details:
             s['tile'] = details['tile_label']
@@ -190,14 +190,14 @@ class Protocol:
             by=[
                 'well',
                 'color',
-                'z',
+                'z_slice',
                 'objective'
             ]
         )
 
         tile_dict = {}
         for idx, (_, group_info) in enumerate(tile_groups):
-            tile_dict[idx] = group_info[['name','x','y','color','well','tile','step_index','objective']]
+            tile_dict[idx] = group_info[['name','x','y','color','well','tile','step_index','z_slice','objective']]
         
         return tile_dict
     

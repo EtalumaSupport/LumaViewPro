@@ -96,6 +96,7 @@ class Stitcher:
                         'step_index': match['step_index'].values[0],
                         'x': match['x'].values[0],
                         'y': match['y'].values[0],
+                        'z_slice': match['z_slice'].values[0],
                         'well': match['well'].values[0],
                         'color': match['color'].values[0],
                         'objective': match['objective'].values[0]
@@ -113,7 +114,7 @@ class Stitcher:
 
             stitched_image = self.simple_position_stitcher(
                 path=path,
-                df=stitch_group[['filename', 'x', 'y']]
+                df=stitch_group[['filename', 'x', 'y', 'z_slice']]
             )
 
             # stitched_image = self.position_stitcher(
@@ -152,6 +153,7 @@ class Stitcher:
         name = common_utils.generate_default_step_name(
             well_label=row0['well'],
             color=row0['color'],
+            z_height_idx=row0['z_slice'],
             scan_count=row0['scan_count']
         )
 

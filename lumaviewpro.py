@@ -113,6 +113,7 @@ import modules.common_utils as common_utils
 
 from modules.stitcher import Stitcher
 from modules.protocol_execution_record import ProtocolExecutionRecord
+from modules.zstack_config import ZStackConfig
 
 import cv2
 
@@ -2120,8 +2121,6 @@ class ProtocolSettings(CompositeCapture):
         self.step_names = list()
         self.step_values = np.empty((0,11), float)
         self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
-
-        self.z_height_map = {}
         
         self.tiling_config = TilingConfig()
         self.tiling_min = {
@@ -2277,41 +2276,74 @@ class ProtocolSettings(CompositeCapture):
         self.step_names = list()
         self.step_values = np.empty((0,11), float)
 
+        # Z-stack related
+        def _zstack_positions() -> list[float]:
+            zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
+            range = float(zstack_settings.ids['zstack_range_id'].text)
+            step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
+            z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
+                text_label=zstack_settings.ids['zstack_spinner'].text
+            )
+
+            current_pos = lumaview.scope.get_current_position('Z')
+
+            zstack_config = ZStackConfig(
+                range=range,
+                step_size=step_size,
+                current_z_reference=z_reference,
+                current_z_value=current_pos
+            )
+
+            if zstack_config.number_of_steps() <= 0:
+                return []
+
+            # begin moving to the first position
+            return zstack_config.step_positions()
+
+        use_zstacking = self.ids['acquire_zstack_id'].active
+        if use_zstacking:
+            zstack_positions = _zstack_positions()
+        else:
+            zstack_positions = {None: None}
+
         # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
             for tile_label, tile_position in tiles.items():
-                # Iterate through all the colors to create the steps
-                for layer in common_utils.get_layers():
-                    if settings[layer]['acquire'] == False:
-                        continue
-                    
-                    PRECISION = 2
-                    x = round(pos[0] + tile_position["x"]/1000, PRECISION) # in 'plate' coordinates
-                    y = round(pos[1] + tile_position["y"]/1000, PRECISION) # in 'plate' coordinates
-                    z = settings[layer]['focus']
-                    af = settings[layer]['autofocus']
-                    ch = lumaview.scope.color2ch(layer)
-                    fc = settings[layer]['false_color']
-                    ill = settings[layer]['ill']
-                    gain = settings[layer]['gain']
-                    auto_gain = int(settings[layer]['auto_gain'])
-                    exp = settings[layer]['exp']
-                    objective = settings['objective']['ID']
+                for zstack_slice, zstack_position in zstack_positions.items():
+                    # Iterate through all the colors to create the steps
+                    for layer in common_utils.get_layers():
+                        if settings[layer]['acquire'] == False:
+                            continue
+                        
+                        PRECISION = 2
+                        x = round(pos[0] + tile_position["x"]/1000, PRECISION) # in 'plate' coordinates
+                        y = round(pos[1] + tile_position["y"]/1000, PRECISION) # in 'plate' coordinates
 
-                    z_height_idx = self.z_height_map.get(z, None)
+                        if use_zstacking:
+                            z = zstack_position
+                        else:
+                            z = settings[layer]['focus']
 
-                    step_name = common_utils.generate_default_step_name(
-                        well_label=current_labware.get_well_label(x=x, y=y),
-                        color=layer,
-                        z_height_idx=z_height_idx,
-                        scan_count=None,
-                        tile_label=tile_label
-                    )
-                    self.step_names.append(step_name)
+                        af = settings[layer]['autofocus']
+                        ch = lumaview.scope.color2ch(layer)
+                        fc = settings[layer]['false_color']
+                        ill = settings[layer]['ill']
+                        gain = settings[layer]['gain']
+                        auto_gain = int(settings[layer]['auto_gain'])
+                        exp = settings[layer]['exp']
+                        objective = settings['objective']['ID']
 
-                    self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective]]), axis=0)
+                        step_name = common_utils.generate_default_step_name(
+                            well_label=current_labware.get_well_label(x=x, y=y),
+                            color=layer,
+                            z_height_idx=zstack_slice,
+                            scan_count=None,
+                            tile_label=tile_label
+                        )
+                        self.step_names.append(step_name)
 
-        # self.step_values = np.array(self.step_values)
+                        self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective]]), axis=0)
+
 
         # Number of Steps
         length =  self.step_values.shape[0]
@@ -2392,9 +2424,10 @@ class ProtocolSettings(CompositeCapture):
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
         # Only build the height map if we have at least 2 heights in the protocol.
         # Otherwise, we don't want "_Z<slice>" added to the name
-        z_heights = sorted(set(self.step_values[:,2].astype('float').tolist()))
-        if len(z_heights) >= 2:
-            self.z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
+        # z_heights = sorted(set(self.step_values[:,2].astype('float').tolist()))
+        # if len(z_heights) >= 2:
+            # self.z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
+        # TODO update object/Z-heights for protocol
 
         # Extract tiling config from step names      
         tiling_config_label = self.tiling_config.determine_tiling_label_from_names(names=self.step_names)
@@ -2808,12 +2841,38 @@ class ProtocolSettings(CompositeCapture):
     #                 }
     #             )
     #     return tiles
-        
+
+
+    def update_acquire_zstack(self):
+        self.determine_and_set_run_autofocus_scan_allow()
+
+
+    def update_tiling_selection(self):
+        self.determine_and_set_run_autofocus_scan_allow()
+
+
+    def determine_and_set_run_autofocus_scan_allow(self):
+        tiling = self.ids['tiling_size_spinner'].text
+        zstack = self.ids['acquire_zstack_id'].active
+        if (zstack == True) and (tiling != '1x1'):
+            self.set_run_autofocus_scan_allow(allow=False)
+        else:
+            self.set_run_autofocus_scan_allow(allow=True)
+
+
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_zstack_scan(self):
         logger.debug('[LVP Main  ] ProtocolSettings.run_zstack_scan() not yet implemented')
         #logger.info('[LVP Main  ] ProtocolSettings.run_zstack_scan()')
         # TODO
+
+
+    def set_run_autofocus_scan_allow(self, allow: bool):
+        if allow:
+            self.ids['run_autofocus_btn'].disabled = False
+        else:
+            self.ids['run_autofocus_btn'].disabled = True
+
         
     # Run one scan of protocol, autofocus at each step, and update protocol
     def run_autofocus_scan(self):
@@ -3070,7 +3129,7 @@ class ProtocolSettings(CompositeCapture):
         # reset the is_complete flag on autofocus
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
-        z_height_idx = self.z_height_map.get(z_height, None)
+        z_slice = common_utils.get_z_slice_from_name(name=self.step_names[self.curr_step])
 
         tile_label = common_utils.get_tile_label_from_name(name=self.step_names[self.curr_step])
 
@@ -3083,7 +3142,7 @@ class ProtocolSettings(CompositeCapture):
             exposure=exp,
             false_color=bool(fc),
             tile_label=tile_label,
-            z_height_idx=z_height_idx,
+            z_height_idx=z_slice,
             scan_count=self.scan_count
         )
 
@@ -3458,11 +3517,16 @@ class MicroscopeSettings(BoxLayout):
                 zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
                 zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
 
-                if settings['zstack']['step_size'] != 0:
-                    n_steps = np.floor( settings['zstack']['range'] / settings['zstack']['step_size'])
-                    zstack_settings.ids['zstack_steps_id'].text = str(int(n_steps))
-                else:
-                    zstack_settings.ids['zstack_steps_id'].text = '0'
+                z_reference = common_utils.convert_zstack_reference_position_setting_to_config(text_label=settings['zstack']['position'])
+                
+                zstack_config = ZStackConfig(
+                    range=settings['zstack']['range'],
+                    step_size=settings['zstack']['step_size'],
+                    current_z_reference=z_reference,
+                    current_z_value=None
+                )
+
+                zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
 
                 for layer in common_utils.get_layers():
                     lumaview.ids['imagesettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
@@ -3759,57 +3823,51 @@ class ZStack(CompositeCapture):
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')
 
-        step_size = self.ids['zstack_stepsize_id'].text
-        step_size = float(step_size)
-        settings['zstack']['step_size'] = step_size
+        settings['zstack']['step_size'] = float(self.ids['zstack_stepsize_id'].text)
+        settings['zstack']['range'] = float(self.ids['zstack_range_id'].text)
 
-        range = self.ids['zstack_range_id'].text
-        range = float(range)
-        settings['zstack']['range'] = range
+        z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
+            text_label=self.ids['zstack_spinner'].text
+        )
 
-        if step_size != 0:
-            n_steps = np.floor( range / step_size)
-            self.ids['zstack_steps_id'].text = str(int(n_steps))
-        else:
-            self.ids['zstack_steps_id'].text = '0'
+        zstack_config = ZStackConfig(
+            range=settings['zstack']['range'],
+            step_size=settings['zstack']['step_size'],
+            current_z_reference=z_reference,
+            current_z_value=None
+        )
+
+        self.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
+
 
     def set_position(self):
         settings['zstack']['position'] = self.ids['zstack_spinner'].text
+
 
     def aquire_zstack(self):
         logger.info('[LVP Main  ] ZStack.aquire_zstack()')
         global lumaview
 
-        step_size = self.ids['zstack_stepsize_id'].text
-        step_size = float(step_size)
+        range = float(self.ids['zstack_range_id'].text)
+        step_size = float(self.ids['zstack_stepsize_id'].text)
+        z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
+            text_label=self.ids['zstack_spinner'].text
+        )
 
-        range = self.ids['zstack_range_id'].text
-        range = float(range)
-
-        n_steps = self.ids['zstack_steps_id'].text
-        n_steps = int(n_steps)
-
-        if n_steps <= 0:
-            return False
-
-        spinner_values = self.ids['zstack_spinner'].values
-        spinner_value = self.ids['zstack_spinner'].text
-
-        # Get current position
         current_pos = lumaview.scope.get_current_position('Z')
 
-        # Set start position
-        if spinner_value == spinner_values[0]:   # 'Current Position at Top'
-            start_pos = current_pos - range
-        elif spinner_value == spinner_values[1]: # 'Current Position at Center'
-            start_pos = current_pos - range / 2
-        elif spinner_value == spinner_values[2]: # 'Current Position at Bottom'
-            start_pos = current_pos
+        zstack_config = ZStackConfig(
+            range=range,
+            step_size=step_size,
+            current_z_reference=z_reference,
+            current_z_value=current_pos
+        )
 
-        # Make array of positions
-        self.positions = np.arange(n_steps)*step_size + start_pos
+        if zstack_config.number_of_steps() <= 0:
+            return False
 
         # begin moving to the first position
+        self.positions = zstack_config.step_positions()
         self.n_pos = 0
         lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
 
@@ -3823,6 +3881,7 @@ class ZStack(CompositeCapture):
             # self.zstack_event.cancel()
             logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
             Clock.unschedule(self.zstack_iterate)
+
 
     def zstack_iterate(self, dt):
         logger.info('[LVP Main  ] ZStack.zstack_iterate()')
