@@ -24,6 +24,9 @@ def generate_default_step_name(
 def get_tile_label_from_name(name: str) -> str | None:
     name = name.split('_')
 
+    if len(name) <= 2:
+        return None
+
     segment = name[2]
     if segment.startswith('T'):
         return segment[1:]
@@ -34,10 +37,18 @@ def get_z_slice_from_name(name: str) -> int | None:
     name = name.split('_')
 
     # Z-slice info can either be at segment index 2 (if no tile label is present), or segment index 3 (if tile label is present)
-    for segment in (name[2], name[3]):
-        if segment.startswith('Z'):
-            return segment[1:]
+    if len(name) <= 2:
+        return None
     
+    if name[2].startswith('Z'):
+        return name[2][1:]
+    
+    if len(name) <= 3:
+        return None
+    
+    if name[3].startswith('Z'):
+        return name[3][1:]
+        
     return None
 
 

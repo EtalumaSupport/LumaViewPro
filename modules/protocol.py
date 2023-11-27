@@ -192,7 +192,8 @@ class Protocol:
                 'color',
                 'z_slice',
                 'objective'
-            ]
+            ],
+            dropna=False
         )
 
         tile_dict = {}
