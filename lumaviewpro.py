@@ -3547,6 +3547,10 @@ class MicroscopeSettings(BoxLayout):
     def save_settings(self, file="./data/current.json"):
         logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
         global settings
+
+        if (type(file) == str) and (file[-5:].lower() != '.json'):
+                file = file+'.json'
+
         os.chdir(source_path)
         with open(file, "w") as write_file:
             json.dump(settings, write_file, indent = 4)
