@@ -184,6 +184,15 @@
         background_down: './data/icons/left_arrow_right_arc.png'
         on_press: root.toggle_editor()
 
+
+<AccordionItemXyStageControl>:
+	title: 'XY Stage Control'
+	id: motionsettings_xystage_control_accordion_item_id
+	
+	XYStageControl:
+		id: xy_stagecontrol_id
+
+
 # MotionSettings - view and control motion control Board
 # ------------------------------------------
 <MotionSettings>:
@@ -191,6 +200,7 @@
 
 	Accordion:
 		orientation: 'vertical'
+		id: motionsettings_accordion_id
 
         # MICROSCOPE SETTINGS
         AccordionItem:
@@ -204,12 +214,6 @@
 			title: 'Objective Control'
 			VerticalControl:
 				id: verticalcontrol_id
-
-        # XY STAGE CONTROL
-		AccordionItem:
-			title: 'XY Stage Control'
-			XYStageControl:
-				id: xy_stagecontrol_id
 
         # PROTOCOL SETTINGS
 		AccordionItem:
@@ -389,16 +393,24 @@
 
 	Label:
 		text:'Turret Selection'
+		id: turret_selection_label
 		font_size: '16sp'
-		size_hint_y: None
-		height: '30dp'
+		size_hint_y: None if self.visible else 0
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
 		spacing: '5dp'
 		color: [51/255, 181/255, 229/255, 1]
+		visible: True
 
 	BoxLayout:
 		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
+		id: turret_btn_box
+		size_hint_y: None if self.visible else 0
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
+		visible: True
 
 		ToggleButton:
 			id: turret_pos_1_btn
@@ -504,7 +516,7 @@
 			# values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 
 		ToggleButton:
-			id: ztack_aqr_btn
+			id: zstack_aqr_btn
 			size_hint_y: None
 			height: '30dp'
 			text: 'Acquire'
@@ -839,6 +851,7 @@
 		Spinner:
 			id: labware_spinner
 			sync_height: True
+			visible: True
 			text: 'New'
 			font_size: '12dp'
 			size_hint_y: None
@@ -963,7 +976,7 @@
 		        on_release: root.prev_step()
 		    TextInput:
 				id: step_number_input
-		        text: '0'
+		        text: '1'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
@@ -981,7 +994,7 @@
 				font_size: '12sp'
 		    TextInput:
 				id: step_total_input
-		        text: '0'
+		        text: '1'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
@@ -1019,11 +1032,113 @@
 		        on_release: root.modify_step()
 		    Button:
 		        id: add_step_btn
-		        text: 'Add'
+		        text: 'Insert'
 		        size_hint_y: None
 		        height: '30dp'
 				font_size: '12sp'
-				on_release: root.add_step()
+				#on_release: root.append_step()
+                on_release: root.insert_step()
+                
+        # Tiling
+        BoxLayout:
+            orientation: 'horizontal'
+			id: tiling_box_layout_id
+            size_hint_y: None if self.visible else 0
+            height: '30dp' if self.visible else 0
+			opacity: 1 if self.visible else 0
+            spacing: '5dp'
+			visible: True
+           
+            Label:
+                text: 'Tiling'
+				size_hint_y: None
+				height: '30dp'
+                size_hint_x: None
+                width: '75dp'
+                font_size: '12sp'
+                
+            # Select tiling size
+            Spinner:
+                id: tiling_size_spinner
+                sync_height: True
+                text: ''
+                font_size: '12dp'
+                size_hint_y: None
+                height: '30dp'
+                text_autoupdate: True
+                values: ''
+                
+                
+        # # Z-stack
+        # BoxLayout:
+        #     orientation: 'horizontal'
+        #     size_hint_y: None
+        #     height: '30dp'
+        #     spacing: '5dp'
+           
+        #     Label:
+        #         text: 'Z Stack'
+        #         size_hint_x: None
+        #         width: '75dp'
+        #         font_size: '12sp'
+                
+        #     CheckBox:
+        #         id: acquire_zstack_id
+        #         size_hint_x: None
+        #         width: '30dp'
+        #         active: False
+        #         # TODO on_release: root.update_acquire_zstack()
+        #     Label:
+        #         text: 'Acquire All Steps'
+        #         font_size: '12sp'
+        #         halign: 'left'
+        #         valign: 'middle'
+        #         text_size: self.size
+        
+        # # Multiple exposure
+        # BoxLayout:
+        #     orientation: 'horizontal'
+        #     size_hint_y: None
+        #     height: '30dp'
+        #     spacing: '5dp'
+           
+        #     Label:
+        #         text: 'Exposures'
+        #         size_hint_x: None
+        #         width: '75dp'
+        #         font_size: '12sp'
+            
+        #     Button:
+        #         id: exposures_down_btn
+        #         border: 0, 0, 0, 0
+        #         size_hint: None, None
+        #         size: '30dp', '30dp'
+        #         pos_hint: {'center_x': 0.35, 'center_y': 0.5}
+        #         background_normal: './data/icons/L_normal.png'
+        #         background_down: './data/icons/L_down.png'
+        #         on_release: root.exposures_down_button()
+                
+        #     TextInput:
+        #         id: exposures_number_input
+        #         text: '1'
+        #         size_hint_y: None
+        #         height: '30dp'
+        #         font_size: '12sp'
+        #         halign: 'center'
+        #         multiline: False
+        #         input_filter: 'int'
+        #         #on_text_validate: root.set_exposures()
+            
+        #     Button:
+        #         id: exposures_up_btn
+        #         border: 0, 0, 0, 0
+        #         size_hint: None, None
+        #         size: '30dp', '30dp'
+        #         pos_hint: {'center_x': 0.65, 'center_y': 0.5}
+        #         background_normal: './data/icons/R_normal.png'
+        #         background_down: './data/icons/R_down.png'
+        #         on_release: root.exposures_up_button()
+                
 		ToggleButton:
 			id: run_autofocus_btn
 	        text: 'Scan and Autofocus All Steps'
@@ -1059,6 +1174,44 @@
 
 		Label:
 
+<VideoCreationControls>:
+	orientation: 'vertical'
+
+	# Pad
+	Widget:
+		size_hint_y: None
+		height: '30dp'
+
+	FolderChooseBTN:
+		text: 'Select Image Folder'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: self.choose('video_input_images_folder')
+
+	# Save method
+	FileSaveBTN:
+		text: 'Set Video Output Path'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: self.choose('video_output_path')
+
+	# Pad
+	Widget:
+		size_hint_y: None
+		height: '10dp'
+
+	Button:
+		text: 'Generate Video'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: root.create_video()
+	
+	# Empty widget to consume space at bottom of controls panel
+	Widget:
+
 # PostProcessingAccordion - Settings for PostProcessingAccordion
 # ------------------------------------------
 <PostProcessingAccordion>:
@@ -1072,65 +1225,170 @@
             size: self.size
     		pos: self.pos
 
-	FolderChooseBTN:
-		text: 'Create AVI'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		on_release: root.convert_to_avi()
+	Accordion:
+		orientation: 'vertical'
+		id: post_processing_accordion_id
 
-	FolderChooseBTN:
-		text: 'Stitch'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		on_release: root.stitch()
+		AccordionItem:
+			id: create_avi_accordion_id
+			title: 'Create Video'
+			on_collapse: root.accordion_collapse()
+			collapse: False
 
-    # Tiling Stage Display
-    FloatLayout:
-        padding: '5dp'
-        size_hint_y: None
-        height: '128dp'
-        height: self.width * 2 / 3
-        
-        Stage:
-            id: tiling_stage_id
-            pos_hint:{'center_x':0.5, 'center_y':0.5}
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        spacing: '5dp'
-        Button:
-            id: add_tiling_pos_btn
-            text: 'Add'
-            size_hint_y: None
-            height: '30dp'
-            font_size: '12sp'
-            on_release: root.add_tiling_step()
-        Button:
-            id: start_tiling_btn
-            text: 'Start'
-            size_hint_y: None
-            height: '30dp'
-            font_size: '12sp'
-            on_release: root.start_tiling()
+			VideoCreationControls:
+				id: video_creation_controls_id
+			
+		AccordionItem:
+			id: stitch_accordion_id
+			title: 'Stitch'
+			on_collapse: root.accordion_collapse()
+
+<<<<<<< HEAD
+            BoxLayout:
+                padding: '5dp'
+                spacing: '5dp'
+                orientation: 'vertical'
+                pos_hint: {'x': 0.0, 'y': 0.0}
                 
-	Button:
-		text:'Open Last Save Folder'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		on_release:root.open_folder()
+                # Select stiching method
+                Spinner:
+                    id: stitching_method_spinner
+                    sync_height: True
+                    font_size: '12dp'
+                    size_hint_y: None
+                    height: '30dp'
+                    text_autoupdate: True
+                    on_text: root.select_stitching_method
+                    values: 'Features', 'Position'
+                    orientation: 'vertical'
+=======
+			BoxLayout:
+				padding: '5dp'
+				spacing: '5dp'
+				orientation: 'vertical'
+				pos_hint: {'x': 0.0, 'y': 0.0}
+				
+				# Select stiching method
+				Spinner:
+					id: stitching_method_spinner
+					sync_height: True
+					font_size: '12dp'
+					size_hint_y: None
+					height: '30dp'
+					text_autoupdate: True
+					on_text: root.select_stitching_method
+					values: 'Features', 'Position'
+					orientation: 'vertical'
+>>>>>>> main
 
-	Button:
-		text:'Cell Count'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		on_release: root.open_cell_count()		
+				# Select image to load
+				Button:
+					text: 'Stitch'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.stitch()
+<<<<<<< HEAD
+                
+            Label:
+=======
+				
+			Label:	
+>>>>>>> main
 
-	Label:
+				# Tiling Stage Display
+#				FloatLayout:
+#					padding: '5dp'
+#					size_hint_y: None
+#					height: '128dp'
+#					height: self.width * 2 / 3
+#
+#					Stage:
+#						id: tiling_stage_id
+#						pos_hint:{'center_x':0.5, 'center_y':0.5}
+#
+#				BoxLayout:
+#					orientation: 'horizontal'
+#					size_hint_y: None
+#					height: '30dp'
+#					spacing: '5dp'
+#					Button:
+#						id: add_tiling_pos_btn
+#						text: 'Add'
+#						size_hint_y: None
+#						height: '30dp'
+#						font_size: '12sp'
+#						on_release: root.add_tiling_step()
+#					Button:
+#						id: start_tiling_btn
+#						text: 'Start'
+#						size_hint_y: None
+#						height: '30dp'
+#						font_size: '12sp'
+#						on_release: root.start_tiling()
+<<<<<<< HEAD
+                    
+=======
+					
+>>>>>>> main
+#                    # Select tiling size
+#                    Spinner:
+#                       id: tiling_size_spinner
+#                        sync_height: True
+#                       text: 'New'
+#                        font_size: '12dp'
+#                        size_hint_y: None
+#                        height: '30dp'
+#                        text_autoupdate: True
+#                        on_text: root.select_tiling_size()
+#                        #text: '1x1'
+<<<<<<< HEAD
+#                        values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9', '10x10'
+                
+=======
+#                        values: '1x1', '2x2', '3x3', '4x4', '5x5', '6x6', '7x7', '8x8', '9x9'
+				
+>>>>>>> main
+
+
+		AccordionItem:
+			id: open_last_save_folder_accordion_id
+			title: 'Open Last Save Folder'
+			on_collapse: root.accordion_collapse()
+
+			BoxLayout:
+				orientation: 'vertical'
+				Button:
+					text:'Open Folder'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release:root.open_folder()
+
+				Widget:
+
+		AccordionItem:
+			id: cell_count_accordion_id
+			title: 'Cell Count'
+			on_collapse: root.accordion_collapse()
+
+			BoxLayout:
+				orientation: 'vertical'
+
+				# Pad
+				Widget:
+					size_hint_y: None
+					height: '30dp'
+
+				Button:
+					text:'Open Cell Count'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.open_cell_count()
+			
+				Widget:
+
 
 <Stage>:
 	canvas:
@@ -1290,19 +1548,18 @@
         size_hint_y: None
         height: '30dp'
         Label:
-            text: 'Field of View'
+            text: 'Focal Length'
             size_hint_x: None
             width: '120dp'
-			font_size: '12sp'
+            font_size: '12sp'
         TextInput:
-            id: FOV_id
+            id: focal_length_id
             multiline: False
             padding: ['5dp', (self.height-self.line_height)/2]
             halign: 'center'
-            # input_filter: 'int'
             text: 'tbd'
-			disabled: True
-			font_size: '12sp'
+            disabled: True
+            font_size: '12sp'
 
 	# Frame Size
 	BoxLayout:
@@ -1322,7 +1579,7 @@
 			text_size: self.size
 
 		TextInput:
-			id: frame_width
+			id: frame_width_id
 			multiline: False
 			padding: ['2dp', (self.height-self.line_height)/2]
 			halign: 'center'
@@ -1338,7 +1595,7 @@
 			font_size: '12sp'
 			halign: 'center'
 		TextInput:
-			id: frame_height
+			id: frame_height_id
 			multiline: False
 			padding: ['5dp', (self.height-self.line_height)/2]
 			halign: 'center'
@@ -1718,34 +1975,6 @@
 					valign: 'middle'
 					text_size: self.size
 
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				spacing: '5dp'
-				FolderChooseBTN:
-					id: folder_btn
-					# size_hint_y: None
-					# height: '30dp'
-					# font_size: '12sp'
-					# text: 'Folder'
-					border: 0, 0, 0, 0
-					background_normal: './data/icons/folder.png' # Press to Select Folder
-					background_down: './data/icons/folder_down.png'
-					size_hint: None, None
-					size: '30dp', '30dp'
-					on_release: self.choose(root.layer)
-				TextInput:
-					id: root_text
-					# size_hint_y: None
-					# height: '30dp'
-					font_size: '12sp'
-					multiline: False
-					text: 'File Root'
-					padding: ['5dp', (self.height-self.line_height)/2]
-					on_text: root.root_text()
-					hint_text: 'Filename Root'
-
 			Label:
 
 <Histogram>:
@@ -1756,13 +1985,13 @@
 			width: 1
 			rectangle: (self.x, self.y, self.width, self.height)
 
-<CellCountContent>:
+<CellCountControls>:
 	orientation: 'horizontal'
 
 	# Controls
 	BoxLayout: 
 		orientation: 'vertical'
-		size_hint_x: 0.25
+		size_hint_x: 0.35
 
 		# Pad
 		Widget:
@@ -1790,9 +2019,9 @@
 			size_hint_x: 1
 
 			Label:
-				text: 'Pixel Conversion'
+				text: 'Pixel Ratio'
 				size_hint_x: None
-				width: '120dp'
+				width: '70dp'
 				font_size: '12sp'
 				halign: 'left'
 
@@ -1803,7 +2032,7 @@
 				size_hint_x: None
 				size_hint_y: None
 				height: '35dp'
-				width: '70dp'
+				width: '60dp'
 				multiline: False
 				on_text: root.pixel_conversion_adjustment()
 			
@@ -1826,15 +2055,15 @@
 				width: '40dp'
 				active: True
 				on_release: root.flourescent_mode_toggle()
-			
+
 			Label:
 				text: 'Fluorescent Image'
 				size_hint_x: None
 				width: '100dp'
 				font_size: '12sp'
-				halign: 'left'
-		
-		BoxLayout: # Slider Controls
+	
+		# Slider Controls
+		BoxLayout:
 			orientation: 'vertical'
 			size_hint_y: None
 			height: '225dp'
@@ -1860,7 +2089,7 @@
 					text: f"{str(int(slider_cell_count_threshold_id.value))} %"
 					width: '60dp'
 					font_size: '12sp'
-
+			
 			# Area slider
 			BoxLayout:
 				orientation: 'horizontal'
@@ -1870,19 +2099,19 @@
 					size_hint_x: None
 					width: '90dp'
 					font_size: '12sp'
-				
+
 				RangeSlider:
 					id: slider_cell_count_area_id
 					min: 0
-					max: 50000
-					step: 500
+					max: 100
+					step: 1
 					orientation: 'horizontal'
-					value1: 500
-					value2: 25000
+					value1: 0
+					value2: 100
 					on_touch_up: root.slider_adjustment_area()
+					on_touch_move: root.slider_adjustment_area()
 				Label:
 					id: label_cell_count_area_id
-					text: f"{int(slider_cell_count_area_id.value[0])}-{int(slider_cell_count_area_id.value[1])} μm²"
 					width: '60dp'
 					font_size: '12sp'
 
@@ -1899,15 +2128,15 @@
 				RangeSlider:
 					id: slider_cell_count_perimeter_id
 					min: 0
-					max: 5000
+					max: 100
 					step: 1
 					orientation: 'horizontal'
 					value1: 0
-					value2: 5000
+					value2: 100
 					on_touch_up: root.slider_adjustment_perimeter()
+					on_touch_move: root.slider_adjustment_perimeter()
 				Label:
 					id: label_cell_count_perimeter_id
-					text: f"{int(slider_cell_count_perimeter_id.value[0])}-{int(slider_cell_count_perimeter_id.value[1])} μm"
 					width: '60dp'
 					font_size: '12sp'
 
@@ -2061,7 +2290,11 @@
 				rgba: 0,0,0,0
 		Image:
 			id: cell_count_image_id
+			pos_hint: {"x":0.5, "y":0.5}
 			source: ""
 			canvas:
 				Color:
 					rgba: 0,0,0,0
+
+	# Empty widget to consume space at bottom of controls panel
+	Widget:

@@ -1,9 +1,9 @@
 LumaViewPro Protocol
-Period	20.0
-Duration	48.0
+Period	0.1
+Duration	1.2
 Labware	96 well microplate
 Name	X	Y	Z	Auto_Focus	Channel	False_Color	Illumination	Gain	Auto_Gain	Exposure
-	46.5	37.0	7168.5	1.0	0.0	1.0	100.0	10.0	0.0	100.0
+	46.5	36.999963199999996	7168.49698	1.0	0.0	1.0	100.0	10.0	0.0	100.0
 	46.5	37.0	7168.5	0.0	1.0	0.0	100.0	10.0	0.0	100.0
 	46.5	37.0	7168.5	0.0	2.0	0.0	100.0	10.0	0.0	100.0
 	55.5	37.0	7168.5	0.0	0.0	1.0	100.0	10.0	0.0	100.0

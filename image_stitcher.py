@@ -6,6 +6,17 @@ Created on Jun 20 12:36:12 2022
 @author: oriamir
 """
 
+#-------------------------------------------------------------------------------
+# This open source software was developed for use with Etaluma microscopes.
+#
+# AUTHORS:
+# Ori Amir, The Earthineering Company
+# Kevin Peter Hickerson, The Earthineering Company
+#
+# MODIFIED:
+# Ocotber 5, 2023
+#-------------------------------------------------------------------------------
+
 import numpy as np
 import pandas as pd
 import os
@@ -13,6 +24,7 @@ import cv2
 import glob
 import imutils
 from color_transfer import color_transfer, image_stats #use pip install color_transfer
+from lvp_logger import logger
 
 MAX_TRIES = 20 #number of tries to tolerate without any results before quiting with an error
 N_RESULTS = 5 #number of times the Low algorithm is run and gets result, to select the best result
@@ -21,7 +33,17 @@ error_codes = ["OK","ERR_NEED_MORE_IMGS","ERR_HOMOGRAPHY_EST_FAIL","ERR_CAMERA_P
   
 
 
-def image_stitcher(images_folder, combine_colors = False,  ext = "tiff",method = "features",match_colors=False,save_name = "last_composite_img.tiff",display_image = False, positions_file = None,pos2pix = 2630,post_process = False):
+def image_stitcher(images_folder,
+                   combine_colors = False,
+                   ext = "tiff",
+                   #method = "features",
+                   method = "position",
+                   match_colors=False,
+                   save_name = "./capture/last_composite_img.tiff",
+                   display_image = False,
+                   positions_file = None,
+                   pos2pix = 2630,
+                   post_process = False):
     """
     The function stitches together multiple images that partially overlap into a single composite image.
 
@@ -62,50 +84,68 @@ def image_stitcher(images_folder, combine_colors = False,  ext = "tiff",method =
         The composite image.
 
     """
-    if combine_colors:
-        combine_rgb(images_folder,ext=ext)
-        images_folder = os.path.join(images_folder,'ims_color')
-    
-    if match_colors:
-        match_color_space(images_folder = images_folder,ext = ext)
-    
-    if method == "features":
-        stitched_img = feature_stitcher(images_folder,ext = ext,n_results = N_RESULTS)
+    try:
+        if combine_colors:
+            combine_rgb(images_folder,ext=ext)
+            images_folder = os.path.join(images_folder,'ims_color')
         
-    elif method == "position":
-        assert positions_file, "please provide the textfile name with the positions of the aquired images for argument positions_file (or choose method = 'features') "
-        stitched_img = position_stitcher(images_folder,positions_file,pos2pix=pos2pix,ext=ext)
-    elif method == "s_shape":
-        stitched_img = s_shape_stitcher(images_folder,ext = ext,n_images_per_row = 3)
+        if match_colors:
+            match_color_space(images_folder = images_folder,ext = ext)
         
-    if post_process: stitched_img = zoom_frame(stitched_img)
+        if method == "features":
+            stitched_img = feature_stitcher(images_folder, ext = ext, n_results = N_RESULTS)
+            
+        elif method == "position":
+            assert positions_file, "please provide the textfile name with the positions of the aquired images for argument positions_file (or choose method = 'features') "
+            stitched_img = position_stitcher(images_folder,positions_file,pos2pix=pos2pix,ext=ext)
+        elif method == "s_shape":
+            stitched_img = s_shape_stitcher(images_folder,ext = ext,n_images_per_row = 3)
+            
+        if post_process:
+            stitched_img = zoom_frame(stitched_img)
+    except:
+        logger.error(f"Failed to stitched image.")
     
-    cv2.imwrite(save_name, stitched_img)
+    try:
+        if cv2.imwrite(save_name, stitched_img):
+            logger.info(f"[LVP Stitch] image_stitcher() saved file {save_name}")
+        else:
+            logger.error(f"[LVP stitch] did not save stitched image {save_name}.")
+    except:
+        logger.error(f"Failed to save stitched image {save_name}.")
 
-    if display_image: display_img(stitched_img)
+    if display_image:
+        display_img(stitched_img)
     
     return  stitched_img
 
-def feature_stitcher(images_folder,ext = 'tiff',n_results = 5):
+
+def feature_stitcher(images_folder, ext = 'tiff', n_results = 5):
     
     images = grab_images(images_folder,ext = ext,to_sort = True)
     imageStitcher = cv2.Stitcher_create(mode = cv2.STITCHER_SCANS)
     results = []
-    for k in range(n_results):
-        error=True 
-        tries = 0
-        while error and tries < MAX_TRIES:
-            tries += 1
-            #print("stitching: try #",tries)
-            error, stitched_img = imageStitcher.stitch(images)
-        if not error:
-            results.append(stitched_img)
-            #display_img(stitched_img)
-    assert results, "error: failed to stich images, likely insufficient matching keypoints detected, error code:"+str(error)+" "+error_codes[error]
+    try:
+        for k in range(n_results):
+            error=True
+            tries = 0
+            while error and tries < MAX_TRIES:
+                tries += 1
+                #print("stitching: try #",tries)
+                error, stitched_img = imageStitcher.stitch(images)
+            if not error:
+                results.append(stitched_img)
+                #display_img(stitched_img)
+        assert results, "error: failed to stich images, likely insufficient matching keypoints detected, error code:"+str(error)+" "+error_codes[error]
+    except:
+        logger.error(f"Failed to stich images, likely insufficient matching keypoints detected.")
+        return
+
     #im_sizes = np.array([im.shape[0]*im.shape[1] for im in results])
     im_total_luminance = np.array([im.sum() for im in results])
     stitched_img = results[np.argmax(im_total_luminance)]
     return stitched_img
+
 
 def s_shape_stitcher(images_folder="",image_list=[],ext = 'tiff',n_images_per_row = 3):
     
@@ -137,7 +177,7 @@ def s_shape_stitcher(images_folder="",image_list=[],ext = 'tiff',n_images_per_ro
             stitched_img = temp_stitched
     return stitched_img
 
-def position_stitcher(images_folder,positions_file,pos2pix,ext = 'tiff'):
+def position_stitcher(images_folder, positions_file, pos2pix, ext = 'tiff'):
     """
     Stitches the images based on position information rather than features. Assumes the 
     image file names once sorted correspond to the order of the positions in the positions_file.
@@ -159,12 +199,12 @@ def position_stitcher(images_folder,positions_file,pos2pix,ext = 'tiff'):
 
     """
     reverse_y = True
-    positions = pd.read_csv(positions_file,names = ["X","Y"],delimiter= " ")
+    positions = pd.read_csv(positions_file, names = ["X","Y"], delimiter= " ")
     positions -= positions.min(axis=0)
     positions *= pos2pix
-    positions = positions.sort_values(['X','Y'],ascending = False)
+    positions = positions.sort_values(['X','Y'], ascending = False)
     positions = positions.apply(np.floor).astype(int)
-    images = grab_images(images_folder,ext = ext,to_sort = True)
+    images = grab_images(images_folder, ext = ext, to_sort = True)
     imx = images[0].shape[1]+positions['X'].max() #width of composite image
     imy = images[0].shape[0]+positions['Y'].max() #width of composite image  
     if reverse_y: positions["Y"] = imy - positions["Y"]
@@ -176,7 +216,7 @@ def position_stitcher(images_folder,positions_file,pos2pix,ext = 'tiff'):
             stitched_img[row['Y']:row['Y']+images[i].shape[0],row['X']:row['X']+images[i].shape[1],:] = images[i]
     return stitched_img
 
-def match_color_space(images_folder,ext = "tiff"):
+def match_color_space(images_folder, ext = "tiff"):
     
     image_paths = glob.glob(os.path.join(images_folder,'*.'+ext))
     image_paths = np.array(image_paths)
@@ -219,8 +259,13 @@ def grab_images(images_folder="",image_list=[],ext = 'tiff',to_sort = True):
     """
     assert image_list or images_folder, "you must provide either the folder with the images or the list of images in order"
     if not image_list:
-        image_paths = glob.glob(os.path.join(images_folder,'*.'+ext))
-        assert image_paths,"Could not find any images with extension "+ext+". Please check the directory and extension."
+        try:
+            image_paths = glob.glob(os.path.join(images_folder,'*.'+ext))
+            assert image_paths,"Could not find any images with extension "+ext+". Please check the directory and extension."
+        except:
+            logger.error(f"Could not find any images with extension {ext}. Please check the directory and extension.")
+            return
+            
         if to_sort:
             image_paths = np.array(image_paths)
             image_paths.sort()            

@@ -43,9 +43,11 @@ from pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger
+import pathlib
 import time
 import threading
 import os
+import contextlib
 import cv2
 import numpy as np
 
@@ -154,7 +156,7 @@ class Lumascope():
         """ CAMERA FUNCTIONS
         Grab and return image from camera"""
         if self.camera.grab():
-            self.image_buffer = np.copy(self.camera.array)
+            self.image_buffer = self.camera.array.copy()
             return self.image_buffer
         else:
             return False
@@ -166,6 +168,10 @@ class Lumascope():
             :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'   
 
         """
+
+        # TODO for now converting pathlib.Path's to strings for the algorithm below
+        if issubclass(type(path), pathlib.Path):
+            path = str(path)
 
         # Extract file extension (.tiff) and file_id (00001)
         dot_idx = path.rfind('.') 
@@ -184,7 +190,7 @@ class Lumascope():
 
         return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
 
-    def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', full_bit_depth:bool = False):
+    def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', tail_id_mode = "increment", full_bit_depth:bool = False):
         """CAMERA FUNCTIONS
         save image (as array) to file
         """
@@ -212,32 +218,57 @@ class Lumascope():
         # else:
         #     append = ''
 
-        # generate filename and save path string
-        initial_id = '_000001'
-        filename =  file_root + append + initial_id + '.tiff'
-        path = save_folder + '/' + filename
+        if type(save_folder) == str:
+            save_folder = pathlib.Path(save_folder)
 
-        # Obtain next save path if current directory already exists
-        while os.path.exists(path):
-            path = self.get_next_save_path(path)
+        if file_root is None:
+            file_root = ""
+
+        # generate filename and save path string
+        if tail_id_mode == "increment":
+            initial_id = '_000001'
+            filename =  file_root + append + initial_id + '.tiff'
+            path = save_folder / filename
+
+            # Obtain next save path if current directory already exists
+            while os.path.exists(path):
+                path = self.get_next_save_path(path)
+
+        elif tail_id_mode == None:
+            filename =  file_root + append + '.tiff'
+            path = save_folder / filename
+        
+        else:
+            raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
+        
 
         try:
+
             if full_bit_depth:
                 cv2.imwrite(path, img.astype(cv2.cv_16u)) # 12-bit can be saved as 16-bit
             else:
                 cv2.imwrite(path, img.astype(np.uint8))   # Downscale to 8 bit
+
             logger.info(f'[SCOPE API ] Saving Image to {path}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
-    def save_live_image(self, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF'):
+    def save_live_image(
+            self,
+            save_folder = './capture',
+            file_root = 'img_',
+            append = 'ms',
+            color = 'BF',
+            tail_id_mode = "increment"
+        ):
+
         """CAMERA FUNCTIONS
         Grab the current live image and save to file
         """
         array = self.get_image()
         if array is False:
             return 
-        self.save_image(array, save_folder, file_root, append, color)
+        self.save_image(array, save_folder, file_root, append, color, tail_id_mode)
  
     def get_max_width(self):
         """CAMERA FUNCTIONS
@@ -348,29 +379,44 @@ class Lumascope():
         #if not self.motion: return
         self.motion.xycenter()
 
+
+    @contextlib.contextmanager
+    def safe_turret_mover(self):
+        # Save off current Z position before moving Z to 0
+        logger.info('[SCOPE API ] Moving Z to 0')
+        initial_z = self.get_current_position(axis='Z')
+        self.move_absolute_position('Z', pos=0, wait_until_complete=True)
+        self.is_turreting = True
+        yield
+        self.is_turreting = False
+        # Restore Z position
+        logger.info(f'[SCOPE API ] Restoring Z to {initial_z}')
+        self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
+
+
     def thome(self):
         """MOTION CONTROL FUNCTIONS
         Home the Turret"""
 
         #if not self.motion:
         #    return
-        self.motion.thome()
+
+        # Move turret
+        with self.safe_turret_mover():
+            self.motion.thome()
+
 
     def tmove(self, degrees):
         """MOTION CONTROL FUNCTIONS
         Move turret to position in degrees"""
-
         # MUST home move objective home first to prevent crash
         #self.zhome()
         #self.move_absolute_position('Z', self.z_min)
-        self.move_absolute_position('Z', 0)
 
+        with self.safe_turret_mover():
+            logger.info(f'[SCOPE API ] Moving T to {degrees}')
+            self.move_absolute_position('T', degrees, wait_until_complete=True)
 
-        self.is_turreting = True
-        self.move_absolute_position('T', degrees)
-        #while not self.is_moving():
-        #    time.sleep(0.1)
-        self.is_turreting = False
 
     def get_target_position(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -392,12 +438,16 @@ class Lumascope():
         target_position = self.motion.current_pos(axis)
         return target_position
         
-    def move_absolute_position(self, axis, pos):
+    def move_absolute_position(self, axis, pos, wait_until_complete=False):
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
 
         #if not self.motion: return
         self.motion.move_abs_pos(axis, pos)
+        
+        if wait_until_complete is True:
+            self.wait_until_finished_moving()
+
 
     def move_relative_position(self, axis, um):
         """MOTION CONTROL FUNCTIONS
@@ -419,6 +469,11 @@ class Lumascope():
          Return True if axis is at target position"""
 
         #if not self.motion: return True
+
+        # Handle case where we want to know if turret has reached its target, but there is no turret
+        if (axis == 'T') and (self.motion.has_turret == False):
+            return True
+        
         status = self.motion.target_status(axis)
         return status
         
@@ -446,11 +501,23 @@ class Lumascope():
         x_status = self.get_target_status('X')
         y_status = self.get_target_status('Y')
         z_status = self.get_target_status('Z')
+        t_status = self.get_target_status('T')
 
-        if x_status and y_status and z_status and not self.get_overshoot():
+        if x_status and y_status and z_status and t_status and not self.get_overshoot():
             return False
         else:
             return True
+        
+
+    def wait_until_finished_moving(self):
+
+        if not self.motion.driver: return
+
+        while self.is_moving():
+            time.sleep(0.05)
+        
+        return
+
 
     '''
     ########################################################################
@@ -504,13 +571,12 @@ class Lumascope():
         """INTEGRATED SCOPE FUNCTIONS
         Capture image with illumination"""       
 
-        self.capture_return = False
-        if self.is_capturing: return
         if not self.led: return
         if not self.camera: return
 
         # Set capture states
         self.is_capturing = True
+        self.capture_return = False
 
         # Wait time for exposure and rolling shutter
         wait_time = 2*self.get_exposure_time()/1000+0.2

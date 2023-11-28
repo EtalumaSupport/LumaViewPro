@@ -29,76 +29,70 @@
         "z": 4950.0
     },
     "BF": {
-        "save_folder": "./capture",
-        "file_root": "W_",
+        "file_root": "BF_",
         "focus": 4950.0,
-        "autofocus": true,
+        "autofocus": false,
         "false_color": false,
-        "ill": 100.0,
+        "ill": 5.0,
         "gain": 1.0,
         "auto_gain": false,
-        "exp": 30.0,
-        "acquire": true
+        "exp": 2.0,
+        "acquire": false
     },
     "PC": {
-        "save_folder": "./capture",
         "file_root": "PC_",
         "focus": 4950.0,
-        "autofocus": true,
+        "autofocus": false,
         "false_color": false,
-        "ill": 100.0,
+        "ill": 50.0,
         "gain": 1.0,
         "auto_gain": false,
-        "exp": 30.0,
-        "acquire": true
+        "exp": 5.0,
+        "acquire": false
     },
     "EP": {
-        "save_folder": "./capture",
         "file_root": "EP_",
         "focus": 4950.0,
-        "autofocus": true,
+        "autofocus": false,
         "false_color": false,
         "ill": 100.0,
         "gain": 1.0,
         "auto_gain": false,
         "exp": 30.0,
-        "acquire": true
+        "acquire": false
     },
     "Blue": {
-        "save_folder": "./capture",
         "file_root": "B_",
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill": 30.0,
-        "gain": 1.2,
+        "ill": 250.0,
+        "gain": 10.0,
         "auto_gain": false,
         "exp": 100.0,
-        "acquire": true
+        "acquire": false
     },
     "Green": {
-        "save_folder": "./capture",
         "file_root": "G_",
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill": 60.0,
-        "gain": 1.2,
+        "ill": 250.0,
+        "gain": 20.0,
         "auto_gain": false,
         "exp": 100.0,
-        "acquire": true
+        "acquire": false
     },
     "Red": {
-        "save_folder": "./capture",
         "file_root": "R_",
         "focus": 4950.0,
         "autofocus": false,
         "false_color": true,
-        "ill": 30.0,
-        "gain": 1.2,
+        "ill": 350.0,
+        "gain": 30.0,
         "auto_gain": false,
         "exp": 100.0,
-        "acquire": true
+        "acquire": false
     },
     "zstack": {
         "step_size": 0,
@@ -106,9 +100,9 @@
         "position": "Current Position at Center"
     },
     "protocol": {
-        "period": 1.2,
-        "duration": 1.2,
+        "period": 20,
+        "duration": 48,
         "labware": "96 well microplate",
-        "filepath": "./data/example_protocol.tsv"
+        "filepath": "./data/new_default_protocol.tsv"
     }
 }

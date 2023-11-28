@@ -89,8 +89,8 @@ class WellPlate(LabWare):
                 self.ind_list.append([i,j])
                 
         if stitch > 1:
-            for i in range(stitch_count):
-                for j in range(stich_count):
+            for i in range(stitch):
+                for j in range(stitch):
                     if j % 2 == 1:
                         i = self.plate['columns'] - i - 1
                     self.stitch_list.append([i,j])
@@ -137,6 +137,12 @@ class WellPlate(LabWare):
         return i, j
 
 
+    def get_well_label(self, x, y):
+        well_x, well_y = self.get_well_index(x=x, y=y)
+        letter = chr(ord('A') + well_y)
+        return f'{letter}{well_x + 1}'
+    
+    
 class PitriDish(LabWare):
     """A class that stores and computes actions for petri dish labware"""
 

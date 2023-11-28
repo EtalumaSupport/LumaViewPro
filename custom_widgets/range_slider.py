@@ -6,7 +6,8 @@ from kivy.metrics import sp
 from kivy.uix.widget import Widget
 from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import (NumericProperty, AliasProperty, OptionProperty,
-                             ReferenceListProperty, BoundedNumericProperty, ListProperty)
+                             ReferenceListProperty, BoundedNumericProperty, ListProperty,
+                             ObjectProperty)
 
 Builder.load_string('''
 <RangeSlider>:
@@ -58,14 +59,14 @@ class RangeSlider(Widget):
 
     :attr:`value` is an :class:`~kivy.properties.AliasProperty` and defaults
     to [0, 0].'''
-
-    value1 = NumericProperty(0.)
+    
+    value1 = ObjectProperty(0.)
     '''Current value used for the first slider.
 
     :attr:`value` is a :class:`~kivy.properties.NumericProperty` and defaults
     to 0.'''
 
-    value2 = NumericProperty(100.)
+    value2 = ObjectProperty(100.)
     '''Current value used for the second slider.
 
     :attr:`value` is a :class:`~kivy.properties.NumericProperty` and defaults

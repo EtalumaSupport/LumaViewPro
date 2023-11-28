@@ -6,3 +6,14 @@ logs/LVP_log*
 capture/*.tiff
 script_testing.py
 venv/
+build/
+dist/
+tmp/
+<<<<<<< HEAD
+.DS_Store
+capture/.DS_Store
+logs/.DS_Store
+logs/LVP_Log/.DS_Store
+=======
+.DS_Store
+>>>>>>> main
