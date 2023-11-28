@@ -190,7 +190,7 @@ class Lumascope():
 
         return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
 
-    def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', tail_id_mode = "increment"):
+    def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', tail_id_mode = "increment", full_bit_depth:bool = False):
         """CAMERA FUNCTIONS
         save image (as array) to file
         """
@@ -243,7 +243,12 @@ class Lumascope():
         
 
         try:
-            cv2.imwrite(str(path), img.astype(np.uint8))
+
+            if full_bit_depth:
+                cv2.imwrite(path, img.astype(cv2.cv_16u)) # 12-bit can be saved as 16-bit
+            else:
+                cv2.imwrite(path, img.astype(np.uint8))   # Downscale to 8 bit
+
             logger.info(f'[SCOPE API ] Saving Image to {path}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
