@@ -1523,7 +1523,7 @@ class Histogram(Widget):
         global lumaview
         bins = 128
 
-        if lumaview.scope.camera != False:
+        if lumaview.scope.camera != False and lumaview.scope.camera.active != False:
             #image = lumaview.scope.get_image()
             image = lumaview.scope.image_buffer
             hist = np.histogram(image, bins=bins,range=(0,256))
