@@ -275,7 +275,8 @@ class CompositeCapture(FloatLayout):
         false_color = True,
         tile_label = None,
         z_height_idx = None,
-        scan_count = None
+        scan_count = None,
+        custom_name = None
     ):
         print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
@@ -290,13 +291,17 @@ class CompositeCapture(FloatLayout):
         color = lumaview.scope.ch2color(channel)
         # file_root = settings[color]['file_root']
 
-        name = common_utils.generate_default_step_name(
-            well_label=self.get_well_label(),
-            color=color,
-            z_height_idx=z_height_idx,
-            scan_count=scan_count,
-            tile_label=tile_label
-        )
+        if custom_name is None:
+            name = common_utils.generate_default_step_name(
+                well_label=self.get_well_label(),
+                color=color,
+                z_height_idx=z_height_idx,
+                scan_count=scan_count,
+                tile_label=tile_label
+            )
+        else:
+            DESIRED_SCAN_COUNT_DIGITS = 4
+            name = f"{custom_name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}"
 
         # Illuminate
         if lumaview.scope.led:
@@ -3019,7 +3024,8 @@ class ProtocolSettings(CompositeCapture):
         if (not x_status) or (not y_status) or (not z_status) or lumaview.scope.get_overshoot():
             return
         
-        logger.info('[LVP Main  ] Scan Step:' + str(self.step_names[self.curr_step]))
+        step_name = str(self.step_names[self.curr_step])
+        logger.info(f'[LVP Main  ] Scan Step: {step_name}')
 
         # identify image settings
         z_height =   common_utils.to_float(val=self.step_values[self.curr_step, 2]) # Z-height
@@ -3055,6 +3061,11 @@ class ProtocolSettings(CompositeCapture):
 
         tile_label = common_utils.get_tile_label_from_name(name=self.step_names[self.curr_step])
 
+        if common_utils.is_custom_name(name=step_name):
+            custom_name = step_name
+        else:
+            custom_name = None
+
         # capture image
         image_filepath = self.custom_capture(
             save_folder=self.protocol_run_dir,
@@ -3065,7 +3076,8 @@ class ProtocolSettings(CompositeCapture):
             false_color=bool(fc),
             tile_label=tile_label,
             z_height_idx=z_slice,
-            scan_count=self.scan_count
+            scan_count=self.scan_count,
+            custom_name=custom_name
         )
 
         self.protocol_execution_record.add_step(

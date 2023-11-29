@@ -1,4 +1,7 @@
 
+import re
+
+
 def generate_default_step_name(
     well_label,
     color,
@@ -32,6 +35,24 @@ def get_tile_label_from_name(name: str) -> str | None:
         return segment[1:]
     
     return None
+
+def is_custom_name(name: str) -> bool:
+    name = name.split('_')
+
+    # All generated names have at least one '_'
+    if len(name) <= 1:
+        return True
+    
+    well = name[0]
+    well_pattern = r"^[A-Z]{1}[0-9]+$"
+    if not re.match(pattern=well_pattern, string=well):
+        return True
+
+    color = name[1]
+    if color not in get_layers():
+        return True
+    
+    return False
 
 def get_z_slice_from_name(name: str) -> int | None:
     name = name.split('_')
