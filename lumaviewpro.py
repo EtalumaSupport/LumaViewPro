@@ -2412,10 +2412,10 @@ class ProtocolSettings(CompositeCapture):
         # to the protocol file, and still be able to load older protocol files which do not contain an 'Objective' column
         for row in csvreader:
             self.step_names.append(row[0])
-            if 'Objective' in header:
-                self.step_values = np.append(self.step_values, np.array([row[1:]]), axis=0)
-            else:
-                self.step_values = np.append(self.step_values, np.array([row[1:], 'Undefined']), axis=0)
+            if 'Objective' not in header:
+                row.append(0) # For objective
+
+            self.step_values = np.append(self.step_values, np.array([row[1:]]), axis=0)
 
 
         file_pointer.close()
