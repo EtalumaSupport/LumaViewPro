@@ -1067,33 +1067,28 @@
                 height: '30dp'
                 text_autoupdate: True
                 values: ''
-                
-                
-        # # Z-stack
-        # BoxLayout:
-        #     orientation: 'horizontal'
-        #     size_hint_y: None
-        #     height: '30dp'
-        #     spacing: '5dp'
-           
-        #     Label:
-        #         text: 'Z Stack'
-        #         size_hint_x: None
-        #         width: '75dp'
-        #         font_size: '12sp'
-                
-        #     CheckBox:
-        #         id: acquire_zstack_id
-        #         size_hint_x: None
-        #         width: '30dp'
-        #         active: False
-        #         # TODO on_release: root.update_acquire_zstack()
-        #     Label:
-        #         text: 'Acquire All Steps'
-        #         font_size: '12sp'
-        #         halign: 'left'
-        #         valign: 'middle'
-        #         text_size: self.size
+				on_text: root.update_tiling_selection()
+                             
+        # Z-stack
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '30dp'
+            spacing: '5dp'
+                           
+            CheckBox:
+                id: acquire_zstack_id
+                size_hint_x: None
+                width: '30dp'
+                active: False
+                on_release: root.update_acquire_zstack()
+
+            Label:
+                text: 'Enable Z-Stack'
+                font_size: '12sp'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
         
         # # Multiple exposure
         # BoxLayout:
@@ -1146,6 +1141,7 @@
 	        height: '30dp'
 			font_size: '12sp'
 			on_release: root.run_autofocus_scan()
+			disabled: False
 
 		# Run Protocol
 	    Label:
@@ -1212,6 +1208,25 @@
 	# Empty widget to consume space at bottom of controls panel
 	Widget:
 
+
+<StitchControls>:
+	orientation: 'vertical'
+
+	# Pad
+	Widget:
+		size_hint_y: None
+		height: '30dp'
+
+	FolderChooseBTN:
+		text: 'Apply Stitching to Protocol Folder'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: self.choose('apply_stitching_to_folder')
+	
+	# Empty widget to consume space at bottom of controls panel
+	Widget:
+
 # PostProcessingAccordion - Settings for PostProcessingAccordion
 # ------------------------------------------
 <PostProcessingAccordion>:
@@ -1243,33 +1258,9 @@
 			title: 'Stitch'
 			on_collapse: root.accordion_collapse()
 
-			BoxLayout:
-				padding: '5dp'
-				spacing: '5dp'
-				orientation: 'vertical'
-				pos_hint: {'x': 0.0, 'y': 0.0}
-				
-				# Select stiching method
-				Spinner:
-					id: stitching_method_spinner
-					sync_height: True
-					font_size: '12dp'
-					size_hint_y: None
-					height: '30dp'
-					text_autoupdate: True
-					on_text: root.select_stitching_method
-					values: 'Features', 'Position'
-					orientation: 'vertical'
+			StitchControls:
+				id: stitch_controls_id
 
-				# Select image to load
-				Button:
-					text: 'Stitch'
-					size_hint_y: None
-					height: '30dp'
-					font_size: '12sp'
-					on_release: root.stitch()
-				
-			Label:	
 
 				# Tiling Stage Display
 #				FloatLayout:
@@ -1509,24 +1500,6 @@
 			disabled: True
 			font_size: '12sp'
 
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Focal Length'
-            size_hint_x: None
-            width: '120dp'
-            font_size: '12sp'
-        TextInput:
-            id: focal_length_id
-            multiline: False
-            padding: ['5dp', (self.height-self.line_height)/2]
-            halign: 'center'
-            text: 'tbd'
-            disabled: True
-            font_size: '12sp'
-
 	# Frame Size
 	BoxLayout:
 		orientation: 'horizontal'
@@ -1570,6 +1543,48 @@
 			on_text_validate: root.frame_size()
 			on_focus: if not self.focus: root.frame_size()
 			font_size: '12sp'
+	
+	# Field of View
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Field of View'
+            size_hint_x: None
+            width: '120dp'
+            font_size: '12sp'
+
+		TextInput:
+			id: field_of_view_width_id
+			multiline: False
+			padding: ['2dp', (self.height-self.line_height)/2]
+			halign: 'center'
+			input_filter: 'int'
+			text: ''
+			font_size: '12sp'
+			disabled: True
+		Label:
+			text: 'x'
+			size_hint_x: None
+			width: '15dp'
+			font_size: '12sp'
+			halign: 'center'
+		TextInput:
+			id: field_of_view_height_id
+			multiline: False
+			padding: ['5dp', (self.height-self.line_height)/2]
+			halign: 'center'
+			input_filter: 'int'
+			text: ''
+			font_size: '12sp'
+			disabled: True
+		Label:
+			text: ' um'
+			size_hint_x: None
+			width: '15dp'
+			font_size: '12sp'
+			halign: 'center'
 
 	FileChooseBTN:
 		text: 'Load'
@@ -1686,7 +1701,7 @@
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
 					input_filter: 'float'
-					text: format(ill_slider.value, '.3g')
+					text: format(ill_slider.value, '.4g')
 					on_text_validate: root.ill_text()
 					on_focus: if not self.focus: root.ill_text()
 

@@ -6,6 +6,10 @@ import modules.common_utils as common_utils
 
 class TilingConfig:
 
+    DEFAULT_FILL_FACTORS = {
+        'position': 1.0 # No overlap needed for position-based tiling
+    }
+
     def __init__(self):
 
         with open('./data/tiling.json', "r") as fp:
@@ -65,19 +69,17 @@ class TilingConfig:
         frame_size: dict[int],
         fill_factor: int
     ) -> dict[dict]:
+        
         tiling_mxn = self.get_mxn_size(config_label)
 
-        magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
-                                            # in theory could be different in different scopes
-                                            # could be looked up by model number
-                                            # although all are currently the same
-        pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
-        um_per_pixel = pixel_width / magnification
+        fov_size = common_utils.get_field_of_view(
+            focal_length=focal_length,
+            frame_size=frame_size
+        )  
+        
+        x_fov = fill_factor * fov_size['width']
+        y_fov = fill_factor * fov_size['height']
 
-        fov_size_x = um_per_pixel * frame_size['width']
-        fov_size_y = um_per_pixel * frame_size['height']       
-        x_fov = fill_factor * fov_size_x
-        y_fov = fill_factor * fov_size_y
         #x_current = lumaview.scope.get_current_position('X')
         #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
         x_center = 60000 # TODO make center of a well
