@@ -2763,92 +2763,14 @@ class ProtocolSettings(CompositeCapture):
             self.go_to_step()
 
 
-    #
-    # Tiling
-    # ---------------------------
-    #
-    # def select_tiling_size(self):
-    #     logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() partially implemented')
-    #     logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
-    #     spinner = self.ids['tiling_size_spinner']
-        #settings['protocol']['labware'] = spinner.text #TODO change key
-        # self.tiling_count = self.tiling_config.get_mxn_size(spinner.text)
-        
-        # # x_count = int(spinner.text[0])
-        # # y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
-        # # self.tiling_count = (x_count, y_count)
-        # focal_length = settings['objective']['focal_length']
-        # magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
-        #                                     # in theory could be different in different scopes
-        #                                     # could be looked up by model number
-        #                                     # although all are currently the same
-        # pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
-        # um_per_pixel = pixel_width / magnification
-
-        # fov_size_x = um_per_pixel * settings['frame']['width']
-        # fov_size_y = um_per_pixel * settings['frame']['height']
-        # # fill_factor = 0.75 # this is to ensure some of the tile images overlap.
-        #                      # TODO this should be a setting in the gui
-        # fill_factor = 1
-        # #print(magnification)
-        # #print(settings['frame']['width'])
-        
-        # x_fov = fill_factor * fov_size_x
-        # y_fov = fill_factor * fov_size_y
-        # #x_current = lumaview.scope.get_current_position('X')
-        # #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-        # x_center = 60000 # TODO make center of a well
-        # #y_current = lumaview.scope.get_current_position('Y')
-        # #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
-        # y_center = 40000 # TODO make center of a well
-        # self.tiling_min = {
-        #     "x": x_center - self.tiling_count["n"]*x_fov/2,
-        #     "y": y_center - self.tiling_count["m"]*y_fov/2
-        # }
-
-        # #print(self.tiling_min)
-        # self.tiling_max = {
-        #     "x": x_center + self.tiling_count["n"]*x_fov/2,
-        #     "y": y_center + self.tiling_count["m"]*y_fov/2
-        # }
-        #print(self.tiling_max)
-       
-        # DEPRECATED this talks to the wrong stage view
-        #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
-        #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
-        #lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
-        #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
-        #print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
-        # return
-        
-    # def start_tiling(self):
-    #     logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
-    #     return self.get_tile_centers()
-        
-    # def get_tile_centers(self):
-    #     logger.info('[LVP Main  ] PostProcessing.get_tile_centers()')
-    #     tiles = []
-    #     ax = (self.tiling_max["x"] + self.tiling_min["x"])/2
-    #     ay = (self.tiling_max["y"] + self.tiling_min["y"])/2
-    #     dx = (self.tiling_max["x"] - self.tiling_min["x"])/self.tiling_count["x"]
-    #     dy = (self.tiling_max["y"] - self.tiling_min["y"])/self.tiling_count["y"]
-    #     for i in range(self.tiling_count["x"]):
-    #         for j in range(self.tiling_count["y"]):
-    #             tiles.append(
-    #                 {
-    #                     "x": self.tiling_min["x"] + (i+0.5)*dx - ax,
-    #                     "y": self.tiling_min["y"] + (j+0.5)*dy - ay
-    #                 }
-    #             )
-    #     return tiles
-
-
     def update_acquire_zstack(self):
-        self.determine_and_set_run_autofocus_scan_allow()
+        pass
+        # self.determine_and_set_run_autofocus_scan_allow()
 
 
     def update_tiling_selection(self):
-        self.determine_and_set_run_autofocus_scan_allow()
+        pass
+        # self.determine_and_set_run_autofocus_scan_allow()
 
 
     def determine_and_set_run_autofocus_scan_allow(self):
