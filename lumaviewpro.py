@@ -2758,7 +2758,12 @@ class ProtocolSettings(CompositeCapture):
 
         # Insert into List and Array
         self.step_names.insert(self.curr_step, name)
-        self.step_values = np.insert(self.step_values, self.curr_step, step, axis=0)
+        if len(self.step_values) == 0:
+            # Handle first insert on an empty protocol as a special case due to using numpy with mixed data types
+            # TODO Move to dataframe or another structure
+            self.step_values = np.append(self.step_values, np.array([step]), axis=0)
+        else:
+            self.step_values = np.insert(self.step_values, self.curr_step, step, axis=0)
 
         self.ids['step_total_input'].text = str(len(self.step_names))
 
