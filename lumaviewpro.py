@@ -2335,7 +2335,7 @@ class ProtocolSettings(CompositeCapture):
                         fc = settings[layer]['false_color']
                         ill = settings[layer]['ill']
                         gain = settings[layer]['gain']
-                        auto_gain = int(settings[layer]['auto_gain'])
+                        auto_gain = common_utils.to_bool(settings[layer]['auto_gain'])
                         exp = settings[layer]['exp']
                         objective = settings['objective']['ID']
 
@@ -2921,7 +2921,7 @@ class ProtocolSettings(CompositeCapture):
         lumaview.scope.leds_off()
         lumaview.scope.led_on(ch, ill)
         lumaview.scope.set_gain(gain)
-        lumaview.scope.set_auto_gain(bool(auto_gain))
+        lumaview.scope.set_auto_gain(auto_gain)
         lumaview.scope.set_exposure_time(exp)
 
         # Begin autofocus routine
@@ -3045,7 +3045,7 @@ class ProtocolSettings(CompositeCapture):
             
         # Set camera settings
         lumaview.scope.set_gain(gain)
-        lumaview.scope.set_auto_gain(bool(auto_gain))
+        lumaview.scope.set_auto_gain(auto_gain)
         lumaview.scope.set_exposure_time(exp)
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
