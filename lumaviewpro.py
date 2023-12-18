@@ -1573,7 +1573,8 @@ class Histogram(Widget):
                         else:
                             counts = np.ceil(scale*hist[0][i])
                         self.pos = self.pos
-                        Rectangle(pos=(x+max(i*512/bins-1, 1), y), size=(512/bins, counts))
+                        bin_size= self.width/bins
+                        Rectangle(pos=(x+max(i*bin_size-1, 1), y), size=(bin_size, counts))
                         #self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
 
 
