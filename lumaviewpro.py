@@ -141,6 +141,9 @@ start_str = str(int(round(time.time() * 1000)))
 global focus_round
 focus_round = 0
 
+AUTO_GAIN_COUNTDOWN_RESET_VALUE = 6.0
+auto_gain_countdown = AUTO_GAIN_COUNTDOWN_RESET_VALUE
+
 def focus_log(positions, values):
     global focus_round
     if False:
@@ -395,11 +398,11 @@ class CompositeCapture(FloatLayout):
             scope_leds_off()
 
             # turn off all LED toggle buttons and histograms
-            lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+            lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
-        # lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+        # lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
         lumaview.ids['composite_btn'].state = 'normal'
 
         img = np.flip(img, 0)
@@ -1441,6 +1444,25 @@ class ImageSettings(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] ImageSettings.__init__()')
+        Clock.schedule_once(self._init_ui, 0)
+    
+
+    def _init_ui(self, dt=0):
+        self.assign_led_button_down_images()
+        self.accordion_collapse()
+
+
+    def assign_led_button_down_images(self):
+        led_button_down_background_map = {
+            'Red': './data/icons/ToggleRR.png',
+            'Green': './data/icons/ToggleRG.png',
+            'Blue': './data/icons/ToggleRB.png',
+        }
+
+        for layer in common_utils.get_layers():
+            button_down_image = led_button_down_background_map.get(layer, './data/icons/ToggleRW.png')
+            self.ids[layer].ids['enable_led_btn'].background_down = button_down_image
+
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
@@ -1486,20 +1508,24 @@ class ImageSettings(BoxLayout):
 
         # turn off all LED toggle buttons and histograms
         for layer in common_utils.get_layers():
-            lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-            Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
-            logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
+            layer_obj = lumaview.ids['imagesettings_id'].ids[layer]
+            layer_is_collapsed = lumaview.ids['imagesettings_id'].ids[f"{layer}_accordion"].collapse
 
-            accordion = layer + '_accordion'
-            if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
-                if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
-                    lumaview.ids['viewer_id'].update_shader(false_color=layer)
-                else:
-                    lumaview.ids['viewer_id'].update_shader(false_color='BF')
+            if layer_is_collapsed:
+                layer_obj.ids['enable_led_btn'].state = 'normal'
+                continue
+
+            layer_obj.apply_settings()
+            
+            if layer_obj.ids['false_color'].active:
+                lumaview.ids['viewer_id'].update_shader(false_color=layer)
+            else:
+                lumaview.ids['viewer_id'].update_shader(false_color='BF')
 
         # Restart camera feed
         if scope_display.play == True:
             scope_display.start()
+
 
     def check_settings(self, *args):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')
@@ -1508,6 +1534,15 @@ class ImageSettings(BoxLayout):
             self.pos = lumaview.width - 30, 0
         else:
             self.pos = lumaview.width - self.settings_width, 0
+
+
+def set_histogram_layer(active_layer):   
+    for layer in common_utils.get_layers():
+        Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
+        if layer == active_layer:
+            Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[active_layer].ids['histo_id'].histogram, 0.5)
+            logger.info(f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)')
+
 
 class Histogram(Widget):
     bg_color = ObjectProperty(None)
@@ -1522,6 +1557,16 @@ class Histogram(Widget):
         self.hist_range_set = False
         self.edges = [0,255]
         self.stablize = 0.3
+
+
+    # @classmethod
+    # def set_active_layer(self, active_layer):     
+    #     Clock.unschedule(self.histogram) 
+    #     for layer in common_utils.get_layers():
+    #         if layer == active_layer:
+    #             Clock.schedule_interval(self.histogram, 0.5)
+    #             logger.info(f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)')
+
 
     def histogram(self, *args):
         # logger.info('[LVP Main  ] Histogram.histogram()')
@@ -2852,7 +2897,7 @@ class ProtocolSettings(CompositeCapture):
             scope_leds_off()
 
             for layer in common_utils.get_layers():
-                lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+                lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
             Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of autofocus scan iterate
@@ -3002,7 +3047,7 @@ class ProtocolSettings(CompositeCapture):
             scope_leds_off()
 
             for layer in common_utils.get_layers():
-                lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+                lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
@@ -3012,6 +3057,7 @@ class ProtocolSettings(CompositeCapture):
     def scan_iterate(self, dt):
         global lumaview
         global settings
+        global auto_gain_countdown
 
         # If the autofocus is currently active, leave the function before continuing step
         is_autofocus = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_autofocus
@@ -3019,7 +3065,7 @@ class ProtocolSettings(CompositeCapture):
             return
 
         # Identify if an autofocus cycle completed
-        is_complete = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete
+        autofocus_is_complete = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete
 
         # Check if at desired position
         x_status = lumaview.scope.get_target_status('X')
@@ -3044,12 +3090,21 @@ class ProtocolSettings(CompositeCapture):
         exp =        common_utils.to_float(val=self.step_values[self.curr_step, 9]) # camera exposure
             
         # Set camera settings
-        lumaview.scope.set_gain(gain)
         lumaview.scope.set_auto_gain(auto_gain)
-        lumaview.scope.set_exposure_time(exp)
+
+        if not auto_gain:
+            lumaview.scope.set_gain(gain)
+            # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
+            lumaview.scope.set_exposure_time(exp)
+
+        if auto_gain and auto_gain_countdown > 0:
+            auto_gain_countdown -= 0.1
+            return
+        else:
+            auto_gain_countdown = AUTO_GAIN_COUNTDOWN_RESET_VALUE
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
-        if af and not is_complete:
+        if af and not autofocus_is_complete:
             # turn on LED
             lumaview.scope.leds_off()
             lumaview.scope.led_on(ch, ill)
@@ -3598,6 +3653,7 @@ class ModSlider(Slider):
             self.dispatch('on_release')
             return True
 
+
 # LayerControl Layout class
 # ---------------------------------------------------------------------
 class LayerControl(BoxLayout):
@@ -3610,6 +3666,12 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.__init__()')
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
+        Clock.schedule_once(self._init_ui, 0)
+    
+    
+    def _init_ui(self, dt=0):
+        self.update_auto_gain()
+
 
     def ill_slider(self):
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
@@ -3630,8 +3692,8 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
-    def auto_gain(self):
-        logger.info('[LVP Main  ] LayerControl.auto_gain()')
+    def update_auto_gain(self):
+        logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':
             state = True
         else:
@@ -3706,6 +3768,29 @@ class LayerControl(BoxLayout):
         control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
         control.update_gui()
 
+
+    def update_led_state(self):
+        enabled = True if self.ids['enable_led_btn'].state == 'down' else False
+        illumination = settings[self.layer]['ill']
+
+        self.set_led_state(enabled=enabled, illumination=illumination)
+        
+        # self.apply_settings()
+
+    
+    def set_led_state(self, enabled: bool, illumination: float):
+        if not lumaview.scope.led:
+            logger.warning('[LVP Main  ] LED controller not available.')
+            return
+
+        channel=lumaview.scope.color2ch(self.layer)
+        if not enabled:
+            lumaview.scope.led_off(channel=channel)
+        else:
+            logger.info(f'[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch({self.layer}), {illumination})')
+            lumaview.scope.led_on(channel=channel, mA=illumination)          
+
+
     def apply_settings(self):
         logger.info('[LVP Main  ] LayerControl.apply_settings()')
         global lumaview
@@ -3713,54 +3798,28 @@ class LayerControl(BoxLayout):
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
-        illumination = settings[self.layer]['ill']
-        if self.ids['apply_btn'].state == 'down': # if the button is down
-            # In active channel,turn on LED
-            if lumaview.scope.led:
-                lumaview.scope.led_on(lumaview.scope.color2ch(self.layer), illumination)
-                logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(self.layer), illumination)')
-            else:
-                logger.warning('[LVP Main  ] LED controller not available.')
-            
-            #  turn the state of remaining channels to 'normal' and text to 'OFF'       
+        set_histogram_layer(active_layer=self.layer)
+        self.update_led_state()
+        if self.ids['enable_led_btn'].state == 'down': # if the button is down
             for layer in common_utils.get_layers():
-                Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
-                if layer == self.layer:
-                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.5)
-                    logger.info('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 0.5)')
-                else:
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-
-        else: # if the button is 'normal' meaning not active
-            # In active channel, and turn off LED
-            scope_leds_off()
+                if layer != self.layer:
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
         # update gain to currently selected settings
         # -----------------------------------------------------
-        state = settings[self.layer]['auto_gain']
-        lumaview.scope.set_auto_gain(state)
+        auto_gain_enabled = settings[self.layer]['auto_gain']
+        lumaview.scope.set_auto_gain(auto_gain_enabled)
 
-        if not(state):
-            gain = settings[self.layer]['gain']
-            lumaview.scope.set_gain(gain)
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
         exposure = settings[self.layer]['exp']
-        lumaview.scope.set_exposure_time(exposure)
+        gain = settings[self.layer]['gain']
 
-        # choose correct active toggle button image based on color
-        # -----------------------------------------------------
-        if self.ids['apply_btn'].state == 'down':
-            if(self.layer) == 'Red':
-                self.ids['apply_btn'].background_down = './data/icons/ToggleRR.png'
-            elif(self.layer) == 'Green':
-                self.ids['apply_btn'].background_down = './data/icons/ToggleRG.png'
-            elif(self.layer) == 'Blue':
-                self.ids['apply_btn'].background_down = './data/icons/ToggleRB.png'
-        else:
-            self.ids['apply_btn'].background_down = './data/icons/ToggleRW.png'
-
+        if not auto_gain_enabled:
+            lumaview.scope.set_gain(gain)
+            lumaview.scope.set_exposure_time(exposure)
+        
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
         for i in np.arange(0.1, 2, 0.1):

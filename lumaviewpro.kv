@@ -1375,6 +1375,7 @@
         AccordionItem:
 			id: BF_accordion
             title: 'Brightfield Control'
+			collapse: False
 			on_collapse: root.accordion_collapse()
             LayerControl:
                 id: BF
@@ -1656,14 +1657,14 @@
 					valign: 'middle'
 					text_size: self.size
 				ToggleButton:
-					id: apply_btn
+					id: enable_led_btn
 					size_hint: None, None
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
 					background_normal: './data/icons/ToggleL.png'
 					background_down: './data/icons/ToggleR.png'
-					on_release: root.apply_settings()
+					on_release: root.update_led_state()
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -1733,7 +1734,7 @@
 					size_hint_x: None
 					width: '25dp'
 					active: False
-					on_release: root.auto_gain()
+					on_release: root.update_auto_gain()
 
 				Label:
 					text: 'Auto Gain/Exp'
