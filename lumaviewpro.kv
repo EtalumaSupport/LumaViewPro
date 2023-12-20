@@ -1375,7 +1375,6 @@
         AccordionItem:
 			id: BF_accordion
             title: 'Brightfield Control'
-			collapse: False
 			on_collapse: root.accordion_collapse()
             LayerControl:
                 id: BF
@@ -1427,6 +1426,7 @@
             id: Red_accordion
             title: 'Red Channel Control'
 			on_collapse: root.accordion_collapse()
+			collapse: False
             LayerControl:
                 id: Red
                 layer: 'Red'

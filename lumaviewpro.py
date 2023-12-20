@@ -1450,7 +1450,7 @@ class ImageSettings(BoxLayout):
     def _init_ui(self, dt=0):
         self.assign_led_button_down_images()
         self.accordion_collapse()
-
+        
 
     def assign_led_button_down_images(self):
         led_button_down_background_map = {
