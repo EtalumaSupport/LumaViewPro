@@ -141,8 +141,8 @@ start_str = str(int(round(time.time() * 1000)))
 global focus_round
 focus_round = 0
 
-AUTO_GAIN_COUNTDOWN_RESET_VALUE = 6.0
-auto_gain_countdown = AUTO_GAIN_COUNTDOWN_RESET_VALUE
+
+auto_gain_countdown = 0
 
 def focus_log(positions, values):
     global focus_round
@@ -2968,7 +2968,7 @@ class ProtocolSettings(CompositeCapture):
         lumaview.scope.leds_off()
         lumaview.scope.led_on(ch, ill)
         lumaview.scope.set_gain(gain)
-        lumaview.scope.set_auto_gain(auto_gain)
+        lumaview.scope.set_auto_gain(auto_gain, target_brightness=settings['protocol']['autogain']['target_brightness'])
         lumaview.scope.set_exposure_time(exp)
 
         # Begin autofocus routine
@@ -3092,7 +3092,7 @@ class ProtocolSettings(CompositeCapture):
         exp =        common_utils.to_float(val=self.step_values[self.curr_step, 9]) # camera exposure
             
         # Set camera settings
-        lumaview.scope.set_auto_gain(auto_gain)
+        lumaview.scope.set_auto_gain(auto_gain, target_brightness=settings['protocol']['autogain']['target_brightness'])
         lumaview.scope.led_on(ch, ill)
 
         if not auto_gain:
@@ -3103,10 +3103,6 @@ class ProtocolSettings(CompositeCapture):
         
         if auto_gain and auto_gain_countdown > 0:
             auto_gain_countdown -= 0.1
-            return
-        else:
-            auto_gain_countdown = AUTO_GAIN_COUNTDOWN_RESET_VALUE
-            # lumaview.scope.leds_o
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
         if af and not autofocus_is_complete:
@@ -3119,6 +3115,12 @@ class ProtocolSettings(CompositeCapture):
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
             
             return
+        
+        # Check if autogain has time-finished after auto-focus so that they can run in parallel
+        if auto_gain and auto_gain_countdown > 0:
+            return
+        else:
+            auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
         
         # reset the is_complete flag on autofocus
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
@@ -3200,12 +3202,16 @@ class ProtocolSettings(CompositeCapture):
 
     # Run the complete protocol 
     def run_protocol(self):
+        global auto_gain_countdown
+
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.scan_count = 0
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
+            lumaview.scope.camera.update_auto_gain_target_brightness(settings['protocol']['autogain']['target_brightness'])
+            auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
             self._initialize_protocol_data_folder()
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
@@ -3502,6 +3508,12 @@ class MicroscopeSettings(BoxLayout):
             try:
                 settings = json.load(read_file)
 
+                if 'autogain' not in settings['protocol']:
+                    settings['protocol']['autogain'] = {
+                        'max_duration_seconds': 1.0,
+                        'target_brightness': 0.3
+                    }
+
                 # update GUI values from JSON data:
                 self.ids['scope_spinner'].text = settings['microscope']
                 self.ids['objective_spinner'].text = settings['objective']['ID']
@@ -3682,7 +3694,6 @@ class LayerControl(BoxLayout):
     def _init_ui(self, dt=0):
         self.update_auto_gain()
 
-
     def ill_slider(self):
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = self.ids['ill_slider'].value
@@ -3818,8 +3829,9 @@ class LayerControl(BoxLayout):
         # update gain to currently selected settings
         # -----------------------------------------------------
         auto_gain_enabled = settings[self.layer]['auto_gain']
+        auto_gain_target_brightness = settings['protocol']['autogain']['target_brightness']
         if not ignore_auto_gain:
-            lumaview.scope.set_auto_gain(auto_gain_enabled)
+            lumaview.scope.set_auto_gain(auto_gain_enabled, target_brightness=auto_gain_target_brightness)
 
 
         # update exposure to currently selected settings

@@ -103,6 +103,10 @@
         "period": 20,
         "duration": 48,
         "labware": "96 well microplate",
-        "filepath": "./data/new_default_protocol.tsv"
+        "filepath": "./data/new_default_protocol.tsv",
+        "autogain": {
+            "target_brightness": 0.3,
+            "max_duration_seconds": 1.0
+        }
     }
 }

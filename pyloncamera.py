@@ -80,20 +80,24 @@ class PylonCamera:
             self.error_report_count += 1
 
     
-    def init_auto_gain_focus(self):
+    def init_auto_gain_focus(self, auto_target_brightness: float=0.5):
         # margin_px = 8
         # self.active.AutoFunctionROIOffsetX.SetValue(margin_px)
         # self.active.AutoFunctionROIOffsetY.SetValue(margin_px)
         self.active.AutoFunctionROIWidth.SetValue(self.active.Width.Max - 2*self.active.AutoFunctionROIOffsetX.GetValue())
         self.active.AutoFunctionROIHeight.SetValue(self.active.Height.Max - 2*self.active.AutoFunctionROIOffsetY.GetValue())
         self.active.AutoFunctionROIUseBrightness = True
-        self.active.AutoTargetBrightness.SetValue(0.5)
+        self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
         self.active.AutoFunctionROISelector.SetValue('ROI1')
         self.active.AutoGainLowerLimit.SetValue(self.active.AutoGainLowerLimit.Min)
         self.active.AutoGainUpperLimit.SetValue(self.active.AutoGainUpperLimit.Max)
         self.active.AutoFunctionProfile.SetValue('MinimizeGain')
 
         # self.set_test_pattern('Testimage2')
+
+
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
+        self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
 
 
     def grab(self):
@@ -151,7 +155,7 @@ class PylonCamera:
         else:
             logger.warning('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': inactive camera')
 
-    def auto_gain(self, state = True):
+    def auto_gain(self, state = True, target_brightness: float = 0.5):
         """ Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
@@ -160,6 +164,7 @@ class PylonCamera:
             return
 
         if state == True:
+            self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
             self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
         else:
