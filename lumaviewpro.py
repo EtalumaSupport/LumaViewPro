@@ -274,6 +274,7 @@ class CompositeCapture(FloatLayout):
         channel,
         illumination,
         gain,
+        auto_gain,
         exposure,
         false_color = True,
         tile_label = None,
@@ -287,9 +288,10 @@ class CompositeCapture(FloatLayout):
         global settings
         
         # Set gain and exposure
-        lumaview.scope.set_gain(gain)
-        lumaview.scope.set_exposure_time(exposure)
- 
+        if not auto_gain:
+            lumaview.scope.set_gain(gain)
+            lumaview.scope.set_exposure_time(exposure)
+    
         # Save Settings
         color = lumaview.scope.ch2color(channel)
         # file_root = settings[color]['file_root']
@@ -2604,7 +2606,7 @@ class ProtocolSettings(CompositeCapture):
         self.go_to_step()
     
     # Go to Input Step
-    def go_to_step(self):
+    def go_to_step(self, ignore_auto_gain: bool = False):
         logger.info('[LVP Main  ] ProtocolSettings.go_to_step()')
 
         if len(self.step_names) <= 0:
@@ -2693,7 +2695,7 @@ class ProtocolSettings(CompositeCapture):
         # update position in stage control
         lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
 
-        layer.apply_settings()
+        layer.apply_settings(ignore_auto_gain=ignore_auto_gain)
 
 
     # Delete Current Step of Protocol
@@ -3091,23 +3093,26 @@ class ProtocolSettings(CompositeCapture):
             
         # Set camera settings
         lumaview.scope.set_auto_gain(auto_gain)
+        lumaview.scope.led_on(ch, ill)
 
         if not auto_gain:
             lumaview.scope.set_gain(gain)
             # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
             lumaview.scope.set_exposure_time(exp)
 
+        
         if auto_gain and auto_gain_countdown > 0:
             auto_gain_countdown -= 0.1
             return
         else:
             auto_gain_countdown = AUTO_GAIN_COUNTDOWN_RESET_VALUE
+            # lumaview.scope.leds_o
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
         if af and not autofocus_is_complete:
             # turn on LED
-            lumaview.scope.leds_off()
-            lumaview.scope.led_on(ch, ill)
+            # lumaview.scope.leds_off()
+            # lumaview.scope.led_on(ch, ill)
 
             # Begin autofocus routine
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
@@ -3133,6 +3138,7 @@ class ProtocolSettings(CompositeCapture):
             channel=ch,
             illumination=ill,
             gain=gain,
+            auto_gain=auto_gain,
             exposure=exp,
             false_color=bool(fc),
             tile_label=tile_label,
@@ -3152,11 +3158,15 @@ class ProtocolSettings(CompositeCapture):
         # increment to the next step
         self.curr_step += 1
 
+        # Disable autogain when moving between steps
+        if auto_gain:
+            lumaview.scope.set_auto_gain(state=False)
+
         if self.curr_step < len(self.step_names):
 
             # Update Step number text
             self.ids['step_number_input'].text = str(self.curr_step+1)
-            self.go_to_step()
+            self.go_to_step(ignore_auto_gain=True)
 
         # if all positions have already been reached
         else:
@@ -3791,7 +3801,7 @@ class LayerControl(BoxLayout):
             lumaview.scope.led_on(channel=channel, mA=illumination)          
 
 
-    def apply_settings(self):
+    def apply_settings(self, ignore_auto_gain=False):
         logger.info('[LVP Main  ] LayerControl.apply_settings()')
         global lumaview
         # global gain_vals
@@ -3808,7 +3818,8 @@ class LayerControl(BoxLayout):
         # update gain to currently selected settings
         # -----------------------------------------------------
         auto_gain_enabled = settings[self.layer]['auto_gain']
-        lumaview.scope.set_auto_gain(auto_gain_enabled)
+        if not ignore_auto_gain:
+            lumaview.scope.set_auto_gain(auto_gain_enabled)
 
 
         # update exposure to currently selected settings
