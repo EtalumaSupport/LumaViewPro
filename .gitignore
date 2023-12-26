@@ -1,6 +1,7 @@
 __pycache__/
 data/current.json
 .vscode/
+capture/*
 calls.txt
 logs/LVP_log*
 capture/*.tiff
