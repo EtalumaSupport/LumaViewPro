@@ -2368,22 +2368,23 @@ class ProtocolSettings(CompositeCapture):
                         if settings[layer]['acquire'] == False:
                             continue
                         
-                        PRECISION = 2
-                        x = round(pos[0] + tile_position["x"]/1000, PRECISION) # in 'plate' coordinates
-                        y = round(pos[1] + tile_position["y"]/1000, PRECISION) # in 'plate' coordinates
+                        x = round(pos[0] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
+                        y = round(pos[1] + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
 
                         if use_zstacking:
                             z = zstack_position
                         else:
                             z = settings[layer]['focus']
 
+                        z = round(z, common_utils.max_decimal_precision('z'))
+
                         af = settings[layer]['autofocus']
                         ch = lumaview.scope.color2ch(layer)
                         fc = settings[layer]['false_color']
-                        ill = settings[layer]['ill']
-                        gain = settings[layer]['gain']
+                        ill = round(settings[layer]['ill'], common_utils.max_decimal_precision('illumination'))
+                        gain = round(settings[layer]['gain'], common_utils.max_decimal_precision('gain'))
                         auto_gain = common_utils.to_bool(settings[layer]['auto_gain'])
-                        exp = settings[layer]['exp']
+                        exp = round(settings[layer]['exp'], common_utils.max_decimal_precision('exposure'))
                         objective = settings['objective']['ID']
 
                         step_name = common_utils.generate_default_step_name(
@@ -2464,12 +2465,25 @@ class ProtocolSettings(CompositeCapture):
         # Since there is currently no versioning in the protocol file, this is a workaround to add 'Objective'
         # to the protocol file, and still be able to load older protocol files which do not contain an 'Objective' column
         for row in csvreader:
-            self.step_names.append(row[0])
+
             if 'Objective' not in header:
-                row.append(0) # For objective
+                row.append(0)
 
-            self.step_values = np.append(self.step_values, np.array([row[1:]]), axis=0)
+            step_name, x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective = row
 
+            x = round(common_utils.to_float(x), common_utils.max_decimal_precision('x'))
+            y = round(common_utils.to_float(y), common_utils.max_decimal_precision('y'))
+            z = round(common_utils.to_float(z), common_utils.max_decimal_precision('z'))
+            af = common_utils.to_bool(af)
+            ch = common_utils.to_int(ch)
+            fc = common_utils.to_bool(fc)
+            
+            ill = round(common_utils.to_float(ill), common_utils.max_decimal_precision('illumination'))
+            gain = round(common_utils.to_float(gain), common_utils.max_decimal_precision('gain'))
+            exp = round(common_utils.to_float(exp), common_utils.max_decimal_precision('exposure'))
+
+            self.step_names.append(step_name)
+            self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective]]), axis=0)
 
         file_pointer.close()
         # self.step_values = np.array(self.step_values)
@@ -2732,9 +2746,9 @@ class ProtocolSettings(CompositeCapture):
             sy = lumaview.scope.get_current_position('Y')
             px, py = self.stage_to_plate(sx, sy)
 
-            self.step_values[self.curr_step, 0] = px # x
-            self.step_values[self.curr_step, 1] = py # y
-            self.step_values[self.curr_step, 2] = lumaview.scope.get_current_position('Z')      # z
+            self.step_values[self.curr_step, 0] = round(px, common_utils.max_decimal_precision('x'))
+            self.step_values[self.curr_step, 1] = round(py, common_utils.max_decimal_precision('y'))
+            self.step_values[self.curr_step, 2] = round(lumaview.scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
         else:
             logger.warning('[LVP Main  ] Motion controller not availabble.')
 
@@ -2755,10 +2769,10 @@ class ProtocolSettings(CompositeCapture):
         self.step_values[self.curr_step, 3]  = bool(layer_id.ids['autofocus'].active) # autofocus
         self.step_values[self.curr_step, 4]  = int(ch) # channel
         self.step_values[self.curr_step, 5]  = bool(layer_id.ids['false_color'].active) # false color
-        self.step_values[self.curr_step, 6]  = layer_id.ids['ill_slider'].value # ill
-        self.step_values[self.curr_step, 7]  = layer_id.ids['gain_slider'].value # gain
+        self.step_values[self.curr_step, 6]  = round(layer_id.ids['ill_slider'].value, common_utils.max_decimal_precision('illumination')) # ill
+        self.step_values[self.curr_step, 7]  = round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')) # gain
         self.step_values[self.curr_step, 8]  = bool(layer_id.ids['auto_gain'].active) # auto_gain
-        self.step_values[self.curr_step, 9]  = layer_id.ids['exp_slider'].value # exp
+        self.step_values[self.curr_step, 9]  = round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')) # exp
         self.step_values[self.curr_step, 10] = settings['objective']['ID']
 
     # Append Current Step to Protocol at Current Position
@@ -2791,17 +2805,17 @@ class ProtocolSettings(CompositeCapture):
         px, py = self.stage_to_plate(sx, sy)
 
         step = [
-            px,                                       # x
-            py,                                       # y
-            lumaview.scope.get_current_position('Z'), # z
-            bool(layer_id.ids['autofocus'].active),   # autofocus
-            int(ch),                                  # ch 
-            bool(layer_id.ids['false_color'].active), # false color
-            layer_id.ids['ill_slider'].value,         # ill
-            layer_id.ids['gain_slider'].value,        # gain
-            bool(layer_id.ids['auto_gain'].active),   # auto_gain
-            layer_id.ids['exp_slider'].value,         # exp
-            settings['objective']['ID']               # objective
+            round(px, common_utils.max_decimal_precision('x')),
+            round(py, common_utils.max_decimal_precision('y')),
+            lumaview.scope.get_current_position('Z'),
+            bool(layer_id.ids['autofocus'].active),
+            int(ch),
+            bool(layer_id.ids['false_color'].active),
+            round(layer_id.ids['ill_slider'].value, common_utils.max_decimal_precision('illumination')),
+            round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')),
+            bool(layer_id.ids['auto_gain'].active),
+            round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')),
+            settings['objective']['ID']
         ]
 
         # Insert into List and Array

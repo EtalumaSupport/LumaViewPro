@@ -133,3 +133,15 @@ def get_field_of_view(
         'width': fov_x,
         'height': fov_y
     }
+
+
+def max_decimal_precision(parameter: str) -> int:
+    DEFAULT_PRECISION = 5
+    PRECISION_MAP = {
+        'x': 4,
+        'y': 4,
+        'z': 5
+    }
+
+    return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
+    
