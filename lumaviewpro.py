@@ -280,7 +280,8 @@ class CompositeCapture(FloatLayout):
         tile_label = None,
         z_height_idx = None,
         scan_count = None,
-        custom_name = None
+        custom_name = None,
+        well_label = None
     ):
         print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
@@ -297,8 +298,12 @@ class CompositeCapture(FloatLayout):
         # file_root = settings[color]['file_root']
 
         if custom_name is None:
+
+            if well_label is None:
+                well_label = self.get_well_label()
+
             name = common_utils.generate_default_step_name(
-                well_label=self.get_well_label(),
+                well_label=well_label,
                 color=color,
                 z_height_idx=z_height_idx,
                 scan_count=scan_count,
@@ -2388,7 +2393,7 @@ class ProtocolSettings(CompositeCapture):
                         objective = settings['objective']['ID']
 
                         step_name = common_utils.generate_default_step_name(
-                            well_label=current_labware.get_well_label(x=x, y=y),
+                            well_label=current_labware.get_well_label(x=pos[0], y=pos[1]),
                             color=layer,
                             z_height_idx=zstack_slice,
                             scan_count=None,
@@ -3096,14 +3101,14 @@ class ProtocolSettings(CompositeCapture):
         logger.info(f'[LVP Main  ] Scan Step: {step_name}')
 
         # identify image settings
-        z_height =   common_utils.to_float(val=self.step_values[self.curr_step, 2]) # Z-height
+        z_height =   round(common_utils.to_float(val=self.step_values[self.curr_step, 2]), common_utils.max_decimal_precision('z')) # Z-height
         af =         common_utils.to_bool(val=self.step_values[self.curr_step, 3]) # autofocus
         ch =         common_utils.to_int(val=self.step_values[self.curr_step, 4]) # LED channel
         fc =         common_utils.to_bool(val=self.step_values[self.curr_step, 5]) # image false color
-        ill =        common_utils.to_float(val=self.step_values[self.curr_step, 6]) # LED illumination
-        gain =       common_utils.to_float(val=self.step_values[self.curr_step, 7]) # camera gain
+        ill =        round(common_utils.to_float(val=self.step_values[self.curr_step, 6]),common_utils.max_decimal_precision('illumination')) # LED illumination
+        gain =       round(common_utils.to_float(val=self.step_values[self.curr_step, 7]),common_utils.max_decimal_precision('gain')) # camera gain
         auto_gain =  common_utils.to_bool(val=self.step_values[self.curr_step, 8]) # camera autogain
-        exp =        common_utils.to_float(val=self.step_values[self.curr_step, 9]) # camera exposure
+        exp =        round(common_utils.to_float(val=self.step_values[self.curr_step, 9]),common_utils.max_decimal_precision('exposure')) # camera exposure
             
         # Set camera settings
         lumaview.scope.set_auto_gain(auto_gain, target_brightness=settings['protocol']['autogain']['target_brightness'])
@@ -3148,6 +3153,8 @@ class ProtocolSettings(CompositeCapture):
         else:
             custom_name = None
 
+        well_label = common_utils.get_well_label_from_name(name=step_name)
+
         # capture image
         image_filepath = self.custom_capture(
             save_folder=self.protocol_run_dir,
@@ -3160,7 +3167,8 @@ class ProtocolSettings(CompositeCapture):
             tile_label=tile_label,
             z_height_idx=z_slice,
             scan_count=self.scan_count,
-            custom_name=custom_name
+            custom_name=custom_name,
+            well_label=well_label
         )
 
         self.protocol_execution_record.add_step(

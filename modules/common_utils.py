@@ -36,6 +36,13 @@ def get_tile_label_from_name(name: str) -> str | None:
     
     return None
 
+
+def get_well_label_from_name(name: str) -> str | None:
+    name = name.split('_')
+
+    return name[0]
+
+
 def is_custom_name(name: str) -> bool:
     name = name.split('_')
 
