@@ -3401,7 +3401,7 @@ class Stage(Widget):
             stage_x = settings['stage_offset']['x']/1000
             stage_y = settings['stage_offset']['y']/1000
 
-            # Needed for grean cicles, cross hairs and roi
+            # Needed for green cicles, cross hairs and roi
             # ------------------
             protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
 
@@ -3447,33 +3447,34 @@ class Stage(Widget):
             rows = current_labware.plate['rows']
 
             Color(0.4, 0.4, 0.4, 0.5)
-            rx = current_labware.plate['spacing']['x']
-            ry = current_labware.plate['spacing']['y']
+            r_px = current_labware.plate['spacing']['x']
+            r_py = current_labware.plate['spacing']['y']
             for i in range(cols):
                 for j in range(rows):
                     #  THIS ONE
-                    well_x, well_y = current_labware.get_well_position(i, j)
-                    x_center = int(x+well_x*scale_x) # on screen center
-                    y_center = int(y+well_y*scale_y) # on screen center
-                    Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
+                    well_px, well_py = current_labware.get_well_position(i, j)
+                    x_center = int(x+well_px*scale_x) # on screen center
+                    y_center = int(y+well_py*scale_y) # on screen center
+                    Ellipse(pos=(x_center-r_px, y_center-r_py), size=(r_px*2, r_py*2))
 
             try:
-                x_target = lumaview.scope.get_target_position('X')
-                y_target = lumaview.scope.get_target_position('Y')
+                sx_target = lumaview.scope.get_target_position('X')
+                sy_target = lumaview.scope.get_target_position('Y')
             except:
                 logger.exception('[LVP Main  ] Error talking to Motor board.')
                 raise
                 
-            x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
+            px_target, py_target = protocol_settings.stage_to_plate(sx_target, sy_target)
 
-            i, j = current_labware.get_well_index(x_target, y_target)
-            well_x, well_y = current_labware.get_well_position(i, j)
-
-            # Convert plate coordinates to relative pixel coordinates
-            sx, sy = protocol_settings.plate_to_pixel(well_x, well_y, scale_x, scale_y)
-
+            i, j = current_labware.get_well_index(px_target, py_target)
+            j = rows - 1 - j # Invert row selection, TBD as to why this is needed
+            well_px, well_py = current_labware.get_well_position(i, j)
+            x_center = int(x+well_px*scale_x) # on screen center
+            y_center = int(y+well_py*scale_y) # on screen center
+    
+            # Green selection circle
             Color(0., 1., 0., 1.)
-            Line(circle=(x+sx, y+sy, rx))
+            Line(circle=(x_center, y_center, r_px))
             
             #  Red Crosshairs
             # ------------------
@@ -4142,7 +4143,6 @@ class LumaViewProApp(App):
         # if profiling:
         #     self.profile = cProfile.Profile()
         #     self.profile.enable()
-        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
 
     def build(self):
         current_time = time.strftime("%m/%d/%Y", time.localtime())
@@ -4187,7 +4187,6 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
-        #Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].draw_labware, 0.1)
 
         try:
             filepath = settings['protocol']['filepath']
