@@ -2188,6 +2188,7 @@ class ProtocolSettings(CompositeCapture):
         self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
         self.scan_count = 0
+        self.scan_in_progress = False
 
         self.exposures = 1  # 1 indexed
         Clock.schedule_once(self._init_ui, 0)
@@ -3024,6 +3025,17 @@ class ProtocolSettings(CompositeCapture):
         # If the toggle button is in the down position: Start Running Scan
         if self.ids['run_scan_btn'].state == 'down' or protocol == True:
             self.ids['run_scan_btn'].text = 'Running Scan'
+            
+            # This handles the case where the interval between scans is too short
+            # for the amount of steps in a protocol.  If the previous scan is not
+            # complete when the interval time occurs, this will at least increment
+            # the scan count so that images have the correct sequence number
+            if protocol == True:
+                if self.scan_in_progress == True:
+                    logger.warning('[LVP Main  ] Next scan in protocol started before previous scan completed.')
+                    self.scan_count += 1
+
+            self.scan_in_progress = True 
 
             # When only running a single scan (instead of a protocol)
             # do similar setup as is done for protocol
@@ -3190,6 +3202,7 @@ class ProtocolSettings(CompositeCapture):
         # if all positions have already been reached
         else:
             self.scan_count += 1
+            self.scan_in_progress = False
             logger.info('[LVP Main  ] Scan Complete')
             self.ids['run_scan_btn'].state = 'normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
@@ -3224,6 +3237,7 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.scan_count = 0
+        self.scan_in_progress = False
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
