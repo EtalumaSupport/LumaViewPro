@@ -1426,6 +1426,7 @@
             id: Red_accordion
             title: 'Red Channel Control'
 			on_collapse: root.accordion_collapse()
+			collapse: False
             LayerControl:
                 id: Red
                 layer: 'Red'
@@ -1656,14 +1657,14 @@
 					valign: 'middle'
 					text_size: self.size
 				ToggleButton:
-					id: apply_btn
+					id: enable_led_btn
 					size_hint: None, None
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
 					background_normal: './data/icons/ToggleL.png'
 					background_down: './data/icons/ToggleR.png'
-					on_release: root.apply_settings()
+					on_release: root.update_led_state()
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -1720,6 +1721,31 @@
 				# spacing: '5dp'
 				color: root.bg_color
 
+			# Auto Gain/Exp
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				padding: '0dp'
+				spacing: '5dp'
+
+				CheckBox:
+					id: auto_gain
+					size_hint_x: None
+					width: '25dp'
+					active: False
+					on_release: root.update_auto_gain()
+
+				Label:
+					text: 'Auto Gain/Exp'
+					halign: 'left'
+					valign: 'middle'
+					font_size: '12sp'
+					size_hint_x: None
+					width: '100dp'
+					text_size: self.size
+				
+
 			# Gain
 			BoxLayout:
 				orientation: 'horizontal'
@@ -1736,12 +1762,6 @@
 					size_hint_x: None
 					width: '50dp'
 					text_size: self.size
-				CheckBox:
-					id: auto_gain
-					size_hint_x: None
-					width: '25dp'
-					active: False
-					on_release: root.auto_gain()
 				ModSlider:
 					id: gain_slider # 0 to 48, default 0, based on camera limits
 					min: 0.

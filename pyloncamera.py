@@ -67,6 +67,7 @@ class PylonCamera:
             self.active.GainAuto.SetValue('Off')
             self.active.ExposureAuto.SetValue('Off')
             self.active.ReverseX.SetValue(True)
+            self.init_auto_gain_focus()
             # Grabbing Continuously (video) with minimal delay
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             self.error_report_count = 0
@@ -77,6 +78,27 @@ class PylonCamera:
             if (self.error_report_count < 6):
                 logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.error_report_count += 1
+
+    
+    def init_auto_gain_focus(self, auto_target_brightness: float=0.5):
+        # margin_px = 8
+        # self.active.AutoFunctionROIOffsetX.SetValue(margin_px)
+        # self.active.AutoFunctionROIOffsetY.SetValue(margin_px)
+        self.active.AutoFunctionROIWidth.SetValue(self.active.Width.Max - 2*self.active.AutoFunctionROIOffsetX.GetValue())
+        self.active.AutoFunctionROIHeight.SetValue(self.active.Height.Max - 2*self.active.AutoFunctionROIOffsetY.GetValue())
+        self.active.AutoFunctionROIUseBrightness = True
+        self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
+        self.active.AutoFunctionROISelector.SetValue('ROI1')
+        self.active.AutoGainLowerLimit.SetValue(self.active.AutoGainLowerLimit.Min)
+        self.active.AutoGainUpperLimit.SetValue(self.active.AutoGainUpperLimit.Max)
+        self.active.AutoFunctionProfile.SetValue('MinimizeGain')
+
+        # self.set_test_pattern('Testimage2')
+
+
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
+        self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
+
 
     def grab(self):
         """ Grab last available frame from camera and save it to self.array
@@ -133,18 +155,23 @@ class PylonCamera:
         else:
             logger.warning('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': inactive camera')
 
-    def auto_gain(self, state = True):
+    def auto_gain(self, state = True, target_brightness: float = 0.5):
         """ Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
-        if self.active != False:
-            if state == True:
-                self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
-            else:
-                self.active.GainAuto.SetValue('Off')
-            logger.info('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': succeeded')
-        else:
+        if self.active == False:
             logger.warning('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': inactive camera')
+            return
+
+        if state == True:
+            self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
+            self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
+            self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
+        else:
+            self.active.GainAuto.SetValue('Off')
+            self.active.ExposureAuto.SetValue('Off')
+        logger.info('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': succeeded')
+            
             
     def exposure_t(self, t):
         """ Set exposure time in the camera hardware t (msec)"""
@@ -182,3 +209,13 @@ class PylonCamera:
         else:
             logger.warning('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera')
 
+
+    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
+        if not self.active:
+            return
+        
+        #if not enabled:
+        #    self.active # TODO
+        
+        self.active.TestPattern.SetValue(pattern)
+        self.grab()

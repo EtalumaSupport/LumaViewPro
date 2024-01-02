@@ -36,6 +36,13 @@ def get_tile_label_from_name(name: str) -> str | None:
     
     return None
 
+
+def get_well_label_from_name(name: str) -> str | None:
+    name = name.split('_')
+
+    return name[0]
+
+
 def is_custom_name(name: str) -> bool:
     name = name.split('_')
 
@@ -94,6 +101,16 @@ def get_transmitted_layers() -> list[str]:
     return ['BF', 'PC', 'EP']
 
 
+def get_opened_layer(lumaview_imagesettings) -> str | None:
+    for layer in get_layers():
+        layer_is_collapsed = lumaview_imagesettings.ids[f"{layer}_accordion"].collapse
+
+        if not layer_is_collapsed:
+            return layer
+        
+        return None
+
+
 def to_bool(val) -> bool:
     if 'str' in str(type(val)):
         return True if val.lower() == "true" else False
@@ -133,3 +150,15 @@ def get_field_of_view(
         'width': fov_x,
         'height': fov_y
     }
+
+
+def max_decimal_precision(parameter: str) -> int:
+    DEFAULT_PRECISION = 5
+    PRECISION_MAP = {
+        'x': 4,
+        'y': 4,
+        'z': 5
+    }
+
+    return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
+    

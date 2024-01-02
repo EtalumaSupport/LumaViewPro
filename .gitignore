@@ -3,7 +3,8 @@ data/current.json
 .vscode/
 calls.txt
 logs/LVP_log*
-capture/*.tiff
+capture/**/*.tiff
+capture/**/*.tsv
 script_testing.py
 venv/
 build/

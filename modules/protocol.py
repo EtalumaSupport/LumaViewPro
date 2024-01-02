@@ -111,16 +111,16 @@ class Protocol:
             for row in csvreader:
                 step = {
                     'name': row[column_map['Name']],
-                    'x': common_utils.to_float(val=row[column_map['X']]),
-                    'y': common_utils.to_float(val=row[column_map['Y']]),
-                    'z': common_utils.to_float(val=row[column_map['Z']]),
+                    'x': round(common_utils.to_float(val=row[column_map['X']]), common_utils.max_decimal_precision('x')),
+                    'y': round(common_utils.to_float(val=row[column_map['Y']]), common_utils.max_decimal_precision('y')),
+                    'z': round(common_utils.to_float(val=row[column_map['Z']]), common_utils.max_decimal_precision('z')),
                     'auto_focus': common_utils.to_bool(val=row[column_map['Auto_Focus']]),
                     # 'channel': int(float(row[column_map['Channel']])),
                     'false_color': common_utils.to_bool(val=row[column_map['False_Color']]),
-                    'illumination': common_utils.to_float(val=row[column_map['Illumination']]),
-                    'gain': common_utils.to_float(val=row[column_map['Gain']]),
+                    'illumination': round(common_utils.to_float(val=row[column_map['Illumination']]), common_utils.max_decimal_precision('illumination')),
+                    'gain': round(common_utils.to_float(val=row[column_map['Gain']]), common_utils.max_decimal_precision('gain')),
                     'auto_gain': common_utils.to_bool(val=row[column_map['Auto_Gain']]),
-                    'exposure': common_utils.to_float(val=row[column_map['Exposure']]),
+                    'exposure': round(common_utils.to_float(val=row[column_map['Exposure']]), common_utils.max_decimal_precision('exposure')),
                     'objective': row[column_map['Objective']]
                 }
 

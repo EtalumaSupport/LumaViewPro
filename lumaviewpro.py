@@ -141,6 +141,9 @@ start_str = str(int(round(time.time() * 1000)))
 global focus_round
 focus_round = 0
 
+
+auto_gain_countdown = 0
+
 def focus_log(positions, values):
     global focus_round
     if False:
@@ -271,12 +274,14 @@ class CompositeCapture(FloatLayout):
         channel,
         illumination,
         gain,
+        auto_gain,
         exposure,
         false_color = True,
         tile_label = None,
         z_height_idx = None,
         scan_count = None,
-        custom_name = None
+        custom_name = None,
+        well_label = None
     ):
         print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
@@ -284,16 +289,21 @@ class CompositeCapture(FloatLayout):
         global settings
         
         # Set gain and exposure
-        lumaview.scope.set_gain(gain)
-        lumaview.scope.set_exposure_time(exposure)
- 
+        if not auto_gain:
+            lumaview.scope.set_gain(gain)
+            lumaview.scope.set_exposure_time(exposure)
+    
         # Save Settings
         color = lumaview.scope.ch2color(channel)
         # file_root = settings[color]['file_root']
 
         if custom_name is None:
+
+            if well_label is None:
+                well_label = self.get_well_label()
+
             name = common_utils.generate_default_step_name(
-                well_label=self.get_well_label(),
+                well_label=well_label,
                 color=color,
                 z_height_idx=z_height_idx,
                 scan_count=scan_count,
@@ -395,11 +405,11 @@ class CompositeCapture(FloatLayout):
             scope_leds_off()
 
             # turn off all LED toggle buttons and histograms
-            lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+            lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
-        # lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+        # lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
         lumaview.ids['composite_btn'].state = 'normal'
 
         img = np.flip(img, 0)
@@ -1441,6 +1451,25 @@ class ImageSettings(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] ImageSettings.__init__()')
+        Clock.schedule_once(self._init_ui, 0)
+    
+
+    def _init_ui(self, dt=0):
+        self.assign_led_button_down_images()
+        self.accordion_collapse()
+        
+
+    def assign_led_button_down_images(self):
+        led_button_down_background_map = {
+            'Red': './data/icons/ToggleRR.png',
+            'Green': './data/icons/ToggleRG.png',
+            'Blue': './data/icons/ToggleRB.png',
+        }
+
+        for layer in common_utils.get_layers():
+            button_down_image = led_button_down_background_map.get(layer, './data/icons/ToggleRW.png')
+            self.ids[layer].ids['enable_led_btn'].background_down = button_down_image
+
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
@@ -1486,20 +1515,19 @@ class ImageSettings(BoxLayout):
 
         # turn off all LED toggle buttons and histograms
         for layer in common_utils.get_layers():
-            lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-            Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
-            logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
+            layer_obj = lumaview.ids['imagesettings_id'].ids[layer]
+            layer_is_collapsed = lumaview.ids['imagesettings_id'].ids[f"{layer}_accordion"].collapse
 
-            accordion = layer + '_accordion'
-            if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
-                if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
-                    lumaview.ids['viewer_id'].update_shader(false_color=layer)
-                else:
-                    lumaview.ids['viewer_id'].update_shader(false_color='BF')
+            if layer_is_collapsed:
+                layer_obj.ids['enable_led_btn'].state = 'normal'
+                continue
+
+            layer_obj.apply_settings()
 
         # Restart camera feed
         if scope_display.play == True:
             scope_display.start()
+
 
     def check_settings(self, *args):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')
@@ -1508,6 +1536,15 @@ class ImageSettings(BoxLayout):
             self.pos = lumaview.width - 30, 0
         else:
             self.pos = lumaview.width - self.settings_width, 0
+
+
+def set_histogram_layer(active_layer):   
+    for layer in common_utils.get_layers():
+        Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
+        if layer == active_layer:
+            Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[active_layer].ids['histo_id'].histogram, 0.5)
+            logger.info(f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)')
+
 
 class Histogram(Widget):
     bg_color = ObjectProperty(None)
@@ -1522,6 +1559,16 @@ class Histogram(Widget):
         self.hist_range_set = False
         self.edges = [0,255]
         self.stablize = 0.3
+
+
+    # @classmethod
+    # def set_active_layer(self, active_layer):     
+    #     Clock.unschedule(self.histogram) 
+    #     for layer in common_utils.get_layers():
+    #         if layer == active_layer:
+    #             Clock.schedule_interval(self.histogram, 0.5)
+    #             logger.info(f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)')
+
 
     def histogram(self, *args):
         # logger.info('[LVP Main  ] Histogram.histogram()')
@@ -1573,7 +1620,8 @@ class Histogram(Widget):
                         else:
                             counts = np.ceil(scale*hist[0][i])
                         self.pos = self.pos
-                        Rectangle(pos=(x+max(i*512/bins-1, 1), y), size=(512/bins, counts))
+                        bin_size= self.width/bins
+                        Rectangle(pos=(x+max(i*bin_size-1, 1), y), size=(bin_size, counts))
                         #self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
 
 
@@ -2140,6 +2188,7 @@ class ProtocolSettings(CompositeCapture):
         self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
         self.scan_count = 0
+        self.scan_in_progress = False
 
         self.exposures = 1  # 1 indexed
         Clock.schedule_once(self._init_ui, 0)
@@ -2320,26 +2369,27 @@ class ProtocolSettings(CompositeCapture):
                         if settings[layer]['acquire'] == False:
                             continue
                         
-                        PRECISION = 2
-                        x = round(pos[0] + tile_position["x"]/1000, PRECISION) # in 'plate' coordinates
-                        y = round(pos[1] + tile_position["y"]/1000, PRECISION) # in 'plate' coordinates
+                        x = round(pos[0] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
+                        y = round(pos[1] + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
 
                         if use_zstacking:
                             z = zstack_position
                         else:
                             z = settings[layer]['focus']
 
+                        z = round(z, common_utils.max_decimal_precision('z'))
+
                         af = settings[layer]['autofocus']
                         ch = lumaview.scope.color2ch(layer)
                         fc = settings[layer]['false_color']
-                        ill = settings[layer]['ill']
-                        gain = settings[layer]['gain']
-                        auto_gain = int(settings[layer]['auto_gain'])
-                        exp = settings[layer]['exp']
+                        ill = round(settings[layer]['ill'], common_utils.max_decimal_precision('illumination'))
+                        gain = round(settings[layer]['gain'], common_utils.max_decimal_precision('gain'))
+                        auto_gain = common_utils.to_bool(settings[layer]['auto_gain'])
+                        exp = round(settings[layer]['exp'], common_utils.max_decimal_precision('exposure'))
                         objective = settings['objective']['ID']
 
                         step_name = common_utils.generate_default_step_name(
-                            well_label=current_labware.get_well_label(x=x, y=y),
+                            well_label=current_labware.get_well_label(x=pos[0], y=pos[1]),
                             color=layer,
                             z_height_idx=zstack_slice,
                             scan_count=None,
@@ -2416,12 +2466,25 @@ class ProtocolSettings(CompositeCapture):
         # Since there is currently no versioning in the protocol file, this is a workaround to add 'Objective'
         # to the protocol file, and still be able to load older protocol files which do not contain an 'Objective' column
         for row in csvreader:
-            self.step_names.append(row[0])
+
             if 'Objective' not in header:
-                row.append(0) # For objective
+                row.append(0)
 
-            self.step_values = np.append(self.step_values, np.array([row[1:]]), axis=0)
+            step_name, x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective = row
 
+            x = round(common_utils.to_float(x), common_utils.max_decimal_precision('x'))
+            y = round(common_utils.to_float(y), common_utils.max_decimal_precision('y'))
+            z = round(common_utils.to_float(z), common_utils.max_decimal_precision('z'))
+            af = common_utils.to_bool(af)
+            ch = common_utils.to_int(ch)
+            fc = common_utils.to_bool(fc)
+            
+            ill = round(common_utils.to_float(ill), common_utils.max_decimal_precision('illumination'))
+            gain = round(common_utils.to_float(gain), common_utils.max_decimal_precision('gain'))
+            exp = round(common_utils.to_float(exp), common_utils.max_decimal_precision('exposure'))
+
+            self.step_names.append(step_name)
+            self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective]]), axis=0)
 
         file_pointer.close()
         # self.step_values = np.array(self.step_values)
@@ -2558,7 +2621,7 @@ class ProtocolSettings(CompositeCapture):
         self.go_to_step()
     
     # Go to Input Step
-    def go_to_step(self):
+    def go_to_step(self, ignore_auto_gain: bool = False):
         logger.info('[LVP Main  ] ProtocolSettings.go_to_step()')
 
         if len(self.step_names) <= 0:
@@ -2647,7 +2710,7 @@ class ProtocolSettings(CompositeCapture):
         # update position in stage control
         lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
 
-        layer.apply_settings()
+        layer.apply_settings(ignore_auto_gain=ignore_auto_gain)
 
 
     # Delete Current Step of Protocol
@@ -2684,9 +2747,9 @@ class ProtocolSettings(CompositeCapture):
             sy = lumaview.scope.get_current_position('Y')
             px, py = self.stage_to_plate(sx, sy)
 
-            self.step_values[self.curr_step, 0] = px # x
-            self.step_values[self.curr_step, 1] = py # y
-            self.step_values[self.curr_step, 2] = lumaview.scope.get_current_position('Z')      # z
+            self.step_values[self.curr_step, 0] = round(px, common_utils.max_decimal_precision('x'))
+            self.step_values[self.curr_step, 1] = round(py, common_utils.max_decimal_precision('y'))
+            self.step_values[self.curr_step, 2] = round(lumaview.scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
         else:
             logger.warning('[LVP Main  ] Motion controller not availabble.')
 
@@ -2707,10 +2770,10 @@ class ProtocolSettings(CompositeCapture):
         self.step_values[self.curr_step, 3]  = bool(layer_id.ids['autofocus'].active) # autofocus
         self.step_values[self.curr_step, 4]  = int(ch) # channel
         self.step_values[self.curr_step, 5]  = bool(layer_id.ids['false_color'].active) # false color
-        self.step_values[self.curr_step, 6]  = layer_id.ids['ill_slider'].value # ill
-        self.step_values[self.curr_step, 7]  = layer_id.ids['gain_slider'].value # gain
+        self.step_values[self.curr_step, 6]  = round(layer_id.ids['ill_slider'].value, common_utils.max_decimal_precision('illumination')) # ill
+        self.step_values[self.curr_step, 7]  = round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')) # gain
         self.step_values[self.curr_step, 8]  = bool(layer_id.ids['auto_gain'].active) # auto_gain
-        self.step_values[self.curr_step, 9]  = layer_id.ids['exp_slider'].value # exp
+        self.step_values[self.curr_step, 9]  = round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')) # exp
         self.step_values[self.curr_step, 10] = settings['objective']['ID']
 
     # Append Current Step to Protocol at Current Position
@@ -2743,17 +2806,17 @@ class ProtocolSettings(CompositeCapture):
         px, py = self.stage_to_plate(sx, sy)
 
         step = [
-            px,                                       # x
-            py,                                       # y
-            lumaview.scope.get_current_position('Z'), # z
-            bool(layer_id.ids['autofocus'].active),   # autofocus
-            int(ch),                                  # ch 
-            bool(layer_id.ids['false_color'].active), # false color
-            layer_id.ids['ill_slider'].value,         # ill
-            layer_id.ids['gain_slider'].value,        # gain
-            bool(layer_id.ids['auto_gain'].active),   # auto_gain
-            layer_id.ids['exp_slider'].value,         # exp
-            settings['objective']['ID']               # objective
+            round(px, common_utils.max_decimal_precision('x')),
+            round(py, common_utils.max_decimal_precision('y')),
+            lumaview.scope.get_current_position('Z'),
+            bool(layer_id.ids['autofocus'].active),
+            int(ch),
+            bool(layer_id.ids['false_color'].active),
+            round(layer_id.ids['ill_slider'].value, common_utils.max_decimal_precision('illumination')),
+            round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')),
+            bool(layer_id.ids['auto_gain'].active),
+            round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')),
+            settings['objective']['ID']
         ]
 
         # Insert into List and Array
@@ -2851,7 +2914,7 @@ class ProtocolSettings(CompositeCapture):
             scope_leds_off()
 
             for layer in common_utils.get_layers():
-                lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+                lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
             Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of autofocus scan iterate
@@ -2920,7 +2983,7 @@ class ProtocolSettings(CompositeCapture):
         lumaview.scope.leds_off()
         lumaview.scope.led_on(ch, ill)
         lumaview.scope.set_gain(gain)
-        lumaview.scope.set_auto_gain(bool(auto_gain))
+        lumaview.scope.set_auto_gain(auto_gain, target_brightness=settings['protocol']['autogain']['target_brightness'])
         lumaview.scope.set_exposure_time(exp)
 
         # Begin autofocus routine
@@ -2962,6 +3025,17 @@ class ProtocolSettings(CompositeCapture):
         # If the toggle button is in the down position: Start Running Scan
         if self.ids['run_scan_btn'].state == 'down' or protocol == True:
             self.ids['run_scan_btn'].text = 'Running Scan'
+            
+            # This handles the case where the interval between scans is too short
+            # for the amount of steps in a protocol.  If the previous scan is not
+            # complete when the interval time occurs, this will at least increment
+            # the scan count so that images have the correct sequence number
+            if protocol == True:
+                if self.scan_in_progress == True:
+                    logger.warning('[LVP Main  ] Next scan in protocol started before previous scan completed.')
+                    self.scan_count += 1
+
+            self.scan_in_progress = True 
 
             # When only running a single scan (instead of a protocol)
             # do similar setup as is done for protocol
@@ -3001,7 +3075,7 @@ class ProtocolSettings(CompositeCapture):
             scope_leds_off()
 
             for layer in common_utils.get_layers():
-                lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
+                lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
@@ -3011,6 +3085,7 @@ class ProtocolSettings(CompositeCapture):
     def scan_iterate(self, dt):
         global lumaview
         global settings
+        global auto_gain_countdown
 
         # If the autofocus is currently active, leave the function before continuing step
         is_autofocus = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_autofocus
@@ -3018,7 +3093,7 @@ class ProtocolSettings(CompositeCapture):
             return
 
         # Identify if an autofocus cycle completed
-        is_complete = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete
+        autofocus_is_complete = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete
 
         # Check if at desired position
         x_status = lumaview.scope.get_target_status('X')
@@ -3033,31 +3108,45 @@ class ProtocolSettings(CompositeCapture):
         logger.info(f'[LVP Main  ] Scan Step: {step_name}')
 
         # identify image settings
-        z_height =   common_utils.to_float(val=self.step_values[self.curr_step, 2]) # Z-height
+        z_height =   round(common_utils.to_float(val=self.step_values[self.curr_step, 2]), common_utils.max_decimal_precision('z')) # Z-height
         af =         common_utils.to_bool(val=self.step_values[self.curr_step, 3]) # autofocus
         ch =         common_utils.to_int(val=self.step_values[self.curr_step, 4]) # LED channel
         fc =         common_utils.to_bool(val=self.step_values[self.curr_step, 5]) # image false color
-        ill =        common_utils.to_float(val=self.step_values[self.curr_step, 6]) # LED illumination
-        gain =       common_utils.to_float(val=self.step_values[self.curr_step, 7]) # camera gain
+        ill =        round(common_utils.to_float(val=self.step_values[self.curr_step, 6]),common_utils.max_decimal_precision('illumination')) # LED illumination
+        gain =       round(common_utils.to_float(val=self.step_values[self.curr_step, 7]),common_utils.max_decimal_precision('gain')) # camera gain
         auto_gain =  common_utils.to_bool(val=self.step_values[self.curr_step, 8]) # camera autogain
-        exp =        common_utils.to_float(val=self.step_values[self.curr_step, 9]) # camera exposure
+        exp =        round(common_utils.to_float(val=self.step_values[self.curr_step, 9]),common_utils.max_decimal_precision('exposure')) # camera exposure
             
         # Set camera settings
-        lumaview.scope.set_gain(gain)
-        lumaview.scope.set_auto_gain(bool(auto_gain))
-        lumaview.scope.set_exposure_time(exp)
+        lumaview.scope.set_auto_gain(auto_gain, target_brightness=settings['protocol']['autogain']['target_brightness'])
+        lumaview.scope.led_on(ch, ill)
+
+        if not auto_gain:
+            lumaview.scope.set_gain(gain)
+            # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
+            lumaview.scope.set_exposure_time(exp)
+
+        
+        if auto_gain and auto_gain_countdown > 0:
+            auto_gain_countdown -= 0.1
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
-        if af and not is_complete:
+        if af and not autofocus_is_complete:
             # turn on LED
-            lumaview.scope.leds_off()
-            lumaview.scope.led_on(ch, ill)
+            # lumaview.scope.leds_off()
+            # lumaview.scope.led_on(ch, ill)
 
             # Begin autofocus routine
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
             
             return
+        
+        # Check if autogain has time-finished after auto-focus so that they can run in parallel
+        if auto_gain and auto_gain_countdown > 0:
+            return
+        else:
+            auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
         
         # reset the is_complete flag on autofocus
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
@@ -3071,18 +3160,22 @@ class ProtocolSettings(CompositeCapture):
         else:
             custom_name = None
 
+        well_label = common_utils.get_well_label_from_name(name=step_name)
+
         # capture image
         image_filepath = self.custom_capture(
             save_folder=self.protocol_run_dir,
             channel=ch,
             illumination=ill,
             gain=gain,
+            auto_gain=auto_gain,
             exposure=exp,
             false_color=bool(fc),
             tile_label=tile_label,
             z_height_idx=z_slice,
             scan_count=self.scan_count,
-            custom_name=custom_name
+            custom_name=custom_name,
+            well_label=well_label
         )
 
         self.protocol_execution_record.add_step(
@@ -3096,15 +3189,20 @@ class ProtocolSettings(CompositeCapture):
         # increment to the next step
         self.curr_step += 1
 
+        # Disable autogain when moving between steps
+        if auto_gain:
+            lumaview.scope.set_auto_gain(state=False)
+
         if self.curr_step < len(self.step_names):
 
             # Update Step number text
             self.ids['step_number_input'].text = str(self.curr_step+1)
-            self.go_to_step()
+            self.go_to_step(ignore_auto_gain=True)
 
         # if all positions have already been reached
         else:
             self.scan_count += 1
+            self.scan_in_progress = False
             logger.info('[LVP Main  ] Scan Complete')
             self.ids['run_scan_btn'].state = 'normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
@@ -3134,12 +3232,17 @@ class ProtocolSettings(CompositeCapture):
 
     # Run the complete protocol 
     def run_protocol(self):
+        global auto_gain_countdown
+
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.scan_count = 0
+        self.scan_in_progress = False
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
+            lumaview.scope.camera.update_auto_gain_target_brightness(settings['protocol']['autogain']['target_brightness'])
+            auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
             self._initialize_protocol_data_folder()
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
@@ -3307,7 +3410,7 @@ class Stage(Widget):
             stage_x = settings['stage_offset']['x']/1000
             stage_y = settings['stage_offset']['y']/1000
 
-            # Needed for grean cicles, cross hairs and roi
+            # Needed for green cicles, cross hairs and roi
             # ------------------
             protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
 
@@ -3353,33 +3456,34 @@ class Stage(Widget):
             rows = current_labware.plate['rows']
 
             Color(0.4, 0.4, 0.4, 0.5)
-            rx = current_labware.plate['spacing']['x']
-            ry = current_labware.plate['spacing']['y']
+            r_px = current_labware.plate['spacing']['x']
+            r_py = current_labware.plate['spacing']['y']
             for i in range(cols):
                 for j in range(rows):
                     #  THIS ONE
-                    well_x, well_y = current_labware.get_well_position(i, j)
-                    x_center = int(x+well_x*scale_x) # on screen center
-                    y_center = int(y+well_y*scale_y) # on screen center
-                    Ellipse(pos=(x_center-rx, y_center-ry), size=(rx*2, ry*2))
+                    well_px, well_py = current_labware.get_well_position(i, j)
+                    x_center = int(x+well_px*scale_x) # on screen center
+                    y_center = int(y+well_py*scale_y) # on screen center
+                    Ellipse(pos=(x_center-r_px, y_center-r_py), size=(r_px*2, r_py*2))
 
             try:
-                x_target = lumaview.scope.get_target_position('X')
-                y_target = lumaview.scope.get_target_position('Y')
+                sx_target = lumaview.scope.get_target_position('X')
+                sy_target = lumaview.scope.get_target_position('Y')
             except:
                 logger.exception('[LVP Main  ] Error talking to Motor board.')
                 raise
                 
-            x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
+            px_target, py_target = protocol_settings.stage_to_plate(sx_target, sy_target)
 
-            i, j = current_labware.get_well_index(x_target, y_target)
-            well_x, well_y = current_labware.get_well_position(i, j)
-
-            # Convert plate coordinates to relative pixel coordinates
-            sx, sy = protocol_settings.plate_to_pixel(well_x, well_y, scale_x, scale_y)
-
+            i, j = current_labware.get_well_index(px_target, py_target)
+            j = rows - 1 - j # Invert row selection, TBD as to why this is needed
+            well_px, well_py = current_labware.get_well_position(i, j)
+            x_center = int(x+well_px*scale_x) # on screen center
+            y_center = int(y+well_py*scale_y) # on screen center
+    
+            # Green selection circle
             Color(0., 1., 0., 1.)
-            Line(circle=(x+sx, y+sy, rx))
+            Line(circle=(x_center, y_center, r_px))
             
             #  Red Crosshairs
             # ------------------
@@ -3435,6 +3539,12 @@ class MicroscopeSettings(BoxLayout):
         else:
             try:
                 settings = json.load(read_file)
+
+                if 'autogain' not in settings['protocol']:
+                    settings['protocol']['autogain'] = {
+                        'max_duration_seconds': 1.0,
+                        'target_brightness': 0.3
+                    }
 
                 # update GUI values from JSON data:
                 self.ids['scope_spinner'].text = settings['microscope']
@@ -3597,6 +3707,7 @@ class ModSlider(Slider):
             self.dispatch('on_release')
             return True
 
+
 # LayerControl Layout class
 # ---------------------------------------------------------------------
 class LayerControl(BoxLayout):
@@ -3609,6 +3720,11 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.__init__()')
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
+        Clock.schedule_once(self._init_ui, 0)
+    
+    
+    def _init_ui(self, dt=0):
+        self.update_auto_gain()
 
     def ill_slider(self):
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
@@ -3629,8 +3745,8 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
-    def auto_gain(self):
-        logger.info('[LVP Main  ] LayerControl.auto_gain()')
+    def update_auto_gain(self):
+        logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':
             state = True
         else:
@@ -3705,65 +3821,63 @@ class LayerControl(BoxLayout):
         control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
         control.update_gui()
 
-    def apply_settings(self):
+
+    def update_led_state(self):
+        enabled = True if self.ids['enable_led_btn'].state == 'down' else False
+        illumination = settings[self.layer]['ill']
+
+        self.set_led_state(enabled=enabled, illumination=illumination)
+        
+        # self.apply_settings()
+
+    
+    def set_led_state(self, enabled: bool, illumination: float):
+        if not lumaview.scope.led:
+            logger.warning('[LVP Main  ] LED controller not available.')
+            return
+
+        channel=lumaview.scope.color2ch(self.layer)
+        if not enabled:
+            lumaview.scope.led_off(channel=channel)
+        else:
+            logger.info(f'[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch({self.layer}), {illumination})')
+            lumaview.scope.led_on(channel=channel, mA=illumination)          
+
+
+    def apply_settings(self, ignore_auto_gain=False):
         logger.info('[LVP Main  ] LayerControl.apply_settings()')
         global lumaview
         # global gain_vals
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
-        illumination = settings[self.layer]['ill']
-        if self.ids['apply_btn'].state == 'down': # if the button is down
-            # In active channel,turn on LED
-            if lumaview.scope.led:
-                lumaview.scope.led_on(lumaview.scope.color2ch(self.layer), illumination)
-                logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(self.layer), illumination)')
-            else:
-                logger.warning('[LVP Main  ] LED controller not available.')
-            
-            #  turn the state of remaining channels to 'normal' and text to 'OFF'       
+        set_histogram_layer(active_layer=self.layer)
+        self.update_led_state()
+        if self.ids['enable_led_btn'].state == 'down': # if the button is down
             for layer in common_utils.get_layers():
-                Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
-                if layer == self.layer:
-                    Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[self.layer].ids['histo_id'].histogram, 0.5)
-                    logger.info('[LVP Main  ] Clock.schedule_interval(...[self.layer]...histogram, 0.5)')
-                else:
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['apply_btn'].state = 'normal'
-
-        else: # if the button is 'normal' meaning not active
-            # In active channel, and turn off LED
-            scope_leds_off()
+                if layer != self.layer:
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
         # update gain to currently selected settings
         # -----------------------------------------------------
-        state = settings[self.layer]['auto_gain']
-        lumaview.scope.set_auto_gain(state)
+        auto_gain_enabled = settings[self.layer]['auto_gain']
+        auto_gain_target_brightness = settings['protocol']['autogain']['target_brightness']
+        if not ignore_auto_gain:
+            lumaview.scope.set_auto_gain(auto_gain_enabled, target_brightness=auto_gain_target_brightness)
 
-        if not(state):
-            gain = settings[self.layer]['gain']
-            lumaview.scope.set_gain(gain)
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
         exposure = settings[self.layer]['exp']
-        lumaview.scope.set_exposure_time(exposure)
+        gain = settings[self.layer]['gain']
 
-        # choose correct active toggle button image based on color
-        # -----------------------------------------------------
-        if self.ids['apply_btn'].state == 'down':
-            if(self.layer) == 'Red':
-                self.ids['apply_btn'].background_down = './data/icons/ToggleRR.png'
-            elif(self.layer) == 'Green':
-                self.ids['apply_btn'].background_down = './data/icons/ToggleRG.png'
-            elif(self.layer) == 'Blue':
-                self.ids['apply_btn'].background_down = './data/icons/ToggleRB.png'
-        else:
-            self.ids['apply_btn'].background_down = './data/icons/ToggleRW.png'
-
+        if not auto_gain_enabled:
+            lumaview.scope.set_gain(gain)
+            lumaview.scope.set_exposure_time(exposure)
+        
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
-        for i in np.arange(0.1, 2, 0.1):
-            Clock.schedule_once(self.update_shader, i)
+        self.update_shader(dt=0)
 
     def update_shader(self, dt):
         # logger.info('[LVP Main  ] LayerControl.update_shader()')
@@ -4037,7 +4151,6 @@ class LumaViewProApp(App):
         # if profiling:
         #     self.profile = cProfile.Profile()
         #     self.profile.enable()
-        # Clock.schedule_once(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 5)
 
     def build(self):
         current_time = time.strftime("%m/%d/%Y", time.localtime())
@@ -4082,7 +4195,6 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
-        #Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].draw_labware, 0.1)
 
         try:
             filepath = settings['protocol']['filepath']
