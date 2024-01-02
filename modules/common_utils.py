@@ -101,6 +101,16 @@ def get_transmitted_layers() -> list[str]:
     return ['BF', 'PC', 'EP']
 
 
+def get_opened_layer(lumaview_imagesettings) -> str | None:
+    for layer in get_layers():
+        layer_is_collapsed = lumaview_imagesettings.ids[f"{layer}_accordion"].collapse
+
+        if not layer_is_collapsed:
+            return layer
+        
+        return None
+
+
 def to_bool(val) -> bool:
     if 'str' in str(type(val)):
         return True if val.lower() == "true" else False

@@ -1523,11 +1523,6 @@ class ImageSettings(BoxLayout):
                 continue
 
             layer_obj.apply_settings()
-            
-            if layer_obj.ids['false_color'].active:
-                lumaview.ids['viewer_id'].update_shader(false_color=layer)
-            else:
-                lumaview.ids['viewer_id'].update_shader(false_color='BF')
 
         # Restart camera feed
         if scope_display.play == True:
@@ -3868,8 +3863,7 @@ class LayerControl(BoxLayout):
         
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
-        for i in np.arange(0.1, 2, 0.1):
-            Clock.schedule_once(self.update_shader, i)
+        self.update_shader(dt=0)
 
     def update_shader(self, dt):
         # logger.info('[LVP Main  ] LayerControl.update_shader()')
