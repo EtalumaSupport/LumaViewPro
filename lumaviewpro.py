@@ -333,7 +333,10 @@ class CompositeCapture(FloatLayout):
             tail_id_mode=None
         )
 
+        # Turn off LEDs and LED toggle buttons
         scope_leds_off()
+        for layer in common_utils.get_layers():
+            lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
         return image_filepath
 
