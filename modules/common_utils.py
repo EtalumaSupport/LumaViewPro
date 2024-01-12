@@ -43,6 +43,15 @@ def get_well_label_from_name(name: str) -> str | None:
     return name[0]
 
 
+def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | None:
+    if is_custom_name(name=step_name):
+        return None
+    
+    step_name_segments = step_name.split('_')
+    step_name_segments[1] = new_layer_name
+    return '_'.join(step_name_segments)
+
+
 def is_custom_name(name: str) -> bool:
     name = name.split('_')
 
@@ -99,6 +108,10 @@ def get_layers() -> list[str]:
 
 def get_transmitted_layers() -> list[str]:
     return ['BF', 'PC', 'EP']
+
+
+def get_fluorescence_layers() -> list[str]:
+    return ['Blue', 'Green', 'Red']
 
 
 def get_opened_layer(lumaview_imagesettings) -> str | None:

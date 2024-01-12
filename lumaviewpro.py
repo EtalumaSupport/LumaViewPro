@@ -112,6 +112,7 @@ from modules.tiling_config import TilingConfig
 import modules.common_utils as common_utils
 
 from modules.stitcher import Stitcher
+from modules.composite_generation import CompositeGeneration
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.zstack_config import ZStackConfig
 
@@ -726,6 +727,35 @@ class StitchControls(BoxLayout):
         stitcher = Stitcher()
         result = stitcher.load_folder(path=pathlib.Path(path))
         final_text = f"Generating stitched images - {status_map[result['status']]}"
+        if result['status'] is False:
+            final_text += f"\n{result['message']}"
+        popup.text = final_text
+        
+        time.sleep(2)
+        self.done = True
+
+
+class CompositeGenControls(BoxLayout):
+
+    done = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        global composite_gen_controls
+        super().__init__(**kwargs)
+        composite_gen_controls = self
+
+
+    @show_popup
+    def run_composite_gen(self, popup, path):
+        status_map = {
+            True: "Success",
+            False: "FAILED"
+        }
+        popup.title = "Composite Image Generation"
+        popup.text = "Generating composite images..."
+        composite_gen = CompositeGeneration()
+        result = composite_gen.load_folder(path=pathlib.Path(path))
+        final_text = f"Generating composite images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
         popup.text = final_text
@@ -4085,6 +4115,8 @@ class FolderChooseBTN(Button):
             )
         elif self.context == 'apply_stitching_to_folder':
             stitch_controls.run_stitcher(path=pathlib.Path(path))
+        elif self.context == 'apply_composite_gen_to_folder':
+            composite_gen_controls.run_composite_gen(path=pathlib.Path(path))
         else:
             raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 
@@ -4169,6 +4201,7 @@ class LumaViewProApp(App):
         global cell_count_content
         global video_creation_controls
         global stitch_controls
+        global composite_gen_controls
         self.icon = './data/icons/icon.png'
 
         try:
