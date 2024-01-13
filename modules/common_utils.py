@@ -43,6 +43,13 @@ def get_well_label_from_name(name: str) -> str | None:
     return name[0]
 
 
+def get_layer_from_name(name: str) -> str | None:
+    name = name.split('_')
+
+    return name[1]
+
+
+
 def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | None:
     if is_custom_name(name=step_name):
         return None

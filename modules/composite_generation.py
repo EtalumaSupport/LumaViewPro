@@ -1,4 +1,5 @@
 
+import itertools
 import os
 import pathlib
 
@@ -22,12 +23,24 @@ class CompositeGeneration:
 
     
     def load_folder(self, path: str | pathlib.Path) -> dict:
-        results = self._protocol_post_processing_helper.load_folder(path=path)
+        results = self._protocol_post_processing_helper.load_folder(path=path, include_stitched_images=True)
         df = results['image_tile_groups']
         df['composite_group_index'] = df.groupby(by=['scan_count','z_slice','well','objective','x','y']).ngroup()
         
+        # Handle composite generation for stitched images also
+        stitched_images_df = results['stitched_images']
+
+        if stitched_images_df is not None:
+            stitched_images_df['composite_group_index'] = stitched_images_df.groupby(by=['scan_count', 'z_slice', 'well']).ngroup()
+            loop_list = itertools.chain(
+                df.groupby(by=['composite_group_index']),
+                stitched_images_df.groupby(by=['composite_group_index'])
+            )
+        else:
+            loop_list = df.groupby(by=['composite_group_index'])
+
         logger.info(f"{self._name}: Generating composite images")
-        for _, composite_group in df.groupby(by=['composite_group_index']):
+        for _, composite_group in loop_list: #df.groupby(by=['composite_group_index']):
 
             composite_filename = common_utils.replace_layer_in_step_name(
                 step_name=composite_group.iloc[0]['filename'],

@@ -5,6 +5,8 @@ import pandas as pd
 
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
+
+import modules.common_utils as common_utils
 from lvp_logger import logger
 
 
@@ -46,8 +48,20 @@ class ProtocolPostProcessingHelper:
             'protocol': path / protocol_file
         }
         
+    
+    @staticmethod
+    def _is_stitched_image(image_filename: str) -> bool:
+        if 'stitched' in image_filename:
+            return True
+        
+        return False
+    
 
-    def load_folder(self, path: str | pathlib.Path) -> dict:
+    def load_folder(
+        self,
+        path: str | pathlib.Path,
+        include_stitched_images: bool = False
+    ) -> dict:
         logger.info(f'{self._name}: Loading folder {path}')
         path = pathlib.Path(path)
 
@@ -68,10 +82,35 @@ class ProtocolPostProcessingHelper:
         protocol_tile_groups = protocol.get_tile_groups()
         image_tile_groups = []
 
+        stitched_images = []
+
         logger.info(f"{self._name}: Matching images to stitching groups")
         for image_name in image_names:
             file_data = protocol_execution_record.get_data_from_filename(filename=image_name)
             if file_data is None:
+                if (include_stitched_images == True) and (self._is_stitched_image(image_filename=image_name) == True):
+                    well = common_utils.get_well_label_from_name(name=image_name)
+                    color = common_utils.get_layer_from_name(name=image_name)
+
+                    # Assumes stitched image name is of format <well>_<layer>_<z_slice>_<scan_count>_stitched.tiff
+                    # Not a valid method for non-stitched images
+                    scan_count = int(image_name.split('_')[-2])
+
+                    # Extract Z-slice if applicable
+                    tmp = image_name.split('_')[-3]
+                    if tmp.startswith('Z'):
+                        z_slice = int(tmp[1:])
+                    else:
+                        z_slice = None
+
+                    stitched_images.append({
+                        'filename': image_name,
+                        'well': well,
+                        'color': color,
+                        'scan_count': scan_count,
+                        'z_slice': z_slice
+                    })
+
                 continue
 
             scan_count = file_data['scan_count']
@@ -103,10 +142,16 @@ class ProtocolPostProcessingHelper:
         
         df = pd.DataFrame(image_tile_groups)
 
+        if len(stitched_images) > 0:
+            stitched_images_df = pd.DataFrame(stitched_images)
+        else:
+            stitched_images_df = None
+
         return {
             'protocol': protocol,
             'protocol_execution_record': protocol_execution_record,
             'image_names': image_names,
             'protocol_tile_groups': protocol_tile_groups,
-            'image_tile_groups': df
+            'image_tile_groups': df,
+            'stitched_images': stitched_images_df
         }
