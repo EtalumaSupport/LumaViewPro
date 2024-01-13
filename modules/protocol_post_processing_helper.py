@@ -52,6 +52,24 @@ class ProtocolPostProcessingHelper:
     @staticmethod
     def _is_stitched_image(image_filename: str) -> bool:
         if 'stitched' in image_filename:
+
+            # For now, dont allow images that are both stitched and composite
+            if 'Composite' in image_filename:
+                return False
+            
+            return True
+        
+        return False
+    
+
+    @staticmethod
+    def _is_composite_image(image_filename: str) -> bool:
+        if 'Composite' in image_filename:
+
+            # For now, dont allow images that are both stitched and composite
+            if 'stitched' in image_filename:
+                return False
+            
             return True
         
         return False
@@ -60,7 +78,8 @@ class ProtocolPostProcessingHelper:
     def load_folder(
         self,
         path: str | pathlib.Path,
-        include_stitched_images: bool = False
+        include_stitched_images: bool = False,
+        include_composite_images: bool = False
     ) -> dict:
         logger.info(f'{self._name}: Loading folder {path}')
         path = pathlib.Path(path)
@@ -83,6 +102,8 @@ class ProtocolPostProcessingHelper:
         image_tile_groups = []
 
         stitched_images = []
+        composite_image_names = []
+        composite_images = []
 
         logger.info(f"{self._name}: Matching images to stitching groups")
         for image_name in image_names:
@@ -110,6 +131,9 @@ class ProtocolPostProcessingHelper:
                         'scan_count': scan_count,
                         'z_slice': z_slice
                     })
+
+                elif (include_composite_images == True) and (self._is_composite_image(image_filename=image_name) == True):
+                    composite_image_names.append(image_name)
 
                 continue
 
@@ -139,6 +163,33 @@ class ProtocolPostProcessingHelper:
                 )
 
                 break
+
+        # Process composite images
+        if len(composite_image_names) > 0:
+            for name in composite_image_names:
+                well = common_utils.get_well_label_from_name(name=name)
+
+                # Assumes composite image name is of format <well>_<layer>_<z_slice>_<scan_count>.tiff
+                # Not a valid method for non-composite images
+                scan_count = int(name.split('_')[-1].split('.')[0])
+
+                # Extract Z-slice if applicable
+                tmp = name.split('_')[-2]
+                if tmp.startswith('Z'):
+                    z_slice = int(tmp[1:])
+                else:
+                    z_slice = None
+
+                
+
+                composite_images.append({
+                    'filename': name,
+                    'well': well,
+                    'scan_count': scan_count,
+                    'z_slice': z_slice
+                })
+
+                
         
         df = pd.DataFrame(image_tile_groups)
 
@@ -147,11 +198,18 @@ class ProtocolPostProcessingHelper:
         else:
             stitched_images_df = None
 
+        if len(composite_images) > 0:
+            composite_images_df = pd.DataFrame(composite_images)
+        else:
+            composite_images_df = None
+
+
         return {
             'protocol': protocol,
             'protocol_execution_record': protocol_execution_record,
             'image_names': image_names,
             'protocol_tile_groups': protocol_tile_groups,
             'image_tile_groups': df,
-            'stitched_images': stitched_images_df
+            'stitched_images': stitched_images_df,
+            'composite_images': composite_images_df
         }

@@ -1,4 +1,5 @@
 
+import itertools
 import os
 import pathlib
 
@@ -20,10 +21,24 @@ class Stitcher:
         
 
     def load_folder(self, path: str | pathlib.Path) -> dict:
-        results = self._protocol_post_processing_helper.load_folder(path=path)
+        results = self._protocol_post_processing_helper.load_folder(
+            path=path,
+            include_stitched_images=False,
+            include_composite_images=False
+        )
        
         df = results['image_tile_groups']
         df['stitch_group_index'] = df.groupby(by=['protocol_group_index','scan_count']).ngroup()
+
+        # composite_images_df = results['composite_images']
+        # if composite_images_df is not None:
+        #     composite_images_df['stitch_group_index'] = composite_images_df.groupby(by=['scan_count', 'z_slice', 'well']).ngroup()
+        #     loop_list = itertools.chain(
+        #         df.groupby(by=['stitch_group_index']),
+        #         composite_images_df.groupby(by=['stitch_group_index'])
+        #     )
+        # else:
+        #     loop_list = df.groupby(by=['stitch_group_index'])
         
         logger.info(f"{self._name}: Generating stitched images")
         for _, stitch_group in df.groupby(by=['stitch_group_index']):

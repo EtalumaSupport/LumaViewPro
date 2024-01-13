@@ -19,11 +19,15 @@ class CompositeGeneration:
     def __init__(self):
         self._name = self.__class__.__name__
         self._protocol_post_processing_helper = ProtocolPostProcessingHelper()
-        
 
     
     def load_folder(self, path: str | pathlib.Path) -> dict:
-        results = self._protocol_post_processing_helper.load_folder(path=path, include_stitched_images=True)
+        results = self._protocol_post_processing_helper.load_folder(
+            path=path,
+            include_stitched_images=True,
+            include_composite_images=False
+        )
+
         df = results['image_tile_groups']
         df['composite_group_index'] = df.groupby(by=['scan_count','z_slice','well','objective','x','y']).ngroup()
         
