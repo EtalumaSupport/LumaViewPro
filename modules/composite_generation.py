@@ -29,13 +29,13 @@ class CompositeGeneration:
         )
 
         df = results['image_tile_groups']
-        df['composite_group_index'] = df.groupby(by=['scan_count','z_slice','well','objective','x','y']).ngroup()
+        df['composite_group_index'] = df.groupby(by=['scan_count','z_slice','well','objective','x','y'], dropna=False).ngroup()
         
         # Handle composite generation for stitched images also
         stitched_images_df = results['stitched_images']
 
         if stitched_images_df is not None:
-            stitched_images_df['composite_group_index'] = stitched_images_df.groupby(by=['scan_count', 'z_slice', 'well']).ngroup()
+            stitched_images_df['composite_group_index'] = stitched_images_df.groupby(by=['scan_count', 'z_slice', 'well'], dropna=False).ngroup()
             loop_list = itertools.chain(
                 df.groupby(by=['composite_group_index']),
                 stitched_images_df.groupby(by=['composite_group_index'])
