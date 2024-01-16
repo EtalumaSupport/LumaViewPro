@@ -1259,109 +1259,7 @@ class PostProcessingAccordion(BoxLayout):
 
     def convert_to_avi(self):
         logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
-        #error_log('PostProcessing.convert_to_avi()')
-
-        # # self.choose_folder()
-        # save_location = './capture/movie.avi'
-
-        # img_array = []
-        # for filename in glob.glob('./capture/*.tiff'):
-        #     img = cv2.imread(filename)
-        #     height, width, layers = img.shape
-        #     size = (width,height)
-        #     img_array.append(img)
-
-        # if len(img_array) > 0:
-        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-
-        # for i in range(len(img_array)):
-        #     out.write(img_array[i])
-        # out.release()
-
-    # def stitch(self):
-    #     logger.debug('[LVP Main  ] PostProcessingAccordian.stitch() not fully implemented')
-    #     #error_log('PostProcessing.stitch()')
-    #     try:
-    #         self.stitched_image = image_stitcher(images_folder=self.raw_images_folder,
-    #                                             combine_colors = self.combine_colors,
-    #                                             ext = self.ext,
-    #                                             method = self.stitching_method,
-    #                                             save_name = self.stitched_save_name,
-    #                                             #positions_file = self.positions_file,
-    #                                             positions_file = "./capture/2x2.tsv",
-    #                                             pos2pix = self.pos2pix,post_process = False)
-    #     except:
-    #         logger.error('[LVP Main  ] PostProcessingAccordian.stitch() faled to stich')
-            
-
-    '''
-    def add_tiling_step(self):
-        logger.info('[LVP Main  ] PostProcessing.add_tiling_step()')
-        x_current = lumaview.scope.get_current_position('X')
-        x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-        y_current = lumaview.scope.get_current_position('Y')
-        y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
-        new_step = [x_current,y_current]
-        self.tiling_target.append(new_step)
-        self.tiling_min = [min(x_current, self.tiling_min[0]), min(y_current, self.tiling_min[1])]
-        self.tiling_max = [max(x_current, self.tiling_max[0]), max(y_current, self.tiling_max[1])]
-        print(new_step)
-        print(self.tiling_min)
-        print(self.tiling_max)
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
-        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
-        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
-        #TODO add cacluation of nearest tiling count
-        return
-
-    def select_tiling_size(self):
-        logger.debug('[LVP Main  ] PostProcessing.select_tiling_size() partially implemented')
-        logger.info('[LVP Main  ] ProtocolSettings.select_tiling_size()')
-        spinner = self.ids['tiling_size_spinner']
-        #settings['protocol']['labware'] = spinner.text #TODO change key
-        x_count = int(spinner.text[0])
-        y_count = int(spinner.text[0]) # For now, only squares are allowed so x_ = y_
-        self.tiling_count = [x_count, y_count]
-        #print(self.x_tiling_count)
-        x_fov = 4000 # TODO tie to objective lookup
-        y_fov = 3000 # TODO tie to objective lookup
-        #x_current = lumaview.scope.get_current_position('X')
-        #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-        x_center = 60000 # TODO make center of a well
-        #y_current = lumaview.scope.get_current_position('Y')
-        #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
-        y_center = 40000 # TODO make center of a well
-        self.tiling_min = [x_center - x_count*x_fov/2, y_center - y_count*y_fov/2]
-        #print(self.tiling_min)
-        self.tiling_max = [x_center + x_count*x_fov/2, y_center + y_count*y_fov/2]
-        #print(self.tiling_max)
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_count = self.tiling_count
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min = self.tiling_min
-        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max = self.tiling_max
-        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_min)
-        print(lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['tiling_stage_id'].ROI_max)
-        return
-        
-    def start_tiling(self):
-        logger.debug('[LVP Main  ] PostProcessing.start_tiling() not yet implemented')
-        return self.get_tile_centers()
-        
-    def get_tile_centers(self):
-        logger.info('[LVP Main  ] PostProcessing.get_tile_centers()')
-        tiles = []
-        ax = (self.tiling_max[0] + self.tiling_min[0])/2
-        ay = (self.tiling_max[1] + self.tiling_min[1])/2
-        dx = (self.tiling_max[0] - self.tiling_min[0])/self.tiling_count[0]
-        dy = (self.tiling_max[1] - self.tiling_min[1])/self.tiling_count[1]
-        for i in range(self.tiling_count[0]):
-            for j in range(self.tiling_count[1]):
-                x = self.tiling_min[0] + (i+0.5)*dx - ax
-                y = self.tiling_min[1] + (j+0.5)*dy - ay
-                tiles.append([x, y])
-                print(x,y)
-        return tiles
-    '''
+     
         
     def open_folder(self):
         logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
@@ -3382,7 +3280,6 @@ class Stage(Widget):
         global settings
 
         # Create current labware instance
-        
         os.chdir(source_path)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
@@ -3456,34 +3353,46 @@ class Stage(Widget):
             rows = current_labware.plate['rows']
 
             Color(0.4, 0.4, 0.4, 0.5)
-            r_px = current_labware.plate['spacing']['x']
-            r_py = current_labware.plate['spacing']['y']
+            r_plate_x = current_labware.plate['spacing']['x']
+            r_plate_y = current_labware.plate['spacing']['y']
+            r_pixel_x = r_plate_x
+            r_pixel_y = r_plate_y
             for i in range(cols):
-                for j in range(rows):
-                    #  THIS ONE
-                    well_px, well_py = current_labware.get_well_position(i, j)
-                    x_center = int(x+well_px*scale_x) # on screen center
-                    y_center = int(y+well_py*scale_y) # on screen center
-                    Ellipse(pos=(x_center-r_px, y_center-r_py), size=(r_px*2, r_py*2))
+                for j in range(rows):                   
+                    well_plate_x, well_plate_y = current_labware.get_well_position(i, j)
+                    well_pixel_x, well_pixel_y = protocol_settings.plate_to_pixel(
+                        px=well_plate_x,
+                        py=well_plate_y,
+                        scale_x=scale_x,
+                        scale_y=scale_y
+                    )
+                    x_center = int(x+well_pixel_x) # on screen center
+                    y_center = int(y+well_pixel_y) # on screen center
+                    Ellipse(pos=(x_center-r_pixel_x, y_center-r_pixel_y), size=(r_pixel_x*2, r_pixel_y*2))
 
             try:
-                sx_target = lumaview.scope.get_target_position('X')
-                sy_target = lumaview.scope.get_target_position('Y')
+                target_stage_x = lumaview.scope.get_target_position('X')
+                target_stage_y = lumaview.scope.get_target_position('Y')
             except:
                 logger.exception('[LVP Main  ] Error talking to Motor board.')
                 raise
                 
-            px_target, py_target = protocol_settings.stage_to_plate(sx_target, sy_target)
+            target_plate_x, target_plate_y = protocol_settings.stage_to_plate(target_stage_x, target_stage_y)
 
-            i, j = current_labware.get_well_index(px_target, py_target)
-            j = rows - 1 - j # Invert row selection, TBD as to why this is needed
-            well_px, well_py = current_labware.get_well_position(i, j)
-            x_center = int(x+well_px*scale_x) # on screen center
-            y_center = int(y+well_py*scale_y) # on screen center
+            target_i, target_j = current_labware.get_well_index(target_plate_x, target_plate_y)
+            target_well_plate_x, target_well_plate_y = current_labware.get_well_position(target_i, target_j)
+            target_well_pixel_x, target_well_pixel_y = protocol_settings.plate_to_pixel(
+                px=target_well_plate_x,
+                py=target_well_plate_y,
+                scale_x=scale_x,
+                scale_y=scale_y
+            )
+            target_well_center_x = int(x+target_well_pixel_x) # on screen center
+            target_well_center_y = int(y+target_well_pixel_y) # on screen center
     
             # Green selection circle
             Color(0., 1., 0., 1.)
-            Line(circle=(x_center, y_center, r_px))
+            Line(circle=(target_well_center_x, target_well_center_y, r_pixel_x))
             
             #  Red Crosshairs
             # ------------------
@@ -3495,9 +3404,12 @@ class Stage(Widget):
 
                 # Convert stage coordinates to relative pixel coordinates
                 pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
+                x_center = x+pixel_x
+                y_center = y+pixel_y
+
                 Color(1., 0., 0., 1.)
-                Line(points=(x+pixel_x-10, y+pixel_y, x+pixel_x+10, y+pixel_y), width = 1) # horizontal line
-                Line(points=(x+pixel_x, y+pixel_y-10, x+pixel_x, y+pixel_y+10), width = 1) # vertical line
+                Line(points=(x_center-10, y_center, x_center+10, y_center), width = 1) # horizontal line
+                Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
 
 
 class MicroscopeSettings(BoxLayout):
