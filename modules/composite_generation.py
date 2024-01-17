@@ -44,7 +44,7 @@ class CompositeGeneration:
             loop_list = df.groupby(by=['composite_group_index'])
 
         logger.info(f"{self._name}: Generating composite images")
-        for _, composite_group in loop_list: #df.groupby(by=['composite_group_index']):
+        for _, composite_group in loop_list:
 
             composite_filename = common_utils.replace_layer_in_step_name(
                 step_name=composite_group.iloc[0]['filename'],
@@ -66,7 +66,7 @@ class CompositeGeneration:
 
             logger.debug(f"{self._name}: - {composite_filename}")
 
-            img_write_result = cv2.imwrite(
+            _ = cv2.imwrite(
                 filename=str(path / composite_filename),
                 img=composite_image
             )
@@ -102,53 +102,7 @@ class CompositeGeneration:
                 img[:,:,2] = source_image[:,:,2]
 
         return img
-        # for layer in common_utils.get_layers():
-        #     if settings[layer]['acquire'] == True:
-
-        #         # Go to focus and wait for arrival
-        #         lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
-
-        #         while not lumaview.scope.get_target_status('Z'):
-        #             time.sleep(.001)
-
-        #         # set the gain and exposure
-        #         gain = settings[layer]['gain']
-        #         lumaview.scope.set_gain(gain)
-        #         exposure = settings[layer]['exp']
-        #         lumaview.scope.set_exposure_time(exposure)
-
-        #         # update illumination to currently selected settings
-        #         illumination = settings[layer]['ill']
-
-        #         # Dark field capture
-        #         scope_leds_off()
-
-        #         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
-        #         time.sleep(2*exposure/1000+0.2)
-        #         scope_display.update_scopedisplay() # Why?
-        #         darkfield = lumaview.scope.get_image()
-
-        #         # Florescent capture
-        #         if lumaview.scope.led:
-        #             lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
-        #             logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
-        #         else:
-        #             logger.warning('LED controller not available.')
-
-        #         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
-        #         time.sleep(2*exposure/1000+0.2)
-        #         exposed = lumaview.scope.get_image()
-
-        #         scope_display.update_scopedisplay() # Why?
-        #         corrected = exposed - np.minimum(exposed,darkfield)
-        #         # buffer the images
-        #         if layer == 'Blue':
-        #             img[:,:,0] = corrected
-        #         elif layer == 'Green':
-        #             img[:,:,1] = corrected
-        #         elif layer == 'Red':
-        #             img[:,:,2] = corrected
-
+       
 
 if __name__ == "__main__":
     composite_gen = CompositeGeneration()
