@@ -1,8 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
-# $branch = "main"
-$branch = "feature/post-composite"
+$branch = "main"
 
 $version = Read-Host -Prompt "Set version"
 $lvp_base_w_version = "LumaViewPro-$version"
