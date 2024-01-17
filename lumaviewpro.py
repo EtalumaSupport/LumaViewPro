@@ -3384,12 +3384,23 @@ class Stage(Widget):
             # ------------------
             cols = current_labware.plate['columns']
             rows = current_labware.plate['rows']
-
+            
             Color(0.4, 0.4, 0.4, 0.5)
-            r_plate_x = current_labware.plate['spacing']['x']
-            r_plate_y = current_labware.plate['spacing']['y']
-            r_pixel_x = r_plate_x
-            r_pixel_y = r_plate_y
+            well_spacing_x = current_labware.plate['spacing']['x']
+            well_spacing_y = current_labware.plate['spacing']['y']
+            well_spacing_pixel_x = well_spacing_x
+            well_spacing_pixel_y = well_spacing_y
+
+            well_diameter = current_labware.plate['diameter']
+            if well_diameter == -1:
+                well_radius_pixel_x = well_spacing_pixel_x
+                well_radius_pixel_y = well_spacing_pixel_y
+            else:
+                well_radius = well_diameter / 2
+                well_radius_pixel_x = well_radius * scale_x
+                well_radius_pixel_y = well_radius * scale_y
+
+            
             for i in range(cols):
                 for j in range(rows):                   
                     well_plate_x, well_plate_y = current_labware.get_well_position(i, j)
@@ -3401,7 +3412,7 @@ class Stage(Widget):
                     )
                     x_center = int(x+well_pixel_x) # on screen center
                     y_center = int(y+well_pixel_y) # on screen center
-                    Ellipse(pos=(x_center-r_pixel_x, y_center-r_pixel_y), size=(r_pixel_x*2, r_pixel_y*2))
+                    Ellipse(pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), size=(well_radius_pixel_x*2, well_radius_pixel_y*2))
 
             try:
                 target_stage_x = lumaview.scope.get_target_position('X')
@@ -3425,7 +3436,7 @@ class Stage(Widget):
     
             # Green selection circle
             Color(0., 1., 0., 1.)
-            Line(circle=(target_well_center_x, target_well_center_y, r_pixel_x))
+            Line(circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x))
             
             #  Red Crosshairs
             # ------------------
