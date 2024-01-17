@@ -1,15 +1,16 @@
 $ErrorActionPreference = "Stop"
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
-$branch = "main"
-
-$version = Read-Host -Prompt "Set version"
-$lvp_base_w_version = "LumaViewPro-$version"
+# $branch = "main"
+$branch = "feature/post-composite"
 
 $starting_dir = Get-Location
 $working_dir = Join-Path -Path $starting_dir -ChildPath "tmp"
-$repo_dir = Join-Path -Path $working_dir -ChildPath  $lvp_base_w_version
+$repo_dir = Join-Path -Path $working_dir -ChildPath  "repo"
 $artifact_dir = Join-Path -Path $working_dir -ChildPath "artifacts"
+
+$version = Get-Content -Path "$repo_dir/version.txt" -TotalCount 1
+$lvp_base_w_version = "LumaViewPro-$version"
 
 Write-Host @"
 Current Dir:  $starting_dir

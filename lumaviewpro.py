@@ -4127,6 +4127,15 @@ class LumaViewProApp(App):
         global composite_gen_controls
         self.icon = './data/icons/icon.png'
 
+        version = ""
+        try:
+            with open("version.txt") as f:
+                version = f.readlines()[0]
+        except:
+            pass
+        
+        self.title = f'LumaViewPro {version}'
+
         try:
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
