@@ -9,9 +9,6 @@ $working_dir = Join-Path -Path $starting_dir -ChildPath "tmp"
 $repo_dir = Join-Path -Path $working_dir -ChildPath  "repo"
 $artifact_dir = Join-Path -Path $working_dir -ChildPath "artifacts"
 
-$version = Get-Content -Path "$repo_dir/version.txt" -TotalCount 1
-$lvp_base_w_version = "LumaViewPro-$version"
-
 Write-Host @"
 Current Dir:  $starting_dir
 Working Dir:  $working_dir
@@ -31,6 +28,13 @@ echo "Cloning $repo_url@$branch for release"
 git clone --depth 1 --branch $branch $repo_url $repo_dir
 Remove-Item "$repo_dir/.git*" -Recurse -Force
 Set-Location -Path $repo_dir
+
+# Getting version from repo
+$version = Get-Content -Path "$repo_dir/version.txt" -TotalCount 1
+Write-Host @"
+Version:  $version
+"@
+$lvp_base_w_version = "LumaViewPro-$version"
 
 echo "Adding license files to top-level"
 Copy-Item '.\licenses\*' -Destination '.\' -Force
