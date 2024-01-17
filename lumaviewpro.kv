@@ -1227,6 +1227,25 @@
 	# Empty widget to consume space at bottom of controls panel
 	Widget:
 
+
+<CompositeGenControls>:
+	orientation: 'vertical'
+
+	# Pad
+	Widget:
+		size_hint_y: None
+		height: '30dp'
+
+	FolderChooseBTN:
+		text: 'Apply Composite Gen to Protocol Folder'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		on_release: self.choose('apply_composite_gen_to_folder')
+	
+	# Empty widget to consume space at bottom of controls panel
+	Widget:
+
 # PostProcessingAccordion - Settings for PostProcessingAccordion
 # ------------------------------------------
 <PostProcessingAccordion>:
@@ -1260,6 +1279,14 @@
 
 			StitchControls:
 				id: stitch_controls_id
+
+		AccordionItem:
+			id: composite_gen_accordion_id
+			title: 'Composite Generation'
+			on_collapse: root.accordion_collapse()
+
+			CompositeGenControls:
+				id: composite_gen_controls_id
 
 
 				# Tiling Stage Display
@@ -1806,7 +1833,7 @@
 				ModSlider:
 					id: exp_slider
 					min: 0.01
-					max: 200. # values are in ms
+					max: 1000. # values are in ms
 					value: 100.
 					step: 0.01
 					# # This was to create a log scale

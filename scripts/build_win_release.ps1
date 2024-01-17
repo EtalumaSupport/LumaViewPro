@@ -8,7 +8,7 @@ $lvp_base_w_version = "LumaViewPro-$version"
 
 $starting_dir = Get-Location
 $working_dir = Join-Path -Path $starting_dir -ChildPath "tmp"
-$repo_dir = Join-Path -Path $working_dir -ChildPath  $lvp_base_w_version
+$repo_dir = Join-Path -Path $working_dir -ChildPath  "$lvp_base_w_version"
 $artifact_dir = Join-Path -Path $working_dir -ChildPath "artifacts"
 
 Write-Host @"
@@ -16,6 +16,7 @@ Current Dir:  $starting_dir
 Working Dir:  $working_dir
 Repo Dir:     $repo_dir
 Artifact Dir: $artifact_dir
+Version:      $version
 "@
 
 if (Test-Path $working_dir) {
@@ -30,6 +31,12 @@ echo "Cloning $repo_url@$branch for release"
 git clone --depth 1 --branch $branch $repo_url $repo_dir
 Remove-Item "$repo_dir/.git*" -Recurse -Force
 Set-Location -Path $repo_dir
+
+$version_in_file = Get-Content -Path "$repo_dir/version.txt" -TotalCount 1
+if ($version_in_file -ne $version) {
+    Write-Host "version.txt contents do not match supplied version"
+    Exit 1
+}
 
 echo "Adding license files to top-level"
 Copy-Item '.\licenses\*' -Destination '.\' -Force
