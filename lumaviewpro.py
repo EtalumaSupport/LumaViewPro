@@ -3243,6 +3243,10 @@ class ProtocolSettings(CompositeCapture):
     def protocol_iterate(self, dt):
         logger.info('[LVP Main  ] ProtocolSettings.protocol_iterate()')
 
+        # Don't start the next scan if the current scan is in progress
+        if self.scan_in_progress:
+            return
+
         # Simplified variables
         start_t = self.start_t # start of cycle in seconds
         curr_t = time.time()   # current time in seconds
