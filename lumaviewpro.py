@@ -2120,6 +2120,7 @@ class ProtocolSettings(CompositeCapture):
         self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
         self.scan_count = 0
+        self.autofocus_was_used = False
         self.scan_in_progress = False
         self.separate_folder_per_channel = False
 
@@ -3016,6 +3017,22 @@ class ProtocolSettings(CompositeCapture):
             self.protocol_execution_record.complete()
 
     
+    def perform_grease_redistribution(self):
+        z_orig = lumaview.scope.get_current_position('Z')
+        logger.info('[LVP Main  ] Performing Z-axis grease redistribution')
+        lumaview.scope.move_absolute_position('Z', 0)
+        z_status = False
+        while not z_status:
+            z_status = lumaview.scope.get_target_status('Z')
+            time.sleep(0.1)
+        lumaview.scope.move_absolute_position('Z', z_orig)
+        z_status = False
+        while not z_status:
+            z_status = lumaview.scope.get_target_status('Z')
+            time.sleep(0.1)
+        logger.info('[LVP Main  ] Grease redistribution complete')
+        
+
     def scan_iterate(self, dt):
         global lumaview
         global settings
@@ -3050,7 +3067,10 @@ class ProtocolSettings(CompositeCapture):
         gain =       round(common_utils.to_float(val=self.step_values[self.curr_step, 7]),common_utils.max_decimal_precision('gain')) # camera gain
         auto_gain =  common_utils.to_bool(val=self.step_values[self.curr_step, 8]) # camera autogain
         exp =        round(common_utils.to_float(val=self.step_values[self.curr_step, 9]),common_utils.max_decimal_precision('exposure')) # camera exposure
-            
+        
+        if af:
+            self.autofocus_was_used = True
+
         # Set camera settings
         lumaview.scope.set_auto_gain(auto_gain, target_brightness=settings['protocol']['autogain']['target_brightness'])
         lumaview.scope.led_on(ch, ill)
@@ -3146,6 +3166,11 @@ class ProtocolSettings(CompositeCapture):
 
         # if all positions have already been reached
         else:
+            # At the end of a scan, if autofocus was used, cycle the Z-axis to re-distribute grease
+            if self.autofocus_was_used == True:
+                self.perform_grease_redistribution()
+                self.autofocus_was_used = False
+
             self.scan_count += 1
             self.scan_in_progress = False
             logger.info('[LVP Main  ] Scan Complete')
@@ -3182,6 +3207,7 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.scan_count = 0
+        self.autofocus_was_used = False
         self.scan_in_progress = False
         self.start_t = time.time() # start of cycle in seconds
 
