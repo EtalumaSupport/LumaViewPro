@@ -38,6 +38,7 @@ June 24, 2023
 '''
 
 # General
+import logging
 import datetime
 import os
 import pathlib
@@ -4145,11 +4146,29 @@ class FileSaveBTN(Button):
                 video_creation_controls.set_output_file_loc(file_loc=filepath)
 
 
+def load_log_level():
+    for settings_file in ("./data/current.json", "./data/settings.json"):
+        logger.info(f"Checking file {settings_file}")
+        if not os.path.exists(settings_file):
+            continue
+
+        with open(settings_file, 'r') as fp:
+            data = json.load(fp)
+
+            try:
+                log_level = logging.getLevelName(data['logging']['default']['level'])
+                logger.setLevel(level=log_level)          
+                return
+            except:
+                pass
+             
+
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def on_start(self):
+        load_log_level()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
         lumaview.scope.xyhome()
         # if profiling:
