@@ -89,7 +89,14 @@ class Stitcher:
             scan_count=row0['scan_count']
         )
 
-        return f"{name}_stitched.tiff"
+        outfile = f"{name}_stitched.tiff"
+
+        # Handle case of individual folders per channel
+        split_name = os.path.split(row0['filename'])
+        if len(split_name) == 2:
+            outfile = os.path.join(split_name[0], outfile)
+        
+        return outfile
 
 
     @staticmethod

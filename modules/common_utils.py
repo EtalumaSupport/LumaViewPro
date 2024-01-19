@@ -1,4 +1,6 @@
 
+import os
+import pathlib
 import re
 
 
@@ -40,6 +42,11 @@ def get_tile_label_from_name(name: str) -> str | None:
 def get_well_label_from_name(name: str) -> str | None:
     name = name.split('_')
 
+    # Handle case where channel name is parent folder and remov eit
+    split_name = os.path.split(name[0])
+    if len(split_name) == 2:
+        return split_name[1]
+
     return name[0]
 
 
@@ -51,10 +58,25 @@ def get_layer_from_name(name: str) -> str | None:
 
 
 def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | None:
-    if is_custom_name(name=step_name):
+
+    # Extract basename in case we are handling protocol with separate folders per channel
+    base_name = os.path.basename(step_name)
+    if is_custom_name(name=base_name):
         return None
+
+    # This replaces the parent folder when using per-channel folders for protocol runs
+    split_name = list(os.path.split(step_name))
+    if len(split_name) == 2:
+        using_per_channel_folders = True
+    else:
+        using_per_channel_folders = False
     
+    if using_per_channel_folders:
+        split_name[0] = new_layer_name
+        step_name = str(pathlib.Path(split_name[0]) / split_name[1])
+
     step_name_segments = step_name.split('_')
+    
     step_name_segments[1] = new_layer_name
     return '_'.join(step_name_segments)
 

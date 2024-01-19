@@ -112,6 +112,7 @@ from modules.tiling_config import TilingConfig
 import modules.common_utils as common_utils
 
 from modules.stitcher import Stitcher
+from modules.color_channels import ColorChannel
 from modules.composite_generation import CompositeGeneration
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.zstack_config import ZStackConfig
@@ -2120,6 +2121,7 @@ class ProtocolSettings(CompositeCapture):
 
         self.scan_count = 0
         self.scan_in_progress = False
+        self.separate_folder_per_channel = False
 
         self.exposures = 1  # 1 indexed
         Clock.schedule_once(self._init_ui, 0)
@@ -2971,6 +2973,7 @@ class ProtocolSettings(CompositeCapture):
             # When only running a single scan (instead of a protocol)
             # do similar setup as is done for protocol
             if protocol is False:
+                self.separate_folder_per_channel = self.ids['protocol_channel_per_folder_id'].active
                 self._initialize_protocol_data_folder()
                 
             # TODO: shut off live updates
@@ -3093,9 +3096,15 @@ class ProtocolSettings(CompositeCapture):
 
         well_label = common_utils.get_well_label_from_name(name=step_name)
 
+        if self.separate_folder_per_channel:
+            save_folder = self.protocol_run_dir / ColorChannel(ch).name
+            save_folder.mkdir(parents=True, exist_ok=True)
+        else:
+            save_folder = self.protocol_run_dir
+
         # capture image
         image_filepath = self.custom_capture(
-            save_folder=self.protocol_run_dir,
+            save_folder=save_folder,
             channel=ch,
             illumination=ill,
             gain=gain,
@@ -3109,8 +3118,13 @@ class ProtocolSettings(CompositeCapture):
             well_label=well_label
         )
 
+        if self.separate_folder_per_channel:
+            image_filepath_name = pathlib.Path(ColorChannel(ch).name) / image_filepath.name
+        else:
+            image_filepath_name = image_filepath.name
+
         self.protocol_execution_record.add_step(
-            image_file_name=image_filepath.name,
+            image_file_name=image_filepath_name,
             step_name=str(self.step_names[self.curr_step]),
             step_index=self.curr_step,
             scan_count=self.scan_count,
@@ -3172,6 +3186,7 @@ class ProtocolSettings(CompositeCapture):
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
+            self.separate_folder_per_channel = self.ids['protocol_channel_per_folder_id'].active
             lumaview.scope.camera.update_auto_gain_target_brightness(settings['protocol']['autogain']['target_brightness'])
             auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
             self._initialize_protocol_data_folder()

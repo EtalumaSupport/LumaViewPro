@@ -1,4 +1,5 @@
 
+import os
 import pathlib
 
 import pandas as pd
@@ -18,10 +19,10 @@ class ProtocolPostProcessingHelper:
 
     @staticmethod
     def _get_image_filenames_from_folder(path: pathlib.Path) -> list:
-        images = path.glob('*.tif[f]')
+        images = path.glob('**/*.tif[f]')
         image_names = []
         for image in images:
-            image_names.append(image.name)
+            image_names.append(os.path.relpath(image, path))
 
         return image_names
 
