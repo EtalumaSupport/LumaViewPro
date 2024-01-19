@@ -3172,13 +3172,14 @@ class ProtocolSettings(CompositeCapture):
                 self.autofocus_was_used = False
 
             self.scan_count += 1
-            self.scan_in_progress = False
+            
             logger.info('[LVP Main  ] Scan Complete')
             self.ids['run_scan_btn'].state = 'normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+            self.scan_in_progress = False
 
     # Run protocol without xy movement
     def run_stationary(self):
