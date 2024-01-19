@@ -2,7 +2,7 @@ __pycache__/
 data/current.json
 .vscode/
 calls.txt
-logs/LVP_log*
+logs/LVP_Log*
 capture/**/*.tiff
 capture/**/*.tsv
 script_testing.py
