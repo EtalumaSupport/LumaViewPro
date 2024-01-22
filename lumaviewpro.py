@@ -1390,7 +1390,16 @@ class ImageSettings(BoxLayout):
     def _init_ui(self, dt=0):
         self.assign_led_button_down_images()
         self.accordion_collapse()
+        self.set_layer_exposure_range()
+
         
+    def set_layer_exposure_range(self):
+        for layer in common_utils.get_fluorescence_layers():
+            lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].max = 1000
+
+        for layer in common_utils.get_transmitted_layers():
+            lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].max = 200
+
 
     def assign_led_button_down_images(self):
         led_button_down_background_map = {
