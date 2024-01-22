@@ -1647,6 +1647,25 @@
 		font_size: '12sp'
 		on_release: self.choose('save_settings')
 
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+		Label:
+			font_size: '12sp'
+			text: 'Enable Crosshairs'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		ToggleButton:
+			id: enable_crosshairs_btn
+			size_hint: None, None
+			size: '45dp', '30dp'
+			border: 0, 0, 0, 0
+			valign: 'middle'
+			background_normal: './data/icons/ToggleL.png'
+			background_down: './data/icons/ToggleRW.png'
+
 	Label:
 
 # LayerControl - Settings for Layers within ImageSettings

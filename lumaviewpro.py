@@ -119,6 +119,7 @@ from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.zstack_config import ZStackConfig
 
 import cv2
+import skimage
 
 # Hardware
 from labware import WellPlate
@@ -205,21 +206,48 @@ class ScopeDisplay(Image):
         logger.info('[LVP Main  ] Clock.unschedule(self.update)')
         Clock.unschedule(self.update_scopedisplay)
 
+
+    @staticmethod
+    def add_crosshairs(image):
+        height, width = image.shape
+        center_x = round(width/2)
+        center_y = round(height/2)
+
+        # Crosshairs
+        image[:,center_x] = 255
+        image[center_y,:] = 255
+
+        # Radiating circles
+        num_circles = 4
+        minimum_dimension = min(height, width)
+        circle_spacing = round(minimum_dimension/ 2 / num_circles)
+        for i in range(num_circles):
+            radius = (i+1) * circle_spacing
+            rr, cc = skimage.draw.circle_perimeter(center_y, center_x, radius=radius, shape=image.shape)
+            image[rr, cc] = 255
+
+        return image
+    
+
     def update_scopedisplay(self, dt=0):
         global lumaview
         global debug_counter
 
         if lumaview.scope.camera.active != False:
-            array = lumaview.scope.get_image()
-            if array is False:
+            image = lumaview.scope.get_image()
+            if image is False:
                 return
+            
+            if lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_crosshairs_btn'].state == 'down':
+                image = self.add_crosshairs(image=image)
+            
             
             if ENGINEERING_MODE == True:
                 debug_counter += 1
                 if debug_counter == 10:
                     debug_counter = 0
-                    mean = round(np.mean(a=array))
-                    stddev = round(np.std(a=array),1)
+                    mean = round(np.mean(a=image))
+                    stddev = round(np.std(a=image),1)
                     open_layer = None
                     for layer in common_utils.get_layers():
                         accordion = layer + '_accordion'
@@ -232,8 +260,9 @@ class ScopeDisplay(Image):
                         lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
 
             # Convert to texture for display (using OpenGL)
-            texture = Texture.create(size=(array.shape[1],array.shape[0]), colorfmt='luminance')
-            texture.blit_buffer(array.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+            texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
+            texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+
             # display image from the texture
             self.texture = texture
         else:
