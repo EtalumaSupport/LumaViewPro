@@ -131,6 +131,12 @@ global lumaview
 global settings
 global cell_count_content
 
+global ENGINEERING_MODE
+ENGINEERING_MODE = False
+
+global debug_counter
+debug_counter = 0
+
 PROTOCOL_DATA_DIR_NAME = "ProtocolData"
 
 abspath = os.path.abspath(__file__)
@@ -201,11 +207,30 @@ class ScopeDisplay(Image):
 
     def update_scopedisplay(self, dt=0):
         global lumaview
+        global debug_counter
 
         if lumaview.scope.camera.active != False:
             array = lumaview.scope.get_image()
             if array is False:
                 return
+            
+            if ENGINEERING_MODE == True:
+                debug_counter += 1
+                if debug_counter == 10:
+                    debug_counter = 0
+                    mean = round(np.mean(a=array))
+                    stddev = round(np.std(a=array),1)
+                    open_layer = None
+                    for layer in common_utils.get_layers():
+                        accordion = layer + '_accordion'
+                        if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+                            open_layer = layer
+                            break
+                    
+                    if open_layer is not None:
+                        lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_mean_id'].text = f"Mean: {mean}"
+                        lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
+
             # Convert to texture for display (using OpenGL)
             texture = Texture.create(size=(array.shape[1],array.shape[0]), colorfmt='luminance')
             texture.blit_buffer(array.flatten(), colorfmt='luminance', bufferfmt='ubyte')
@@ -1391,8 +1416,17 @@ class ImageSettings(BoxLayout):
         self.assign_led_button_down_images()
         self.accordion_collapse()
         self.set_layer_exposure_range()
+        self.enable_image_stats_if_needed()
 
+
+    def enable_image_stats_if_needed(self):
+        global ENGINEERING_MODE
+        if ENGINEERING_MODE == True:
+            for layer in common_utils.get_layers():
+                lumaview.ids['imagesettings_id'].ids[layer].ids['image_stats_mean_id'].height = '30dp'
+                lumaview.ids['imagesettings_id'].ids[layer].ids['image_stats_stddev_id'].height = '30dp'
         
+
     def set_layer_exposure_range(self):
         for layer in common_utils.get_fluorescence_layers():
             lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].max = 1000
@@ -4157,7 +4191,6 @@ class FileSaveBTN(Button):
 
 def load_log_level():
     for settings_file in ("./data/current.json", "./data/settings.json"):
-        logger.info(f"Checking file {settings_file}")
         if not os.path.exists(settings_file):
             continue
 
@@ -4170,6 +4203,27 @@ def load_log_level():
                 return
             except:
                 pass
+
+
+def load_mode():
+    global ENGINEERING_MODE
+    for settings_file in ("./data/current.json", "./data/settings.json"):
+        if not os.path.exists(settings_file):
+            continue
+
+        with open(settings_file, 'r') as fp:
+            data = json.load(fp)
+
+            try:
+                mode = data['mode']
+                if mode == 'engineering':
+                    logger.info(f"Enabling engineering mode")
+                    ENGINEERING_MODE = True       
+                    return
+            except:
+                pass
+
+        ENGINEERING_MODE = False
              
 
 # -------------------------------------------------------------------------
@@ -4178,6 +4232,7 @@ def load_log_level():
 class LumaViewProApp(App):
     def on_start(self):
         load_log_level()
+        load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
         lumaview.scope.xyhome()
         # if profiling:

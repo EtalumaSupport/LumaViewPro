@@ -113,5 +113,6 @@
         "default": {
             "level": "INFO"
         }
-    }
+    },
+    "mode": "normal"
 }
