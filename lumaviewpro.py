@@ -246,8 +246,8 @@ class ScopeDisplay(Image):
                 debug_counter += 1
                 if debug_counter == 10:
                     debug_counter = 0
-                    mean = round(np.mean(a=image))
-                    stddev = round(np.std(a=image),1)
+                    mean = round(np.mean(a=image), 2)
+                    stddev = round(np.std(a=image), 2)
                     open_layer = None
                     for layer in common_utils.get_layers():
                         accordion = layer + '_accordion'
@@ -382,13 +382,17 @@ class CompositeCapture(FloatLayout):
         time.sleep(2*exposure/1000+0.2)
         
         use_color = color if false_color else 'BF'
-        image_filepath = lumaview.scope.save_live_image(
-            save_folder=save_folder,
-            file_root=None,
-            append=name,
-            color=use_color,
-            tail_id_mode=None
-        )
+
+        if self.enable_image_saving == True:
+            image_filepath = lumaview.scope.save_live_image(
+                save_folder=save_folder,
+                file_root=None,
+                append=name,
+                color=use_color,
+                tail_id_mode=None
+            )
+        else:
+            image_filepath = None
 
         # Turn off LEDs and LED toggle buttons
         scope_leds_off()
@@ -696,8 +700,23 @@ class MotionSettings(BoxLayout):
         logger.info('[LVP Main  ] MotionSettings.__init__()')
         self._accordion_item_xystagecontrol = AccordionItemXyStageControl()
         self._accordion_item_xystagecontrol_visible = False
+        Clock.schedule_once(self._init_ui, 0)
 
-    
+       
+    def _init_ui(self, dt=0):
+        self.enable_ui_features_for_engineering_mode()
+
+
+    def enable_ui_features_for_engineering_mode(self):
+        if ENGINEERING_MODE == True:
+            for layer in common_utils.get_layers():
+                ps = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+                ps.ids['protocol_disable_image_saving_box_id'].opacity = 1
+                ps.ids['protocol_disable_image_saving_box_id'].height = '30dp'
+                ps.ids['protocol_disable_image_saving_id'].height = '30dp'
+                ps.ids['protocol_disable_image_saving_label_id'].height = '30dp'
+                
+
     def set_xystage_control_visibility(self, visible: bool) -> None:
         if visible:
             self._show_xystage_control()
@@ -2196,6 +2215,7 @@ class ProtocolSettings(CompositeCapture):
         self.autofocus_was_used = False
         self.scan_in_progress = False
         self.separate_folder_per_channel = False
+        self.enable_image_saving = True
 
         self.exposures = 1  # 1 indexed
         Clock.schedule_once(self._init_ui, 0)
@@ -3211,10 +3231,13 @@ class ProtocolSettings(CompositeCapture):
             well_label=well_label
         )
 
-        if self.separate_folder_per_channel:
-            image_filepath_name = pathlib.Path(ColorChannel(ch).name) / image_filepath.name
+        if self.enable_image_saving == True:
+            if self.separate_folder_per_channel:
+                image_filepath_name = pathlib.Path(ColorChannel(ch).name) / image_filepath.name
+            else:
+                image_filepath_name = image_filepath.name
         else:
-            image_filepath_name = image_filepath.name
+            image_filepath_name = "unsaved"
 
         self.protocol_execution_record.add_step(
             image_file_name=image_filepath_name,
@@ -3286,6 +3309,13 @@ class ProtocolSettings(CompositeCapture):
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
+
+            if ENGINEERING_MODE == True:
+                if lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['protocol_disable_image_saving_id'].active == True:
+                    self.enable_image_saving = False
+                else:
+                    self.enable_image_saving = True
+
             self.separate_folder_per_channel = self.ids['protocol_channel_per_folder_id'].active
             lumaview.scope.camera.update_auto_gain_target_brightness(settings['protocol']['autogain']['target_brightness'])
             auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']

@@ -1109,7 +1109,7 @@
                 halign: 'left'
                 valign: 'middle'
                 text_size: self.size
-        
+
         # # Multiple exposure
         # BoxLayout:
         #     orientation: 'horizontal'
@@ -1187,6 +1187,32 @@
 	        height: '30dp'
 			font_size: '12sp'
 			on_release: root.run_protocol()
+
+		# Engineering mode option
+        BoxLayout:
+		    id: protocol_disable_image_saving_box_id
+			height: '0dp'
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '0dp'
+            spacing: '5dp'
+			opacity: 0
+                           
+            CheckBox:
+                id: protocol_disable_image_saving_id
+				height: '0dp'
+                size_hint_x: None
+                width: '30dp'
+                active: False
+
+            Label:
+			    id: protocol_disable_image_saving_label_id
+				height: '0dp'
+                text: 'Disable image saving'
+                font_size: '12sp'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
 
 		Label:
 
