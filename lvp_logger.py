@@ -50,14 +50,14 @@ LOG_FILE = 'logs/LVP_Log/lumaviewpro.log'
 class CustomFormatter(logging.Formatter):
     # if level is DEBUG/WARNING/ERROR/CRITICAL, log the level, message, time, and filename
     def __init__(self, 
-                 fmt = '[%(levelname)s] %(asctime)s - %(filename)s - %(message)s', 
-                 datefmt ='%m/%d/%Y %I:%M:%S %p'):
+                 fmt = '[%(levelname)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s', 
+                 datefmt ='%m/%d/%Y %H:%M:%S'):
         logging.Formatter.__init__(self, fmt, datefmt)
 
     def format(self, record):
-        if record.levelno == logging.INFO:
-            # if INFO level, only log the message
-            return record.getMessage()
+        # if record.levelno == logging.INFO:
+        #     # if INFO level, only log the message
+        #     return record.getMessage()
         return logging.Formatter.format(self, record)
 
 # ensures logger is specific to the file importing lvp_logger
