@@ -68,8 +68,8 @@ logger.setLevel(logging.INFO)
 
 # obtains name of the module (file) importing lvp_logger
 filename = '%s' % __file__
-file_handler = RotatingFileHandler(LOG_FILE, mode='a', maxBytes=1*1024*1024, 
-                                 backupCount=0, encoding=None, delay=False)
+file_handler = RotatingFileHandler(LOG_FILE, mode='a', maxBytes=5*1024*1024, 
+                                 backupCount=2, encoding=None, delay=False)
 # file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setFormatter(CustomFormatter())
 logger.addHandler(file_handler)
