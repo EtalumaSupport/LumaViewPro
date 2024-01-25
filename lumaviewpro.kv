@@ -2009,37 +2009,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				
-			FloatLayout:
-				padding: '0dp'
-				spacing: '5dp'
-				size_hint_y: None
-				height: '128dp'
-
-				Histogram:
-					id: histo_id
-					pos_hint:{'center_x':0.5, 'center_y':0.5}
-					bg_color: root.bg_color
-					layer: root.layer
-
-			Label:
-			    id: image_stats_mean_id
-				height: '0dp'
-				pos_hint:{'left': 0.1}
-				halign: 'left'
-				size_hint_x: None
-				size_hint_y: None
-				text: ''
-
-			Label:
-			    id: image_stats_stddev_id
-				height: '0dp'
-				pos_hint:{'left': 0.1}
-				halign: 'left'
-				size_hint_x: None
-				size_hint_y: None
-				text: ''
-
+			
 			# Protocol Settings
 			Label:
 				canvas:
@@ -2085,6 +2055,36 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
+				
+			FloatLayout:
+				padding: '0dp'
+				spacing: '5dp'
+				size_hint_y: None
+				height: '128dp'
+
+				Histogram:
+					id: histo_id
+					pos_hint:{'center_x':0.5, 'center_y':0.5}
+					bg_color: root.bg_color
+					layer: root.layer
+
+			Label:
+			    id: image_stats_mean_id
+				height: '0dp'
+				pos_hint:{'left': 0.1}
+				halign: 'left'
+				size_hint_x: None
+				size_hint_y: None
+				text: ''
+
+			Label:
+			    id: image_stats_stddev_id
+				height: '0dp'
+				pos_hint:{'left': 0.1}
+				halign: 'left'
+				size_hint_x: None
+				size_hint_y: None
+				text: ''
 
 			Label:
 
