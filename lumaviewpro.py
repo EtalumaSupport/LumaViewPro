@@ -221,13 +221,13 @@ class ScopeDisplay(Image):
         center_x = round(width/2)
         center_y = round(height/2)
 
-        # Crosshairs
+        # Crosshairs - 2 pixels wide
         if is_color:
-            image[:,center_x,:] = 255
-            image[center_y,:,:] = 255
+            image[:,center_x-1:center_x+1,:] = 255
+            image[center_y-1:center_y+1,:,:] = 255
         else:
-            image[:,center_x] = 255
-            image[center_y,:] = 255
+            image[:,center_x-1:center_x+1] = 255
+            image[center_y-1:center_y+1,:] = 255
 
         # Radiating circles
         num_circles = 4
@@ -236,6 +236,10 @@ class ScopeDisplay(Image):
         for i in range(num_circles):
             radius = (i+1) * circle_spacing
             rr, cc = skimage.draw.circle_perimeter(center_y, center_x, radius=radius, shape=image.shape)
+            image[rr, cc] = 255
+
+            # To make circles 2 pixel wide...
+            rr, cc = skimage.draw.circle_perimeter(center_y, center_x, radius=radius+1, shape=image.shape)
             image[rr, cc] = 255
 
         return image
@@ -296,8 +300,10 @@ class ScopeDisplay(Image):
             if ENGINEERING_MODE == True:
 
                 debug_counter += 1
-                if debug_counter == 10:
+                if debug_counter == 30:
                     debug_counter = 0
+
+                if debug_counter % 10 == 0:
                     mean = round(np.mean(a=image), 2)
                     stddev = round(np.std(a=image), 2)
                     open_layer = None
@@ -311,6 +317,7 @@ class ScopeDisplay(Image):
                         lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_mean_id'].text = f"Mean: {mean}"
                         lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
 
+                if debug_counter % 3 == 0:
                     if self.use_bullseye:
                         image_bullseye = self.transform_to_bullseye(image=image)
 
