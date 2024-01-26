@@ -72,7 +72,7 @@
         orientation: 'horizontal'
         padding: '5dp'
         spacing: '5dp'
-        pos: (root.width-7*40)/2, 0
+        pos: (root.width-9*40)/2, 0
 
         FolderChooseBTN:
             id: live_folder_btn
@@ -1089,7 +1089,27 @@
                 halign: 'left'
                 valign: 'middle'
                 text_size: self.size
-        
+		
+		# Separate Folders
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '30dp'
+            spacing: '5dp'
+                           
+            CheckBox:
+                id: protocol_channel_per_folder_id
+                size_hint_x: None
+                width: '30dp'
+                active: False
+
+            Label:
+                text: 'Save channels in separate folders'
+                font_size: '12sp'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+
         # # Multiple exposure
         # BoxLayout:
         #     orientation: 'horizontal'
@@ -1167,6 +1187,32 @@
 	        height: '30dp'
 			font_size: '12sp'
 			on_release: root.run_protocol()
+
+		# Engineering mode option
+        BoxLayout:
+		    id: protocol_disable_image_saving_box_id
+			height: '0dp'
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '0dp'
+            spacing: '5dp'
+			opacity: 0
+                           
+            CheckBox:
+                id: protocol_disable_image_saving_id
+				height: '0dp'
+                size_hint_x: None
+                width: '30dp'
+                active: False
+
+            Label:
+			    id: protocol_disable_image_saving_label_id
+				height: '0dp'
+                text: 'Disable image saving'
+                font_size: '12sp'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
 
 		Label:
 
@@ -1627,6 +1673,54 @@
 		font_size: '12sp'
 		on_release: self.choose('save_settings')
 
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+		Label:
+			font_size: '12sp'
+			text: 'Enable Crosshairs'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		ToggleButton:
+			id: enable_crosshairs_btn
+			size_hint: None, None
+			size: '45dp', '30dp'
+			border: 0, 0, 0, 0
+			valign: 'middle'
+			background_normal: './data/icons/ToggleL.png'
+			background_down: './data/icons/ToggleRW.png'
+			on_release: root.update_crosshairs_state()
+
+	BoxLayout:
+		height: '30dp'
+		size_hint_y: None
+		orientation: 'horizontal'
+		opacity: 0
+		
+	BoxLayout:
+		id: enable_bullseye_box_id
+		opacity: 0
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '0dp'
+		Label:
+			font_size: '12sp'
+			text: 'Enable Bullseye Mode'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		ToggleButton:
+			id: enable_bullseye_btn_id
+			size_hint: None, None
+			size: '45dp', '30dp'
+			border: 0, 0, 0, 0
+			valign: 'middle'
+			background_normal: './data/icons/ToggleL.png'
+			background_down: './data/icons/ToggleRW.png'
+			on_release: root.update_bullseye_state()
+
 	Label:
 
 # LayerControl - Settings for Layers within ImageSettings
@@ -1944,19 +2038,7 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				
-			FloatLayout:
-				padding: '0dp'
-				spacing: '5dp'
-				size_hint_y: None
-				height: '128dp'
-
-				Histogram:
-					id: histo_id
-					pos_hint:{'center_x':0.5, 'center_y':0.5}
-					bg_color: root.bg_color
-					layer: root.layer
-
+			
 			# Protocol Settings
 			Label:
 				canvas:
@@ -2002,6 +2084,36 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
+				
+			FloatLayout:
+				padding: '0dp'
+				spacing: '5dp'
+				size_hint_y: None
+				height: '128dp'
+
+				Histogram:
+					id: histo_id
+					pos_hint:{'center_x':0.5, 'center_y':0.5}
+					bg_color: root.bg_color
+					layer: root.layer
+
+			Label:
+			    id: image_stats_mean_id
+				height: '0dp'
+				pos_hint:{'left': 0.1}
+				halign: 'left'
+				size_hint_x: None
+				size_hint_y: None
+				text: ''
+
+			Label:
+			    id: image_stats_stddev_id
+				height: '0dp'
+				pos_hint:{'left': 0.1}
+				halign: 'left'
+				size_hint_x: None
+				size_hint_y: None
+				text: ''
 
 			Label:
 

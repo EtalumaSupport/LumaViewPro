@@ -51,6 +51,12 @@ class CompositeGeneration:
                 new_layer_name='Composite'
             )
 
+            # Create parent folder if needed
+            split_name = os.path.split(composite_filename)
+            if len(split_name) == 2:
+                composite_path = path / split_name[0]
+                pathlib.Path(composite_path).mkdir(parents=True, exist_ok=True)
+
             # Filter out non-fluorescence layers
             allowed_layers = common_utils.get_fluorescence_layers()
             composite_group = composite_group[composite_group['color'].isin(allowed_layers)]

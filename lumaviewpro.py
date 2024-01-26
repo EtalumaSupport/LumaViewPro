@@ -38,6 +38,7 @@ June 24, 2023
 '''
 
 # General
+import logging
 import datetime
 import os
 import pathlib
@@ -112,11 +113,13 @@ from modules.tiling_config import TilingConfig
 import modules.common_utils as common_utils
 
 from modules.stitcher import Stitcher
+from modules.color_channels import ColorChannel
 from modules.composite_generation import CompositeGeneration
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.zstack_config import ZStackConfig
 
 import cv2
+import skimage
 
 # Hardware
 from labware import WellPlate
@@ -128,6 +131,12 @@ import image_utils
 global lumaview
 global settings
 global cell_count_content
+
+global ENGINEERING_MODE
+ENGINEERING_MODE = False
+
+global debug_counter
+debug_counter = 0
 
 PROTOCOL_DATA_DIR_NAME = "ProtocolData"
 
@@ -184,6 +193,8 @@ class ScopeDisplay(Image):
     def __init__(self, **kwargs):
         super(ScopeDisplay,self).__init__(**kwargs)
         logger.info('[LVP Main  ] ScopeDisplay.__init__()')
+        self.use_bullseye = False
+        self.use_crosshairs = False
         self.start()
 
     def start(self, fps = 10):
@@ -197,18 +208,134 @@ class ScopeDisplay(Image):
         logger.info('[LVP Main  ] Clock.unschedule(self.update)')
         Clock.unschedule(self.update_scopedisplay)
 
+
+    @staticmethod
+    def add_crosshairs(image):
+        height, width = image.shape[0], image.shape[1]
+
+        if image.ndim == 3:
+            is_color = True
+        else:
+            is_color = False
+
+        center_x = round(width/2)
+        center_y = round(height/2)
+
+        # Crosshairs - 2 pixels wide
+        if is_color:
+            image[:,center_x-1:center_x+1,:] = 255
+            image[center_y-1:center_y+1,:,:] = 255
+        else:
+            image[:,center_x-1:center_x+1] = 255
+            image[center_y-1:center_y+1,:] = 255
+
+        # Radiating circles
+        num_circles = 4
+        minimum_dimension = min(height, width)
+        circle_spacing = round(minimum_dimension/ 2 / num_circles)
+        for i in range(num_circles):
+            radius = (i+1) * circle_spacing
+            rr, cc = skimage.draw.circle_perimeter(center_y, center_x, radius=radius, shape=image.shape)
+            image[rr, cc] = 255
+
+            # To make circles 2 pixel wide...
+            rr, cc = skimage.draw.circle_perimeter(center_y, center_x, radius=radius+1, shape=image.shape)
+            image[rr, cc] = 255
+
+        return image
+    
+
+    @staticmethod
+    def transform_to_bullseye(image):
+        image_bullseye = np.zeros((*image.shape, 3), dtype=np.uint8)
+
+        # The range is defined by (start_value, end_value]
+        # key: [start_value, end_value, RGB Value]
+        color_map = {
+            0:  [ -1,   5,   0,   0,   0],
+            1:  [  5,  15,   0, 255,   0],
+            2:  [ 15,  25,   0,   0,   0],
+            3:  [ 25,  35,   0, 255,   0],
+            4:  [ 35,  45,   0,   0,   0],
+            5:  [ 45,  55,   0, 255,   0],
+            6:  [ 55,  65,   0,   0,   0],
+            7:  [ 65,  75,   0, 255,   0],
+            8:  [ 75,  85,   0,   0,   0],
+            9:  [ 85,  95,   0, 255,   0],
+            10: [ 95, 105,   0,   0,   0],
+            11: [105, 115,   0, 255,   0],
+            12: [115, 125,   0,   0,   0],
+            13: [125, 135,   0,   0, 255],
+            14: [135, 145,   0,   0,   0],
+            15: [145, 155,   0, 255,   0],
+            16: [155, 165,   0,   0,   0],
+            17: [165, 175,   0, 255,   0],
+            18: [175, 185,   0,   0,   0],
+            19: [185, 195,   0, 255,   0],
+            20: [195, 205,   0,   0,   0],
+            21: [205, 215,   0, 255,   0],
+            22: [215, 225,   0,   0,   0],
+            23: [225, 235,   0, 255,   0],
+            24: [235, 245,   0,   0,   0],
+            25: [245, 255, 255,   0,   0]
+        }
+
+        for key in color_map.keys():
+            start, end, *_rgb = color_map[key]
+            boolean_array = np.logical_and(image > start, image <= end)
+            image_bullseye[boolean_array] = _rgb
+
+        return image_bullseye
+    
+
     def update_scopedisplay(self, dt=0):
         global lumaview
+        global debug_counter
 
         if lumaview.scope.camera.active != False:
-            array = lumaview.scope.get_image()
-            if array is False:
+            image = lumaview.scope.get_image()
+            if image is False:
                 return
-            # Convert to texture for display (using OpenGL)
-            texture = Texture.create(size=(array.shape[1],array.shape[0]), colorfmt='luminance')
-            texture.blit_buffer(array.flatten(), colorfmt='luminance', bufferfmt='ubyte')
-            # display image from the texture
-            self.texture = texture
+            
+            if ENGINEERING_MODE == True:
+
+                debug_counter += 1
+                if debug_counter == 30:
+                    debug_counter = 0
+
+                if debug_counter % 10 == 0:
+                    mean = round(np.mean(a=image), 2)
+                    stddev = round(np.std(a=image), 2)
+                    open_layer = None
+                    for layer in common_utils.get_layers():
+                        accordion = layer + '_accordion'
+                        if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+                            open_layer = layer
+                            break
+                    
+                    if open_layer is not None:
+                        lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_mean_id'].text = f"Mean: {mean}"
+                        lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
+
+                if debug_counter % 3 == 0:
+                    if self.use_bullseye:
+                        image_bullseye = self.transform_to_bullseye(image=image)
+
+                        if self.use_crosshairs:
+                            image_bullseye = self.add_crosshairs(image=image_bullseye)
+
+                        texture = Texture.create(size=(image_bullseye.shape[1],image_bullseye.shape[0]), colorfmt='rgb')
+                        texture.blit_buffer(image_bullseye.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+                        self.texture = texture
+                
+            if not self.use_bullseye:
+                if self.use_crosshairs:
+                    image = self.add_crosshairs(image=image)
+
+                # Convert to texture for display (using OpenGL)
+                texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
+                texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+                self.texture = texture
         else:
             self.source = "./data/icons/camera to USB.png"
 
@@ -326,13 +453,17 @@ class CompositeCapture(FloatLayout):
         time.sleep(2*exposure/1000+0.2)
         
         use_color = color if false_color else 'BF'
-        image_filepath = lumaview.scope.save_live_image(
-            save_folder=save_folder,
-            file_root=None,
-            append=name,
-            color=use_color,
-            tail_id_mode=None
-        )
+
+        if self.enable_image_saving == True:
+            image_filepath = lumaview.scope.save_live_image(
+                save_folder=save_folder,
+                file_root=None,
+                append=name,
+                color=use_color,
+                tail_id_mode=None
+            )
+        else:
+            image_filepath = None
 
         # Turn off LEDs and LED toggle buttons
         scope_leds_off()
@@ -640,8 +771,26 @@ class MotionSettings(BoxLayout):
         logger.info('[LVP Main  ] MotionSettings.__init__()')
         self._accordion_item_xystagecontrol = AccordionItemXyStageControl()
         self._accordion_item_xystagecontrol_visible = False
+        Clock.schedule_once(self._init_ui, 0)
 
-    
+       
+    def _init_ui(self, dt=0):
+        self.enable_ui_features_for_engineering_mode()
+
+
+    def enable_ui_features_for_engineering_mode(self):
+        if ENGINEERING_MODE == True:
+            # for layer in common_utils.get_layers():
+            ps = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+            ps.ids['protocol_disable_image_saving_box_id'].opacity = 1
+            ps.ids['protocol_disable_image_saving_box_id'].height = '30dp'
+            ps.ids['protocol_disable_image_saving_id'].height = '30dp'
+            ps.ids['protocol_disable_image_saving_label_id'].height = '30dp'
+
+            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].height = '30dp'
+            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].opacity = 1
+                
+
     def set_xystage_control_visibility(self, visible: bool) -> None:
         if visible:
             self._show_xystage_control()
@@ -1388,7 +1537,25 @@ class ImageSettings(BoxLayout):
     def _init_ui(self, dt=0):
         self.assign_led_button_down_images()
         self.accordion_collapse()
+        self.set_layer_exposure_range()
+        self.enable_image_stats_if_needed()
+
+
+    def enable_image_stats_if_needed(self):
+        global ENGINEERING_MODE
+        if ENGINEERING_MODE == True:
+            for layer in common_utils.get_layers():
+                lumaview.ids['imagesettings_id'].ids[layer].ids['image_stats_mean_id'].height = '30dp'
+                lumaview.ids['imagesettings_id'].ids[layer].ids['image_stats_stddev_id'].height = '30dp'
         
+
+    def set_layer_exposure_range(self):
+        for layer in common_utils.get_fluorescence_layers():
+            lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].max = 1000
+
+        for layer in common_utils.get_transmitted_layers():
+            lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].max = 200
+
 
     def assign_led_button_down_images(self):
         led_button_down_background_map = {
@@ -2119,7 +2286,10 @@ class ProtocolSettings(CompositeCapture):
         self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
         self.scan_count = 0
+        self.autofocus_was_used = False
         self.scan_in_progress = False
+        self.separate_folder_per_channel = False
+        self.enable_image_saving = True
 
         self.exposures = 1  # 1 indexed
         Clock.schedule_once(self._init_ui, 0)
@@ -2971,6 +3141,7 @@ class ProtocolSettings(CompositeCapture):
             # When only running a single scan (instead of a protocol)
             # do similar setup as is done for protocol
             if protocol is False:
+                self.separate_folder_per_channel = self.ids['protocol_channel_per_folder_id'].active
                 self._initialize_protocol_data_folder()
                 
             # TODO: shut off live updates
@@ -3013,6 +3184,22 @@ class ProtocolSettings(CompositeCapture):
             self.protocol_execution_record.complete()
 
     
+    def perform_grease_redistribution(self):
+        z_orig = lumaview.scope.get_current_position('Z')
+        logger.info('[LVP Main  ] Performing Z-axis grease redistribution')
+        lumaview.scope.move_absolute_position('Z', 0)
+        z_status = False
+        while not z_status:
+            z_status = lumaview.scope.get_target_status('Z')
+            time.sleep(0.1)
+        lumaview.scope.move_absolute_position('Z', z_orig)
+        z_status = False
+        while not z_status:
+            z_status = lumaview.scope.get_target_status('Z')
+            time.sleep(0.1)
+        logger.info('[LVP Main  ] Grease redistribution complete')
+        
+
     def scan_iterate(self, dt):
         global lumaview
         global settings
@@ -3047,7 +3234,10 @@ class ProtocolSettings(CompositeCapture):
         gain =       round(common_utils.to_float(val=self.step_values[self.curr_step, 7]),common_utils.max_decimal_precision('gain')) # camera gain
         auto_gain =  common_utils.to_bool(val=self.step_values[self.curr_step, 8]) # camera autogain
         exp =        round(common_utils.to_float(val=self.step_values[self.curr_step, 9]),common_utils.max_decimal_precision('exposure')) # camera exposure
-            
+        
+        if af:
+            self.autofocus_was_used = True
+
         # Set camera settings
         lumaview.scope.set_auto_gain(auto_gain, target_brightness=settings['protocol']['autogain']['target_brightness'])
         lumaview.scope.led_on(ch, ill)
@@ -3093,9 +3283,15 @@ class ProtocolSettings(CompositeCapture):
 
         well_label = common_utils.get_well_label_from_name(name=step_name)
 
+        if self.separate_folder_per_channel:
+            save_folder = self.protocol_run_dir / ColorChannel(ch).name
+            save_folder.mkdir(parents=True, exist_ok=True)
+        else:
+            save_folder = self.protocol_run_dir
+
         # capture image
         image_filepath = self.custom_capture(
-            save_folder=self.protocol_run_dir,
+            save_folder=save_folder,
             channel=ch,
             illumination=ill,
             gain=gain,
@@ -3109,8 +3305,16 @@ class ProtocolSettings(CompositeCapture):
             well_label=well_label
         )
 
+        if self.enable_image_saving == True:
+            if self.separate_folder_per_channel:
+                image_filepath_name = pathlib.Path(ColorChannel(ch).name) / image_filepath.name
+            else:
+                image_filepath_name = image_filepath.name
+        else:
+            image_filepath_name = "unsaved"
+
         self.protocol_execution_record.add_step(
-            image_file_name=image_filepath.name,
+            image_file_name=image_filepath_name,
             step_name=str(self.step_names[self.curr_step]),
             step_index=self.curr_step,
             scan_count=self.scan_count,
@@ -3132,14 +3336,20 @@ class ProtocolSettings(CompositeCapture):
 
         # if all positions have already been reached
         else:
+            # At the end of a scan, if autofocus was used, cycle the Z-axis to re-distribute grease
+            if self.autofocus_was_used == True:
+                self.perform_grease_redistribution()
+                self.autofocus_was_used = False
+
             self.scan_count += 1
-            self.scan_in_progress = False
+            
             logger.info('[LVP Main  ] Scan Complete')
             self.ids['run_scan_btn'].state = 'normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+            self.scan_in_progress = False
 
     # Run protocol without xy movement
     def run_stationary(self):
@@ -3168,10 +3378,19 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.scan_count = 0
+        self.autofocus_was_used = False
         self.scan_in_progress = False
         self.start_t = time.time() # start of cycle in seconds
 
         if self.ids['run_protocol_btn'].state == 'down':
+
+            if ENGINEERING_MODE == True:
+                if lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['protocol_disable_image_saving_id'].active == True:
+                    self.enable_image_saving = False
+                else:
+                    self.enable_image_saving = True
+
+            self.separate_folder_per_channel = self.ids['protocol_channel_per_folder_id'].active
             lumaview.scope.camera.update_auto_gain_target_brightness(settings['protocol']['autogain']['target_brightness'])
             auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
             self._initialize_protocol_data_folder()
@@ -3201,6 +3420,10 @@ class ProtocolSettings(CompositeCapture):
 
     def protocol_iterate(self, dt):
         logger.info('[LVP Main  ] ProtocolSettings.protocol_iterate()')
+
+        # Don't start the next scan if the current scan is in progress
+        if self.scan_in_progress:
+            return
 
         # Simplified variables
         start_t = self.start_t # start of cycle in seconds
@@ -3546,6 +3769,20 @@ class MicroscopeSettings(BoxLayout):
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
         
         self.set_ui_features_for_scope()
+
+
+    def update_bullseye_state(self):
+        if self.ids['enable_bullseye_btn_id'].state == 'down':
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = True
+        else:
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = False
+
+    
+    def update_crosshairs_state(self):
+        if self.ids['enable_crosshairs_btn'].state == 'down':
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs = True
+        else:
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs = False
 
 
     # Save settings to JSON file
@@ -4099,11 +4336,50 @@ class FileSaveBTN(Button):
                 video_creation_controls.set_output_file_loc(file_loc=filepath)
 
 
+def load_log_level():
+    for settings_file in ("./data/current.json", "./data/settings.json"):
+        if not os.path.exists(settings_file):
+            continue
+
+        with open(settings_file, 'r') as fp:
+            data = json.load(fp)
+
+            try:
+                log_level = logging.getLevelName(data['logging']['default']['level'])
+                logger.setLevel(level=log_level)          
+                return
+            except:
+                pass
+
+
+def load_mode():
+    global ENGINEERING_MODE
+    for settings_file in ("./data/current.json", "./data/settings.json"):
+        if not os.path.exists(settings_file):
+            continue
+
+        with open(settings_file, 'r') as fp:
+            data = json.load(fp)
+
+            try:
+                mode = data['mode']
+                if mode == 'engineering':
+                    logger.info(f"Enabling engineering mode")
+                    ENGINEERING_MODE = True       
+                    return
+            except:
+                pass
+
+        ENGINEERING_MODE = False
+             
+
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def on_start(self):
+        load_log_level()
+        load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
         lumaview.scope.xyhome()
         # if profiling:

@@ -40,24 +40,24 @@ lvp_logger.py configures a standard python logger for LumaViewPro.
 import logging
 from logging.handlers import RotatingFileHandler
 import os
-if not os.path.exists("logs/LVP_Log"):
-    os.makedirs("logs/LVP_Log")
+
+os.makedirs("logs/LVP_Log", exist_ok=True)
 
 # file to which messages are logged 
-LOG_FILE = 'logs/LVP_log/lumaviewpro.log'
+LOG_FILE = 'logs/LVP_Log/lumaviewpro.log'
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
     # if level is DEBUG/WARNING/ERROR/CRITICAL, log the level, message, time, and filename
     def __init__(self, 
-                 fmt = '[%(levelname)s] %(asctime)s - %(filename)s - %(message)s', 
-                 datefmt ='%m/%d/%Y %I:%M:%S %p'):
+                 fmt = '[%(levelname)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s', 
+                 datefmt ='%m/%d/%Y %H:%M:%S'):
         logging.Formatter.__init__(self, fmt, datefmt)
 
     def format(self, record):
-        if record.levelno == logging.INFO:
-            # if INFO level, only log the message
-            return record.getMessage()
+        # if record.levelno == logging.INFO:
+        #     # if INFO level, only log the message
+        #     return record.getMessage()
         return logging.Formatter.format(self, record)
 
 # ensures logger is specific to the file importing lvp_logger
@@ -68,8 +68,8 @@ logger.setLevel(logging.INFO)
 
 # obtains name of the module (file) importing lvp_logger
 filename = '%s' % __file__
-file_handler = RotatingFileHandler(LOG_FILE, mode='a', maxBytes=1*1024*1024, 
-                                 backupCount=0, encoding=None, delay=False)
+file_handler = RotatingFileHandler(LOG_FILE, mode='a', maxBytes=5*1024*1024, 
+                                 backupCount=2, encoding=None, delay=False)
 # file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setFormatter(CustomFormatter())
 logger.addHandler(file_handler)

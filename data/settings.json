@@ -108,5 +108,11 @@
             "target_brightness": 0.3,
             "max_duration_seconds": 1.0
         }
-    }
+    },
+    "logging": {
+        "default": {
+            "level": "INFO"
+        }
+    },
+    "mode": "normal"
 }
