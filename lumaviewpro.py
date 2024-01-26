@@ -209,13 +209,23 @@ class ScopeDisplay(Image):
 
     @staticmethod
     def add_crosshairs(image):
-        height, width = image.shape
+        height, width = image.shape[0], image.shape[1]
+
+        if image.ndim == 3:
+            is_color = True
+        else:
+            is_color = False
+
         center_x = round(width/2)
         center_y = round(height/2)
 
         # Crosshairs
-        image[:,center_x] = 255
-        image[center_y,:] = 255
+        if is_color:
+            image[:,center_x,:] = 255
+            image[center_y,:,:] = 255
+        else:
+            image[:,center_x] = 255
+            image[center_y,:] = 255
 
         # Radiating circles
         num_circles = 4
@@ -229,20 +239,70 @@ class ScopeDisplay(Image):
         return image
     
 
+    @staticmethod
+    def transform_to_bullseye(image):
+        image_bullseye = np.zeros((*image.shape, 3), dtype=np.uint8)
+
+        # The range is defined by (start_value, end_value]
+        # key: [start_value, end_value, RGB Value]
+        color_map = {
+            0:  [ -1,   5,   0,   0,   0],
+            1:  [  5,  15,   0, 255,   0],
+            2:  [ 15,  25,   0,   0,   0],
+            3:  [ 25,  35,   0, 255,   0],
+            4:  [ 35,  45,   0,   0,   0],
+            5:  [ 45,  55,   0, 255,   0],
+            6:  [ 55,  65,   0,   0,   0],
+            7:  [ 65,  75,   0, 255,   0],
+            8:  [ 75,  85,   0,   0,   0],
+            9:  [ 85,  95,   0, 255,   0],
+            10: [ 95, 105,   0,   0,   0],
+            11: [105, 115,   0, 255,   0],
+            12: [115, 125,   0,   0,   0],
+            13: [125, 135,   0,   0, 255],
+            14: [135, 145,   0,   0,   0],
+            15: [145, 155,   0, 255,   0],
+            16: [155, 165,   0,   0,   0],
+            17: [165, 175,   0, 255,   0],
+            18: [175, 185,   0,   0,   0],
+            19: [185, 195,   0, 255,   0],
+            20: [195, 205,   0,   0,   0],
+            21: [205, 215,   0, 255,   0],
+            22: [215, 225,   0,   0,   0],
+            23: [225, 235,   0, 255,   0],
+            24: [235, 245,   0,   0,   0],
+            25: [245, 255, 255,   0,   0]
+        }
+
+        for key in color_map.keys():
+            start, end, *_rgb = color_map[key]
+            boolean_array = np.logical_and(image > start, image <= end)
+            image_bullseye[boolean_array] = _rgb
+
+        return image_bullseye
+    
+
     def update_scopedisplay(self, dt=0):
         global lumaview
         global debug_counter
+
+        use_bullseye = False
+        use_crosshairs = False
+
+        if lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_crosshairs_btn'].state == 'down':
+            use_crosshairs = True
 
         if lumaview.scope.camera.active != False:
             image = lumaview.scope.get_image()
             if image is False:
                 return
             
-            if lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_crosshairs_btn'].state == 'down':
-                image = self.add_crosshairs(image=image)
             
             
             if ENGINEERING_MODE == True:
+                if lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_btn_id'].state == 'down':
+                    use_bullseye = True
+
                 debug_counter += 1
                 if debug_counter == 10:
                     debug_counter = 0
@@ -259,12 +319,24 @@ class ScopeDisplay(Image):
                         lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_mean_id'].text = f"Mean: {mean}"
                         lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
 
-            # Convert to texture for display (using OpenGL)
-            texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
-            texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+                    if use_bullseye:
+                        image_bullseye = self.transform_to_bullseye(image=image)
 
-            # display image from the texture
-            self.texture = texture
+                        if use_crosshairs:
+                            image_bullseye = self.add_crosshairs(image=image_bullseye)
+
+                        texture = Texture.create(size=(image_bullseye.shape[1],image_bullseye.shape[0]), colorfmt='rgb')
+                        texture.blit_buffer(image_bullseye.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+                        self.texture = texture
+                
+            if not use_bullseye:
+                if use_crosshairs:
+                    image = self.add_crosshairs(image=image)
+
+                # Convert to texture for display (using OpenGL)
+                texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
+                texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+                self.texture = texture
         else:
             self.source = "./data/icons/camera to USB.png"
 
@@ -709,12 +781,15 @@ class MotionSettings(BoxLayout):
 
     def enable_ui_features_for_engineering_mode(self):
         if ENGINEERING_MODE == True:
-            for layer in common_utils.get_layers():
-                ps = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-                ps.ids['protocol_disable_image_saving_box_id'].opacity = 1
-                ps.ids['protocol_disable_image_saving_box_id'].height = '30dp'
-                ps.ids['protocol_disable_image_saving_id'].height = '30dp'
-                ps.ids['protocol_disable_image_saving_label_id'].height = '30dp'
+            # for layer in common_utils.get_layers():
+            ps = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+            ps.ids['protocol_disable_image_saving_box_id'].opacity = 1
+            ps.ids['protocol_disable_image_saving_box_id'].height = '30dp'
+            ps.ids['protocol_disable_image_saving_id'].height = '30dp'
+            ps.ids['protocol_disable_image_saving_label_id'].height = '30dp'
+
+            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].height = '30dp'
+            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].opacity = 1
                 
 
     def set_xystage_control_visibility(self, visible: bool) -> None:

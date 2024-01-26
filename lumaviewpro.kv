@@ -1692,6 +1692,30 @@
 			background_normal: './data/icons/ToggleL.png'
 			background_down: './data/icons/ToggleRW.png'
 
+	# Label:
+	# 	height: '30dp'
+		
+	BoxLayout:
+		id: enable_bullseye_box_id
+		opacity: 0
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '0dp'
+		Label:
+			font_size: '12sp'
+			text: 'Enable Bullseye Mode'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		ToggleButton:
+			id: enable_bullseye_btn_id
+			size_hint: None, None
+			size: '45dp', '30dp'
+			border: 0, 0, 0, 0
+			valign: 'middle'
+			background_normal: './data/icons/ToggleL.png'
+			background_down: './data/icons/ToggleRW.png'
+
 	Label:
 
 # LayerControl - Settings for Layers within ImageSettings
