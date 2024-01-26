@@ -193,6 +193,8 @@ class ScopeDisplay(Image):
     def __init__(self, **kwargs):
         super(ScopeDisplay,self).__init__(**kwargs)
         logger.info('[LVP Main  ] ScopeDisplay.__init__()')
+        self.use_bullseye = False
+        self.use_crosshairs = False
         self.start()
 
     def start(self, fps = 10):
@@ -286,22 +288,12 @@ class ScopeDisplay(Image):
         global lumaview
         global debug_counter
 
-        use_bullseye = False
-        use_crosshairs = False
-
-        if lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_crosshairs_btn'].state == 'down':
-            use_crosshairs = True
-
         if lumaview.scope.camera.active != False:
             image = lumaview.scope.get_image()
             if image is False:
                 return
             
-            
-            
             if ENGINEERING_MODE == True:
-                if lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_btn_id'].state == 'down':
-                    use_bullseye = True
 
                 debug_counter += 1
                 if debug_counter == 10:
@@ -319,18 +311,18 @@ class ScopeDisplay(Image):
                         lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_mean_id'].text = f"Mean: {mean}"
                         lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
 
-                    if use_bullseye:
+                    if self.use_bullseye:
                         image_bullseye = self.transform_to_bullseye(image=image)
 
-                        if use_crosshairs:
+                        if self.use_crosshairs:
                             image_bullseye = self.add_crosshairs(image=image_bullseye)
 
                         texture = Texture.create(size=(image_bullseye.shape[1],image_bullseye.shape[0]), colorfmt='rgb')
                         texture.blit_buffer(image_bullseye.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
                         self.texture = texture
                 
-            if not use_bullseye:
-                if use_crosshairs:
+            if not self.use_bullseye:
+                if self.use_crosshairs:
                     image = self.add_crosshairs(image=image)
 
                 # Convert to texture for display (using OpenGL)
@@ -3770,6 +3762,20 @@ class MicroscopeSettings(BoxLayout):
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
         
         self.set_ui_features_for_scope()
+
+
+    def update_bullseye_state(self):
+        if self.ids['enable_bullseye_btn_id'].state == 'down':
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = True
+        else:
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = False
+
+    
+    def update_crosshairs_state(self):
+        if self.ids['enable_crosshairs_btn'].state == 'down':
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs = True
+        else:
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs = False
 
 
     # Save settings to JSON file

@@ -1691,9 +1691,13 @@
 			valign: 'middle'
 			background_normal: './data/icons/ToggleL.png'
 			background_down: './data/icons/ToggleRW.png'
+			on_release: root.update_crosshairs_state()
 
-	# Label:
-	# 	height: '30dp'
+	BoxLayout:
+		height: '30dp'
+		size_hint_y: None
+		orientation: 'horizontal'
+		opacity: 0
 		
 	BoxLayout:
 		id: enable_bullseye_box_id
@@ -1715,6 +1719,7 @@
 			valign: 'middle'
 			background_normal: './data/icons/ToggleL.png'
 			background_down: './data/icons/ToggleRW.png'
+			on_release: root.update_bullseye_state()
 
 	Label:
 
