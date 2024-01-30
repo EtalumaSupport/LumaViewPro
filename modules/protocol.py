@@ -17,7 +17,8 @@ class Protocol:
 
     PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
     COLUMNS_V1 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective']
-    COLUMNS_V2 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Step Index', 'Color']
+    COLUMNS_V1A = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID']
+    COLUMNS_V2 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Step Index', 'Color', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID']
     CURRENT_VERSION = 2
     CURRENT_COLUMNS = COLUMNS_V2
     STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|EP|PC)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
@@ -107,6 +108,14 @@ class Protocol:
             columns = next(csvreader)
             column_map = cls._get_column_index_map(column_names=columns)
 
+            # Check if version is 1A (Extra columns added)
+            use_version_1a = True
+            if config['version'] == 1:
+
+                for column in ('Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'):
+                    if column not in column_map:
+                        use_version_1a = False
+
             steps = []
             for row in csvreader:
                 step = {
@@ -127,12 +136,23 @@ class Protocol:
                 if config['version'] == 1:
                     step['channel'] = common_utils.to_int(val=row[column_map['Channel']])
 
+                    if use_version_1a:
+                        step['well'] = row[column_map['Well']]
+                        step['tile'] = row[column_map['Tile']]
+                        step['z_slice'] = row[column_map['Z-Slice']]
+                        step['custom_step'] = row[column_map['Custom Step']]
+                        step['tile_group_id'] = row[column_map['Tile Group ID']]
+                        step['zstack_group_id'] = row[column_map['Z-Stack Group ID']]
+
                 if config['version'] >= 2:
                     step['well'] = row[column_map['Well']]
                     step['tile'] = row[column_map['Tile']]
                     step['z_slice'] = row[column_map['Z-Slice']]
                     step['step_index'] = row[column_map['Step Index']]
                     step['color'] = row[column_map['Color']]
+                    step['custom_step'] = row[column_map['Custom Step']]
+                    step['tile_group_id'] = row[column_map['Tile Group ID']]
+                    step['zstack_group_id'] = row[column_map['Z-Stack Group ID']]
 
                 steps.append(step) 
 
@@ -143,13 +163,15 @@ class Protocol:
             steps_df['color'] = steps_df.apply(lambda s: color_channels.ColorChannel(s['channel']).name, axis=1)
             steps_df = steps_df.drop(columns=['channel'])
 
-            # Extract tiling config from step names 
+            # Extract tiling config from step names
             tc = tiling_config.TilingConfig()
             config['tiling'] = tc.determine_tiling_label_from_names(
                 names=steps_df['name'].to_list()
             )
 
-            steps_df = steps_df.apply(cls.extract_data_from_step_name, axis=1)
+            if not use_version_1a:
+                steps_df = steps_df.apply(cls.extract_data_from_step_name, axis=1)
+                steps_df['custom_step'] = False
 
         # Index and build a map of Z-heights. Indicies will be used in step/file naming
         # Only build the height map if we have at least 2 heights in the protocol.
@@ -188,17 +210,20 @@ class Protocol:
         steps = self._config['steps']
         tile_groups = steps.groupby(
             by=[
+                'tile_group_id',
                 'well',
                 'color',
                 'z_slice',
-                'objective'
+                'objective',
+                'zstack_group_id',
+                'custom_step'
             ],
             dropna=False
         )
 
         tile_dict = {}
         for idx, (_, group_info) in enumerate(tile_groups):
-            tile_dict[idx] = group_info[['name','x','y','color','well','tile','step_index','z_slice','objective']]
+            tile_dict[idx] = group_info[['name','x','y','color','well','tile','step_index','z_slice','objective','tile_group_id','zstack_group_id','custom_step']]
         
         return tile_dict
     

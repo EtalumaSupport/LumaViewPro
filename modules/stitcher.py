@@ -82,12 +82,24 @@ class Stitcher:
     @staticmethod
     def _generate_stitched_filename(df: pd.DataFrame) -> str:
         row0 = df.iloc[0]
-        name = common_utils.generate_default_step_name(
-            well_label=row0['well'],
-            color=row0['color'],
-            z_height_idx=row0['z_slice'],
-            scan_count=row0['scan_count']
-        )
+        custom_step = common_utils.to_bool(row0['custom_step'])
+
+        if custom_step is True:
+            prefix = row0['filename'].split("_")[0]
+            name = common_utils.generate_default_step_name(
+                custom_name_prefix=prefix,
+                well_label=row0['well'],
+                color=row0['color'],
+                z_height_idx=row0['z_slice'],
+                scan_count=row0['scan_count']
+            )
+        else:
+            name = common_utils.generate_default_step_name(
+                well_label=row0['well'],
+                color=row0['color'],
+                z_height_idx=row0['z_slice'],
+                scan_count=row0['scan_count']
+            )
 
         outfile = f"{name}_stitched.tiff"
 

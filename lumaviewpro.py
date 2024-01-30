@@ -2270,8 +2270,10 @@ class ProtocolSettings(CompositeCapture):
         
 
         self.step_names = list()
-        self.step_values = np.empty((0,11), float)
+        self.step_values = np.empty((0,17), float)
         self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
+
+        self.custom_step_count = 0
         
         self.tiling_config = TilingConfig()
         self.tiling_min = {
@@ -2410,11 +2412,108 @@ class ProtocolSettings(CompositeCapture):
 
         return pixel_x, pixel_y
         
+    
+    def apply_tiling(self):
+        logger.info('[LVP Main  ] Apply tiling to protocol')
+        os.chdir(source_path)
+        current_labware = WellPlate()
+        current_labware.load_plate(settings['protocol']['labware'])
+        current_labware.set_positions()
+        
+        tiles = self.tiling_config.get_tile_centers(
+            config_label=self.ids['tiling_size_spinner'].text,
+            focal_length=settings['objective']['focal_length'],
+            frame_size=settings['frame'],
+            fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position']
+        )
 
+        if len(tiles) == 1: # No tiling
+            return
+
+        # Get existing max tile group ID to start from
+        existing_max_tile_group_id = -1
+
+        for row_idx in range(len(self.step_values)):
+            step_values = self.step_values[row_idx]
+            tile_group_id = step_values[15]
+            if tile_group_id != "":
+                tile_group_id = common_utils.to_int(tile_group_id)
+                existing_max_tile_group_id = max(tile_group_id, existing_max_tile_group_id)
+
+        tile_group_id = existing_max_tile_group_id + 1
+
+        new_step_names = list()
+        new_step_values = np.empty((0,17), float)
+        for row_idx in range(len(self.step_values)):
+            step_name = self.step_names[row_idx]
+            step_values = self.step_values[row_idx]
+
+            x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective, well, orig_tile_label, zslice, custom_step, tmp_tile_group_id, zstack_group_id = step_values
+            x = round(common_utils.to_float(x), common_utils.max_decimal_precision('x'))
+            y = round(common_utils.to_float(y), common_utils.max_decimal_precision('y'))
+            custom_step = common_utils.to_bool(custom_step)
+
+            # If already a tile, copy it over to the new protocol
+            if orig_tile_label not in (None, ""):
+                new_step_names.append(step_name)
+                new_step_values = np.append(new_step_values, np.array([step_values]), axis=0)
+                continue
+            
+            # If not a tile, tile it.  
+            for tile_label, tile_position in tiles.items():   
+                
+                x_tile = round(x + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
+                y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
+
+                if custom_step:
+                    new_step_name = common_utils.generate_default_step_name(
+                        custom_name_prefix=step_name,
+                        well_label=well,
+                        color=lumaview.scope.ch2color(ch),
+                        z_height_idx=None,
+                        scan_count=None,
+                        tile_label=tile_label
+                    )
+                else:
+                    new_step_name = common_utils.generate_default_step_name(
+                        well_label=well,
+                        color=lumaview.scope.ch2color(ch),
+                        z_height_idx=zslice,
+                        scan_count=None,
+                        tile_label=tile_label
+                    )
+
+                new_step_names.append(new_step_name)
+                new_step_values = np.append(new_step_values, np.array([[x_tile, y_tile, z, af, ch, fc, ill, gain, auto_gain, exp, objective, well, tile_label, zslice, custom_step, tile_group_id, zstack_group_id]]), axis=0)
+            
+            tile_group_id += 1
+
+        self.step_names = new_step_names
+        self.step_values = new_step_values
+        self.update_step_ui()
+
+
+    def update_step_ui(self):
+        # Number of Steps
+        length =  self.step_values.shape[0]
+              
+        if len(self.step_names) > 0:
+            self.ids['step_name_input'].text = self.step_names[self.curr_step]
+            self.ids['step_number_input'].text = str(self.curr_step+1)
+        else:
+            self.ids['step_number_input'].text = '0'
+            self.ids['step_name_input'].text = ''
+
+        self.ids['step_total_input'].text = str(length)
+        # settings['protocol']['filepath'] = ''        
+        # self.ids['protocol_filename'].text = ''
+      
 
     # Create New Protocol
     def new_protocol(self):
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
+
+        self.custom_step_count = 0
 
         os.chdir(source_path)
         current_labware = WellPlate()
@@ -2429,7 +2528,7 @@ class ProtocolSettings(CompositeCapture):
         )
         
         self.step_names = list()
-        self.step_values = np.empty((0,11), float)
+        self.step_values = np.empty((0,17), float)
 
         # Z-stack related
         def _zstack_positions() -> list[float]:
@@ -2461,6 +2560,9 @@ class ProtocolSettings(CompositeCapture):
         else:
             zstack_positions = {None: None}
 
+        tile_group_id = 0
+        zstack_group_id = 0
+
         # Iterate through all the positions in the scan
         for pos in current_labware.pos_list:
             for tile_label, tile_position in tiles.items():
@@ -2488,36 +2590,39 @@ class ProtocolSettings(CompositeCapture):
                         auto_gain = common_utils.to_bool(settings[layer]['auto_gain'])
                         exp = round(settings[layer]['exp'], common_utils.max_decimal_precision('exposure'))
                         objective = settings['objective']['ID']
+                        custom_step = False
+                        well_label = current_labware.get_well_label(x=pos[0], y=pos[1])
 
                         step_name = common_utils.generate_default_step_name(
-                            well_label=current_labware.get_well_label(x=pos[0], y=pos[1]),
+                            well_label=well_label,
                             color=layer,
                             z_height_idx=zstack_slice,
                             scan_count=None,
                             tile_label=tile_label
                         )
+
+                        if tile_label == "":
+                            tile_group_id_label = ""
+                        else:
+                            tile_group_id_label = tile_group_id
+
+                        if zstack_slice is None:
+                            zstack_group_id_label = None
+                        else:
+                            zstack_group_id_label = zstack_group_id
+
                         self.step_names.append(step_name)
+                        self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective, well_label, tile_label, zstack_slice, custom_step, tile_group_id_label, zstack_group_id_label]]), axis=0)
+                
+                if zstack_slice is not None:
+                    zstack_group_id += 1
 
-                        self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective]]), axis=0)
+            if tile_label is not "":
+                tile_group_id += 1
 
 
-        # Number of Steps
-        length =  self.step_values.shape[0]
-              
-        # Update text with current step and number of steps in protocol
         self.curr_step = 0 # start at the first step
-
-        if len(self.step_names) > 0:
-            self.ids['step_name_input'].text = self.step_names[self.curr_step]
-            self.ids['step_number_input'].text = str(self.curr_step+1)
-        else:
-            self.ids['step_number_input'].text = '0'
-            self.ids['step_name_input'].text = ''
-
-        self.ids['step_total_input'].text = str(length)
-
-        # self.step_names = [self.ids['step_name_input'].text] * length
-        # self.step_names = [''] * length
+        self.update_step_ui()
         settings['protocol']['filepath'] = ''        
         self.ids['protocol_filename'].text = ''
 
@@ -2562,16 +2667,17 @@ class ProtocolSettings(CompositeCapture):
         header = next(csvreader)
 
         self.step_names = list()
-        self.step_values = np.empty((0,11), float)
+        self.step_values = np.empty((0,17), float)
 
         # Since there is currently no versioning in the protocol file, this is a workaround to add 'Objective'
         # to the protocol file, and still be able to load older protocol files which do not contain an 'Objective' column
         for row in csvreader:
 
-            if 'Objective' not in header:
-                row.append(0)
+            for column in ('Objective', 'Tile', 'Custom Step', 'Well', 'Z-Slice', 'Tile Group ID', 'Z-Stack Group ID'):
+                if column not in header:
+                    row.append(0)
 
-            step_name, x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective = row
+            step_name, x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective, well, tile, zslice, custom_step, tile_group_id, zstack_group_id = row
 
             x = round(common_utils.to_float(x), common_utils.max_decimal_precision('x'))
             y = round(common_utils.to_float(y), common_utils.max_decimal_precision('y'))
@@ -2584,8 +2690,13 @@ class ProtocolSettings(CompositeCapture):
             gain = round(common_utils.to_float(gain), common_utils.max_decimal_precision('gain'))
             exp = round(common_utils.to_float(exp), common_utils.max_decimal_precision('exposure'))
 
+            custom_step = common_utils.to_bool(custom_step)
+            zslice = common_utils.to_int(zslice)
+            tile_group_id = common_utils.to_int(tile_group_id)
+            zstack_group_id = common_utils.to_int(zstack_group_id)
+
             self.step_names.append(step_name)
-            self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective]]), axis=0)
+            self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective, well, tile, zslice, custom_step, tile_group_id, zstack_group_id]]), axis=0)
 
         file_pointer.close()
         # self.step_values = np.array(self.step_values)
@@ -2670,7 +2781,7 @@ class ProtocolSettings(CompositeCapture):
         csvwriter.writerow(['Period', period])
         csvwriter.writerow(['Duration', duration])
         csvwriter.writerow(['Labware', labware])
-        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective'])
+        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'])
 
         for i in range(len(self.step_names)):
             c_name = self.step_names[i]
@@ -2737,20 +2848,25 @@ class ProtocolSettings(CompositeCapture):
             return
 
         # Extract Values from protocol list and array
-        name =       str(self.step_names[self.curr_step])
-        x =          common_utils.to_float(val=self.step_values[self.curr_step, 0])
-        y =          common_utils.to_float(val=self.step_values[self.curr_step, 1])
-        z =          common_utils.to_float(val=self.step_values[self.curr_step, 2])
-        af =         common_utils.to_bool(val=self.step_values[self.curr_step, 3])
-        ch =         common_utils.to_int(val=self.step_values[self.curr_step, 4])
-        fc =         common_utils.to_bool(val=self.step_values[self.curr_step, 5])
-        ill =        common_utils.to_float(val=self.step_values[self.curr_step, 6])
-        gain =       common_utils.to_float(val=self.step_values[self.curr_step, 7])
-        auto_gain =  common_utils.to_bool(val=self.step_values[self.curr_step, 8])
-        exp =        common_utils.to_float(val=self.step_values[self.curr_step, 9])
-        objective =  common_utils.to_bool(val=self.step_values[self.curr_step, 10])
+        name =         str(self.step_names[self.curr_step])
+        x =            common_utils.to_float(val=self.step_values[self.curr_step, 0])
+        y =            common_utils.to_float(val=self.step_values[self.curr_step, 1])
+        z =            common_utils.to_float(val=self.step_values[self.curr_step, 2])
+        af =           common_utils.to_bool(val=self.step_values[self.curr_step, 3])
+        ch =           common_utils.to_int(val=self.step_values[self.curr_step, 4])
+        fc =           common_utils.to_bool(val=self.step_values[self.curr_step, 5])
+        ill =          common_utils.to_float(val=self.step_values[self.curr_step, 6])
+        gain =         common_utils.to_float(val=self.step_values[self.curr_step, 7])
+        auto_gain   =  common_utils.to_bool(val=self.step_values[self.curr_step, 8])
+        exp =          common_utils.to_float(val=self.step_values[self.curr_step, 9])
+        objective   =  common_utils.to_bool(val=self.step_values[self.curr_step, 10])
+        well        =  self.step_values[self.curr_step, 11]
+        tile        =  self.step_values[self.curr_step, 12]
+        zslice      =  common_utils.to_int(val=self.step_values[self.curr_step, 13])
+        custom_step     =  common_utils.to_bool(val=self.step_values[self.curr_step, 14])
+        tile_group_id   = common_utils.to_int(val=self.step_values[self.curr_step, 15])
+        zstack_group_id = common_utils.to_int(val=self.step_values[self.curr_step, 16])
        
-    
         self.ids['step_name_input'].text = name
 
         # Convert plate coordinates to stage coordinates
@@ -2876,6 +2992,12 @@ class ProtocolSettings(CompositeCapture):
         self.step_values[self.curr_step, 8]  = bool(layer_id.ids['auto_gain'].active) # auto_gain
         self.step_values[self.curr_step, 9]  = round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')) # exp
         self.step_values[self.curr_step, 10] = settings['objective']['ID']
+        # self.step_values[self.curr_step, 11] = well # Well parameter is fixed
+        # self.step_values[self.curr_step, 12] = tile # Tile parameter is fixed
+        # self.step_values[self.curr_step, 13] = z_slice # Z-Slice is fixed
+        # self.step_values[self.curr_step, 14] = custom_step # Custom step flag parameter is fixed
+        # self.step_values[self.curr_step, 14] = tile group id # Custom step flag parameter is fixed
+        # self.step_values[self.curr_step, 14] = zstack_group id # Custom step flag parameter is fixed
 
     # Append Current Step to Protocol at Current Position
     def append_step(self):
@@ -2883,10 +3005,14 @@ class ProtocolSettings(CompositeCapture):
         
     # Insert Current Step to Protocol at Current Position
     def insert_step(self):
+        
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
 
          # Determine Values
-        name = self.ids['step_name_input'].text
+        # name = self.ids['step_name_input'].text
+        name = f"custom{self.custom_step_count}"
+        self.ids['step_name_input'].text = name
+        self.custom_step_count += 1
         c_layer = False
 
         for layer in common_utils.get_layers():
@@ -2906,10 +3032,18 @@ class ProtocolSettings(CompositeCapture):
         sy = lumaview.scope.get_current_position('Y')
         px, py = self.stage_to_plate(sx, sy)
 
+        well = ""
+        tile = "" # Manually inserted step is not a tile
+        zslice = ""
+        custom_step = True
+        tile_group_id = ""
+        zstack_group_id = ""
+        z = lumaview.scope.get_current_position('Z')
+
         step = [
             round(px, common_utils.max_decimal_precision('x')),
             round(py, common_utils.max_decimal_precision('y')),
-            lumaview.scope.get_current_position('Z'),
+            round(z, common_utils.max_decimal_precision('z')),
             bool(layer_id.ids['autofocus'].active),
             int(ch),
             bool(layer_id.ids['false_color'].active),
@@ -2917,7 +3051,13 @@ class ProtocolSettings(CompositeCapture):
             round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')),
             bool(layer_id.ids['auto_gain'].active),
             round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')),
-            settings['objective']['ID']
+            settings['objective']['ID'],
+            well,
+            tile,
+            zslice,
+            custom_step,
+            tile_group_id,
+            zstack_group_id
         ]
 
         # Insert into List and Array
@@ -3273,6 +3413,7 @@ class ProtocolSettings(CompositeCapture):
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
         z_slice = common_utils.get_z_slice_from_name(name=self.step_names[self.curr_step])
+        # z_slice = self.step_names[]
 
         tile_label = common_utils.get_tile_label_from_name(name=self.step_names[self.curr_step])
 

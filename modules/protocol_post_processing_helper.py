@@ -159,7 +159,10 @@ class ProtocolPostProcessingHelper:
                         'z_slice': match['z_slice'].values[0],
                         'well': match['well'].values[0],
                         'color': match['color'].values[0],
-                        'objective': match['objective'].values[0]
+                        'objective': match['objective'].values[0],
+                        'tile_group_id': match['tile_group_id'].values[0],
+                        'zstack_group_id': match['zstack_group_id'].values[0],
+                        'custom_step': match['custom_step'].values[0]
                     }
                 )
 
