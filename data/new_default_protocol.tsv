@@ -1,5 +1,8 @@
 LumaViewPro Protocol
+Version 2
 Period	20.0
 Duration	48.0
 Labware	96 well microplate
+
+Steps
 Name	X	Y	Z	Auto_Focus	Channel	False_Color	Illumination	Gain	Auto_Gain	Exposure
