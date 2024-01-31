@@ -43,6 +43,7 @@ import datetime
 import os
 import pathlib
 import numpy as np
+import pandas as pd
 import csv
 import time
 import json
@@ -2269,8 +2270,7 @@ class ProtocolSettings(CompositeCapture):
 
         
 
-        self.step_names = list()
-        self.step_values = np.empty((0,17), float)
+        self._protocol_df = self.create_empty_protocol()
         self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
 
         self.custom_step_count = 0
@@ -2431,74 +2431,89 @@ class ProtocolSettings(CompositeCapture):
             return
 
         # Get existing max tile group ID to start from
-        existing_max_tile_group_id = -1
+        # existing_max_tile_group_id = -1
 
-        for row_idx in range(len(self.step_values)):
-            step_values = self.step_values[row_idx]
-            tile_group_id = step_values[15]
-            if tile_group_id != "":
-                tile_group_id = common_utils.to_int(tile_group_id)
-                existing_max_tile_group_id = max(tile_group_id, existing_max_tile_group_id)
+        # for row_idx in range(len(self._protocol_df)):
+        #     step = self._protocol_df.iloc[row_idx]
+        #     tile_group_id = step['Tile']
+        #     if tile_group_id != "":
+        #         existing_max_tile_group_id = max(tile_group_id, existing_max_tile_group_id)
+        existing_max_tile_group_id = self._protocol_df['Tile Group ID'].max()
 
         tile_group_id = existing_max_tile_group_id + 1
 
-        new_step_names = list()
-        new_step_values = np.empty((0,17), float)
-        for row_idx in range(len(self.step_values)):
-            step_name = self.step_names[row_idx]
-            step_values = self.step_values[row_idx]
-
-            x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective, well, orig_tile_label, zslice, custom_step, tmp_tile_group_id, zstack_group_id = step_values
-            x = round(common_utils.to_float(x), common_utils.max_decimal_precision('x'))
-            y = round(common_utils.to_float(y), common_utils.max_decimal_precision('y'))
-            custom_step = common_utils.to_bool(custom_step)
+        new_steps = list()
+        for row_idx in range(len(self._protocol_df)):
+            orig_step_df = self._protocol_df.iloc[row_idx]
+            orig_step_dict = orig_step_df.to_dict()
 
             # If already a tile, copy it over to the new protocol
-            if orig_tile_label not in (None, ""):
-                new_step_names.append(step_name)
-                new_step_values = np.append(new_step_values, np.array([step_values]), axis=0)
+            if orig_step_df['Tile'] not in (None, ""):
+                new_steps.append(orig_step_dict)
                 continue
             
+            x = orig_step_df["X"]
+            y = orig_step_df["Y"]
+
             # If not a tile, tile it.  
             for tile_label, tile_position in tiles.items():   
                 
                 x_tile = round(x + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
                 y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
 
-                if custom_step:
-                    new_step_name = common_utils.generate_default_step_name(
-                        custom_name_prefix=step_name,
-                        well_label=well,
-                        color=lumaview.scope.ch2color(ch),
-                        z_height_idx=None,
-                        scan_count=None,
-                        tile_label=tile_label
-                    )
-                else:
-                    new_step_name = common_utils.generate_default_step_name(
-                        well_label=well,
-                        color=lumaview.scope.ch2color(ch),
-                        z_height_idx=zslice,
-                        scan_count=None,
-                        tile_label=tile_label
-                    )
+                # if orig_step_df["Custom Step"]:
+                #     new_step_name = common_utils.generate_default_step_name(
+                #         custom_name_prefix=orig_step_df['Name'],
+                #         well_label=orig_step_df['Well'],
+                #         color=lumaview.scope.ch2color(orig_step_df['Channel']),
+                #         z_height_idx=None,
+                #         scan_count=None,
+                #         tile_label=tile_label
+                #     )
+                # else:
+                #     new_step_name = common_utils.generate_default_step_name(
+                #         well_label=orig_step_df['Well'],
+                #         color=lumaview.scope.ch2color(orig_step_df['Channel']),
+                #         z_height_idx=orig_step_df['Z-Slice'],
+                #         scan_count=None,
+                #         tile_label=tile_label
+                #     )
+                
+                new_step_dict = self.create_step_dict(
+                    name=orig_step_df['Name'],
+                    x=x_tile,
+                    y=y_tile,
+                    z=orig_step_df['Z'],
+                    af=orig_step_df['Auto_Focus'],
+                    ch=orig_step_df['Channel'],
+                    fc=orig_step_df['False_Color'],
+                    ill=orig_step_df['Illumination'],
+                    gain=orig_step_df['Gain'],
+                    auto_gain=orig_step_df['Auto_Gain'],
+                    exp=orig_step_df['Exposure'],
+                    objective=orig_step_df['Objective'],
+                    well=orig_step_df['Well'],
+                    tile=tile_label,
+                    zslice=orig_step_df['Z-Slice'],
+                    custom_step=orig_step_df['Custom Step'],
+                    tile_group_id=tile_group_id,
+                    zstack_group_id=orig_step_df['Z-Stack Group ID']
+                )
 
-                new_step_names.append(new_step_name)
-                new_step_values = np.append(new_step_values, np.array([[x_tile, y_tile, z, af, ch, fc, ill, gain, auto_gain, exp, objective, well, tile_label, zslice, custom_step, tile_group_id, zstack_group_id]]), axis=0)
+                new_steps.append(new_step_dict)
             
             tile_group_id += 1
 
-        self.step_names = new_step_names
-        self.step_values = new_step_values
+        self._protocol_df = pd.DataFrame.from_dict(new_steps)
         self.update_step_ui()
 
 
     def update_step_ui(self):
         # Number of Steps
-        length =  self.step_values.shape[0]
+        length = len(self._protocol_df)
               
-        if len(self.step_names) > 0:
-            self.ids['step_name_input'].text = self.step_names[self.curr_step]
+        if length > 0:
+            self.ids['step_name_input'].text = self._protocol_df.iloc[self.curr_step]["Name"]
             self.ids['step_number_input'].text = str(self.curr_step+1)
         else:
             self.ids['step_number_input'].text = '0'
@@ -2508,12 +2523,118 @@ class ProtocolSettings(CompositeCapture):
         # settings['protocol']['filepath'] = ''        
         # self.ids['protocol_filename'].text = ''
       
+    @staticmethod
+    def create_empty_protocol() -> pd.DataFrame:
+        dtypes = np.dtype(
+            [
+                ("Name", str),
+                ("X", float),
+                ("Y", float),
+                ("Z", float),
+                ("Auto_Focus", bool),
+                ("Channel", int),
+                ("False_Color", bool),
+                ("Illumination", float),
+                ("Gain", float),
+                ("Auto_Gain", bool),
+                ("Exposure", float),
+                ("Objective", str),
+                ("Well", str),
+                ("Tile", str),
+                ("Z-Slice", int),
+                ("Custom Step", bool),
+                ("Tile Group ID", int),
+                ("Z-Stack Group ID", int)
+            ]
+        )
+        df = pd.DataFrame(np.empty(0, dtype=dtypes))
+        return df
+    
+
+    @staticmethod
+    def create_step_dict(
+        name,
+        x,
+        y,
+        z,
+        af,
+        ch,
+        fc,
+        ill,
+        gain,
+        auto_gain,
+        exp,
+        objective,
+        well,
+        tile,
+        zslice,
+        custom_step,
+        tile_group_id,
+        zstack_group_id
+    ):
+        return {
+            "Name": name,
+            "X": x,
+            "Y": y,
+            "Z": z,
+            "Auto_Focus": af,
+            "Channel": ch,
+            "False_Color": fc,
+            "Illumination": ill,
+            "Gain": gain,
+            "Auto_Gain": auto_gain,
+            "Exposure": exp,
+            "Objective": objective,
+            "Well": well,
+            "Tile": tile,
+            "Z-Slice": zslice,
+            "Custom Step": custom_step,
+            "Tile Group ID": tile_group_id,
+            "Z-Stack Group ID": zstack_group_id
+        }
+    
+
+    def add_steps_to_protocol(
+        self,
+        steps: list[dict]
+        # index=None
+    ):
+        # step_dict = {
+        #     "Name": name,
+        #     "X": x,
+        #     "Y": y,
+        #     "Z": z,
+        #     "Auto_Focus": af,
+        #     "Channel": ch,
+        #     "False_Color": fc,
+        #     "Illumination": ill,
+        #     "Exposure": exp,
+        #     "Objective": objective,
+        #     "Well": well,
+        #     "Tile": tile,
+        #     "Z-Slice": zslice,
+        #     "Custom Step": custom_step,
+        #     "Tile Group ID": tile_group_id,
+        #     "Z-Stack Group ID": zstack_group_id
+        # }
+
+        # if index is None:
+        #     actual_index = len(self._protocol_df)
+
+        # step_df = pd.DataFrame.from_dict(data=step_dict)
+
+        # if index is None:
+        steps_df = pd.DataFrame(steps) #{'name': steps.keys(), 'value': steps.values()})
+        self._protocol_df = pd.concat([self._protocol_df, steps_df], ignore_index=True)
+        # else:
+        #     self._protocol_df = pd.concat([self._protocol_df.iloc[:index], step_df, self._protocol_df.iloc[index:]]).reset_index(drop=True)
 
     # Create New Protocol
     def new_protocol(self):
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
         self.custom_step_count = 0
+        steps = []
 
         os.chdir(source_path)
         current_labware = WellPlate()
@@ -2527,8 +2648,7 @@ class ProtocolSettings(CompositeCapture):
             fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position']
         )
         
-        self.step_names = list()
-        self.step_values = np.empty((0,17), float)
+        self._protocol_df = self.create_empty_protocol()
 
         # Z-stack related
         def _zstack_positions() -> list[float]:
@@ -2593,26 +2713,53 @@ class ProtocolSettings(CompositeCapture):
                         custom_step = False
                         well_label = current_labware.get_well_label(x=pos[0], y=pos[1])
 
-                        step_name = common_utils.generate_default_step_name(
-                            well_label=well_label,
-                            color=layer,
-                            z_height_idx=zstack_slice,
-                            scan_count=None,
-                            tile_label=tile_label
-                        )
+                        # step_name = common_utils.generate_default_step_name(
+                        #     well_label=well_label,
+                        #     color=layer,
+                        #     z_height_idx=zstack_slice,
+                        #     scan_count=None,
+                        #     tile_label=tile_label
+                        # )
+
+                        if zstack_slice in ("", None):
+                            zstack_slice_label = -1
+                        else:
+                            zstack_slice_label = zstack_slice
 
                         if tile_label == "":
-                            tile_group_id_label = ""
+                            tile_group_id_label = -1
                         else:
                             tile_group_id_label = tile_group_id
 
                         if zstack_slice is None:
-                            zstack_group_id_label = None
+                            zstack_group_id_label = -1
                         else:
                             zstack_group_id_label = zstack_group_id
 
-                        self.step_names.append(step_name)
-                        self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective, well_label, tile_label, zstack_slice, custom_step, tile_group_id_label, zstack_group_id_label]]), axis=0)
+                        # self._protocol.append()
+
+                        
+                        step_dict = self.create_step_dict(
+                            name="",
+                            x=x,
+                            y=y,
+                            z=z,
+                            af=af,
+                            ch=ch,
+                            fc=fc,
+                            ill=ill,
+                            gain=gain,
+                            auto_gain=auto_gain,
+                            exp=exp,
+                            objective=objective,
+                            well=well_label,
+                            tile=tile_label,
+                            zslice=zstack_slice_label,
+                            custom_step=custom_step,
+                            tile_group_id=tile_group_id_label,
+                            zstack_group_id=zstack_group_id_label
+                        )
+                        steps.append(step_dict)
                 
                 if zstack_slice is not None:
                     zstack_group_id += 1
@@ -2620,6 +2767,7 @@ class ProtocolSettings(CompositeCapture):
             if tile_label is not "":
                 tile_group_id += 1
 
+        self.add_steps_to_protocol(steps=steps)
 
         self.curr_step = 0 # start at the first step
         self.update_step_ui()
@@ -2666,8 +2814,7 @@ class ProtocolSettings(CompositeCapture):
 
         header = next(csvreader)
 
-        self.step_names = list()
-        self.step_values = np.empty((0,17), float)
+        self._protocol = self.create_empty_protocol()
 
         # Since there is currently no versioning in the protocol file, this is a workaround to add 'Objective'
         # to the protocol file, and still be able to load older protocol files which do not contain an 'Objective' column
@@ -2699,18 +2846,9 @@ class ProtocolSettings(CompositeCapture):
             self.step_values = np.append(self.step_values, np.array([[x, y, z, af, ch, fc, ill, gain, auto_gain, exp, objective, well, tile, zslice, custom_step, tile_group_id, zstack_group_id]]), axis=0)
 
         file_pointer.close()
-        # self.step_values = np.array(self.step_values)
         
-        # Index and build a map of Z-heights. Indicies will be used in step/file naming
-        # Only build the height map if we have at least 2 heights in the protocol.
-        # Otherwise, we don't want "_Z<slice>" added to the name
-        # z_heights = sorted(set(self.step_values[:,2].astype('float').tolist()))
-        # if len(z_heights) >= 2:
-            # self.z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
-        # TODO update object/Z-heights for protocol
-
         # Extract tiling config from step names      
-        tiling_config_label = self.tiling_config.determine_tiling_label_from_names(names=self.step_names)
+        tiling_config_label = self.tiling_config.determine_tiling_label_from_names(names=self._protocol_df['Name'])
         if tiling_config_label is not None:
             self.ids['tiling_size_spinner'].text = tiling_config_label
         else:
@@ -2722,14 +2860,14 @@ class ProtocolSettings(CompositeCapture):
         # Update GUI
         self.curr_step = 0 # start at first step
 
-        if len(self.step_names) > 0:
-            self.ids['step_name_input'].text = self.step_names[self.curr_step]
+        if len(self._protocol_df) > 0:
+            self.ids['step_name_input'].text = self._protocol_df.iloc[self.curr_step]['Name']
             self.ids['step_number_input'].text = str(self.curr_step+1)
         else:
             self.ids['step_number_input'].text = '0'
             self.ids['step_name_input'].text = ''
 
-        self.ids['step_total_input'].text = str(len(self.step_names))
+        self.ids['step_total_input'].text = str(len(self._protocol_df))
         self.ids['capture_period'].text = str(period)
         self.ids['capture_dur'].text = str(duration)
        
@@ -2774,25 +2912,21 @@ class ProtocolSettings(CompositeCapture):
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
         # Write a TSV file
-        file_pointer = open(filepath, 'w')                      # open the file
-        csvwriter = csv.writer(file_pointer, delimiter='\t', lineterminator='\n') # access the file using the CSV library
+        # file_pointer = open(filepath, 'w')                      # open the file
+        with open(filepath, 'w') as fp:
+            csvwriter = csv.writer(fp, delimiter='\t', lineterminator='\n') # access the file using the CSV library
 
-        csvwriter.writerow(['LumaViewPro Protocol'])
-        csvwriter.writerow(['Period', period])
-        csvwriter.writerow(['Duration', duration])
-        csvwriter.writerow(['Labware', labware])
-        csvwriter.writerow(['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'])
+            csvwriter.writerow(['LumaViewPro Protocol'])
+            csvwriter.writerow(['Period', period])
+            csvwriter.writerow(['Duration', duration])
+            csvwriter.writerow(['Labware', labware])
 
-        for i in range(len(self.step_names)):
-            c_name = self.step_names[i]
-            c_values = list(self.step_values[i])
-            c_values.insert(0, c_name)
-
-            # write the row
-            csvwriter.writerow(c_values)
-
-        # Close the TSV file
-        file_pointer.close()
+            protocol_table_str = self._protocol_df.to_csv(
+                sep='\t',
+                lineterminator='\n',
+                index=False
+            )
+            fp.write(protocol_table_str)
 
     #
     # Multiple Exposures
@@ -2817,7 +2951,7 @@ class ProtocolSettings(CompositeCapture):
     # Goto to Previous Step
     def prev_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.prev_step()')
-        if len(self.step_names) <= 0:
+        if len(self._protocol_df) <= 0:
             return
         self.curr_step = max(self.curr_step - 1, 0)
         self.ids['step_number_input'].text = str(self.curr_step+1)
@@ -2826,9 +2960,9 @@ class ProtocolSettings(CompositeCapture):
     # Go to Next Step
     def next_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.next_step()')
-        if len(self.step_names) <= 0:
+        if len(self._protocol_df) <= 0:
             return
-        self.curr_step = min(self.curr_step + 1, len(self.step_names)-1)
+        self.curr_step = min(self.curr_step + 1, len(self._protocol_df)-1)
         self.ids['step_number_input'].text = str(self.curr_step+1)
         self.go_to_step()
     
@@ -2836,51 +2970,32 @@ class ProtocolSettings(CompositeCapture):
     def go_to_step(self, ignore_auto_gain: bool = False):
         logger.info('[LVP Main  ] ProtocolSettings.go_to_step()')
 
-        if len(self.step_names) <= 0:
+        if len(self._protocol_df) <= 0:
             self.ids['step_number_input'].text = '0'
             return
         
         # Get the Current Step Number
         self.curr_step = int(self.ids['step_number_input'].text)-1
 
-        if self.curr_step < 0 or self.curr_step > len(self.step_names):
+        if self.curr_step < 0 or self.curr_step > len(self._protocol_df):
             self.ids['step_number_input'].text = '0'
             return
-
-        # Extract Values from protocol list and array
-        name =         str(self.step_names[self.curr_step])
-        x =            common_utils.to_float(val=self.step_values[self.curr_step, 0])
-        y =            common_utils.to_float(val=self.step_values[self.curr_step, 1])
-        z =            common_utils.to_float(val=self.step_values[self.curr_step, 2])
-        af =           common_utils.to_bool(val=self.step_values[self.curr_step, 3])
-        ch =           common_utils.to_int(val=self.step_values[self.curr_step, 4])
-        fc =           common_utils.to_bool(val=self.step_values[self.curr_step, 5])
-        ill =          common_utils.to_float(val=self.step_values[self.curr_step, 6])
-        gain =         common_utils.to_float(val=self.step_values[self.curr_step, 7])
-        auto_gain   =  common_utils.to_bool(val=self.step_values[self.curr_step, 8])
-        exp =          common_utils.to_float(val=self.step_values[self.curr_step, 9])
-        objective   =  common_utils.to_bool(val=self.step_values[self.curr_step, 10])
-        well        =  self.step_values[self.curr_step, 11]
-        tile        =  self.step_values[self.curr_step, 12]
-        zslice      =  common_utils.to_int(val=self.step_values[self.curr_step, 13])
-        custom_step     =  common_utils.to_bool(val=self.step_values[self.curr_step, 14])
-        tile_group_id   = common_utils.to_int(val=self.step_values[self.curr_step, 15])
-        zstack_group_id = common_utils.to_int(val=self.step_values[self.curr_step, 16])
-       
-        self.ids['step_name_input'].text = name
+        
+        step = self.get_curr_step()
+        self.ids['step_name_input'].text = step["Name"]
 
         # Convert plate coordinates to stage coordinates
-        sx, sy = self.plate_to_stage(x, y)
+        sx, sy = self.plate_to_stage(step["X"], step["Y"])
 
         # Move into position
         if lumaview.scope.motion.driver:
             lumaview.scope.move_absolute_position('X', sx)
             lumaview.scope.move_absolute_position('Y', sy)
-            lumaview.scope.move_absolute_position('Z', z)
+            lumaview.scope.move_absolute_position('Z', step["Z"])
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
-        ch = lumaview.scope.ch2color(ch)
+        ch = lumaview.scope.ch2color(step["Channel"])
         layer  = lumaview.ids['imagesettings_id'].ids[ch]
 
         # open ImageSettings
@@ -2892,37 +3007,37 @@ class ProtocolSettings(CompositeCapture):
         lumaview.ids['imagesettings_id'].ids[id].collapse = False
 
         # set autofocus checkbox
-        logger.info('[LVP Main  ] autofocus:  ' + str(bool(af)))
-        settings[ch]['autofocus'] = bool(af)
-        layer.ids['autofocus'].active = bool(af)
+        logger.info(f'[LVP Main  ] autofocus: {step["Auto_Focus"]}')
+        settings[ch]['autofocus'] = step['Auto_Focus']
+        layer.ids['autofocus'].active = step['Auto_Focus']
         
         # set false_color checkbox
-        logger.info('[LVP Main  ] false_color:' + str(bool(fc)))
-        settings[ch]['false_color'] = bool(fc)
-        layer.ids['false_color'].active = bool(fc)
+        logger.info(f'[LVP Main  ] false_color: {step["False_Color"]}')
+        settings[ch]['false_color'] = step['False_Color']
+        layer.ids['false_color'].active = step['False_Color']
 
         # set illumination settings, text, and slider
-        logger.info('[LVP Main  ] ill:        ' + str(ill))
-        settings[ch]['ill'] = ill
-        layer.ids['ill_text'].text = str(ill)
-        layer.ids['ill_slider'].value = float(ill)
+        logger.info(f'[LVP Main  ] ill: {step["Illumination"]}')
+        settings[ch]['ill'] = step["Illumination"]
+        layer.ids['ill_text'].text = str(step["Illumination"])
+        layer.ids['ill_slider'].value = float(step["Illumination"])
 
         # set gain settings, text, and slider
-        logger.info('[LVP Main  ] gain:       ' + str(gain))
-        settings[ch]['gain'] = gain
-        layer.ids['gain_text'].text = str(gain)
-        layer.ids['gain_slider'].value = float(gain)
+        logger.info(f'[LVP Main  ] gain: {step["Gain"]}')
+        settings[ch]['gain'] = step["Gain"]
+        layer.ids['gain_text'].text = str(step["Gain"])
+        layer.ids['gain_slider'].value = float(step["Gain"])
 
         # set auto_gain checkbox
-        logger.info('[LVP Main  ] auto_gain:  ' + str(auto_gain))
-        settings[ch]['auto_gain'] = bool(auto_gain)
-        layer.ids['auto_gain'].active = bool(auto_gain)
+        logger.info(f'[LVP Main  ] auto_gain: {step["Auto_Gain"]}')
+        settings[ch]['auto_gain'] = step["Auto_Gain"]
+        layer.ids['auto_gain'].active = step["Auto_Gain"]
 
         # set exposure settings, text, and slider
-        logger.info('[LVP Main  ] exp:        ' + str(exp))
-        settings[ch]['exp'] = exp
-        layer.ids['exp_text'].text = str(exp)
-        layer.ids['exp_slider'].value = float(exp)
+        logger.info(f'[LVP Main  ] exp: {step["Exposure"]}')
+        settings[ch]['exp'] = step["Exposure"]
+        layer.ids['exp_text'].text = str(step["Exposure"])
+        layer.ids['exp_slider'].value = float(step["Exposure"])
 
         # update position in stage control
         lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
@@ -2934,26 +3049,26 @@ class ProtocolSettings(CompositeCapture):
     def delete_step(self):
         logger.info('[LVP Main  ] ProtocolSettings.delete_step()')
 
-        if len(self.step_names) < 1:
+        if len(self._protocol_df) < 1:
             return
         
-        self.step_names.pop(self.curr_step)
-        self.step_values = np.delete(self.step_values, self.curr_step, axis = 0)
-        self.curr_step = max(self.curr_step - 1, 0)
-
+        self._protocol_df.drop(index=self.curr_step, axis=0, inplace=True)
+        self.curr_step = max(self.curr_step-1, 0)
+ 
         # Update total number of steps to GUI
-        self.ids['step_total_input'].text = str(len(self.step_names))
+        self.ids['step_total_input'].text = str(len(self._protocol_df))
 
-        if len(self.step_names) == 0:
+        if len(self._protocol_df) == 0:
             self.ids['step_number_input'].text = '0'
 
         self.next_step()
 
     # Modify Current Step of Protocol
     def modify_step(self):
+        raise Exception("TODO")
         logger.info('[LVP Main  ] ProtocolSettings.modify_step()')
 
-        if len(self.step_names) < 1:
+        if len(self._protocol_df) < 1:
             return
 
         self.step_names[self.curr_step] = self.ids['step_name_input'].text
@@ -2999,9 +3114,6 @@ class ProtocolSettings(CompositeCapture):
         # self.step_values[self.curr_step, 14] = tile group id # Custom step flag parameter is fixed
         # self.step_values[self.curr_step, 14] = zstack_group id # Custom step flag parameter is fixed
 
-    # Append Current Step to Protocol at Current Position
-    def append_step(self):
-        logger.info('[LVP Main  ] ProtocolSettings.append_step()')
         
     # Insert Current Step to Protocol at Current Position
     def insert_step(self):
@@ -3034,45 +3146,61 @@ class ProtocolSettings(CompositeCapture):
 
         well = ""
         tile = "" # Manually inserted step is not a tile
-        zslice = ""
+        zslice = -1
         custom_step = True
-        tile_group_id = ""
-        zstack_group_id = ""
+        tile_group_id = -1
+        zstack_group_id = -1
         z = lumaview.scope.get_current_position('Z')
 
-        step = [
-            round(px, common_utils.max_decimal_precision('x')),
-            round(py, common_utils.max_decimal_precision('y')),
-            round(z, common_utils.max_decimal_precision('z')),
-            bool(layer_id.ids['autofocus'].active),
-            int(ch),
-            bool(layer_id.ids['false_color'].active),
-            round(layer_id.ids['ill_slider'].value, common_utils.max_decimal_precision('illumination')),
-            round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')),
-            bool(layer_id.ids['auto_gain'].active),
-            round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')),
-            settings['objective']['ID'],
-            well,
-            tile,
-            zslice,
-            custom_step,
-            tile_group_id,
-            zstack_group_id
-        ]
+        step_dict = self.create_step_dict(
+            name=name,
+            x=round(px, common_utils.max_decimal_precision('x')),
+            y=round(py, common_utils.max_decimal_precision('y')),
+            z=round(z, common_utils.max_decimal_precision('z')),
+            af=layer_id.ids['autofocus'].active,
+            ch=ch,
+            fc=layer_id.ids['false_color'].active,
+            ill=round(layer_id.ids['ill_slider'].value, common_utils.max_decimal_precision('illumination')),
+            gain=round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')),
+            auto_gain=layer_id.ids['auto_gain'].active,
+            exp=round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')),
+            objective=settings['objective']['ID'],
+            well=well,
+            tile=tile,
+            zslice=zslice,
+            custom_step=custom_step,
+            tile_group_id=tile_group_id,
+            zstack_group_id=zstack_group_id
+        )
 
-        # Insert into List and Array
-        self.step_names.insert(self.curr_step, name)
-        if len(self.step_values) == 0:
-            # Handle first insert on an empty protocol as a special case due to using numpy with mixed data types
-            # TODO Move to dataframe or another structure
-            self.step_values = np.append(self.step_values, np.array([step]), axis=0)
-        else:
-            self.step_values = np.insert(self.step_values, self.curr_step, step, axis=0)
+        line = pd.DataFrame(data=step_dict, index=[self.curr_step-0.5])
+        self._protocol_df = pd.concat([self._protocol_df, line], ignore_index=False, axis=0)
+        self._protocol_df = self._protocol_df.sort_index().reset_index(drop=True)
+        # step = [
+        #     round(px, common_utils.max_decimal_precision('x')),
+        #     round(py, common_utils.max_decimal_precision('y')),
+        #     round(z, common_utils.max_decimal_precision('z')),
+        #     bool(layer_id.ids['autofocus'].active),
+        #     int(ch),
+        #     bool(layer_id.ids['false_color'].active),
+        #     round(layer_id.ids['ill_slider'].value, common_utils.max_decimal_precision('illumination')),
+        #     round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')),
+        #     bool(layer_id.ids['auto_gain'].active),
+        #     round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')),
+        #     settings['objective']['ID'],
+        #     well,
+        #     tile,
+        #     zslice,
+        #     custom_step,
+        #     tile_group_id,
+        #     zstack_group_id
+        # ]
 
-        self.ids['step_total_input'].text = str(len(self.step_names))
+
+        self.ids['step_total_input'].text = str(len(self._protocol_df))
 
         # Handle special case for inserting a step from an empty protocol
-        if len(self.step_names) == 1:
+        if len(self._protocol_df) == 1:
             self.ids['step_number_input'].text = '1'
             self.go_to_step()
 
@@ -3115,7 +3243,7 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.run_autofocus_scan()')
 
         # If there are no steps, do not continue
-        if len(self.step_names) < 1:
+        if len(self._protocol_df) < 1:
             logger.warning('[LVP Main  ] Protocol has no steps.')
             self.ids['run_autofocus_btn'].state =='normal'
             self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
@@ -3132,17 +3260,15 @@ class ProtocolSettings(CompositeCapture):
             self.curr_step = 0
             self.ids['step_number_input'].text = str(self.curr_step+1)
 
-            x = common_utils.to_float(val=self.step_values[self.curr_step, 0])
-            y = common_utils.to_float(val=self.step_values[self.curr_step, 1])
-            z = common_utils.to_float(val=self.step_values[self.curr_step, 2])
+            step = self._protocol_df.iloc[self.curr_step]
  
             # Convert plate coordinates to stage coordinates
-            sx, sy = self.plate_to_stage(x, y)
+            sx, sy = self.plate_to_stage(step["X"], step["Y"])
 
             # Move into position
             lumaview.scope.move_absolute_position('X', sx)
             lumaview.scope.move_absolute_position('Y', sy)
-            lumaview.scope.move_absolute_position('Z', z)
+            lumaview.scope.move_absolute_position('Z', step["Z"])
 
             logger.info('[LVP Main  ] Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
             Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
@@ -3177,13 +3303,13 @@ class ProtocolSettings(CompositeCapture):
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
             # update protocol to focused z-position
-            self.step_values[self.curr_step, 2] = lumaview.scope.get_current_position('Z')
+            self._protocol_df[self.curr_step, "Z"] = lumaview.scope.get_current_position('Z')
 
             # increment to the next step
             self.curr_step += 1
 
             # determine and go to next positions
-            if self.curr_step < len(self.step_names):
+            if self.curr_step < len(self._protocol_df):
                 # Update Step number text
                 self.ids['step_number_input'].text = str(self.curr_step+1)
                 self.go_to_step()
@@ -3210,22 +3336,16 @@ class ProtocolSettings(CompositeCapture):
         if (not x_status) or (not y_status) or (not z_status) or lumaview.scope.get_overshoot():
             return
         
-        logger.info('[LVP Main  ] Autofocus Scan Step:' + str(self.step_names[self.curr_step]) )
+        logger.info(f"[LVP Main  ] Autofocus Scan Step ({self.curr_step}): {self._protocol_df.iloc[self.curr_step]['Name']}")
 
-        # identify image settings
-        ch =        common_utils.to_int(val=self.step_values[self.curr_step, 4]) # LED channel
-        fc =        common_utils.to_bool(val=self.step_values[self.curr_step, 5]) # image false color
-        ill =       common_utils.to_float(val=self.step_values[self.curr_step, 6]) # LED illumination
-        gain =      common_utils.to_float(val=self.step_values[self.curr_step, 7]) # camera gain
-        auto_gain = common_utils.to_bool(val=self.step_values[self.curr_step, 8]) # camera autogain
-        exp =       common_utils.to_float(val=self.step_values[self.curr_step, 9]) # camera exposure
+        step = self.get_curr_step()
         
         # set camera settings and turn on LED
         lumaview.scope.leds_off()
-        lumaview.scope.led_on(ch, ill)
-        lumaview.scope.set_gain(gain)
-        lumaview.scope.set_auto_gain(auto_gain, target_brightness=settings['protocol']['autogain']['target_brightness'])
-        lumaview.scope.set_exposure_time(exp)
+        lumaview.scope.led_on(step['Channel'], step['Illumination'])
+        lumaview.scope.set_gain(step['Gain'])
+        lumaview.scope.set_auto_gain(step['Auto_Gain'], target_brightness=settings['protocol']['autogain']['target_brightness'])
+        lumaview.scope.set_exposure_time(step['Exposure'])
 
         # Begin autofocus routine
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
@@ -3252,12 +3372,16 @@ class ProtocolSettings(CompositeCapture):
         self.protocol_execution_record = ProtocolExecutionRecord(outfile=protocol_record_filepath)
 
 
+    def get_curr_step(self):
+        return self._protocol_df.iloc[self.curr_step]
+
+
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
         logger.info('[LVP Main  ] ProtocolSettings.run_scan()')
 
         # If there are no steps, do not continue
-        if len(self.step_names) < 1:
+        if len(self._protocol_df) < 1:
             logger.warning('[LVP Main  ] Protocol has no steps.')
             self.ids['run_scan_btn'].state =='normal'
             self.ids['run_scan_btn'].text = 'Run One Scan'
@@ -3294,17 +3418,15 @@ class ProtocolSettings(CompositeCapture):
             self.ids['step_number_input'].text = str(self.curr_step+1)
             self.go_to_step()
             
-            x = common_utils.to_float(val=self.step_values[self.curr_step, 0])
-            y = common_utils.to_float(val=self.step_values[self.curr_step, 1])
-            z = common_utils.to_float(val=self.step_values[self.curr_step, 2])
- 
+            step = self.get_curr_step()
+   
             # Convert plate coordinates to stage coordinates
-            sx, sy = self.plate_to_stage(x, y)
+            sx, sy = self.plate_to_stage(step["X"], step["Y"])
 
             # Move into position
             lumaview.scope.move_absolute_position('X', sx)
             lumaview.scope.move_absolute_position('Y', sy)
-            lumaview.scope.move_absolute_position('Z', z)
+            lumaview.scope.move_absolute_position('Z', step["Z"])
 
             logger.info('[LVP Main  ] Clock.schedule_interval(self.scan_iterate, 0.1)')
             Clock.schedule_interval(self.scan_iterate, 0.1)
@@ -3362,37 +3484,27 @@ class ProtocolSettings(CompositeCapture):
         if (not x_status) or (not y_status) or (not z_status) or lumaview.scope.get_overshoot():
             return
         
-        step_name = str(self.step_names[self.curr_step])
-        logger.info(f'[LVP Main  ] Scan Step: {step_name}')
-
-        # identify image settings
-        z_height =   round(common_utils.to_float(val=self.step_values[self.curr_step, 2]), common_utils.max_decimal_precision('z')) # Z-height
-        af =         common_utils.to_bool(val=self.step_values[self.curr_step, 3]) # autofocus
-        ch =         common_utils.to_int(val=self.step_values[self.curr_step, 4]) # LED channel
-        fc =         common_utils.to_bool(val=self.step_values[self.curr_step, 5]) # image false color
-        ill =        round(common_utils.to_float(val=self.step_values[self.curr_step, 6]),common_utils.max_decimal_precision('illumination')) # LED illumination
-        gain =       round(common_utils.to_float(val=self.step_values[self.curr_step, 7]),common_utils.max_decimal_precision('gain')) # camera gain
-        auto_gain =  common_utils.to_bool(val=self.step_values[self.curr_step, 8]) # camera autogain
-        exp =        round(common_utils.to_float(val=self.step_values[self.curr_step, 9]),common_utils.max_decimal_precision('exposure')) # camera exposure
+        step = self.get_curr_step()
+        logger.info(f"[LVP Main  ] Scan Step: {step['Name']}")
         
-        if af:
+        if step["Auto_Focus"]:
             self.autofocus_was_used = True
 
         # Set camera settings
-        lumaview.scope.set_auto_gain(auto_gain, target_brightness=settings['protocol']['autogain']['target_brightness'])
-        lumaview.scope.led_on(ch, ill)
+        lumaview.scope.set_auto_gain(step['Auto_Gain'], target_brightness=settings['protocol']['autogain']['target_brightness'])
+        lumaview.scope.led_on(step['Channel'], step['Illumination'])
 
-        if not auto_gain:
-            lumaview.scope.set_gain(gain)
+        if not step['Auto_Gain']:
+            lumaview.scope.set_gain(step['Gain'])
             # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
-            lumaview.scope.set_exposure_time(exp)
+            lumaview.scope.set_exposure_time(step['Exposure'])
 
         
-        if auto_gain and auto_gain_countdown > 0:
+        if step['Auto_Gain'] and auto_gain_countdown > 0:
             auto_gain_countdown -= 0.1
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
-        if af and not autofocus_is_complete:
+        if step['Auto_Focus'] and not autofocus_is_complete:
             # turn on LED
             # lumaview.scope.leds_off()
             # lumaview.scope.led_on(ch, ill)
@@ -3404,7 +3516,7 @@ class ProtocolSettings(CompositeCapture):
             return
         
         # Check if autogain has time-finished after auto-focus so that they can run in parallel
-        if auto_gain and auto_gain_countdown > 0:
+        if step['Auto_Gain'] and auto_gain_countdown > 0:
             return
         else:
             auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
@@ -3412,20 +3524,23 @@ class ProtocolSettings(CompositeCapture):
         # reset the is_complete flag on autofocus
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
-        z_slice = common_utils.get_z_slice_from_name(name=self.step_names[self.curr_step])
-        # z_slice = self.step_names[]
+        # z_slice = common_utils.get_z_slice_from_name(name=self._protocol_df.iloc[self.curr_step]['Name'])
+        # z_slice = step['Z-Slice']
 
-        tile_label = common_utils.get_tile_label_from_name(name=self.step_names[self.curr_step])
+        # tile_label = common_utils.get_tile_label_from_name(name=self._protocol_df.iloc[self.curr_step]['Name'])
 
-        if common_utils.is_custom_name(name=step_name):
-            custom_name = step_name
-        else:
-            custom_name = None
+        # if common_utils.is_custom_name(name=step['N']):
+        #     custom_name = step_name
+        # else:
+        #     custom_name = None
 
-        well_label = common_utils.get_well_label_from_name(name=step_name)
+        # if step['Name'] in (None, ""):
+
+
+        # well_label = common_utils.get_well_label_from_name(name=step_name)
 
         if self.separate_folder_per_channel:
-            save_folder = self.protocol_run_dir / ColorChannel(ch).name
+            save_folder = self.protocol_run_dir / ColorChannel(step["Channel"]).name
             save_folder.mkdir(parents=True, exist_ok=True)
         else:
             save_folder = self.protocol_run_dir
@@ -3433,22 +3548,22 @@ class ProtocolSettings(CompositeCapture):
         # capture image
         image_filepath = self.custom_capture(
             save_folder=save_folder,
-            channel=ch,
-            illumination=ill,
-            gain=gain,
-            auto_gain=auto_gain,
-            exposure=exp,
-            false_color=bool(fc),
-            tile_label=tile_label,
-            z_height_idx=z_slice,
+            channel=step['Channel'],
+            illumination=step['Illumination'],
+            gain=step['Gain'],
+            auto_gain=step['Auto_Gain'],
+            exposure=step['Exposure'],
+            false_color=step['False_Color'],
+            tile_label=step['Tile'],
+            z_height_idx=step['Z-Slice'],
             scan_count=self.scan_count,
-            custom_name=custom_name,
-            well_label=well_label
+            custom_name=step['Name'],
+            well_label=step['Well']
         )
 
         if self.enable_image_saving == True:
             if self.separate_folder_per_channel:
-                image_filepath_name = pathlib.Path(ColorChannel(ch).name) / image_filepath.name
+                image_filepath_name = pathlib.Path(ColorChannel(step['Channel']).name) / image_filepath.name
             else:
                 image_filepath_name = image_filepath.name
         else:
@@ -3456,7 +3571,7 @@ class ProtocolSettings(CompositeCapture):
 
         self.protocol_execution_record.add_step(
             image_file_name=image_filepath_name,
-            step_name=str(self.step_names[self.curr_step]),
+            step_name=step['Name'],
             step_index=self.curr_step,
             scan_count=self.scan_count,
             timestamp=datetime.datetime.now()
@@ -3466,10 +3581,10 @@ class ProtocolSettings(CompositeCapture):
         self.curr_step += 1
 
         # Disable autogain when moving between steps
-        if auto_gain:
+        if step['Auto_Gain']:
             lumaview.scope.set_auto_gain(state=False)
 
-        if self.curr_step < len(self.step_names):
+        if self.curr_step < len(self._protocol_df):
 
             # Update Step number text
             self.ids['step_number_input'].text = str(self.curr_step+1)
@@ -3586,7 +3701,7 @@ class ProtocolSettings(CompositeCapture):
         minutes = '%02d' % minutes
 
         # Update Button
-        self.ids['run_protocol_btn'].text = str(n_scans) + ' scans remaining. Press to ABORT'
+        self.ids['run_protocol_btn'].text = f"{n_scans} scans remaining. Press to ABORT"
 
         # Check if reached next Period
         if (time.time()-self.start_t) > period:
