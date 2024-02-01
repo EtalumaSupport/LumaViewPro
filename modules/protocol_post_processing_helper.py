@@ -126,11 +126,11 @@ class ProtocolPostProcessingHelper:
                         z_slice = None
 
                     stitched_images.append({
-                        'filename': image_name,
-                        'well': well,
-                        'color': color,
-                        'scan_count': scan_count,
-                        'z_slice': z_slice
+                        'Filename': image_name,
+                        'Well': well,
+                        'Color': color,
+                        'Scan Count': scan_count,
+                        'Z-Slice': z_slice
                     })
 
                 elif (include_composite_images == True) and (self._is_composite_image(image_filename=image_name) == True):
@@ -138,10 +138,10 @@ class ProtocolPostProcessingHelper:
 
                 continue
 
-            scan_count = file_data['scan_count']
+            scan_count = file_data['Scan Count']
 
             for protocol_group_index, protocol_group_data in protocol_tile_groups.items():
-                match = protocol_group_data[protocol_group_data['step_index'] == file_data['step_index']]
+                match = protocol_group_data[protocol_group_data['Step Index'] == file_data['Step Index']]
                 if len(match) == 0:
                     continue
 
@@ -150,19 +150,20 @@ class ProtocolPostProcessingHelper:
                 
                 image_tile_groups.append(
                     {
-                        'filename': image_name,
-                        'protocol_group_index': protocol_group_index,
-                        'scan_count': scan_count,
-                        'step_index': match['step_index'].values[0],
-                        'x': match['x'].values[0],
-                        'y': match['y'].values[0],
-                        'z_slice': match['z_slice'].values[0],
-                        'well': match['well'].values[0],
-                        'color': match['color'].values[0],
-                        'objective': match['objective'].values[0],
-                        'tile_group_id': match['tile_group_id'].values[0],
-                        'zstack_group_id': match['zstack_group_id'].values[0],
-                        'custom_step': match['custom_step'].values[0]
+                        'Filename': image_name,
+                        'Name': match['Name'].values[0],
+                        'Protocol Group Index': protocol_group_index,
+                        'Scan Count': scan_count,
+                        'Step Index': match['Step Index'].values[0],
+                        'X': match['X'].values[0],
+                        'Y': match['Y'].values[0],
+                        'Z-Slice': match['Z-Slice'].values[0],
+                        'Well': match['Well'].values[0],
+                        'Color': match['Color'].values[0],
+                        'Objective': match['Objective'].values[0],
+                        'Tile Group ID': match['Tile Group ID'].values[0],
+                        'Z-Stack Group ID': match['Z-Stack Group ID'].values[0],
+                        'Custom Step': match['Custom Step'].values[0]
                     }
                 )
 

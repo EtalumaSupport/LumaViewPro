@@ -29,25 +29,32 @@ class CompositeGeneration:
         )
 
         df = results['image_tile_groups']
-        df['composite_group_index'] = df.groupby(by=['scan_count','z_slice','well','objective','x','y'], dropna=False).ngroup()
+        df['Composite Group Index'] = df.groupby(by=['Scan Count','Z-Slice','Well','Objective','X','Y'], dropna=False).ngroup()
         
         # Handle composite generation for stitched images also
         stitched_images_df = results['stitched_images']
 
         if stitched_images_df is not None:
-            stitched_images_df['composite_group_index'] = stitched_images_df.groupby(by=['scan_count', 'z_slice', 'well'], dropna=False).ngroup()
+            stitched_images_df['Composite Group Index'] = stitched_images_df.groupby(by=['Scan Count', 'Z-Slice', 'Well'], dropna=False).ngroup()
             loop_list = itertools.chain(
-                df.groupby(by=['composite_group_index']),
-                stitched_images_df.groupby(by=['composite_group_index'])
+                df.groupby(by=['Composite Group Index']),
+                stitched_images_df.groupby(by=['Composite Group Index'])
             )
         else:
-            loop_list = df.groupby(by=['composite_group_index'])
+            loop_list = df.groupby(by=['Composite Group Index'])
 
         logger.info(f"{self._name}: Generating composite images")
         for _, composite_group in loop_list:
+            
+            if len(composite_group) == 0:
+                continue
+
+            if len(composite_group) == 1:
+                logger.debug(f"{self._name}: Skipping composite generation for {composite_group.iloc[0]['Filename']} since {len(composite_group)} layer(s) found.")
+                continue
 
             composite_filename = common_utils.replace_layer_in_step_name(
-                step_name=composite_group.iloc[0]['filename'],
+                step_name=composite_group.iloc[0]['Filename'],
                 new_layer_name='Composite'
             )
 
@@ -59,15 +66,12 @@ class CompositeGeneration:
 
             # Filter out non-fluorescence layers
             allowed_layers = common_utils.get_fluorescence_layers()
-            composite_group = composite_group[composite_group['color'].isin(allowed_layers)]
+            composite_group = composite_group[composite_group['Color'].isin(allowed_layers)]
 
-            if len(composite_group) <= 1:
-                logger.debug(f"{self._name}: Skipping composite generation for {composite_filename} since {len(composite_group)} layer(s) found.")
-                continue
 
             composite_image = self._create_composite_image(
                 path=path,
-                df=composite_group[['filename','color']]
+                df=composite_group[['Filename','Color']]
             )
 
             logger.debug(f"{self._name}: - {composite_filename}")
@@ -90,15 +94,15 @@ class CompositeGeneration:
         # Load source images
         images = {}
         for _, row in df.iterrows():
-            image_filepath = path / row['filename']
-            images[row['filename']] = cv2.imread(str(image_filepath))
+            image_filepath = path / row['Filename']
+            images[row['Filename']] = cv2.imread(str(image_filepath))
 
-        source_image_sample = df['filename'].values[0]
+        source_image_sample = df['Filename'].values[0]
         img = np.zeros_like(images[source_image_sample])
 
         for _, row in df.iterrows():
-            layer = row['color']
-            source_image = images[row['filename']]
+            layer = row['Color']
+            source_image = images[row['Filename']]
 
             if layer == 'Blue':
                 img[:,:,0] = source_image[:,:,0]

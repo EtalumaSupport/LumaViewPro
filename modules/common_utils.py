@@ -13,14 +13,14 @@ def generate_default_step_name(
     custom_name_prefix = None
 ):
     if custom_name_prefix not in (None, ""):
-        name = custom_name_prefix
+        name = f"{custom_name_prefix}_{color}"
     else:
         name = f"{well_label}_{color}"
     
-    if tile_label not in (None, ""):
+    if tile_label not in (None, "", -1):
         name = f"{name}_T{tile_label}"
 
-    if z_height_idx not in (None, ""):
+    if z_height_idx not in (None, "", -1):
         name = f"{name}_Z{z_height_idx}"
 
     DESIRED_SCAN_COUNT_DIGITS = 4

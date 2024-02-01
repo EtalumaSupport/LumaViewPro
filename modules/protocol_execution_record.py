@@ -65,13 +65,13 @@ class ProtocolExecutionRecord:
         
     
     def get_data_from_filename(self, filename: str | pathlib.Path) -> int | None:
-        record = self._records.loc[self._records['filename'] == filename]
+        record = self._records.loc[self._records['Filename'] == filename]
         if len(record) != 1:
             return None
         
         return {
-            'step_index': record['step_index'].values[0],
-            'scan_count': record['scan_count'].values[0]
+            'Step Index': record['Step Index'].values[0],
+            'Scan Count': record['Scan Count'].values[0]
         }
 
 
@@ -96,10 +96,10 @@ class ProtocolExecutionRecord:
             for row in csvreader:
                 records.append(
                     {
-                        'filename': row[0],
-                        'step_name': row[1],
-                        'step_index': int(row[2]),
-                        'scan_count': int(row[3])
+                        'Filename': row[0],
+                        'Step Name': row[1],
+                        'Step Index': int(row[2]),
+                        'Scan Count': int(row[3])
                     }
                 )
 

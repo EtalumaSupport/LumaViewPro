@@ -107,7 +107,7 @@ class Protocol:
                 tmp = next(csvreader)
                 if len(tmp) == 0:
                     continue
-                
+
                 if tmp[0] == "Steps":
                     break
             
@@ -181,7 +181,7 @@ class Protocol:
         # steps_df = pd.DataFrame(steps)
 
         if config['version'] == 1:
-            protocol_df['step_index'] = protocol_df.index
+            protocol_df['Step Index'] = protocol_df.index
 
             if not use_version_1a:
                 protocol_df['color'] = protocol_df.apply(lambda s: color_channels.ColorChannel(s['channel']).name, axis=1)
@@ -203,7 +203,7 @@ class Protocol:
         # config['z_height_map'] = cls._build_z_height_map(values=steps_df['z'])
         
         elif config['version'] == 2:
-            protocol_df['step_index'] = protocol_df.index
+            protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names
             tc = tiling_config.TilingConfig()
@@ -244,20 +244,20 @@ class Protocol:
         steps = self._config['steps']
         tile_groups = steps.groupby(
             by=[
-                'tile_group_id',
-                'well',
-                'color',
-                'z_slice',
-                'objective',
-                'zstack_group_id',
-                'custom_step'
+                'Tile Group ID',
+                'Well',
+                'Color',
+                'Z-Slice',
+                'Objective',
+                'Z-Stack Group ID',
+                'Custom Step'
             ],
             dropna=False
         )
 
         tile_dict = {}
         for idx, (_, group_info) in enumerate(tile_groups):
-            tile_dict[idx] = group_info[['name','x','y','color','well','tile','step_index','z_slice','objective','tile_group_id','zstack_group_id','custom_step']]
+            tile_dict[idx] = group_info[['Name','X','Y','Color','Well','Tile','Step Index','Z-Slice','Objective','Tile Group ID','Z-Stack Group ID','Custom Step']]
         
         return tile_dict
     

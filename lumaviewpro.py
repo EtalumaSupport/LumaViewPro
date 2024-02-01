@@ -119,6 +119,7 @@ from modules.color_channels import ColorChannel
 from modules.composite_generation import CompositeGeneration
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.zstack_config import ZStackConfig
+from modules.json_helper import CustomJSONizer
 
 import cv2
 import skimage
@@ -426,21 +427,29 @@ class CompositeCapture(FloatLayout):
         # Save Settings
         # file_root = settings[color]['file_root']
 
-        if custom_name is None:
+        name = common_utils.generate_default_step_name(
+            well_label=well_label,
+            color=color,
+            z_height_idx=z_height_idx,
+            scan_count=scan_count,
+            custom_name_prefix=custom_name,
+            tile_label=tile_label
+        )
+        # if custom_name is None:
 
-            if well_label is None:
-                well_label = self.get_well_label()
+        #     if well_label is None:
+        #         well_label = self.get_well_label()
 
-            name = common_utils.generate_default_step_name(
-                well_label=well_label,
-                color=color,
-                z_height_idx=z_height_idx,
-                scan_count=scan_count,
-                tile_label=tile_label
-            )
-        else:
-            DESIRED_SCAN_COUNT_DIGITS = 4
-            name = f"{custom_name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}"
+        #     name = common_utils.generate_default_step_name(
+        #         well_label=well_label,
+        #         color=color,
+        #         z_height_idx=z_height_idx,
+        #         scan_count=scan_count,
+        #         tile_label=tile_label
+        #     )
+        # else:
+        #     DESIRED_SCAN_COUNT_DIGITS = 4
+        #     name = f"{custom_name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}"
 
         # Illuminate
         if lumaview.scope.led:
@@ -1227,7 +1236,7 @@ class CellCountControls(BoxLayout):
         os.chdir(source_path)
         self._add_method_settings_metadata()
         with open(file, "w") as write_file:
-            json.dump(self._settings, write_file, indent = 4)
+            json.dump(self._settings, write_file, indent = 4, cls=CustomJSONizer)
 
     
     def load_method_from_file(self, file):
@@ -2513,12 +2522,16 @@ class ProtocolSettings(CompositeCapture):
         # Number of Steps
         length = len(self._protocol_df)
               
+        step = self.get_curr_step()
         if length > 0:
-            self.ids['step_name_input'].text = self._protocol_df.iloc[self.curr_step]["Name"]
+            self.ids['step_name_input'].text = step["Name"]
+            if step['Name'] == '':
+                self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
             self.ids['step_number_input'].text = str(self.curr_step+1)
         else:
             self.ids['step_number_input'].text = '0'
             self.ids['step_name_input'].text = ''
+            self.ids['step_name_input'].hint_text = 'Step Name'
 
         self.ids['step_total_input'].text = str(length)
         # settings['protocol']['filepath'] = ''        
@@ -2781,8 +2794,7 @@ class ProtocolSettings(CompositeCapture):
                 period_row = next(csvreader)
             else:
                 period_row = version_row
-
-            period_row = next(csvreader)        
+ 
             period = float(period_row[1])
             duration = next(csvreader)
             duration = float(duration[1])
@@ -2833,12 +2845,16 @@ class ProtocolSettings(CompositeCapture):
         # Update GUI
         self.curr_step = 0 # start at first step
 
+        step = self.get_curr_step()
         if len(self._protocol_df) > 0:
-            self.ids['step_name_input'].text = self._protocol_df.iloc[self.curr_step]['Name']
+            self.ids['step_name_input'].text = step['Name']
+            if step['Name'] == '':
+                self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
             self.ids['step_number_input'].text = str(self.curr_step+1)
         else:
             self.ids['step_number_input'].text = '0'
             self.ids['step_name_input'].text = ''
+            self.ids['step_name_input'].hint_text = 'Step Name'
 
         self.ids['step_total_input'].text = str(len(self._protocol_df))
         self.ids['capture_period'].text = str(period)
@@ -2854,6 +2870,16 @@ class ProtocolSettings(CompositeCapture):
 
         self.go_to_step()
     
+
+    def get_default_name_for_curr_step(self):
+        step = self.get_curr_step()
+        return common_utils.generate_default_step_name(
+            well_label=step["Well"],
+            color=step['Color'],
+            z_height_idx=step['Z-Slice'],
+            tile_label=step['Tile']
+        )
+
 
     # Save Protocol to File
     def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
@@ -2960,6 +2986,8 @@ class ProtocolSettings(CompositeCapture):
         
         step = self.get_curr_step()
         self.ids['step_name_input'].text = step["Name"]
+        if step['Name'] == '':
+            self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
 
         # Convert plate coordinates to stage coordinates
         sx, sy = self.plate_to_stage(step["X"], step["Y"])
@@ -3093,9 +3121,10 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
 
          # Determine Values
-        # name = self.ids['step_name_input'].text
         name = f"custom{self.custom_step_count}"
         self.ids['step_name_input'].text = name
+        # if step['Name'] == '':
+        #         self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
         self.custom_step_count += 1
         c_layer = False
 
@@ -3325,6 +3354,9 @@ class ProtocolSettings(CompositeCapture):
 
 
     def get_curr_step(self):
+        if len(self._protocol_df) == 0:
+            return None
+        
         return self._protocol_df.iloc[self.curr_step]
 
 
@@ -4003,7 +4035,7 @@ class MicroscopeSettings(BoxLayout):
 
         os.chdir(source_path)
         with open(file, "w") as write_file:
-            json.dump(settings, write_file, indent = 4)
+            json.dump(settings, write_file, indent = 4, cls=CustomJSONizer)
 
     def load_scopes(self):
         logger.info('[LVP Main  ] MicroscopeSettings.load_scopes()')
