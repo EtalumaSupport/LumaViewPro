@@ -2690,7 +2690,6 @@ class ProtocolSettings(CompositeCapture):
                         z = round(z, common_utils.max_decimal_precision('z'))
 
                         af = settings[layer]['autofocus']
-                        # ch = lumaview.scope.color2ch(layer)
                         fc = settings[layer]['false_color']
                         ill = round(settings[layer]['ill'], common_utils.max_decimal_precision('illumination'))
                         gain = round(settings[layer]['gain'], common_utils.max_decimal_precision('gain'))
@@ -2699,14 +2698,6 @@ class ProtocolSettings(CompositeCapture):
                         objective = settings['objective']['ID']
                         custom_step = False
                         well_label = current_labware.get_well_label(x=pos[0], y=pos[1])
-
-                        # step_name = common_utils.generate_default_step_name(
-                        #     well_label=well_label,
-                        #     color=layer,
-                        #     z_height_idx=zstack_slice,
-                        #     scan_count=None,
-                        #     tile_label=tile_label
-                        # )
 
                         if zstack_slice in ("", None):
                             zstack_slice_label = -1
@@ -2722,9 +2713,6 @@ class ProtocolSettings(CompositeCapture):
                             zstack_group_id_label = -1
                         else:
                             zstack_group_id_label = zstack_group_id
-
-                        # self._protocol.append()
-
                         
                         step_dict = self.create_step_dict(
                             name="",
@@ -2751,7 +2739,7 @@ class ProtocolSettings(CompositeCapture):
                 if zstack_slice is not None:
                     zstack_group_id += 1
 
-            if tile_label is not "":
+            if tile_label != "":
                 tile_group_id += 1
 
         self.add_steps_to_protocol(steps=steps)
