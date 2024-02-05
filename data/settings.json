@@ -5,18 +5,18 @@
         "y": 2740.0
     },
     "objective": {
-        "desc": "60x description",
-        "magnification": 60,
-        "aperture": 0.85,
-        "DOF": 0.4,
-        "AF_min": 0.5,
-        "AF_max": 6.0,
-        "AF_range": 15.0,
-        "z_fine": 0.2,
-        "z_coarse": 2.0,
-        "xy_fine": 10.0,
-        "xy_coarse": 100.0,
-        "ID": "60x"
+        "desc": "20x",
+        "magnification": 20,
+        "aperture": 0.4,
+        "DOF": 5.8,
+        "AF_min": 2.0,
+        "AF_max": 18.0,
+        "AF_range": 40.0,
+        "z_fine": 2.9,
+        "z_coarse": 29.0,
+        "xy_fine": 20.0,
+        "xy_coarse": 200.0,
+        "ID": "20x"
     },
     "frame": {
         "width": 1900,
