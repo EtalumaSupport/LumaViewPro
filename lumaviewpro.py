@@ -2298,7 +2298,7 @@ class ProtocolSettings(CompositeCapture):
         self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
 
         self.scan_count = 0
-        self.autofocus_was_used = False
+        self.autofocus_count = 0
         self.scan_in_progress = False
         self.separate_folder_per_channel = False
         self.enable_image_saving = True
@@ -3459,9 +3459,6 @@ class ProtocolSettings(CompositeCapture):
         step = self.get_curr_step()
         logger.info(f"[LVP Main  ] Scan Step: {step['Name']}")
         
-        if step["Auto_Focus"]:
-            self.autofocus_was_used = True
-
         # Set camera settings
         lumaview.scope.set_auto_gain(step['Auto_Gain'], target_brightness=settings['protocol']['autogain']['target_brightness'])
         lumaview.scope.led_on(lumaview.scope.color2ch(step['Color']), step['Illumination'])
@@ -3517,6 +3514,9 @@ class ProtocolSettings(CompositeCapture):
         else:
             save_folder = self.protocol_run_dir
 
+        if step["Auto_Focus"]:
+            self.autofocus_count += 1
+
         # capture image
         image_filepath = self.custom_capture(
             save_folder=save_folder,
@@ -3564,10 +3564,10 @@ class ProtocolSettings(CompositeCapture):
 
         # if all positions have already been reached
         else:
-            # At the end of a scan, if autofocus was used, cycle the Z-axis to re-distribute grease
-            if self.autofocus_was_used == True:
+            # At the end of a scan, if we've performed more than 100 AFs, cycle the Z-axis to re-distribute grease
+            if self.autofocus_count >= 100:
                 self.perform_grease_redistribution()
-                self.autofocus_was_used = False
+                self.autofocus_count = 0
 
             self.scan_count += 1
             
@@ -3606,7 +3606,7 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol()')
         self.n_scans = int(float(settings['protocol']['duration'])*60 / float(settings['protocol']['period']))
         self.scan_count = 0
-        self.autofocus_was_used = False
+        self.autofocus_count = 0
         self.scan_in_progress = False
         self.start_t = time.time() # start of cycle in seconds
 
