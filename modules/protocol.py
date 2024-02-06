@@ -84,10 +84,13 @@ class Protocol:
             
             version_row = next(csvreader)
             if version_row[0] != "Version":
-                logger.error(f"Unable to load {file_path} which contains an older protocol format that is no longer supported.  Please create a new protocol using this version of LumaViewPro")
+                logger.error(f"Unable to load {file_path} which contains an older protocol format that is no longer supported.\nPlease create a new protocol using this version of LumaViewPro.")
                 return
 
             config['version'] = int(version_row[1])
+            if config['version'] != 2:
+                logger.error(f"Unable to load {file_path} which contains a protocol version that is not supported.\nPlease create a new protocol using this version of LumaViewPro.")
+                return
 
             period_row = next(csvreader)
             config['period'] = datetime.timedelta(minutes=float(period_row[1]))

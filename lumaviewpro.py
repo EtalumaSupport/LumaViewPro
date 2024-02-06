@@ -2266,6 +2266,8 @@ class XYStageControl(BoxLayout):
 class ProtocolSettings(CompositeCapture):
     global settings
 
+    done = BooleanProperty(False)
+
     def __init__(self, **kwargs):
 
         super(ProtocolSettings, self).__init__(**kwargs)
@@ -2771,7 +2773,15 @@ class ProtocolSettings(CompositeCapture):
             return True, labware
         else:
             return False, "Center Plate"
-            
+
+
+    @show_popup
+    def _show_popup_message(self, popup, title, message, delay_sec):
+        popup.title = title
+        popup.text = message
+        time.sleep(delay_sec)
+        self.done = True
+
 
     # Load Protocol from File
     def load_protocol(self, filepath="./data/new_default_protocol.tsv"):
@@ -2786,10 +2796,26 @@ class ProtocolSettings(CompositeCapture):
             
             version_row = next(csvreader)
             if version_row[0] != "Version":
-                logger.error(f"Unable to load {filepath} which contains an older protocol format that is no longer supported.  Please create a new protocol using this version of LumaViewPro")
+                err_str = f"Unable to load {filepath} which contains an older protocol format that is no longer supported.\nPlease create a new protocol using this version of LumaViewPro."
+                logger.error(err_str)
+                self._show_popup_message(
+                    title='Load Protocol',
+                    message=err_str,
+                    delay_sec=5
+                )
                 return
 
             version = int(version_row[1])
+            if version != 2:
+                err_str = f"Unable to load {filepath} which contains a protocol version that is not supported.\nPlease create a new protocol using this version of LumaViewPro."
+                logger.error(err_str)
+                self._show_popup_message(
+                    title='Load Protocol',
+                    message=err_str,
+                    delay_sec=5
+                )
+                return
+            
             period_row = next(csvreader)
             period = float(period_row[1])
             duration = next(csvreader)
