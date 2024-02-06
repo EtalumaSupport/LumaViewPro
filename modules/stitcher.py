@@ -26,6 +26,12 @@ class Stitcher:
             include_stitched_images=False,
             include_composite_images=False
         )
+
+        if results['status'] is False:
+            return {
+                'status': False,
+                'message': f'Failed to load protocol data from {path}'
+            }
        
         df = results['image_tile_groups']
         df['Stitch Group Index'] = df.groupby(by=['Protocol Group Index','Scan Count']).ngroup()

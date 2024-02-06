@@ -9,6 +9,8 @@ import os
 import pathlib
 import re
 
+from lvp_logger import logger
+
 import modules.color_channels as color_channels
 import modules.common_utils as common_utils
 import modules.tiling_config as tiling_config
@@ -81,13 +83,13 @@ class Protocol:
                 raise Exception(f"Not a valid LumaViewPro Protocol")
             
             version_row = next(csvreader)
-            if version_row[0] == "Version":
-                config['version'] = int(version_row[1])
-                period_row = next(csvreader)
-            else:
-                config['version'] = 1 # Version 1 did not include versioning
-                period_row = version_row
+            if version_row[0] != "Version":
+                logger.error(f"Unable to load {file_path} which contains an older protocol format that is no longer supported.  Please create a new protocol using this version of LumaViewPro")
+                return
 
+            config['version'] = int(version_row[1])
+
+            period_row = next(csvreader)
             config['period'] = datetime.timedelta(minutes=float(period_row[1]))
             
             duration = next(csvreader)

@@ -95,7 +95,20 @@ class ProtocolPostProcessingHelper:
         
         logger.info(f"{self._name}: Found -> protocol {protocol_tsvs['protocol']}, protocol execution record {protocol_tsvs['protocol_execution_record']}")
         protocol = Protocol.from_file(file_path=protocol_tsvs['protocol'])
+        if protocol is None:
+            logger.error(f"{self._name}: Protocol not loaded")
+            return {
+                'status': False,
+                'message': 'Protocol not loaded'
+            }
+        
         protocol_execution_record = ProtocolExecutionRecord.from_file(file_path=protocol_tsvs['protocol_execution_record'])
+        if protocol_execution_record is None:
+            logger.error(f"{self._name}: Protocol Execution Record not loaded")
+            return {
+                'status': False,
+                'message': 'Protocol Execution Record not loaded'
+            }
 
         image_names = self._get_image_filenames_from_folder(path=path)
 
@@ -210,6 +223,7 @@ class ProtocolPostProcessingHelper:
 
 
         return {
+            'status': True,
             'protocol': protocol,
             'protocol_execution_record': protocol_execution_record,
             'image_names': image_names,

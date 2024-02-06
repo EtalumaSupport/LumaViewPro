@@ -889,8 +889,12 @@ class StitchControls(BoxLayout):
         final_text = f"Generating stitched images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
+            popup.text = final_text
+            time.sleep(5)
+            self.done = True
+            return
+
         popup.text = final_text
-        
         time.sleep(2)
         self.done = True
 
@@ -918,8 +922,12 @@ class CompositeGenControls(BoxLayout):
         final_text = f"Generating composite images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
-        popup.text = final_text
+            popup.text = final_text
+            time.sleep(5)
+            self.done = True
+            return
         
+        popup.text = final_text
         time.sleep(2)
         self.done = True
 
@@ -2777,12 +2785,12 @@ class ProtocolSettings(CompositeCapture):
                 return
             
             version_row = next(csvreader)
-            if version_row[0] == "Version":
-                version = int(version_row[1])
-                period_row = next(csvreader)
-            else:
-                period_row = version_row
- 
+            if version_row[0] != "Version":
+                logger.error(f"Unable to load {filepath} which contains an older protocol format that is no longer supported.  Please create a new protocol using this version of LumaViewPro")
+                return
+
+            version = int(version_row[1])
+            period_row = next(csvreader)
             period = float(period_row[1])
             duration = next(csvreader)
             duration = float(duration[1])

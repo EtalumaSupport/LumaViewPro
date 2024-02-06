@@ -28,6 +28,12 @@ class CompositeGeneration:
             include_composite_images=False
         )
 
+        if results['status'] is False:
+            return {
+                'status': False,
+                'message': f'Failed to load protocol data from {path}'
+            }
+
         df = results['image_tile_groups']
         df['Composite Group Index'] = df.groupby(by=['Scan Count','Z-Slice','Well','Objective','X','Y'], dropna=False).ngroup()
         
