@@ -1,32 +1,104 @@
 LumaViewPro Protocol
+Version	2
 Period	20.0
 Duration	48.0
 Labware	96 well microplate
-Name	X	Y	Z	Auto_Focus	Channel	False_Color	Illumination	Gain	Auto_Gain	Exposure
-	46.5	37.0	7168.5	1.0	0.0	1.0	100.0	10.0	0.0	100.0
-	46.5	37.0	7168.5	0.0	1.0	0.0	100.0	10.0	0.0	100.0
-	46.5	37.0	7168.5	0.0	2.0	0.0	100.0	10.0	0.0	100.0
-	55.5	37.0	7168.5	0.0	0.0	1.0	100.0	10.0	0.0	100.0
-	55.5	37.0	7168.5	0.0	1.0	1.0	100.0	10.0	0.0	100.0
-	55.5	37.0	7168.5	0.0	2.0	0.0	100.0	10.0	0.0	100.0
-	64.5	37.0	7168.5	0.0	0.0	1.0	100.0	10.0	0.0	100.0
-	64.5	37.0	7168.5	0.0	1.0	1.0	100.0	10.0	0.0	100.0
-	64.5	37.0	7168.5	0.0	2.0	1.0	100.0	10.0	0.0	100.0
-	64.5	46.0	7168.5	0.0	0.0	1.0	100.0	10.0	0.0	100.0
-	64.5	46.0	7168.5	0.0	1.0	1.0	100.0	10.0	0.0	100.0
-	64.5	46.0	7168.5	0.0	2.0	1.0	100.0	10.0	0.0	100.0
-	55.5	46.0	7168.5	0.0	0.0	1.0	100.0	10.0	0.0	100.0
-	55.5	46.0	7168.5	0.0	1.0	1.0	100.0	10.0	0.0	100.0
-	55.5	46.0	7168.5	0.0	2.0	1.0	100.0	10.0	0.0	100.0
-	46.5	46.0	7168.5	0.0	0.0	1.0	100.0	10.0	0.0	100.0
-	46.5	46.0	7168.5	0.0	1.0	1.0	100.0	10.0	0.0	100.0
-	46.5	46.0	7168.5	0.0	2.0	1.0	100.0	10.0	0.0	100.0
-	46.5	55.0	7168.5	0.0	0.0	0.0	100.0	10.0	0.0	100.0
-	46.5	55.0	7168.5	0.0	1.0	1.0	100.0	10.0	0.0	100.0
-	46.5	55.0	7168.5	0.0	2.0	1.0	100.0	10.0	0.0	100.0
-	55.5	55.0	7168.5	0.0	0.0	1.0	100.0	10.0	0.0	100.0
-	55.5	55.0	7168.5	0.0	1.0	1.0	100.0	10.0	0.0	100.0
-	55.5	55.0	7168.5	0.0	2.0	1.0	100.0	10.0	0.0	100.0
-	64.5	55.0	7168.5	0.0	0.0	1.0	100.0	10.0	0.0	100.0
-	64.5	55.0	7168.5	0.0	1.0	1.0	100.0	10.0	0.0	100.0
-	64.5	55.0	7168.5	0.0	2.0	1.0	100.0	10.0	0.0	100.0
+
+Steps
+Name	X	Y	Z	Auto_Focus	Color	False_Color	Illumination	Gain	Auto_Gain	Exposure	Objective	Well	Tile	Z-Slice	Custom Step	Tile Group ID	Z-Stack Group ID
+	15.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A1		-1	False	-1	-1
+	24.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A2		-1	False	-1	-1
+	33.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A3		-1	False	-1	-1
+	42.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A4		-1	False	-1	-1
+	51.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A5		-1	False	-1	-1
+	60.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A6		-1	False	-1	-1
+	69.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A7		-1	False	-1	-1
+	78.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A8		-1	False	-1	-1
+	87.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A9		-1	False	-1	-1
+	96.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A10		-1	False	-1	-1
+	105.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A11		-1	False	-1	-1
+	114.38	11.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	A12		-1	False	-1	-1
+	114.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B12		-1	False	-1	-1
+	105.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B11		-1	False	-1	-1
+	96.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B10		-1	False	-1	-1
+	87.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B9		-1	False	-1	-1
+	78.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B8		-1	False	-1	-1
+	69.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B7		-1	False	-1	-1
+	60.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B6		-1	False	-1	-1
+	51.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B5		-1	False	-1	-1
+	42.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B4		-1	False	-1	-1
+	33.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B3		-1	False	-1	-1
+	24.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B2		-1	False	-1	-1
+	15.38	20.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	B1		-1	False	-1	-1
+	15.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C1		-1	False	-1	-1
+	24.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C2		-1	False	-1	-1
+	33.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C3		-1	False	-1	-1
+	42.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C4		-1	False	-1	-1
+	51.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C5		-1	False	-1	-1
+	60.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C6		-1	False	-1	-1
+	69.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C7		-1	False	-1	-1
+	78.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C8		-1	False	-1	-1
+	87.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C9		-1	False	-1	-1
+	96.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C10		-1	False	-1	-1
+	105.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C11		-1	False	-1	-1
+	114.38	29.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	C12		-1	False	-1	-1
+	114.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D12		-1	False	-1	-1
+	105.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D11		-1	False	-1	-1
+	96.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D10		-1	False	-1	-1
+	87.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D9		-1	False	-1	-1
+	78.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D8		-1	False	-1	-1
+	69.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D7		-1	False	-1	-1
+	60.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D6		-1	False	-1	-1
+	51.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D5		-1	False	-1	-1
+	42.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D4		-1	False	-1	-1
+	33.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D3		-1	False	-1	-1
+	24.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D2		-1	False	-1	-1
+	15.38	38.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	D1		-1	False	-1	-1
+	15.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E1		-1	False	-1	-1
+	24.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E2		-1	False	-1	-1
+	33.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E3		-1	False	-1	-1
+	42.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E4		-1	False	-1	-1
+	51.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E5		-1	False	-1	-1
+	60.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E6		-1	False	-1	-1
+	69.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E7		-1	False	-1	-1
+	78.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E8		-1	False	-1	-1
+	87.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E9		-1	False	-1	-1
+	96.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E10		-1	False	-1	-1
+	105.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E11		-1	False	-1	-1
+	114.38	47.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	E12		-1	False	-1	-1
+	114.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F12		-1	False	-1	-1
+	105.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F11		-1	False	-1	-1
+	96.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F10		-1	False	-1	-1
+	87.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F9		-1	False	-1	-1
+	78.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F8		-1	False	-1	-1
+	69.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F7		-1	False	-1	-1
+	60.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F6		-1	False	-1	-1
+	51.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F5		-1	False	-1	-1
+	42.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F4		-1	False	-1	-1
+	33.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F3		-1	False	-1	-1
+	24.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F2		-1	False	-1	-1
+	15.38	56.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	F1		-1	False	-1	-1
+	15.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G1		-1	False	-1	-1
+	24.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G2		-1	False	-1	-1
+	33.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G3		-1	False	-1	-1
+	42.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G4		-1	False	-1	-1
+	51.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G5		-1	False	-1	-1
+	60.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G6		-1	False	-1	-1
+	69.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G7		-1	False	-1	-1
+	78.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G8		-1	False	-1	-1
+	87.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G9		-1	False	-1	-1
+	96.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G10		-1	False	-1	-1
+	105.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G11		-1	False	-1	-1
+	114.38	65.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	G12		-1	False	-1	-1
+	114.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H12		-1	False	-1	-1
+	105.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H11		-1	False	-1	-1
+	96.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H10		-1	False	-1	-1
+	87.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H9		-1	False	-1	-1
+	78.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H8		-1	False	-1	-1
+	69.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H7		-1	False	-1	-1
+	60.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H6		-1	False	-1	-1
+	51.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H5		-1	False	-1	-1
+	42.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H4		-1	False	-1	-1
+	33.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H3		-1	False	-1	-1
+	24.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H2		-1	False	-1	-1
+	15.38	74.24	4950.0	False	BF	False	5.0	1.0	False	2.0	20x	H1		-1	False	-1	-1
