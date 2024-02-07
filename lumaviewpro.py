@@ -722,6 +722,7 @@ void main (void) {
         self.white = 1.
         self.black = 0.
 
+
     def on_touch_down(self, touch):
         logger.info('[LVP Main  ] ShaderViewer.on_touch_down()')
         # Override Scatter's `on_touch_down` behavior for mouse scroll
@@ -735,6 +736,11 @@ void main (void) {
         # If some other kind of "touch": Fall back on Scatter's behavior
         else:
             super(ShaderViewer, self).on_touch_down(touch)
+
+
+    def current_false_color(self) -> str:
+        return self._false_color
+    
 
     def update_shader(self, false_color='BF'):
         # logger.info('[LVP Main  ] ShaderViewer.update_shader()')
@@ -4035,8 +4041,17 @@ class MicroscopeSettings(BoxLayout):
 
     def update_bullseye_state(self):
         if self.ids['enable_bullseye_btn_id'].state == 'down':
+            lumaview.ids['viewer_id'].update_shader(false_color='BF')
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = True
         else:
+            for layer in common_utils.get_layers():
+                accordion = layer + '_accordion'
+                if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+                    if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
+                        lumaview.ids['viewer_id'].update_shader(false_color=layer)
+                        
+                    break
+
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = False
 
     
@@ -4332,7 +4347,9 @@ class LayerControl(BoxLayout):
         
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
-        self.update_shader(dt=0)
+        if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
+            self.update_shader(dt=0)
+
 
     def update_shader(self, dt):
         # logger.info('[LVP Main  ] LayerControl.update_shader()')
