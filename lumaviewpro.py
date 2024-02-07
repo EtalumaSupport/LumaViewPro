@@ -425,10 +425,12 @@ class CompositeCapture(FloatLayout):
                 crosshairs_image = bullseye_image
 
             # Save both versions of the image (unaltered and overlayed)
-            lumaview.scope.save_image(array=crosshairs_image, save_folder=save_folder, file_root=file_root, append=f"{append}_overlay", color=color, tail_id_mode='increment')
-            lumaview.scope.save_image(array=image, save_folder=save_folder, file_root=file_root, append=append, color=color, tail_id_mode='increment')
+            now = datetime.datetime.now()
+            time_string = now.strftime("%Y%m%d_%H%M%S")
+            append = f"{append}_{time_string}"
+            lumaview.scope.save_image(array=crosshairs_image, save_folder=save_folder, file_root=file_root, append=f"{append}_overlay", color=color, tail_id_mode=None)
+            lumaview.scope.save_image(array=image, save_folder=save_folder, file_root=file_root, append=append, color=color, tail_id_mode=None)
 
-    
 
     def custom_capture(
         self,
