@@ -197,16 +197,20 @@ class Lumascope():
         
         img = np.zeros((array.shape[0], array.shape[1], 3))
 
-        if color == 'Blue':
-            img[:,:,0] = array
-        elif color == 'Green':
-            img[:,:,1] = array
-        elif color == 'Red':
-            img[:,:,2] = array
+        # Check if already a color image
+        if (len(array.shape) == 3) and (array.shape[2] == 3):
+            img = array
         else:
-            img[:,:,0] = array
-            img[:,:,1] = array
-            img[:,:,2] = array
+            if color == 'Blue':
+                img[:,:,0] = array
+            elif color == 'Green':
+                img[:,:,1] = array
+            elif color == 'Red':
+                img[:,:,2] = array
+            else:
+                img[:,:,0] = array
+                img[:,:,1] = array
+                img[:,:,2] = array
 
         img = np.flip(img, 0)
 

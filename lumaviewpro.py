@@ -394,9 +394,40 @@ class CompositeCapture(FloatLayout):
                     color = layer
                     
                 break
+
+        if ENGINEERING_MODE is False:
+            return lumaview.scope.save_live_image(save_folder, file_root, append, color)
+        else:
+            use_bullseye = lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye
+            use_crosshairs = lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs
+
+            if not use_bullseye and not use_crosshairs:
+                return lumaview.scope.save_live_image(save_folder, file_root, append, color)
             
-        # lumaview.scope.get_image()
-        return lumaview.scope.save_live_image(save_folder, file_root, append, color)
+            image = lumaview.scope.get_image()
+            if image is False:
+                return 
+
+            if use_bullseye:
+                bullseye_image = lumaview.ids['viewer_id'].ids['scope_display_id'].transform_to_bullseye(image)
+
+                # Swap red/blue channels to match required format
+                red = bullseye_image[:,:,0].copy()
+                blue = bullseye_image[:,:,2].copy()
+                bullseye_image[:,:,0] = blue
+                bullseye_image[:,:,2] = red
+            else:
+                bullseye_image = image
+
+            if use_crosshairs:
+                crosshairs_image = lumaview.ids['viewer_id'].ids['scope_display_id'].add_crosshairs(bullseye_image)
+            else:
+                crosshairs_image = bullseye_image
+
+            # Save both versions of the image (unaltered and overlayed)
+            lumaview.scope.save_image(array=crosshairs_image, save_folder=save_folder, file_root=file_root, append=f"{append}_overlay", color=color, tail_id_mode='increment')
+            lumaview.scope.save_image(array=image, save_folder=save_folder, file_root=file_root, append=append, color=color, tail_id_mode='increment')
+
     
 
     def custom_capture(
