@@ -495,6 +495,8 @@ class CompositeCapture(FloatLayout):
         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
         time.sleep(2*exposure/1000+0.2)
+
+        lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay()
         
         use_color = color if false_color else 'BF'
 
