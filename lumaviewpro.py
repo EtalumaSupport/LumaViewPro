@@ -3584,7 +3584,7 @@ class ProtocolSettings(CompositeCapture):
         # well_label = common_utils.get_well_label_from_name(name=step_name)
 
         if self.separate_folder_per_channel:
-            save_folder = self.protocol_run_dir / ColorChannel(step["Channel"]).name
+            save_folder = self.protocol_run_dir / step["Color"]
             save_folder.mkdir(parents=True, exist_ok=True)
         else:
             save_folder = self.protocol_run_dir
@@ -3610,7 +3610,7 @@ class ProtocolSettings(CompositeCapture):
 
         if self.enable_image_saving == True:
             if self.separate_folder_per_channel:
-                image_filepath_name = pathlib.Path(ColorChannel(step['Channel']).name) / image_filepath.name
+                image_filepath_name = pathlib.Path(step["Color"]) / image_filepath.name
             else:
                 image_filepath_name = image_filepath.name
         else:
