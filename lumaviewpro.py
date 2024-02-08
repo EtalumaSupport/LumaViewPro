@@ -51,7 +51,8 @@ import json
 import sys
 import glob
 from lvp_logger import logger
-from tkinter import filedialog as tkinter_filedialog
+import tkinter
+from tkinter import filedialog, Tk
 from plyer import filechooser
 
 if getattr(sys, 'frozen', False):
@@ -4545,9 +4546,17 @@ class FolderChooseBTN(Button):
         # but needs testing on Linux
         if sys.platform in ('win32','darwin'):
             # Tested for Windows/Mac platforms
-            selection = tkinter_filedialog.askdirectory(
+
+            # Use root with attributes to keep filedialog on top
+            # Ref: https://stackoverflow.com/questions/3375227/how-to-give-tkinter-file-dialog-focus
+            root = Tk()
+            root.attributes('-alpha', 0.0)
+            root.attributes('-topmost', True)
+            selection = filedialog.askdirectory(
+                parent=root,
                 initialdir=selected_path
             )
+            root.destroy()
 
             # Nothing selected/cancel
             if selection == '':
