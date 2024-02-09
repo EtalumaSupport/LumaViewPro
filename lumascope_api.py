@@ -519,6 +519,13 @@ class Lumascope():
             time.sleep(0.05)
         
         return
+    
+
+    def get_microscope_model(self):
+        if not self.motion.driver:
+            return None
+        
+        return self.motion.get_microscope_model()
 
 
     '''
