@@ -63,7 +63,7 @@ class PylonCamera:
             self.active.Height.SetValue(self.active.Height.Max)
             self.active.BslCenterX.Execute()
             self.active.BslCenterY.Execute()
-            # self.active.PixelFormat.SetValue('PixelFormat_Mono12')
+            self.active.PixelFormat.SetValue('Mono8')
             self.active.GainAuto.SetValue('Off')
             self.active.ExposureAuto.SetValue('Off')
             self.active.ReverseX.SetValue(True)
@@ -79,7 +79,25 @@ class PylonCamera:
                 logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.error_report_count += 1
 
+
+    def set_pixel_format(self, pixel_format: str):
+
+        if pixel_format not in self.get_supported_pixel_formats():
+            logger.exception(f"[CAM Class ] Unsupported pixel format: {pixel_format}")
+        
+        self.active.StopGrabbing()
+        self.active.PixelFormat.SetValue(pixel_format)
+        self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+ 
+
+    def get_pixel_format(self) -> str:
+        return self.active.PixelFormat.GetValue()
+
+
+    def get_supported_pixel_formats(self) -> tuple:
+        return self.active.PixelFormat.GetSymbolics()
     
+
     def init_auto_gain_focus(self, auto_target_brightness: float=0.5):
         # margin_px = 8
         # self.active.AutoFunctionROIOffsetX.SetValue(margin_px)
