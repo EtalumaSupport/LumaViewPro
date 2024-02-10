@@ -101,7 +101,7 @@ class CompositeGeneration:
         images = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filename']
-            images[row['Filename']] = cv2.imread(str(image_filepath))
+            images[row['Filename']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
 
         source_image_sample = df['Filename'].values[0]
         img = np.zeros_like(images[source_image_sample])

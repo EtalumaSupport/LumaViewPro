@@ -136,7 +136,7 @@ class Stitcher:
         images = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filename']
-            images[row['Filename']] = cv2.imread(str(image_filepath))
+            images[row['Filename']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
 
         df = df.copy()
 
@@ -164,7 +164,7 @@ class Stitcher:
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype='uint8')
+        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=images[source_image_sample].dtype)
         for _, row in df.iterrows():
             filename = row['Filename']
             image = images[filename]
@@ -198,7 +198,7 @@ class Stitcher:
         images = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filename']
-            images[row['Filename']] = cv2.imread(str(image_filepath))
+            images[row['Filename']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
 
         df = df.copy()
 
@@ -221,7 +221,7 @@ class Stitcher:
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype='uint8')
+        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=images[source_image_sample].dtype)
         for _, row in df.iterrows():
             filename = row['Filename']
             image = images[filename]
