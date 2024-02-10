@@ -80,16 +80,24 @@ class PylonCamera:
             self.error_report_count += 1
 
 
-    def set_pixel_format(self, pixel_format: str):
+    def set_pixel_format(self, pixel_format: str) -> bool:
         if not self.active:
-            return
+            return False
 
         if pixel_format not in self.get_supported_pixel_formats():
             logger.exception(f"[CAM Class ] Unsupported pixel format: {pixel_format}")
+            return False
         
-        self.active.StopGrabbing()
+        is_grabbing = self.active.IsGrabbing()
+        if is_grabbing:
+            self.active.StopGrabbing()
+
         self.active.PixelFormat.SetValue(pixel_format)
-        self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
+        if is_grabbing:
+            self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+
+        return True
  
 
     def get_pixel_format(self) -> str:
@@ -99,6 +107,42 @@ class PylonCamera:
     def get_supported_pixel_formats(self) -> tuple:
         return self.active.PixelFormat.GetSymbolics()
     
+
+    def set_binning_size(self, size: int) -> bool:
+        if not self.active:
+            return False
+        
+        if size < 1 or size > 4:
+            logger.exception(f"[CAM Class ] Unsupported bin size: {size}")
+            return False
+        
+        is_grabbing = self.active.IsGrabbing()
+        if is_grabbing:
+            self.active.StopGrabbing()
+
+        self.active.BinningVertical.SetValue(size)
+        self.active.BinningVerticalMode.SetValue('Sum')
+        self.active.BinningHorizontal.SetValue(size)
+        self.active.BinningVerticalMode.SetValue('Sum')
+        
+        if is_grabbing:
+            self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+        
+        return True
+    
+
+    def get_binning_size(self) -> int:
+        if not self.active:
+            return 1
+        
+        vert_bin = self.active.BinningVertical.GetValue()
+        horiz_bin = self.active.BinningHorizontal.GetValue()
+
+        if horiz_bin != vert_bin:
+            logger.exception(f"[CAM Class ] Binning mismatch detected between horizontal ({horiz_bin}) and vertical ({vert_bin})")
+        
+        return vert_bin
+
 
     def init_auto_gain_focus(self, auto_target_brightness: float=0.5):
         # margin_px = 8
