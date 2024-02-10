@@ -76,3 +76,19 @@ def rgb_image_to_gray(image):
         return np.amax(image, axis=2)
 
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+
+def convert_12bit_to_8bit(image):
+    if image.dtype == 'uint8':
+        return image
+    
+    new_image = image.copy()
+    return (new_image // 16).astype(np.uint8)
+
+
+def convert_12bit_to_16bit(image):
+    if image.dtype == 'uint8':
+        return image
+    
+    new_image = image.copy()
+    return (new_image * 16)

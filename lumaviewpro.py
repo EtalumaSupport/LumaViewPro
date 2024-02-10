@@ -199,6 +199,7 @@ class ScopeDisplay(Image):
         logger.info('[LVP Main  ] ScopeDisplay.__init__()')
         self.use_bullseye = False
         self.use_crosshairs = False
+        self.use_12bit_pixel_depth = False
         self.start()
 
     def start(self, fps = 10):
@@ -385,6 +386,9 @@ class CompositeCapture(FloatLayout):
         color = 'BF'
         well_label = self.get_well_label()
 
+        use_12bit_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth
+        force_to_8bit_pixel_depth = not use_12bit_pixel_depth
+
         for layer in common_utils.get_layers():
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
@@ -397,17 +401,36 @@ class CompositeCapture(FloatLayout):
                 break
 
         if ENGINEERING_MODE is False:
-            return lumaview.scope.save_live_image(save_folder, file_root, append, color)
+            return lumaview.scope.save_live_image(
+                save_folder,
+                file_root,
+                append,
+                color,
+                force_to_8bit=force_to_8bit_pixel_depth
+            )
+        
         else:
             use_bullseye = lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye
             use_crosshairs = lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs
 
             if not use_bullseye and not use_crosshairs:
-                return lumaview.scope.save_live_image(save_folder, file_root, append, color)
+                return lumaview.scope.save_live_image(
+                    save_folder,
+                    file_root,
+                    append,
+                    color,
+                    force_to_8bit=force_to_8bit_pixel_depth
+                )
             
-            image = lumaview.scope.get_image()
-            if image is False:
+            image_orig = lumaview.scope.get_image(force_to_8bit=force_to_8bit_pixel_depth)
+            if image_orig is False:
                 return 
+            
+            # If not in 8-bit mode, generate an 8-bit copy of the image for visualization
+            if use_12bit_pixel_depth:
+                image = image_utils.convert_12bit_to_8bit(image_orig)
+            else:
+                image = image_orig
 
             if use_bullseye:
                 bullseye_image = lumaview.ids['viewer_id'].ids['scope_display_id'].transform_to_bullseye(image)
@@ -429,8 +452,26 @@ class CompositeCapture(FloatLayout):
             now = datetime.datetime.now()
             time_string = now.strftime("%Y%m%d_%H%M%S")
             append = f"{append}_{time_string}"
-            lumaview.scope.save_image(array=crosshairs_image, save_folder=save_folder, file_root=file_root, append=f"{append}_overlay", color=color, tail_id_mode=None)
-            lumaview.scope.save_image(array=image, save_folder=save_folder, file_root=file_root, append=append, color=color, tail_id_mode=None)
+
+            # Overlay image is in 8-bits
+            lumaview.scope.save_image(
+                array=crosshairs_image,
+                save_folder=save_folder,
+                file_root=file_root,
+                append=f"{append}_overlay",
+                color=color,
+                tail_id_mode=None
+            )
+
+            # Original image may be in 8 or 12-bit
+            lumaview.scope.save_image(
+                array=image_orig,
+                save_folder=save_folder,
+                file_root=file_root,
+                append=append,
+                color=color,
+                tail_id_mode=None
+            )
 
 
     def custom_capture(
@@ -502,12 +543,15 @@ class CompositeCapture(FloatLayout):
         use_color = color if false_color else 'BF'
 
         if self.enable_image_saving == True:
+            use_12bit_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth
+
             image_filepath = lumaview.scope.save_live_image(
                 save_folder=save_folder,
                 file_root=None,
                 append=name,
                 color=use_color,
-                tail_id_mode=None
+                tail_id_mode=None,
+                force_to_8bit=not use_12bit_pixel_depth
             )
         else:
             image_filepath = None
@@ -530,6 +574,7 @@ class CompositeCapture(FloatLayout):
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
+        use_12bit_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth
 
         for layer in common_utils.get_layers():
             if settings[layer]['acquire'] == True:
@@ -555,7 +600,8 @@ class CompositeCapture(FloatLayout):
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
                 scope_display.update_scopedisplay() # Why?
-                darkfield = lumaview.scope.get_image()
+
+                darkfield = lumaview.scope.get_image(force_to_8bit=not use_12bit_pixel_depth)
 
                 # Florescent capture
                 if lumaview.scope.led:
@@ -566,7 +612,7 @@ class CompositeCapture(FloatLayout):
 
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
-                exposed = lumaview.scope.get_image()
+                exposed = lumaview.scope.get_image(force_to_8bit=not use_12bit_pixel_depth)
 
                 scope_display.update_scopedisplay() # Why?
                 corrected = exposed - np.minimum(exposed,darkfield)
@@ -612,7 +658,15 @@ class CompositeCapture(FloatLayout):
         while os.path.exists(path):
             path = lumaview.scope.get_next_save_path(path)
 
-        cv2.imwrite(path, img.astype(np.uint8))
+        if use_12bit_pixel_depth:
+            dtype = np.uint16
+        else:
+            dtype = np.uint8
+
+        if dtype == np.uint16:
+            img = image_utils.convert_12bit_to_16bit(img)
+            
+        cv2.imwrite(path, img.astype(dtype))
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -4098,6 +4152,15 @@ class MicroscopeSettings(BoxLayout):
                     break
 
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = False
+
+
+    def update_12bit_pixel_depth_state(self):
+        if self.ids['enable_12bit_pixel_depth_btn'].state == 'down':
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth = True
+            lumaview.scope.camera.set_pixel_format('Mono12')
+        else:
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth = False
+            lumaview.scope.camera.set_pixel_format('Mono8')
 
     
     def update_crosshairs_state(self):

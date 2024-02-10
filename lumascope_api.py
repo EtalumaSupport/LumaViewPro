@@ -51,6 +51,8 @@ import contextlib
 import cv2
 import numpy as np
 
+import image_utils
+
 
 class Lumascope():
 
@@ -152,11 +154,15 @@ class Lumascope():
     # CAMERA FUNCTIONS
     ########################################################################
 
-    def get_image(self):
+    def get_image(self, force_to_8bit: bool = True):
         """ CAMERA FUNCTIONS
         Grab and return image from camera"""
         if self.camera.grab():
             self.image_buffer = self.camera.array.copy()
+
+            if force_to_8bit and self.image_buffer.dtype != 'uint8':
+                self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
+
             return self.image_buffer
         else:
             return False
@@ -247,7 +253,12 @@ class Lumascope():
         
 
         try:
-            cv2.imwrite(str(path), img.astype(np.uint8))
+            src_dtype = array.dtype
+
+            if src_dtype == np.uint16:
+                img = image_utils.convert_12bit_to_16bit(img)
+
+            cv2.imwrite(str(path), img.astype(src_dtype))
             logger.info(f'[SCOPE API ] Saving Image to {path}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
@@ -261,13 +272,14 @@ class Lumascope():
             file_root = 'img_',
             append = 'ms',
             color = 'BF',
-            tail_id_mode = "increment"
+            tail_id_mode = "increment",
+            force_to_8bit: bool = True
         ):
 
         """CAMERA FUNCTIONS
         Grab the current live image and save to file
         """
-        array = self.get_image()
+        array = self.get_image(force_to_8bit=force_to_8bit)
         if array is False:
             return 
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode)
