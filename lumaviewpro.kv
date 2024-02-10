@@ -1641,19 +1641,19 @@
         height: '30dp'
 		Label:
 			font_size: '12sp'
-			text: 'Enable 12-bit Pixel Depth'
+			text: 'Enable Full Pixel Depth'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
 		ToggleButton:
-			id: enable_12bit_pixel_depth_btn
+			id: enable_full_pixel_depth_btn
 			size_hint: None, None
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
 			valign: 'middle'
 			background_normal: './data/icons/ToggleL.png'
 			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_12bit_pixel_depth_state()
+			on_release: root.update_full_pixel_depth_state()
 
 	BoxLayout:
         orientation: 'horizontal'

@@ -1,5 +1,6 @@
 {
     "microscope": "LS850",
+    "use_full_pixel_depth": false,
     "stage_offset": {
         "x": 3880.0,
         "y": 2740.0

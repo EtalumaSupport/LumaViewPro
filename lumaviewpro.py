@@ -199,7 +199,7 @@ class ScopeDisplay(Image):
         logger.info('[LVP Main  ] ScopeDisplay.__init__()')
         self.use_bullseye = False
         self.use_crosshairs = False
-        self.use_12bit_pixel_depth = False
+        self.use_full_pixel_depth = False
         self.start()
 
     def start(self, fps = 10):
@@ -386,8 +386,8 @@ class CompositeCapture(FloatLayout):
         color = 'BF'
         well_label = self.get_well_label()
 
-        use_12bit_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth
-        force_to_8bit_pixel_depth = not use_12bit_pixel_depth
+        use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
+        force_to_8bit_pixel_depth = not use_full_pixel_depth
 
         for layer in common_utils.get_layers():
             accordion = layer + '_accordion'
@@ -427,7 +427,7 @@ class CompositeCapture(FloatLayout):
                 return 
             
             # If not in 8-bit mode, generate an 8-bit copy of the image for visualization
-            if use_12bit_pixel_depth:
+            if use_full_pixel_depth:
                 image = image_utils.convert_12bit_to_8bit(image_orig)
             else:
                 image = image_orig
@@ -543,7 +543,7 @@ class CompositeCapture(FloatLayout):
         use_color = color if false_color else 'BF'
 
         if self.enable_image_saving == True:
-            use_12bit_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth
+            use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
 
             image_filepath = lumaview.scope.save_live_image(
                 save_folder=save_folder,
@@ -551,7 +551,7 @@ class CompositeCapture(FloatLayout):
                 append=name,
                 color=use_color,
                 tail_id_mode=None,
-                force_to_8bit=not use_12bit_pixel_depth
+                force_to_8bit=not use_full_pixel_depth
             )
         else:
             image_filepath = None
@@ -574,7 +574,7 @@ class CompositeCapture(FloatLayout):
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
-        use_12bit_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth
+        use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
 
         for layer in common_utils.get_layers():
             if settings[layer]['acquire'] == True:
@@ -601,7 +601,7 @@ class CompositeCapture(FloatLayout):
                 time.sleep(2*exposure/1000+0.2)
                 scope_display.update_scopedisplay() # Why?
 
-                darkfield = lumaview.scope.get_image(force_to_8bit=not use_12bit_pixel_depth)
+                darkfield = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
 
                 # Florescent capture
                 if lumaview.scope.led:
@@ -612,7 +612,7 @@ class CompositeCapture(FloatLayout):
 
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
-                exposed = lumaview.scope.get_image(force_to_8bit=not use_12bit_pixel_depth)
+                exposed = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
 
                 scope_display.update_scopedisplay() # Why?
                 corrected = exposed - np.minimum(exposed,darkfield)
@@ -658,7 +658,7 @@ class CompositeCapture(FloatLayout):
         while os.path.exists(path):
             path = lumaview.scope.get_next_save_path(path)
 
-        if use_12bit_pixel_depth:
+        if use_full_pixel_depth:
             dtype = np.uint16
         else:
             dtype = np.uint8
@@ -4094,6 +4094,12 @@ class MicroscopeSettings(BoxLayout):
                     logger.info(f'[LVP Main  ] Using scope selection from {filename}')
                     self.ids['scope_spinner'].text = settings['microscope']
 
+                if settings['use_full_pixel_depth'] == True:
+                    self.ids['enable_full_pixel_depth_btn'].state = 'down'
+                else:
+                    self.ids['enable_full_pixel_depth_btn'].state = 'normal'
+                self.update_full_pixel_depth_state()
+
                 self.ids['objective_spinner'].text = settings['objective']['ID']
                 # TODO self.ids['objective_spinner'].text = settings['objective']['description']
                 self.ids['magnification_id'].text = str(settings['objective']['magnification'])
@@ -4154,12 +4160,12 @@ class MicroscopeSettings(BoxLayout):
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = False
 
 
-    def update_12bit_pixel_depth_state(self):
-        if self.ids['enable_12bit_pixel_depth_btn'].state == 'down':
-            lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth = True
+    def update_full_pixel_depth_state(self):
+        if self.ids['enable_full_pixel_depth_btn'].state == 'down':
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth = True
             lumaview.scope.camera.set_pixel_format('Mono12')
         else:
-            lumaview.ids['viewer_id'].ids['scope_display_id'].use_12bit_pixel_depth = False
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth = False
             lumaview.scope.camera.set_pixel_format('Mono8')
 
     

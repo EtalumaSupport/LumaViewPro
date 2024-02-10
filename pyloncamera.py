@@ -81,6 +81,8 @@ class PylonCamera:
 
 
     def set_pixel_format(self, pixel_format: str):
+        if not self.active:
+            return
 
         if pixel_format not in self.get_supported_pixel_formats():
             logger.exception(f"[CAM Class ] Unsupported pixel format: {pixel_format}")
