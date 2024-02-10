@@ -4100,6 +4100,9 @@ class MicroscopeSettings(BoxLayout):
                     self.ids['enable_full_pixel_depth_btn'].state = 'normal'
                 self.update_full_pixel_depth_state()
 
+                # self.ids['binning_spinner'].text = str(settings['binning_size'])
+                # self.update_binning_size()
+
                 self.ids['objective_spinner'].text = settings['objective']['ID']
                 # TODO self.ids['objective_spinner'].text = settings['objective']['description']
                 self.ids['magnification_id'].text = str(settings['objective']['magnification'])
@@ -4161,14 +4164,32 @@ class MicroscopeSettings(BoxLayout):
 
 
     def update_full_pixel_depth_state(self):
+        global settings
+
         if self.ids['enable_full_pixel_depth_btn'].state == 'down':
-            lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth = True
+            use_full_pixel_depth = True
+        else:
+            use_full_pixel_depth = False
+
+        lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth = use_full_pixel_depth
+
+        if use_full_pixel_depth:
             lumaview.scope.camera.set_pixel_format('Mono12')
         else:
-            lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth = False
             lumaview.scope.camera.set_pixel_format('Mono8')
 
+        settings['use_full_pixel_depth'] = use_full_pixel_depth
+
     
+    def update_binning_size(self):
+        global settings
+
+        size = int(self.ids['binning_spinner'].text)
+
+        lumaview.scope.camera.set_binning_size(size=size)
+        settings['binning_size'] = size
+
+
     def update_crosshairs_state(self):
         if self.ids['enable_crosshairs_btn'].state == 'down':
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs = True
@@ -4187,6 +4208,20 @@ class MicroscopeSettings(BoxLayout):
         os.chdir(source_path)
         with open(file, "w") as write_file:
             json.dump(settings, write_file, indent = 4, cls=CustomJSONizer)
+
+    
+    # def load_binning_sizes(self):
+    #     spinner = self.ids['binning_spinner']
+    #     sizes = (1,2,4)
+    #     spinner.values = list(map(str,sizes))
+
+
+    # def select_binning_size(self):
+    #     global settings
+    #     spinner = self.ids['binning_spinner']
+    #     settings['binning_size'] = spinner.text
+    #     self.update_binning_size()
+
 
     def load_scopes(self):
         logger.info('[LVP Main  ] MicroscopeSettings.load_scopes()')

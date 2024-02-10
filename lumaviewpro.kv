@@ -1675,6 +1675,25 @@
 			background_down: './data/icons/ToggleRW.png'
 			on_release: root.update_crosshairs_state()
 
+	# BoxLayout:
+    #     orientation: 'horizontal'
+    #     size_hint_y: None
+    #     height: '30dp'
+    #     Label:
+    #         text: 'Binning'
+	# 		halign: 'left'
+	# 		valign: 'middle'
+	# 		text_size: self.size
+	# 		font_size: '12sp'
+	#     Spinner:
+	# 		id: binning_spinner
+	# 		sync_height: True
+	#         text: 'Select'
+	# 		font_size:'12dp'
+	# 		text_autoupdate: True
+	#         on_release: root.load_binning_sizes()
+	#         on_text: root.select_binning_size()
+
 	BoxLayout:
 		height: '30dp'
 		size_hint_y: None
