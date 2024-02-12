@@ -173,8 +173,11 @@ class MotorBoard:
         if model[-1] == "T":
             self.has_turret = True
 
+        serial_number = info[info.index("Serial:")+1]
+
         return {
-            "model": model
+            "model": model,
+            "serial_number": serial_number
         }
         
             
@@ -303,7 +306,7 @@ class MotorBoard:
             return 0
  
     # Move to absolute position (in um or degrees for Turret)
-    def move_abs_pos(self, axis, pos):
+    def move_abs_pos(self, axis, pos, overshoot_enabled: bool=True):
         """ Move to absolute position (in um) of axis"""
         # logger.info('move_abs_pos', axis, pos)
 
@@ -346,7 +349,7 @@ class MotorBoard:
         
         steps = axis_config['move_func'](pos)
 
-        if axis=='Z': # perform overshoot to always come from one direction
+        if overshoot_enabled and (axis=='Z'): # perform overshoot to always come from one direction
             # get current position
             current = self.current_pos('Z')
 
@@ -368,12 +371,12 @@ class MotorBoard:
         self.move(axis, steps)
 
     # Move by relative distance (in um or degrees for Turret)
-    def move_rel_pos(self, axis, um):
+    def move_rel_pos(self, axis, um, overshoot_enabled: bool = False):
         """ Move by relative distance (in um for X, Y, Z or degrees for T) of axis """
 
         # Read target position in um
         pos = self.target_pos(axis)
-        self.move_abs_pos(axis, pos+um)
+        self.move_abs_pos(axis, pos+um, overshoot_enabled=overshoot_enabled)
         logger.info('[XYZ Class ] MotorBoard.move_rel_pos('+axis+','+str(um)+') succeeded')
  
     #----------------------------------------------------------
