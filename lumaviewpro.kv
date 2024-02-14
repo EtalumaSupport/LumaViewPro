@@ -1992,53 +1992,6 @@
 					font_size: '12sp'
 					text: 'Go to Focus'
 					on_release: root.goto_focus()
-
-			# Display Properties
-			Label:
-				canvas:
-					Color:
-						rgba: root.bg_color
-					Rectangle:
-						size: self.width, 1
-						pos: self.x, self.y+self.height
-				text:'Display Properties'
-				font_size: '16sp'
-				size_hint_y: None
-				height: '30dp'
-				color: root.bg_color
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				padding: '0dp'
-				spacing: '5dp'
-
-				CheckBox:
-					id: false_color
-					size_hint_x: None
-					width: '30dp'
-					active: True
-					on_release: root.false_color()
-				Label:		
-					id: false_color_label
-					font_size: '12sp'
-					text: 'False Color'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				CheckBox:
-					id: logHistogram_id
-					size_hint_x: None
-					width: '30dp'
-					active: True
-					state: 'normal'
-				Label:
-					text: 'Log'
-					font_size: '12sp'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
 			
 			# Protocol Settings
 			Label:
@@ -2115,6 +2068,53 @@
 				size_hint_x: None
 				size_hint_y: None
 				text: ''
+
+            # Display Properties
+			Label:
+				canvas:
+					Color:
+						rgba: root.bg_color
+					Rectangle:
+						size: self.width, 1
+						pos: self.x, self.y+self.height
+				text:'Display Properties'
+				font_size: '16sp'
+				size_hint_y: None
+				height: '30dp'
+				color: root.bg_color
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				padding: '0dp'
+				spacing: '5dp'
+
+				CheckBox:
+					id: false_color
+					size_hint_x: None
+					width: '30dp'
+					active: True
+					on_release: root.false_color()
+				Label:		
+					id: false_color_label
+					font_size: '12sp'
+					text: 'False Color'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				CheckBox:
+					id: logHistogram_id
+					size_hint_x: None
+					width: '30dp'
+					active: True
+					state: 'normal'
+				Label:
+					text: 'Log'
+					font_size: '12sp'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
 
 			Label:
 
