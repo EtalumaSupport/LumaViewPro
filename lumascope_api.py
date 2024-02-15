@@ -452,23 +452,27 @@ class Lumascope():
         target_position = self.motion.current_pos(axis)
         return target_position
         
-    def move_absolute_position(self, axis, pos, wait_until_complete=False):
+    def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True):
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
 
         #if not self.motion: return
-        self.motion.move_abs_pos(axis, pos)
+        self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled)
         
         if wait_until_complete is True:
             self.wait_until_finished_moving()
 
 
-    def move_relative_position(self, axis, um):
+    def move_relative_position(self, axis, um, wait_until_complete=False, overshoot_enabled: bool = True):
         """MOTION CONTROL FUNCTIONS
          Move to relative distance (in um) of axis"""
 
         #if not self.motion: return
-        self.motion.move_rel_pos(axis, um)
+        self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+
+        if wait_until_complete is True:
+            self.wait_until_finished_moving()
+
 
     def get_home_status(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -610,6 +614,15 @@ class Lumascope():
     def capture_complete(self):
         self.capture_return = self.get_image() # Grab image
         self.is_capturing = False
+
+    
+    def capture_blocking(self):
+        if not self.led: return
+        if not self.camera: return
+
+        wait_time = 2*self.get_exposure_time()/1000+0.2
+        time.sleep(wait_time)
+        return self.get_image()
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # AUTOFOCUS Functionality
