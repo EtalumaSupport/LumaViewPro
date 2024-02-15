@@ -3755,6 +3755,7 @@ class ProtocolSettings(CompositeCapture):
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+            self.ids['run_protocol_btn'].text = f"{self.n_scans+1} scans remaining. Press to ABORT"
             self.run_scan(protocol = True)
             logger.info('[LVP Main  ] Clock.schedule_interval(self.protocol_iterate, 1)')
 
