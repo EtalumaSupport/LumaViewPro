@@ -4094,11 +4094,11 @@ class MicroscopeSettings(BoxLayout):
                     logger.info(f'[LVP Main  ] Using scope selection from {filename}')
                     self.ids['scope_spinner'].text = settings['microscope']
 
-                if settings['use_full_pixel_depth'] == True:
-                    self.ids['enable_full_pixel_depth_btn'].state = 'down'
-                else:
-                    self.ids['enable_full_pixel_depth_btn'].state = 'normal'
-                self.update_full_pixel_depth_state()
+                # if settings['use_full_pixel_depth'] == True:
+                #     self.ids['enable_full_pixel_depth_btn'].state = 'down'
+                # else:
+                #     self.ids['enable_full_pixel_depth_btn'].state = 'normal'
+                # self.update_full_pixel_depth_state()
 
                 # self.ids['binning_spinner'].text = str(settings['binning_size'])
                 # self.update_binning_size()

@@ -753,477 +753,488 @@
 # ProtocolSettings - Settings for Labware within ImageSettings
 # ------------------------------------------
 <ProtocolSettings>:
-	BoxLayout:
-		padding: '5dp'
-	    spacing: '5dp'
-	    orientation: 'vertical'
-		pos_hint: {'x': 0.0, 'y': 0.0}
+	padding: '10dp'
+    spacing: '5dp'
+    orientation: 'vertical'
+    canvas:
+        Color:
+            rgba: 0.1, 0.1, 0.1, 0.7
+        Rectangle:
+            size: self.size
+            pos: self.pos
 
-	    canvas:
-	        Color:
-	            rgba: 0.1, 0.1, 0.1, 0.7
-	        Rectangle:
-	            size: self.size
-	    		pos: self.pos
+	ScrollView:
+		scroll_type: ['bars']
+		do_scroll_x: False
 
-		# Time Settings
-	    Label:
-	        text: 'Time Settings'
-			font_size: '16sp'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
-			color: [51/255, 181/255, 229/255, 1]
-
-		# Capture Period
-	    BoxLayout:
-	        orientation: 'horizontal'
-	        size_hint_y: None
-	        height: '30dp'
-	        Label:
-	            text: 'Interval'
-	            size_hint_x: None
-	            width: '95dp'
-				font_size: '12sp'
-	        TextInput:
-	            id: capture_period
-	            multiline: False
-			    size_hint_y: None
-			    height: '30dp'
-	            font_size: '12sp'
-	            padding: ['4dp', (self.height-self.line_height)/2]
-	            halign: 'right'
-	            input_filter: 'float'
-	            text: format(5, '.3g')
-	            on_text_validate: root.update_period()
-	            on_focus: if not self.focus: root.update_period()
-	        Label:
-	            text: 'minutes'
-	            size_hint_x: None
-	            width: '95dp'
-				font_size: '12sp'
-
-		# Capture Duration
-	    BoxLayout:
-	        orientation: 'horizontal'
-	        size_hint_y: None
-	        height: '30dp'
-	        Label:
-	            text: 'Duration'
-	            size_hint_x: None
-	            width: '95dp'
-				font_size: '12sp'
-	        TextInput:
-	            id: capture_dur
-	            multiline: False
-		        size_hint_y: None
-		        height: '30dp'
-	            font_size: '12sp'
-	            padding: ['4dp', (self.height-self.line_height)/2]
-	            halign: 'right'
-	            input_filter: 'float'
-	            text: format(48, '.3g')
-	            on_text_validate: root.update_duration()
-	            on_focus: if not self.focus: root.update_duration()
-	        Label:
-	            text: 'hours'
-	            size_hint_x: None
-	            width: '95dp'
-				font_size: '12sp'
-
-		# Protocol Selection
-	    Label:
-	        text: 'Create New Scan'
-			font_size: '16sp'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
-			color: [51/255, 181/255, 229/255, 1]
-
-		# # Select Labware Box
-		# BoxLayout:
-		# 	orientation: 'horizontal'
-	    #     size_hint_y: None
-	    #     height: '30dp'
-		# 	spacing: '5dp'
-
-		# Select Labware
-		Spinner:
-			id: labware_spinner
-			sync_height: True
-			visible: True
-			text: 'New'
-			font_size: '12dp'
-			size_hint_y: None
-			height: '30dp'
-			text_autoupdate: True
-			on_text: root.select_labware()
-
-
-		# Load and Save Protocol
 		BoxLayout:
-			orientation: 'horizontal'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
-
-		    Button:
-		        text: 'New'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-		        on_release: root.new_protocol()
-	
-		    FileChooseBTN:
-		        text: 'Load'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-		        on_release: self.choose('load_protocol')
-
-		    Button:
-		        text: 'Save'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-				disabled: False
-		        on_release: root.save_protocol()
-
-		    FileSaveBTN:
-		        text: 'Save As'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-		        on_release: self.choose('saveas_protocol')
-
-		# Stage Display
-		FloatLayout:
-			padding: '5dp'
+			orientation: 'vertical'
 			size_hint_y: None
-			height: '128dp'
-			height: self.width * 2 / 3
-			Stage:
-				id: stage_widget_id
-				pos_hint:{'center_x':0.5, 'center_y':0.5}
+			height: self.minimum_height
+			padding: 0, 0, dp(8), 0
+			spacing: dp(5)
 
-		# Protocol Name
-		BoxLayout:
-			orientation: 'horizontal'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
-
+			# Time Settings
 			Label:
-				text: 'Protocol'
-				size_hint_x: None
-				width: '75dp'
-				font_size: '12sp'
-
-			TextInput:
-				id: protocol_filename
-				text: ''
+				text: 'Time Settings'
+				font_size: '16sp'
 				size_hint_y: None
 				height: '30dp'
-				font_size: '12sp'
-				halign: 'center'
-				multiline: False
-				disabled: True
-				hint_text: 'Protocol Filename'
+				spacing: '5dp'
+				color: [51/255, 181/255, 229/255, 1]
+
+			# Capture Period
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Interval'
+					size_hint_x: None
+					width: '95dp'
+					font_size: '12sp'
+				TextInput:
+					id: capture_period
+					multiline: False
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: 'float'
+					text: format(5, '.3g')
+					on_text_validate: root.update_period()
+					on_focus: if not self.focus: root.update_period()
+				Label:
+					text: 'minutes'
+					size_hint_x: None
+					width: '95dp'
+					font_size: '12sp'
+
+			# Capture Duration
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Duration'
+					size_hint_x: None
+					width: '95dp'
+					font_size: '12sp'
+				TextInput:
+					id: capture_dur
+					multiline: False
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: 'float'
+					text: format(48, '.3g')
+					on_text_validate: root.update_duration()
+					on_focus: if not self.focus: root.update_duration()
+				Label:
+					text: 'hours'
+					size_hint_x: None
+					width: '95dp'
+					font_size: '12sp'
+
+			# Protocol Selection
+			Label:
+				text: 'Create New Scan'
+				font_size: '16sp'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+				color: [51/255, 181/255, 229/255, 1]
+
+			# # Select Labware Box
+			# BoxLayout:
+			# 	orientation: 'horizontal'
+			#     size_hint_y: None
+			#     height: '30dp'
+			# 	spacing: '5dp'
+
+			# Select Labware
+			Spinner:
+				id: labware_spinner
+				sync_height: True
+				visible: True
+				text: 'New'
+				font_size: '12dp'
+				size_hint_y: None
+				height: '30dp'
+				text_autoupdate: True
+				on_text: root.select_labware()
+
+
+			# Load and Save Protocol
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+
+				Button:
+					text: 'New'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.new_protocol()
+		
+				FileChooseBTN:
+					text: 'Load'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: self.choose('load_protocol')
+
+				Button:
+					text: 'Save'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					disabled: False
+					on_release: root.save_protocol()
+
+				FileSaveBTN:
+					text: 'Save As'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: self.choose('saveas_protocol')
+
+			# Stage Display
+			FloatLayout:
+				padding: '5dp'
+				size_hint_y: None
+				height: '128dp'
+				height: self.width * 2 / 3
+				Stage:
+					id: stage_widget_id
+					pos_hint:{'center_x':0.5, 'center_y':0.5}
+
+			# Protocol Name
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+
+				Label:
+					text: 'Protocol'
+					size_hint_x: None
+					width: '75dp'
+					font_size: '12sp'
+
+				TextInput:
+					id: protocol_filename
+					text: ''
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					halign: 'center'
+					multiline: False
+					disabled: True
+					hint_text: 'Protocol Filename'
+				
+
+			# Step Name
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+
+				Label:
+					text: 'Step Name'
+					size_hint_x: None
+					width: '75dp'
+					font_size: '12sp'
+
+				TextInput:
+					id: step_name_input
+					text: ''
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					halign: 'center'
+					multiline: False
+					hint_text: 'Step Name'
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+				Label:
+					text: 'Step'
+					size_hint_x: None
+					width: '75dp'
+					font_size: '12sp'
+
+				Button:
+					id: prev_step_btn
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '30dp', '30dp'
+					pos_hint: {'center_x': 0.35, 'center_y': 0.5}
+					background_normal: './data/icons/L_normal.png'
+					background_down: './data/icons/L_down.png'
+					on_release: root.prev_step()
+				TextInput:
+					id: step_number_input
+					text: '1'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					halign: 'center'
+					multiline: False
+					input_filter: 'int'
+					on_text_validate: root.go_to_step()
+					on_focus: if not self.focus: root.go_to_step()
+				Label:
+					text: 'of'
+					size_hint_x: None
+					width: '20dp'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+				TextInput:
+					id: step_total_input
+					text: '1'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					halign: 'center'
+					disabled: True
+				Button:
+					id: next_step_btn
+					border: 0, 0, 0, 0
+					size_hint: None, None
+					size: '30dp', '30dp'
+					pos_hint: {'center_x': 0.65, 'center_y': 0.5}
+					background_normal: './data/icons/R_normal.png'
+					background_down: './data/icons/R_down.png'
+					on_release: root.next_step()
 			
+			# Modify individual Steps in Protocol
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+				Button:
+					id: delete_step_btn
+					text: 'Delete'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.delete_step()
+				Button:
+					id: change_step_btn
+					text: 'Change'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.modify_step()
+				Button:
+					id: add_step_btn
+					text: 'Insert'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					#on_release: root.append_step()
+					on_release: root.insert_step()
+					
+			# Tiling
+			BoxLayout:
+				orientation: 'horizontal'
+				id: tiling_box_layout_id
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				spacing: '5dp'
+				visible: True
+			
+				Label:
+					text: 'Tiling'
+					size_hint_y: None
+					height: '30dp'
+					size_hint_x: None
+					width: '75dp'
+					font_size: '12sp'
+					
+				# Select tiling size
+				Spinner:
+					id: tiling_size_spinner
+					sync_height: True
+					text: ''
+					font_size: '12dp'
+					size_hint_y: None
+					height: '30dp'
+					text_autoupdate: True
+					values: ''
+					on_text: root.update_tiling_selection()
 
-		# Step Name
-		BoxLayout:
-			orientation: 'horizontal'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
+				Button:
+					text: 'Apply'
+					size_hint_y: None
+					size_hint_x: None
+					width: '50dp'
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.apply_tiling()
+								
+			# Z-stack
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+							
+				CheckBox:
+					id: acquire_zstack_id
+					size_hint_x: None
+					width: '30dp'
+					active: False
+					on_release: root.update_acquire_zstack()
 
-			Label:
-				text: 'Step Name'
-				size_hint_x: None
-				width: '75dp'
-				font_size: '12sp'
+				Label:
+					text: 'Enable Z-Stack'
+					font_size: '12sp'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+			
+			# Separate Folders
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+							
+				CheckBox:
+					id: protocol_channel_per_folder_id
+					size_hint_x: None
+					width: '30dp'
+					active: False
 
-			TextInput:
-				id: step_name_input
-				text: ''
+				Label:
+					text: 'Save channels in separate folders'
+					font_size: '12sp'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+
+			# # Multiple exposure
+			# BoxLayout:
+			#     orientation: 'horizontal'
+			#     size_hint_y: None
+			#     height: '30dp'
+			#     spacing: '5dp'
+			
+			#     Label:
+			#         text: 'Exposures'
+			#         size_hint_x: None
+			#         width: '75dp'
+			#         font_size: '12sp'
+				
+			#     Button:
+			#         id: exposures_down_btn
+			#         border: 0, 0, 0, 0
+			#         size_hint: None, None
+			#         size: '30dp', '30dp'
+			#         pos_hint: {'center_x': 0.35, 'center_y': 0.5}
+			#         background_normal: './data/icons/L_normal.png'
+			#         background_down: './data/icons/L_down.png'
+			#         on_release: root.exposures_down_button()
+					
+			#     TextInput:
+			#         id: exposures_number_input
+			#         text: '1'
+			#         size_hint_y: None
+			#         height: '30dp'
+			#         font_size: '12sp'
+			#         halign: 'center'
+			#         multiline: False
+			#         input_filter: 'int'
+			#         #on_text_validate: root.set_exposures()
+				
+			#     Button:
+			#         id: exposures_up_btn
+			#         border: 0, 0, 0, 0
+			#         size_hint: None, None
+			#         size: '30dp', '30dp'
+			#         pos_hint: {'center_x': 0.65, 'center_y': 0.5}
+			#         background_normal: './data/icons/R_normal.png'
+			#         background_down: './data/icons/R_down.png'
+			#         on_release: root.exposures_up_button()
+					
+			ToggleButton:
+				id: run_autofocus_btn
+				text: 'Scan and Autofocus All Steps'
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
-				halign: 'center'
-				multiline: False
-				hint_text: 'Step Name'
+				on_release: root.run_autofocus_scan()
+				disabled: False
 
-		BoxLayout:
-			orientation: 'horizontal'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
+			# Run Protocol
 			Label:
-				text: 'Step'
-				size_hint_x: None
-				width: '75dp'
-				font_size: '12sp'
-
-		    Button:
-				id: prev_step_btn
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '30dp'
-				pos_hint: {'center_x': 0.35, 'center_y': 0.5}
-				background_normal: './data/icons/L_normal.png'
-				background_down: './data/icons/L_down.png'
-		        on_release: root.prev_step()
-		    TextInput:
-				id: step_number_input
-		        text: '1'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-				halign: 'center'
-            	multiline: False
-            	input_filter: 'int'
-                on_text_validate: root.go_to_step()
-                on_focus: if not self.focus: root.go_to_step()
-		    Label:
-		        text: 'of'
-		        size_hint_x: None
-		        width: '20dp'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-		    TextInput:
-				id: step_total_input
-		        text: '1'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-				halign: 'center'
-				disabled: True
-		    Button:
-				id: next_step_btn
-				border: 0, 0, 0, 0
-		        size_hint: None, None
-		        size: '30dp', '30dp'
-				pos_hint: {'center_x': 0.65, 'center_y': 0.5}
-				background_normal: './data/icons/R_normal.png'
-				background_down: './data/icons/R_down.png'
-		        on_release: root.next_step()
-		
-		# Modify individual Steps in Protocol
-		BoxLayout:
-			orientation: 'horizontal'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
-		    Button:
-		        id: delete_step_btn
-		        text: 'Delete'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-		        on_release: root.delete_step()
-		    Button:
-		        id: change_step_btn
-		        text: 'Change'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-		        on_release: root.modify_step()
-		    Button:
-		        id: add_step_btn
-		        text: 'Insert'
-		        size_hint_y: None
-		        height: '30dp'
-				font_size: '12sp'
-				#on_release: root.append_step()
-                on_release: root.insert_step()
-                
-        # Tiling
-        BoxLayout:
-            orientation: 'horizontal'
-			id: tiling_box_layout_id
-            size_hint_y: None if self.visible else 0
-            height: '30dp' if self.visible else 0
-			opacity: 1 if self.visible else 0
-            spacing: '5dp'
-			visible: True
-           
-            Label:
-                text: 'Tiling'
+				text: 'Execute Protocol'
+				font_size: '16sp'
 				size_hint_y: None
 				height: '30dp'
-                size_hint_x: None
-                width: '75dp'
-                font_size: '12sp'
-                
-            # Select tiling size
-            Spinner:
-                id: tiling_size_spinner
-                sync_height: True
-                text: ''
-                font_size: '12dp'
-                size_hint_y: None
-                height: '30dp'
-                text_autoupdate: True
-                values: ''
-				on_text: root.update_tiling_selection()
+				spacing: '5dp'
+				color: [51/255, 181/255, 229/255, 1]
 
-			Button:
-		        text: 'Apply'
-		        size_hint_y: None
-				size_hint_x: None
-				width: '50dp'
-		        height: '30dp'
+			ToggleButton:
+				id: run_scan_btn
+				text: 'Run One Scan'
+				size_hint_y: None
+				height: '30dp'
 				font_size: '12sp'
-		        on_release: root.apply_tiling()
-                             
-        # Z-stack
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_y: None
-            height: '30dp'
-            spacing: '5dp'
-                           
-            CheckBox:
-                id: acquire_zstack_id
-                size_hint_x: None
-                width: '30dp'
-                active: False
-                on_release: root.update_acquire_zstack()
+				on_release: root.run_scan()
 
-            Label:
-                text: 'Enable Z-Stack'
-                font_size: '12sp'
-                halign: 'left'
-                valign: 'middle'
-                text_size: self.size
-		
-		# Separate Folders
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint_y: None
-            height: '30dp'
-            spacing: '5dp'
-                           
-            CheckBox:
-                id: protocol_channel_per_folder_id
-                size_hint_x: None
-                width: '30dp'
-                active: False
+			ToggleButton:
+				id: run_protocol_btn
+				text: 'Run Full Protocol'
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				on_release: root.run_protocol()
 
-            Label:
-                text: 'Save channels in separate folders'
-                font_size: '12sp'
-                halign: 'left'
-                valign: 'middle'
-                text_size: self.size
-
-        # # Multiple exposure
-        # BoxLayout:
-        #     orientation: 'horizontal'
-        #     size_hint_y: None
-        #     height: '30dp'
-        #     spacing: '5dp'
-           
-        #     Label:
-        #         text: 'Exposures'
-        #         size_hint_x: None
-        #         width: '75dp'
-        #         font_size: '12sp'
-            
-        #     Button:
-        #         id: exposures_down_btn
-        #         border: 0, 0, 0, 0
-        #         size_hint: None, None
-        #         size: '30dp', '30dp'
-        #         pos_hint: {'center_x': 0.35, 'center_y': 0.5}
-        #         background_normal: './data/icons/L_normal.png'
-        #         background_down: './data/icons/L_down.png'
-        #         on_release: root.exposures_down_button()
-                
-        #     TextInput:
-        #         id: exposures_number_input
-        #         text: '1'
-        #         size_hint_y: None
-        #         height: '30dp'
-        #         font_size: '12sp'
-        #         halign: 'center'
-        #         multiline: False
-        #         input_filter: 'int'
-        #         #on_text_validate: root.set_exposures()
-            
-        #     Button:
-        #         id: exposures_up_btn
-        #         border: 0, 0, 0, 0
-        #         size_hint: None, None
-        #         size: '30dp', '30dp'
-        #         pos_hint: {'center_x': 0.65, 'center_y': 0.5}
-        #         background_normal: './data/icons/R_normal.png'
-        #         background_down: './data/icons/R_down.png'
-        #         on_release: root.exposures_up_button()
-                
-		ToggleButton:
-			id: run_autofocus_btn
-	        text: 'Scan and Autofocus All Steps'
-	        size_hint_y: None
-	        height: '30dp'
-			font_size: '12sp'
-			on_release: root.run_autofocus_scan()
-			disabled: False
-
-		# Run Protocol
-	    Label:
-	        text: 'Execute Protocol'
-			font_size: '16sp'
-	        size_hint_y: None
-	        height: '30dp'
-			spacing: '5dp'
-			color: [51/255, 181/255, 229/255, 1]
-
-	    ToggleButton:
-	        id: run_scan_btn
-	        text: 'Run One Scan'
-	        size_hint_y: None
-	        height: '30dp'
-			font_size: '12sp'
-			on_release: root.run_scan()
-
-	    ToggleButton:
-	        id: run_protocol_btn
-	        text: 'Run Full Protocol'
-	        size_hint_y: None
-	        height: '30dp'
-			font_size: '12sp'
-			on_release: root.run_protocol()
-
-		# Engineering mode option
-        BoxLayout:
-		    id: protocol_disable_image_saving_box_id
-			height: '0dp'
-            orientation: 'horizontal'
-            size_hint_y: None
-            height: '0dp'
-            spacing: '5dp'
-			opacity: 0
-                           
-            CheckBox:
-                id: protocol_disable_image_saving_id
+			# Engineering mode option
+			BoxLayout:
+				id: protocol_disable_image_saving_box_id
 				height: '0dp'
-                size_hint_x: None
-                width: '30dp'
-                active: False
-
-            Label:
-			    id: protocol_disable_image_saving_label_id
+				orientation: 'horizontal'
+				size_hint_y: None
 				height: '0dp'
-                text: 'Disable image saving'
-                font_size: '12sp'
-                halign: 'left'
-                valign: 'middle'
-                text_size: self.size
+				spacing: '5dp'
+				opacity: 0
+							
+				CheckBox:
+					id: protocol_disable_image_saving_id
+					height: '0dp'
+					size_hint_x: None
+					width: '30dp'
+					active: False
 
-		Label:
+				Label:
+					id: protocol_disable_image_saving_label_id
+					height: '0dp'
+					text: 'Disable image saving'
+					font_size: '12sp'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+
+			Label:
+				height: '50dp'
+				size_hint_y: None
+
 
 <VideoCreationControls>:
 	orientation: 'vertical'
@@ -1635,25 +1646,25 @@
 		font_size: '12sp'
 		on_release: self.choose('save_settings')
 
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-		Label:
-			font_size: '12sp'
-			text: 'Enable Full Pixel Depth'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-		ToggleButton:
-			id: enable_full_pixel_depth_btn
-			size_hint: None, None
-			size: '45dp', '30dp'
-			border: 0, 0, 0, 0
-			valign: 'middle'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_full_pixel_depth_state()
+	# BoxLayout:
+    #     orientation: 'horizontal'
+    #     size_hint_y: None
+    #     height: '30dp'
+	# 	Label:
+	# 		font_size: '12sp'
+	# 		text: 'Enable Full Pixel Depth'
+	# 		halign: 'left'
+	# 		valign: 'middle'
+	# 		text_size: self.size
+	# 	ToggleButton:
+	# 		id: enable_full_pixel_depth_btn
+	# 		size_hint: None, None
+	# 		size: '45dp', '30dp'
+	# 		border: 0, 0, 0, 0
+	# 		valign: 'middle'
+	# 		background_normal: './data/icons/ToggleL.png'
+	# 		background_down: './data/icons/ToggleRW.png'
+	# 		on_release: root.update_full_pixel_depth_state()
 
 	BoxLayout:
         orientation: 'horizontal'
