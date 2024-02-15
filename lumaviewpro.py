@@ -4644,7 +4644,7 @@ class FolderChooseBTN(Button):
         self.context = context
 
         # Show previously selected/default folder
-        if self.context == "apply_stitching_to_folder":
+        if self.context in ("apply_stitching_to_folder", "apply_composite_gen_to_folder"):
             selected_path = pathlib.Path(settings['live_folder']) / PROTOCOL_DATA_DIR_NAME
             if selected_path.exists() is False:
                 selected_path = pathlib.Path(settings['live_folder'])
