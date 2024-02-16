@@ -135,6 +135,8 @@ import image_utils
 global lumaview
 global settings
 global cell_count_content
+global stage
+stage = None
 
 global ENGINEERING_MODE
 ENGINEERING_MODE = False
@@ -866,8 +868,8 @@ class AccordionItemXyStageControl(AccordionItem):
         super().__init__(**kwargs)
 
     
-    def update_gui(self):
-        self.ids['xy_stagecontrol_id'].update_gui()
+    def update_gui(self, full_redraw: bool = False):
+        self.ids['xy_stagecontrol_id'].update_gui(full_redraw=full_redraw)
 
 
 class MotionSettings(BoxLayout):
@@ -897,6 +899,24 @@ class MotionSettings(BoxLayout):
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].height = '30dp'
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].opacity = 1
                 
+    def accordion_collapse(self):
+        logger.info('[LVP Main  ] MotionSettings.accordion_collapse()')
+
+        # Handles removing/adding the stage display depending on whether or not the accordion item is visible
+        protocol_accordion_item = self.ids['motionsettings_protocol_accordion_id']
+        protocol_stage_widget_parent = self.ids['protocol_settings_id'].ids['protocol_stage_holder_id']
+        xystage_widget_parent = self._accordion_item_xystagecontrol.ids['xy_stagecontrol_id'].ids['xy_stage_holder_id']
+
+        if (protocol_accordion_item.collapse is True) or (self._accordion_item_xystagecontrol.collapse is True):
+            stage.remove_parent()
+   
+        if protocol_accordion_item.collapse is False:
+            stage.pos_hint = {'center_x':0.5, 'center_y':0.5}
+            protocol_stage_widget_parent.add_widget(stage)
+        elif self._accordion_item_xystagecontrol.collapse is False:
+            stage.pos_hint = {'center_x':0.5, 'center_y':0.5}
+            xystage_widget_parent.add_widget(stage)
+        
 
     def set_xystage_control_visibility(self, visible: bool) -> None:
         if visible:
@@ -939,7 +959,7 @@ class MotionSettings(BoxLayout):
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         scope_display.stop()
         self.ids['verticalcontrol_id'].update_gui()
-        self.update_xy_stage_control_gui()
+        self.ids['protocol_settings_id'].select_labware()
 
         # move position of motion control
         if self.ids['toggle_motionsettings'].state == 'normal':
@@ -951,8 +971,8 @@ class MotionSettings(BoxLayout):
             scope_display.start()
 
     
-    def update_xy_stage_control_gui(self, *args):
-        self._accordion_item_xystagecontrol.update_gui()
+    def update_xy_stage_control_gui(self, *args, full_redraw: bool=False):
+        self._accordion_item_xystagecontrol.update_gui(full_redraw=full_redraw)
 
 
     def check_settings(self, *args):
@@ -2186,7 +2206,7 @@ class VerticalControl(BoxLayout):
 
 class XYStageControl(BoxLayout):
 
-    def update_gui(self, dt=0):
+    def update_gui(self, dt=0, full_redraw: bool = False):
         # logger.info('[LVP Main  ] XYStageControl.update_gui()')
         global lumaview
         try:
@@ -2207,7 +2227,6 @@ class XYStageControl(BoxLayout):
             if not self.ids['y_pos_id'].focus:  
                 self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
 
-            self.ids['stage_control_id'].draw_labware()
 
     def fine_left(self):
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
@@ -2416,6 +2435,7 @@ class ProtocolSettings(CompositeCapture):
     def _init_ui(self, dt=0):
         self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
         self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
+        self.select_labware()
 
 
     # Update Protocol Period   
@@ -2446,6 +2466,8 @@ class ProtocolSettings(CompositeCapture):
             spinner = self.ids['labware_spinner']
             spinner.values = list('Center Plate',)
             settings['protocol']['labware'] = labware
+
+        stage.full_redraw()
 
 
     def set_labware_selection_visibility(self, visible):
@@ -3831,8 +3853,19 @@ class ProtocolSettings(CompositeCapture):
 
 # Widget for displaying Microscope Stage area, labware, and current position 
 class Stage(Widget):
-    bg_color = ObjectProperty(None)
-    layer = ObjectProperty(None)
+
+    def full_redraw(self, *args):
+        self.draw_labware(full_redraw=True)
+
+    
+    def remove_parent(self):
+        if self.parent is not None:
+            self.parent.remove_widget(stage)
+
+    
+    def get_id(self):
+        return id(self)
+
 
     def __init__(self, **kwargs):
         super(Stage, self).__init__(**kwargs)
@@ -3841,6 +3874,12 @@ class Stage(Widget):
         self.ROI_max = [0,0]
         self._motion_enabled = True
         self.ROIs = []
+
+        self.full_redraw()
+        self.bind(
+            pos=self.full_redraw,
+            size=self.full_redraw
+        )
         
     def append_ROI(self, x_min, y_min, x_max, y_max):
         self.ROI_min = [x_min, y_min]
@@ -3889,17 +3928,23 @@ class Stage(Widget):
             lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
     
 
-    def draw_labware(self, *args): # View the labware from front and above
-        # logger.info('[LVP Main  ] Stage.draw_labware()')
+    def draw_labware(self, *args, full_redraw: bool = False): # View the labware from front and above
         global lumaview
         global settings
 
+        if 'settings' not in globals():
+            return
+        
         # Create current labware instance
         os.chdir(source_path)
         current_labware = WellPlate()
         current_labware.load_plate(settings['protocol']['labware'])
 
-        self.canvas.clear()
+        if full_redraw:
+            self.canvas.clear()
+        else:
+            self.canvas.remove_group('crosshairs')
+            self.canvas.remove_group('selected_well')
 
         with self.canvas:
             w = self.width
@@ -3929,26 +3974,27 @@ class Stage(Widget):
             # Get target position
             # Outline of Stage Area from Above
             # ------------------
-            Color(.2, .2, .2 , 0.5)                # dark grey
-            Rectangle(pos=(x+(x_max-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
-                           size=(stage_w*scale_x, stage_h*scale_y))
+            if full_redraw:
+                Color(.2, .2, .2 , 0.5)                # dark grey
+                Rectangle(pos=(x+(x_max-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
+                            size=(stage_w*scale_x, stage_h*scale_y), group='outline')
 
-            # Outline of Plate from Above
-            # ------------------
-            Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
-            Line(points=(x, y, x, y+h-15), width = 1)          # Left
-            Line(points=(x+w, y, x+w, y+h), width = 1)         # Right
-            Line(points=(x, y, x+w, y), width = 1)             # Bottom
-            Line(points=(x+15, y+h, x+w, y+h), width = 1)      # Top
-            Line(points=(x, y+h-15, x+15, y+h), width = 1)     # Diagonal
-
-            # ROI rectangle
-            # ------------------
-            if self.ROI_max[0] > self.ROI_min[0]:
-                roi_min_x, roi_min_y = protocol_settings.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
-                roi_max_x, roi_max_y = protocol_settings.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
+                # Outline of Plate from Above
+                # ------------------
                 Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
-                Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
+                Line(points=(x, y, x, y+h-15), width = 1, group='outline')          # Left
+                Line(points=(x+w, y, x+w, y+h), width = 1, group='outline')         # Right
+                Line(points=(x, y, x+w, y), width = 1, group='outline')             # Bottom
+                Line(points=(x+15, y+h, x+w, y+h), width = 1, group='outline')      # Top
+                Line(points=(x, y+h-15, x+15, y+h), width = 1, group='outline')     # Diagonal
+
+                # ROI rectangle
+                # ------------------
+                if self.ROI_max[0] > self.ROI_min[0]:
+                    roi_min_x, roi_min_y = protocol_settings.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
+                    roi_max_x, roi_max_y = protocol_settings.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
+                    Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
+                    Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y), group='outline')
             
             # Draw all ROI rectangles
             # ------------------
@@ -3967,7 +4013,6 @@ class Stage(Widget):
             cols = current_labware.plate['columns']
             rows = current_labware.plate['rows']
             
-            Color(0.4, 0.4, 0.4, 0.5)
             well_spacing_x = current_labware.plate['spacing']['x']
             well_spacing_y = current_labware.plate['spacing']['y']
             well_spacing_pixel_x = well_spacing_x
@@ -3982,19 +4027,21 @@ class Stage(Widget):
                 well_radius_pixel_x = well_radius * scale_x
                 well_radius_pixel_y = well_radius * scale_y
 
+            if full_redraw:
+                Color(0.4, 0.4, 0.4, 0.5)
             
-            for i in range(cols):
-                for j in range(rows):                   
-                    well_plate_x, well_plate_y = current_labware.get_well_position(i, j)
-                    well_pixel_x, well_pixel_y = protocol_settings.plate_to_pixel(
-                        px=well_plate_x,
-                        py=well_plate_y,
-                        scale_x=scale_x,
-                        scale_y=scale_y
-                    )
-                    x_center = int(x+well_pixel_x) # on screen center
-                    y_center = int(y+well_pixel_y) # on screen center
-                    Ellipse(pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), size=(well_radius_pixel_x*2, well_radius_pixel_y*2))
+                for i in range(cols):
+                    for j in range(rows):                   
+                        well_plate_x, well_plate_y = current_labware.get_well_position(i, j)
+                        well_pixel_x, well_pixel_y = protocol_settings.plate_to_pixel(
+                            px=well_plate_x,
+                            py=well_plate_y,
+                            scale_x=scale_x,
+                            scale_y=scale_y
+                        )
+                        x_center = int(x+well_pixel_x) # on screen center
+                        y_center = int(y+well_pixel_y) # on screen center
+                        Ellipse(pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), size=(well_radius_pixel_x*2, well_radius_pixel_y*2), group='wells')
 
             try:
                 target_stage_x = lumaview.scope.get_target_position('X')
@@ -4018,7 +4065,7 @@ class Stage(Widget):
     
             # Green selection circle
             Color(0., 1., 0., 1.)
-            Line(circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x))
+            Line(circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x), group='selected_well')
             
             #  Red Crosshairs
             # ------------------
@@ -4034,8 +4081,8 @@ class Stage(Widget):
                 y_center = y+pixel_y
 
                 Color(1., 0., 0., 1.)
-                Line(points=(x_center-10, y_center, x_center+10, y_center), width = 1) # horizontal line
-                Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1) # vertical line
+                Line(points=(x_center-10, y_center, x_center+10, y_center), width = 1, group='crosshairs') # horizontal line
+                Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1, group='crosshairs') # vertical line
 
 
 class MicroscopeSettings(BoxLayout):
@@ -4252,10 +4299,10 @@ class MicroscopeSettings(BoxLayout):
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
 
         if selected_scope_config['XYStage'] is False:
+            stage.remove_parent()
             protocol_settings.select_labware(labware="Center Plate")
 
-        protocol_settings.ids['stage_widget_id'].set_motion_capability(enabled=selected_scope_config['XYStage'])
-        protocol_settings.ids['stage_widget_id'].draw_labware()
+        stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
 
            
     def load_ojectives(self):
@@ -4838,7 +4885,10 @@ class LumaViewProApp(App):
         global video_creation_controls
         global stitch_controls
         global composite_gen_controls
+        global stage
         self.icon = './data/icons/icon.png'
+
+        stage = Stage()
 
         version = ""
         try:
@@ -4874,7 +4924,7 @@ class LumaViewProApp(App):
                 raise FileNotFoundError('No settings files found.')
         
         # Continuously update image of stage and protocol
-        Clock.schedule_interval(lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['stage_widget_id'].draw_labware, 0.1)
+        Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
 
         try:

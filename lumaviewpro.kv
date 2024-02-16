@@ -187,7 +187,6 @@
 
 <AccordionItemXyStageControl>:
 	title: 'XY Stage Control'
-	id: motionsettings_xystage_control_accordion_item_id
 	
 	XYStageControl:
 		id: xy_stagecontrol_id
@@ -206,24 +205,29 @@
         AccordionItem:
             title: 'Microscope Settings'
             collapse: False
+			on_collapse: root.accordion_collapse()
             MicroscopeSettings:
                 id: microscope_settings_id
 
         # FOCUS SETTINGS
 		AccordionItem:
 			title: 'Objective Control'
+			on_collapse: root.accordion_collapse()
 			VerticalControl:
 				id: verticalcontrol_id
 
         # PROTOCOL SETTINGS
 		AccordionItem:
 			title: 'Protocol'
+			id: motionsettings_protocol_accordion_id
+			on_collapse: root.accordion_collapse()
 			ProtocolSettings:
                 id: protocol_settings_id
 
 		# POST PROCESSING
 		AccordionItem:
 			title: 'Post Processing'
+			on_collapse: root.accordion_collapse()
 			PostProcessingAccordion:
                 id: post_processing_id
 
@@ -742,9 +746,7 @@
 		padding: '5dp'
 		size_hint_y: None
 		height: self.width * 2 / 3
-		Stage:
-			id: stage_control_id
-			pos_hint:{'center_x':0.5, 'center_y':0.5}	
+		id: xy_stage_holder_id
 
 	# Fill Space		
 	Label:	
@@ -910,9 +912,7 @@
 				size_hint_y: None
 				height: '128dp'
 				height: self.width * 2 / 3
-				Stage:
-					id: stage_widget_id
-					pos_hint:{'center_x':0.5, 'center_y':0.5}
+				id: protocol_stage_holder_id
 
 			# Protocol Name
 			BoxLayout:
