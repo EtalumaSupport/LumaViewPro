@@ -51,7 +51,7 @@ import contextlib
 import cv2
 import numpy as np
 
-import image_utils
+import image_utils_non_kivy
 
 
 class Lumascope():
@@ -161,7 +161,7 @@ class Lumascope():
             self.image_buffer = self.camera.array.copy()
 
             if force_to_8bit and self.image_buffer.dtype != 'uint8':
-                self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
+                self.image_buffer = image_utils_non_kivy.convert_12bit_to_8bit(self.image_buffer)
 
             return self.image_buffer
         else:
@@ -256,7 +256,7 @@ class Lumascope():
             src_dtype = array.dtype
 
             if src_dtype == np.uint16:
-                img = image_utils.convert_12bit_to_16bit(img)
+                img = image_utils_non_kivy.convert_12bit_to_16bit(img)
 
             cv2.imwrite(str(path), img.astype(src_dtype))
             logger.info(f'[SCOPE API ] Saving Image to {path}')
