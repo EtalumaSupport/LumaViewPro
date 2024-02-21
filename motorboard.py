@@ -73,6 +73,7 @@ class MotorBoard:
         self.timeout=None # seconds
         self.write_timeout=None # seconds
         self.driver = False
+        self._fullinfo = None
         try:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
@@ -104,7 +105,7 @@ class MotorBoard:
             self.driver.write(b'\x04\n')
             logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
             # Fullinfo checks to see if it has a turret, so call that here
-            self.fullinfo()
+            self._fullinfo = self.fullinfo()
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
@@ -182,7 +183,7 @@ class MotorBoard:
         
             
     def get_microscope_model(self):
-        info = self.fullinfo()
+        info = self._fullinfo
         return info['model']
 
 
