@@ -3008,7 +3008,8 @@ class ProtocolSettings(CompositeCapture):
         # Update Labware Selection in Spinner
         self.ids['labware_spinner'].text = settings['protocol']['labware']
 
-        self.go_to_step()
+        if lumaview.scope.has_xyhomed():
+            self.go_to_step()
     
 
     def get_default_name_for_curr_step(self):

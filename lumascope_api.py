@@ -380,6 +380,11 @@ class Lumascope():
         #while self.is_moving():
         #    time.sleep(0.01)
         #self.is_homing = False
+    
+    def has_xyhomed(self):
+        """MOTION CONTROL FUNCTIONS
+        Indicate if the xy-axes (i.e. stage) has been homed since startup"""
+        return self.motion.has_xyhomed()
 
     def xyhome_iterate(self):
         if not self.is_moving():

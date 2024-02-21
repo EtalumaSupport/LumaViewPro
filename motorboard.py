@@ -58,6 +58,7 @@ class MotorBoard:
         self.overshoot = False
         self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
         self.has_turret = False
+        self.initial_homing_complete = False
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
@@ -221,7 +222,12 @@ class MotorBoard:
     def xyhome(self):
         """ Home the stage which also homes the objective first """
         logger.info('[XYZ Class ] MotorBoard.xyhome()')
-        self.exchange_command('HOME')
+        resp = self.exchange_command('HOME')
+        if (resp is not None) and ('XYZ home complete' in resp):
+            self.initial_homing_complete = True
+
+    def has_xyhomed(self):
+        return self.initial_homing_complete
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
