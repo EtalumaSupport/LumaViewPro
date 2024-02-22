@@ -66,7 +66,7 @@ class VideoBuilder:
     
 
     def _get_frame_size(self, image: pathlib.Path) -> dict:
-        frame = cv2.imread(str(image))
+        frame = cv2.imread(str(image), cv2.IMREAD_UNCHANGED)
         height, width, _ = frame.shape
         
         return (height, width)
@@ -138,7 +138,7 @@ class VideoBuilder:
 
         logger.info(f"[{self._name}] Writing video to {output_file_loc}")
         for image in images:
-            video.write(cv2.imread(str(image)))
+            video.write(cv2.imread(str(image), cv2.IMREAD_UNCHANGED))
 
         cv2.destroyAllWindows()
         video.release()

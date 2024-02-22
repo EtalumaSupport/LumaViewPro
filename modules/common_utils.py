@@ -9,14 +9,18 @@ def generate_default_step_name(
     color,
     z_height_idx = None,
     scan_count = None,
-    tile_label = None 
+    tile_label = None,
+    custom_name_prefix = None
 ):
-    name = f"{well_label}_{color}"
-
-    if tile_label not in (None, ""):
+    if custom_name_prefix not in (None, ""):
+        name = f"{custom_name_prefix}_{color}"
+    else:
+        name = f"{well_label}_{color}"
+    
+    if tile_label not in (None, "", -1):
         name = f"{name}_T{tile_label}"
 
-    if z_height_idx not in (None, ""):
+    if z_height_idx not in (None, "", -1):
         name = f"{name}_Z{z_height_idx}"
 
     DESIRED_SCAN_COUNT_DIGITS = 4
@@ -156,6 +160,8 @@ def get_opened_layer(lumaview_imagesettings) -> str | None:
 def to_bool(val) -> bool:
     if 'str' in str(type(val)):
         return True if val.lower() == "true" else False
+    elif val in ("", None):
+        return False
     else:
         return bool(float(val))
 
@@ -167,9 +173,11 @@ def to_float(val) -> float:
         return float(val)
     
     
-def to_int(val) -> int:
+def to_int(val) -> int | None:
     if 'numpy' in str(type(val)):
         return int(val.astype(float))
+    elif val in ("", None):
+        return -1
     else:
         return int(float(val))
 

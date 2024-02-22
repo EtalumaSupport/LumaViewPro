@@ -51,6 +51,8 @@ import contextlib
 import cv2
 import numpy as np
 
+import image_utils_non_kivy
+
 
 class Lumascope():
 
@@ -152,11 +154,15 @@ class Lumascope():
     # CAMERA FUNCTIONS
     ########################################################################
 
-    def get_image(self):
+    def get_image(self, force_to_8bit: bool = True):
         """ CAMERA FUNCTIONS
         Grab and return image from camera"""
         if self.camera.grab():
             self.image_buffer = self.camera.array.copy()
+
+            if force_to_8bit and self.image_buffer.dtype != 'uint8':
+                self.image_buffer = image_utils_non_kivy.convert_12bit_to_8bit(self.image_buffer)
+
             return self.image_buffer
         else:
             return False
@@ -197,16 +203,20 @@ class Lumascope():
         
         img = np.zeros((array.shape[0], array.shape[1], 3))
 
-        if color == 'Blue':
-            img[:,:,0] = array
-        elif color == 'Green':
-            img[:,:,1] = array
-        elif color == 'Red':
-            img[:,:,2] = array
+        # Check if already a color image
+        if (len(array.shape) == 3) and (array.shape[2] == 3):
+            img = array
         else:
-            img[:,:,0] = array
-            img[:,:,1] = array
-            img[:,:,2] = array
+            if color == 'Blue':
+                img[:,:,0] = array
+            elif color == 'Green':
+                img[:,:,1] = array
+            elif color == 'Red':
+                img[:,:,2] = array
+            else:
+                img[:,:,0] = array
+                img[:,:,1] = array
+                img[:,:,2] = array
 
         img = np.flip(img, 0)
 
@@ -243,7 +253,12 @@ class Lumascope():
         
 
         try:
-            cv2.imwrite(str(path), img.astype(np.uint8))
+            src_dtype = array.dtype
+
+            if src_dtype == np.uint16:
+                img = image_utils_non_kivy.convert_12bit_to_16bit(img)
+
+            cv2.imwrite(str(path), img.astype(src_dtype))
             logger.info(f'[SCOPE API ] Saving Image to {path}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
@@ -257,13 +272,14 @@ class Lumascope():
             file_root = 'img_',
             append = 'ms',
             color = 'BF',
-            tail_id_mode = "increment"
+            tail_id_mode = "increment",
+            force_to_8bit: bool = True
         ):
 
         """CAMERA FUNCTIONS
         Grab the current live image and save to file
         """
-        array = self.get_image()
+        array = self.get_image(force_to_8bit=force_to_8bit)
         if array is False:
             return 
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode)
@@ -364,6 +380,11 @@ class Lumascope():
         #while self.is_moving():
         #    time.sleep(0.01)
         #self.is_homing = False
+    
+    def has_xyhomed(self):
+        """MOTION CONTROL FUNCTIONS
+        Indicate if the xy-axes (i.e. stage) has been homed since startup"""
+        return self.motion.has_xyhomed()
 
     def xyhome_iterate(self):
         if not self.is_moving():
@@ -436,23 +457,27 @@ class Lumascope():
         target_position = self.motion.current_pos(axis)
         return target_position
         
-    def move_absolute_position(self, axis, pos, wait_until_complete=False):
+    def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True):
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
 
         #if not self.motion: return
-        self.motion.move_abs_pos(axis, pos)
+        self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled)
         
         if wait_until_complete is True:
             self.wait_until_finished_moving()
 
 
-    def move_relative_position(self, axis, um):
+    def move_relative_position(self, axis, um, wait_until_complete=False, overshoot_enabled: bool = True):
         """MOTION CONTROL FUNCTIONS
          Move to relative distance (in um) of axis"""
 
         #if not self.motion: return
-        self.motion.move_rel_pos(axis, um)
+        self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+
+        if wait_until_complete is True:
+            self.wait_until_finished_moving()
+
 
     def get_home_status(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -515,6 +540,13 @@ class Lumascope():
             time.sleep(0.05)
         
         return
+    
+
+    def get_microscope_model(self):
+        if not self.motion.driver:
+            return None
+        
+        return self.motion.get_microscope_model()
 
 
     '''
@@ -587,6 +619,15 @@ class Lumascope():
     def capture_complete(self):
         self.capture_return = self.get_image() # Grab image
         self.is_capturing = False
+
+    
+    def capture_blocking(self):
+        if not self.led: return
+        if not self.camera: return
+
+        wait_time = 2*self.get_exposure_time()/1000+0.2
+        time.sleep(wait_time)
+        return self.get_image()
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # AUTOFOCUS Functionality

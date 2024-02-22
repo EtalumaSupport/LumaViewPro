@@ -6,7 +6,7 @@ logs/LVP_Log*
 capture/**/*.tiff
 capture/**/*.tsv
 script_testing.py
-venv/
+venv*/
 build/
 dist/
 tmp/

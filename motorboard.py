@@ -58,6 +58,7 @@ class MotorBoard:
         self.overshoot = False
         self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
         self.has_turret = False
+        self.initial_homing_complete = False
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
@@ -73,6 +74,7 @@ class MotorBoard:
         self.timeout=None # seconds
         self.write_timeout=None # seconds
         self.driver = False
+        self._fullinfo = None
         try:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
@@ -104,7 +106,7 @@ class MotorBoard:
             self.driver.write(b'\x04\n')
             logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
             # Fullinfo checks to see if it has a turret, so call that here
-            self.fullinfo()
+            self._fullinfo = self.fullinfo()
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
@@ -172,7 +174,19 @@ class MotorBoard:
         model = info[info.index("Model:")+1]
         if model[-1] == "T":
             self.has_turret = True
-        # an option here is to set the current model in the LumaView object as well so the user doesn't need to
+
+        serial_number = info[info.index("Serial:")+1]
+
+        return {
+            "model": model,
+            "serial_number": serial_number
+        }
+        
+            
+    def get_microscope_model(self):
+        info = self._fullinfo
+        return info['model']
+
 
     #----------------------------------------------------------
     # Z (Focus) Functions
@@ -208,7 +222,12 @@ class MotorBoard:
     def xyhome(self):
         """ Home the stage which also homes the objective first """
         logger.info('[XYZ Class ] MotorBoard.xyhome()')
-        self.exchange_command('HOME')
+        resp = self.exchange_command('HOME')
+        if (resp is not None) and ('XYZ home complete' in resp):
+            self.initial_homing_complete = True
+
+    def has_xyhomed(self):
+        return self.initial_homing_complete
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
@@ -294,7 +313,7 @@ class MotorBoard:
             return 0
  
     # Move to absolute position (in um or degrees for Turret)
-    def move_abs_pos(self, axis, pos):
+    def move_abs_pos(self, axis, pos, overshoot_enabled: bool=True):
         """ Move to absolute position (in um) of axis"""
         # logger.info('move_abs_pos', axis, pos)
 
@@ -337,7 +356,7 @@ class MotorBoard:
         
         steps = axis_config['move_func'](pos)
 
-        if axis=='Z': # perform overshoot to always come from one direction
+        if overshoot_enabled and (axis=='Z'): # perform overshoot to always come from one direction
             # get current position
             current = self.current_pos('Z')
 
@@ -359,12 +378,12 @@ class MotorBoard:
         self.move(axis, steps)
 
     # Move by relative distance (in um or degrees for Turret)
-    def move_rel_pos(self, axis, um):
+    def move_rel_pos(self, axis, um, overshoot_enabled: bool = False):
         """ Move by relative distance (in um for X, Y, Z or degrees for T) of axis """
 
         # Read target position in um
         pos = self.target_pos(axis)
-        self.move_abs_pos(axis, pos+um)
+        self.move_abs_pos(axis, pos+um, overshoot_enabled=overshoot_enabled)
         logger.info('[XYZ Class ] MotorBoard.move_rel_pos('+axis+','+str(um)+') succeeded')
  
     #----------------------------------------------------------

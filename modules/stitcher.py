@@ -26,9 +26,15 @@ class Stitcher:
             include_stitched_images=False,
             include_composite_images=False
         )
+
+        if results['status'] is False:
+            return {
+                'status': False,
+                'message': f'Failed to load protocol data from {path}'
+            }
        
         df = results['image_tile_groups']
-        df['stitch_group_index'] = df.groupby(by=['protocol_group_index','scan_count']).ngroup()
+        df['Stitch Group Index'] = df.groupby(by=['Protocol Group Index','Scan Count']).ngroup()
 
         # composite_images_df = results['composite_images']
         # if composite_images_df is not None:
@@ -41,12 +47,12 @@ class Stitcher:
         #     loop_list = df.groupby(by=['stitch_group_index'])
         
         logger.info(f"{self._name}: Generating stitched images")
-        for _, stitch_group in df.groupby(by=['stitch_group_index']):
+        for _, stitch_group in df.groupby(by=['Stitch Group Index']):
             # pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
 
             stitched_image = self.simple_position_stitcher(
                 path=path,
-                df=stitch_group[['filename', 'x', 'y', 'z_slice']]
+                df=stitch_group[['Filename', 'X', 'Y', 'Z-Slice']]
             )
 
             # stitched_image = self.position_stitcher(
@@ -82,17 +88,38 @@ class Stitcher:
     @staticmethod
     def _generate_stitched_filename(df: pd.DataFrame) -> str:
         row0 = df.iloc[0]
+        # custom_step = common_utils.to_bool(row0['Custom Step'])
+        # custom_step = row0['Custom Step']
+
         name = common_utils.generate_default_step_name(
-            well_label=row0['well'],
-            color=row0['color'],
-            z_height_idx=row0['z_slice'],
-            scan_count=row0['scan_count']
+            custom_name_prefix=row0['Name'],
+            well_label=row0['Well'],
+            color=row0['Color'],
+            z_height_idx=row0['Z-Slice'],
+            scan_count=row0['Scan Count']
         )
+        
+        # if custom_step is True:
+        #     prefix = row0['Filename'].split("_")[0]
+        #     name = common_utils.generate_default_step_name(
+        #         custom_name_prefix=prefix,
+        #         well_label=row0['well'],
+        #         color=row0['color'],
+        #         z_height_idx=row0['z_slice'],
+        #         scan_count=row0['scan_count']
+        #     )
+        # else:
+        #     name = common_utils.generate_default_step_name(
+        #         well_label=row0['well'],
+        #         color=row0['color'],
+        #         z_height_idx=row0['z_slice'],
+        #         scan_count=row0['scan_count']
+        #     )
 
         outfile = f"{name}_stitched.tiff"
 
         # Handle case of individual folders per channel
-        split_name = os.path.split(row0['filename'])
+        split_name = os.path.split(row0['Filename'])
         if len(split_name) == 2:
             outfile = os.path.join(split_name[0], outfile)
         
@@ -108,21 +135,21 @@ class Stitcher:
         # Load source images
         images = {}
         for _, row in df.iterrows():
-            image_filepath = path / row['filename']
-            images[row['filename']] = cv2.imread(str(image_filepath))
+            image_filepath = path / row['Filename']
+            images[row['Filename']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
 
         df = df.copy()
 
-        num_x_tiles = df['x'].nunique()
-        num_y_tiles = df['y'].nunique()
+        num_x_tiles = df['X'].nunique()
+        num_y_tiles = df['Y'].nunique()
 
-        source_image_sample = df['filename'].values[0]
+        source_image_sample = df['Filename'].values[0]
         source_image_w = images[source_image_sample].shape[1]
         source_image_h = images[source_image_sample].shape[0]
         
-        df = df.sort_values(['x','y'], ascending=False)
-        df['x_index'] = df.groupby(by=['x']).ngroup()
-        df['y_index'] = df.groupby(by=['y']).ngroup()
+        df = df.sort_values(['X','Y'], ascending=False)
+        df['x_index'] = df.groupby(by=['X']).ngroup()
+        df['y_index'] = df.groupby(by=['Y']).ngroup()
         df['x_pix_range'] = df['x_index'] * source_image_w
         df['y_pix_range'] = df['y_index'] * source_image_h
             
@@ -137,9 +164,9 @@ class Stitcher:
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype='uint8')
+        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=images[source_image_sample].dtype)
         for _, row in df.iterrows():
-            filename = row['filename']
+            filename = row['Filename']
             image = images[filename]
             im_x = image.shape[1]
             im_y = image.shape[0]
@@ -170,19 +197,19 @@ class Stitcher:
         # Load source images
         images = {}
         for _, row in df.iterrows():
-            image_filepath = path / row['filename']
-            images[row['filename']] = cv2.imread(str(image_filepath))
+            image_filepath = path / row['Filename']
+            images[row['Filename']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
 
         df = df.copy()
 
-        df['x_pos_range'] = df['x'] - df['x'].min()
-        df['y_pos_range'] = df['y'] - df['y'].min()
+        df['x_pos_range'] = df['X'] - df['X'].min()
+        df['y_pos_range'] = df['Y'] - df['Y'].min()
         df['x_pix_range'] = df['x_pos_range']*pos2pix
         df['y_pix_range'] = df['y_pos_range']*pos2pix
         df = df.sort_values(['x_pix_range','y_pix_range'], ascending=False)
         df[['x_pix_range','y_pix_range']] = df[['x_pix_range','y_pix_range']].apply(np.floor).astype(int)
 
-        source_image_sample = df['filename'].values[0]
+        source_image_sample = df['Filename'].values[0]
         stitched_im_x = images[source_image_sample].shape[1] + df['x_pix_range'].max()
         stitched_im_y = images[source_image_sample].shape[0] + df['y_pix_range'].max()
 
@@ -194,9 +221,9 @@ class Stitcher:
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype='uint8')
+        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=images[source_image_sample].dtype)
         for _, row in df.iterrows():
-            filename = row['filename']
+            filename = row['Filename']
             image = images[filename]
             im_x = image.shape[1]
             im_y = image.shape[0]
