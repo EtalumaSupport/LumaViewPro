@@ -4593,13 +4593,13 @@ class ZStack(CompositeCapture):
             text_label=self.ids['zstack_spinner'].text
         )
 
-        current_pos = lumaview.scope.get_current_position('Z')
+        self._current_z_pos = lumaview.scope.get_current_position('Z')
 
         zstack_config = ZStackConfig(
             range=range,
             step_size=step_size,
             current_z_reference=z_reference,
-            current_z_value=current_pos
+            current_z_value=self._current_z_pos
         )
 
         if zstack_config.number_of_steps() <= 0:
@@ -4620,6 +4620,7 @@ class ZStack(CompositeCapture):
             # self.zstack_event.cancel()
             logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
             Clock.unschedule(self.zstack_iterate)
+            lumaview.scope.move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
 
 
     def zstack_iterate(self, dt):
@@ -4637,6 +4638,7 @@ class ZStack(CompositeCapture):
                 self.ids['zstack_aqr_btn'].state = 'normal'
                 logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
                 Clock.unschedule(self.zstack_iterate)
+                lumaview.scope.move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
 
 
 # Button the triggers 'filechooser.open_file()' from plyer
