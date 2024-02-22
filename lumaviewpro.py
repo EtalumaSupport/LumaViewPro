@@ -1602,7 +1602,7 @@ class PostProcessingAccordion(BoxLayout):
         
         command = OS_FOLDER_MAP[sys.platform]
         if last_save_folder is None:
-            subprocess.Popen(command)
+            subprocess.Popen([command, str(pathlib.Path(settings['live_folder']).resolve())])
         else:
             subprocess.Popen([command, str(last_save_folder)])
 
