@@ -48,6 +48,7 @@ import pandas as pd
 import csv
 import time
 import json
+import subprocess
 import sys
 import glob
 from lvp_logger import logger
@@ -135,6 +136,8 @@ import image_utils
 global lumaview
 global settings
 global cell_count_content
+global last_save_folder
+last_save_folder = None
 global stage
 stage = None
 
@@ -384,6 +387,10 @@ class CompositeCapture(FloatLayout):
 
         save_folder = pathlib.Path(settings['live_folder']) / "Manual"
         save_folder.mkdir(parents=True, exist_ok=True)
+
+        global last_save_folder
+        last_save_folder = save_folder
+
         file_root = 'live_'
         color = 'BF'
         well_label = self.get_well_label()
@@ -644,7 +651,6 @@ class CompositeCapture(FloatLayout):
 
         img = np.flip(img, 0)
 
-        save_folder = settings['live_folder']
         file_root = 'composite_'
 
         # append = str(int(round(time.time() * 1000)))
@@ -654,7 +660,14 @@ class CompositeCapture(FloatLayout):
         # generate filename and save path string
         initial_id = '_000001'
         filename =  file_root + append + initial_id + '.tiff'
-        path = save_folder + '/' + filename
+
+        save_folder = pathlib.Path(settings['live_folder']) / "Manual"
+        save_folder.mkdir(parents=True, exist_ok=True)
+
+        global last_save_folder
+        last_save_folder = save_folder
+
+        path = save_folder / filename
 
         # Obtain next save path if current directory already exists
         while os.path.exists(path):
@@ -668,7 +681,7 @@ class CompositeCapture(FloatLayout):
         if dtype == np.uint16:
             img = image_utils.convert_12bit_to_16bit(img)
             
-        cv2.imwrite(path, img.astype(dtype))
+        cv2.imwrite(str(path), img.astype(dtype))
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -1567,9 +1580,6 @@ class PostProcessingAccordion(BoxLayout):
         #         cell_count_content.deactivate()
 
 
-    
-
-    
     def init_cell_count(self):
         self._cell_count_popup = None
         
@@ -1579,7 +1589,15 @@ class PostProcessingAccordion(BoxLayout):
      
         
     def open_folder(self):
-        logger.debug('[LVP Main  ] PostProcessing.open_folder() not yet implemented')
+        
+        if sys.platform in ('win32',):
+            if last_save_folder is None:
+                subprocess.Popen(f'explorer')
+            else:
+                subprocess.Popen(f'explorer "{str(last_save_folder)}"')
+        else:
+            logger.debug(f'[LVP Main  ] PostProcessing.open_folder() not yet implemented for {sys.platform} platform')
+
 
     def open_cell_count(self):
         global cell_count_content
@@ -3489,6 +3507,9 @@ class ProtocolSettings(CompositeCapture):
             filepath=protocol_filepath,
             update_protocol_filepath=False
         )
+
+        global last_save_folder
+        last_save_folder = self.protocol_run_dir
 
         protocol_record_filepath = self.protocol_run_dir / ProtocolExecutionRecord.DEFAULT_FILENAME
         self.protocol_execution_record = ProtocolExecutionRecord(outfile=protocol_record_filepath)
