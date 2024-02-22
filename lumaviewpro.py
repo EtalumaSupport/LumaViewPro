@@ -1589,14 +1589,22 @@ class PostProcessingAccordion(BoxLayout):
      
         
     def open_folder(self):
+
+        OS_FOLDER_MAP = {
+            'win32': 'explorer',
+            'darwin': 'open',
+            'linux': 'xdg-open'
+        }
+
+        if sys.platform not in OS_FOLDER_MAP:
+            logger.info(f'[LVP Main  ] PostProcessing.open_folder() not yet implemented for {sys.platform} platform')
+            return
         
-        if sys.platform in ('win32',):
-            if last_save_folder is None:
-                subprocess.Popen(f'explorer')
-            else:
-                subprocess.Popen(f'explorer "{str(last_save_folder)}"')
+        command = OS_FOLDER_MAP[sys.platform]
+        if last_save_folder is None:
+            subprocess.Popen(command)
         else:
-            logger.debug(f'[LVP Main  ] PostProcessing.open_folder() not yet implemented for {sys.platform} platform')
+            subprocess.Popen([command, str(last_save_folder)])
 
 
     def open_cell_count(self):
