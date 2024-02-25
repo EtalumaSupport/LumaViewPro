@@ -53,20 +53,41 @@ class PylonCamera:
         except:
             logger.exception('[CAM Class ] exception')
 
+    def _center(self):
+        if self.model_name == "acA1920-155um":
+            self.active.CenterX.SetValue(True)
+            self.active.CenterY.SetValue(True)
+        else: # daA3840-45um
+            self.active.BslCenterX.Execute()
+            self.active.BslCenterY.Execute()
+
+
     def connect(self):
         """ Try to connect to the first available basler camera"""
         try:
             # Create an instant active object with the camera device found first.
             self.active = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
             self.active.Open()
+
+            if self.active.IsGrabbing():
+                self.active.StopGrabbing()
+
             self.active.Width.SetValue(self.active.Width.Max)
             self.active.Height.SetValue(self.active.Height.Max)
-            self.active.BslCenterX.Execute()
-            self.active.BslCenterY.Execute()
+
+            if self.active.DeviceInfo.IsModelNameAvailable():
+                self.model_name = self.active.DeviceInfo.GetModelName()
+
+            self._center()
+            if self.model_name == "acA1920-155um":
+                pass
+            else: # daA3840-45um
+                self.active.ReverseX.SetValue(True)
+
             self.active.PixelFormat.SetValue('Mono8')
             self.active.GainAuto.SetValue('Off')
             self.active.ExposureAuto.SetValue('Off')
-            self.active.ReverseX.SetValue(True)
+            
             self.init_auto_gain_focus()
             # Grabbing Continuously (video) with minimal delay
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
@@ -202,8 +223,7 @@ class PylonCamera:
             self.active.StopGrabbing()
             self.active.Width.SetValue(width)
             self.active.Height.SetValue(height)
-            self.active.BslCenterX.Execute()
-            self.active.BslCenterY.Execute()
+            self._center()
             self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
             logger.info('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded')
         else:
@@ -214,10 +234,16 @@ class PylonCamera:
         """ Set gain value in the camera hardware"""
 
         if self.active != False:
-            self.active.Gain.SetValue(gain)
-            logger.info('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': succeeded')
+            actual_gain = min(self.active.Gain.GetMax(), gain)
+            actual_gain = max(self.active.Gain.GetMin(), actual_gain)
+            self.active.Gain.SetValue(actual_gain)
+
+            if gain == actual_gain:
+                logger.info(f"[CAM Class ] PylonCamera.gain({gain}): succeeded")
+            else:
+                logger.warning(f"[CAM Class ] PylonCamera.gain({actual_gain}): {gain} is above max allowed")
         else:
-            logger.warning('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': inactive camera')
+            logger.warning(f"[CAM Class ] PylonCamera.gain({gain}): inactive camera")
 
     def auto_gain(self, state = True, target_brightness: float = 0.5):
         """ Enable / Disable camera auto_gain with the value of 'state'
