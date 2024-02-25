@@ -175,26 +175,47 @@ class Lumascope():
 
         """
 
+        NUM_SEQ_DIGITS = 6
+        # Handle both .tiff and .ome.tiff by detecting multiple extensions if present
+        # pathlib doesn't seem to handle multiple extensions natively
+        path2 = pathlib.Path(path)
+        extension = ''.join(path2.suffixes)
+        stem = path2.name[:len(path2.name)-len(extension)]
+        seq_separator_idx = stem.rfind('_')
+        stem_base = stem[:seq_separator_idx]
+        seq_num_str = stem[seq_separator_idx+1:]
+        seq_num = int(seq_num_str)
+        # num_zeros = len(seq_num_str)
+
+        next_seq_num = seq_num + 1
+        next_seq_num_str = f"{next_seq_num:0>{NUM_SEQ_DIGITS}}"
+        
+        new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
+        return str(new_path)
+        #  return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
+
+
         # TODO for now converting pathlib.Path's to strings for the algorithm below
-        if issubclass(type(path), pathlib.Path):
-            path = str(path)
+        # if issubclass(type(path), pathlib.Path):
+        #     path = str(path)
 
         # Extract file extension (.tiff) and file_id (00001)
-        dot_idx = path.rfind('.') 
-        under_idx = path.rfind('_')
-        file_extension = path[dot_idx + 1:]
-        file_id = path[under_idx + 1:dot_idx]
+        # dot_idx = path.rfind('.') 
+        # under_idx = path.rfind('_')
+        # file_extension = path[dot_idx + 1:]
+        # file_id = path[under_idx + 1:dot_idx]
 
         # Determine the next file_id 
-        num_zeros = len(file_id)
-        number_str = str(int(file_id) + 1)
-        zeros_to_add = num_zeros - len(number_str)
-        if zeros_to_add <= 0:
-            new_file_id = number_str
-        else:
-            new_file_id =  '0' * zeros_to_add + number_str
+        # num_zeros = len(file_id)
+        # number_str = str(int(file_id) + 1)
+        # zeros_to_add = num_zeros - len(number_str)
+        # if zeros_to_add <= 0:
+        #     new_file_id = number_str
+        # else:
+        #     new_file_id =  '0' * zeros_to_add + number_str
 
-        return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
+        # return f"{path.parent}"
+        # return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
 
     def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', tail_id_mode = "increment"):
         """CAMERA FUNCTIONS
@@ -234,10 +255,17 @@ class Lumascope():
         if file_root is None:
             file_root = ""
 
+        USE_OME_TIFF = True
+
+        if USE_OME_TIFF:
+            file_extension = ".ome.tiff"
+        else:
+            file_extension = ".tiff"
+
         # generate filename and save path string
         if tail_id_mode == "increment":
             initial_id = '_000001'
-            filename =  file_root + append + initial_id + '.tiff'
+            filename =  f"{file_root}{append}{initial_id}{file_extension}"
             path = save_folder / filename
 
             # Obtain next save path if current directory already exists
@@ -245,7 +273,7 @@ class Lumascope():
                 path = self.get_next_save_path(path)
 
         elif tail_id_mode == None:
-            filename =  file_root + append + '.tiff'
+            filename =  f"{file_root}{append}{file_extension}"
             path = save_folder / filename
         
         else:
@@ -258,7 +286,11 @@ class Lumascope():
             if src_dtype == np.uint16:
                 img = image_utils_non_kivy.convert_12bit_to_16bit(img)
 
-            cv2.imwrite(str(path), img.astype(src_dtype))
+            if USE_OME_TIFF:
+                image_utils_non_kivy.write_ome_tiff(data=img, file_loc=path)
+            else:
+                cv2.imwrite(str(path), img.astype(src_dtype))
+
             logger.info(f'[SCOPE API ] Saving Image to {path}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
