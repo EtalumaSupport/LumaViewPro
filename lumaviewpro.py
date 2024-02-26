@@ -3147,7 +3147,7 @@ class ProtocolSettings(CompositeCapture):
         # Get the Current Step Number
         self.curr_step = int(self.ids['step_number_input'].text)-1
 
-        if self.curr_step < 0 or self.curr_step > len(self._protocol_df):
+        if self.curr_step < 0 or self.curr_step > len(self._protocol_df)-1:
             self.ids['step_number_input'].text = '0'
             return
         
@@ -3353,7 +3353,9 @@ class ProtocolSettings(CompositeCapture):
         if len(self._protocol_df) == 1:
             self.ids['step_number_input'].text = '1'
         else:
-            self.curr_step += 1
+            if after_current_step:
+                self.curr_step += 1
+
             self.ids['step_number_input'].text = str(self.curr_step+1)
 
         self.go_to_step()
@@ -3459,11 +3461,12 @@ class ProtocolSettings(CompositeCapture):
             # update protocol to focused z-position
             self._protocol_df.at[self.curr_step, "Z"] = lumaview.scope.get_current_position('Z')
 
-            # increment to the next step
-            self.curr_step += 1
-
             # determine and go to next positions
-            if self.curr_step < len(self._protocol_df):
+            if self.curr_step < len(self._protocol_df)-1:
+
+                # increment to the next step. Don't let it exceed the number of steps in the protocol
+                self.curr_step = min(self.curr_step+1, len(self._protocol_df)-1)
+
                 # Update Step number text
                 self.ids['step_number_input'].text = str(self.curr_step+1)
                 self.go_to_step()
@@ -3474,7 +3477,6 @@ class ProtocolSettings(CompositeCapture):
                 self.ids['run_autofocus_btn'].state = 'normal'
                 self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
                 scope_leds_off()
-
 
                 logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
                 Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
@@ -3681,21 +3683,6 @@ class ProtocolSettings(CompositeCapture):
         # reset the is_complete flag on autofocus
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
-        # z_slice = common_utils.get_z_slice_from_name(name=self._protocol_df.iloc[self.curr_step]['Name'])
-        # z_slice = step['Z-Slice']
-
-        # tile_label = common_utils.get_tile_label_from_name(name=self._protocol_df.iloc[self.curr_step]['Name'])
-
-        # if common_utils.is_custom_name(name=step['N']):
-        #     custom_name = step_name
-        # else:
-        #     custom_name = None
-
-        # if step['Name'] in (None, ""):
-
-
-        # well_label = common_utils.get_well_label_from_name(name=step_name)
-
         if self.separate_folder_per_channel:
             save_folder = self.protocol_run_dir / step["Color"]
             save_folder.mkdir(parents=True, exist_ok=True)
@@ -3737,14 +3724,14 @@ class ProtocolSettings(CompositeCapture):
             timestamp=datetime.datetime.now()
         )
 
-        # increment to the next step
-        self.curr_step += 1
-
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
             lumaview.scope.set_auto_gain(state=False)
 
-        if self.curr_step < len(self._protocol_df):
+        if self.curr_step < len(self._protocol_df)-1:
+
+            # increment to the next step. Don't let it exceed the number of steps in the protocol
+            self.curr_step = min(self.curr_step+1, len(self._protocol_df)-1)
 
             # Update Step number text
             self.ids['step_number_input'].text = str(self.curr_step+1)
