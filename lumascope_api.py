@@ -193,44 +193,20 @@ class Lumascope():
         stem_base = stem[:seq_separator_idx]
         seq_num_str = stem[seq_separator_idx+1:]
         seq_num = int(seq_num_str)
-        # num_zeros = len(seq_num_str)
 
         next_seq_num = seq_num + 1
         next_seq_num_str = f"{next_seq_num:0>{NUM_SEQ_DIGITS}}"
         
         new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
         return str(new_path)
-        #  return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
 
-
-        # TODO for now converting pathlib.Path's to strings for the algorithm below
-        # if issubclass(type(path), pathlib.Path):
-        #     path = str(path)
-
-        # Extract file extension (.tiff) and file_id (00001)
-        # dot_idx = path.rfind('.') 
-        # under_idx = path.rfind('_')
-        # file_extension = path[dot_idx + 1:]
-        # file_id = path[under_idx + 1:dot_idx]
-
-        # Determine the next file_id 
-        # num_zeros = len(file_id)
-        # number_str = str(int(file_id) + 1)
-        # zeros_to_add = num_zeros - len(number_str)
-        # if zeros_to_add <= 0:
-        #     new_file_id = number_str
-        # else:
-        #     new_file_id =  '0' * zeros_to_add + number_str
-
-        # return f"{path.parent}"
-        # return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
 
     def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', tail_id_mode = "increment"):
         """CAMERA FUNCTIONS
         save image (as array) to file
         """
         
-        img = np.zeros((array.shape[0], array.shape[1], 3))
+        img = np.zeros((array.shape[0], array.shape[1], 3), dtype=array.dtype)
 
         # Check if already a color image
         if (len(array.shape) == 3) and (array.shape[2] == 3):
@@ -248,14 +224,6 @@ class Lumascope():
                 img[:,:,2] = array
 
         img = np.flip(img, 0)
-
-        # set filename options
-        # if append == 'ms':
-        #     append = str(int(round(time.time() * 1000)))
-        # elif append == 'time':
-        #     append = time.strftime("%Y%m%d_%H%M%S")
-        # else:
-        #     append = ''
 
         if type(save_folder) == str:
             save_folder = pathlib.Path(save_folder)
@@ -295,7 +263,12 @@ class Lumascope():
                 img = image_utils_non_kivy.convert_12bit_to_16bit(img)
 
             if USE_OME_TIFF:
-                image_utils_non_kivy.write_ome_tiff(data=img, file_loc=path)
+                sx = self.get_current_position(axis='X')
+                sy = self.get_current_position(axis='Y')
+                # TODO convert stage to plate dimensions (currently in lumaviewpro.py layer)
+                
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                image_utils_non_kivy.write_ome_tiff(data=img, file_loc=path, channel=color)
             else:
                 cv2.imwrite(str(path), img.astype(src_dtype))
 

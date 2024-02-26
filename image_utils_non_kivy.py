@@ -2,6 +2,8 @@ import pathlib
 
 import tifffile as tf
 
+import modules.common_utils as common_utils
+
 
 def convert_12bit_to_8bit(image):
     if image.dtype == 'uint8':
@@ -19,21 +21,19 @@ def convert_12bit_to_16bit(image):
     return (new_image * 16)
 
 
-def write_ome_tiff(data, file_loc: pathlib.Path):
-    subresolutions = 0
-    pixelsize = 0.29  # micrometer
+def write_ome_tiff(data, file_loc: pathlib.Path, channel: str):
+    pixel_size=0.29
+    # pixel_size = common_utils.get_pixel_size(focal_length= )
 
     with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
         metadata={
-            'axes': 'TCYXS',
-            'SignificantBits': 8,
-            'TimeIncrement': 0.1,
-            'TimeIncrementUnit': 's',
-            'PhysicalSizeX': pixelsize,
+            'axes': 'YXS',
+            'SignificantBits': data.itemsize*8,
+            'PhysicalSizeX': pixel_size,
             'PhysicalSizeXUnit': 'µm',
-            'PhysicalSizeY': pixelsize,
+            'PhysicalSizeY': pixel_size,
             'PhysicalSizeYUnit': 'µm',
-            'Channel': {'Name': ['Channel 1', 'Channel 2']},
+            'Channel': {'Name': [channel]},
             'Plane': {'PositionX': [0.0] * 16, 'PositionXUnit': ['µm'] * 16}
         }
 
@@ -47,23 +47,7 @@ def write_ome_tiff(data, file_loc: pathlib.Path):
 
         tif.write(
             data,
-            subifds=subresolutions,
-            resolution=(1e4 / pixelsize, 1e4 / pixelsize),
+            resolution=(1e4 / pixel_size, 1e4 / pixel_size),
             metadata=metadata,
             **options
         )
-
-        # write pyramid levels to the two subifds
-        # in production use resampling to generate sub-resolution images
-        # for level in range(subresolutions):
-        #     mag = 2**(level + 1)
-        #     tif.write(
-        #         data[..., ::mag, ::mag, :],
-        #         subfiletype=1,
-        #         resolution=(1e4 / mag / pixelsize, 1e4 / mag / pixelsize),
-        #         **options
-        #     )
-        # add a thumbnail image as a separate series
-        # it is recognized by QuPath as an associated image
-        # thumbnail = (data[0, 0, ::8, ::8] >> 2).astype('uint8')
-        # tif.write(thumbnail, metadata={'Name': 'thumbnail'})
