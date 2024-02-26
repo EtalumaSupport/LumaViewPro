@@ -3283,15 +3283,13 @@ class ProtocolSettings(CompositeCapture):
 
 
     # Insert Current Step to Protocol at Current Position
-    def insert_step(self):
+    def insert_step(self, after_current_step: bool = True):
         
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
 
          # Determine Values
         name = f"custom{self.custom_step_count}"
         self.ids['step_name_input'].text = name
-        # if step['Name'] == '':
-        #         self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
         self.custom_step_count += 1
         c_layer = False
 
@@ -3299,12 +3297,11 @@ class ProtocolSettings(CompositeCapture):
             accordion = layer + '_accordion'
             if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
                 c_layer = layer
+                break
 
         if c_layer == False:
-            mssg = "No layer currently selected"
-            return mssg
+            return "No layer currently selected"
 
-        ch = lumaview.scope.color2ch(c_layer)
         layer_id = lumaview.ids['imagesettings_id'].ids[c_layer]
 
         # Determine and update plate position
@@ -3341,7 +3338,12 @@ class ProtocolSettings(CompositeCapture):
             zstack_group_id=zstack_group_id
         )
 
-        line = pd.DataFrame(data=step_dict, index=[self.curr_step-0.5])
+        if after_current_step:
+            pos_index = self.curr_step+0.5
+        else:
+            pos_index = self.curr_step-0.5
+
+        line = pd.DataFrame(data=step_dict, index=[pos_index])
         self._protocol_df = pd.concat([self._protocol_df, line], ignore_index=False, axis=0)
         self._protocol_df = self._protocol_df.sort_index().reset_index(drop=True)
 
@@ -3350,7 +3352,11 @@ class ProtocolSettings(CompositeCapture):
         # Handle special case for inserting a step from an empty protocol
         if len(self._protocol_df) == 1:
             self.ids['step_number_input'].text = '1'
-            self.go_to_step()
+        else:
+            self.curr_step += 1
+            self.ids['step_number_input'].text = str(self.curr_step+1)
+
+        self.go_to_step()
 
 
     def update_acquire_zstack(self):
