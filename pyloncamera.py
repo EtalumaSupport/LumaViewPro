@@ -214,7 +214,7 @@ class PylonCamera:
         """ Set gain value in the camera hardware"""
 
         if self.active != False:
-            self.active.Gain.SetValue(gain)
+            self.active.Gain.SetValue(float(gain))
             logger.info('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': succeeded')
         else:
             logger.warning('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': inactive camera')
@@ -242,7 +242,7 @@ class PylonCamera:
 
         if self.active != False:
             # (t*1000) in microseconds; therefore t  in milliseconds
-            self.active.ExposureTime.SetValue(max(t*1000, self.active.ExposureTime.Min))
+            self.active.ExposureTime.SetValue(max(float(t)*1000, self.active.ExposureTime.Min))
             logger.info('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
         else:
             logger.warning('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': inactive camera')
