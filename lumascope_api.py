@@ -90,6 +90,18 @@ class Lumascope():
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
+        self.labware = None             # The labware currently installed
+        self.objective = None           # The objective currently installed
+
+    ########################################################################
+    # SCOPE CONFIGURATION FUNCTIONS
+    ########################################################################
+    def set_labware(self, labware):
+        self.labware = labware
+
+    def set_objective(self, objective):
+        self.objective = objective
+
     ########################################################################
     # LED BOARD FUNCTIONS
     ########################################################################
@@ -268,7 +280,14 @@ class Lumascope():
                 # TODO convert stage to plate dimensions (currently in lumaviewpro.py layer)
                 
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                image_utils_non_kivy.write_ome_tiff(data=img, file_loc=path, channel=color)
+
+                if self.objective is None:
+                    raise Exception(f"[SCOPE API ] Objective not set")
+                
+                if 'focal_length' not in self.objective:
+                    raise Exception(f"[SCOPE API ] Objective focal length not provided")
+                
+                image_utils_non_kivy.write_ome_tiff(data=img, file_loc=path, channel=color, focal_length=self.objective['focal_length'])
             else:
                 cv2.imwrite(str(path), img.astype(src_dtype))
 
@@ -561,47 +580,6 @@ class Lumascope():
         
         return self.motion.get_microscope_model()
 
-
-    '''
-    ########################################################################
-    # COORDINATES
-    ########################################################################
-
-    # INCOMPLETE
-    def plate_to_stage(self, px, py):
-        # plate coordinates in mm from top left
-        # stage coordinates in um from bottom right
-
-        # Get labware dimensions
-        x_max = 127.76 # in mm
-        y_max = 85.48 # in mm
-
-        # Convert coordinates
-        sx = x_max - 3.88 - px
-        sy = y_max - 2.74 - py
-
-        # Convert from mm to um
-        sx = sx*1000
-        sy = sy*1000
-
-        # return
-        return sx, sy
-    
-    # INCOMPLETE
-    def stage_to_plate(self, sx, sy):
-        # stage coordinates in um from bottom right
-        # plate coordinates in mm from top left
-
-        # Get labware dimensions
-        x_max = 127.76 # in mm
-        y_max = 85.48 # in mm
-
-        # Convert coordinates
-        px = x_max - (3880 + sx)/1000
-        py = y_max - (2740 + sy)/1000
- 
-        return px, py
-    '''
     
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS

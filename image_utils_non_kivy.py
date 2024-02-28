@@ -21,9 +21,9 @@ def convert_12bit_to_16bit(image):
     return (new_image * 16)
 
 
-def write_ome_tiff(data, file_loc: pathlib.Path, channel: str):
-    pixel_size=0.29
-    # pixel_size = common_utils.get_pixel_size(focal_length= )
+def write_ome_tiff(data, file_loc: pathlib.Path, channel: str, focal_length: float):
+    # pixel_size=0.29
+    pixel_size = common_utils.get_pixel_size(focal_length=focal_length)
 
     with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
         metadata={

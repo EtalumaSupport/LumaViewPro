@@ -218,4 +218,3 @@ def max_decimal_precision(parameter: str) -> int:
     }
 
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
-    
