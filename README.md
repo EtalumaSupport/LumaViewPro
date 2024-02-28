@@ -21,7 +21,7 @@ Select to open all Python documents using the Python application
 
 Open a comand Prompt and enter the following 
 ```
-python -m pip install -r requirements.txt
+    python -m pip install -r requirements.txt
 ```
 Go to the location of the LumaViewPro-master folder in the command prompt
 
@@ -36,32 +36,22 @@ Download and unzip the LumaViewPro-master file
 
 To install Python open the terminal and enter the following 
 
-``
-sudo apt-get update 
-``
+    sudo apt-get update 
+    sudo apt-get install python3.10
+    sudo apt-get install python3-pip 
 
-``
-sudo apt-get install python3.10
-``
-
-``
-sudo apt-get install python3-pip        
-``
 
 To check if Python works enter the following in the terminal
 
-``
-python3 --version
-``
+    python3 --version
+
 
 ![Screenshot from 2022-07-12 18-49-14](https://user-images.githubusercontent.com/108957480/178634740-8e8f300d-d2b3-41c8-9e8b-c0db899af022.png)
 
 Enter the following into the terminal to install the package dependencies
 
-``
-pip3 install -r requirements.txt
-pip3 install mcp2210-python pywinusb
-``
+    pip3 install -r requirements.txt
+    pip3 install mcp2210-python pywinusb
 
 ![Screenshot from 2022-07-12 18-48-26 (1)](https://user-images.githubusercontent.com/108957480/178635382-b43c80f3-1c32-4e0f-bebf-7bc060824be5.png)
 
