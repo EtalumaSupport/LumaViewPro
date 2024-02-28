@@ -199,7 +199,7 @@ def get_field_of_view(
     focal_length: float,
     frame_size: dict
 ):
-    um_per_pixel = get_pixel_size(focal_length==focal_length)
+    um_per_pixel = get_pixel_size(focal_length=focal_length)
     fov_x = um_per_pixel * frame_size['width']
     fov_y = um_per_pixel * frame_size['height']
     

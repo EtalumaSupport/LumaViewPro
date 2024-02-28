@@ -133,6 +133,7 @@ import lumascope_api
 import post_processing
 
 import image_utils
+import image_utils_kivy
 
 global lumaview
 global settings
@@ -1373,7 +1374,7 @@ class CellCountControls(BoxLayout):
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
         self._preview_image = image
-        self.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+        self.ids['cell_count_image_id'].texture = image_utils_kivy.image_to_texture(image=image)
         self.update_filter_max(image=image)
         self._regenerate_image_preview()
 
@@ -1406,7 +1407,7 @@ class CellCountControls(BoxLayout):
 
         self._preview_image = image
 
-        cell_count_content.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+        cell_count_content.ids['cell_count_image_id'].texture = image_utils_kivy.image_to_texture(image=image)
 
 
     def slider_adjustment_threshold(self):
@@ -4211,6 +4212,7 @@ class MicroscopeSettings(BoxLayout):
 
                 # self.ids['binning_spinner'].text = str(settings['binning_size'])
                 # self.update_binning_size()
+                lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
                 self.ids['objective_spinner'].text = settings['objective']['ID']
                 # TODO self.ids['objective_spinner'].text = settings['objective']['description']

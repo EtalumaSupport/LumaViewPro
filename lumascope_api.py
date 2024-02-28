@@ -43,6 +43,7 @@ from pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger
+import modules.coord_transformations as coord_transformations
 import pathlib
 import time
 import threading
@@ -51,13 +52,14 @@ import contextlib
 import cv2
 import numpy as np
 
-import image_utils_non_kivy
+import image_utils
 
 
 class Lumascope():
 
     def __init__(self):
         """Initialize Microscope"""
+        self._coordinate_transformer = coord_transformations.CoordinateTransformer()
 
         # LED Control Board
         try:
@@ -90,17 +92,21 @@ class Lumascope():
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
-        self.labware = None             # The labware currently installed
-        self.objective = None           # The objective currently installed
+        self._labware = None             # The labware currently installed
+        self._objective = None           # The objective currently installed
+        self._stage_offset = None        # The stage offset for the microscope
 
     ########################################################################
     # SCOPE CONFIGURATION FUNCTIONS
     ########################################################################
     def set_labware(self, labware):
-        self.labware = labware
+        self._labware = labware
 
     def set_objective(self, objective):
-        self.objective = objective
+        self._objective = objective
+
+    def set_stage_offset(self, stage_offset):
+        self._stage_offset = stage_offset
 
     ########################################################################
     # LED BOARD FUNCTIONS
@@ -181,7 +187,7 @@ class Lumascope():
             self.image_buffer = self.camera.array.copy()
 
             if force_to_8bit and self.image_buffer.dtype != 'uint8':
-                self.image_buffer = image_utils_non_kivy.convert_12bit_to_8bit(self.image_buffer)
+                self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
 
             return self.image_buffer
         else:
@@ -272,22 +278,41 @@ class Lumascope():
             src_dtype = array.dtype
 
             if src_dtype == np.uint16:
-                img = image_utils_non_kivy.convert_12bit_to_16bit(img)
+                img = image_utils.convert_12bit_to_16bit(img)
 
             if USE_OME_TIFF:
-                sx = self.get_current_position(axis='X')
-                sy = self.get_current_position(axis='Y')
-                # TODO convert stage to plate dimensions (currently in lumaviewpro.py layer)
+
+                def _validate():
+                    if self._objective is None:
+                        raise Exception(f"[SCOPE API ] Objective not set")
+                    
+                    if 'focal_length' not in self._objective:
+                        raise Exception(f"[SCOPE API ] Objective focal length not provided")
+
+                    if self._labware is None:
+                        raise Exception(f"[SCOPE API ] Labware not set")
+                    
+                    if self._stage_offset is None:
+                        raise Exception(f"[SCOPE API ] Stage offset not set")
                 
+                _validate()
+                
+                px, py = self._coordinate_transformer.stage_to_plate(
+                    labware=self._labware,
+                    stage_offset=self._stage_offset,
+                    sx=self.get_current_position(axis='X'),
+                    sy=self.get_current_position(axis='Y')
+                )
+
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-                if self.objective is None:
-                    raise Exception(f"[SCOPE API ] Objective not set")
-                
-                if 'focal_length' not in self.objective:
-                    raise Exception(f"[SCOPE API ] Objective focal length not provided")
-                
-                image_utils_non_kivy.write_ome_tiff(data=img, file_loc=path, channel=color, focal_length=self.objective['focal_length'])
+                image_utils.write_ome_tiff(
+                    data=img,
+                    file_loc=path,
+                    channel=color,
+                    focal_length=self._objective['focal_length'],
+                    plate_pos_mm={'x': px, 'y': py}
+                )
             else:
                 cv2.imwrite(str(path), img.astype(src_dtype))
 
