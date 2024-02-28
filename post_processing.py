@@ -38,8 +38,6 @@ March 16, 2023
 import csv
 import os
 
-from kivy.graphics.texture import Texture
-
 import image_utils
 
 from modules.cell_count import CellCount

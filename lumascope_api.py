@@ -51,7 +51,7 @@ import contextlib
 import cv2
 import numpy as np
 
-import image_utils_non_kivy
+import image_utils
 
 
 class Lumascope():
@@ -169,7 +169,7 @@ class Lumascope():
             self.image_buffer = self.camera.array.copy()
 
             if force_to_8bit and self.image_buffer.dtype != 'uint8':
-                self.image_buffer = image_utils_non_kivy.convert_12bit_to_8bit(self.image_buffer)
+                self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
 
             return self.image_buffer
         else:
@@ -260,7 +260,7 @@ class Lumascope():
             src_dtype = array.dtype
 
             if src_dtype == np.uint16:
-                img = image_utils_non_kivy.convert_12bit_to_16bit(img)
+                img = image_utils.convert_12bit_to_16bit(img)
 
             if USE_OME_TIFF:
                 sx = self.get_current_position(axis='X')
@@ -268,7 +268,7 @@ class Lumascope():
                 # TODO convert stage to plate dimensions (currently in lumaviewpro.py layer)
                 
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                image_utils_non_kivy.write_ome_tiff(data=img, file_loc=path, channel=color)
+                image_utils.write_ome_tiff(data=img, file_loc=path, channel=color)
             else:
                 cv2.imwrite(str(path), img.astype(src_dtype))
 
