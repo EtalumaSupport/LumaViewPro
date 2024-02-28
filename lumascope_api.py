@@ -43,6 +43,7 @@ from pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger
+import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import pathlib
 import time
@@ -123,6 +124,13 @@ class Lumascope():
         Disable all LEDS"""
         if not self.led: return
         self.led.leds_disable()
+
+    def get_led_ma(self, color: str):
+        """ LED BOARD FUNCTIONS
+        Get LED illumination (mA)"""
+        if not self.led: return -1
+
+        return self.led.get_led_ma(color=color)
 
     def led_on(self, channel, mA):
         """ LED BOARD FUNCTIONS
@@ -303,15 +311,24 @@ class Lumascope():
                     sx=self.get_current_position(axis='X'),
                     sy=self.get_current_position(axis='Y')
                 )
+                z = self.get_current_position(axis='Z')
 
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+                px = round(px, common_utils.max_decimal_precision('x'))
+                py = round(px, common_utils.max_decimal_precision('y'))
+                z  = round(z,  common_utils.max_decimal_precision('z'))
 
                 image_utils.write_ome_tiff(
                     data=img,
                     file_loc=path,
                     channel=color,
                     focal_length=self._objective['focal_length'],
-                    plate_pos_mm={'x': px, 'y': py}
+                    plate_pos_mm={'x': px, 'y': py},
+                    z_pos_um=z,
+                    exposure_time_ms=round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
+                    gain_db=round(self.get_gain(), common_utils.max_decimal_precision('gain')),
+                    ill_ma=round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination'))
                 )
             else:
                 cv2.imwrite(str(path), img.astype(src_dtype))
@@ -377,6 +394,13 @@ class Lumascope():
         if not self.camera: return
         self.camera.frame_size(w, h)
 
+    def get_gain(self):
+        """CAMERA FUNCTIONS
+        Get camera gain"""
+
+        if not self.camera: return -1
+        return self.camera.get_gain()
+    
     def set_gain(self, gain):
         """CAMERA FUNCTIONS
         Set camera gain"""

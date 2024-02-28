@@ -77,9 +77,13 @@ def write_ome_tiff(
     file_loc: pathlib.Path,
     channel: str,
     focal_length: float,
-    plate_pos_mm: dict[str, float]
+    plate_pos_mm: dict[str, float],
+    z_pos_um: float,
+    exposure_time_ms: float,
+    gain_db: float,
+    ill_ma: float
 ):
-    pixel_size = common_utils.get_pixel_size(focal_length=focal_length)
+    pixel_size = round(common_utils.get_pixel_size(focal_length=focal_length), common_utils.max_decimal_precision('pixel_size'))
 
     with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
         metadata={
@@ -93,8 +97,16 @@ def write_ome_tiff(
             'Plane': {
                 'PositionX': plate_pos_mm['x'],
                 'PositionY': plate_pos_mm['y'],
+                'PositionZ': z_pos_um,
                 'PositionXUnit': 'mm',
-                'PositionYUnit': 'mm'
+                'PositionYUnit': 'mm',
+                'PositionZUnit': 'um',
+                'ExposureTime': exposure_time_ms,
+                'ExposureTimeUnit': 'ms',
+                'Gain': gain_db,
+                'GainUnit': 'dB',
+                'Illumination': ill_ma,
+                'IlluminationUnit': 'mA'
             }
         }
 

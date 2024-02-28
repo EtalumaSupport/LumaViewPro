@@ -2540,7 +2540,8 @@ class ProtocolSettings(CompositeCapture):
             spinner.values = list('Center Plate',)
             settings['protocol']['labware'] = labware
 
-        lumaview.scope.set_labware(labware=settings['protocol']['labware'])
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        lumaview.scope.set_labware(labware=labware)
 
         stage.full_redraw()
 
