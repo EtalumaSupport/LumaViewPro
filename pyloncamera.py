@@ -54,7 +54,7 @@ class PylonCamera:
             logger.exception('[CAM Class ] exception')
 
     def _center(self):
-        if self.model_name == "acA1920-155um":
+        if self.model_name in ("acA1920-155um", "acA4024-29um"):
             self.active.CenterX.SetValue(True)
             self.active.CenterY.SetValue(True)
         else: # daA3840-45um
@@ -81,6 +81,8 @@ class PylonCamera:
             self._center()
             if self.model_name == "acA1920-155um":
                 pass
+            elif self.model_name == "acA4024-29um":
+                self.active.ReverseX.SetValue(True)
             else: # daA3840-45um
                 self.active.ReverseX.SetValue(True)
 
