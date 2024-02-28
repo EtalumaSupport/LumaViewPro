@@ -1040,12 +1040,12 @@
 					on_release: root.modify_step()
 				Button:
 					id: add_step_btn
-					text: 'Insert'
+					text: 'Add'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					#on_release: root.append_step()
-					on_release: root.insert_step()
+					on_release: root.insert_step(after_current_step=True)
 					
 			# Tiling
 			BoxLayout:
