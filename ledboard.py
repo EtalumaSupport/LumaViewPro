@@ -63,8 +63,8 @@ class LEDBoard:
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
-        self.timeout=0.01 # seconds
-        self.write_timeout=0.01 # seconds
+        self.timeout=0.05 # seconds
+        self.write_timeout=0.05 # seconds
         self.driver = False
         try:
             logger.info('[LED Class ] Found LED controller and about to establish connection.')
@@ -102,9 +102,17 @@ class LEDBoard:
         """ Exchange command through serial to LED board
         This should NOT be used in a script. It is intended for other functions to access"""
 
+        if self.driver == False:
+            try:
+                self.connect()
+            except:
+                return
+        
+        NUM_RETRIES = 1
+        retry_count = 0
         stream = command.encode('utf-8')+b"\n"
 
-        if self.driver != False:
+        while retry_count <= NUM_RETRIES:
             try:
                 self.driver.write(stream)
                 response = self.driver.readline()
@@ -114,19 +122,18 @@ class LEDBoard:
 
                 logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
                 return response[:-2]
-            
             except serial.SerialTimeoutException:
                 self.driver = False
-                logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
-
+                self.connect()
+                logger.warning(f'[LED Class ] LEDBoard.exchange_command({command}) Serial Timeout Occurred, attempt {retry_count}')
             except:
                 self.driver = False
+                return None
+            
+            retry_count += 1
 
-        else:
-            try:
-                self.connect()
-            except:
-                return
+        return None
+    
       
     def color2ch(self, color):
         """ Convert color name to numerical channel """
