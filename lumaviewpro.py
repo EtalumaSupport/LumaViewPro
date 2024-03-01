@@ -58,8 +58,12 @@ from plyer import filechooser
 
 USE_PROFILING = True
 if USE_PROFILING:
-    import cProfile
-    import pstats
+    import modules.profiling_utils as profiling_utils
+    global profiling_helper
+    profiling_helper = None
+
+    global profiling_save_path
+    profiling_save_path = None
 
 if getattr(sys, 'frozen', False):
     import pyi_splash
@@ -4897,8 +4901,10 @@ class LumaViewProApp(App):
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
         lumaview.scope.xyhome()
         if USE_PROFILING:
-            self.profile = cProfile.Profile()
-            self.profile.enable()
+            global profiling_save_path
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            profiling_save_path = f'./logs/profile/{ts}'
+
 
     def build(self):
         current_time = time.strftime("%m/%d/%Y", time.localtime())
@@ -4954,6 +4960,13 @@ class LumaViewProApp(App):
                 raise FileNotFoundError('No settings files found.')
         
         # Continuously update image of stage and protocol
+        if USE_PROFILING:
+            global profiling_helper
+            profiling_helper = profiling_utils.ProfilingHelper(
+               save_path=profiling_save_path
+            )
+            Clock.schedule_interval(profiling_helper.restart, 30)
+
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
 
@@ -4979,11 +4992,7 @@ class LumaViewProApp(App):
     def on_stop(self):
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
         if USE_PROFILING:
-            self.profile.disable()
-            self.profile.dump_stats('./logs/LumaViewProApp.profile')
-            stats = pstats.Stats('./logs/LumaViewProApp.profile')
-            stats.sort_stats('cumulative').print_stats(30)
-            stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
+            profiling_helper.stop()
 
         global lumaview
 
