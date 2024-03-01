@@ -128,6 +128,8 @@ import modules.common_utils as common_utils
 from modules.stitcher import Stitcher
 from modules.color_channels import ColorChannel
 from modules.composite_generation import CompositeGeneration
+import modules.coord_transformations as coord_transformations
+import modules.labware_loader as labware_loader
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.zstack_config import ZStackConfig
 from modules.json_helper import CustomJSONizer
@@ -136,15 +138,22 @@ import cv2
 import skimage
 
 # Hardware
-from labware import WellPlate
 import lumascope_api
 import post_processing
 
 import image_utils
+import image_utils_kivy
 
 global lumaview
 global settings
 global cell_count_content
+
+global wellplate_loader
+wellplate_loader = None
+
+global coordinate_transformer
+coordinate_transformer = None
+
 global last_save_folder
 last_save_folder = None
 global stage
@@ -372,9 +381,7 @@ class CompositeCapture(FloatLayout):
 
     # Gets the current well label (ex. A1, C2, ...) 
     def get_well_label(self):
-        current_labware = WellPlate()
-        current_labware.load_plate(settings['protocol']['labware'])
-        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
 
         # Get target position
         try:
@@ -383,10 +390,15 @@ class CompositeCapture(FloatLayout):
         except:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             raise
-        
-        x_target, y_target = protocol_settings.stage_to_plate(x_target, y_target)
 
-        return current_labware.get_well_label(x=x_target, y=y_target)
+        x_target, y_target = coordinate_transformer.stage_to_plate(
+            labware=labware,
+            stage_offset=settings['stage_offset'],
+            sx=x_target,
+            sy=y_target
+        )
+
+        return labware.get_well_label(x=x_target, y=y_target)
 
 
     def live_capture(self):
@@ -424,7 +436,8 @@ class CompositeCapture(FloatLayout):
                 file_root,
                 append,
                 color,
-                force_to_8bit=force_to_8bit_pixel_depth
+                force_to_8bit=force_to_8bit_pixel_depth,
+                output_format=settings['image_output_format']
             )
         
         else:
@@ -437,7 +450,8 @@ class CompositeCapture(FloatLayout):
                     file_root,
                     append,
                     color,
-                    force_to_8bit=force_to_8bit_pixel_depth
+                    force_to_8bit=force_to_8bit_pixel_depth,
+                    output_format=settings['image_output_format']
                 )
             
             image_orig = lumaview.scope.get_image(force_to_8bit=force_to_8bit_pixel_depth)
@@ -478,7 +492,8 @@ class CompositeCapture(FloatLayout):
                 file_root=file_root,
                 append=f"{append}_overlay",
                 color=color,
-                tail_id_mode=None
+                tail_id_mode=None,
+                output_format=settings['image_output_format']
             )
 
             # Original image may be in 8 or 12-bit
@@ -488,7 +503,8 @@ class CompositeCapture(FloatLayout):
                 file_root=file_root,
                 append=append,
                 color=color,
-                tail_id_mode=None
+                tail_id_mode=None,
+                output_format=settings['image_output_format']
             )
 
 
@@ -569,7 +585,8 @@ class CompositeCapture(FloatLayout):
                 append=name,
                 color=use_color,
                 tail_id_mode=None,
-                force_to_8bit=not use_full_pixel_depth
+                force_to_8bit=not use_full_pixel_depth,
+                output_format=settings['image_output_format']
             )
         else:
             image_filepath = None
@@ -591,8 +608,14 @@ class CompositeCapture(FloatLayout):
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
         use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
+
+        if use_full_pixel_depth:
+            dtype = np.uint16
+        else:
+            dtype = np.uint8
+
+        img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3), dtype=dtype)
 
         for layer in common_utils.get_layers():
             if settings[layer]['acquire'] == True:
@@ -655,42 +678,25 @@ class CompositeCapture(FloatLayout):
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
-        # lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
         lumaview.ids['composite_btn'].state = 'normal'
 
-        img = np.flip(img, 0)
-
-        file_root = 'composite_'
-
-        # append = str(int(round(time.time() * 1000)))
-        well_label = self.get_well_label()
-        append = f'{well_label}'
-
-        # generate filename and save path string
-        initial_id = '_000001'
-        filename =  file_root + append + initial_id + '.tiff'
+        append = f'{self.get_well_label()}'
 
         save_folder = pathlib.Path(settings['live_folder']) / "Manual"
         save_folder.mkdir(parents=True, exist_ok=True)
-
         global last_save_folder
         last_save_folder = save_folder
+        
+        lumaview.scope.save_image(
+            array=img,
+            save_folder=save_folder,
+            file_root='composite_',
+            append=append,
+            color=None,
+            tail_id_mode='increment',
+            output_format=settings['image_output_format']
+        )
 
-        path = save_folder / filename
-
-        # Obtain next save path if current directory already exists
-        while os.path.exists(path):
-            path = lumaview.scope.get_next_save_path(path)
-
-        if use_full_pixel_depth:
-            dtype = np.uint16
-        else:
-            dtype = np.uint8
-
-        if dtype == np.uint16:
-            img = image_utils.convert_12bit_to_16bit(img)
-            
-        cv2.imwrite(str(path), img.astype(dtype))
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -1371,7 +1377,7 @@ class CellCountControls(BoxLayout):
     def set_preview_source(self, image) -> None:
         self._preview_source_image = image
         self._preview_image = image
-        self.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+        self.ids['cell_count_image_id'].texture = image_utils_kivy.image_to_texture(image=image)
         self.update_filter_max(image=image)
         self._regenerate_image_preview()
 
@@ -1404,7 +1410,7 @@ class CellCountControls(BoxLayout):
 
         self._preview_image = image
 
-        cell_count_content.ids['cell_count_image_id'].texture = image_utils.image_to_texture(image=image)
+        cell_count_content.ids['cell_count_image_id'].texture = image_utils_kivy.image_to_texture(image=image)
 
 
     def slider_adjustment_threshold(self):
@@ -2253,8 +2259,13 @@ class XYStageControl(BoxLayout):
             logger.exception('[LVP Main  ] Error talking to Motor board.')
         else:
             # Convert from plate position to stage position
-            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-            stage_x, stage_y =  protocol_settings.stage_to_plate(x_target, y_target)
+            labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+            stage_x, stage_y = coordinate_transformer.stage_to_plate(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                sx=x_target,
+                sy=y_target
+            )
 
             if not self.ids['x_pos_id'].focus:
                 self.ids['x_pos_id'].text = format(max(0, stage_x), '.2f') # display coordinate in mm
@@ -2317,8 +2328,14 @@ class XYStageControl(BoxLayout):
 
         # x_pos is the the plate position in mm
         # Find the coordinates for the stage
-        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-        stage_x, stage_y =  protocol_settings.plate_to_stage(float(x_pos), 0)
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        stage_x, _ = coordinate_transformer.plate_to_stage(
+            labware=labware,
+            stage_offset=settings['stage_offset'],
+            px=float(x_pos),
+            py=0
+        )
+
         logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
@@ -2331,8 +2348,13 @@ class XYStageControl(BoxLayout):
 
         # y_pos is the the plate position in mm
         # Find the coordinates for the stage
-        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-        stage_x, stage_y =  protocol_settings.plate_to_stage(0, float(y_pos))
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        _, stage_y = coordinate_transformer.plate_to_stage(
+            labware=labware,
+            stage_offset=settings['stage_offset'],
+            px=0,
+            py=float(y_pos)
+        )
 
         # Move to y-position
         lumaview.scope.move_absolute_position('Y', stage_y)  # position in text is in mm
@@ -2342,12 +2364,18 @@ class XYStageControl(BoxLayout):
         logger.info('[LVP Main  ] XYStageControl.set_xbookmark()')
         global lumaview
 
-        # Get current stage x-position in um     
+        # Get current stage x-position in um
         x_pos = lumaview.scope.get_current_position('X')
  
         # Save plate x-position to settings
-        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-        plate_x, plate_y =  protocol_settings.stage_to_plate(x_pos, 0)
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        plate_x, _ = coordinate_transformer.stage_to_plate(
+            labware=labware,
+            stage_offset=settings['stage_offset'],
+            sx=x_pos,
+            sy=0
+        )
+        
         settings['bookmark']['x'] = plate_x
 
     def set_ybookmark(self):
@@ -2358,8 +2386,14 @@ class XYStageControl(BoxLayout):
         y_pos = lumaview.scope.get_current_position('Y')  
 
         # Save plate y-position to settings
-        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-        plate_x, plate_y =  protocol_settings.stage_to_plate(0, y_pos)
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        _, plate_y = coordinate_transformer.stage_to_plate(
+            labware=labware,
+            stage_offset=settings['stage_offset'],
+            sx=0,
+            sy=y_pos
+        )
+
         settings['bookmark']['y'] = plate_y
 
     def goto_xbookmark(self):
@@ -2370,8 +2404,13 @@ class XYStageControl(BoxLayout):
         x_pos = settings['bookmark']['x']
 
         # Move to x-position
-        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-        stage_x, stage_y =  protocol_settings.plate_to_stage(x_pos, 0)
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        stage_x, _ = coordinate_transformer.plate_to_stage(
+            labware=labware,
+            stage_offset=settings['stage_offset'],
+            px=x_pos,
+            py=0
+        )
         lumaview.scope.move_absolute_position('X', stage_x)  # set current x position in um
 
     def goto_ybookmark(self):
@@ -2382,8 +2421,13 @@ class XYStageControl(BoxLayout):
         y_pos = settings['bookmark']['y']
 
         # Move to y-position
-        protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-        stage_x, stage_y =  protocol_settings.plate_to_stage(0, y_pos)
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        _, stage_y = coordinate_transformer.plate_to_stage(
+            labware=labware,
+            stage_offset=settings['stage_offset'],
+            px=0,
+            py=y_pos
+        )
         lumaview.scope.move_absolute_position('Y', stage_y)  # set current y position in um
 
     # def calibrate(self):
@@ -2392,10 +2436,9 @@ class XYStageControl(BoxLayout):
     #     x_pos = lumaview.scope.get_current_position('X')  # Get current x position in um
     #     y_pos = lumaview.scope.get_current_position('Y')  # Get current x position in um
 
-    #     current_labware = WellPlate()
-    #     current_labware.load_plate(settings['protocol']['labware'])
-    #     x_plate_offset = current_labware.plate['offset']['x']*1000
-    #     y_plate_offset = current_labware.plate['offset']['y']*1000
+    #     labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+    #     x_plate_offset = labware.plate['offset']['x']*1000
+    #     y_plate_offset = labware.plate['offset']['y']*1000
 
     #     settings['stage_offset']['x'] = x_plate_offset-x_pos
     #     settings['stage_offset']['y'] = y_plate_offset-y_pos
@@ -2437,8 +2480,6 @@ class ProtocolSettings(CompositeCapture):
         else:
             self.labware = json.load(read_file)
             read_file.close()
-
-        
 
         self._protocol_df = self.create_empty_protocol()
         self.curr_step = 0   # TODO isn't step 1 indexed? Why is is 0?
@@ -2495,12 +2536,15 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
         if labware is None:
             spinner = self.ids['labware_spinner']
-            spinner.values = list(self.labware['Wellplate'].keys())
+            spinner.values = wellplate_loader.get_plate_list()
             settings['protocol']['labware'] = spinner.text
         else:
             spinner = self.ids['labware_spinner']
             spinner.values = list('Center Plate',)
             settings['protocol']['labware'] = labware
+
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        lumaview.scope.set_labware(labware=labware)
 
         stage.full_redraw()
 
@@ -2512,86 +2556,12 @@ class ProtocolSettings(CompositeCapture):
         labware_spinner.height = '30dp' if visible else 0
         labware_spinner.opacity = 1 if visible else 0
         labware_spinner.disabled = not visible
-    
-    
-    def plate_to_stage(self, px, py):
-        # plate coordinates in mm from top left
-        # stage coordinates in um from bottom right
 
-        # Determine current labware
-        os.chdir(source_path)
-        current_labware = WellPlate()
-        current_labware.load_plate(settings['protocol']['labware'])
 
-        # Get labware dimensions
-        x_max = current_labware.plate['dimensions']['x'] # in mm
-        y_max = current_labware.plate['dimensions']['y'] # in mm
-
-        # Convert coordinates
-        sx = x_max - settings['stage_offset']['x']/1000 - px
-        sy = y_max - settings['stage_offset']['y']/1000 - py
-
-        sx = sx*1000
-        sy = sy*1000
-
-        # return
-        return sx, sy
-    
-    def stage_to_plate(self, sx, sy):
-        # stage coordinates in um from bottom right
-        # plate coordinates in mm from top left
-
-        # Determine current labware
-        os.chdir(source_path)
-        current_labware = WellPlate()
-        current_labware.load_plate(settings['protocol']['labware'])
-
-        # Get labware dimensions
-        x_max = current_labware.plate['dimensions']['x']
-        y_max = current_labware.plate['dimensions']['y']
-
-        # Convert coordinates
-        px = x_max - (settings['stage_offset']['x'] + sx)/1000
-        py = y_max - (settings['stage_offset']['y'] + sy)/1000
- 
-        return px, py
-    
-    def plate_to_pixel(self, px, py, scale_x, scale_y):
-        # plate coordinates in mm from top left
-        # pixel coordinates in px from bottom left
-
-        # Determine current labware
-        os.chdir(source_path)
-        current_labware = WellPlate()
-        current_labware.load_plate(settings['protocol']['labware'])
-
-        # Get labware dimensions
-        x_max = current_labware.plate['dimensions']['x']
-        y_max = current_labware.plate['dimensions']['y']
-
-        # Convert coordinates
-        pixel_x = px*scale_x
-        pixel_y = (y_max-py)*scale_y
-
-        return pixel_x, pixel_y
-
-    def stage_to_pixel(self, sx, sy, scale_x, scale_y):
-        # stage coordinates in um from bottom right
-        # plate coordinates in mm from top left
-        # pixel coordinates in px from bottom left
-
-        px, py = self.stage_to_plate(sx, sy)
-        pixel_x, pixel_y = self.plate_to_pixel(px, py, scale_x, scale_y)
-
-        return pixel_x, pixel_y
-        
-    
     def apply_tiling(self):
         logger.info('[LVP Main  ] Apply tiling to protocol')
-        os.chdir(source_path)
-        current_labware = WellPlate()
-        current_labware.load_plate(settings['protocol']['labware'])
-        current_labware.set_positions()
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        labware.set_positions()
         
         tiles = self.tiling_config.get_tile_centers(
             config_label=self.ids['tiling_size_spinner'].text,
@@ -2786,10 +2756,8 @@ class ProtocolSettings(CompositeCapture):
         self.custom_step_count = 0
         steps = []
 
-        os.chdir(source_path)
-        current_labware = WellPlate()
-        current_labware.load_plate(settings['protocol']['labware'])
-        current_labware.set_positions()
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        labware.set_positions()
         
         tiles = self.tiling_config.get_tile_centers(
             config_label=self.ids['tiling_size_spinner'].text,
@@ -2834,7 +2802,7 @@ class ProtocolSettings(CompositeCapture):
         zstack_group_id = 0
 
         # Iterate through all the positions in the scan
-        for pos in current_labware.pos_list:
+        for pos in labware.pos_list:
             for tile_label, tile_position in tiles.items():
                 for zstack_slice, zstack_position in zstack_positions.items():
                     # Iterate through all the colors to create the steps
@@ -2860,7 +2828,7 @@ class ProtocolSettings(CompositeCapture):
                         exp = round(settings[layer]['exp'], common_utils.max_decimal_precision('exposure'))
                         objective = settings['objective']['ID']
                         custom_step = False
-                        well_label = current_labware.get_well_label(x=pos[0], y=pos[1])
+                        well_label = labware.get_well_label(x=pos[0], y=pos[1])
 
                         if zstack_slice in ("", None):
                             zstack_slice_label = -1
@@ -3166,7 +3134,13 @@ class ProtocolSettings(CompositeCapture):
             self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
 
         # Convert plate coordinates to stage coordinates
-        sx, sy = self.plate_to_stage(step["X"], step["Y"])
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        sx, sy = coordinate_transformer.plate_to_stage(
+            labware=labware,
+            stage_offset=settings['stage_offset'],
+            px=step["X"],
+            py=step["Y"]
+        )
 
         # Move into position
         if lumaview.scope.motion.driver:
@@ -3259,7 +3233,13 @@ class ProtocolSettings(CompositeCapture):
         if lumaview.scope.motion.driver:
             sx = lumaview.scope.get_current_position('X')
             sy = lumaview.scope.get_current_position('Y')
-            px, py = self.stage_to_plate(sx, sy)
+            labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+            px, py = coordinate_transformer.stage_to_plate(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                sx=sx,
+                sy=sy
+            )
 
             self._protocol_df.at[self.curr_step, "X"] = round(px, common_utils.max_decimal_precision('x'))
             self._protocol_df.at[self.curr_step, "Y"] = round(py, common_utils.max_decimal_precision('y'))
@@ -3316,7 +3296,13 @@ class ProtocolSettings(CompositeCapture):
         # Determine and update plate position
         sx = lumaview.scope.get_current_position('X')
         sy = lumaview.scope.get_current_position('Y')
-        px, py = self.stage_to_plate(sx, sy)
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        px, py = coordinate_transformer.stage_to_plate(
+            labware=labware,
+            stage_offset=settings['stage_offset'],
+            sx=sx,
+            sy=sy
+        )
 
         well = ""
         tile = "" # Manually inserted step is not a tile
@@ -3428,7 +3414,13 @@ class ProtocolSettings(CompositeCapture):
             step = self._protocol_df.iloc[self.curr_step]
  
             # Convert plate coordinates to stage coordinates
-            sx, sy = self.plate_to_stage(step["X"], step["Y"])
+            labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+            sx, sy = coordinate_transformer.plate_to_stage(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                px=step["X"],
+                py=step["Y"]
+            )
 
             # Move into position
             lumaview.scope.move_absolute_position('X', sx)
@@ -3592,7 +3584,13 @@ class ProtocolSettings(CompositeCapture):
             step = self.get_curr_step()
    
             # Convert plate coordinates to stage coordinates
-            sx, sy = self.plate_to_stage(step["X"], step["Y"])
+            labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+            sx, sy = coordinate_transformer.plate_to_stage(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                px=step["X"],
+                py=step["Y"]
+            )
 
             # Move into position
             lumaview.scope.move_absolute_position('X', sx)
@@ -3937,23 +3935,27 @@ class Stage(Widget):
             mouse_y = mouse_y-self.y
            
             # Create current labware instance
-            current_labware = WellPlate()
-            current_labware.load_plate(settings['protocol']['labware'])
+            labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
 
             # Get labware dimensions
-            x_max = current_labware.plate['dimensions']['x']
-            y_max = current_labware.plate['dimensions']['y']
+            dim_max = labware.get_dimensions()
 
             # Scale from pixels to mm (from the bottom left)
-            scale_x = x_max / self.width
-            scale_y = y_max / self.height
+            scale_x = dim_max['x'] / self.width
+            scale_y = dim_max['y'] / self.height
 
             # Convert to plate position in mm (from the top left)
             plate_x = mouse_x*scale_x
-            plate_y = y_max- mouse_y*scale_y
+            plate_y = dim_max['y'] - mouse_y*scale_y
 
             # Convert from plate position to stage position
-            stage_x, stage_y =  lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].plate_to_stage(plate_x, plate_y)
+            labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+            stage_x, stage_y = coordinate_transformer.plate_to_stage(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                px=plate_x,
+                py=plate_y
+            )
 
             lumaview.scope.move_absolute_position('X', stage_x)
             lumaview.scope.move_absolute_position('Y', stage_y)
@@ -3968,9 +3970,7 @@ class Stage(Widget):
             return
         
         # Create current labware instance
-        os.chdir(source_path)
-        current_labware = WellPlate()
-        current_labware.load_plate(settings['protocol']['labware'])
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
 
         if full_redraw:
             self.canvas.clear()
@@ -3985,12 +3985,11 @@ class Stage(Widget):
             y = self.y
 
             # Get labware dimensions
-            x_max = current_labware.plate['dimensions']['x']
-            y_max = current_labware.plate['dimensions']['y']
+            dim_max = labware.get_dimensions()
 
             # mm to pixels scale
-            scale_x = w/x_max
-            scale_y = h/y_max
+            scale_x = w/dim_max['x']
+            scale_y = h/dim_max['y']
 
             # Stage Coordinates (120x80 mm)
             stage_w = 120
@@ -3999,16 +3998,12 @@ class Stage(Widget):
             stage_x = settings['stage_offset']['x']/1000
             stage_y = settings['stage_offset']['y']/1000
 
-            # Needed for green cicles, cross hairs and roi
-            # ------------------
-            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-
             # Get target position
             # Outline of Stage Area from Above
             # ------------------
             if full_redraw:
                 Color(.2, .2, .2 , 0.5)                # dark grey
-                Rectangle(pos=(x+(x_max-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
+                Rectangle(pos=(x+(dim_max['x']-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
                             size=(stage_w*scale_x, stage_h*scale_y), group='outline')
 
                 # Outline of Plate from Above
@@ -4023,8 +4018,24 @@ class Stage(Widget):
                 # ROI rectangle
                 # ------------------
                 if self.ROI_max[0] > self.ROI_min[0]:
-                    roi_min_x, roi_min_y = protocol_settings.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
-                    roi_max_x, roi_max_y = protocol_settings.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
+                    roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(
+                        labware=labware,
+                        stage_offset=settings['stage_offset'],
+                        sx=self.ROI_min[0],
+                        sy=self.ROI_min[1],
+                        scale_x=scale_x,
+                        scale_y=scale_y
+                    )
+                
+                    roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(
+                        labware=labware,
+                        stage_offset=settings['stage_offset'],
+                        sx=self.ROI_max[0],
+                        sy=self.ROI_max[1],
+                        scale_x=scale_x,
+                        scale_y=scale_y
+                    )
+
                     Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
                     Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y), group='outline')
             
@@ -4034,23 +4045,23 @@ class Stage(Widget):
             '''
             for ROI in self.ROIs:
                 if self.ROI_max[0] > self.ROI_min[0]:
-                    roi_min_x, roi_min_y = protocol_settings.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
-                    roi_max_x, roi_max_y = protocol_settings.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
+                    roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
+                    roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
                     Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
                     Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
             '''
             
             # Draw all wells
             # ------------------
-            cols = current_labware.plate['columns']
-            rows = current_labware.plate['rows']
+            cols = labware.config['columns']
+            rows = labware.config['rows']
             
-            well_spacing_x = current_labware.plate['spacing']['x']
-            well_spacing_y = current_labware.plate['spacing']['y']
+            well_spacing_x = labware.config['spacing']['x']
+            well_spacing_y = labware.config['spacing']['y']
             well_spacing_pixel_x = well_spacing_x
             well_spacing_pixel_y = well_spacing_y
 
-            well_diameter = current_labware.plate['diameter']
+            well_diameter = labware.config['diameter']
             if well_diameter == -1:
                 well_radius_pixel_x = well_spacing_pixel_x
                 well_radius_pixel_y = well_spacing_pixel_y
@@ -4064,8 +4075,9 @@ class Stage(Widget):
             
                 for i in range(cols):
                     for j in range(rows):                   
-                        well_plate_x, well_plate_y = current_labware.get_well_position(i, j)
-                        well_pixel_x, well_pixel_y = protocol_settings.plate_to_pixel(
+                        well_plate_x, well_plate_y = labware.get_well_position(i, j)
+                        well_pixel_x, well_pixel_y = coordinate_transformer.plate_to_pixel(
+                            labware=labware,
                             px=well_plate_x,
                             py=well_plate_y,
                             scale_x=scale_x,
@@ -4082,11 +4094,18 @@ class Stage(Widget):
                 logger.exception('[LVP Main  ] Error talking to Motor board.')
                 raise
                 
-            target_plate_x, target_plate_y = protocol_settings.stage_to_plate(target_stage_x, target_stage_y)
+            labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+            target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                sx=target_stage_x,
+                sy=target_stage_y
+            )
 
-            target_i, target_j = current_labware.get_well_index(target_plate_x, target_plate_y)
-            target_well_plate_x, target_well_plate_y = current_labware.get_well_position(target_i, target_j)
-            target_well_pixel_x, target_well_pixel_y = protocol_settings.plate_to_pixel(
+            target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
+            target_well_plate_x, target_well_plate_y = labware.get_well_position(target_i, target_j)
+            target_well_pixel_x, target_well_pixel_y = coordinate_transformer.plate_to_pixel(
+                labware=labware,
                 px=target_well_plate_x,
                 py=target_well_plate_y,
                 scale_x=scale_x,
@@ -4108,7 +4127,15 @@ class Stage(Widget):
                 y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
 
                 # Convert stage coordinates to relative pixel coordinates
-                pixel_x, pixel_y = protocol_settings.stage_to_pixel(x_current, y_current, scale_x, scale_y)
+                pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
+                    labware=labware,
+                    stage_offset=settings['stage_offset'],
+                    sx=x_current,
+                    sy=y_current,
+                    scale_x=scale_x,
+                    scale_y=scale_y
+                )
+                
                 x_center = x+pixel_x
                 y_center = y+pixel_y
 
@@ -4174,18 +4201,23 @@ class MicroscopeSettings(BoxLayout):
                     logger.info(f'[LVP Main  ] Using scope selection from {filename}')
                     self.ids['scope_spinner'].text = settings['microscope']
 
-                # if settings['use_full_pixel_depth'] == True:
-                #     self.ids['enable_full_pixel_depth_btn'].state = 'down'
-                # else:
-                #     self.ids['enable_full_pixel_depth_btn'].state = 'normal'
-                # self.update_full_pixel_depth_state()
+                if settings['use_full_pixel_depth'] == True:
+                    self.ids['enable_full_pixel_depth_btn'].state = 'down'
+                else:
+                    self.ids['enable_full_pixel_depth_btn'].state = 'normal'
+                self.update_full_pixel_depth_state()
+
+                self.ids['image_output_format_spinner'].text = settings['image_output_format']
+                self.select_image_output_format()
 
                 # self.ids['binning_spinner'].text = str(settings['binning_size'])
                 # self.update_binning_size()
+                lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
                 self.ids['objective_spinner'].text = settings['objective']['ID']
                 # TODO self.ids['objective_spinner'].text = settings['objective']['description']
                 self.ids['magnification_id'].text = str(settings['objective']['magnification'])
+                lumaview.scope.set_objective(objective=settings['objective'])
                 self.ids['frame_width_id'].text = str(settings['frame']['width'])
                 self.ids['frame_height_id'].text = str(settings['frame']['height'])
 
@@ -4259,6 +4291,11 @@ class MicroscopeSettings(BoxLayout):
             lumaview.scope.camera.set_pixel_format('Mono8')
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
+
+    
+    def select_image_output_format(self):
+        global settings
+        settings['image_output_format'] = self.ids['image_output_format_spinner'].text
 
     
     def update_binning_size(self):
@@ -4353,14 +4390,15 @@ class MicroscopeSettings(BoxLayout):
         microscope_settings_id = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
         microscope_settings_id.ids['magnification_id'].text = str(settings['objective']['magnification'])
 
+        lumaview.scope.set_objective(settings['objective'])
+
         fov_size = common_utils.get_field_of_view(
             focal_length=settings['objective']['focal_length'],
             frame_size=settings['frame']
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
-
-
+        
     def frame_size(self):
         logger.info('[LVP Main  ] MicroscopeSettings.frame_size()')
         global lumaview
@@ -4922,6 +4960,8 @@ class LumaViewProApp(App):
         global stitch_controls
         global composite_gen_controls
         global stage
+        global wellplate_loader
+        global coordinate_transformer
         self.icon = './data/icons/icon.png'
 
         stage = Stage()
@@ -4947,6 +4987,10 @@ class LumaViewProApp(App):
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
+
+        # load labware file
+        wellplate_loader = labware_loader.WellPlateLoader()
+        coordinate_transformer = coord_transformations.CoordinateTransformer()#wellplate_loader=wellplate_loader)
 
         # load settings file
         if os.path.exists("./data/current.json"):

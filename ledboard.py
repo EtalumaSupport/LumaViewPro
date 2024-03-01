@@ -66,12 +66,22 @@ class LEDBoard:
         self.timeout=0.01 # seconds
         self.write_timeout=0.01 # seconds
         self.driver = False
+        self.led_ma = {
+            'BF': -1,
+            'PC': -1,
+            'EP': -1,
+            'Red': -1,
+            'Blue': -1,
+            'Green': -1
+        }
+
         try:
             logger.info('[LED Class ] Found LED controller and about to establish connection.')
             self.connect()
         except:
             logger.exception('[LED Class ] Found LED controller but unable to establish connection.')
             raise
+
 
     def connect(self):
         """ Try to connect to the LED controller based on the known VID/PID"""
@@ -176,20 +186,37 @@ class LEDBoard:
         self.exchange_command(command)
 
     def leds_disable(self):
+        for color, mA in self.led_ma.items():
+            self.led_ma[color] = -1
+
         command = 'LEDS_ENF'
         self.exchange_command(command)
 
+    def get_led_ma(self, color):
+        return self.led_ma.get(color, -1)
+    
     def led_on(self, channel, mA):
         """ Turn on LED at channel number at mA power """
+        color = self.ch2color(channel=channel)
+        self.led_ma[color] = mA
+
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         self.exchange_command(command)
 
     def led_off(self, channel):
         """ Turn off LED at channel number """
+        color = self.ch2color(channel=channel)
+        self.led_ma[color] = -1
+
         command = 'LED' + str(int(channel)) + '_OFF'
         self.exchange_command(command)
 
     def leds_off(self):
         """ Turn off all LEDs """
+        for color, mA in self.led_ma.items():
+            self.led_ma[color] = -1
+
         command = 'LEDS_OFF'
         self.exchange_command(command)
+
+

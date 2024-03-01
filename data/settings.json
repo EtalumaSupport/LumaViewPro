@@ -1,6 +1,7 @@
 {
     "microscope": "LS850",
     "use_full_pixel_depth": false,
+    "image_output_format": "TIFF",
     "stage_offset": {
         "x": 5500.0,
         "y": 4000.0
