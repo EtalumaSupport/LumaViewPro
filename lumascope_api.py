@@ -225,41 +225,16 @@ class Lumascope():
         
         new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
         return str(new_path)
+    
 
-
-    def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', tail_id_mode = "increment"):
-        """CAMERA FUNCTIONS
-        save image (as array) to file
-        """
-        
-        img = np.zeros((array.shape[0], array.shape[1], 3), dtype=array.dtype)
-
-        # Check if already a color image
-        if (len(array.shape) == 3) and (array.shape[2] == 3):
-            img = array
-        else:
-            if color == 'Blue':
-                img[:,:,0] = array
-            elif color == 'Green':
-                img[:,:,1] = array
-            elif color == 'Red':
-                img[:,:,2] = array
-            else:
-                img[:,:,0] = array
-                img[:,:,1] = array
-                img[:,:,2] = array
-
-        img = np.flip(img, 0)
-
+    def generate_image_save_path(self, save_folder, file_root, append, tail_id_mode, output_format):
         if type(save_folder) == str:
             save_folder = pathlib.Path(save_folder)
 
         if file_root is None:
             file_root = ""
 
-        USE_OME_TIFF = True
-
-        if USE_OME_TIFF:
+        if output_format == 'OME-TIFF':
             file_extension = ".ome.tiff"
         else:
             file_extension = ".tiff"
@@ -281,14 +256,58 @@ class Lumascope():
         else:
             raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
         
+        return path
+
+
+    def save_image(
+        self,
+        array,
+        save_folder = './capture',
+        file_root = 'img_',
+        append = 'ms',
+        color = 'BF',
+        tail_id_mode = "increment",
+        output_format: str = "TIFF"
+    ):
+        """CAMERA FUNCTIONS
+        save image (as array) to file
+        """
+
+        src_dtype = array.dtype
+
+        if src_dtype == np.uint8:
+            # 8-bit mode supports false coloring. Make all images RGB.
+            img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
+
+            if image_utils.is_color_image(array):
+                img = array
+            else:
+                if color == 'Blue':
+                    img[:,:,0] = array
+                elif color == 'Green':
+                    img[:,:,1] = array
+                elif color == 'Red':
+                    img[:,:,2] = array
+                else:
+                    img[:,:,0] = array
+                    img[:,:,1] = array
+                    img[:,:,2] = array
+        else:
+            # 12-bit mode only supports grayscale. Don't add color planes.
+            img = image_utils.convert_12bit_to_16bit(array)
+
+        img = np.flip(img, 0)
+
+        path = self.generate_image_save_path(
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format
+        )
 
         try:
-            src_dtype = array.dtype
-
-            if src_dtype == np.uint16:
-                img = image_utils.convert_12bit_to_16bit(img)
-
-            if USE_OME_TIFF:
+            if output_format == 'OME-TIFF':
 
                 def _validate():
                     if self._objective is None:
@@ -313,7 +332,8 @@ class Lumascope():
                 )
                 z = self.get_current_position(axis='Z')
 
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                if image_utils.is_color_image(img):
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
                 px = round(px, common_utils.max_decimal_precision('x'))
                 py = round(px, common_utils.max_decimal_precision('y'))
@@ -347,7 +367,8 @@ class Lumascope():
             append = 'ms',
             color = 'BF',
             tail_id_mode = "increment",
-            force_to_8bit: bool = True
+            force_to_8bit: bool = True,
+            output_format: str = "TIFF"
         ):
 
         """CAMERA FUNCTIONS
@@ -356,7 +377,7 @@ class Lumascope():
         array = self.get_image(force_to_8bit=force_to_8bit)
         if array is False:
             return 
-        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode)
+        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format)
  
     def get_max_width(self):
         """CAMERA FUNCTIONS

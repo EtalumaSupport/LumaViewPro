@@ -427,7 +427,8 @@ class CompositeCapture(FloatLayout):
                 file_root,
                 append,
                 color,
-                force_to_8bit=force_to_8bit_pixel_depth
+                force_to_8bit=force_to_8bit_pixel_depth,
+                output_format=settings['image_output_format']
             )
         
         else:
@@ -440,7 +441,8 @@ class CompositeCapture(FloatLayout):
                     file_root,
                     append,
                     color,
-                    force_to_8bit=force_to_8bit_pixel_depth
+                    force_to_8bit=force_to_8bit_pixel_depth,
+                    output_format=settings['image_output_format']
                 )
             
             image_orig = lumaview.scope.get_image(force_to_8bit=force_to_8bit_pixel_depth)
@@ -481,7 +483,8 @@ class CompositeCapture(FloatLayout):
                 file_root=file_root,
                 append=f"{append}_overlay",
                 color=color,
-                tail_id_mode=None
+                tail_id_mode=None,
+                output_format=settings['image_output_format']
             )
 
             # Original image may be in 8 or 12-bit
@@ -491,7 +494,8 @@ class CompositeCapture(FloatLayout):
                 file_root=file_root,
                 append=append,
                 color=color,
-                tail_id_mode=None
+                tail_id_mode=None,
+                output_format=settings['image_output_format']
             )
 
 
@@ -572,7 +576,8 @@ class CompositeCapture(FloatLayout):
                 append=name,
                 color=use_color,
                 tail_id_mode=None,
-                force_to_8bit=not use_full_pixel_depth
+                force_to_8bit=not use_full_pixel_depth,
+                output_format=settings['image_output_format']
             )
         else:
             image_filepath = None
@@ -594,8 +599,14 @@ class CompositeCapture(FloatLayout):
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3))
         use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
+
+        if use_full_pixel_depth:
+            dtype = np.uint16
+        else:
+            dtype = np.uint8
+
+        img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3), dtype=dtype)
 
         for layer in common_utils.get_layers():
             if settings[layer]['acquire'] == True:
@@ -658,42 +669,25 @@ class CompositeCapture(FloatLayout):
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
-        # lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
         lumaview.ids['composite_btn'].state = 'normal'
 
-        img = np.flip(img, 0)
-
-        file_root = 'composite_'
-
-        # append = str(int(round(time.time() * 1000)))
-        well_label = self.get_well_label()
-        append = f'{well_label}'
-
-        # generate filename and save path string
-        initial_id = '_000001'
-        filename =  file_root + append + initial_id + '.tiff'
+        append = f'{self.get_well_label()}'
 
         save_folder = pathlib.Path(settings['live_folder']) / "Manual"
         save_folder.mkdir(parents=True, exist_ok=True)
-
         global last_save_folder
         last_save_folder = save_folder
+        
+        lumaview.scope.save_image(
+            array=img,
+            save_folder=save_folder,
+            file_root='composite_',
+            append=append,
+            color=None,
+            tail_id_mode='increment',
+            output_format=settings['image_output_format']
+        )
 
-        path = save_folder / filename
-
-        # Obtain next save path if current directory already exists
-        while os.path.exists(path):
-            path = lumaview.scope.get_next_save_path(path)
-
-        if use_full_pixel_depth:
-            dtype = np.uint16
-        else:
-            dtype = np.uint8
-
-        if dtype == np.uint16:
-            img = image_utils.convert_12bit_to_16bit(img)
-            
-        cv2.imwrite(str(path), img.astype(dtype))
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -4198,11 +4192,14 @@ class MicroscopeSettings(BoxLayout):
                     logger.info(f'[LVP Main  ] Using scope selection from {filename}')
                     self.ids['scope_spinner'].text = settings['microscope']
 
-                # if settings['use_full_pixel_depth'] == True:
-                #     self.ids['enable_full_pixel_depth_btn'].state = 'down'
-                # else:
-                #     self.ids['enable_full_pixel_depth_btn'].state = 'normal'
-                # self.update_full_pixel_depth_state()
+                if settings['use_full_pixel_depth'] == True:
+                    self.ids['enable_full_pixel_depth_btn'].state = 'down'
+                else:
+                    self.ids['enable_full_pixel_depth_btn'].state = 'normal'
+                self.update_full_pixel_depth_state()
+
+                self.ids['image_output_format_spinner'].text = settings['image_output_format']
+                self.select_image_output_format()
 
                 # self.ids['binning_spinner'].text = str(settings['binning_size'])
                 # self.update_binning_size()
@@ -4285,6 +4282,11 @@ class MicroscopeSettings(BoxLayout):
             lumaview.scope.camera.set_pixel_format('Mono8')
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
+
+    
+    def select_image_output_format(self):
+        global settings
+        settings['image_output_format'] = self.ids['image_output_format_spinner'].text
 
     
     def update_binning_size(self):

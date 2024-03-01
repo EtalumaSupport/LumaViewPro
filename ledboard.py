@@ -193,7 +193,7 @@ class LEDBoard:
         self.exchange_command(command)
 
     def get_led_ma(self, color):
-        return self.led_ma[color]
+        return self.led_ma.get(color, -1)
     
     def led_on(self, channel, mA):
         """ Turn on LED at channel number at mA power """

@@ -5,7 +5,16 @@ import numpy as np
 import tifffile as tf
 
 import modules.common_utils as common_utils
+import image_utils
+
 from lvp_logger import logger
+
+
+def is_color_image(image) -> bool:
+    if len(image.shape) == 3 and image.shape[2] == 3:
+        return True
+    
+    return False
 
 
 def image_file_to_image(image_file):
@@ -85,9 +94,18 @@ def write_ome_tiff(
 ):
     pixel_size = round(common_utils.get_pixel_size(focal_length=focal_length), common_utils.max_decimal_precision('pixel_size'))
 
+    use_color = image_utils.is_color_image(data)
+
+    if use_color:
+        photometric = 'rgb'
+        axes = 'YXS'
+    else:
+        photometric = 'minisblack'
+        axes = 'YX'
+
     with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
         metadata={
-            'axes': 'YXS',
+            'axes': axes,
             'SignificantBits': data.itemsize*8,
             'PhysicalSizeX': pixel_size,
             'PhysicalSizeXUnit': 'µm',
@@ -111,9 +129,9 @@ def write_ome_tiff(
         }
 
         options=dict(
-            photometric='rgb',
+            photometric=photometric,
             tile=(128, 128),
-            compression='jpeg',
+            compression='lzw',
             resolutionunit='CENTIMETER',
             maxworkers=2
         )
