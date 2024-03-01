@@ -56,6 +56,11 @@ import tkinter
 from tkinter import filedialog, Tk
 from plyer import filechooser
 
+USE_PROFILING = True
+if USE_PROFILING:
+    import cProfile
+    import pstats
+
 if getattr(sys, 'frozen', False):
     import pyi_splash
     pyi_splash.update_text("")
@@ -4891,9 +4896,9 @@ class LumaViewProApp(App):
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
         lumaview.scope.xyhome()
-        # if profiling:
-        #     self.profile = cProfile.Profile()
-        #     self.profile.enable()
+        if USE_PROFILING:
+            self.profile = cProfile.Profile()
+            self.profile.enable()
 
     def build(self):
         current_time = time.strftime("%m/%d/%Y", time.localtime())
@@ -4973,12 +4978,12 @@ class LumaViewProApp(App):
 
     def on_stop(self):
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
-        # if profiling:
-        #     self.profile.disable()
-        #     self.profile.dump_stats('./logs/LumaViewProApp.profile')
-        #     stats = pstats.Stats('./logs/LumaViewProApp.profile')
-        #     stats.sort_stats('cumulative').print_stats(30)
-        #     stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
+        if USE_PROFILING:
+            self.profile.disable()
+            self.profile.dump_stats('./logs/LumaViewProApp.profile')
+            stats = pstats.Stats('./logs/LumaViewProApp.profile')
+            stats.sort_stats('cumulative').print_stats(30)
+            stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
 
         global lumaview
 
