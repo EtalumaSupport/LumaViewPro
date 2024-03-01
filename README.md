@@ -51,7 +51,6 @@ To check if Python works enter the following in the terminal
 Enter the following into the terminal to install the package dependencies
 
     pip3 install -r requirements.txt
-    pip3 install mcp2210-python pywinusb
 
 ![Screenshot from 2022-07-12 18-48-26 (1)](https://user-images.githubusercontent.com/108957480/178635382-b43c80f3-1c32-4e0f-bebf-7bc060824be5.png)
 
