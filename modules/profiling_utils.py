@@ -15,6 +15,8 @@ class ProfilingHelper:
         else:
             self._profile_artifact_path = pathlib.Path(save_path)
 
+        self._profile_artifact_path = self._profile_artifact_path.resolve()
+        
         self._profile = None
         self._profile_artifact_path.mkdir(exist_ok=True, parents=True)
 
