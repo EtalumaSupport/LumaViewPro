@@ -82,6 +82,7 @@ kivy.require("2.1.0")
 from kivy.app import App
 from kivy.factory import Factory
 from kivy.graphics import RenderContext
+from kivy.input.motionevent import MotionEvent
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
 #from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
 from kivy.clock import Clock
@@ -217,6 +218,34 @@ class ScopeDisplay(Image):
         logger.info('[LVP Main  ] ScopeDisplay.stop()')
         logger.info('[LVP Main  ] Clock.unschedule(self.update)')
         Clock.unschedule(self.update_scopedisplay)
+
+    def touch(self, target: Widget, event: MotionEvent):
+        if event.is_touch and (event.device == 'mouse') and (event.button == 'right'):
+            norm_texture_width, norm_texture_height = self.norm_image_size
+            norm_texture_x_min = self.center_x - norm_texture_width/2
+            norm_texture_x_max = self.center_x + norm_texture_width/2
+            norm_texture_y_min = self.center_y - norm_texture_height/2
+            norm_texture_y_max = self.center_y + norm_texture_height/2
+
+            click_pos_x = event.pos[0]
+            click_pos_y = event.pos[1]
+
+            # Check if click occurred within texture
+            if (click_pos_x >= norm_texture_x_min) and (click_pos_x <= norm_texture_x_max) and \
+               (click_pos_y >= norm_texture_y_min) and (click_pos_y <= norm_texture_y_max):
+                norm_texture_click_pos_x = click_pos_x - norm_texture_x_min
+                norm_texture_click_pos_y = click_pos_y - norm_texture_y_min
+                texture_width, texture_height = self.texture_size
+
+                # Scale to image pixels
+                texture_click_pos_x = norm_texture_click_pos_x * texture_width / norm_texture_width
+                texture_click_pos_y = norm_texture_click_pos_y * texture_height / norm_texture_height
+                logger.info(f"Click detected within texture at [{texture_click_pos_x},{texture_click_pos_y}]")
+
+                # Distance from center
+                x_pixel_dist = texture_click_pos_x - texture_width/2 # Positive means to the right of center
+                y_pixel_dist = texture_click_pos_y - texture_height/2 # Positive means above center
+
 
 
     @staticmethod
