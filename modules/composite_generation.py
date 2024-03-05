@@ -64,6 +64,10 @@ class CompositeGeneration:
                 new_layer_name='Composite'
             )
 
+            # Don't support OME-TIFF for composite currently
+            if '.ome' in composite_filename:
+                composite_filename = composite_filename.replace('.ome', '')
+
             # Create parent folder if needed
             split_name = os.path.split(composite_filename)
             if len(split_name) == 2:
@@ -73,7 +77,6 @@ class CompositeGeneration:
             # Filter out non-fluorescence layers
             allowed_layers = common_utils.get_fluorescence_layers()
             composite_group = composite_group[composite_group['Color'].isin(allowed_layers)]
-
 
             composite_image = self._create_composite_image(
                 path=path,

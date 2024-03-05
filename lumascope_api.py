@@ -275,26 +275,20 @@ class Lumascope():
 
         src_dtype = array.dtype
 
-        if src_dtype == np.uint8:
-            # 8-bit mode supports false coloring. Make all images RGB.
-            img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
+        if src_dtype == np.uint16:
+            array = image_utils.convert_12bit_to_16bit(array)
 
-            if image_utils.is_color_image(array):
-                img = array
-            else:
-                if color == 'Blue':
-                    img[:,:,0] = array
-                elif color == 'Green':
-                    img[:,:,1] = array
-                elif color == 'Red':
-                    img[:,:,2] = array
-                else:
-                    img[:,:,0] = array
-                    img[:,:,1] = array
-                    img[:,:,2] = array
+        # Convert to color if needed - if its grayscale, and should become color
+        if (not image_utils.is_color_image(array)) and (color in common_utils.get_fluorescence_layers()):
+            img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
+            if color == 'Blue':
+                img[:,:,0] = array
+            elif color == 'Green':
+                img[:,:,1] = array
+            elif color == 'Red':
+                img[:,:,2] = array
         else:
-            # 12-bit mode only supports grayscale. Don't add color planes.
-            img = image_utils.convert_12bit_to_16bit(array)
+            img = array
 
         img = np.flip(img, 0)
 

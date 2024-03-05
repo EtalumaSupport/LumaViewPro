@@ -19,7 +19,11 @@ class ProtocolPostProcessingHelper:
 
     @staticmethod
     def _get_image_filenames_from_folder(path: pathlib.Path) -> list:
-        images = path.glob('**/*[.ome].tif[f]')
+        tiff_images = path.rglob('*.tif[f]')
+        ome_tiff_images = path.rglob('*.ome.tif[f]')
+        images = []
+        images.extend(tiff_images)
+        images.extend(ome_tiff_images)
         image_names = []
         for image in images:
             image_names.append(os.path.relpath(image, path))
