@@ -194,7 +194,7 @@ class MotorBoard:
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
         # logger.info('[XYZ Class ] MotorBoard.z_ustep2um('+str(ustep)+')')
-        um = int( ustep * 1000 / 170667) 
+        um = (ustep * 1000 / 170667)
         return um
 
     def z_um2ustep(self, um):
@@ -214,7 +214,7 @@ class MotorBoard:
 
     def xy_ustep2um(self, ustep):
         # logger.info('[XYZ Class ] MotorBoard.xy_ustep2um('+str(ustep)+')')
-        um = int( ustep * 1000 / 20157)
+        um = (ustep * 1000 / 20157)
         return um
 
     def xy_um2ustep(self, um):
