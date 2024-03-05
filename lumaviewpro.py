@@ -228,6 +228,7 @@ class ScopeDisplay(Image):
         logger.info('[LVP Main  ] Clock.unschedule(self.update)')
         Clock.unschedule(self.update_scopedisplay)
 
+
     def touch(self, target: Widget, event: MotionEvent):
         if event.is_touch and (event.device == 'mouse') and (event.button == 'right'):
             norm_texture_width, norm_texture_height = self.norm_image_size
@@ -249,12 +250,19 @@ class ScopeDisplay(Image):
                 # Scale to image pixels
                 texture_click_pos_x = norm_texture_click_pos_x * texture_width / norm_texture_width
                 texture_click_pos_y = norm_texture_click_pos_y * texture_height / norm_texture_height
-                logger.info(f"Click detected within texture at [{texture_click_pos_x},{texture_click_pos_y}]")
 
                 # Distance from center
-                x_pixel_dist = texture_click_pos_x - texture_width/2 # Positive means to the right of center
-                y_pixel_dist = texture_click_pos_y - texture_height/2 # Positive means above center
+                x_dist_pixel = texture_click_pos_x - texture_width/2 # Positive means to the right of center
+                y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
 
+                focal_length = settings['objective']['focal_length']
+                pixel_size_um = common_utils.get_pixel_size(focal_length=focal_length)
+
+                x_dist_um = x_dist_pixel * pixel_size_um
+                y_dist_um = y_dist_pixel * pixel_size_um
+
+                lumaview.scope.move_relative_position(axis='X', um=x_dist_um)
+                lumaview.scope.move_relative_position(axis='Y', um=y_dist_um)
 
 
     @staticmethod
