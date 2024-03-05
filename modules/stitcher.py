@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 import modules.common_utils as common_utils
+import image_utils
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 
 from lvp_logger import logger
@@ -143,9 +144,10 @@ class Stitcher:
         num_x_tiles = df['X'].nunique()
         num_y_tiles = df['Y'].nunique()
 
-        source_image_sample = df['Filename'].values[0]
-        source_image_w = images[source_image_sample].shape[1]
-        source_image_h = images[source_image_sample].shape[0]
+        source_image_sample_filename = df['Filename'].values[0]
+        source_image_sample = images[source_image_sample_filename]
+        source_image_w = source_image_sample.shape[1]
+        source_image_h = source_image_sample.shape[0]
         
         df = df.sort_values(['X','Y'], ascending=False)
         df['x_index'] = df.groupby(by=['X']).ngroup()
@@ -164,7 +166,13 @@ class Stitcher:
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=images[source_image_sample].dtype)
+        
+        is_color_image = image_utils.is_color_image(image=source_image_sample)
+        if is_color_image:
+            stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=source_image_sample.dtype)
+        else:
+            stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=source_image_sample.dtype)
+
         for _, row in df.iterrows():
             filename = row['Filename']
             image = images[filename]
@@ -176,17 +184,27 @@ class Stitcher:
 
             if reverse_y:
                 if reverse_x:
-                    stitched_img[y_val-im_y:y_val, x_val-im_x:x_val,:] = image
+                    if is_color_image:
+                        stitched_img[y_val-im_y:y_val, x_val-im_x:x_val,:] = image
+                    else:
+                        stitched_img[y_val-im_y:y_val, x_val-im_x:x_val] = image
                 else:
-                    stitched_img[y_val-im_y:y_val, x_val:x_val+im_x,:] = image
-
+                    if is_color_image:
+                        stitched_img[y_val-im_y:y_val, x_val:x_val+im_x,:] = image
+                    else:
+                        stitched_img[y_val-im_y:y_val, x_val:x_val+im_x] = image
             else:
 
                 if reverse_x:
-                    stitched_img[y_val:y_val+im_y, x_val-im_x:x_val,:] = image
+                    if is_color_image:
+                        stitched_img[y_val:y_val+im_y, x_val-im_x:x_val,:] = image
+                    else:
+                        stitched_img[y_val:y_val+im_y, x_val-im_x:x_val] = image
                 else:
-                    stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
-
+                    if is_color_image:
+                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
+                    else:
+                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
 
         return stitched_img
 
@@ -209,9 +227,10 @@ class Stitcher:
         df = df.sort_values(['x_pix_range','y_pix_range'], ascending=False)
         df[['x_pix_range','y_pix_range']] = df[['x_pix_range','y_pix_range']].apply(np.floor).astype(int)
 
-        source_image_sample = df['Filename'].values[0]
-        stitched_im_x = images[source_image_sample].shape[1] + df['x_pix_range'].max()
-        stitched_im_y = images[source_image_sample].shape[0] + df['y_pix_range'].max()
+        source_image_sample_filename = df['Filename'].values[0]
+        source_image_sample = images[source_image_sample_filename]
+        stitched_im_x = source_image_sample.shape[1] + df['x_pix_range'].max()
+        stitched_im_y = source_image_sample.shape[0] + df['y_pix_range'].max()
 
         reverse_x = True
         reverse_y = False
@@ -221,7 +240,14 @@ class Stitcher:
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=images[source_image_sample].dtype)
+        
+        is_color_image = image_utils.is_color_image(image=source_image_sample)
+
+        if is_color_image:
+            stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=source_image_sample.dtype)
+        else:
+            stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=source_image_sample.dtype)
+
         for _, row in df.iterrows():
             filename = row['Filename']
             image = images[filename]
@@ -233,16 +259,27 @@ class Stitcher:
 
             if reverse_y:
                 if reverse_x:
-                    stitched_img[y_val-im_y:y_val, x_val-im_x:x_val,:] = image
+                    if is_color_image:
+                        stitched_img[y_val-im_y:y_val, x_val-im_x:x_val,:] = image
+                    else:
+                        stitched_img[y_val-im_y:y_val, x_val-im_x:x_val] = image
                 else:
-                    stitched_img[y_val-im_y:y_val, x_val:x_val+im_x,:] = image
-
+                    if is_color_image:
+                        stitched_img[y_val-im_y:y_val, x_val:x_val+im_x,:] = image
+                    else:
+                        stitched_img[y_val-im_y:y_val, x_val:x_val+im_x] = image
             else:
 
                 if reverse_x:
-                    stitched_img[y_val:y_val+im_y, x_val-im_x:x_val,:] = image
+                    if is_color_image:
+                        stitched_img[y_val:y_val+im_y, x_val-im_x:x_val,:] = image
+                    else:
+                        stitched_img[y_val:y_val+im_y, x_val-im_x:x_val] = image
                 else:
-                    stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
+                    if is_color_image:
+                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
+                    else:
+                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
 
 
         return stitched_img
