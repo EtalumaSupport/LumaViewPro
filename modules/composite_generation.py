@@ -8,8 +8,8 @@ import numpy as np
 import pandas as pd
 
 import modules.common_utils as common_utils
+import image_utils
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
-# import image_utils
 
 from lvp_logger import logger
 
@@ -64,6 +64,10 @@ class CompositeGeneration:
                 new_layer_name='Composite'
             )
 
+            # Don't support OME-TIFF for composite currently
+            if '.ome' in composite_filename:
+                composite_filename = composite_filename.replace('.ome', '')
+
             # Create parent folder if needed
             split_name = os.path.split(composite_filename)
             if len(split_name) == 2:
@@ -73,7 +77,6 @@ class CompositeGeneration:
             # Filter out non-fluorescence layers
             allowed_layers = common_utils.get_fluorescence_layers()
             composite_group = composite_group[composite_group['Color'].isin(allowed_layers)]
-
 
             composite_image = self._create_composite_image(
                 path=path,
@@ -103,19 +106,31 @@ class CompositeGeneration:
             image_filepath = path / row['Filename']
             images[row['Filename']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
 
-        source_image_sample = df['Filename'].values[0]
-        img = np.zeros_like(images[source_image_sample])
+        source_image_sample_filename = df['Filename'].values[0]
+        source_image_sample = images[source_image_sample_filename]
+        source_image_sample_shape = source_image_sample.shape
+        
+        img = np.zeros(
+            shape=(source_image_sample_shape[0], source_image_sample_shape[1], 3),
+            dtype=source_image_sample.dtype
+        )
 
         for _, row in df.iterrows():
             layer = row['Color']
             source_image = images[row['Filename']]
+            source_is_color = image_utils.is_color_image(image=source_image)
 
-            if layer == 'Blue':
-                img[:,:,0] = source_image[:,:,0]
-            elif layer == 'Green':
-                img[:,:,1] = source_image[:,:,1]
-            elif layer == 'Red':
-                img[:,:,2] = source_image[:,:,2]
+            color_index_map = {
+                'Blue': 0,
+                'Green': 1,
+                'Red': 2
+            }
+
+            layer_index = color_index_map[layer]
+            if source_is_color:
+                img[:,:,layer_index] = source_image[:,:,layer_index]
+            else:
+                img[:,:,layer_index] = source_image
 
         return img
        

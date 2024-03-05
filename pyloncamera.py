@@ -210,6 +210,14 @@ class PylonCamera:
             logger.warning('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive')
 
 
+    def get_gain(self):
+        if self.active == False:
+            logger.warning('[CAM Class ] PylonCamera.get_gain(): inactive camera')
+            return -1
+        
+        return float(self.active.Gain.GetValue())
+
+
     def gain(self, gain):
         """ Set gain value in the camera hardware"""
 

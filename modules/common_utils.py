@@ -182,9 +182,8 @@ def to_int(val) -> int | None:
         return int(float(val))
 
 
-def get_field_of_view(
-    focal_length: float,
-    frame_size: dict
+def get_pixel_size(
+    focal_length: float
 ):
     magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
                                         # in theory could be different in different scopes
@@ -193,6 +192,14 @@ def get_field_of_view(
     pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
     um_per_pixel = pixel_width / magnification
 
+    return um_per_pixel
+
+
+def get_field_of_view(
+    focal_length: float,
+    frame_size: dict
+):
+    um_per_pixel = get_pixel_size(focal_length=focal_length)
     fov_x = um_per_pixel * frame_size['width']
     fov_y = um_per_pixel * frame_size['height']
     
@@ -211,4 +218,3 @@ def max_decimal_precision(parameter: str) -> int:
     }
 
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
-    
