@@ -56,14 +56,10 @@ import tkinter
 from tkinter import filedialog, Tk
 from plyer import filechooser
 
-USE_PROFILING = True
-if USE_PROFILING:
-    import modules.profiling_utils as profiling_utils
-    global profiling_helper
-    profiling_helper = None
+import modules.profiling_utils as profiling_utils
+global profiling_helper
+profiling_helper = None
 
-    global profiling_save_path
-    profiling_save_path = None
 
 if getattr(sys, 'frozen', False):
     import pyi_splash
@@ -4184,6 +4180,13 @@ class MicroscopeSettings(BoxLayout):
             try:
                 settings = json.load(read_file)
 
+                if settings['profiling']['enabled']:
+                    global profiling_helper
+                    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    profiling_save_path = f'./logs/profile/{ts}'
+                    profiling_helper = profiling_utils.ProfilingHelper(save_path=profiling_save_path)
+                    Clock.schedule_interval(profiling_helper.restart, 30)
+
                 if 'autogain' not in settings['protocol']:
                     settings['protocol']['autogain'] = {
                         'max_duration_seconds': 1.0,
@@ -4938,10 +4941,7 @@ class LumaViewProApp(App):
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
         lumaview.scope.xyhome()
-        if USE_PROFILING:
-            global profiling_save_path
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            profiling_save_path = f'./logs/profile/{ts}'
+
 
 
     def build(self):
@@ -5004,13 +5004,6 @@ class LumaViewProApp(App):
                 raise FileNotFoundError('No settings files found.')
         
         # Continuously update image of stage and protocol
-        if USE_PROFILING:
-            global profiling_helper
-            profiling_helper = profiling_utils.ProfilingHelper(
-               save_path=profiling_save_path
-            )
-            Clock.schedule_interval(profiling_helper.restart, 30)
-
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
 
@@ -5035,7 +5028,7 @@ class LumaViewProApp(App):
 
     def on_stop(self):
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
-        if USE_PROFILING:
+        if profiling_helper is not None:
             profiling_helper.stop()
 
         global lumaview

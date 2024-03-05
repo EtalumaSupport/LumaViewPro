@@ -116,5 +116,8 @@
             "level": "INFO"
         }
     },
-    "mode": "normal"
+    "mode": "normal",
+    "profiling": {
+        "enabled": false
+    }
 }
