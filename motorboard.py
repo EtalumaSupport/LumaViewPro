@@ -190,15 +190,16 @@ class MotorBoard:
 
     #----------------------------------------------------------
     # Z (Focus) Functions
+    # Stock actuator = 0.30 mm pitch.  (1 rev/0.30 mm) x (200 steps/rev) x (256 usteps/step) = 170667 ustep/mm  
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
         # logger.info('[XYZ Class ] MotorBoard.z_ustep2um('+str(ustep)+')')
-        um = 0.00586 * ustep # 0.00586 um/ustep Olympus Z
+        um = (ustep * 1000 / 170667)
         return um
 
     def z_um2ustep(self, um):
         # logger.info('[XYZ Class ] MotorBoard.z_um2ustep('+str(um)+')')
-        ustep = int( um / 0.00586 ) # 0.00586 um/ustep Olympus Z
+        ustep = int( (170667 * um) / 1000) 
         return ustep
 
     def zhome(self):
@@ -208,15 +209,17 @@ class MotorBoard:
 
     #----------------------------------------------------------
     # XY Stage Functions
+    # Stock actuator = 2.54mm pitch.  (1 rev/2.540 mm) x (200 steps/rev) x (256 usteps/step) = 20157 ustep/mm  
     #----------------------------------------------------------
+
     def xy_ustep2um(self, ustep):
         # logger.info('[XYZ Class ] MotorBoard.xy_ustep2um('+str(ustep)+')')
-        um = 0.0496 * ustep # 0.0496 um/ustep
+        um = (ustep * 1000 / 20157)
         return um
 
     def xy_um2ustep(self, um):
         # logger.info('[XYZ Class ] MotorBoard.xy_um2ustep('+str(um)+')')
-        ustep = int( um / 0.0496) # 0.0496 um/ustep
+        ustep = int( (20157 * um) / 1000) 
         return ustep
 
     def xyhome(self):
