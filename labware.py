@@ -139,7 +139,14 @@ class WellPlate(LabWare):
 
     def get_well_label(self, x, y):
         well_x, well_y = self.get_well_index(x=x, y=y)
-        letter = chr(ord('A') + well_y)
+
+        # Handling for labware with more than 26 rows
+        letter = ''
+        if well_y >= 26:
+            letter += 'A'
+            well_y -= 26
+
+        letter += chr(ord('A') + well_y)
         return f'{letter}{well_x + 1}'
     
     
