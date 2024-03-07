@@ -3,6 +3,7 @@ data/current.json
 .vscode/
 calls.txt
 logs/LVP_Log*
+logs/profile/*
 capture/**/*.tiff
 capture/**/*.tsv
 script_testing.py

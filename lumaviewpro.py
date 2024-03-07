@@ -56,6 +56,11 @@ import tkinter
 from tkinter import filedialog, Tk
 from plyer import filechooser
 
+import modules.profiling_utils as profiling_utils
+global profiling_helper
+profiling_helper = None
+
+
 if getattr(sys, 'frozen', False):
     import pyi_splash
     pyi_splash.update_text("")
@@ -2936,70 +2941,77 @@ class ProtocolSettings(CompositeCapture):
     def load_protocol(self, filepath="./data/new_default_protocol.tsv"):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
+        # Filter out blank lines
+        file_content = None
+        fp = None
+        with open(filepath, 'r') as fp_orig:
+            file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
+            file_content = ''.join(file_data_lines)
+            fp = io.StringIO(file_content)
+            
         # Load protocol
-        with open(filepath, 'r') as fp:
-            csvreader = csv.reader(fp, delimiter='\t') # access the file using the CSV library
-            verify = next(csvreader)
-            if not (verify[0] == 'LumaViewPro Protocol'):
-                return
-            
-            version_row = next(csvreader)
-            if version_row[0] != "Version":
-                err_str = f"Unable to load {filepath} which contains an older protocol format that is no longer supported.\nPlease create a new protocol using this version of LumaViewPro."
-                logger.error(err_str)
-                self._show_popup_message(
-                    title='Load Protocol',
-                    message=err_str,
-                    delay_sec=5
-                )
-                return
+        csvreader = csv.reader(fp, delimiter='\t') # access the file using the CSV library
+        verify = next(csvreader)
+        if not (verify[0] == 'LumaViewPro Protocol'):
+            return
+        
+        version_row = next(csvreader)
+        if version_row[0] != "Version":
+            err_str = f"Unable to load {filepath} which contains an older protocol format that is no longer supported.\nPlease create a new protocol using this version of LumaViewPro."
+            logger.error(err_str)
+            self._show_popup_message(
+                title='Load Protocol',
+                message=err_str,
+                delay_sec=5
+            )
+            return
 
-            version = int(version_row[1])
-            if version != 2:
-                err_str = f"Unable to load {filepath} which contains a protocol version that is not supported.\nPlease create a new protocol using this version of LumaViewPro."
-                logger.error(err_str)
-                self._show_popup_message(
-                    title='Load Protocol',
-                    message=err_str,
-                    delay_sec=5
-                )
-                return
-            
-            period_row = next(csvreader)
-            period = float(period_row[1])
-            duration = next(csvreader)
-            duration = float(duration[1])
-            labware = next(csvreader)
-            labware = labware[1]
+        version = int(version_row[1])
+        if version != 2:
+            err_str = f"Unable to load {filepath} which contains a protocol version that is not supported.\nPlease create a new protocol using this version of LumaViewPro."
+            logger.error(err_str)
+            self._show_popup_message(
+                title='Load Protocol',
+                message=err_str,
+                delay_sec=5
+            )
+            return
+        
+        period_row = next(csvreader)
+        period = float(period_row[1])
+        duration = next(csvreader)
+        duration = float(duration[1])
+        labware = next(csvreader)
+        labware = labware[1]
 
-            orig_labware = labware
-            labware_valid, labware = self._validate_labware(labware=orig_labware)
-            if not labware_valid:
-                logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
+        orig_labware = labware
+        labware_valid, labware = self._validate_labware(labware=orig_labware)
+        if not labware_valid:
+            logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
 
-            # Search for "Steps" to indicate start of steps
-            while True:
-                tmp = next(csvreader)
-                if len(tmp) == 0:
-                    continue
+        # Search for "Steps" to indicate start of steps
+        while True:
+            tmp = next(csvreader)
+            if len(tmp) == 0:
+                continue
 
-                if tmp[0] == "Steps":
-                    break
+            if tmp[0] == "Steps":
+                break
 
-            table_lines = []
-            for line in fp:
-                table_lines.append(line)
-            
-            table_str = ''.join(table_lines)
-            new_protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n')
+        table_lines = []
+        for line in fp:
+            table_lines.append(line)
+        
+        table_str = ''.join(table_lines)
+        new_protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n')
 
-            # Since there is currently no versioning in the protocol file, this is a workaround to add 'Objective'
-            # to the protocol file, and still be able to load older protocol files which do not contain an 'Objective' column
-            # for row in csvreader:
+        # Since there is currently no versioning in the protocol file, this is a workaround to add 'Objective'
+        # to the protocol file, and still be able to load older protocol files which do not contain an 'Objective' column
+        # for row in csvreader:
 
-            #     for column in ('Objective', 'Tile', 'Custom Step', 'Well', 'Z-Slice', 'Tile Group ID', 'Z-Stack Group ID'):
-            #         if column not in header:
-            #             row.append(0)
+        #     for column in ('Objective', 'Tile', 'Custom Step', 'Well', 'Z-Slice', 'Tile Group ID', 'Z-Stack Group ID'):
+        #         if column not in header:
+        #             row.append(0)
 
         self._protocol_df = new_protocol_df.fillna('')
         
@@ -3994,6 +4006,9 @@ class Stage(Widget):
         global lumaview
         global settings
 
+        if self.parent is None:
+            return
+        
         if 'settings' not in globals():
             return
         
@@ -4211,6 +4226,13 @@ class MicroscopeSettings(BoxLayout):
         else:
             try:
                 settings = json.load(read_file)
+
+                if settings['profiling']['enabled']:
+                    global profiling_helper
+                    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    profiling_save_path = f'./logs/profile/{ts}'
+                    profiling_helper = profiling_utils.ProfilingHelper(save_path=profiling_save_path)
+                    Clock.schedule_interval(profiling_helper.restart, 30)
 
                 if 'autogain' not in settings['protocol']:
                     settings['protocol']['autogain'] = {
@@ -4966,9 +4988,8 @@ class LumaViewProApp(App):
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
         lumaview.scope.xyhome()
-        # if profiling:
-        #     self.profile = cProfile.Profile()
-        #     self.profile.enable()
+
+
 
     def build(self):
         current_time = time.strftime("%m/%d/%Y", time.localtime())
@@ -5054,12 +5075,8 @@ class LumaViewProApp(App):
 
     def on_stop(self):
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
-        # if profiling:
-        #     self.profile.disable()
-        #     self.profile.dump_stats('./logs/LumaViewProApp.profile')
-        #     stats = pstats.Stats('./logs/LumaViewProApp.profile')
-        #     stats.sort_stats('cumulative').print_stats(30)
-        #     stats.sort_stats('cumulative').dump_stats('./logs/LumaViewProApp.stats')
+        if profiling_helper is not None:
+            profiling_helper.stop()
 
         global lumaview
 
