@@ -93,7 +93,7 @@ def is_custom_name(name: str) -> bool:
         return True
     
     well = name[0]
-    well_pattern = r"^[A-Z]{1}[0-9]+$"
+    well_pattern = r"^[A-Z]{1,2}[0-9]+$"
     if not re.match(pattern=well_pattern, string=well):
         return True
 
