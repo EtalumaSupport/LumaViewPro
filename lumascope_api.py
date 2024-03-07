@@ -763,11 +763,12 @@ class Lumascope():
         return done
 
     # Algorithms for estimating the quality of the focus
-    def focus_function(self, image, algorithm = 'vollath4'):
+    def focus_function(self, image, algorithm = 'vollath4', include_logging: bool = True):
         """INTEGRATED SCOPE FUNCTIONS
         assess focus value at specific position for autofocus function"""
 
-        logger.info('[SCOPE API ] Lumascope.focus_function()')
+        if include_logging:
+            logger.info('[SCOPE API ] Lumascope.focus_function()')
 
         w = image.shape[0]
         h = image.shape[1]
@@ -777,7 +778,8 @@ class Lumascope():
             image = np.double(image)
             sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
             sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            logger.info('[SCOPE API ] Focus Score Vollath: ' + str(sum_one - sum_two))
+            if include_logging:
+                logger.info('[SCOPE API ] Focus Score Vollath: ' + str(sum_one - sum_two))
             return sum_one - sum_two
 
         elif algorithm == 'skew':
@@ -789,14 +791,16 @@ class Lumascope():
             white_edge = edges[1]
 
             skew = white_edge-max_index
-            logger.info('[SCOPE API ] Focus Score Skew: ' + str(skew))
+            if include_logging:
+                logger.info('[SCOPE API ] Focus Score Skew: ' + str(skew))
             return skew
 
         elif algorithm == 'pixel_variation':
             sum = np.sum(image)
             ssq = np.sum(np.square(image))
             var = ssq*w*h-sum**2
-            logger.info('[SCOPE API ] Focus Score Pixel Variation: ' + str(var))
+            if include_logging:
+                logger.info('[SCOPE API ] Focus Score Pixel Variation: ' + str(var))
             return var
         
         else:

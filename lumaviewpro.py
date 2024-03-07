@@ -316,6 +316,11 @@ class ScopeDisplay(Image):
                 if debug_counter % 10 == 0:
                     mean = round(np.mean(a=image), 2)
                     stddev = round(np.std(a=image), 2)
+                    af_score = lumaview.scope.focus_function(
+                        image=image,
+                        include_logging=False
+                    )
+
                     open_layer = None
                     for layer in common_utils.get_layers():
                         accordion = layer + '_accordion'
@@ -326,6 +331,7 @@ class ScopeDisplay(Image):
                     if open_layer is not None:
                         lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_mean_id'].text = f"Mean: {mean}"
                         lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
+                        lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_af_score_id'].text = f"AF Score: {af_score}"
 
                 if debug_counter % 3 == 0:
                     if self.use_bullseye:
@@ -1708,7 +1714,8 @@ class ImageSettings(BoxLayout):
             for layer in common_utils.get_layers():
                 lumaview.ids['imagesettings_id'].ids[layer].ids['image_stats_mean_id'].height = '30dp'
                 lumaview.ids['imagesettings_id'].ids[layer].ids['image_stats_stddev_id'].height = '30dp'
-        
+                lumaview.ids['imagesettings_id'].ids[layer].ids['image_af_score_id'].height = '30dp'
+
 
     def set_layer_exposure_range(self):
         for layer in common_utils.get_fluorescence_layers():
