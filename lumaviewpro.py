@@ -4280,8 +4280,15 @@ class MicroscopeSettings(BoxLayout):
                 # TODO self.ids['objective_spinner'].text = settings['objective']['description']
                 self.ids['magnification_id'].text = str(settings['objective']['magnification'])
                 lumaview.scope.set_objective(objective=settings['objective'])
+                
                 self.ids['frame_width_id'].text = str(settings['frame']['width'])
                 self.ids['frame_height_id'].text = str(settings['frame']['height'])
+
+                if settings['scale_bar']['enabled'] == True:
+                    self.ids['enable_scale_bar_btn'].state = 'down'
+                else:
+                    self.ids['enable_scale_bar_btn'].state = 'normal'
+                self.update_scale_bar_state()
 
                 protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
                 protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
@@ -4368,6 +4375,15 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope.camera.set_binning_size(size=size)
         settings['binning_size'] = size
 
+
+    def update_scale_bar_state(self):
+        if self.ids['enable_scale_bar_btn'].state == 'down':
+            enabled = True  
+        else:
+            enabled = False
+            
+        lumaview.scope.set_scale_bar(enabled=enabled)
+        settings['scale_bar']['enabled'] = enabled
 
     def update_crosshairs_state(self):
         if self.ids['enable_crosshairs_btn'].state == 'down':

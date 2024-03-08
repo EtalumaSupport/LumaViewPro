@@ -98,6 +98,11 @@ class Lumascope():
         self._objective = None           # The objective currently installed
         self._stage_offset = None        # The stage offset for the microscope
 
+        self._scale_bar = {
+            'enabled': False
+        }
+
+
     ########################################################################
     # SCOPE CONFIGURATION FUNCTIONS
     ########################################################################
@@ -106,6 +111,9 @@ class Lumascope():
 
     def set_objective(self, objective):
         self._objective = objective
+
+    def set_scale_bar(self, enabled: bool):
+        self._scale_bar['enabled'] = enabled
 
     def set_stage_offset(self, stage_offset):
         self._stage_offset = stage_offset
@@ -195,10 +203,17 @@ class Lumascope():
         # If use_host_buffer set to true, it will return the results already stored in the
         # host array. It will not wait for the next capture.
         """
+        use_scale_bar = self._scale_bar['enabled']
+        if self._objective is None:
+            use_scale_bar = False
+
         if self.camera.grab():
             self.image_buffer = self.camera.array.copy()
 
-            if force_to_8bit and self.image_buffer.dtype != 'uint8':
+            if use_scale_bar:
+                self.image_buffer = image_utils.add_scale_bar(image=self.image_buffer, objective=self._objective) #magnification=self._objective['magnification'])
+
+            if force_to_8bit and self.image_buffer.dtype != np.uint8:
                 self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
 
             return self.image_buffer

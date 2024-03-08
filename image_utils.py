@@ -142,3 +142,49 @@ def write_ome_tiff(
             metadata=metadata,
             **options
         )
+
+
+def add_scale_bar(image, objective: dict):
+    height, width = image.shape[0], image.shape[1]
+
+    dtype = image.dtype
+    is_color = is_color_image(image=image)
+
+    scale_bar_length = min(100, int(width/10))
+    scale_bar_thickness = min(3, int(height/300))
+    scale_bar_bottom_offset = int(height/40)
+    scale_bar_right_offset = int(width/40)
+
+    if dtype == np.uint8:
+        scale_bar_value = 2**8-1
+    else: # 12-bit
+        scale_bar_value = 2**12-1
+
+    x_end = width - scale_bar_right_offset
+    x_start = x_end - scale_bar_length
+    y_start = scale_bar_bottom_offset
+    y_end = y_start + scale_bar_thickness
+
+    if is_color:
+        image[y_start:y_end+1,x_start:x_end+1,:] = scale_bar_value
+    else:
+        image[y_start:y_end+1,x_start:x_end+1] = scale_bar_value
+
+    pixel_size_um = common_utils.get_pixel_size(focal_length=objective['focal_length'])
+    scale_bar_length_um = round(scale_bar_length * pixel_size_um)
+    text_x_pos = x_start
+    text_y_pos = y_end + 5
+    font_scale = max(0.4, width/4000)
+    cv2.putText(
+        img=image, 
+        text=f"{scale_bar_length_um}um, {objective['magnification']}x",
+        org=(text_x_pos, text_y_pos),
+        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+        fontScale=font_scale,
+        color=(scale_bar_value,scale_bar_value,scale_bar_value),
+        thickness=1,
+        lineType=cv2.LINE_AA,
+        bottomLeftOrigin=True
+    )
+
+    return image

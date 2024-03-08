@@ -1693,6 +1693,25 @@
 	        on_text: root.select_image_output_format()
 			values: ('TIFF', 'OME-TIFF')
 
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+		Label:
+			font_size: '12sp'
+			text: 'Enable Scale Bar'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		ToggleButton:
+			id: enable_scale_bar_btn
+			size_hint: None, None
+			size: '45dp', '30dp'
+			border: 0, 0, 0, 0
+			valign: 'middle'
+			background_normal: './data/icons/ToggleL.png'
+			background_down: './data/icons/ToggleRW.png'
+			on_release: root.update_scale_bar_state()
 
 	BoxLayout:
         orientation: 'horizontal'
