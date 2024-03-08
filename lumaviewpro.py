@@ -43,6 +43,7 @@ import datetime
 import io
 import os
 import pathlib
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import csv
@@ -2081,8 +2082,26 @@ class VerticalControl(BoxLayout):
             return
         
         df = pd.DataFrame(self._af_data)
-        outfile_loc = self._af_save_folder / f"autofocus_data_{self._af_time_string}.csv"
-        df.to_csv(outfile_loc, header=True, index=False)
+        data_outfile_loc = self._af_save_folder / f"autofocus_data_{self._af_time_string}.csv"
+        df.to_csv(data_outfile_loc, header=True, index=False)
+
+        plot_filename = f"autofocus_plot_{self._af_time_string}.png"
+        plot_outfile_loc = self._af_save_folder / plot_filename
+        fig, axs = plt.subplots(figsize=(12,12))
+        df.reset_index().plot.scatter(x="position", y="score", ax=axs)
+        
+        axs.set_title(f"""
+            Autofocus Characterization
+            {plot_filename}
+        """, fontsize=10)
+
+        axs.set_xlabel("Position (um)")
+        axs.set_ylabel("Focus Score")
+        axs.grid()
+        # axs.legend()
+
+        fig.savefig(str(plot_outfile_loc))
+        plt.close()
 
 
     def focus_iterate(self, dt):
