@@ -6,6 +6,8 @@ logs/LVP_Log*
 logs/profile/*
 capture/**/*.tiff
 capture/**/*.tsv
+capture/Autofocus Characterization/
+capture/Backlash Characterization/
 script_testing.py
 venv*/
 build/

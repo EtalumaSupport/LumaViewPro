@@ -1950,6 +1950,7 @@ class VerticalControl(BoxLayout):
         # boolean describing whether the scope is currently in the process of autofocus
         self.is_autofocus = False
         self.is_complete = False
+        self.record_autofocus_to_file = False
         
     def update_gui(self):
         logger.info('[LVP Main  ] VerticalControl.update_gui()')
@@ -2021,6 +2022,18 @@ class VerticalControl(BoxLayout):
     def autofocus(self):
         logger.info('[LVP Main  ] VerticalControl.autofocus()')
 
+        if ENGINEERING_MODE == True:
+            self.record_autofocus_to_file = True
+        else:
+            self.record_autofocus_to_file = False
+
+        if self.record_autofocus_to_file:
+            self._af_save_folder = pathlib.Path(settings['live_folder']) / "Autofocus Characterization"
+            self._af_save_folder.mkdir(parents=True, exist_ok=True)
+            now = datetime.datetime.now()
+            self._af_time_string = now.strftime("%Y%m%d_%H%M%S")
+            self._af_data = []
+            
         global lumaview
         self.is_autofocus = True
         self.is_complete = False
@@ -2058,6 +2071,20 @@ class VerticalControl(BoxLayout):
             logger.info('[LVP Main  ] Clock.schedule_interval(self.focus_iterate, 0.01)')
             Clock.schedule_interval(self.focus_iterate, 0.01)
 
+
+    def save_autofocus_data(self):
+        # Reset to false
+        self.record_autofocus_to_file = False
+
+        if len(self._af_data) == 0:
+            # No data to save
+            return
+        
+        df = pd.DataFrame(self._af_data)
+        outfile_loc = self._af_save_folder / f"autofocus_data_{self._af_time_string}.csv"
+        df.to_csv(outfile_loc, header=True, index=False)
+
+
     def focus_iterate(self, dt):
 
         logger.info('[LVP Main  ] VerticalControl.focus_iterate()')
@@ -2089,6 +2116,12 @@ class VerticalControl(BoxLayout):
             # append to positions and focus measures
             self.positions.append(current)
             self.focus_measures.append(focus)
+
+            if self.record_autofocus_to_file:
+                self._af_data.append({
+                    'position': round(current,5),
+                    'score': focus
+                })
 
             # if (focus < self.last_focus) or (next_target > self.z_max):
             if next_target > self.z_max:
@@ -2132,6 +2165,9 @@ class VerticalControl(BoxLayout):
                     logger.info('[LVP Main  ] Clock.unschedule(self.focus_iterate)')
                     Clock.unschedule(self.focus_iterate)
 
+                    if self.record_autofocus_to_file:
+                        self.save_autofocus_data()
+
                     # update button status
                     self.ids['autofocus_id'].state = 'normal'
                     self.ids['autofocus_id'].text = 'Autofocus'
@@ -2152,6 +2188,8 @@ class VerticalControl(BoxLayout):
 
             logger.info('[LVP Main  ] Clock.unschedule(self.focus_iterate)')
             Clock.unschedule(self.focus_iterate)
+            if self.record_autofocus_to_file:
+                self.save_autofocus_data()
 
         self.update_gui()
 
