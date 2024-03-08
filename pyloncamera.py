@@ -135,7 +135,6 @@ class PylonCamera:
             self.init_auto_gain_focus()
             self.exposure_t(t=10)
             self.frame_size(w=1900, h=1900)
-            self.set_max_acquisition_frame_rate(enabled=True, fps=10.0)
 
 
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
