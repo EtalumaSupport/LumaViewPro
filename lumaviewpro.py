@@ -303,8 +303,8 @@ class ScopeDisplay(Image):
         global debug_counter
 
         if lumaview.scope.camera.active != False:
-            image = lumaview.scope.get_image()
-            if image is False:
+            image = lumaview.scope.get_image(force_to_8bit=True)
+            if (image is False) or (image.size == 0):
                 return
             
             if ENGINEERING_MODE == True:
@@ -1835,8 +1835,10 @@ class Histogram(Widget):
         bins = 128
 
         if lumaview.scope.camera != False and lumaview.scope.camera.active != False:
-            #image = lumaview.scope.get_image()
             image = lumaview.scope.image_buffer
+            if image is None:
+                return
+            
             hist = np.histogram(image, bins=bins,range=(0,256))
             '''
             if self.hist_range_set:
@@ -2931,6 +2933,9 @@ class ProtocolSettings(CompositeCapture):
     def load_protocol(self, filepath="./data/new_default_protocol.tsv"):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
+        if not pathlib.Path(filepath).exists():
+            return
+        
         # Load protocol
         with open(filepath, 'r') as fp:
             csvreader = csv.reader(fp, delimiter='\t') # access the file using the CSV library

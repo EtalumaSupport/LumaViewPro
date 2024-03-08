@@ -1,6 +1,9 @@
 
+import numpy as np
+
+
 def convert_12bit_to_8bit(image):
-    if image.dtype == 'uint8':
+    if image.dtype == np.uint8:
         return image
     
     new_image = image.copy()
@@ -8,7 +11,7 @@ def convert_12bit_to_8bit(image):
 
 
 def convert_12bit_to_16bit(image):
-    if image.dtype == 'uint8':
+    if image.dtype == np.uint8:
         return image
     
     new_image = image.copy()
