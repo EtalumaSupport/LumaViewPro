@@ -76,6 +76,7 @@ class Lumascope():
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
 
         # Camera
+        self.image_buffer = None
         try:
             self.camera = PylonCamera()
         except:
@@ -190,7 +191,10 @@ class Lumascope():
 
     def get_image(self, force_to_8bit: bool = True):
         """ CAMERA FUNCTIONS
-        Grab and return image from camera"""
+        Grab and return image from camera
+        # If use_host_buffer set to true, it will return the results already stored in the
+        # host array. It will not wait for the next capture.
+        """
         if self.camera.grab():
             self.image_buffer = self.camera.array.copy()
 

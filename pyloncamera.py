@@ -34,6 +34,8 @@ MODIFIED:
 March 20, 2023
 '''
 
+import contextlib
+
 import numpy as np
 from pypylon import pylon
 from lvp_logger import logger
@@ -45,6 +47,7 @@ class PylonCamera:
         self.active = False
         self.error_report_count = 0
         self.array = np.array([])
+        self.cam_image_handler = None
         self.connect()
 
     def __delete__(self):
@@ -53,31 +56,92 @@ class PylonCamera:
         except:
             logger.exception('[CAM Class ] exception')
 
+    @contextlib.contextmanager
+    def update_camera_config(self):
+        camera = self.active
+        was_grabbing = camera.IsGrabbing()
+
+        if was_grabbing:
+            self.stop_grabbing()
+
+        yield
+
+        if was_grabbing:
+            self.start_grabbing()
+
+
+    def stop_grabbing(self):
+        camera = self.active
+        camera.StopGrabbing()
+
+
+    def start_grabbing(self):
+        camera = self.active
+        camera.StartGrabbing(
+            pylon.GrabStrategy_LatestImageOnly,
+            pylon.GrabLoop_ProvidedByInstantCamera
+        )
+
     def connect(self):
         """ Try to connect to the first available basler camera"""
         try:
-            # Create an instant active object with the camera device found first.
             self.active = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
-            self.active.Open()
-            self.active.Width.SetValue(self.active.Width.Max)
-            self.active.Height.SetValue(self.active.Height.Max)
-            self.active.BslCenterX.Execute()
-            self.active.BslCenterY.Execute()
-            self.active.PixelFormat.SetValue('Mono8')
-            self.active.GainAuto.SetValue('Off')
-            self.active.ExposureAuto.SetValue('Off')
-            self.active.ReverseX.SetValue(True)
-            self.init_auto_gain_focus()
-            # Grabbing Continuously (video) with minimal delay
-            self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
+            camera = self.active
+            camera.RegisterConfiguration(
+                pylon.AcquireContinuousConfiguration(),
+                pylon.RegistrationMode_ReplaceAll,
+                pylon.Cleanup_Delete
+            )
+            # camera.RegisterConfiguration(
+            #     ConfigurationEventPrinter(),
+            #     pylon.RegistrationMode_Append,
+            #     pylon.Cleanup_Delete
+            # )
+
+            self.cam_image_handler = ImageHandler()
+            camera.RegisterImageEventHandler(
+                self.cam_image_handler,
+                pylon.RegistrationMode_Append,
+                pylon.Cleanup_Delete
+            )
+
+            camera.Open()
+            self.init_camera_config()
+
+            self.start_grabbing()
+
             self.error_report_count = 0
             logger.info('[CAM Class ] PylonCamera.connect() succeeded)')
 
         except:
+            logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.active = False
             if (self.error_report_count < 6):
-                logger.exception('[CAM Class ] PylonCamera.connect() failed')
+                logger.exception('[CAM Class ] PylonCamera.connect() failed 2')
             self.error_report_count += 1
+    
+    
+    def init_camera_config(self):
+        camera = self.active
+        if camera == False:
+            return
+        
+        with self.update_camera_config():
+            camera.UserSetSelector = "Default"
+            camera.UserSetLoad.Execute()
+            self.set_pixel_format(pixel_format='Mono8')
+            self.auto_gain(state=False)
+            camera.ReverseX.SetValue(True)
+            self.init_auto_gain_focus()
+            self.exposure_t(t=10)
+            self.frame_size(w=1900, h=1900)
+
+
+    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
+        self.active.AcquisitionFrameRateEnable.Value = enabled
+
+        if enabled:
+            self.active.AcquisitionFrameRate.Value = fps
 
 
     def set_pixel_format(self, pixel_format: str) -> bool:
@@ -88,15 +152,9 @@ class PylonCamera:
             logger.exception(f"[CAM Class ] Unsupported pixel format: {pixel_format}")
             return False
         
-        is_grabbing = self.active.IsGrabbing()
-        if is_grabbing:
-            self.active.StopGrabbing()
-
-        self.active.PixelFormat.SetValue(pixel_format)
-
-        if is_grabbing:
-            self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-
+        with self.update_camera_config():
+            self.active.PixelFormat.SetValue(pixel_format)
+        
         return True
  
 
@@ -116,18 +174,12 @@ class PylonCamera:
             logger.exception(f"[CAM Class ] Unsupported bin size: {size}")
             return False
         
-        is_grabbing = self.active.IsGrabbing()
-        if is_grabbing:
-            self.active.StopGrabbing()
-
-        self.active.BinningVertical.SetValue(size)
-        self.active.BinningVerticalMode.SetValue('Sum')
-        self.active.BinningHorizontal.SetValue(size)
-        self.active.BinningVerticalMode.SetValue('Sum')
-        
-        if is_grabbing:
-            self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-        
+        with self.update_camera_config():
+            self.active.BinningVertical.SetValue(size)
+            self.active.BinningVerticalMode.SetValue('Sum')
+            self.active.BinningHorizontal.SetValue(size)
+            self.active.BinningVerticalMode.SetValue('Sum')
+                
         return True
     
 
@@ -145,9 +197,6 @@ class PylonCamera:
 
 
     def init_auto_gain_focus(self, auto_target_brightness: float=0.5):
-        # margin_px = 8
-        # self.active.AutoFunctionROIOffsetX.SetValue(margin_px)
-        # self.active.AutoFunctionROIOffsetY.SetValue(margin_px)
         self.active.AutoFunctionROIWidth.SetValue(self.active.Width.Max - 2*self.active.AutoFunctionROIOffsetX.GetValue())
         self.active.AutoFunctionROIHeight.SetValue(self.active.Height.Max - 2*self.active.AutoFunctionROIOffsetY.GetValue())
         self.active.AutoFunctionROIUseBrightness = True
@@ -157,11 +206,10 @@ class PylonCamera:
         self.active.AutoGainUpperLimit.SetValue(self.active.AutoGainUpperLimit.Max)
         self.active.AutoFunctionProfile.SetValue('MinimizeGain')
 
-        # self.set_test_pattern('Testimage2')
-
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
-        self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
+        with self.update_camera_config():
+            self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
 
 
     def grab(self):
@@ -169,46 +217,40 @@ class PylonCamera:
         returns True if successful
         returns False if unsuccessful
         access the image using camera.array where camera is the instance of the class"""
-
-        if self.active == False:
-            self.connect()
+        if not self.cam_image_handler:
+            return False
+        
         try:
-            if self.active.IsGrabbing():
-                grabResult = self.active.RetrieveResult(1000, pylon.TimeoutHandling_ThrowException)
-
-                if grabResult.GrabSucceeded():
-                    self.array = grabResult.GetArray()
-
-            grabResult.Release()
-            self.error_report_count = 0
-            # logger.info('[CAM Class ] PylonCamera.grab() succeeded')
+            result, image = self.cam_image_handler.GetLastImage()
+            if result is False:
+                return False
+            
+            self.array = image
             return True
 
-        except:
-            if self.error_report_count < 6:
-                logger.exception('[CAM Class ] PylonCamera.grab() failed')
-            self.error_report_count += 1
-            self.active = False
+        except Exception as ex:
+            logger.exception(f"Failed to grab image: {ex}")
             return False
+  
 
     def frame_size(self, w, h):
         """ Set camera frame size to w by h and keep centered """
-
-        if self.active != False:
-
-            width = int(min(int(w), self.active.Width.Max)/4)*4
-            height = int(min(int(h), self.active.Height.Max)/4)*4
-
-            self.active.StopGrabbing()
-            self.active.Width.SetValue(width)
-            self.active.Height.SetValue(height)
-            self.active.BslCenterX.Execute()
-            self.active.BslCenterY.Execute()
-            self.active.StartGrabbing(pylon.GrabStrategy_LatestImageOnly)
-            logger.info('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded')
-        else:
+        camera = self.active
+        if camera == False:
             logger.warning('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive')
+            return
 
+        width = int(min(int(w), camera.Width.Max)/4)*4
+        height = int(min(int(h), camera.Height.Max)/4)*4
+
+        with self.update_camera_config():
+            camera.Width.SetValue(width)
+            camera.Height.SetValue(height)
+            camera.BslCenterX.Execute()
+            camera.BslCenterY.Execute()
+
+        logger.info('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded')
+ 
 
     def get_gain(self):
         if self.active == False:
@@ -220,12 +262,13 @@ class PylonCamera:
 
     def gain(self, gain):
         """ Set gain value in the camera hardware"""
-
-        if self.active != False:
-            self.active.Gain.SetValue(float(gain))
-            logger.info('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': succeeded')
-        else:
+        if self.active == False:
             logger.warning('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': inactive camera')
+            return
+
+        self.active.Gain.SetValue(float(gain))
+        logger.info('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': succeeded')
+
 
     def auto_gain(self, state = True, target_brightness: float = 0.5):
         """ Enable / Disable camera auto_gain with the value of 'state'
@@ -247,43 +290,47 @@ class PylonCamera:
             
     def exposure_t(self, t):
         """ Set exposure time in the camera hardware t (msec)"""
-
-        if self.active != False:
-            # (t*1000) in microseconds; therefore t  in milliseconds
-            self.active.ExposureTime.SetValue(max(float(t)*1000, self.active.ExposureTime.Min))
-            logger.info('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
-        else:
+        if self.active == False:
             logger.warning('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': inactive camera')
+            return
+        
+        # (t*1000) in microseconds; therefore t  in milliseconds
+        self.active.ExposureTime.SetValue(max(float(t)*1000, self.active.ExposureTime.Min))
+        logger.info('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
+
 
     def get_exposure_t(self):
         """ Set exposure time in the camera hardware
          Returns t (msec), or -1 if the camera is inactive"""
 
-        if self.active != False:
-            microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
-            millisec = microsec/1000 # convert exposure time to millisec
-            logger.info('[CAM Class ] PylonCamera.get_exposure_t(): succeeded')
-            return millisec
-        else:
+        if self.active == False:
             logger.warning('[CAM Class ] PylonCamera.get_exposure_t(): inactive camera')
             return -1
+
+        microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
+        millisec = microsec/1000 # convert exposure time to millisec
+        logger.info('[CAM Class ] PylonCamera.get_exposure_t(): succeeded')
+        return millisec
+            
 
     def auto_exposure_t(self, state = True):
         """ Enable / Disable camera auto_exposure with the value of 'state'
         It will be continueously updating based on the current image """
 
-        if self.active != False:
-            if state == True:
-                self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
-            else:
-                self.active.ExposureAuto.SetValue('Off')
-            logger.info('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': succeeded')
-        else:
+        if self.active == False:
             logger.warning('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera')
+            return
+        
+        if state == True:
+            self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
+        else:
+            self.active.ExposureAuto.SetValue('Off')
+
+        logger.info('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': succeeded')
 
 
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
-        if not self.active:
+        if self.active == False:
             return
         
         #if not enabled:
@@ -291,3 +338,79 @@ class PylonCamera:
         
         self.active.TestPattern.SetValue(pattern)
         self.grab()
+
+
+class ImageHandler(pylon.ImageEventHandler):
+
+    def __init__(self):
+        super().__init__()
+        self.last_result = False
+        self.last_img = None
+        
+
+    def OnImageGrabbed(self, camera, grabResult):
+        try:
+            self.last_result = grabResult.GrabSucceeded()
+            if self.last_result:
+                self.last_img = grabResult.GetArray()
+            else:
+                raise RuntimeError("Grab Failed")
+        except Exception as e:
+            logger.exception(e)
+
+    def GetLastImage(self):
+        if self.last_result is False:
+            return False, None
+        
+        return self.last_result, self.last_img.copy()
+    
+
+# class ConfigurationEventPrinter(pylon.ConfigurationEventHandler):
+#     def OnAttach(self, camera):
+#         print("OnAttach event")
+
+#     def OnAttached(self, camera):
+#         print("OnAttached event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnOpen(self, camera):
+#         print("OnOpen event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnOpened(self, camera):
+#         print("OnOpened event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnGrabStart(self, camera):
+#         print("OnGrabStart event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnGrabStarted(self, camera):
+#         print("OnGrabStarted event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnGrabStop(self, camera):
+#         print("OnGrabStop event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnGrabStopped(self, camera):
+#         print("OnGrabStopped event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnClose(self, camera):
+#         print("OnClose event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnClosed(self, camera):
+#         print("OnClosed event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnDestroy(self, camera):
+#         print("OnDestroy event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnDestroyed(self, camera):
+#         print("OnDestroyed event")
+
+#     def OnDetach(self, camera):
+#         print("OnDetach event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnDetached(self, camera):
+#         print("OnDetached event for device ", camera.GetDeviceInfo().GetModelName())
+
+#     def OnGrabError(self, camera, errorMessage):
+#         print("OnGrabError event for device ", camera.GetDeviceInfo().GetModelName())
+#         print("Error Message: ", errorMessage)
+
+#     def OnCameraDeviceRemoved(self, camera):
+#         print("OnCameraDeviceRemoved event for device ", camera.GetDeviceInfo().GetModelName())
