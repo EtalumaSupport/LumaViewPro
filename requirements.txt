@@ -1,6 +1,7 @@
 
 color_transfer==0.1
 Kivy==2.2.1
+imagecodecs==2024.1.1
 imutils==0.5.4
 numpy==1.25.1
 opencv-python==4.8.0.74
@@ -10,3 +11,4 @@ pypylon==2.2.0
 pyserial==3.5
 scikit-image==0.21.0
 scipy==1.11.1
+tifffile==2024.2.12

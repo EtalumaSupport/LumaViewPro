@@ -43,6 +43,8 @@ from pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger
+import modules.common_utils as common_utils
+import modules.coord_transformations as coord_transformations
 import pathlib
 import time
 import threading
@@ -51,13 +53,14 @@ import contextlib
 import cv2
 import numpy as np
 
-import image_utils_non_kivy
+import image_utils
 
 
 class Lumascope():
 
     def __init__(self):
         """Initialize Microscope"""
+        self._coordinate_transformer = coord_transformations.CoordinateTransformer()
 
         # LED Control Board
         try:
@@ -73,6 +76,7 @@ class Lumascope():
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
 
         # Camera
+        self.image_buffer = None
         try:
             self.camera = PylonCamera()
         except:
@@ -90,6 +94,22 @@ class Lumascope():
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
+        self._labware = None             # The labware currently installed
+        self._objective = None           # The objective currently installed
+        self._stage_offset = None        # The stage offset for the microscope
+
+    ########################################################################
+    # SCOPE CONFIGURATION FUNCTIONS
+    ########################################################################
+    def set_labware(self, labware):
+        self._labware = labware
+
+    def set_objective(self, objective):
+        self._objective = objective
+
+    def set_stage_offset(self, stage_offset):
+        self._stage_offset = stage_offset
+
     ########################################################################
     # LED BOARD FUNCTIONS
     ########################################################################
@@ -105,6 +125,13 @@ class Lumascope():
         Disable all LEDS"""
         if not self.led: return
         self.led.leds_disable()
+
+    def get_led_ma(self, color: str):
+        """ LED BOARD FUNCTIONS
+        Get LED illumination (mA)"""
+        if not self.led: return -1
+
+        return self.led.get_led_ma(color=color)
 
     def led_on(self, channel, mA):
         """ LED BOARD FUNCTIONS
@@ -164,12 +191,15 @@ class Lumascope():
 
     def get_image(self, force_to_8bit: bool = True):
         """ CAMERA FUNCTIONS
-        Grab and return image from camera"""
+        Grab and return image from camera
+        # If use_host_buffer set to true, it will return the results already stored in the
+        # host array. It will not wait for the next capture.
+        """
         if self.camera.grab():
             self.image_buffer = self.camera.array.copy()
 
             if force_to_8bit and self.image_buffer.dtype != 'uint8':
-                self.image_buffer = image_utils_non_kivy.convert_12bit_to_8bit(self.image_buffer)
+                self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
 
             return self.image_buffer
         else:
@@ -183,69 +213,40 @@ class Lumascope():
 
         """
 
-        # TODO for now converting pathlib.Path's to strings for the algorithm below
-        if issubclass(type(path), pathlib.Path):
-            path = str(path)
+        NUM_SEQ_DIGITS = 6
+        # Handle both .tiff and .ome.tiff by detecting multiple extensions if present
+        # pathlib doesn't seem to handle multiple extensions natively
+        path2 = pathlib.Path(path)
+        extension = ''.join(path2.suffixes)
+        stem = path2.name[:len(path2.name)-len(extension)]
+        seq_separator_idx = stem.rfind('_')
+        stem_base = stem[:seq_separator_idx]
+        seq_num_str = stem[seq_separator_idx+1:]
+        seq_num = int(seq_num_str)
 
-        # Extract file extension (.tiff) and file_id (00001)
-        dot_idx = path.rfind('.') 
-        under_idx = path.rfind('_')
-        file_extension = path[dot_idx + 1:]
-        file_id = path[under_idx + 1:dot_idx]
-
-        # Determine the next file_id 
-        num_zeros = len(file_id)
-        number_str = str(int(file_id) + 1)
-        zeros_to_add = num_zeros - len(number_str)
-        if zeros_to_add <= 0:
-            new_file_id = number_str
-        else:
-            new_file_id =  '0' * zeros_to_add + number_str
-
-        return f'{path[:under_idx]}_{new_file_id}.{file_extension}'
-
-    def save_image(self, array, save_folder = './capture', file_root = 'img_', append = 'ms', color = 'BF', tail_id_mode = "increment"):
-        """CAMERA FUNCTIONS
-        save image (as array) to file
-        """
+        next_seq_num = seq_num + 1
+        next_seq_num_str = f"{next_seq_num:0>{NUM_SEQ_DIGITS}}"
         
-        img = np.zeros((array.shape[0], array.shape[1], 3))
+        new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
+        return str(new_path)
+    
 
-        # Check if already a color image
-        if (len(array.shape) == 3) and (array.shape[2] == 3):
-            img = array
-        else:
-            if color == 'Blue':
-                img[:,:,0] = array
-            elif color == 'Green':
-                img[:,:,1] = array
-            elif color == 'Red':
-                img[:,:,2] = array
-            else:
-                img[:,:,0] = array
-                img[:,:,1] = array
-                img[:,:,2] = array
-
-        img = np.flip(img, 0)
-
-        # set filename options
-        # if append == 'ms':
-        #     append = str(int(round(time.time() * 1000)))
-        # elif append == 'time':
-        #     append = time.strftime("%Y%m%d_%H%M%S")
-        # else:
-        #     append = ''
-
+    def generate_image_save_path(self, save_folder, file_root, append, tail_id_mode, output_format):
         if type(save_folder) == str:
             save_folder = pathlib.Path(save_folder)
 
         if file_root is None:
             file_root = ""
 
+        if output_format == 'OME-TIFF':
+            file_extension = ".ome.tiff"
+        else:
+            file_extension = ".tiff"
+
         # generate filename and save path string
         if tail_id_mode == "increment":
             initial_id = '_000001'
-            filename =  file_root + append + initial_id + '.tiff'
+            filename =  f"{file_root}{append}{initial_id}{file_extension}"
             path = save_folder / filename
 
             # Obtain next save path if current directory already exists
@@ -253,20 +254,103 @@ class Lumascope():
                 path = self.get_next_save_path(path)
 
         elif tail_id_mode == None:
-            filename =  file_root + append + '.tiff'
+            filename =  f"{file_root}{append}{file_extension}"
             path = save_folder / filename
         
         else:
             raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
         
+        return path
+
+
+    def save_image(
+        self,
+        array,
+        save_folder = './capture',
+        file_root = 'img_',
+        append = 'ms',
+        color = 'BF',
+        tail_id_mode = "increment",
+        output_format: str = "TIFF"
+    ):
+        """CAMERA FUNCTIONS
+        save image (as array) to file
+        """
+
+        src_dtype = array.dtype
+
+        if src_dtype == np.uint16:
+            array = image_utils.convert_12bit_to_16bit(array)
+
+        # Convert to color if needed - if its grayscale, and should become color
+        if (not image_utils.is_color_image(array)) and (color in common_utils.get_fluorescence_layers()):
+            img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
+            if color == 'Blue':
+                img[:,:,0] = array
+            elif color == 'Green':
+                img[:,:,1] = array
+            elif color == 'Red':
+                img[:,:,2] = array
+        else:
+            img = array
+
+        img = np.flip(img, 0)
+
+        path = self.generate_image_save_path(
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format
+        )
 
         try:
-            src_dtype = array.dtype
+            if output_format == 'OME-TIFF':
 
-            if src_dtype == np.uint16:
-                img = image_utils_non_kivy.convert_12bit_to_16bit(img)
+                def _validate():
+                    if self._objective is None:
+                        raise Exception(f"[SCOPE API ] Objective not set")
+                    
+                    if 'focal_length' not in self._objective:
+                        raise Exception(f"[SCOPE API ] Objective focal length not provided")
 
-            cv2.imwrite(str(path), img.astype(src_dtype))
+                    if self._labware is None:
+                        raise Exception(f"[SCOPE API ] Labware not set")
+                    
+                    if self._stage_offset is None:
+                        raise Exception(f"[SCOPE API ] Stage offset not set")
+                
+                _validate()
+                
+                px, py = self._coordinate_transformer.stage_to_plate(
+                    labware=self._labware,
+                    stage_offset=self._stage_offset,
+                    sx=self.get_current_position(axis='X'),
+                    sy=self.get_current_position(axis='Y')
+                )
+                z = self.get_current_position(axis='Z')
+
+                if image_utils.is_color_image(img):
+                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+                px = round(px, common_utils.max_decimal_precision('x'))
+                py = round(px, common_utils.max_decimal_precision('y'))
+                z  = round(z,  common_utils.max_decimal_precision('z'))
+
+                image_utils.write_ome_tiff(
+                    data=img,
+                    file_loc=path,
+                    channel=color,
+                    focal_length=self._objective['focal_length'],
+                    plate_pos_mm={'x': px, 'y': py},
+                    z_pos_um=z,
+                    exposure_time_ms=round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
+                    gain_db=round(self.get_gain(), common_utils.max_decimal_precision('gain')),
+                    ill_ma=round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination'))
+                )
+            else:
+                cv2.imwrite(str(path), img.astype(src_dtype))
+
             logger.info(f'[SCOPE API ] Saving Image to {path}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
@@ -281,7 +365,8 @@ class Lumascope():
             append = 'ms',
             color = 'BF',
             tail_id_mode = "increment",
-            force_to_8bit: bool = True
+            force_to_8bit: bool = True,
+            output_format: str = "TIFF"
         ):
 
         """CAMERA FUNCTIONS
@@ -290,7 +375,7 @@ class Lumascope():
         array = self.get_image(force_to_8bit=force_to_8bit)
         if array is False:
             return 
-        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode)
+        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format)
  
     def get_max_width(self):
         """CAMERA FUNCTIONS
@@ -328,6 +413,13 @@ class Lumascope():
         if not self.camera: return
         self.camera.frame_size(w, h)
 
+    def get_gain(self):
+        """CAMERA FUNCTIONS
+        Get camera gain"""
+
+        if not self.camera: return -1
+        return self.camera.get_gain()
+    
     def set_gain(self, gain):
         """CAMERA FUNCTIONS
         Set camera gain"""
@@ -556,47 +648,6 @@ class Lumascope():
         
         return self.motion.get_microscope_model()
 
-
-    '''
-    ########################################################################
-    # COORDINATES
-    ########################################################################
-
-    # INCOMPLETE
-    def plate_to_stage(self, px, py):
-        # plate coordinates in mm from top left
-        # stage coordinates in um from bottom right
-
-        # Get labware dimensions
-        x_max = 127.76 # in mm
-        y_max = 85.48 # in mm
-
-        # Convert coordinates
-        sx = x_max - 3.88 - px
-        sy = y_max - 2.74 - py
-
-        # Convert from mm to um
-        sx = sx*1000
-        sy = sy*1000
-
-        # return
-        return sx, sy
-    
-    # INCOMPLETE
-    def stage_to_plate(self, sx, sy):
-        # stage coordinates in um from bottom right
-        # plate coordinates in mm from top left
-
-        # Get labware dimensions
-        x_max = 127.76 # in mm
-        y_max = 85.48 # in mm
-
-        # Convert coordinates
-        px = x_max - (3880 + sx)/1000
-        py = y_max - (2740 + sy)/1000
- 
-        return px, py
-    '''
     
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS

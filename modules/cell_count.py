@@ -2,7 +2,6 @@
 import math
 
 import cv2
-import scipy
 import skimage
 import numpy as np
 
