@@ -148,6 +148,7 @@
         size: root.width, root.height
         allow_stretch: True
         keep_ratio: True
+		on_touch_down: self.touch(args[0], args[1]) # 0 is Widget, 1 is MotionEvent
 
 # ShaderEditor - view and edit shader code
 # ------------------------------------------
