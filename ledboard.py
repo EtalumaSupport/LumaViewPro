@@ -63,8 +63,8 @@ class LEDBoard:
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
-        self.timeout=0.01 # seconds
-        self.write_timeout=0.01 # seconds
+        self.timeout=0.1 # seconds
+        self.write_timeout=0.1 # seconds
         self.driver = False
         self.led_ma = {
             'BF': -1,
