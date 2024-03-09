@@ -2747,6 +2747,7 @@ class ProtocolSettings(CompositeCapture):
             tile_group_id += 1
 
         self._protocol_df = pd.DataFrame.from_dict(new_steps)
+        stage.set_protocol_steps(df=self._protocol_df)
         self.update_step_ui()
 
 
@@ -2846,6 +2847,7 @@ class ProtocolSettings(CompositeCapture):
     ):
         steps_df = pd.DataFrame(steps)
         self._protocol_df = pd.concat([self._protocol_df, steps_df], ignore_index=True).reset_index(drop=True)
+        stage.set_protocol_steps(df=self._protocol_df)
 
 
     # Create New Protocol
@@ -3319,6 +3321,7 @@ class ProtocolSettings(CompositeCapture):
         
         self._protocol_df.drop(index=self.curr_step, axis=0, inplace=True)
         self._protocol_df.reset_index(drop=True, inplace=True)
+        stage.set_protocol_steps(df=self._protocol_df)
         self.curr_step = max(self.curr_step-1, 0)
  
         # Update total number of steps to GUI
@@ -3378,6 +3381,7 @@ class ProtocolSettings(CompositeCapture):
         self._protocol_df.at[self.curr_step, "Auto_Gain"] = layer_id.ids['auto_gain'].active
         self._protocol_df.at[self.curr_step, "Exposure"] = round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure'))
         self._protocol_df.at[self.curr_step, "Objective"] = settings['objective']['ID']
+        stage.set_protocol_steps(df=self._protocol_df)
 
 
     # Insert Current Step to Protocol at Current Position
@@ -3450,6 +3454,7 @@ class ProtocolSettings(CompositeCapture):
         line = pd.DataFrame(data=step_dict, index=[pos_index])
         self._protocol_df = pd.concat([self._protocol_df, line], ignore_index=False, axis=0)
         self._protocol_df = self._protocol_df.sort_index().reset_index(drop=True)
+        stage.set_protocol_steps(df=self._protocol_df)
 
         self.ids['step_total_input'].text = str(len(self._protocol_df))
 
@@ -3468,6 +3473,10 @@ class ProtocolSettings(CompositeCapture):
     def update_acquire_zstack(self):
         pass
         # self.determine_and_set_run_autofocus_scan_allow()
+
+
+    def update_show_step_locations(self):
+        stage.show_protocol_steps(enable=self.ids['show_step_locations_id'].active)
 
 
     def update_tiling_selection(self):
@@ -4019,7 +4028,24 @@ class Stage(Widget):
             pos=self.full_redraw,
             size=self.full_redraw
         )
-        
+        self._protocol_step_locations_df = None
+        self._protocol_step_redraw = False
+        self._protocol_step_locations_show = False
+
+
+    def show_protocol_steps(self, enable: bool):
+        self._protocol_step_locations_show = enable
+        self._protocol_step_redraw = True
+
+
+    def set_protocol_steps(self, df):
+        # Filter to only keep the X/Y locations
+        df = df.copy()
+        df = df[['X','Y']]
+        self._protocol_step_locations_df = df.drop_duplicates()
+        self._protocol_step_redraw = True
+
+
     def append_ROI(self, x_min, y_min, x_max, y_max):
         self.ROI_min = [x_min, y_min]
         self.ROI_max = [x_max, y_max]
@@ -4071,7 +4097,11 @@ class Stage(Widget):
             lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
     
 
-    def draw_labware(self, *args, full_redraw: bool = False): # View the labware from front and above
+    def draw_labware(
+        self,
+        *args,
+        full_redraw: bool = False
+    ): # View the labware from front and above
         global lumaview
         global settings
 
@@ -4089,6 +4119,9 @@ class Stage(Widget):
         else:
             self.canvas.remove_group('crosshairs')
             self.canvas.remove_group('selected_well')
+
+        if self._protocol_step_redraw:
+            self.canvas.remove_group('steps')
 
         with self.canvas:
             w = self.width
@@ -4198,6 +4231,29 @@ class Stage(Widget):
                         x_center = int(x+well_pixel_x) # on screen center
                         y_center = int(y+well_pixel_y) # on screen center
                         Ellipse(pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), size=(well_radius_pixel_x*2, well_radius_pixel_y*2), group='wells')
+
+            if full_redraw or self._protocol_step_redraw:
+                self._protocol_step_redraw = False
+
+                if  (self._protocol_step_locations_show == True) and \
+                    (self._protocol_step_locations_df is not None):
+
+                    Color(1., 1., 0., 1.)
+                    half_size = 2
+                    for _, step in self._protocol_step_locations_df.iterrows():
+                        pixel_x, pixel_y = coordinate_transformer.plate_to_pixel(
+                            labware=labware,
+                            px=step['X'],
+                            py=step['Y'],
+                            scale_x=scale_x,
+                            scale_y=scale_y
+                        )
+                        
+                        x_center = x+pixel_x
+                        y_center = y+pixel_y
+
+                        Line(points=(x_center-half_size, y_center, x_center+half_size, y_center), width = 1, group='steps') # horizontal line
+                        Line(points=(x_center, y_center-half_size, x_center, y_center+half_size), width = 1, group='steps') # vertical line
 
             try:
                 target_stage_x = lumaview.scope.get_target_position('X')
