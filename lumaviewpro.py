@@ -1069,7 +1069,10 @@ class StitchControls(BoxLayout):
         popup.title = "Stitcher"
         popup.text = "Generating stitched images..."
         stitcher = Stitcher()
-        result = stitcher.load_folder(path=pathlib.Path(path))
+        result = stitcher.load_folder(
+            path=pathlib.Path(path),
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+        )
         final_text = f"Generating stitched images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
@@ -1102,7 +1105,10 @@ class CompositeGenControls(BoxLayout):
         popup.title = "Composite Image Generation"
         popup.text = "Generating composite images..."
         composite_gen = CompositeGeneration()
-        result = composite_gen.load_folder(path=pathlib.Path(path))
+        result = composite_gen.load_folder(
+            path=pathlib.Path(path),
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+        )
         final_text = f"Generating composite images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
@@ -2585,7 +2591,10 @@ class ProtocolSettings(CompositeCapture):
 
         self.custom_step_count = 0
         
-        self.tiling_config = TilingConfig()
+        self.tiling_config = TilingConfig(
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+        )
+
         self.tiling_min = {
             "x": 120000,
             "y": 80000

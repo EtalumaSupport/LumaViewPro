@@ -21,9 +21,10 @@ class Stitcher:
         self._protocol_post_processing_helper = ProtocolPostProcessingHelper()
         
 
-    def load_folder(self, path: str | pathlib.Path) -> dict:
+    def load_folder(self, path: str | pathlib.Path, tiling_configs_file_loc: pathlib.Path) -> dict:
         results = self._protocol_post_processing_helper.load_folder(
             path=path,
+            tiling_configs_file_loc=tiling_configs_file_loc,
             include_stitched_images=False,
             include_composite_images=False
         )

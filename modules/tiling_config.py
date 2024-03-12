@@ -1,6 +1,7 @@
 
 import itertools
 import json
+import pathlib
 
 import modules.common_utils as common_utils
 
@@ -10,9 +11,9 @@ class TilingConfig:
         'position': 1.0 # No overlap needed for position-based tiling
     }
 
-    def __init__(self):
+    def __init__(self, tiling_configs_file_loc: pathlib.Path):
 
-        with open('./data/tiling.json', "r") as fp:
+        with open(tiling_configs_file_loc, "r") as fp:
             self._available_configs = json.load(fp)
 
 

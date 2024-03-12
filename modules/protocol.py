@@ -73,7 +73,7 @@ class Protocol:
 
 
     @classmethod
-    def from_file(cls, file_path: pathlib.Path):
+    def from_file(cls, file_path: pathlib.Path, tiling_configs_file_loc : pathlib.Path | None):
         
         config = {}
 
@@ -201,7 +201,9 @@ class Protocol:
                 protocol_df = protocol_df.drop(columns=['channel'])
 
             # Extract tiling config from step names
-            tc = tiling_config.TilingConfig()
+            tc = tiling_config.TilingConfig(
+                tiling_configs_file_loc=tiling_configs_file_loc
+            )
             config['tiling'] = tc.determine_tiling_label_from_names(
                 names=protocol_df['Name'].to_list()
             )
@@ -219,7 +221,9 @@ class Protocol:
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names
-            tc = tiling_config.TilingConfig()
+            tc = tiling_config.TilingConfig(
+                tiling_configs_file_loc=tiling_configs_file_loc
+            )
             config['tiling'] = tc.determine_tiling_label_from_names(
                 names=protocol_df['Name'].to_list()
             )
