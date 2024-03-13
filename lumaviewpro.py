@@ -446,12 +446,6 @@ class CompositeCapture(FloatLayout):
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
-        save_folder = pathlib.Path(settings['live_folder']) / "Manual"
-        save_folder.mkdir(parents=True, exist_ok=True)
-
-        global last_save_folder
-        last_save_folder = save_folder
-
         file_root = 'live_'
         color = 'BF'
         well_label = self.get_well_label()
@@ -469,6 +463,16 @@ class CompositeCapture(FloatLayout):
                     color = layer
                     
                 break
+        
+        save_folder = pathlib.Path(settings['live_folder']) / "Manual"
+        separate_folder_per_channel = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']._seperate_folder_per_channel
+        if separate_folder_per_channel:
+            save_folder = save_folder / layer
+
+        save_folder.mkdir(parents=True, exist_ok=True)
+
+        global last_save_folder
+        last_save_folder = save_folder
 
         if ENGINEERING_MODE is False:
             return lumaview.scope.save_live_image(
@@ -3686,7 +3690,7 @@ class ProtocolSettings(CompositeCapture):
             # When only running a single scan (instead of a protocol)
             # do similar setup as is done for protocol
             if protocol is False:
-                self.separate_folder_per_channel = self.ids['protocol_channel_per_folder_id'].active
+                self.separate_folder_per_channel = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']._seperate_folder_per_channel
                 self._initialize_protocol_data_folder()
                 
             # TODO: shut off live updates
@@ -3918,7 +3922,7 @@ class ProtocolSettings(CompositeCapture):
                 else:
                     self.enable_image_saving = True
 
-            self.separate_folder_per_channel = self.ids['protocol_channel_per_folder_id'].active
+            self.separate_folder_per_channel = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']._seperate_folder_per_channel
             lumaview.scope.camera.update_auto_gain_target_brightness(settings['protocol']['autogain']['target_brightness'])
             auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
             self._initialize_protocol_data_folder()
@@ -4287,6 +4291,7 @@ class MicroscopeSettings(BoxLayout):
             logger.exception('[LVP Main  ] Unable to open objectives.json.')
             raise
 
+
     # load settings from JSON file
     def load_settings(self, filename="./data/current.json"):
         logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
@@ -4334,6 +4339,13 @@ class MicroscopeSettings(BoxLayout):
                 else:
                     self.ids['enable_full_pixel_depth_btn'].state = 'normal'
                 self.update_full_pixel_depth_state()
+
+                if 'separate_folder_per_channel' in settings:
+                    if settings['separate_folder_per_channel'] == True:
+                        self.ids['separate_folder_per_channel_id'].state = 'down'
+                    else:
+                        self.ids['separate_folder_per_channel_id'].state = 'normal'
+                self.update_separate_folders_per_channel()
 
                 self.ids['image_output_format_spinner'].text = settings['image_output_format']
                 self.select_image_output_format()
@@ -4385,6 +4397,17 @@ class MicroscopeSettings(BoxLayout):
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
         
         self.set_ui_features_for_scope()
+
+
+    def update_separate_folders_per_channel(self):
+        global settings
+
+        if self.ids['separate_folder_per_channel_id'].state == 'down':
+            self._seperate_folder_per_channel = True
+        else:
+            self._seperate_folder_per_channel = False
+
+        settings['separate_folder_per_channel'] = self._seperate_folder_per_channel
 
 
     def update_bullseye_state(self):
