@@ -36,6 +36,13 @@ class CompositeGeneration:
             }
 
         df = results['image_tile_groups']
+        
+        if len(df) == 0:
+            return {
+                'status': False,
+                'message': 'No images found in selected folder'
+            }
+        
         df['Composite Group Index'] = df.groupby(by=['Scan Count','Z-Slice','Well','Objective','X','Y'], dropna=False).ngroup()
         
         # Handle composite generation for stitched images also
