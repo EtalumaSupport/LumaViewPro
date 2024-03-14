@@ -1017,12 +1017,21 @@ class MotionSettings(BoxLayout):
     
     def set_tiling_control_visibility(self, visible: bool) -> None:
         vert_control = self.ids['protocol_settings_id']
-        for tiling_id in ('tiling_box_layout_id',):
-            vert_control.ids[tiling_id].visible = visible
 
-        if not visible:
+        if visible:
+            vert_control.ids['tiling_size_spinner'].disabled = False
+            vert_control.ids['tiling_size_spinner'].opacity = 1
+            vert_control.ids['tiling_size_apply_id'].disabled = False
+            vert_control.ids['tiling_size_apply_id'].opacity = 1
+            vert_control.ids['tiling_box_label_id'].opacity = 1
+        else:
             vert_control.ids['tiling_size_spinner'].text = '1x1'
-
+            vert_control.ids['tiling_size_spinner'].disabled = True
+            vert_control.ids['tiling_size_spinner'].opacity = 0
+            vert_control.ids['tiling_size_apply_id'].disabled = True
+            vert_control.ids['tiling_size_apply_id'].opacity = 0
+            vert_control.ids['tiling_box_label_id'].opacity = 0
+            
 
     # Hide (and unhide) motion settings
     def toggle_settings(self):
@@ -4242,7 +4251,7 @@ class Stage(Widget):
             # Green selection circle
             Color(0., 1., 0., 1., group='selected_well')
             Line(circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x), group='selected_well')
-            
+
             #  Red Crosshairs
             # ------------------
             if self._motion_enabled:

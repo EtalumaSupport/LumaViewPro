@@ -1043,13 +1043,13 @@
 			BoxLayout:
 				orientation: 'horizontal'
 				id: tiling_box_layout_id
-				size_hint_y: None if self.visible else 0
-				height: '30dp' if self.visible else 0
-				opacity: 1 if self.visible else 0
+				size_hint_y: None
+				height: '30dp'
+				opacity: 1
 				spacing: '5dp'
-				visible: True
 			
 				Label:
+					id: tiling_box_label_id
 					text: 'Tiling'
 					size_hint_y: None
 					height: '30dp'
@@ -1070,6 +1070,7 @@
 					on_text: root.update_tiling_selection()
 
 				Button:
+					id: tiling_size_apply_id
 					text: 'Apply'
 					size_hint_y: None
 					size_hint_x: None
