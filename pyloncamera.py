@@ -346,6 +346,7 @@ class ImageHandler(pylon.ImageEventHandler):
         super().__init__()
         self.last_result = False
         self.last_img = None
+        self._failed_grabs = 0
         
 
     def OnImageGrabbed(self, camera, grabResult):
@@ -354,7 +355,8 @@ class ImageHandler(pylon.ImageEventHandler):
             if self.last_result:
                 self.last_img = grabResult.GetArray()
             else:
-                raise RuntimeError("Grab Failed")
+                self._failed_grabs += 1
+                logger.exception(f"Grab Failed -> result: {self.last_result}, {self._failed_grabs} failed grabs")
         except Exception as e:
             logger.exception(e)
 
