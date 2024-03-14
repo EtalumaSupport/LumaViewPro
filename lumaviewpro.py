@@ -2137,6 +2137,11 @@ class VerticalControl(BoxLayout):
 
             # observe the image 
             image = lumaview.scope.get_image()
+
+            if image is False:
+                logger.exception(f"[LVP Main  ] Failed to retrieve image for focus iterate")
+                return
+            
             rows, cols = image.shape
 
             # Use center quarter of image for focusing
