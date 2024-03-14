@@ -4032,7 +4032,7 @@ class Stage(Widget):
             pos=self.full_redraw,
             size=self.full_redraw
         )
-        
+
     def append_ROI(self, x_min, y_min, x_max, y_max):
         self.ROI_min = [x_min, y_min]
         self.ROI_max = [x_max, y_max]
@@ -4240,7 +4240,7 @@ class Stage(Widget):
             target_well_center_y = int(y+target_well_pixel_y) # on screen center
     
             # Green selection circle
-            Color(0., 1., 0., 1.)
+            Color(0., 1., 0., 1., group='selected_well')
             Line(circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x), group='selected_well')
             
             #  Red Crosshairs
@@ -4264,7 +4264,7 @@ class Stage(Widget):
                 x_center = x+pixel_x
                 y_center = y+pixel_y
 
-                Color(1., 0., 0., 1.)
+                Color(1., 0., 0., 1., group='crosshairs')
                 Line(points=(x_center-10, y_center, x_center+10, y_center), width = 1, group='crosshairs') # horizontal line
                 Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1, group='crosshairs') # vertical line
 
