@@ -3833,7 +3833,7 @@ class ProtocolSettings(CompositeCapture):
 
         if self.enable_image_saving == True:
             if image_filepath is None:
-                logger.warn(f"Image saving enabled, but image filepath was none")
+                logger.warning(f"Image saving enabled, but image filepath was none")
                 image_filepath_name = "unsaved"
 
             elif self.separate_folder_per_channel:
