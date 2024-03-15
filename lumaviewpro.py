@@ -442,7 +442,6 @@ class CompositeCapture(FloatLayout):
 
 
     def live_capture(self):
-        print("Live capture")
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
@@ -567,7 +566,6 @@ class CompositeCapture(FloatLayout):
         custom_name = None,
         well_label = None
     ):
-        print("Custom capture")
         logger.info('[LVP Main  ] CompositeCapture.custom_capture()')
         global lumaview
         global settings
@@ -577,9 +575,6 @@ class CompositeCapture(FloatLayout):
             lumaview.scope.set_gain(gain)
             lumaview.scope.set_exposure_time(exposure)
     
-        # Save Settings
-        # file_root = settings[color]['file_root']
-
         name = common_utils.generate_default_step_name(
             well_label=well_label,
             color=color,
@@ -588,21 +583,6 @@ class CompositeCapture(FloatLayout):
             custom_name_prefix=custom_name,
             tile_label=tile_label
         )
-        # if custom_name is None:
-
-        #     if well_label is None:
-        #         well_label = self.get_well_label()
-
-        #     name = common_utils.generate_default_step_name(
-        #         well_label=well_label,
-        #         color=color,
-        #         z_height_idx=z_height_idx,
-        #         scan_count=scan_count,
-        #         tile_label=tile_label
-        #     )
-        # else:
-        #     DESIRED_SCAN_COUNT_DIGITS = 4
-        #     name = f"{custom_name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}"
 
         # Illuminate
         if lumaview.scope.led:
@@ -3852,8 +3832,13 @@ class ProtocolSettings(CompositeCapture):
         )
 
         if self.enable_image_saving == True:
-            if self.separate_folder_per_channel:
+            if image_filepath is None:
+                logger.warn(f"Image saving enabled, but image filepath was none")
+                image_filepath_name = "unsaved"
+
+            elif self.separate_folder_per_channel:
                 image_filepath_name = pathlib.Path(step["Color"]) / image_filepath.name
+
             else:
                 image_filepath_name = image_filepath.name
         else:
