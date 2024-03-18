@@ -866,17 +866,52 @@ void main (void) {
         self.white = 1.
         self.black = 0.
 
+        Window.bind(on_key_up=self._key_up)
+        Window.bind(on_key_down=self._key_down)
 
-    def on_touch_down(self, touch):
+        self._track_keys = ['ctrl']
+        self._active_key_presses = set()
+
+
+    def _key_up(self, *args):
+        if len(args) < 5: # No modifiers present
+            self._active_key_presses.clear()
+            return
+        
+        modifiers = args[4]
+        for key in self._track_keys:
+            if (key not in modifiers) and (key in self._active_key_presses):
+                self._active_key_presses.remove(key)
+        
+
+    def _key_down(self, *args):
+        modifiers = args[4]
+        for key in self._track_keys:
+            if (key in modifiers) and (key not in self._active_key_presses):
+                self._active_key_presses.add(key)
+
+
+    def on_touch_down(self, touch, *args):
         logger.info('[LVP Main  ] ShaderViewer.on_touch_down()')
         # Override Scatter's `on_touch_down` behavior for mouse scroll
         if touch.is_mouse_scrolling:
-            if touch.button == 'scrolldown':
-                if self.scale < 100:
-                    self.scale = self.scale * 1.1
-            elif touch.button == 'scrollup':
-                if self.scale > 1:
-                    self.scale = max(1, self.scale * 0.8)
+
+            if 'ctrl' in self._active_key_presses:
+                # Focus control
+                vertical_control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
+                if touch.button == 'scrolldown':
+                    vertical_control.coarse_down()
+                elif touch.button == 'scrollup':
+                    vertical_control.coarse_up()
+
+            else:
+                # Digital zoom control
+                if touch.button == 'scrolldown':
+                    if self.scale < 100:
+                        self.scale = self.scale * 1.1
+                elif touch.button == 'scrollup':
+                    if self.scale > 1:
+                        self.scale = max(1, self.scale * 0.8)
         # If some other kind of "touch": Fall back on Scatter's behavior
         else:
             super(ShaderViewer, self).on_touch_down(touch)
