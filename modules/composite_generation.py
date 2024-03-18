@@ -21,9 +21,10 @@ class CompositeGeneration:
         self._protocol_post_processing_helper = ProtocolPostProcessingHelper()
 
     
-    def load_folder(self, path: str | pathlib.Path) -> dict:
+    def load_folder(self, path: str | pathlib.Path, tiling_configs_file_loc: pathlib.Path) -> dict:
         results = self._protocol_post_processing_helper.load_folder(
             path=path,
+            tiling_configs_file_loc=tiling_configs_file_loc,
             include_stitched_images=True,
             include_composite_images=False
         )
@@ -35,6 +36,13 @@ class CompositeGeneration:
             }
 
         df = results['image_tile_groups']
+        
+        if len(df) == 0:
+            return {
+                'status': False,
+                'message': 'No images found in selected folder'
+            }
+        
         df['Composite Group Index'] = df.groupby(by=['Scan Count','Z-Slice','Well','Objective','X','Y'], dropna=False).ngroup()
         
         # Handle composite generation for stitched images also
