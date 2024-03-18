@@ -965,9 +965,11 @@ class MotionSettings(BoxLayout):
         if protocol_accordion_item.collapse is False:
             stage.pos_hint = {'center_x':0.5, 'center_y':0.5}
             protocol_stage_widget_parent.add_widget(stage)
+            stage.full_redraw()
         elif self._accordion_item_xystagecontrol.collapse is False:
             stage.pos_hint = {'center_x':0.5, 'center_y':0.5}
             xystage_widget_parent.add_widget(stage)
+            stage.full_redraw()
         
 
     def set_xystage_control_visibility(self, visible: bool) -> None:
@@ -4504,6 +4506,7 @@ class MicroscopeSettings(BoxLayout):
         settings['microscope'] = spinner.text
 
         self.set_ui_features_for_scope()
+        stage.full_redraw()
 
 
     def set_ui_features_for_scope(self) -> None:
