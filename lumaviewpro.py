@@ -3688,7 +3688,7 @@ class ProtocolSettings(CompositeCapture):
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
         return
 
-    def _initialize_protocol_data_folder(self):
+    def _initialize_protocol_data_folder(self) -> bool:
         if os.path.basename(settings['protocol']['filepath']) == "":
             protocol_filename = "unsaved_protocol.tsv"
         else:
@@ -3696,8 +3696,22 @@ class ProtocolSettings(CompositeCapture):
 
         # Create the folder to save the protocol captures and protocol itself
         save_folder = pathlib.Path(settings['live_folder']) / PROTOCOL_DATA_DIR_NAME
-        save_folder.mkdir(parents=True, exist_ok=True)
+        try:
+            save_folder.mkdir(parents=True, exist_ok=True)
+        except FileNotFoundError:
+            err_str = f"Unable to save data to {save_folder}. Please select an accessible capture location."
+            logger.error(err_str)
+            self._show_popup_message(
+                title='Save Location Not Accessible',
+                message=err_str,
+                delay_sec=5
+            )
+            return False
+
         self.protocol_run_dir = self._create_protocol_run_folder(parent_dir=save_folder)
+        if self.protocol_run_dir is False:
+            return False
+        
         protocol_filepath = self.protocol_run_dir / protocol_filename
         self.save_protocol(
             filepath=protocol_filepath,
@@ -3709,6 +3723,7 @@ class ProtocolSettings(CompositeCapture):
 
         protocol_record_filepath = self.protocol_run_dir / ProtocolExecutionRecord.DEFAULT_FILENAME
         self.protocol_execution_record = ProtocolExecutionRecord(outfile=protocol_record_filepath)
+        return True
 
 
     def get_curr_step(self):
@@ -3748,7 +3763,9 @@ class ProtocolSettings(CompositeCapture):
             # do similar setup as is done for protocol
             if protocol is False:
                 self.separate_folder_per_channel = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']._seperate_folder_per_channel
-                self._initialize_protocol_data_folder()
+                if not self._initialize_protocol_data_folder():
+                    return
+                
                 
             # TODO: shut off live updates
 
@@ -3955,13 +3972,23 @@ class ProtocolSettings(CompositeCapture):
             self.ids['run_stationary_btn'].text = 'Run Stationary Protocol' # 'normal'
 
 
-    @staticmethod
-    def _create_protocol_run_folder(parent_dir: str | pathlib.Path):
+    def _create_protocol_run_folder(self, parent_dir: str | pathlib.Path):
         now = datetime.datetime.now()
         time_string = now.strftime("%Y%m%d_%H%M%S")
         parent_dir = pathlib.Path(parent_dir)
         protocol_run_dir = parent_dir / time_string
-        protocol_run_dir.mkdir(exist_ok=True)
+        try:
+            protocol_run_dir.mkdir(exist_ok=True)
+        except FileNotFoundError:
+            err_str = f"Unable to save data to {protocol_run_dir}. Please select an accessible capture location."
+            logger.error(err_str)
+            self._show_popup_message(
+                title='Save Location Not Accessible',
+                message=err_str,
+                delay_sec=5
+            )
+            return False
+        
         return protocol_run_dir
 
 
@@ -3987,7 +4014,8 @@ class ProtocolSettings(CompositeCapture):
             self.separate_folder_per_channel = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']._seperate_folder_per_channel
             lumaview.scope.camera.update_auto_gain_target_brightness(settings['protocol']['autogain']['target_brightness'])
             auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
-            self._initialize_protocol_data_folder()
+            if not self._initialize_protocol_data_folder():
+                return
 
             logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
             Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
