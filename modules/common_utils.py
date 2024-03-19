@@ -65,8 +65,8 @@ def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | Non
 
     # Extract basename in case we are handling protocol with separate folders per channel
     base_name = os.path.basename(step_name)
-    if is_custom_name(name=base_name):
-        return None
+    # if is_custom_name(name=base_name):
+    #     return None
 
     # This replaces the parent folder when using per-channel folders for protocol runs
     split_name = list(os.path.split(step_name))
@@ -81,7 +81,10 @@ def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | Non
 
     step_name_segments = step_name.split('_')
     
-    step_name_segments[1] = new_layer_name
+    # Confirm it's actually a layer before replacing it
+    if step_name_segments[1] in get_layers(): 
+        step_name_segments[1] = new_layer_name
+
     return '_'.join(step_name_segments)
 
 
