@@ -869,7 +869,7 @@ void main (void) {
         Window.bind(on_key_up=self._key_up)
         Window.bind(on_key_down=self._key_down)
 
-        self._track_keys = ['ctrl']
+        self._track_keys = ['ctrl', 'shift']
         self._active_key_presses = set()
 
 
@@ -900,9 +900,15 @@ void main (void) {
                 # Focus control
                 vertical_control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
                 if touch.button == 'scrolldown':
-                    vertical_control.coarse_down()
+                    if 'shift' in self._active_key_presses:
+                        vertical_control.coarse_down()
+                    else:
+                        vertical_control.fine_down()
                 elif touch.button == 'scrollup':
-                    vertical_control.coarse_up()
+                    if 'shift' in self._active_key_presses:
+                        vertical_control.coarse_up()
+                    else:
+                        vertical_control.fine_up()
 
             else:
                 # Digital zoom control
