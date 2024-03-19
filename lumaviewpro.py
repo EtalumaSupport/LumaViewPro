@@ -901,14 +901,14 @@ void main (void) {
                 vertical_control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
                 if touch.button == 'scrolldown':
                     if 'shift' in self._active_key_presses:
-                        vertical_control.coarse_down()
-                    else:
-                        vertical_control.fine_down()
-                elif touch.button == 'scrollup':
-                    if 'shift' in self._active_key_presses:
                         vertical_control.coarse_up()
                     else:
                         vertical_control.fine_up()
+                elif touch.button == 'scrollup':
+                    if 'shift' in self._active_key_presses:
+                        vertical_control.coarse_down()
+                    else:
+                        vertical_control.fine_down()
 
             else:
                 # Digital zoom control
