@@ -146,8 +146,7 @@
         id: scope_display_id
         size_hint: None, None
         size: root.width, root.height
-        allow_stretch: True
-        keep_ratio: True
+		fit_mode: 'contain'
 		on_touch_down: self.touch(args[0], args[1]) # 0 is Widget, 1 is MotionEvent
 
 # ShaderEditor - view and edit shader code
