@@ -5200,6 +5200,7 @@ def load_mode():
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
     def on_start(self):
+        os.chdir(source_path)
         load_log_level()
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
