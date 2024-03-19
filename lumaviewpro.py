@@ -2931,7 +2931,7 @@ class ProtocolSettings(CompositeCapture):
         self._protocol_df = self.create_empty_protocol()
 
         # Z-stack related
-        def _zstack_positions() -> list[float]:
+        def _zstack_positions() -> dict:
             zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
             range = float(zstack_settings.ids['zstack_range_id'].text)
             step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
@@ -2949,7 +2949,7 @@ class ProtocolSettings(CompositeCapture):
             )
 
             if zstack_config.number_of_steps() <= 0:
-                return []
+                return {None: None}
 
             # begin moving to the first position
             return zstack_config.step_positions()
