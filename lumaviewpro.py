@@ -1037,7 +1037,7 @@ class MotionSettings(BoxLayout):
         for turret_id in ('turret_selection_label', 'turret_btn_box'):
             vert_control.ids[turret_id].visible = visible
 
-    
+
     def set_tiling_control_visibility(self, visible: bool) -> None:
         vert_control = self.ids['protocol_settings_id']
 
@@ -2705,6 +2705,17 @@ class ProtocolSettings(CompositeCapture):
         labware_spinner.height = '30dp' if visible else 0
         labware_spinner.opacity = 1 if visible else 0
         labware_spinner.disabled = not visible
+
+    
+    def set_show_protocol_step_locations_visibility(self, visible: bool) -> None:
+        if visible:
+            self.ids['show_step_locations_id'].disabled = False
+            self.ids['show_step_locations_id'].opacity = 1
+            self.ids['show_step_locations_label_id'].opacity = 1
+        else:
+            self.ids['show_step_locations_id'].disabled = True
+            self.ids['show_step_locations_id'].opacity = 0
+            self.ids['show_step_locations_label_id'].opacity = 0
 
 
     def apply_tiling(self):
@@ -4632,6 +4643,7 @@ class MicroscopeSettings(BoxLayout):
 
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
+        protocol_settings.set_show_protocol_step_locations_visibility(visible=selected_scope_config['XYStage'])
 
         if selected_scope_config['XYStage'] is False:
             stage.remove_parent()
@@ -4644,6 +4656,7 @@ class MicroscopeSettings(BoxLayout):
         logger.info('[LVP Main  ] MicroscopeSettings.load_ojectives()')
         spinner = self.ids['objective_spinner']
         spinner.values = list(self.objectives.keys())
+
 
     def select_objective(self):
         logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
