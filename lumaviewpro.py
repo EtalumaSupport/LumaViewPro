@@ -5026,17 +5026,60 @@ class FileChooseBTN(Button):
     selection = ListProperty([])
 
     def choose(self, context):
-        logger.info('[LVP Main  ] FileChooseBTN.choose()')
+        logger.info(f'[LVP Main  ] FileChooseBTN.choose({context})')
         # Call plyer filechooser API to run a filechooser Activity.
         self.context = context
-        if self.context == 'load_settings':
-            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"])   
-        elif self.context == 'load_protocol':
-            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tsv"])
-        elif self.context == 'load_cell_count_input_image':
-            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.tif?","*.jpg","*.bmp","*.png","*.gif"])
-        elif self.context == 'load_cell_count_method':
-            filechooser.open_file(on_selection=self.handle_selection, filters = ["*.json"]) 
+
+        # Show previously selected/default folder
+        selected_path = None
+        filetypes = None
+        filetypes_tk = None
+        if self.context == "load_protocol":
+            selected_path = str(pathlib.Path(settings['live_folder']))
+            filetypes = ["*.tsv"]
+            filetypes_tk = [('TSV', '.tsv')]
+        elif self.context == "load_settings":
+            filetypes=["*.json"]
+            filetypes_tk = [('JSON', '.json')]
+        elif self.context == "load_cell_count_input_image":
+            filetypes=["*.tif?"]
+            filetypes_tk = [('TIFF', '.tif .tiff')]
+        elif self.context == "load_cell_count_method":
+            filetypes_tk = [('JSON', '.json')]
+            filetypes=["*.json"]
+        else:
+            logger.exception(f"Unsupported handling for {self.context}")
+            return
+
+        if sys.platform in ('win32', 'darwin'):
+            # Tested for Windows/Mac platforms
+
+            # Use root with attributes to keep filedialog on top
+            # Ref: https://stackoverflow.com/questions/3375227/how-to-give-tkinter-file-dialog-focus
+            root = Tk()
+            root.attributes('-alpha', 0.0)
+            root.attributes('-topmost', True)
+            selection = filedialog.askopenfilename(
+                parent=root,
+                initialdir=selected_path,
+                filetypes=filetypes_tk
+            )
+            root.destroy()
+
+            # Nothing selected/cancel
+            if selection == '':
+                return
+            
+            self.handle_selection(selection=[selection])
+            return
+        
+        else:
+            filechooser.open_file(
+                on_selection=self.handle_selection,
+                filters=filetypes
+            )
+            return
+
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileChooseBTN.handle_selection()')
