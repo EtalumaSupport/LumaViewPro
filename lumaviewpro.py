@@ -3739,6 +3739,7 @@ class ProtocolSettings(CompositeCapture):
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
         logger.info('[LVP Main  ] ProtocolSettings.run_scan()')
+        self.scan_count = 0
 
         # If there are no steps, do not continue
         if len(self._protocol_df) < 1:
