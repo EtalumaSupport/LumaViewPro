@@ -5006,8 +5006,21 @@ class ZStack(CompositeCapture):
     def zstack_iterate(self, dt):
         logger.info('[LVP Main  ] ZStack.zstack_iterate()')
 
+        if not lumaview.scope.camera:
+            logger.error('[LVP Main  ] Clock.unschedule(self.zstack_iterate) - Camera not available')
+            Clock.unschedule(self.zstack_iterate)
+            return
+        
         if lumaview.scope.get_target_status('Z'):
             logger.info('[LVP Main  ] Z at target')
+
+            exposure_time_ms = lumaview.scope.camera.get_exposure_t()
+            if exposure_time_ms < 0:
+                logger.error('[LVP Main  ] Clock.unschedule(self.zstack_iterate) - Camera exposure time < 0')
+                Clock.unschedule(self.zstack_iterate)
+                return
+            
+            time.sleep(2*exposure_time_ms/1000+0.2)
             self.live_capture()
             self.n_pos += 1
 
