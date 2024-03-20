@@ -44,12 +44,6 @@ class LabWare(object):
         self.x = 75
         self.y = 25
         self.z = 1
-        self.load_all()
-
-    def load_all(self):
-        # Load all Possible Labware from JSON
-        with open('./data/labware.json', "r") as read_file:
-            self.labware = json.load(read_file)
 
 class Slide(LabWare):
     """A class that stores and computes actions for slides labware"""
@@ -62,15 +56,13 @@ class Slide(LabWare):
 class WellPlate(LabWare):
     """A class that stores and computes actions for wellplate labware"""
 
-    def __init__(self, *arg):
+    def __init__(self, config: dict, *arg):
         super(WellPlate, self).__init__()
- 
-        self.plate = []    # All plate information from JSON file
+
+        self.config = config
         self.ind_list = [] # ordered list of all well indices 
         self.pos_list = [] # ordered list of all well positions
 
-    def load_plate(self, plate_key):
-        self.plate = self.labware['Wellplate'][plate_key]
 
     # set indices based on plate and motion
     def set_indices(self, stitch=1):
@@ -82,39 +74,38 @@ class WellPlate(LabWare):
         # (0, 0) on the bottom left looking from above
 
         # start at the top-left when looking from above
-        for j in range(self.plate['rows']):            
-            for i in range(self.plate['columns']):
+        for j in range(self.config['rows']):            
+            for i in range(self.config['columns']):
                 if j % 2 == 1:
-                    i = self.plate['columns'] - i - 1
+                    i = self.config['columns'] - i - 1
                 self.ind_list.append([i,j])
                 
         if stitch > 1:
             for i in range(stitch):
                 for j in range(stitch):
                     if j % 2 == 1:
-                        i = self.plate['columns'] - i - 1
+                        i = self.config['columns'] - i - 1
                     self.stitch_list.append([i,j])
 
     # set positions based on indices
-    def set_positions(self, stitch=1):
+    def set_positions(self):
 
-        self.set_indices(stitch)
+        self.set_indices(stitch=1)
         self.pos_list = []
 
         for well in self.ind_list:
-            i, j = well[0], well[1]
             x, y = self.get_well_position(well[0], well[1])
             self.pos_list.append([x, y])
 
     # Get center position of well on plate in mm given its index (i, j)
     def get_well_position(self, i, j):
 
-        dx = self.plate['spacing']['x'] # distance b/w wells x-dir
-        ox = self.plate['offset']['x']  # offset to first well x-dir
+        dx = self.config['spacing']['x'] # distance b/w wells x-dir
+        ox = self.config['offset']['x']  # offset to first well x-dir
         x = ox+i*dx                     # x position in mm of well
         
-        dy = self.plate['spacing']['y']    # distance b/w wells y-dir
-        oy = self.plate['offset']['y']     # offset to top well y-dir
+        dy = self.config['spacing']['y']    # distance b/w wells y-dir
+        oy = self.config['offset']['y']     # offset to top well y-dir
         y = oy+j*dy
             
         return x, y
@@ -122,18 +113,18 @@ class WellPlate(LabWare):
     # Get index of closest well based on plate position (x, y) in mm
     def get_well_index(self, x, y):
 
-        ox = self.plate['offset']['x']     # offset to first well x-dir
-        dx = self.plate['spacing']['x']    # distance b/w wells x-dir
+        ox = self.config['offset']['x']     # offset to first well x-dir
+        dx = self.config['spacing']['x']    # distance b/w wells x-dir
         i = (x-ox)/dx
 
-        dy = self.plate['spacing']['y']    # distance b/w wells y-dir
-        oy = self.plate['offset']['y']     # offset to top well y-dir
+        dy = self.config['spacing']['y']    # distance b/w wells y-dir
+        oy = self.config['offset']['y']     # offset to top well y-dir
         j = (y-oy)/dy
         
         i = round(i)
         j = round(j)
-        i = np.clip(i, 0, self.plate['columns']-1)
-        j = np.clip(j, 0, self.plate['rows']-1)
+        i = np.clip(i, 0, self.config['columns']-1)
+        j = np.clip(j, 0, self.config['rows']-1)
         return i, j
 
 
@@ -148,6 +139,10 @@ class WellPlate(LabWare):
 
         letter += chr(ord('A') + well_y)
         return f'{letter}{well_x + 1}'
+    
+
+    def get_dimensions(self):
+        return self.config['dimensions']
     
     
 class PitriDish(LabWare):

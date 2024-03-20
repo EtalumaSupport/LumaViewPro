@@ -65,8 +65,8 @@ def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | Non
 
     # Extract basename in case we are handling protocol with separate folders per channel
     base_name = os.path.basename(step_name)
-    if is_custom_name(name=base_name):
-        return None
+    # if is_custom_name(name=base_name):
+    #     return None
 
     # This replaces the parent folder when using per-channel folders for protocol runs
     split_name = list(os.path.split(step_name))
@@ -81,7 +81,10 @@ def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | Non
 
     step_name_segments = step_name.split('_')
     
-    step_name_segments[1] = new_layer_name
+    # Confirm it's actually a layer before replacing it
+    if step_name_segments[1] in get_layers(): 
+        step_name_segments[1] = new_layer_name
+
     return '_'.join(step_name_segments)
 
 
@@ -182,9 +185,8 @@ def to_int(val) -> int | None:
         return int(float(val))
 
 
-def get_field_of_view(
-    focal_length: float,
-    frame_size: dict
+def get_pixel_size(
+    focal_length: float
 ):
     magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
                                         # in theory could be different in different scopes
@@ -193,6 +195,14 @@ def get_field_of_view(
     pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
     um_per_pixel = pixel_width / magnification
 
+    return um_per_pixel
+
+
+def get_field_of_view(
+    focal_length: float,
+    frame_size: dict
+):
+    um_per_pixel = get_pixel_size(focal_length=focal_length)
     fov_x = um_per_pixel * frame_size['width']
     fov_y = um_per_pixel * frame_size['height']
     
@@ -211,4 +221,3 @@ def max_decimal_precision(parameter: str) -> int:
     }
 
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
-    

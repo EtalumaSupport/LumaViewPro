@@ -1,6 +1,8 @@
 {
     "microscope": "LS850",
     "use_full_pixel_depth": false,
+    "image_output_format": "TIFF",
+    "separate_folder_per_channel": false,
     "stage_offset": {
         "x": 5500.0,
         "y": 4000.0
@@ -115,5 +117,11 @@
             "level": "INFO"
         }
     },
-    "mode": "normal"
+    "mode": "normal",
+    "profiling": {
+        "enabled": false
+    },
+    "scale_bar": {
+        "enabled": false
+    }
 }

@@ -73,62 +73,70 @@ class Protocol:
 
 
     @classmethod
-    def from_file(cls, file_path: pathlib.Path):
+    def from_file(cls, file_path: pathlib.Path, tiling_configs_file_loc : pathlib.Path | None):
         
         config = {}
-        with open(file_path, 'r') as fp:
-            csvreader = csv.reader(fp, delimiter='\t')
-            verify = next(csvreader)
-            if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
-                raise Exception(f"Not a valid LumaViewPro Protocol")
-            
-            version_row = next(csvreader)
-            if version_row[0] != "Version":
-                logger.error(f"Unable to load {file_path} which contains an older protocol format that is no longer supported.\nPlease create a new protocol using this version of LumaViewPro.")
-                return
 
-            config['version'] = int(version_row[1])
-            if config['version'] != 2:
-                logger.error(f"Unable to load {file_path} which contains a protocol version that is not supported.\nPlease create a new protocol using this version of LumaViewPro.")
-                return
+        # Filter out blank lines
+        file_content = None
+        fp = None
+        with open(file_path, 'r') as fp_orig:
+            file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
+            file_content = ''.join(file_data_lines)
+            fp = io.StringIO(file_content)
 
-            period_row = next(csvreader)
-            config['period'] = datetime.timedelta(minutes=float(period_row[1]))
-            
-            duration = next(csvreader)
-            config['duration'] = datetime.timedelta(hours=float(duration[1]))
+        csvreader = csv.reader(fp, delimiter='\t')
+        verify = next(csvreader)
+        if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
+            raise Exception(f"Not a valid LumaViewPro Protocol")
+        
+        version_row = next(csvreader)
+        if version_row[0] != "Version":
+            logger.error(f"Unable to load {file_path} which contains an older protocol format that is no longer supported.\nPlease create a new protocol using this version of LumaViewPro.")
+            return
 
-            labware = next(csvreader)
-            config['labware'] = labware[1]
+        config['version'] = int(version_row[1])
+        if config['version'] != 2:
+            logger.error(f"Unable to load {file_path} which contains a protocol version that is not supported.\nPlease create a new protocol using this version of LumaViewPro.")
+            return
 
-            # if config['version'] >= 2:
-            #     tiling_config_row = next(csvreader)
-            #     config['tiling'] = tiling_config_row[1]
+        period_row = next(csvreader)
+        config['period'] = datetime.timedelta(minutes=float(period_row[1]))
+        
+        duration = next(csvreader)
+        config['duration'] = datetime.timedelta(hours=float(duration[1]))
 
-            # empty = next(csvreader)
+        labware = next(csvreader)
+        config['labware'] = labware[1]
 
-            # Search for "Steps" to indicate start of steps
-            while True:
-                tmp = next(csvreader)
-                if len(tmp) == 0:
-                    continue
+        # if config['version'] >= 2:
+        #     tiling_config_row = next(csvreader)
+        #     config['tiling'] = tiling_config_row[1]
 
-                if tmp[0] == "Steps":
-                    break
-            
+        # empty = next(csvreader)
 
-            # orig_labware = labware
-            # labware_valid, labware = self._validate_labware(labware=orig_labware)
-            # if not labware_valid:
-                # raise Exception(f"Invalid labware: {labware}")
-                # logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
+        # Search for "Steps" to indicate start of steps
+        while True:
+            tmp = next(csvreader)
+            if len(tmp) == 0:
+                continue
 
-            table_lines = []
-            for line in fp:
-                table_lines.append(line)
-            
-            table_str = ''.join(table_lines)
-            protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
+            if tmp[0] == "Steps":
+                break
+        
+
+        # orig_labware = labware
+        # labware_valid, labware = self._validate_labware(labware=orig_labware)
+        # if not labware_valid:
+            # raise Exception(f"Invalid labware: {labware}")
+            # logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
+
+        table_lines = []
+        for line in fp:
+            table_lines.append(line)
+        
+        table_str = ''.join(table_lines)
+        protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
 
         #     columns = next(csvreader)
         #     column_map = cls._get_column_index_map(column_names=columns)
@@ -193,7 +201,9 @@ class Protocol:
                 protocol_df = protocol_df.drop(columns=['channel'])
 
             # Extract tiling config from step names
-            tc = tiling_config.TilingConfig()
+            tc = tiling_config.TilingConfig(
+                tiling_configs_file_loc=tiling_configs_file_loc
+            )
             config['tiling'] = tc.determine_tiling_label_from_names(
                 names=protocol_df['Name'].to_list()
             )
@@ -211,7 +221,9 @@ class Protocol:
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names
-            tc = tiling_config.TilingConfig()
+            tc = tiling_config.TilingConfig(
+                tiling_configs_file_loc=tiling_configs_file_loc
+            )
             config['tiling'] = tc.determine_tiling_label_from_names(
                 names=protocol_df['Name'].to_list()
             )

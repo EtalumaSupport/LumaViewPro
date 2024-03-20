@@ -19,7 +19,11 @@ class ProtocolPostProcessingHelper:
 
     @staticmethod
     def _get_image_filenames_from_folder(path: pathlib.Path) -> list:
-        images = path.glob('**/*.tif[f]')
+        tiff_images = path.rglob('*.tif[f]')
+        ome_tiff_images = path.rglob('*.ome.tif[f]')
+        images = []
+        images.extend(tiff_images)
+        images.extend(ome_tiff_images)
         image_names = []
         for image in images:
             image_names.append(os.path.relpath(image, path))
@@ -79,6 +83,7 @@ class ProtocolPostProcessingHelper:
     def load_folder(
         self,
         path: str | pathlib.Path,
+        tiling_configs_file_loc: pathlib.Path,
         include_stitched_images: bool = False,
         include_composite_images: bool = False
     ) -> dict:
@@ -94,7 +99,11 @@ class ProtocolPostProcessingHelper:
             }
         
         logger.info(f"{self._name}: Found -> protocol {protocol_tsvs['protocol']}, protocol execution record {protocol_tsvs['protocol_execution_record']}")
-        protocol = Protocol.from_file(file_path=protocol_tsvs['protocol'])
+        protocol = Protocol.from_file(
+            file_path=protocol_tsvs['protocol'],
+            tiling_configs_file_loc=tiling_configs_file_loc
+        )
+
         if protocol is None:
             logger.error(f"{self._name}: Protocol not loaded")
             return {
