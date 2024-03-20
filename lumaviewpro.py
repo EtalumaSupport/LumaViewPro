@@ -5025,6 +5025,7 @@ class ZStack(CompositeCapture):
             self.n_pos += 1
 
             if self.n_pos < len(self.positions):
+                logger.info(f"[LVP Main  ] moving to position {self.n_pos} @ Z={self.positions[self.n_pos]}")
                 lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
             else:
                 self.ids['zstack_aqr_btn'].text = 'Acquire'
