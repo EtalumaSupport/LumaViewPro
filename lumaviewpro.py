@@ -3183,6 +3183,9 @@ class ProtocolSettings(CompositeCapture):
         # Update Labware Selection in Spinner
         self.ids['labware_spinner'].text = settings['protocol']['labware']
 
+        # Make steps available for drawing locations
+        stage.set_protocol_steps(df=self._protocol_df)
+
         if lumaview.scope.has_xyhomed():
             self.go_to_step()
     
