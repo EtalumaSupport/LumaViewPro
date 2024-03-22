@@ -5,6 +5,15 @@ from kivy_deps import sdl2, glew
 block_cipher = None
 app_name = 'lumaviewpro'
 
+hiddenimports = [
+    'imagecodecs._imcd',
+    'imagecodecs._shared',
+    'plyer.platforms.win.notification',
+    'plyer.platforms.win.filechooser',
+    'skimage.measure',
+    'win32timezone',
+]
+
 a = Analysis(
     ['lumaviewpro.py'],
     pathex=['.'],
@@ -12,12 +21,7 @@ a = Analysis(
     datas=[
         ('.','.')
     ],
-    hiddenimports=[
-        'plyer.platforms.win.notification',
-        'plyer.platforms.win.filechooser',
-        'skimage.measure',
-        'win32timezone',
-    ],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
