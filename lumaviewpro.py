@@ -3739,7 +3739,6 @@ class ProtocolSettings(CompositeCapture):
     # Run one scan of the protocol
     def run_scan(self, protocol = False):
         logger.info('[LVP Main  ] ProtocolSettings.run_scan()')
-        self.scan_count = 0
 
         # If there are no steps, do not continue
         if len(self._protocol_df) < 1:
@@ -3766,6 +3765,7 @@ class ProtocolSettings(CompositeCapture):
             # When only running a single scan (instead of a protocol)
             # do similar setup as is done for protocol
             if protocol is False:
+                self.scan_count = 0
                 self.separate_folder_per_channel = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']._seperate_folder_per_channel
                 if not self._initialize_protocol_data_folder():
                     return
