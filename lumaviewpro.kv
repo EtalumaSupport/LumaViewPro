@@ -1189,7 +1189,7 @@
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
-				on_release: root.run_scan()
+				on_release: root.run_scan_from_ui()
 
 			ToggleButton:
 				id: run_protocol_btn
@@ -1197,7 +1197,7 @@
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
-				on_release: root.run_protocol()
+				on_release: root.run_protocol_from_ui()
 
 			# Engineering mode option
 			BoxLayout:
