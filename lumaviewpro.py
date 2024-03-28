@@ -4118,17 +4118,16 @@ class ProtocolSettings(CompositeCapture):
         period_seconds = settings['protocol']['period']*60 # length of cycle in seconds
 
         # compute time remaining
-        sec_remaining = self.n_scans * period_seconds - (current_time - self.start_t)
+        # sec_remaining = self.n_scans * period_seconds - (current_time - self.start_t)
         # compute time remaining until next scan
-        # sec_remaining = period_seconds - (curr_t - start_t)
-        min_remaining = sec_remaining / 60
-        hrs_remaining = min_remaining / 60
+        # min_remaining = sec_remaining / 60
+        # hrs_remaining = min_remaining / 60
 
-        hrs = np.floor(hrs_remaining)
-        minutes = np.floor((hrs_remaining - hrs)*60)
+        # hrs = np.floor(hrs_remaining)
+        # minutes = np.floor((hrs_remaining - hrs)*60)
 
-        hrs = '%d' % hrs
-        minutes = '%02d' % minutes
+        # hrs = '%d' % hrs
+        # minutes = '%02d' % minutes
 
         # Update Button
         if self._protocol_run_mode != ProtocolRunMode.SINGLE_SCAN:
