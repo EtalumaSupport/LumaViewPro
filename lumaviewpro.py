@@ -4444,6 +4444,8 @@ class MicroscopeSettings(BoxLayout):
                         'target_brightness': 0.3
                     }
 
+                settings['live_folder'] = str(pathlib.Path(settings['live_folder']).resolve())
+                
                 # update GUI values from JSON data:
                
                 # Scope auto-detection
@@ -5167,7 +5169,7 @@ class FolderChooseBTN(Button):
             return
 
         if self.context == 'live_folder':
-            settings['live_folder'] = path
+            settings['live_folder'] = str(pathlib.Path(path).resolve())
 
         elif self.context == 'video_input_images_folder':
             video_creation_controls.set_input_images_loc(directory=path)
