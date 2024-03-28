@@ -3779,42 +3779,42 @@ class ProtocolSettings(CompositeCapture):
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
         # begin at current step set to 0 (curr_step = 0)
-        self.curr_step = 0
-        self.ids['step_number_input'].text = str(self.curr_step+1)
-        self.go_to_step()
+        # self.curr_step = 0
+        # self.ids['step_number_input'].text = str(self.curr_step+1)
+        # self.go_to_step()
             
-        step = self.get_curr_step()
+        # step = self.get_curr_step()
    
-        # Convert plate coordinates to stage coordinates
-        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
-        sx, sy = coordinate_transformer.plate_to_stage(
-            labware=labware,
-            stage_offset=settings['stage_offset'],
-            px=step["X"],
-            py=step["Y"]
-        )
+        # # Convert plate coordinates to stage coordinates
+        # labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        # sx, sy = coordinate_transformer.plate_to_stage(
+        #     labware=labware,
+        #     stage_offset=settings['stage_offset'],
+        #     px=step["X"],
+        #     py=step["Y"]
+        # )
 
-        # Move into position
-        lumaview.scope.move_absolute_position('X', sx)
-        lumaview.scope.move_absolute_position('Y', sy)
-        lumaview.scope.move_absolute_position('Z', step["Z"])
+        # # Move into position
+        # lumaview.scope.move_absolute_position('X', sx)
+        # lumaview.scope.move_absolute_position('Y', sy)
+        # lumaview.scope.move_absolute_position('Z', step["Z"])
 
         logger.info('[LVP Main  ] Clock.schedule_interval(self.scan_iterate, 0.1)')
         Clock.schedule_interval(self.scan_iterate, 0.1)
 
         # If the toggle button is in the up position: Stop Running Scan
-        else:  # self.ids['run_scan_btn'].state =='normal'
-            self.ids['run_scan_btn'].text = 'Run One Scan'
+        # else:  # self.ids['run_scan_btn'].state =='normal'
+            # self.ids['run_scan_btn'].text = 'Run One Scan'
 
             # toggle all LEDs AND TOGGLE BUTTONS OFF
-            scope_leds_off()
+            # scope_leds_off()
 
-            for layer in common_utils.get_layers():
-                lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
+            # for layer in common_utils.get_layers():
+                # lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
-            logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
-            Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
-            self.protocol_execution_record.complete()
+            # logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
+            # Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+            # self.protocol_execution_record.complete()
 
     
     def perform_grease_redistribution(self):
@@ -4058,6 +4058,7 @@ class ProtocolSettings(CompositeCapture):
         else:
             raise NotImplementedError(f"Protocol run mode {run_mode.value} not implemented")
         
+        self._protocol_run_mode = run_mode
         self.scan_count = 0
         self.autofocus_count = 0
         self.scan_in_progress = False
@@ -4099,25 +4100,27 @@ class ProtocolSettings(CompositeCapture):
             Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
             # self.protocol_event.cancel()
             scope_leds_off()
+            for layer in common_utils.get_layers():
+                lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
+
+            self.protocol_execution_record.complete()
  
 
     def protocol_iterate(self, dt):
         logger.info('[LVP Main  ] ProtocolSettings.protocol_iterate()')
 
+        current_time = time.time()
         # Don't start the next scan if the current scan is in progress
         if self.scan_in_progress:
             return
 
         # Simplified variables
-        start_t = self.start_t # start of cycle in seconds
-        curr_t = time.time()   # current time in seconds
-        n_scans = self.n_scans # current number of scans left
-        period = settings['protocol']['period']*60 # length of cycle in seconds
+        period_seconds = settings['protocol']['period']*60 # length of cycle in seconds
 
         # compute time remaining
-        sec_remaining = n_scans*period - (curr_t - start_t)
+        sec_remaining = self.n_scans * period_seconds - (current_time - self.start_t)
         # compute time remaining until next scan
-        # sec_remaining = period - (curr_t - start_t)
+        # sec_remaining = period_seconds - (curr_t - start_t)
         min_remaining = sec_remaining / 60
         hrs_remaining = min_remaining / 60
 
@@ -4128,31 +4131,34 @@ class ProtocolSettings(CompositeCapture):
         minutes = '%02d' % minutes
 
         # Update Button
-        self.ids['run_protocol_btn'].text = f"{n_scans} scans remaining. Press to ABORT"
+        if self._protocol_run_mode != ProtocolRunMode.SINGLE_SCAN:
+            self.ids['run_protocol_btn'].text = f"{self.n_scans} scans remaining. Press to ABORT"
 
-        # Check if reached next Period
-        if (time.time()-self.start_t) > period:
+        # If the next period hasn't been reached, then return
+        if (current_time-self.start_t) <= period_seconds:
+            return
 
-            # reset the start time and update number of scans remaining
-            self.start_t = time.time()
-            self.n_scans = self.n_scans - 1
+        # reset the start time and update number of scans remaining
+        self.start_t = current_time
+        self.n_scans -= 1
 
-            if self.n_scans > 0:
-                logger.info('[LVP Main  ] Scans Remaining: ' + str(self.n_scans))
-                self.run_scan(protocol = True)
-            else:
-               self._reset_run_protocol_button()
-               self._reset_run_scan_button()
-            #    self.ids['run_protocol_btn'].state = 'normal' # 'normal'
-            #    self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
+        if self.n_scans > 0:
+            logger.info(f'[LVP Main  ] Scans Remaining: {self.n_scans}')
+            self.run_scan() #protocol = True)
+            return
 
-               logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
-               Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
-               logger.info('[LVP Main  ] Clock.unschedule(self.protocol_iterate)')
-               Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
-               scope_leds_off()
+        self._reset_run_protocol_button()
+        self._reset_run_scan_button()
+    #    self.ids['run_protocol_btn'].state = 'normal' # 'normal'
+    #    self.ids['run_protocol_btn'].text = 'Run Full Protocol' # 'normal'
 
-               self.protocol_execution_record.complete()
+        logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
+        Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+        logger.info('[LVP Main  ] Clock.unschedule(self.protocol_iterate)')
+        Clock.unschedule(self.protocol_iterate) # unschedule all copies of protocol iterate
+        scope_leds_off()
+
+        self.protocol_execution_record.complete()
                
 
 # Widget for displaying Microscope Stage area, labware, and current position 
