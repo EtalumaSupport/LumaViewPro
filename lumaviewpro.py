@@ -5193,13 +5193,36 @@ class FileSaveBTN(Button):
         logger.info('[LVP Main  ] FileSaveBTN.choose()')
         self.context = context
         if self.context == 'save_settings':
-            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
+            filetypes = [('JSON', '.json')]
         elif self.context == 'saveas_protocol':
-            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.tsv"])
+            filetypes = [('TSV', '.tsv')]
         elif self.context == 'saveas_cell_count_method':
-            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.json"])
+            filetypes = [('JSON', '.json')]
         elif self.context == 'video_output_path':
-            filechooser.save_file(on_selection=self.handle_selection, filters = ["*.avi"])
+            filetypes = [('AVI', '.avi')]
+        else:
+            logger.exception(f"Unsupported handling for {self.context}")
+            return
+        
+        selected_path = settings['live_folder']
+        
+        # Use root with attributes to keep filedialog on top
+        # Ref: https://stackoverflow.com/questions/3375227/how-to-give-tkinter-file-dialog-focus
+        root = Tk()
+        root.attributes('-alpha', 0.0)
+        root.attributes('-topmost', True)
+        selection = filedialog.asksaveasfilename(
+            parent=root,
+            initialdir=selected_path,
+            filetypes=filetypes
+        )
+        root.destroy()
+
+        # Nothing selected/cancel
+        if selection == '':
+            return
+        
+        self.handle_selection(selection=[selection])     
 
 
     def handle_selection(self, selection):
