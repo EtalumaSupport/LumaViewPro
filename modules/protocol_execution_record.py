@@ -24,6 +24,8 @@ class ProtocolExecutionRecord:
         if (outfile is None) and (records is None):
             raise Exception(f"Must specify outfile or records")
         
+
+        self._outfile_fp = None
         if outfile is not None:
             self._mode = "to_file"
             self._outfile = outfile
@@ -31,8 +33,8 @@ class ProtocolExecutionRecord:
         else:
             self._mode = "from_file"
             self._records = records
-            
-    
+
+
     def _initialize_outfile(self, outfile: pathlib.Path):
         self._outfile_fp = open(outfile, 'w')
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
@@ -46,6 +48,9 @@ class ProtocolExecutionRecord:
 
 
     def _close_outfile(self):
+        if self._outfile_fp is None:
+            return
+        
         self._outfile_fp.close()
 
 
