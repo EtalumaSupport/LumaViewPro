@@ -708,8 +708,6 @@ class CompositeCapture(FloatLayout):
 
             scope_leds_off()
 
-            # turn off all LED toggle buttons and histograms
-            # lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
@@ -3744,7 +3742,7 @@ class ProtocolSettings(CompositeCapture):
         
 
     # Run one scan of the protocol
-    def run_scan(self): #, protocol = False):
+    def run_scan(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_scan()')
 
         if self.scan_in_progress == True:
@@ -3913,7 +3911,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_scan_button()
 
         logger.info('[LVP Main  ] Clock.unschedule(self.scan_iterate)')
-        Clock.unschedule(self.scan_iterate) # unschedule all copies of scan iterate
+        Clock.unschedule(self.scan_iterate)
         self.scan_in_progress = False
 
 
