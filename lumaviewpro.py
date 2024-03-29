@@ -3004,7 +3004,6 @@ class ProtocolSettings(CompositeCapture):
         for pos in labware.pos_list:
             for tile_label, tile_position in tiles.items():
                 for zstack_slice, zstack_position in zstack_positions.items():
-                    # Iterate through all the colors to create the steps
                     for layer in common_utils.get_layers():
                         if settings[layer]['acquire'] == False:
                             continue
