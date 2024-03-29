@@ -220,6 +220,30 @@ def is_image_saving_enabled() -> bool:
     return True
 
 
+# Z-stack related
+def get_zstack_positions() -> tuple[bool, dict]:
+    zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
+    range = float(zstack_settings.ids['zstack_range_id'].text)
+    step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
+    z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
+        text_label=zstack_settings.ids['zstack_spinner'].text
+    )
+
+    current_pos = lumaview.scope.get_current_position('Z')
+
+    zstack_config = ZStackConfig(
+        range=range,
+        step_size=step_size,
+        current_z_reference=z_reference,
+        current_z_value=current_pos
+    )
+
+    if zstack_config.number_of_steps() <= 0:
+        return False, {None: None}
+
+    return True, zstack_config.step_positions()
+
+
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
 # -------------------------------------------------------------------------
@@ -2741,14 +2765,6 @@ class ProtocolSettings(CompositeCapture):
         if len(tiles) == 1: # No tiling
             return
 
-        # Get existing max tile group ID to start from
-        # existing_max_tile_group_id = -1
-
-        # for row_idx in range(len(self._protocol_df)):
-        #     step = self._protocol_df.iloc[row_idx]
-        #     tile_group_id = step['Tile']
-        #     if tile_group_id != "":
-        #         existing_max_tile_group_id = max(tile_group_id, existing_max_tile_group_id)
         existing_max_tile_group_id = self._protocol_df['Tile Group ID'].max()
 
         tile_group_id = existing_max_tile_group_id + 1
@@ -2771,24 +2787,6 @@ class ProtocolSettings(CompositeCapture):
                 
                 x_tile = round(x + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
                 y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
-
-                # if orig_step_df["Custom Step"]:
-                #     new_step_name = common_utils.generate_default_step_name(
-                #         custom_name_prefix=orig_step_df['Name'],
-                #         well_label=orig_step_df['Well'],
-                #         color=orig_step_df['Color'],
-                #         z_height_idx=None,
-                #         scan_count=None,
-                #         tile_label=tile_label
-                #     )
-                # else:
-                #     new_step_name = common_utils.generate_default_step_name(
-                #         well_label=orig_step_df['Well'],
-                #         color=orig_step_df['Color'],
-                #         z_height_idx=orig_step_df['Z-Slice'],
-                #         scan_count=None,
-                #         tile_label=tile_label
-                #     )
                 
                 new_step_dict = self.create_step_dict(
                     name=orig_step_df['Name'],
@@ -2814,6 +2812,61 @@ class ProtocolSettings(CompositeCapture):
                 new_steps.append(new_step_dict)
             
             tile_group_id += 1
+
+        self._protocol_df = pd.DataFrame.from_dict(new_steps)
+        stage.set_protocol_steps(df=self._protocol_df)
+        self.update_step_ui()
+
+    
+    def apply_zstacking(self):
+        logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        labware.set_positions()
+        
+        zstack_valid, zstack_positions = get_zstack_positions()
+        if not zstack_valid:
+            return
+        
+        existing_max_zstack_group_id = self._protocol_df['Z-Stack Group ID'].max()
+
+        zstack_group_id = existing_max_zstack_group_id + 1
+
+        new_steps = list()
+        for row_idx in range(len(self._protocol_df)):
+            orig_step_df = self._protocol_df.iloc[row_idx]
+            orig_step_dict = orig_step_df.to_dict()
+
+            # If already part of a Z-Stack, copy it over to the new protocol
+            if orig_step_df['Z-Slice'] not in (None, "", -1):
+                new_steps.append(orig_step_dict)
+                continue
+            
+            # Create a z-stack  
+            for zstack_slice, zstack_position in zstack_positions.items():
+                new_step_dict = self.create_step_dict(
+                    name=orig_step_df['Name'],
+                    x=orig_step_df["X"],
+                    y=orig_step_df["Y"],
+                    z=zstack_position,
+                    af=orig_step_df['Auto_Focus'],
+                    color=orig_step_df['Color'],
+                    fc=orig_step_df['False_Color'],
+                    ill=orig_step_df['Illumination'],
+                    gain=orig_step_df['Gain'],
+                    auto_gain=orig_step_df['Auto_Gain'],
+                    exp=orig_step_df['Exposure'],
+                    objective=orig_step_df['Objective'],
+                    well=orig_step_df['Well'],
+                    tile=orig_step_df['Tile'],
+                    zslice=zstack_slice,
+                    custom_step=orig_step_df['Custom Step'],
+                    tile_group_id=orig_step_df['Tile Group ID'],
+                    zstack_group_id=zstack_group_id
+                )
+
+                new_steps.append(new_step_dict)
+            
+            zstack_group_id += 1
 
         self._protocol_df = pd.DataFrame.from_dict(new_steps)
         stage.set_protocol_steps(df=self._protocol_df)
@@ -2938,33 +2991,9 @@ class ProtocolSettings(CompositeCapture):
         
         self._protocol_df = self.create_empty_protocol()
 
-        # Z-stack related
-        def _zstack_positions() -> dict:
-            zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
-            range = float(zstack_settings.ids['zstack_range_id'].text)
-            step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
-            z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
-                text_label=zstack_settings.ids['zstack_spinner'].text
-            )
-
-            current_pos = lumaview.scope.get_current_position('Z')
-
-            zstack_config = ZStackConfig(
-                range=range,
-                step_size=step_size,
-                current_z_reference=z_reference,
-                current_z_value=current_pos
-            )
-
-            if zstack_config.number_of_steps() <= 0:
-                return {None: None}
-
-            # begin moving to the first position
-            return zstack_config.step_positions()
-
         use_zstacking = self.ids['acquire_zstack_id'].active
         if use_zstacking:
-            zstack_positions = _zstack_positions()
+            _, zstack_positions = get_zstack_positions()
         else:
             zstack_positions = {None: None}
 
@@ -2983,7 +3012,7 @@ class ProtocolSettings(CompositeCapture):
                         x = round(pos[0] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
                         y = round(pos[1] + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
 
-                        if use_zstacking:
+                        if use_zstacking and (zstack_slice is not None):
                             z = zstack_position
                         else:
                             z = settings[layer]['focus']

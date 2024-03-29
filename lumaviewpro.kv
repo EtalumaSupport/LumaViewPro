@@ -1077,6 +1077,36 @@
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.apply_tiling()
+
+			# Post-protocol creation Z-Stacking
+			BoxLayout:
+				orientation: 'horizontal'
+				id: protocol_zstacking_box_layout_id
+				size_hint_y: None
+				height: '30dp'
+				opacity: 1
+				spacing: '5dp'
+			
+				Label:
+					id: protocol_zstacking_box_label_id
+					text: 'Z-Stacking'
+					size_hint_y: None
+					height: '30dp'
+					size_hint_x: None
+					width: '75dp'
+					font_size: '12sp'
+
+				Label:
+
+				Button:
+					id: protocol_zstacking_apply_id
+					text: 'Apply'
+					size_hint_y: None
+					size_hint_x: None
+					width: '50dp'
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.apply_zstacking()
 								
 			# Z-stack
 			BoxLayout:
