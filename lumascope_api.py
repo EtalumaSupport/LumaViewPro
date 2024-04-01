@@ -477,19 +477,28 @@ class Lumascope():
     ########################################################################
     # MOTION CONTROL FUNCTIONS
     ########################################################################
+    @contextlib.contextmanager
+    def reference_position_logger(self):
+        self.get_reference_status_all_axis()
+        yield
+        self.get_reference_status_all_axis()
+
 
     def zhome(self):
         """MOTION CONTROL FUNCTIONS
         Home the z-axis (i.e. focus)"""
         #if not self.motion: return
-        self.motion.zhome()
+        with self.reference_position_logger():
+            self.motion.zhome()
 
     def xyhome(self):
         """MOTION CONTROL FUNCTIONS
         Home the xy-axes (i.e. stage). Note: z-axis and turret will always home first"""
         #if not self.motion: return
-        self.is_homing = True
-        self.motion.xyhome()
+        with self.reference_position_logger():
+            self.is_homing = True
+            self.motion.xyhome()
+
         return
 
         #while self.is_moving():
@@ -536,8 +545,9 @@ class Lumascope():
         #    return
 
         # Move turret
-        with self.safe_turret_mover():
-            self.motion.thome()
+        with self.reference_position_logger():
+            with self.safe_turret_mover():
+                self.motion.thome()
 
 
     def tmove(self, degrees):
@@ -623,6 +633,17 @@ class Lumascope():
         #if not self.motion: return
         status = self.motion.reference_status(axis)
         return status
+    
+
+    def get_reference_status_all_axis(self):
+        """MOTION CONTROL FUNCTIONS
+        Get all reference status register bits as 32 character string (32-> 0) for all axis
+        """
+        resp = {}
+        for axis in ('X','Y','Z','T'):
+            resp[axis] = self.get_reference_status(axis=axis)
+        return resp
+
 
     def get_overshoot(self):
         """MOTION CONTROL FUNCTIONS
@@ -662,7 +683,6 @@ class Lumascope():
             return None
         
         return self.motion.get_microscope_model()
-
     
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS
