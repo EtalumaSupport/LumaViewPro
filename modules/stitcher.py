@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
+import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
 import image_utils
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
@@ -22,11 +23,12 @@ class Stitcher:
         
 
     def load_folder(self, path: str | pathlib.Path, tiling_configs_file_loc: pathlib.Path) -> dict:
+        path = pathlib.Path(path)
         results = self._protocol_post_processing_helper.load_folder(
             path=path,
             tiling_configs_file_loc=tiling_configs_file_loc,
             include_stitched_images=False,
-            include_composite_images=False
+            include_composite_images=True
         )
 
         if results['status'] is False:
@@ -34,28 +36,56 @@ class Stitcher:
                 'status': False,
                 'message': f'Failed to load protocol data from {path}'
             }
-       
-        df = results['image_tile_groups']
-        df['Stitch Group Index'] = df.groupby(by=['Protocol Group Index','Scan Count']).ngroup()
+        
+        output_path = path / artifact_locations.stitcher_output_dir()
+        output_path.mkdir(exist_ok=True, parents=True)
 
-        # composite_images_df = results['composite_images']
-        # if composite_images_df is not None:
-        #     composite_images_df['stitch_group_index'] = composite_images_df.groupby(by=['scan_count', 'z_slice', 'well']).ngroup()
-        #     loop_list = itertools.chain(
-        #         df.groupby(by=['stitch_group_index']),
-        #         composite_images_df.groupby(by=['stitch_group_index'])
-        #     )
-        # else:
-        #     loop_list = df.groupby(by=['stitch_group_index'])
+        df = results['image_tile_groups']
+
+        composite_images_df = results['composite_images']
+        if composite_images_df is not None:
+            # composite_images_df['Stitch Group Index'] = composite_images_df.groupby(by=['Scan Count', 'Z-Slice', 'Well', 'Custom Step'], dropna=False).ngroup()
+            loop_list = itertools.chain(
+                df.groupby(by=['Stitch Group Index']),
+                composite_images_df.groupby(by=['Stitch Group Index'])
+            )
+        else:
+            loop_list = df.groupby(by=['Stitch Group Index'])
         
         logger.info(f"{self._name}: Generating stitched images")
-        for _, stitch_group in df.groupby(by=['Stitch Group Index']):
-            # pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
+        stitched_metadata = []
 
-            stitched_image = self.simple_position_stitcher(
+        for _, stitch_group in loop_list:
+            # pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
+            if len(stitch_group) == 0:
+                continue
+
+            if len(stitch_group) == 1:
+                logger.debug(f"{self._name}: Skipping stitching generation for {stitch_group.iloc[0]['Filename']} since only {len(stitch_group)} image tile found.")
+
+
+            stitched_image, center = self.simple_position_stitcher(
                 path=path,
                 df=stitch_group[['Filename', 'X', 'Y', 'Z-Slice']]
             )
+
+            stitched_filename = self._generate_stitched_filename(df=stitch_group)
+            first_row = stitch_group.iloc[0]
+            stitched_metadata.append({
+                'Filename': stitched_filename,
+                'Name': first_row['Name'],
+                'Protocol Group Index': first_row['Protocol Group Index'],
+                'Scan Count': first_row['Scan Count'],
+                'X': center['x'],
+                'Y': center['y'],
+                'Z-Slice': first_row['Z-Slice'],
+                'Well': first_row['Well'],
+                'Color': first_row['Color'],
+                'Objective': first_row['Objective'],
+                'Tile Group ID': first_row['Tile Group ID'],
+                'Custom Step': first_row['Custom Step'],
+                'Stitch Group Index': first_row['Stitch Group Index'],
+            })
 
             # stitched_image = self.position_stitcher(
             #     path=path,
@@ -63,13 +93,22 @@ class Stitcher:
             #     pos2pix=int(pos2pix * tiling_config.TilingConfig.DEFAULT_FILL_FACTORS['position'])
             # )
             
-            stitched_filename = self._generate_stitched_filename(df=stitch_group)
+            
             logger.debug(f"{self._name}: - {stitched_filename}")
 
             cv2.imwrite(
-                filename=str(path / stitched_filename),
+                filename=str(output_path / stitched_filename),
                 img=stitched_image
             )
+        
+        stitched_metadata_df = pd.DataFrame(stitched_metadata)
+        stitched_metadata_df.to_csv(
+            path_or_buf=output_path / artifact_locations.stitcher_output_metadata_filename(),
+            header=True,
+            index=False,
+            sep='\t',
+            lineterminator='\n',
+        )
         
         logger.info(f"{self._name}: Complete")
         return {
@@ -101,23 +140,6 @@ class Stitcher:
             scan_count=row0['Scan Count']
         )
         
-        # if custom_step is True:
-        #     prefix = row0['Filename'].split("_")[0]
-        #     name = common_utils.generate_default_step_name(
-        #         custom_name_prefix=prefix,
-        #         well_label=row0['well'],
-        #         color=row0['color'],
-        #         z_height_idx=row0['z_slice'],
-        #         scan_count=row0['scan_count']
-        #     )
-        # else:
-        #     name = common_utils.generate_default_step_name(
-        #         well_label=row0['well'],
-        #         color=row0['color'],
-        #         z_height_idx=row0['z_slice'],
-        #         scan_count=row0['scan_count']
-        #     )
-
         outfile = f"{name}_stitched.tiff"
 
         # Handle case of individual folders per channel
@@ -144,6 +166,14 @@ class Stitcher:
 
         num_x_tiles = df['X'].nunique()
         num_y_tiles = df['Y'].nunique()
+
+        # Used to find the center of the image in X/Y coordinates
+        x_center = df['X'].unique().mean()
+        y_center = df['Y'].unique().mean()
+        center = {
+            'x': round(x_center, common_utils.max_decimal_precision(parameter='x')),
+            'y': round(y_center, common_utils.max_decimal_precision(parameter='y')),
+        }
 
         source_image_sample_filename = df['Filename'].values[0]
         source_image_sample = images[source_image_sample_filename]
@@ -207,7 +237,7 @@ class Stitcher:
                     else:
                         stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
 
-        return stitched_img
+        return stitched_img, center
 
 
     @staticmethod

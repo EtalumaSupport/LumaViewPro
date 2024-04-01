@@ -4,10 +4,11 @@ import pathlib
 
 import pandas as pd
 
+import modules.artifact_locations as artifact_locations
+import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 
-import modules.common_utils as common_utils
 from lvp_logger import logger
 
 
@@ -18,7 +19,7 @@ class ProtocolPostProcessingHelper:
 
 
     @staticmethod
-    def _get_image_filenames_from_folder(path: pathlib.Path) -> list:
+    def _get_image_filenames_from_folder(path: pathlib.Path, exclude_paths: list = []) -> list:
         tiff_images = path.rglob('*.tif[f]')
         ome_tiff_images = path.rglob('*.ome.tif[f]')
         images = []
@@ -26,7 +27,13 @@ class ProtocolPostProcessingHelper:
         images.extend(ome_tiff_images)
         image_names = []
         for image in images:
-            image_names.append(os.path.relpath(image, path))
+            image_name = os.path.relpath(image, path)
+            parent_dir = str(pathlib.Path(image_name).parent)
+
+            if parent_dir in exclude_paths:
+                continue
+            
+            image_names.append(image_name)
 
         return image_names
 
@@ -80,6 +87,124 @@ class ProtocolPostProcessingHelper:
         return False
     
 
+    def _get_post_generated_images(
+        self,
+        parent_path: pathlib.Path,
+        artifact_subfolder: str,
+        metadata_filename: str
+    ) -> pd.DataFrame | None:
+        images_path = parent_path / artifact_subfolder
+        image_metadata_path = images_path / metadata_filename
+
+        load_images = True
+        if not images_path.exists():
+            logger.info(f'{self._name}: No folder found at {images_path}')
+            load_images = False
+         
+        if load_images and not image_metadata_path.exists():
+            logger.error(f'{self._name}: No metadata found at {image_metadata_path}')
+            load_images = False
+
+        if not load_images:
+            return None
+
+        df = pd.read_csv(
+            filepath_or_buffer=image_metadata_path,
+            sep='\t',
+            lineterminator='\n'
+        )
+
+        # Add subfolder to filename path
+        df['Filename'] = df.apply(lambda row: str(pathlib.Path(artifact_subfolder, row['Filename'])), axis=1)
+
+        return df
+    
+
+    def _get_image_tile_groups(
+        self,
+        image_names: list,
+        protocol_tile_groups,
+        protocol_execution_record,
+    ) -> pd.DataFrame | None:
+                
+        image_tile_groups = []
+        for image_name in image_names:
+            file_data = protocol_execution_record.get_data_from_filename(filename=image_name)
+            if file_data is None:
+                logger.warning(f"No info found in protocol execution record for {image_name}")
+                continue
+
+            for protocol_group_index, protocol_group_data in protocol_tile_groups.items():
+                match = protocol_group_data[protocol_group_data['Step Index'] == file_data['Step Index']]
+                if len(match) == 0:
+                    continue
+
+                if len(match) > 1:
+                    raise Exception(f"Expected 1 match, but found multiple")
+                
+                image_tile_groups.append(
+                    {
+                        'Filename': image_name,
+                        'Name': match['Name'].values[0],
+                        'Protocol Group Index': protocol_group_index,
+                        'Scan Count': file_data['Scan Count'],
+                        'Step Index': match['Step Index'].values[0],
+                        'X': match['X'].values[0],
+                        'Y': match['Y'].values[0],
+                        'Z-Slice': match['Z-Slice'].values[0],
+                        'Well': match['Well'].values[0],
+                        'Color': match['Color'].values[0],
+                        'Objective': match['Objective'].values[0],
+                        'Tile': match['Tile'].values[0],
+                        'Tile Group ID': match['Tile Group ID'].values[0],
+                        'Z-Stack Group ID': match['Z-Stack Group ID'].values[0],
+                        'Custom Step': match['Custom Step'].values[0]
+                    }
+                )
+
+        df = pd.DataFrame(image_tile_groups)
+
+        df = self._add_stitch_group_index(df=df)
+        df = self._add_composite_group_index(df=df)
+
+        return df
+    
+
+    @staticmethod
+    def _add_stitch_group_index(df: pd.DataFrame) -> pd.DataFrame:
+        df['Stitch Group Index'] = df.groupby(
+            by=[
+                'Protocol Group Index',
+                'Scan Count',
+                'Z-Slice',
+                'Well',
+                'Color',
+                'Objective',
+                'Tile Group ID',
+                'Custom Step'
+            ],
+            dropna=False
+        ).ngroup()
+        return df
+    
+
+    @staticmethod
+    def _add_composite_group_index(df: pd.DataFrame) -> pd.DataFrame:
+        df['Composite Group Index'] = df.groupby(
+            by=[
+                'Scan Count',
+                'Z-Slice',
+                'Well',
+                'Objective',
+                'X',
+                'Y',
+                'Custom Step'
+            ],
+            dropna=False
+        ).ngroup()
+        return df
+
+
     def load_folder(
         self,
         path: str | pathlib.Path,
@@ -119,117 +244,54 @@ class ProtocolPostProcessingHelper:
                 'message': 'Protocol Execution Record not loaded'
             }
 
-        image_names = self._get_image_filenames_from_folder(path=path)
+        if include_stitched_images:
+            stitched_images_df = self._get_post_generated_images(
+                parent_path=path,
+                artifact_subfolder=artifact_locations.stitcher_output_dir(),
+                metadata_filename=artifact_locations.stitcher_output_metadata_filename()
+            )
 
-        protocol_tile_groups = protocol.get_tile_groups()
-        image_tile_groups = []
+            if stitched_images_df is not None:
+                stitched_images_df = self._add_stitch_group_index(df=stitched_images_df)
+                stitched_images_df = self._add_composite_group_index(df=stitched_images_df)
 
-        stitched_images = []
-        composite_image_names = []
-        composite_images = []
-
-        logger.info(f"{self._name}: Matching images to stitching groups")
-        for image_name in image_names:
-            file_data = protocol_execution_record.get_data_from_filename(filename=image_name)
-            if file_data is None:
-                if (include_stitched_images == True) and (self._is_stitched_image(image_filename=image_name) == True):
-                    well = common_utils.get_well_label_from_name(name=image_name)
-                    color = common_utils.get_layer_from_name(name=image_name)
-
-                    # Assumes stitched image name is of format <well>_<layer>_<z_slice>_<scan_count>_stitched.tiff
-                    # Not a valid method for non-stitched images
-                    scan_count = int(image_name.split('_')[-2])
-
-                    # Extract Z-slice if applicable
-                    tmp = image_name.split('_')[-3]
-                    if tmp.startswith('Z'):
-                        z_slice = int(tmp[1:])
-                    else:
-                        z_slice = None
-
-                    stitched_images.append({
-                        'Filename': image_name,
-                        'Well': well,
-                        'Color': color,
-                        'Scan Count': scan_count,
-                        'Z-Slice': z_slice
-                    })
-
-                elif (include_composite_images == True) and (self._is_composite_image(image_filename=image_name) == True):
-                    composite_image_names.append(image_name)
-
-                continue
-
-            scan_count = file_data['Scan Count']
-
-            for protocol_group_index, protocol_group_data in protocol_tile_groups.items():
-                match = protocol_group_data[protocol_group_data['Step Index'] == file_data['Step Index']]
-                if len(match) == 0:
-                    continue
-
-                if len(match) > 1:
-                    raise Exception(f"Expected 1 match, but found multiple")
-                
-                image_tile_groups.append(
-                    {
-                        'Filename': image_name,
-                        'Name': match['Name'].values[0],
-                        'Protocol Group Index': protocol_group_index,
-                        'Scan Count': scan_count,
-                        'Step Index': match['Step Index'].values[0],
-                        'X': match['X'].values[0],
-                        'Y': match['Y'].values[0],
-                        'Z-Slice': match['Z-Slice'].values[0],
-                        'Well': match['Well'].values[0],
-                        'Color': match['Color'].values[0],
-                        'Objective': match['Objective'].values[0],
-                        'Tile Group ID': match['Tile Group ID'].values[0],
-                        'Z-Stack Group ID': match['Z-Stack Group ID'].values[0],
-                        'Custom Step': match['Custom Step'].values[0]
-                    }
-                )
-
-                break
-
-        # Process composite images
-        if len(composite_image_names) > 0:
-            for name in composite_image_names:
-                well = common_utils.get_well_label_from_name(name=name)
-
-                # Assumes composite image name is of format <well>_<layer>_<z_slice>_<scan_count>.tiff
-                # Not a valid method for non-composite images
-                scan_count = int(name.split('_')[-1].split('.')[0])
-
-                # Extract Z-slice if applicable
-                tmp = name.split('_')[-2]
-                if tmp.startswith('Z'):
-                    z_slice = int(tmp[1:])
-                else:
-                    z_slice = None
-
-                
-
-                composite_images.append({
-                    'filename': name,
-                    'well': well,
-                    'scan_count': scan_count,
-                    'z_slice': z_slice
-                })
-
-                
-        
-        df = pd.DataFrame(image_tile_groups)
-
-        if len(stitched_images) > 0:
-            stitched_images_df = pd.DataFrame(stitched_images)
+                # Create empty 'Tile label' for already stitched images
+                stitched_images_df['Tile'] = ""
         else:
             stitched_images_df = None
 
-        if len(composite_images) > 0:
-            composite_images_df = pd.DataFrame(composite_images)
+
+        if include_composite_images:
+            composite_images_df = self._get_post_generated_images(
+                parent_path=path,
+                artifact_subfolder=artifact_locations.composite_output_dir(),
+                metadata_filename=artifact_locations.composite_output_metadata_filename()
+            )
+
+            if composite_images_df is not None:
+                composite_images_df = self._add_stitch_group_index(df=composite_images_df)
+                composite_images_df = self._add_composite_group_index(df=composite_images_df)
         else:
             composite_images_df = None
 
+        protocol_tile_groups = protocol.get_tile_groups()
+        exclude_paths = [
+            artifact_locations.composite_output_dir(),
+            artifact_locations.stitcher_output_dir(),
+            artifact_locations.composite_and_stitched_output_dir()
+        ]
+
+        image_names = self._get_image_filenames_from_folder(
+            path=path,
+            exclude_paths=exclude_paths
+        )
+
+        image_tile_groups_df = self._get_image_tile_groups(
+            # parent_path=path,
+            image_names=image_names,
+            protocol_tile_groups=protocol_tile_groups,
+            protocol_execution_record=protocol_execution_record,
+        )
 
         return {
             'status': True,
@@ -237,7 +299,7 @@ class ProtocolPostProcessingHelper:
             'protocol_execution_record': protocol_execution_record,
             'image_names': image_names,
             'protocol_tile_groups': protocol_tile_groups,
-            'image_tile_groups': df,
+            'image_tile_groups':image_tile_groups_df,
             'stitched_images': stitched_images_df,
             'composite_images': composite_images_df
         }
