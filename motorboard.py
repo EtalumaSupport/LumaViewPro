@@ -137,7 +137,7 @@ class MotorBoard:
             if response_numlines == 1:
                 response = response[0]
             logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
-            return response
+            
 
         except serial.SerialTimeoutException:
             self.driver = False
@@ -146,6 +146,8 @@ class MotorBoard:
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
+        
+        return response
 
 
     # Firmware 1-14-2023 commands include
@@ -204,8 +206,8 @@ class MotorBoard:
 
     def zhome(self):
         """ Home the objective """
-        logger.info('[XYZ Class ] MotorBoard.zhome()')
-        self.exchange_command('ZHOME')
+        resp = self.exchange_command('ZHOME')
+        logger.info(f'[XYZ Class ] MotorBoard.zhome() -> {resp}')
 
     #----------------------------------------------------------
     # XY Stage Functions
@@ -224,8 +226,8 @@ class MotorBoard:
 
     def xyhome(self):
         """ Home the stage which also homes the objective first """
-        logger.info('[XYZ Class ] MotorBoard.xyhome()')
         resp = self.exchange_command('HOME')
+        logger.info(f'[XYZ Class ] MotorBoard.xyhome() -> {resp}')
         if (resp is not None) and ('XYZ home complete' in resp):
             self.initial_homing_complete = True
 
@@ -253,8 +255,8 @@ class MotorBoard:
 
     def thome(self):
         """ Home the turret, need to test if functional in hardware"""
-        logger.info('[XYZ Class ] MotorBoard.thome()')
-        self.exchange_command('THOME')
+        resp = self.exchange_command('THOME')
+        logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}')
 
     #----------------------------------------------------------
     # Motion Functions
