@@ -439,7 +439,7 @@ class MotorBoard:
         try:
 
             data = int( self.exchange_command('STATUS_R' + axis) )
-            bits = format(data, 'b').zfill(32)
+            # bits = format(data, 'b').zfill(32)
 
             # data is an integer that represents 4 bytes, or 32 bits,
             # largest bit first
@@ -448,11 +448,18 @@ class MotorBoard:
             bit: 10987654321098765432109876543210
             bit: ----------------------*-------**
             '''
-            logger.info(data)
+            # logger.info(data)
             return data
         except:
             logger.exception('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
             raise
+
+    def limit_switch_status(self, axis):
+        resp = self.reference_status(axis=axis)
+        bin_val = bin(int(resp))
+        left = bin_val[-1]
+        right = bin_val[-2]
+        return left, right
 
 
     #-------------------------------------------------------------------------------

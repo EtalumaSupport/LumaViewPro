@@ -479,9 +479,11 @@ class Lumascope():
     ########################################################################
     @contextlib.contextmanager
     def reference_position_logger(self):
-        self.get_reference_status_all_axis()
+        before = self.get_limit_switch_status_all_axis()
+        logger.info(f"Limit switch status before homing: {before}")
         yield
-        self.get_reference_status_all_axis()
+        after = self.get_limit_switch_status_all_axis()
+        logger.info(f"Limit switch status before homing: {after}")
 
 
     def zhome(self):
@@ -631,17 +633,20 @@ class Lumascope():
          Get all reference status register bits as 32 character string (32-> 0) """
 
         #if not self.motion: return
-        status = self.motion.reference_status(axis)
-        return status
+        return self.motion.reference_status(axis=axis)
     
 
-    def get_reference_status_all_axis(self):
+    def get_limit_switch_status(self, axis):
+        return self.motion.limit_switch_status(axis=axis)
+
+
+    def get_limit_switch_status_all_axis(self):
         """MOTION CONTROL FUNCTIONS
         Get all reference status register bits as 32 character string (32-> 0) for all axis
         """
         resp = {}
         for axis in ('X','Y','Z','T'):
-            resp[axis] = self.get_reference_status(axis=axis)
+            resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
 
