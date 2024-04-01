@@ -18,3 +18,7 @@ def composite_output_metadata_filename() -> str:
 
 def composite_and_stitched_output_dir() -> str:
     return "Composite and Stitched"
+
+
+def composite_and_stitched_output_metadata_filename() -> str:
+    return "composite_and_stitched_metadata.tsv"

@@ -38,13 +38,12 @@ class Stitcher:
             }
         
         output_path = path / artifact_locations.stitcher_output_dir()
-        output_path.mkdir(exist_ok=True, parents=True)
+        output_path_stitched_and_composite = path / artifact_locations.composite_and_stitched_output_dir()
 
         df = results['image_tile_groups']
 
         composite_images_df = results['composite_images']
         if composite_images_df is not None:
-            # composite_images_df['Stitch Group Index'] = composite_images_df.groupby(by=['Scan Count', 'Z-Slice', 'Well', 'Custom Step'], dropna=False).ngroup()
             loop_list = itertools.chain(
                 df.groupby(by=['Stitch Group Index']),
                 composite_images_df.groupby(by=['Stitch Group Index'])
@@ -54,6 +53,7 @@ class Stitcher:
         
         logger.info(f"{self._name}: Generating stitched images")
         stitched_metadata = []
+        stitched_metadata_composite = []
 
         for _, stitch_group in loop_list:
             # pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
@@ -70,8 +70,35 @@ class Stitcher:
             )
 
             stitched_filename = self._generate_stitched_filename(df=stitch_group)
+            
             first_row = stitch_group.iloc[0]
-            stitched_metadata.append({
+            if first_row['Composite'] == True:
+                selected_output_path = output_path_stitched_and_composite
+                selected_metadata = stitched_metadata_composite
+            else:
+                selected_output_path = output_path
+                selected_metadata = stitched_metadata
+
+            if not selected_output_path.exists():
+                selected_output_path.mkdir(exist_ok=True, parents=True)
+
+            # stitched_image = self.position_stitcher(
+            #     path=path,
+            #     df=stitch_group[['filename', 'x', 'y']],
+            #     pos2pix=int(pos2pix * tiling_config.TilingConfig.DEFAULT_FILL_FACTORS['position'])
+            # )
+            
+            output_file_loc = selected_output_path / stitched_filename
+            logger.debug(f"{self._name}: - {output_file_loc}")
+
+            if not cv2.imwrite(
+                filename=str(output_file_loc),
+                img=stitched_image
+            ):
+                logger.error(f"{self._name}: Unable to write image {output_file_loc}")
+                continue
+
+            selected_metadata.append({
                 'Filename': stitched_filename,
                 'Name': first_row['Name'],
                 'Protocol Group Index': first_row['Protocol Group Index'],
@@ -85,30 +112,29 @@ class Stitcher:
                 'Tile Group ID': first_row['Tile Group ID'],
                 'Custom Step': first_row['Custom Step'],
                 'Stitch Group Index': first_row['Stitch Group Index'],
+                'Stitched': True,
+                'Composite': first_row['Composite']
             })
 
-            # stitched_image = self.position_stitcher(
-            #     path=path,
-            #     df=stitch_group[['filename', 'x', 'y']],
-            #     pos2pix=int(pos2pix * tiling_config.TilingConfig.DEFAULT_FILL_FACTORS['position'])
-            # )
-            
-            
-            logger.debug(f"{self._name}: - {stitched_filename}")
+        for metadata, path, metadata_filename in (
+            (stitched_metadata, output_path, artifact_locations.stitcher_output_metadata_filename()),
+            (stitched_metadata_composite, output_path_stitched_and_composite, artifact_locations.composite_and_stitched_output_metadata_filename())
+        ):
+            metadata_df = pd.DataFrame(metadata)
+            if len(metadata_df) == 0:
+                continue
 
-            cv2.imwrite(
-                filename=str(output_path / stitched_filename),
-                img=stitched_image
-            )
+            if not path.exists():
+                path.mkdir(parents=True, exist_ok=True)
         
-        stitched_metadata_df = pd.DataFrame(stitched_metadata)
-        stitched_metadata_df.to_csv(
-            path_or_buf=output_path / artifact_locations.stitcher_output_metadata_filename(),
-            header=True,
-            index=False,
-            sep='\t',
-            lineterminator='\n',
-        )
+            metadata_df = pd.DataFrame(metadata)
+            metadata_df.to_csv(
+                path_or_buf=path / metadata_filename,
+                header=True,
+                index=False,
+                sep='\t',
+                lineterminator='\n',
+            )
         
         logger.info(f"{self._name}: Complete")
         return {
@@ -141,12 +167,6 @@ class Stitcher:
         )
         
         outfile = f"{name}_stitched.tiff"
-
-        # Handle case of individual folders per channel
-        split_name = os.path.split(row0['Filename'])
-        if len(split_name) == 2:
-            outfile = os.path.join(split_name[0], outfile)
-        
         return outfile
 
 

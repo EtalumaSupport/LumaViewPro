@@ -117,6 +117,7 @@ class ProtocolPostProcessingHelper:
         # Add subfolder to filename path
         df['Filename'] = df.apply(lambda row: str(pathlib.Path(artifact_subfolder, row['Filename'])), axis=1)
 
+        df = df.fillna('')
         return df
     
 
@@ -158,7 +159,9 @@ class ProtocolPostProcessingHelper:
                         'Tile': match['Tile'].values[0],
                         'Tile Group ID': match['Tile Group ID'].values[0],
                         'Z-Stack Group ID': match['Z-Stack Group ID'].values[0],
-                        'Custom Step': match['Custom Step'].values[0]
+                        'Custom Step': match['Custom Step'].values[0],
+                        'Stitched': False,
+                        'Composite': False
                     }
                 )
 
@@ -166,6 +169,7 @@ class ProtocolPostProcessingHelper:
 
         df = self._add_stitch_group_index(df=df)
         df = self._add_composite_group_index(df=df)
+        df = df.fillna('')
 
         return df
     
@@ -254,6 +258,7 @@ class ProtocolPostProcessingHelper:
             if stitched_images_df is not None:
                 stitched_images_df = self._add_stitch_group_index(df=stitched_images_df)
                 stitched_images_df = self._add_composite_group_index(df=stitched_images_df)
+                stitched_images_df['Stitched'] = True
 
                 # Create empty 'Tile label' for already stitched images
                 stitched_images_df['Tile'] = ""
@@ -271,6 +276,7 @@ class ProtocolPostProcessingHelper:
             if composite_images_df is not None:
                 composite_images_df = self._add_stitch_group_index(df=composite_images_df)
                 composite_images_df = self._add_composite_group_index(df=composite_images_df)
+                composite_images_df['Composite'] = True
         else:
             composite_images_df = None
 

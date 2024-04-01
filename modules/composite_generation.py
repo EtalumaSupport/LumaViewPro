@@ -31,6 +31,7 @@ class CompositeGeneration:
         )
 
         output_path = path / artifact_locations.composite_output_dir()
+        output_path_stitched_and_composite = path / artifact_locations.composite_and_stitched_output_dir()
 
         if results['status'] is False:
             return {
@@ -49,7 +50,6 @@ class CompositeGeneration:
         # Handle composite generation for stitched images also
         stitched_images_df = results['stitched_images']
         if stitched_images_df is not None:
-            # stitched_images_df['Composite Group Index'] = stitched_images_df.groupby(by=['Scan Count', 'Z-Slice', 'Well', 'Custom Step'], dropna=False).ngroup()
             loop_list = itertools.chain(
                 df.groupby(by=['Composite Group Index']),
                 stitched_images_df.groupby(by=['Composite Group Index'])
@@ -59,8 +59,8 @@ class CompositeGeneration:
 
         logger.info(f"{self._name}: Generating composite images")
         composite_metadata = []
-        output_path.mkdir(exist_ok=True, parents=True)
-
+        composite_metadata_stitched = []
+        
         for _, composite_group in loop_list:
             
             if len(composite_group) == 0:
@@ -85,6 +85,16 @@ class CompositeGeneration:
                 custom_name_prefix=first_row['Name']
             )
 
+            if first_row['Stitched'] == True:
+                selected_output_path = output_path_stitched_and_composite
+                selected_metadata = composite_metadata_stitched
+            else:
+                selected_output_path = output_path
+                selected_metadata = composite_metadata
+
+            if not selected_output_path.exists():
+                selected_output_path.mkdir(exist_ok=True, parents=True)
+
             # Don't support OME-TIFF for composite currently
             composite_filename = f"{composite_filename_base}.tiff"
             # if '.ome' in composite_filename:
@@ -105,7 +115,7 @@ class CompositeGeneration:
                 df=composite_group[['Filename','Color']]
             )
             
-            output_file_loc = output_path / composite_filename
+            output_file_loc = selected_output_path / composite_filename
             logger.debug(f"{self._name}: - {output_file_loc}")
             if not cv2.imwrite(
                 filename=str(output_file_loc),
@@ -114,8 +124,7 @@ class CompositeGeneration:
                 logger.error(f"{self._name}: Unable to write image {output_file_loc}")
                 continue
 
-            
-            composite_metadata.append({
+            selected_metadata.append({
                 'Filename': composite_filename,
                 'Name': first_row['Name'],
                 'Protocol Group Index': first_row['Protocol Group Index'],
@@ -129,16 +138,28 @@ class CompositeGeneration:
                 'Tile Group ID': first_row['Tile Group ID'],
                 'Custom Step': first_row['Custom Step'],
                 'Stitch Group Index': first_row['Stitch Group Index'],
+                'Stitched': first_row['Stitched'],
+                'Composite': True
             })
 
-        composite_metadata_df = pd.DataFrame(composite_metadata)
-        composite_metadata_df.to_csv(
-            path_or_buf=output_path / artifact_locations.composite_output_metadata_filename(),
-            header=True,
-            index=False,
-            sep='\t',
-            lineterminator='\n',
-        )
+        for metadata, path, metadata_filename in (
+            (composite_metadata, output_path, artifact_locations.composite_output_metadata_filename()),
+            (composite_metadata_stitched, output_path_stitched_and_composite, artifact_locations.composite_and_stitched_output_metadata_filename())
+        ):
+            metadata_df = pd.DataFrame(metadata)
+            if len(metadata_df) == 0:
+                continue
+
+            if not path.exists():
+                path.mkdir(parents=True, exist_ok=True)
+
+            metadata_df.to_csv(
+                path_or_buf=path / metadata_filename,
+                header=True,
+                index=False,
+                sep='\t',
+                lineterminator='\n',
+            )
         
         logger.info(f"{self._name}: Complete")
         return {
