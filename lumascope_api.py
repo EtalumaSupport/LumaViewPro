@@ -483,7 +483,7 @@ class Lumascope():
         logger.info(f"Limit switch status before homing: {before}")
         yield
         after = self.get_limit_switch_status_all_axis()
-        logger.info(f"Limit switch status before homing: {after}")
+        logger.info(f"Limit switch status after homing: {after}")
 
 
     def zhome(self):
