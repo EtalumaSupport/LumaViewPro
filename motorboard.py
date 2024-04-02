@@ -455,10 +455,14 @@ class MotorBoard:
             raise
 
     def limit_switch_status(self, axis):
-        resp = self.reference_status(axis=axis)
-        bin_val = bin(int(resp))
-        left = bin_val[-1]
-        right = bin_val[-2]
+        try:
+            resp = self.reference_status(axis=axis)
+            bin_val = bin(int(resp))
+            left = bin_val[-1]
+            right = bin_val[-2]
+        except:
+            left, right = -1, -1
+            
         return left, right
 
 
