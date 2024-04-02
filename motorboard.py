@@ -137,15 +137,18 @@ class MotorBoard:
             if response_numlines == 1:
                 response = response[0]
             logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
-            return response
 
         except serial.SerialTimeoutException:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
+            response = None
 
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
+            response = None
+        
+        return response
 
 
     # Firmware 1-14-2023 commands include
@@ -204,8 +207,8 @@ class MotorBoard:
 
     def zhome(self):
         """ Home the objective """
-        logger.info('[XYZ Class ] MotorBoard.zhome()')
-        self.exchange_command('ZHOME')
+        resp = self.exchange_command('ZHOME')
+        logger.info(f'[XYZ Class ] MotorBoard.zhome() -> {resp}')
 
     #----------------------------------------------------------
     # XY Stage Functions
@@ -224,8 +227,8 @@ class MotorBoard:
 
     def xyhome(self):
         """ Home the stage which also homes the objective first """
-        logger.info('[XYZ Class ] MotorBoard.xyhome()')
         resp = self.exchange_command('HOME')
+        logger.info(f'[XYZ Class ] MotorBoard.xyhome() -> {resp}')
         if (resp is not None) and ('XYZ home complete' in resp):
             self.initial_homing_complete = True
 
@@ -253,8 +256,8 @@ class MotorBoard:
 
     def thome(self):
         """ Home the turret, need to test if functional in hardware"""
-        logger.info('[XYZ Class ] MotorBoard.thome()')
-        self.exchange_command('THOME')
+        resp = self.exchange_command('THOME')
+        logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}')
 
     #----------------------------------------------------------
     # Motion Functions
@@ -437,7 +440,7 @@ class MotorBoard:
         try:
 
             data = int( self.exchange_command('STATUS_R' + axis) )
-            bits = format(data, 'b').zfill(32)
+            # bits = format(data, 'b').zfill(32)
 
             # data is an integer that represents 4 bytes, or 32 bits,
             # largest bit first
@@ -446,11 +449,22 @@ class MotorBoard:
             bit: 10987654321098765432109876543210
             bit: ----------------------*-------**
             '''
-            logger.info(data)
+            # logger.info(data)
             return data
         except:
             logger.exception('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
             raise
+
+    def limit_switch_status(self, axis):
+        try:
+            resp = self.reference_status(axis=axis)
+            bin_val = bin(int(resp))
+            left = bin_val[-1]
+            right = bin_val[-2]
+        except:
+            left, right = -1, -1
+
+        return left, right
 
 
     #-------------------------------------------------------------------------------
