@@ -137,15 +137,16 @@ class MotorBoard:
             if response_numlines == 1:
                 response = response[0]
             logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
-            
 
         except serial.SerialTimeoutException:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
+            response = None
 
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
+            response = None
         
         return response
 
@@ -462,7 +463,7 @@ class MotorBoard:
             right = bin_val[-2]
         except:
             left, right = -1, -1
-            
+
         return left, right
 
 
