@@ -37,7 +37,7 @@ March 20, 2023
 import contextlib
 
 import numpy as np
-from pypylon import pylon
+from pypylon import pylon, genicam
 from lvp_logger import logger
 
 class PylonCamera:
@@ -85,7 +85,8 @@ class PylonCamera:
     def connect(self):
         """ Try to connect to the first available basler camera"""
         try:
-            self.active = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice())
+            p_device = pylon.TlFactory.GetInstance().CreateFirstDevice()
+            self.active = pylon.InstantCamera(p_device)
             camera = self.active
             camera.RegisterConfiguration(
                 pylon.AcquireContinuousConfiguration(),
@@ -111,13 +112,16 @@ class PylonCamera:
             self.start_grabbing()
 
             self.error_report_count = 0
-            logger.info('[CAM Class ] PylonCamera.connect() succeeded)')
-
+            logger.info('[CAM Class ] PylonCamera.connect() succeeded')
+        
+        except genicam.RuntimeException as ex:
+            # Handles when the device is already open in another application
+            logger.error(f'[CAM Class ] PylonCamera.connect() failed -> {ex}')
+            self.active = False
+            self.error_report_count += 1
         except:
             logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.active = False
-            if (self.error_report_count < 6):
-                logger.exception('[CAM Class ] PylonCamera.connect() failed 2')
             self.error_report_count += 1
     
     
