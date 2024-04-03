@@ -908,16 +908,17 @@ void main (void) {
             if 'ctrl' in self._active_key_presses:
                 # Focus control
                 vertical_control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
+                overshoot_enabled = False
                 if touch.button == 'scrolldown':
                     if 'shift' in self._active_key_presses:
-                        vertical_control.coarse_up()
+                        vertical_control.coarse_up(overshoot_enabled=overshoot_enabled)
                     else:
-                        vertical_control.fine_up()
+                        vertical_control.fine_up(overshoot_enabled=overshoot_enabled)
                 elif touch.button == 'scrollup':
                     if 'shift' in self._active_key_presses:
-                        vertical_control.coarse_down()
+                        vertical_control.coarse_down(overshoot_enabled=overshoot_enabled)
                     else:
-                        vertical_control.fine_down()
+                        vertical_control.fine_down(overshoot_enabled=overshoot_enabled)
 
             else:
                 # Digital zoom control
@@ -2013,28 +2014,28 @@ class VerticalControl(BoxLayout):
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
-    def coarse_up(self):
+    def coarse_up(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
         coarse = settings['objective']['z_coarse']
-        lumaview.scope.move_relative_position('Z', coarse)                  # Move UP
+        lumaview.scope.move_relative_position('Z', coarse, overshoot_enabled=overshoot_enabled)
         self.update_gui()
 
-    def fine_up(self):
+    def fine_up(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
         fine = settings['objective']['z_fine']
-        lumaview.scope.move_relative_position('Z', fine)                    # Move UP
+        lumaview.scope.move_relative_position('Z', fine, overshoot_enabled=overshoot_enabled)
         self.update_gui()
 
-    def fine_down(self):
+    def fine_down(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
         fine = settings['objective']['z_fine']
-        lumaview.scope.move_relative_position('Z', -fine)                   # Move DOWN
+        lumaview.scope.move_relative_position('Z', -fine, overshoot_enabled=overshoot_enabled)
         self.update_gui()
 
-    def coarse_down(self):
+    def coarse_down(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
         coarse = settings['objective']['z_coarse']
-        lumaview.scope.move_relative_position('Z', -coarse)                 # Move DOWN
+        lumaview.scope.move_relative_position('Z', -coarse, overshoot_enabled=overshoot_enabled)
         self.update_gui()
 
     def set_position(self, pos):
