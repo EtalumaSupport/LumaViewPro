@@ -2010,7 +2010,7 @@ class VerticalControl(BoxLayout):
         try:
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
-            pass
+            return
 
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
