@@ -2002,13 +2002,15 @@ class VerticalControl(BoxLayout):
         self.is_autofocus = False
         self.is_complete = False
         self.record_autofocus_to_file = False
+
+        Clock.schedule_interval(self.update_gui, 0.3)
         
-    def update_gui(self):
-        logger.info('[LVP Main  ] VerticalControl.update_gui()')
+
+    def update_gui(self, dt=0):
         try:
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
-            logger.warning('[LVP Main  ] Error talking to Motor board.')
+            pass
 
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
