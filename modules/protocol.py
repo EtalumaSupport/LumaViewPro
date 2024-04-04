@@ -266,7 +266,7 @@ class Protocol:
                 'Color',
                 'Z-Slice',
                 'Objective',
-                'Z-Stack Group ID',
+                # 'Z-Stack Group ID',
                 'Custom Step'
             ],
             dropna=False
