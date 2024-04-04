@@ -2,7 +2,6 @@
     "1.25x Oly": {
       "description": "1.25x Plan Apochromat Olympus",
       "magnification": 1.25,
-      "system_magnification": 0.332,
       "focal_length": 144.0,
       "aperture": 0.04,
       "DOF": 1,
@@ -18,7 +17,6 @@
     "2.5x Meiji": {
       "description": "2.5x Plan Semi Apochromat Meiji",
       "magnification": 2.5,
-      "system_magnification": 0.598,
       "focal_length": 80.0,
       "aperture": 0.07,
       "DOF": 100,
@@ -34,7 +32,6 @@
     "4x Oly": {
       "description": "4x U Plan Fl Olympus",
       "magnification": 4,
-      "system_magnification": 1.062,
       "focal_length": 45.0,
       "aperture": 0.13,
       "DOF": 55.5,
@@ -50,7 +47,6 @@
     "10x Oly": {
       "description": "10x U Plan Fl Olympus",
       "magnification": 10,
-      "system_magnification": 2.656,
       "focal_length": 18.0,
       "aperture": 0.3,
       "DOF": 8.5,
@@ -66,7 +62,6 @@
     "10x Phase": {
       "description": "10x Achromat IPC Phase, 1mm glass, Olympus",
       "magnification": 10,
-      "system_magnification": 2.656,
       "focal_length": 18.0,
       "aperture": 0.25,
       "DOF": 8.5,
@@ -82,7 +77,6 @@
     "20x Oly": {
       "description": "20x LWD U Plan Fl, 0.17mm glass, Olympus",
       "magnification": 20,
-      "system_magnification": 5.311,
       "focal_length": 9.0,
       "aperture": 0.5,
       "DOF": 5.8,
@@ -98,7 +92,6 @@
     "20x w/collar": {
       "description": "20x LWD U Plan Fl with collar, Olympus",
       "magnification": 20,
-      "system_magnification": 5.311,
       "focal_length": 9.0,
       "aperture": 0.45,
       "DOF": 5.8,
@@ -114,7 +107,6 @@
     "20x Phase": {
       "description": "20x LWD Achromat IPC Phase, 1mm glass, Olympus",
       "magnification": 20,
-      "system_magnification": 5.311,
       "focal_length": 9.0,
       "aperture": 0.4,
       "DOF": 5.8,
@@ -130,7 +122,6 @@
     "40x w/collar": {
       "description": "40x LWD U Plan Fl Olympus",
       "magnification": 40,
-      "system_magnification": 10.622,
       "focal_length": 4.5,
       "aperture": 0.60,
       "DOF": 1.0,
@@ -146,7 +137,6 @@
     "40x Phase": {
       "description": "40x LWD Achromat Phase, 1mm glass, Olympus",
       "magnification": 40,
-      "system_magnification": 10.622,
       "focal_length": 4.5,
       "aperture": 0.55,
       "DOF": 1.0,
@@ -162,7 +152,6 @@
     "60x w/collar": {
       "description": "60x U Plan UPLFLN60x Olympus",
       "magnification": 60,
-      "system_magnification": 15.933,
       "focal_length": 3.0,
       "aperture": 0.90,
       "DOF": 0.4,
@@ -178,7 +167,6 @@
     "60x Meiji": {
       "description": "60x Plan Achromat",
       "magnification": 60,
-      "system_magnification": 14.340,
       "focal_length": 3.333333,
       "aperture": 0.80,
       "DOF": 0.4,
@@ -194,7 +182,6 @@
     "100x U Plan Oly": {
       "description": "100x U Plan (oil) Olympus",
       "magnification": 100,
-      "system_magnification": 26.556,
       "focal_length": 1.8,
       "aperture": 1.30,
       "DOF": 0.19,
@@ -210,7 +197,6 @@
     "100x M Plan Oly": {
       "description": "100x M Plan Fl (dry) Olympus",
       "magnification": 100,
-      "system_magnification": 26.556,
       "focal_length": 1.8,
       "aperture": 0.95,
       "DOF": 0.19,
@@ -226,7 +212,6 @@
     "100x Meiji": {
       "description": "100x Plan Apochromat(oil) MA983 Meiji",
       "magnification": 100,
-      "system_magnification": 23.900,
       "focal_length": 2.0,
       "aperture": 1.25,
       "DOF": 0.19,
