@@ -2364,41 +2364,22 @@ class VerticalControl(BoxLayout):
         self.ids['turret_pos_3_btn'].state = 'normal'
         self.ids['turret_pos_4_btn'].state = 'normal'
 
-    def turret_select(self, position):
+
+    def turret_select(self, selected_position):
         #TODO check if turret has been HOMED turret first
-        lumaview.scope.turret_id = int(position) - 1
-        angle = 90*lumaview.scope.turret_id #+ lumaview.scope.turret_bias
-        lumaview.scope.tmove(angle)
+        lumaview.scope.turret_id = selected_position - 1
+        angle = 90*lumaview.scope.turret_id
+        lumaview.scope.tmove(
+            degrees=angle
+        )
         
-        #self.ids['turret_pos_1_btn'].state = 'normal'
-        #self.ids['turret_pos_2_btn'].state = 'normal'
-        #self.ids['turret_pos_3_btn'].state = 'normal'
-        #self.ids['turret_pos_4_btn'].state = 'normal'
-        #self.ids[f'turret_pos_{position}_btn'].state = 'down'
-                    
-        if position == '1':
-            self.ids['turret_pos_1_btn'].state = 'down'
-            self.ids['turret_pos_2_btn'].state = 'normal'
-            self.ids['turret_pos_3_btn'].state = 'normal'
-            self.ids['turret_pos_4_btn'].state = 'normal'
-
-        elif position == '2':
-            self.ids['turret_pos_1_btn'].state = 'normal'
-            self.ids['turret_pos_2_btn'].state = 'down'
-            self.ids['turret_pos_3_btn'].state = 'normal'
-            self.ids['turret_pos_4_btn'].state = 'normal'
-
-        elif position == '3':
-            self.ids['turret_pos_1_btn'].state = 'normal'
-            self.ids['turret_pos_2_btn'].state = 'normal'
-            self.ids['turret_pos_3_btn'].state = 'down'
-            self.ids['turret_pos_4_btn'].state = 'normal'
-
-        elif position == '4':
-            self.ids['turret_pos_1_btn'].state = 'normal'
-            self.ids['turret_pos_2_btn'].state = 'normal'
-            self.ids['turret_pos_3_btn'].state = 'normal'
-            self.ids['turret_pos_4_btn'].state = 'down'
+        for available_position in range(1,5):
+            if selected_position == available_position:
+                state = 'down'
+            else:
+                state = 'normal'
+            
+            self.ids[f'turret_pos_{available_position}_btn'].state = state
 
 
 class XYStageControl(BoxLayout):
