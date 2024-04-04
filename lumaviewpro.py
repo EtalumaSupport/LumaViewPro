@@ -128,6 +128,7 @@ from modules.color_channels import ColorChannel
 from modules.composite_generation import CompositeGeneration
 import modules.coord_transformations as coord_transformations
 import modules.labware_loader as labware_loader
+import modules.objectives_loader as objectives_loader
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_run_modes import ProtocolRunMode
 from modules.zstack_config import ZStackConfig
@@ -149,6 +150,9 @@ global cell_count_content
 
 global wellplate_loader
 wellplate_loader = None
+
+global objective_helper
+objective_helper = None
 
 global coordinate_transformer
 coordinate_transformer = None
@@ -220,7 +224,6 @@ def is_image_saving_enabled() -> bool:
     return True
 
 
-# Z-stack related
 def get_zstack_positions() -> tuple[bool, dict]:
     zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
     range = float(zstack_settings.ids['zstack_range_id'].text)
@@ -243,6 +246,11 @@ def get_zstack_positions() -> tuple[bool, dict]:
 
     return True, zstack_config.step_positions()
 
+
+def get_current_objective_info() -> tuple[str, dict]:
+    objective_id = settings['objective_id']
+    objective = objective_helper.get_objective_info(objective_id=objective_id)
+    return objective_id, objective
 
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
@@ -299,8 +307,8 @@ class ScopeDisplay(Image):
                 x_dist_pixel = texture_click_pos_x - texture_width/2 # Positive means to the right of center
                 y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
 
-                focal_length = settings['objective']['focal_length']
-                pixel_size_um = common_utils.get_pixel_size(focal_length=focal_length)
+                _, objective = get_current_objective_info()
+                pixel_size_um = common_utils.get_pixel_size(focal_length=objective['focal_length'])
 
                 x_dist_um = x_dist_pixel * pixel_size_um
                 y_dist_um = y_dist_pixel * pixel_size_um
@@ -2041,25 +2049,29 @@ class VerticalControl(BoxLayout):
 
     def coarse_up(self):
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
-        coarse = settings['objective']['z_coarse']
+        _, objective = get_current_objective_info()
+        coarse = objective['z_coarse']
         lumaview.scope.move_relative_position('Z', coarse)                  # Move UP
         self.update_gui()
 
     def fine_up(self):
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
-        fine = settings['objective']['z_fine']
+        _, objective = get_current_objective_info()
+        fine = objective['z_fine']
         lumaview.scope.move_relative_position('Z', fine)                    # Move UP
         self.update_gui()
 
     def fine_down(self):
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
-        fine = settings['objective']['z_fine']
+        _, objective = get_current_objective_info()
+        fine = objective['z_fine']
         lumaview.scope.move_relative_position('Z', -fine)                   # Move DOWN
         self.update_gui()
 
     def coarse_down(self):
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
-        coarse = settings['objective']['z_coarse']
+        _, objective = get_current_objective_info()
+        coarse = objective['z_coarse']
         lumaview.scope.move_relative_position('Z', -coarse)                 # Move DOWN
         self.update_gui()
 
@@ -2124,11 +2136,12 @@ class VerticalControl(BoxLayout):
             return
 
         center = lumaview.scope.get_current_position('Z')
-        range =  settings['objective']['AF_range']
+        _, objective = get_current_objective_info()
+        range =  objective['AF_range']
 
         self.z_min = max(0, center-range)                   # starting minimum z-height for autofocus
         self.z_max = center+range                           # starting maximum z-height for autofocus
-        self.resolution = settings['objective']['AF_max']   # starting step size for autofocus
+        self.resolution = objective['AF_max']   # starting step size for autofocus
         self.exposure = lumaview.scope.get_exposure_time()  # camera exposure to determine 'wait' time
 
         self.positions = []       # List of positions to step through
@@ -2227,7 +2240,8 @@ class VerticalControl(BoxLayout):
             if next_target > self.z_max:
 
                 # Calculate new step size for resolution
-                AF_min = settings['objective']['AF_min']
+                _, objective = get_current_objective_info()
+                AF_min = objective['AF_min']
                 prev_resolution = self.resolution
                 self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
 
@@ -2437,49 +2451,57 @@ class XYStageControl(BoxLayout):
 
     def fine_left(self):
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
-        fine = settings['objective']['xy_fine']
+        _, objective = get_current_objective_info()
+        fine = objective['xy_fine']
         lumaview.scope.move_relative_position('X', -fine)  # Move LEFT fine step
         self.update_gui()
 
     def fine_right(self):
         logger.info('[LVP Main  ] XYStageControl.fine_right()')
-        fine = settings['objective']['xy_fine']
+        _, objective = get_current_objective_info()
+        fine = objective['xy_fine']
         lumaview.scope.move_relative_position('X', fine)  # Move RIGHT fine step
         self.update_gui()
 
     def coarse_left(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_left()')
-        coarse = settings['objective']['xy_coarse']
+        _, objective = get_current_objective_info()
+        coarse = objective['xy_coarse']
         lumaview.scope.move_relative_position('X', -coarse)  # Move LEFT coarse step
         self.update_gui()
 
     def coarse_right(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_right()')
-        coarse = settings['objective']['xy_coarse']
+        _, objective = get_current_objective_info()
+        coarse = objective['xy_coarse']
         lumaview.scope.move_relative_position('X', coarse)  # Move RIGHT
         self.update_gui()
 
     def fine_back(self):
         logger.info('[LVP Main  ] XYStageControl.fine_back()')
-        fine = settings['objective']['xy_fine']
+        _, objective = get_current_objective_info()
+        fine = objective['xy_fine']
         lumaview.scope.move_relative_position('Y', -fine)  # Move BACK 
         self.update_gui()
 
     def fine_fwd(self):
         logger.info('[LVP Main  ] XYStageControl.fine_fwd()')
-        fine = settings['objective']['xy_fine']
+        _, objective = get_current_objective_info()
+        fine = objective['xy_fine']
         lumaview.scope.move_relative_position('Y', fine)  # Move FORWARD 
         self.update_gui()
 
     def coarse_back(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_back()')
-        coarse = settings['objective']['xy_coarse']
+        _, objective = get_current_objective_info()
+        coarse = objective['xy_coarse']
         lumaview.scope.move_relative_position('Y', -coarse)  # Move BACK
         self.update_gui()
 
     def coarse_fwd(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_fwd()')
-        coarse = settings['objective']['xy_coarse']
+        _, objective = get_current_objective_info()
+        coarse = objective['xy_coarse']
         lumaview.scope.move_relative_position('Y', coarse)  # Move FORWARD 
         self.update_gui()
 
@@ -2738,9 +2760,10 @@ class ProtocolSettings(CompositeCapture):
         labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
         labware.set_positions()
         
+        _, objective = get_current_objective_info()
         tiles = self.tiling_config.get_tile_centers(
             config_label=self.ids['tiling_size_spinner'].text,
-            focal_length=settings['objective']['focal_length'],
+            focal_length=objective['focal_length'],
             frame_size=settings['frame'],
             fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position']
         )
@@ -2965,9 +2988,10 @@ class ProtocolSettings(CompositeCapture):
         labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
         labware.set_positions()
         
+        objective_id, objective = get_current_objective_info()
         tiles = self.tiling_config.get_tile_centers(
             config_label=self.ids['tiling_size_spinner'].text,
-            focal_length=settings['objective']['focal_length'],
+            focal_length=objective['focal_length'],
             frame_size=settings['frame'],
             fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position']
         )
@@ -3007,7 +3031,6 @@ class ProtocolSettings(CompositeCapture):
                         gain = round(settings[layer]['gain'], common_utils.max_decimal_precision('gain'))
                         auto_gain = common_utils.to_bool(settings[layer]['auto_gain'])
                         exp = round(settings[layer]['exp'], common_utils.max_decimal_precision('exposure'))
-                        objective = settings['objective']['ID']
                         custom_step = False
                         well_label = labware.get_well_label(x=pos[0], y=pos[1])
 
@@ -3038,7 +3061,7 @@ class ProtocolSettings(CompositeCapture):
                             gain=gain,
                             auto_gain=auto_gain,
                             exp=exp,
-                            objective=objective,
+                            objective=objective_id,
                             well=well_label,
                             tile=tile_label,
                             zslice=zstack_slice_label,
@@ -3463,7 +3486,9 @@ class ProtocolSettings(CompositeCapture):
         self._protocol_df.at[self.curr_step, "Gain"] = round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain'))
         self._protocol_df.at[self.curr_step, "Auto_Gain"] = layer_id.ids['auto_gain'].active
         self._protocol_df.at[self.curr_step, "Exposure"] = round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure'))
-        self._protocol_df.at[self.curr_step, "Objective"] = settings['objective']['ID']
+
+        objective_id, _ = get_current_objective_info()
+        self._protocol_df.at[self.curr_step, "Objective"] = objective_id
         stage.set_protocol_steps(df=self._protocol_df)
 
 
@@ -3508,6 +3533,7 @@ class ProtocolSettings(CompositeCapture):
         zstack_group_id = -1
         z = lumaview.scope.get_current_position('Z')
 
+        objective_id, _ = get_current_objective_info()
         step_dict = self.create_step_dict(
             name=name,
             x=round(px, common_utils.max_decimal_precision('x')),
@@ -3520,7 +3546,7 @@ class ProtocolSettings(CompositeCapture):
             gain=round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')),
             auto_gain=layer_id.ids['auto_gain'].active,
             exp=round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')),
-            objective=settings['objective']['ID'],
+            objective=objective_id,
             well=well,
             tile=tile,
             zslice=zslice,
@@ -4413,13 +4439,17 @@ class MicroscopeSettings(BoxLayout):
             logger.exception('[LVP Main  ] Unable to read scopes.json.')
             raise
 
-        try:
-            os.chdir(source_path)
-            with open('./data/objectives.json', "r") as read_file:
-                self.objectives = json.load(read_file)
-        except:
-            logger.exception('[LVP Main  ] Unable to open objectives.json.')
-            raise
+        # try:
+        #     os.chdir(source_path)
+        #     with open('./data/objectives.json', "r") as read_file:
+        #         self.objectives = json.load(read_file)
+        # except:
+        #     logger.exception('[LVP Main  ] Unable to open objectives.json.')
+        #     raise
+
+
+    # def get_objective_info(self, objective_id: str) -> dict:
+    #     return self.objectives[objective_id]
 
 
     # load settings from JSON file
@@ -4486,10 +4516,11 @@ class MicroscopeSettings(BoxLayout):
                 # self.update_binning_size()
                 lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
-                self.ids['objective_spinner'].text = settings['objective']['ID']
-                # TODO self.ids['objective_spinner'].text = settings['objective']['description']
-                self.ids['magnification_id'].text = str(settings['objective']['magnification'])
-                lumaview.scope.set_objective(objective=settings['objective'])
+                objective_id = settings['objective_id']
+                self.ids['objective_spinner'].text = objective_id
+                objective = objective_helper.get_objective_info(objective_id=objective_id)
+                self.ids['magnification_id'].text = f"{objective['magnification']}"
+                lumaview.scope.set_objective(objective=objective_id)
                 
                 self.ids['frame_width_id'].text = str(settings['frame']['width'])
                 self.ids['frame_height_id'].text = str(settings['frame']['height'])
@@ -4675,10 +4706,10 @@ class MicroscopeSettings(BoxLayout):
         stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
 
            
-    def load_ojectives(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.load_ojectives()')
+    def load_objectives(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.load_objectives()')
         spinner = self.ids['objective_spinner']
-        spinner.values = list(self.objectives.keys())
+        spinner.values = objective_helper.get_objectives_list()
 
 
     def select_objective(self):
@@ -4686,16 +4717,16 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
         global settings
 
-        spinner = self.ids['objective_spinner']
-        settings['objective'] = self.objectives[spinner.text]
-        settings['objective']['ID'] = spinner.text
+        objective_id = self.ids['objective_spinner'].text
+        objective = objective_helper.get_objective_info(objective_id=objective_id)
+        settings['objective_id'] = objective_id
         microscope_settings_id = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
-        microscope_settings_id.ids['magnification_id'].text = str(settings['objective']['magnification'])
+        microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
 
-        lumaview.scope.set_objective(settings['objective'])
+        lumaview.scope.set_objective(objective_id)
 
         fov_size = common_utils.get_field_of_view(
-            focal_length=settings['objective']['focal_length'],
+            focal_length=objective['focal_length'],
             frame_size=settings['frame']
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
@@ -4718,8 +4749,11 @@ class MicroscopeSettings(BoxLayout):
         self.ids['frame_width_id'].text = str(width)
         self.ids['frame_height_id'].text = str(height)
 
+        objective_id = settings['objective_id']
+        objective = objective_helper.get_objective_info(objective_id=objective_id)
+
         fov_size = common_utils.get_field_of_view(
-            focal_length=settings['objective']['focal_length'],
+            focal_length=objective['focal_length'],
             frame_size=settings['frame']
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
@@ -5341,6 +5375,7 @@ class LumaViewProApp(App):
         global stage
         global wellplate_loader
         global coordinate_transformer
+        global objective_helper
         self.icon = './data/icons/icon.png'
 
         stage = Stage()
@@ -5369,7 +5404,9 @@ class LumaViewProApp(App):
 
         # load labware file
         wellplate_loader = labware_loader.WellPlateLoader()
-        coordinate_transformer = coord_transformations.CoordinateTransformer()#wellplate_loader=wellplate_loader)
+        coordinate_transformer = coord_transformations.CoordinateTransformer()
+
+        objective_helper = objectives_loader.ObjectiveLoader()
 
         # load settings file
         if os.path.exists("./data/current.json"):
