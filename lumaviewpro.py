@@ -2002,13 +2002,15 @@ class VerticalControl(BoxLayout):
         self.is_autofocus = False
         self.is_complete = False
         self.record_autofocus_to_file = False
+
+        Clock.schedule_interval(self.update_gui, 0.3)
         
-    def update_gui(self):
-        logger.info('[LVP Main  ] VerticalControl.update_gui()')
+
+    def update_gui(self, dt=0):
         try:
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
-            logger.warning('[LVP Main  ] Error talking to Motor board.')
+            return
 
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
@@ -2362,41 +2364,22 @@ class VerticalControl(BoxLayout):
         self.ids['turret_pos_3_btn'].state = 'normal'
         self.ids['turret_pos_4_btn'].state = 'normal'
 
-    def turret_select(self, position):
+
+    def turret_select(self, selected_position):
         #TODO check if turret has been HOMED turret first
-        lumaview.scope.turret_id = int(position) - 1
-        angle = 90*lumaview.scope.turret_id #+ lumaview.scope.turret_bias
-        lumaview.scope.tmove(angle)
+        lumaview.scope.turret_id = selected_position - 1
+        angle = 90*lumaview.scope.turret_id
+        lumaview.scope.tmove(
+            degrees=angle
+        )
         
-        #self.ids['turret_pos_1_btn'].state = 'normal'
-        #self.ids['turret_pos_2_btn'].state = 'normal'
-        #self.ids['turret_pos_3_btn'].state = 'normal'
-        #self.ids['turret_pos_4_btn'].state = 'normal'
-        #self.ids[f'turret_pos_{position}_btn'].state = 'down'
-                    
-        if position == '1':
-            self.ids['turret_pos_1_btn'].state = 'down'
-            self.ids['turret_pos_2_btn'].state = 'normal'
-            self.ids['turret_pos_3_btn'].state = 'normal'
-            self.ids['turret_pos_4_btn'].state = 'normal'
-
-        elif position == '2':
-            self.ids['turret_pos_1_btn'].state = 'normal'
-            self.ids['turret_pos_2_btn'].state = 'down'
-            self.ids['turret_pos_3_btn'].state = 'normal'
-            self.ids['turret_pos_4_btn'].state = 'normal'
-
-        elif position == '3':
-            self.ids['turret_pos_1_btn'].state = 'normal'
-            self.ids['turret_pos_2_btn'].state = 'normal'
-            self.ids['turret_pos_3_btn'].state = 'down'
-            self.ids['turret_pos_4_btn'].state = 'normal'
-
-        elif position == '4':
-            self.ids['turret_pos_1_btn'].state = 'normal'
-            self.ids['turret_pos_2_btn'].state = 'normal'
-            self.ids['turret_pos_3_btn'].state = 'normal'
-            self.ids['turret_pos_4_btn'].state = 'down'
+        for available_position in range(1,5):
+            if selected_position == available_position:
+                state = 'down'
+            else:
+                state = 'normal'
+            
+            self.ids[f'turret_pos_{available_position}_btn'].state = state
 
 
 class XYStageControl(BoxLayout):
