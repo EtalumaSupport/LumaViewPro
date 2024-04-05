@@ -702,15 +702,6 @@ class CompositeCapture(FloatLayout):
                 # update illumination to currently selected settings
                 illumination = settings[layer]['ill']
 
-                # Dark field capture
-                scope_leds_off()
-
-                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
-                time.sleep(2*exposure/1000+0.2)
-                scope_display.update_scopedisplay() # Why?
-
-                darkfield = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
-
                 # Florescent capture
                 if lumaview.scope.led:
                     lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
@@ -720,17 +711,15 @@ class CompositeCapture(FloatLayout):
 
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
-                exposed = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+                img_gray = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
 
-                scope_display.update_scopedisplay() # Why?
-                corrected = exposed - np.minimum(exposed,darkfield)
                 # buffer the images
                 if layer == 'Blue':
-                    img[:,:,0] = corrected
+                    img[:,:,0] = img_gray
                 elif layer == 'Green':
-                    img[:,:,1] = corrected
+                    img[:,:,1] = img_gray
                 elif layer == 'Red':
-                    img[:,:,2] = corrected
+                    img[:,:,2] = img_gray
                 # # if Brightfield is included
                 # else:
                 #     a = 0.3
