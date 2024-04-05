@@ -684,7 +684,7 @@ class CompositeCapture(FloatLayout):
 
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3), dtype=dtype)
 
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_fluorescence_layers():
             if settings[layer]['acquire'] == True:
 
                 # Go to focus and wait for arrival
@@ -4521,7 +4521,7 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['objective_spinner'].text = objective_id
                 objective = objective_helper.get_objective_info(objective_id=objective_id)
                 self.ids['magnification_id'].text = f"{objective['magnification']}"
-                lumaview.scope.set_objective(objective=objective_id)
+                lumaview.scope.set_objective(objective_id=objective_id)
                 
                 self.ids['frame_width_id'].text = str(settings['frame']['width'])
                 self.ids['frame_height_id'].text = str(settings['frame']['height'])
@@ -4724,7 +4724,7 @@ class MicroscopeSettings(BoxLayout):
         microscope_settings_id = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
         microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
 
-        lumaview.scope.set_objective(objective_id)
+        lumaview.scope.set_objective(objective_id=objective_id)
 
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
