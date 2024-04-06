@@ -252,6 +252,60 @@ def get_current_objective_info() -> tuple[str, dict]:
     objective = objective_helper.get_objective_info(objective_id=objective_id)
     return objective_id, objective
 
+
+def _handle_ui_update_for_axis(axis: str):
+    axis = axis.upper()
+    if axis == 'Z':
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_gui()
+    elif axis in ('X', 'Y', 'XY'):
+        lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
+
+
+# Wrapper function when moving to update UI position
+def move_absolute_position(
+    axis: str,
+    pos: float,
+    wait_until_complete: bool = False,
+    overshoot_enabled: bool = True
+):
+    lumaview.scope.move_absolute_position(
+        axis=axis,
+        pos=pos,
+        wait_until_complete=wait_until_complete,
+        overshoot_enabled=overshoot_enabled
+    )
+
+    _handle_ui_update_for_axis(axis=axis)
+
+
+# Wrapper function when moving to update UI position
+def move_relative_position(
+    axis: str,
+    um: float,
+    wait_until_complete: bool = False,
+    overshoot_enabled: bool = True
+):
+    lumaview.scope.move_relative_position(
+        axis=axis,
+        um=um,
+        wait_until_complete=wait_until_complete,
+        overshoot_enabled=overshoot_enabled
+    )
+
+    _handle_ui_update_for_axis(axis=axis)
+
+
+def move_home(axis: str):
+    axis = axis.upper()
+
+    if axis == 'Z':
+        lumaview.scope.zhome()
+    elif axis == 'XY':
+        lumaview.scope.xyhome()
+
+    _handle_ui_update_for_axis(axis=axis)
+
+
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
 # -------------------------------------------------------------------------
@@ -313,8 +367,8 @@ class ScopeDisplay(Image):
                 x_dist_um = x_dist_pixel * pixel_size_um
                 y_dist_um = y_dist_pixel * pixel_size_um
 
-                lumaview.scope.move_relative_position(axis='X', um=x_dist_um)
-                lumaview.scope.move_relative_position(axis='Y', um=y_dist_um)
+                move_relative_position(axis='X', um=x_dist_um)
+                move_relative_position(axis='Y', um=y_dist_um)
 
 
     @staticmethod
@@ -2025,10 +2079,8 @@ class VerticalControl(BoxLayout):
         self.is_complete = False
         self.record_autofocus_to_file = False
 
-        Clock.schedule_interval(self.update_gui, 0.3)
-        
 
-    def update_gui(self, dt=0):
+    def update_gui(self):
         try:
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
@@ -2037,38 +2089,39 @@ class VerticalControl(BoxLayout):
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
+
     def coarse_up(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
         _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
-        lumaview.scope.move_relative_position('Z', coarse, overshoot_enabled=overshoot_enabled)                  # Move UP
-        self.update_gui()
+        move_relative_position('Z', coarse, overshoot_enabled=overshoot_enabled)
+
 
     def fine_up(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
         _, objective = get_current_objective_info()
         fine = objective['z_fine']
-        lumaview.scope.move_relative_position('Z', fine, overshoot_enabled=overshoot_enabled)                    # Move UP
-        self.update_gui()
+        move_relative_position('Z', fine, overshoot_enabled=overshoot_enabled)
+
 
     def fine_down(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
         _, objective = get_current_objective_info()
         fine = objective['z_fine']
-        lumaview.scope.move_relative_position('Z', -fine, overshoot_enabled=overshoot_enabled)                   # Move DOWN
-        self.update_gui()
+        move_relative_position('Z', -fine, overshoot_enabled=overshoot_enabled)
+
 
     def coarse_down(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
         _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
-        lumaview.scope.move_relative_position('Z', -coarse, overshoot_enabled=overshoot_enabled)                 # Move DOWN
-        self.update_gui()
+        move_relative_position('Z', -coarse, overshoot_enabled=overshoot_enabled)
+
 
     def set_position(self, pos):
         logger.info('[LVP Main  ] VerticalControl.set_position()')
-        lumaview.scope.move_absolute_position('Z', float(pos))
-        self.update_gui()
+        move_absolute_position('Z', float(pos))
+
 
     def set_bookmark(self):
         logger.info('[LVP Main  ] VerticalControl.set_bookmark()')
@@ -2089,13 +2142,11 @@ class VerticalControl(BoxLayout):
     def goto_bookmark(self):
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         pos = settings['bookmark']['z']
-        lumaview.scope.move_absolute_position('Z', pos)
-        self.update_gui()
+        move_absolute_position('Z', pos)
 
     def home(self):
         logger.info('[LVP Main  ] VerticalControl.home()')
-        lumaview.scope.zhome()
-        self.update_gui()
+        move_home(axis='Z')
 
     # User selected the autofocus function
     def autofocus(self):
@@ -2145,7 +2196,7 @@ class VerticalControl(BoxLayout):
             self.is_autofocus = True
 
             # Start the autofocus process at z-minimum
-            lumaview.scope.move_absolute_position('Z', self.z_min)
+            move_absolute_position('Z', self.z_min)
 
             # schedule focus iterate
             logger.info('[LVP Main  ] Clock.schedule_interval(self.focus_iterate, 0.01)')
@@ -2253,7 +2304,7 @@ class VerticalControl(BoxLayout):
                     self.focus_measures = []
 
                     # go to new z_min
-                    lumaview.scope.move_absolute_position('Z', self.z_min)
+                    move_absolute_position('Z', self.z_min)
 
                     if self.resolution == AF_min:
                         self.last = True
@@ -2263,7 +2314,7 @@ class VerticalControl(BoxLayout):
                     focus = self.focus_best(self.positions, self.focus_measures)
 
                     # go to best focus
-                    lumaview.scope.move_absolute_position('Z', focus) # move to absolute target
+                    move_absolute_position('Z', focus) # move to absolute target
 
                     # end autofocus sequence
                     logger.info('[LVP Main  ] Clock.unschedule(self.focus_iterate)')
@@ -2280,7 +2331,7 @@ class VerticalControl(BoxLayout):
 
             else:
                 # move to next position
-                lumaview.scope.move_relative_position('Z', self.resolution)
+                move_relative_position('Z', self.resolution)
 
             # update last focus
             self.last_focus = focus
@@ -2295,7 +2346,6 @@ class VerticalControl(BoxLayout):
             if self.record_autofocus_to_file:
                 self.save_autofocus_data()
 
-        self.update_gui()
 
     # Algorithms for estimating the quality of the focus
     def focus_function(self, image, algorithm = 'vollath4'):
@@ -2443,57 +2493,49 @@ class XYStageControl(BoxLayout):
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
         _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        lumaview.scope.move_relative_position('X', -fine)  # Move LEFT fine step
-        self.update_gui()
+        move_relative_position('X', -fine)  # Move LEFT fine step
 
     def fine_right(self):
         logger.info('[LVP Main  ] XYStageControl.fine_right()')
         _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        lumaview.scope.move_relative_position('X', fine)  # Move RIGHT fine step
-        self.update_gui()
+        move_relative_position('X', fine)  # Move RIGHT fine step
 
     def coarse_left(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_left()')
         _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        lumaview.scope.move_relative_position('X', -coarse)  # Move LEFT coarse step
-        self.update_gui()
+        move_relative_position('X', -coarse)  # Move LEFT coarse step
 
     def coarse_right(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_right()')
         _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        lumaview.scope.move_relative_position('X', coarse)  # Move RIGHT
-        self.update_gui()
+        move_relative_position('X', coarse)  # Move RIGHT
 
     def fine_back(self):
         logger.info('[LVP Main  ] XYStageControl.fine_back()')
         _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        lumaview.scope.move_relative_position('Y', -fine)  # Move BACK 
-        self.update_gui()
+        move_relative_position('Y', -fine)  # Move BACK 
 
     def fine_fwd(self):
         logger.info('[LVP Main  ] XYStageControl.fine_fwd()')
         _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        lumaview.scope.move_relative_position('Y', fine)  # Move FORWARD 
-        self.update_gui()
+        move_relative_position('Y', fine)  # Move FORWARD 
 
     def coarse_back(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_back()')
         _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        lumaview.scope.move_relative_position('Y', -coarse)  # Move BACK
-        self.update_gui()
+        move_relative_position('Y', -coarse)  # Move BACK
 
     def coarse_fwd(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_fwd()')
         _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        lumaview.scope.move_relative_position('Y', coarse)  # Move FORWARD 
-        self.update_gui()
+        move_relative_position('Y', coarse)  # Move FORWARD 
 
     def set_xposition(self, x_pos):
         logger.info('[LVP Main  ] XYStageControl.set_xposition()')
@@ -2512,8 +2554,8 @@ class XYStageControl(BoxLayout):
         logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
-        lumaview.scope.move_absolute_position('X', stage_x)  # position in text is in mm
-        self.update_gui()
+        move_absolute_position('X', stage_x)  # position in text is in mm
+
 
     def set_yposition(self, y_pos):
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
@@ -2530,8 +2572,8 @@ class XYStageControl(BoxLayout):
         )
 
         # Move to y-position
-        lumaview.scope.move_absolute_position('Y', stage_y)  # position in text is in mm
-        self.update_gui()
+        move_absolute_position('Y', stage_y)  # position in text is in mm
+
 
     def set_xbookmark(self):
         logger.info('[LVP Main  ] XYStageControl.set_xbookmark()')
@@ -2584,7 +2626,7 @@ class XYStageControl(BoxLayout):
             px=x_pos,
             py=0
         )
-        lumaview.scope.move_absolute_position('X', stage_x)  # set current x position in um
+        move_absolute_position('X', stage_x)  # set current x position in um
 
     def goto_ybookmark(self):
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
@@ -2601,7 +2643,7 @@ class XYStageControl(BoxLayout):
             px=0,
             py=y_pos
         )
-        lumaview.scope.move_absolute_position('Y', stage_y)  # set current y position in um
+        move_absolute_position('Y', stage_y)  # set current y position in um
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')
@@ -2622,8 +2664,7 @@ class XYStageControl(BoxLayout):
         global lumaview
 
         if lumaview.scope.motion.driver: # motor controller is actively connected
-            lumaview.scope.xyhome()
-            # TODO: update GUI, 
+            move_home(axis='XY')
             
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
@@ -3351,9 +3392,9 @@ class ProtocolSettings(CompositeCapture):
 
         # Move into position
         if lumaview.scope.motion.driver:
-            lumaview.scope.move_absolute_position('X', sx)
-            lumaview.scope.move_absolute_position('Y', sy)
-            lumaview.scope.move_absolute_position('Z', step["Z"])
+            move_absolute_position('X', sx)
+            move_absolute_position('Y', sy)
+            move_absolute_position('Z', step["Z"])
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
@@ -3363,7 +3404,6 @@ class ProtocolSettings(CompositeCapture):
         # open ImageSettings
         lumaview.ids['imagesettings_id'].ids['toggle_imagesettings'].state = 'down'
         lumaview.ids['imagesettings_id'].toggle_settings()
-        
         
         # set accordion item to corresponding channel
         id = f"{color}_accordion"
@@ -3401,9 +3441,6 @@ class ProtocolSettings(CompositeCapture):
         settings[color]['exp'] = step["Exposure"]
         layer.ids['exp_text'].text = str(step["Exposure"])
         layer.ids['exp_slider'].value = float(step["Exposure"])
-
-        # update position in stage control
-        lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
 
         layer.apply_settings(ignore_auto_gain=ignore_auto_gain)
 
@@ -3640,9 +3677,9 @@ class ProtocolSettings(CompositeCapture):
             )
 
             # Move into position
-            lumaview.scope.move_absolute_position('X', sx)
-            lumaview.scope.move_absolute_position('Y', sy)
-            lumaview.scope.move_absolute_position('Z', step["Z"])
+            move_absolute_position('X', sx)
+            move_absolute_position('Y', sy)
+            move_absolute_position('Z', step["Z"])
 
             logger.info('[LVP Main  ] Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
             Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
@@ -3794,12 +3831,12 @@ class ProtocolSettings(CompositeCapture):
     def perform_grease_redistribution(self):
         z_orig = lumaview.scope.get_current_position('Z')
         logger.info('[LVP Main  ] Performing Z-axis grease redistribution')
-        lumaview.scope.move_absolute_position('Z', 0)
+        move_absolute_position('Z', 0)
         z_status = False
         while not z_status:
             z_status = lumaview.scope.get_target_status('Z')
             time.sleep(0.1)
-        lumaview.scope.move_absolute_position('Z', z_orig)
+        move_absolute_position('Z', z_orig)
         z_status = False
         while not z_status:
             z_status = lumaview.scope.get_target_status('Z')
@@ -4195,10 +4232,9 @@ class Stage(Widget):
                 py=plate_y
             )
 
-            lumaview.scope.move_absolute_position('X', stage_x)
-            lumaview.scope.move_absolute_position('Y', stage_y)
-            lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
-    
+            move_absolute_position('X', stage_x)
+            move_absolute_position('Y', stage_y)
+
 
     def draw_labware(
         self,
@@ -4880,9 +4916,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
         global lumaview
         pos = settings[self.layer]['focus']
-        lumaview.scope.move_absolute_position('Z', pos)  # set current z height in usteps
-        control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
-        control.update_gui()
+        move_absolute_position('Z', pos)  # set current z height in usteps
 
 
     def update_led_state(self):
@@ -5003,7 +5037,7 @@ class ZStack(CompositeCapture):
         # begin moving to the first position
         self.positions = zstack_config.step_positions()
         self.n_pos = 0
-        lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
+        move_absolute_position('Z', self.positions[self.n_pos])
 
         if self.ids['zstack_aqr_btn'].state == 'down':
             logger.info('[LVP Main  ] Clock.schedule_interval(self.zstack_iterate, 0.01)')
@@ -5015,7 +5049,7 @@ class ZStack(CompositeCapture):
             # self.zstack_event.cancel()
             logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
             Clock.unschedule(self.zstack_iterate)
-            lumaview.scope.move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
+            move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
 
 
     def zstack_iterate(self, dt):
@@ -5040,13 +5074,13 @@ class ZStack(CompositeCapture):
             self.n_pos += 1
 
             if self.n_pos < len(self.positions):
-                lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
+                move_absolute_position('Z', self.positions[self.n_pos])
             else:
                 self.ids['zstack_aqr_btn'].text = 'Acquire'
                 self.ids['zstack_aqr_btn'].state = 'normal'
                 logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
                 Clock.unschedule(self.zstack_iterate)
-                lumaview.scope.move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
+                move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
 
 
 # Button the triggers 'filechooser.open_file()' from plyer
@@ -5343,8 +5377,7 @@ class LumaViewProApp(App):
         load_log_level()
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
-        lumaview.scope.xyhome()
-
+        move_home(axis='XY')
 
 
     def build(self):
