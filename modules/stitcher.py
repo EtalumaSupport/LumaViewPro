@@ -55,6 +55,7 @@ class Stitcher:
         stitched_metadata = []
         stitched_metadata_composite = []
 
+        count = 0
         for _, stitch_group in loop_list:
             # pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
             if len(stitch_group) == 0:
@@ -62,7 +63,7 @@ class Stitcher:
 
             if len(stitch_group) == 1:
                 logger.debug(f"{self._name}: Skipping stitching generation for {stitch_group.iloc[0]['Filename']} since only {len(stitch_group)} image tile found.")
-
+                continue
 
             stitched_image, center = self.simple_position_stitcher(
                 path=path,
@@ -115,6 +116,15 @@ class Stitcher:
                 'Stitched': True,
                 'Composite': first_row['Composite']
             })
+
+            count += 1
+
+        if count == 0:
+            logger.info(f"{self._name}: No sets of images found to stitch")
+            return {
+                'status': False,
+                'message': 'No images found'
+            }
 
         for metadata, path, metadata_filename in (
             (stitched_metadata, output_path, artifact_locations.stitcher_output_metadata_filename()),
