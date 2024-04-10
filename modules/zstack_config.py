@@ -23,7 +23,7 @@ class ZStackConfig:
         if self._step_size == 0:
             return 0
         
-        return np.floor(self._range/self._step_size)
+        return np.floor(self._range/self._step_size)+1
     
 
     def step_positions(self) -> dict[int, float]:
