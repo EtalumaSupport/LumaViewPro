@@ -65,11 +65,17 @@ class VideoBuilder:
         return fourcc
     
 
-    def _get_frame_size(self, image: pathlib.Path) -> dict:
+    def _get_frame_size(self, image: pathlib.Path) -> tuple:
         frame = cv2.imread(str(image), cv2.IMREAD_UNCHANGED)
-        height, width, _ = frame.shape
+        shape = frame.shape
+        height, width = shape[0], shape[1]
+
+        if len(shape) >= 3:
+            channels = shape[2]
+        else:
+            channels = 1
         
-        return (height, width)
+        return (height, width, channels)
 
         
     def create_video_from_directory(
@@ -126,7 +132,9 @@ class VideoBuilder:
 
         fourcc = self._get_fourcc_code(codec=codec)
 
-        frame_height, frame_width = self._get_frame_size(image=images[0])
+        frame_height, frame_width, num_channels = self._get_frame_size(image=images[0])
+
+        # is_color = False if num_channels == 1 else True
 
         video = cv2.VideoWriter(
             filename=str(output_file_loc),
@@ -138,7 +146,7 @@ class VideoBuilder:
 
         logger.info(f"[{self._name}] Writing video to {output_file_loc}")
         for image in images:
-            video.write(cv2.imread(str(image), cv2.IMREAD_UNCHANGED))
+            video.write(cv2.imread(str(image), cv2.IMREAD_COLOR))
 
         cv2.destroyAllWindows()
         video.release()
