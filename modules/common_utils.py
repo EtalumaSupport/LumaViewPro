@@ -10,7 +10,8 @@ def generate_default_step_name(
     z_height_idx = None,
     scan_count = None,
     tile_label = None,
-    custom_name_prefix = None
+    custom_name_prefix = None,
+    stitched: bool = False,
 ):
     if custom_name_prefix not in (None, ""):
         name = f"{custom_name_prefix}_{color}"
@@ -26,6 +27,9 @@ def generate_default_step_name(
     DESIRED_SCAN_COUNT_DIGITS = 4
     if scan_count not in (None, ""):
         name = f'{name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}'
+
+    if stitched:
+        name = f'{name}_stitched'
     
     return name
 

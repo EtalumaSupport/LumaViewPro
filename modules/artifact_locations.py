@@ -22,3 +22,11 @@ def composite_and_stitched_output_dir() -> str:
 
 def composite_and_stitched_output_metadata_filename() -> str:
     return "composite_and_stitched_metadata.tsv"
+
+
+def video_output_dir() -> str:
+    return "Video"
+
+
+def video_output_metadata_filename() -> str:
+    return "video_metadata.tsv"

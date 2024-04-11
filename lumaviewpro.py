@@ -1250,61 +1250,35 @@ class VideoCreationControls(BoxLayout):
     def __init__(self, **kwargs):
         global video_creation_controls
         super().__init__(**kwargs)
-        logger.info('LVP Main: VideoCreationControls.__init__()')
-        self._post = post_processing.PostProcessing()
         video_creation_controls = self
-        self._first_open = False
-        self._input_images_loc = None
-        self._output_file_loc = None
-
-    
-    def activate(self):
-        if self._first_open is False:
-            self._first_open = True
-
-
-    def deactivate(self):
-        pass
-
-
-    def set_input_images_loc(self, directory: str | pathlib.Path) -> None:
-        self._input_images_loc = pathlib.Path(directory)
-
-    
-    def set_output_file_loc(self, file_loc: str | pathlib.Path) -> None:
-        self._output_file_loc = pathlib.Path(file_loc)
 
 
     @show_popup
-    def create_video(self, popup) -> None:
+    def run_video_gen(self, popup, path) -> None:
         status_map = {
             True: "Success",
             False: "FAILED"
         }
-
         popup.title = "Video Builder"
-        popup.text = "Generating video..."
-
-        if self._input_images_loc is None:
-            popup.text = f"{popup.text} {status_map[False]} - Set Image Folder"
-            time.sleep(2)
+        popup.text = "Generating video(s)..."
+        video_builder = VideoBuilder()
+        result = video_builder.load_folder(
+            path=pathlib.Path(path),
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            frames_per_sec=10
+        )
+        final_text = f"Generating video(s) - {status_map[result['status']]}"
+        if result['status'] is False:
+            final_text += f"\n{result['message']}"
+            popup.text = final_text
+            time.sleep(5)
             self.done = True
             return
-
-        if self._output_file_loc is None:
-            self._output_file_loc = self._input_images_loc.joinpath("movie.avi")
-
-        video_builder = VideoBuilder()
-        status = video_builder.create_video_from_directory(
-            input_directory=self._input_images_loc,
-            frames_per_sec=10,
-            output_file_loc=self._output_file_loc,
-        )
-
-        popup.text = f"{popup.text} {status_map[status]}\n- Output: {self._output_file_loc}"
+        
+        popup.text = final_text
         time.sleep(2)
         self.done = True
-        self._launch_video()
+        self._launch_video()       
 
     
     def _launch_video(self) -> None:
@@ -5180,7 +5154,11 @@ class FolderChooseBTN(Button):
         self.context = context
 
         # Show previously selected/default folder
-        if self.context in ("apply_stitching_to_folder", "apply_composite_gen_to_folder"):
+        if self.context in (
+            "apply_stitching_to_folder",
+            "apply_composite_gen_to_folder",
+            "apply_video_gen_to_folder"
+        ):
             selected_path = pathlib.Path(settings['live_folder']) / PROTOCOL_DATA_DIR_NAME
             if selected_path.exists() is False:
                 selected_path = pathlib.Path(settings['live_folder'])
@@ -5237,10 +5215,6 @@ class FolderChooseBTN(Button):
 
         if self.context == 'live_folder':
             settings['live_folder'] = str(pathlib.Path(path).resolve())
-
-        elif self.context == 'video_input_images_folder':
-            video_creation_controls.set_input_images_loc(directory=path)
-
         elif self.context == 'apply_cell_count_method_to_folder':
             cell_count_content.apply_method_to_folder(
                 path=path
@@ -5249,6 +5223,8 @@ class FolderChooseBTN(Button):
             stitch_controls.run_stitcher(path=pathlib.Path(path))
         elif self.context == 'apply_composite_gen_to_folder':
             composite_gen_controls.run_composite_gen(path=pathlib.Path(path))
+        elif self.context == 'apply_video_gen_to_folder':
+            video_creation_controls.run_video_gen(path=pathlib.Path(path))
         else:
             raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 
@@ -5267,8 +5243,6 @@ class FileSaveBTN(Button):
             filetypes = [('TSV', '.tsv')]
         elif self.context == 'saveas_cell_count_method':
             filetypes = [('JSON', '.json')]
-        elif self.context == 'video_output_path':
-            filetypes = [('AVI', '.avi')]
         else:
             logger.exception(f"Unsupported handling for {self.context}")
             return
@@ -5321,14 +5295,6 @@ class FileSaveBTN(Button):
                 if os.path.splitext(filename)[1] == "":
                     filename += ".json"
                 cell_count_content.save_method_as(file=filename)
-        
-        elif self.context == 'video_output_path':
-            if self.selection:
-                logger.info('[LVP Main  ] Set video output path to file:' + self.selection[0])
-                filepath = pathlib.Path(self.selection[0])
-                if filepath.suffix == "":
-                    filepath = filepath.with_suffix(".avi")
-                video_creation_controls.set_output_file_loc(file_loc=filepath)
 
 
 def load_log_level():

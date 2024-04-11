@@ -28,7 +28,8 @@ class Stitcher:
             path=path,
             tiling_configs_file_loc=tiling_configs_file_loc,
             include_stitched_images=False,
-            include_composite_images=True
+            include_composite_images=True,
+            include_composite_and_stitched_images=False,
         )
 
         if results['status'] is False:

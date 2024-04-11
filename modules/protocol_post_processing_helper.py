@@ -169,6 +169,7 @@ class ProtocolPostProcessingHelper:
 
         df = self._add_stitch_group_index(df=df)
         df = self._add_composite_group_index(df=df)
+        df = self._add_video_group_index(df=df)
         df = df.fillna('')
 
         return df
@@ -207,6 +208,25 @@ class ProtocolPostProcessingHelper:
             dropna=False
         ).ngroup()
         return df
+    
+
+    @staticmethod
+    def _add_video_group_index(df: pd.DataFrame) -> pd.DataFrame:
+        df['Video Group Index'] = df.groupby(
+            by=[
+                'Protocol Group Index',
+                'Z-Slice',
+                'Well',
+                'Color',
+                'Objective',
+                'Tile Group ID',
+                'X',
+                'Y',
+                'Custom Step'
+            ],
+            dropna=False
+        ).ngroup()
+        return df
 
 
     def load_folder(
@@ -214,7 +234,8 @@ class ProtocolPostProcessingHelper:
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
         include_stitched_images: bool = False,
-        include_composite_images: bool = False
+        include_composite_images: bool = False,
+        include_composite_and_stitched_images: bool = False,
     ) -> dict:
         logger.info(f'{self._name}: Loading folder {path}')
         path = pathlib.Path(path)
@@ -258,6 +279,7 @@ class ProtocolPostProcessingHelper:
             if stitched_images_df is not None:
                 stitched_images_df = self._add_stitch_group_index(df=stitched_images_df)
                 stitched_images_df = self._add_composite_group_index(df=stitched_images_df)
+                stitched_images_df = self._add_video_group_index(df=stitched_images_df)
                 stitched_images_df['Stitched'] = True
 
                 # Create empty 'Tile label' for already stitched images
@@ -276,9 +298,30 @@ class ProtocolPostProcessingHelper:
             if composite_images_df is not None:
                 composite_images_df = self._add_stitch_group_index(df=composite_images_df)
                 composite_images_df = self._add_composite_group_index(df=composite_images_df)
+                composite_images_df = self._add_video_group_index(df=composite_images_df)
                 composite_images_df['Composite'] = True
         else:
             composite_images_df = None
+
+        if include_composite_and_stitched_images:
+            composite_and_stitched_images_df = self._get_post_generated_images(
+                parent_path=path,
+                artifact_subfolder=artifact_locations.composite_and_stitched_output_dir(),
+                metadata_filename=artifact_locations.composite_and_stitched_output_metadata_filename()
+            )
+
+            if composite_and_stitched_images_df is not None:
+                composite_and_stitched_images_df = self._add_stitch_group_index(df=composite_and_stitched_images_df)
+                composite_and_stitched_images_df = self._add_composite_group_index(df=composite_and_stitched_images_df)
+                composite_and_stitched_images_df = self._add_video_group_index(df=composite_and_stitched_images_df)
+                composite_and_stitched_images_df['Composite'] = True
+                composite_and_stitched_images_df['Stitched'] = True
+
+                # Create empty 'Tile label' for already stitched images
+                stitched_images_df['Tile'] = ""
+        else:
+            composite_and_stitched_images_df = None
+
 
         protocol_tile_groups = protocol.get_tile_groups()
         exclude_paths = [
@@ -293,7 +336,6 @@ class ProtocolPostProcessingHelper:
         )
 
         image_tile_groups_df = self._get_image_tile_groups(
-            # parent_path=path,
             image_names=image_names,
             protocol_tile_groups=protocol_tile_groups,
             protocol_execution_record=protocol_execution_record,
@@ -307,5 +349,6 @@ class ProtocolPostProcessingHelper:
             'protocol_tile_groups': protocol_tile_groups,
             'image_tile_groups':image_tile_groups_df,
             'stitched_images': stitched_images_df,
-            'composite_images': composite_images_df
+            'composite_images': composite_images_df,
+            'composite_and_stitched_images': composite_and_stitched_images_df,
         }

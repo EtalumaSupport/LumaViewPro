@@ -1,7 +1,13 @@
 
+import itertools
 import pathlib
 
 import cv2
+import pandas as pd
+
+import modules.artifact_locations as artifact_locations
+import modules.common_utils as common_utils
+from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 
 from lvp_logger import logger
 
@@ -10,50 +16,161 @@ class VideoBuilder:
 
     CODECS = [
         0,
-        'mp4v'
+        'mp4v',
+        'mjpg'
     ]
 
     def __init__(self):
         self._name = self.__class__.__name__
+        self._protocol_post_processing_helper = ProtocolPostProcessingHelper()
 
-
-    def _get_all_images_in_directory(self, directory: pathlib.Path) -> list[pathlib.Path]:
-        if not directory.exists():
-            raise Exception(f"Directory {directory} does not exist")
-        
-        if not directory.is_dir():
-            raise Exception(f"{directory} is not a directory")
-        
-        images = []
-        for image_path in directory.glob("*.tif*"):
-            images.append(image_path)
-
-        return images
     
+    def load_folder(
+        self, path: str | pathlib.Path,
+        tiling_configs_file_loc: pathlib.Path,
+        frames_per_sec: int
+    ) -> dict:
+        results = self._protocol_post_processing_helper.load_folder(
+            path=path,
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            include_stitched_images=True,
+            include_composite_images=True,
+            include_composite_and_stitched_images=True,
+        )
 
-    def _all_images_same_size(self, image_list: list[pathlib.Path]) -> bool:
+        if results['status'] is False:
+            return {
+                'status': False,
+                'message': f'Failed to load protocol data from {path}'
+            }
 
-        frame_shapes = {}
-
-        if len(image_list) == 0:
-            return False, frame_shapes
+        df = results['image_tile_groups']
         
-        for image in image_list:
-            shape = self._get_frame_size(image=image)
+        if len(df) == 0:
+            return {
+                'status': False,
+                'message': 'No images found in selected folder'
+            }
+        
+        grouping_key = 'Video Group Index'
 
-            # Track which images have which frame shapes
-            # Useful for troubleshooting/logging
-            if shape not in frame_shapes:
-                frame_shapes[shape] = []
+        # Raw images first
+        loop_list = df.groupby(by=[grouping_key])
+
+        stitched_images_df = results['stitched_images']
+        if stitched_images_df is not None:
+            loop_list = itertools.chain(
+                loop_list,
+                stitched_images_df.groupby(by=[grouping_key])
+            )
+
+        composite_images_df = results['composite_images']
+        if composite_images_df is not None:
+            loop_list = itertools.chain(
+                loop_list,
+                composite_images_df.groupby(by=[grouping_key])
+            )
+
+        composite_and_stitched_images_df = results['composite_and_stitched_images']
+        if composite_and_stitched_images_df is not None:
+            loop_list = itertools.chain(
+                loop_list,
+                composite_and_stitched_images_df.groupby(by=[grouping_key])
+            )
+
+        logger.info(f"{self._name}: Generating video(s)")
+        metadata = []
+        
+        for _, video_group in loop_list:
             
-            frame_shapes[shape].append(image)
+            if len(video_group) == 0:
+                continue
 
-        # Check if more than one size of image was found
-        if len(frame_shapes) > 1:
-            return False, frame_shapes
+            if len(video_group) == 1:
+                logger.debug(f"{self._name}: Skipping video generation for {video_group.iloc[0]['Filename']} since only {len(video_group)} image found.")
+                continue
+
+            first_row = video_group.iloc[0]
+            video_filename_base = common_utils.generate_default_step_name(
+                well_label=first_row['Well'],
+                color=first_row['Color'],
+                z_height_idx=first_row['Z-Slice'],
+                tile_label=first_row['Tile'],
+                custom_name_prefix=first_row['Name'],
+                stitched=first_row['Stitched']
+            )
+            video_filename = f"{video_filename_base}.avi"
+
+            output_path = path / artifact_locations.video_output_dir()
+            if not output_path.exists():
+                output_path.mkdir(exist_ok=True, parents=True)
+
+            output_file_loc = output_path / video_filename
+
+            status = self._create_video(
+                path=path,
+                df=video_group[['Filename', 'Scan Count']],
+                frames_per_sec=frames_per_sec,
+                output_file_loc=str(output_file_loc)
+            )
+
+            if status == False:
+                logger.error(f"{self._name}: Unable to create video {output_file_loc}")
+                continue
+            
+            # logger.debug(f"{self._name}: - {output_file_loc}")
+            # if not cv2.imwrite(
+            #     filename=str(output_file_loc),
+            #     img=composite_image
+            # ):
+            #     logger.error(f"{self._name}: Unable to write image {output_file_loc}")
+            #     continue
+
+            metadata.append({
+                'Filename': video_filename,
+                'Name': first_row['Name'],
+                'Protocol Group Index': first_row['Protocol Group Index'],
+                'X': first_row['X'],
+                'Y': first_row['Y'],
+                'Z-Slice': first_row['Z-Slice'],
+                'Well': first_row['Well'],
+                'Color': first_row['Color'],
+                'Objective': first_row['Objective'],
+                'Tile Group ID': first_row['Tile Group ID'],
+                'Custom Step': first_row['Custom Step'],
+                'Stitch Group Index': first_row['Stitch Group Index'],
+                'Composite Group Index': first_row['Composite Group Index'],
+                'Video Group Index': first_row['Video Group Index'],
+                'Stitched': first_row['Stitched'],
+                'Composite': first_row['Composite'],
+            })
+
+        metadata_df = pd.DataFrame(metadata)
         
-        return True, frame_shapes
-    
+        if len(metadata_df) == 0:
+            return {
+                'status': False,
+                'message': 'No images found'
+            }
+
+        if not output_path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+
+        metadata_filename = artifact_locations.video_output_metadata_filename()
+        metadata_df.to_csv(
+            path_or_buf=output_path / metadata_filename,
+            header=True,
+            index=False,
+            sep='\t',
+            lineterminator='\n',
+        )
+        
+        logger.info(f"{self._name}: Complete")
+        return {
+            'status': True,
+            'message': 'Success'
+        }
+
 
     @staticmethod
     def _get_fourcc_code(codec: str | int):
@@ -64,93 +181,52 @@ class VideoBuilder:
 
         return fourcc
     
-
-    def _get_frame_size(self, image: pathlib.Path) -> tuple:
-        frame = cv2.imread(str(image), cv2.IMREAD_UNCHANGED)
-        shape = frame.shape
-        height, width = shape[0], shape[1]
-
-        if len(shape) >= 3:
-            channels = shape[2]
-        else:
-            channels = 1
-        
-        return (height, width, channels)
-
-        
-    def create_video_from_directory(
+    
+    def _create_video(
         self,
-        input_directory: pathlib.Path,
+        path: pathlib.Path,
+        df: pd.DataFrame,
         frames_per_sec: int,
         output_file_loc: pathlib.Path
     ) -> bool:
-        
-        def _are_valid_inputs():
-            if not issubclass(type(input_directory), pathlib.Path):
-                logger.error(f"[{self._name}] Expected input directory to be of type pathlib.Path, got {type(input_directory)}")
-                return False
-            
-            if not issubclass(type(output_file_loc), pathlib.Path):
-                logger.error(f"[{self._name}] Expected output file location to be of type pathlib.Path, got {type(output_file_loc)}")
-                return False
-            
-            if type(frames_per_sec) not in (int, float):
-                logger.error(f"[{self._name}] Invalid type for frames_per_sec, must be int or float")
-                return False
+        df = df.sort_values(by=['Scan Count'], ascending=True)
 
-            if frames_per_sec <= 0:
-                logger.error(f"[{self._name}] Invalid value for frames_per_sec, must be >0")
-                return False
-            
-            return True
-            
-
-        if not _are_valid_inputs():
-            return False
-
-        
-        logger.info(f"""[{self._name}] Starting video creation:
-                            Input directory: {input_directory}
-                            Output file: {output_file_loc}
-                    """)
-        
-        images = self._get_all_images_in_directory(directory=input_directory)
-
-        if len(images) == 0:
-            logger.error(f"[{self._name}] No images found in {input_directory}")
-            return False
-        
-        logger.info(f"[{self._name}] Found {len(images)} images")
-        
-        valid_image_size_match, frame_sizes = self._all_images_same_size(image_list=images)
-
-        if not valid_image_size_match:
-            logger.error(f"[{self._name}] Not all images in {input_directory} have matching dimensions:\n{frame_sizes}")
-            return False
-
-        codec = self.CODECS[0] # Set to AVI
-
+        # codec = self.CODECS[0] # Set to AVI
+        codec = self.CODECS[1] # Set to mp4v
         fourcc = self._get_fourcc_code(codec=codec)
 
-        frame_height, frame_width, num_channels = self._get_frame_size(image=images[0])
+        def _get_image_info() -> tuple:
+            source_image_sample_filename = df['Filename'].values[0]
+            source_image_sample_filepath = path / source_image_sample_filename
+            source_image_sample = cv2.imread(str(source_image_sample_filepath), cv2.IMREAD_UNCHANGED)
+            is_color = True if source_image_sample.ndim == 3 else False
+            
+            if is_color:
+                frame_height, frame_width, _ = source_image_sample.shape
+            else:
+                frame_height, frame_width = source_image_sample.shape
+            
+            return (frame_height, frame_width), is_color
 
-        # is_color = False if num_channels == 1 else True
-
+        (frame_height, frame_width), is_color = _get_image_info()
         video = cv2.VideoWriter(
             filename=str(output_file_loc),
             fourcc=fourcc,
             fps=frames_per_sec,
             frameSize=(frame_width, frame_height),
-            isColor=True
+            isColor=is_color
         )
 
         logger.info(f"[{self._name}] Writing video to {output_file_loc}")
-        for image in images:
-            video.write(cv2.imread(str(image), cv2.IMREAD_COLOR))
+        
+        for _, row in df.iterrows():
+            image_path = path / row['Filename']
+            image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+            video.write(image)
 
         cv2.destroyAllWindows()
         video.release()
 
-        logger.info(f"[{self._name}] Video creation complete")
+        logger.debug(f"[{self._name}] - Complete")
 
         return True
