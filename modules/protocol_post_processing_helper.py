@@ -108,10 +108,12 @@ class ProtocolPostProcessingHelper:
         if not load_images:
             return None
 
+        parse_dates = ['Timestamp']
         df = pd.read_csv(
             filepath_or_buffer=image_metadata_path,
             sep='\t',
-            lineterminator='\n'
+            lineterminator='\n',
+            parse_dates=parse_dates
         )
 
         # Add subfolder to filename path

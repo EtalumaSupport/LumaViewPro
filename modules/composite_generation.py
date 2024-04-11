@@ -141,7 +141,8 @@ class CompositeGeneration:
                 'Custom Step': first_row['Custom Step'],
                 'Stitch Group Index': first_row['Stitch Group Index'],
                 'Stitched': first_row['Stitched'],
-                'Composite': True
+                'Composite': True,
+                'Timestamp': first_row['Timestamp']
             })
 
         for metadata, path, metadata_filename in (

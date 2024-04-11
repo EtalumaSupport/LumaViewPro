@@ -188,3 +188,54 @@ def add_scale_bar(image, objective: dict):
     )
 
     return image
+
+
+def add_timestamp(image, timestamp_str: str):
+    height, width = image.shape[0], image.shape[1]
+
+    dtype = image.dtype
+
+    text_color_bg = (0,0,0)
+    font_scale = max(0.75, width/2000)
+    font_face = cv2.FONT_HERSHEY_SIMPLEX
+    font_thickness = 1
+
+    text_size, _ = cv2.getTextSize(
+        text=timestamp_str,
+        fontFace=font_face,
+        fontScale=font_scale,
+        thickness=font_thickness
+    )
+    text_w, text_h = text_size
+
+    bottom_offset = int(height/40)
+    left_offset = int(width/40)
+
+    top_offset = height - bottom_offset
+
+    if dtype == np.uint8:
+        text_intensity = 2**8-1
+    else: # 16-bit
+        text_intensity = 2**16-1
+
+    cv2.rectangle(
+        image,
+        (left_offset, top_offset),
+        (left_offset+text_w, top_offset+text_h),
+        text_color_bg,
+        -1
+    )
+
+    cv2.putText(
+        img=image, 
+        text=f"{timestamp_str}",
+        org=(left_offset, int(top_offset + text_h + font_scale - 1)),
+        fontFace=font_face,
+        fontScale=font_scale,
+        color=(text_intensity,text_intensity,text_intensity),
+        thickness=font_thickness,
+        lineType=cv2.LINE_AA,
+        bottomLeftOrigin=False
+    )
+
+    return image

@@ -115,7 +115,8 @@ class Stitcher:
                 'Custom Step': first_row['Custom Step'],
                 'Stitch Group Index': first_row['Stitch Group Index'],
                 'Stitched': True,
-                'Composite': first_row['Composite']
+                'Composite': first_row['Composite'],
+                'Timestamp': first_row['Timestamp'],
             })
 
             count += 1

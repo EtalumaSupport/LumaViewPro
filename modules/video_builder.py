@@ -5,6 +5,7 @@ import pathlib
 import cv2
 import pandas as pd
 
+import image_utils
 import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
@@ -109,7 +110,7 @@ class VideoBuilder:
 
             status = self._create_video(
                 path=path,
-                df=video_group[['Filename', 'Scan Count']],
+                df=video_group[['Filename', 'Scan Count', 'Timestamp']],
                 frames_per_sec=frames_per_sec,
                 output_file_loc=str(output_file_loc)
             )
@@ -118,14 +119,6 @@ class VideoBuilder:
                 logger.error(f"{self._name}: Unable to create video {output_file_loc}")
                 continue
             
-            # logger.debug(f"{self._name}: - {output_file_loc}")
-            # if not cv2.imwrite(
-            #     filename=str(output_file_loc),
-            #     img=composite_image
-            # ):
-            #     logger.error(f"{self._name}: Unable to write image {output_file_loc}")
-            #     continue
-
             metadata.append({
                 'Filename': video_filename,
                 'Name': first_row['Name'],
@@ -207,6 +200,11 @@ class VideoBuilder:
                 frame_height, frame_width = source_image_sample.shape
             
             return (frame_height, frame_width), is_color
+        
+        def _get_timestamp_str(val):
+            frame_ts = val.to_pydatetime()
+            frame_ts_str = frame_ts.strftime("%Y-%m-%d %H:%M:%S")
+            return frame_ts_str
 
         (frame_height, frame_width), is_color = _get_image_info()
         video = cv2.VideoWriter(
@@ -222,6 +220,8 @@ class VideoBuilder:
         for _, row in df.iterrows():
             image_path = path / row['Filename']
             image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+            frame_ts = _get_timestamp_str(row['Timestamp'])
+            image = image_utils.add_timestamp(image=image, timestamp_str=frame_ts)
             video.write(image)
 
         cv2.destroyAllWindows()
