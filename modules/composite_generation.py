@@ -137,6 +137,7 @@ class CompositeGeneration:
                 'Color': 'Composite',
                 'Objective': first_row['Objective'],
                 'Tile Group ID': first_row['Tile Group ID'],
+                'Tile': first_row['Tile'],
                 'Custom Step': first_row['Custom Step'],
                 'Stitch Group Index': first_row['Stitch Group Index'],
                 'Stitched': first_row['Stitched'],

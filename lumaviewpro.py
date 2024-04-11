@@ -1278,14 +1278,14 @@ class VideoCreationControls(BoxLayout):
         popup.text = final_text
         time.sleep(2)
         self.done = True
-        self._launch_video()       
+        # self._launch_video()       
 
     
-    def _launch_video(self) -> None:
-        try:
-            os.startfile(self._output_file_loc)
-        except Exception as e:
-            logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
+    # def _launch_video(self) -> None:
+    #     try:
+    #         os.startfile(self._output_file_loc)
+    #     except Exception as e:
+    #         logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
 
 
 class CellCountControls(BoxLayout):
