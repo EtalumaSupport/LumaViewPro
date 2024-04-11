@@ -1259,13 +1259,30 @@ class VideoCreationControls(BoxLayout):
             True: "Success",
             False: "FAILED"
         }
+
         popup.title = "Video Builder"
         popup.text = "Generating video(s)..."
+
+        fps = int(self.ids['video_gen_fps_id'].text)
+        
+        ts_overlay_btn = self.ids['enable_timestamp_overlay_btn']
+        enable_timestamp_overlay = True if ts_overlay_btn.state == 'down' else False
+
+        if fps < 1:
+            msg = "Video generation frames/second must be >= 1 fps"
+            final_text = f"Generating video(s) - {status_map[False]}"
+            final_text += f"\n{msg}"
+            popup.text = final_text
+            logger.error(f"{msg}")
+            time.sleep(5)
+            self.done = True
+
         video_builder = VideoBuilder()
         result = video_builder.load_folder(
             path=pathlib.Path(path),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            frames_per_sec=10
+            frames_per_sec=fps,
+            enable_timestamp_overlay=enable_timestamp_overlay
         )
         final_text = f"Generating video(s) - {status_map[result['status']]}"
         if result['status'] is False:

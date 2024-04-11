@@ -29,7 +29,8 @@ class VideoBuilder:
     def load_folder(
         self, path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
-        frames_per_sec: int
+        frames_per_sec: int,
+        enable_timestamp_overlay: bool
     ) -> dict:
         results = self._protocol_post_processing_helper.load_folder(
             path=path,
@@ -112,6 +113,7 @@ class VideoBuilder:
                 path=path,
                 df=video_group[['Filename', 'Scan Count', 'Timestamp']],
                 frames_per_sec=frames_per_sec,
+                enable_timestamp_overlay=enable_timestamp_overlay,
                 output_file_loc=str(output_file_loc)
             )
 
@@ -180,6 +182,7 @@ class VideoBuilder:
         path: pathlib.Path,
         df: pd.DataFrame,
         frames_per_sec: int,
+        enable_timestamp_overlay: bool,
         output_file_loc: pathlib.Path
     ) -> bool:
         df = df.sort_values(by=['Scan Count'], ascending=True)
@@ -220,8 +223,11 @@ class VideoBuilder:
         for _, row in df.iterrows():
             image_path = path / row['Filename']
             image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
-            frame_ts = _get_timestamp_str(row['Timestamp'])
-            image = image_utils.add_timestamp(image=image, timestamp_str=frame_ts)
+
+            if enable_timestamp_overlay:
+                frame_ts = _get_timestamp_str(row['Timestamp'])
+                image = image_utils.add_timestamp(image=image, timestamp_str=frame_ts)
+                
             video.write(image)
 
         cv2.destroyAllWindows()
