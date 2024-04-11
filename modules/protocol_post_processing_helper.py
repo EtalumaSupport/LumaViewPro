@@ -143,23 +143,25 @@ class ProtocolPostProcessingHelper:
                 if len(match) > 1:
                     raise Exception(f"Expected 1 match, but found multiple")
                 
+                first_row = match.iloc[0]
                 image_tile_groups.append(
                     {
                         'Filename': image_name,
-                        'Name': match['Name'].values[0],
+                        'Name': first_row['Name'],
                         'Protocol Group Index': protocol_group_index,
                         'Scan Count': file_data['Scan Count'],
-                        'Step Index': match['Step Index'].values[0],
-                        'X': match['X'].values[0],
-                        'Y': match['Y'].values[0],
-                        'Z-Slice': match['Z-Slice'].values[0],
-                        'Well': match['Well'].values[0],
-                        'Color': match['Color'].values[0],
-                        'Objective': match['Objective'].values[0],
-                        'Tile': match['Tile'].values[0],
-                        'Tile Group ID': match['Tile Group ID'].values[0],
-                        'Z-Stack Group ID': match['Z-Stack Group ID'].values[0],
-                        'Custom Step': match['Custom Step'].values[0],
+                        'Step Index': first_row['Step Index'],
+                        'X': first_row['X'],
+                        'Y': first_row['Y'],
+                        'Z-Slice': first_row['Z-Slice'],
+                        'Well': first_row['Well'],
+                        'Color': first_row['Color'],
+                        'Objective': first_row['Objective'],
+                        'Tile': first_row['Tile'],
+                        'Tile Group ID': first_row['Tile Group ID'],
+                        'Z-Stack Group ID': first_row['Z-Stack Group ID'],
+                        'Custom Step': first_row['Custom Step'],
+                        'Timestamp': file_data['Timestamp'],
                         'Stitched': False,
                         'Composite': False
                     }

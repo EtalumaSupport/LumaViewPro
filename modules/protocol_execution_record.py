@@ -23,7 +23,6 @@ class ProtocolExecutionRecord:
         
         if (outfile is None) and (records is None):
             raise Exception(f"Must specify outfile or records")
-        
 
         self._outfile_fp = None
         if outfile is not None:
@@ -69,14 +68,16 @@ class ProtocolExecutionRecord:
         self._outfile_fp.flush()
         
     
-    def get_data_from_filename(self, filename: str | pathlib.Path) -> int | None:
+    def get_data_from_filename(self, filename: str | pathlib.Path) -> dict | None:
         record = self._records.loc[self._records['Filename'] == filename]
         if len(record) != 1:
             return None
         
+        first_row = record.iloc[0]
         return {
-            'Step Index': record['Step Index'].values[0],
-            'Scan Count': record['Scan Count'].values[0]
+            'Step Index': first_row['Step Index'],
+            'Scan Count': first_row['Scan Count'],
+            'Timestamp': first_row['Timestamp']
         }
 
 
@@ -104,7 +105,8 @@ class ProtocolExecutionRecord:
                         'Filename': row[0],
                         'Step Name': row[1],
                         'Step Index': int(row[2]),
-                        'Scan Count': int(row[3])
+                        'Scan Count': int(row[3]),
+                        'Timestamp': datetime.datetime.strptime(row[4], "%Y-%m-%d %H:%M:%S.%f")
                     }
                 )
 
