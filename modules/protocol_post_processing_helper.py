@@ -310,7 +310,8 @@ class ProtocolPostProcessingHelper:
 
         if include_composite_and_stitched_images:
             # Create empty 'Tile label' for already stitched images
-            stitched_images_df['Tile'] = ""
+            if stitched_images_df is not None:
+                stitched_images_df['Tile'] = ""
 
             composite_and_stitched_images_df = self._get_post_generated_images(
                 parent_path=path,
