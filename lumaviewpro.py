@@ -133,6 +133,7 @@ from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_run_modes import ProtocolRunMode
 from modules.zstack_config import ZStackConfig
 from modules.json_helper import CustomJSONizer
+from modules.imagej_helper import ImageJHelper
 
 import cv2
 import skimage
@@ -5383,6 +5384,9 @@ class LumaViewProApp(App):
         global coordinate_transformer
         global objective_helper
         self.icon = './data/icons/icon.png'
+
+        ij_helper = ImageJHelper()
+        ij_helper.test()
 
         stage = Stage()
 
