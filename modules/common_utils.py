@@ -10,7 +10,8 @@ def generate_default_step_name(
     z_height_idx = None,
     scan_count = None,
     tile_label = None,
-    custom_name_prefix = None
+    custom_name_prefix = None,
+    stitched: bool = False,
 ):
     if custom_name_prefix not in (None, ""):
         name = f"{custom_name_prefix}_{color}"
@@ -26,6 +27,9 @@ def generate_default_step_name(
     DESIRED_SCAN_COUNT_DIGITS = 4
     if scan_count not in (None, ""):
         name = f'{name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}'
+
+    if stitched:
+        name = f'{name}_stitched'
     
     return name
 
@@ -43,14 +47,12 @@ def get_tile_label_from_name(name: str) -> str | None:
     return None
 
 
-def get_well_label_from_name(name: str) -> str | None:
+def get_first_section_from_name(name: str) -> str | None:
+    
+    # This will retrieve just the filename if the name has parent folders
+    name = pathlib.Path(name).name
+
     name = name.split('_')
-
-    # Handle case where channel name is parent folder and remov eit
-    split_name = os.path.split(name[0])
-    if len(split_name) == 2:
-        return split_name[1]
-
     return name[0]
 
 
@@ -89,6 +91,10 @@ def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | Non
 
 
 def is_custom_name(name: str) -> bool:
+
+    # This will retrieve just the filename if name includes parent folders
+    name = pathlib.Path(name).name
+
     name = name.split('_')
 
     # All generated names have at least one '_'

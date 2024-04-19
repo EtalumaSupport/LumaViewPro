@@ -1,6 +1,8 @@
 
 import numpy as np
 
+import modules.common_utils as common_utils
+
 
 class ZStackConfig:
 
@@ -21,7 +23,7 @@ class ZStackConfig:
         if self._step_size == 0:
             return 0
         
-        return np.floor(self._range/self._step_size)
+        return np.floor(self._range/self._step_size)+1
     
 
     def step_positions(self) -> dict[int, float]:
@@ -35,5 +37,7 @@ class ZStackConfig:
             start_pos = self._current_z_value
 
         position_values = (np.arange(n_steps)*self._step_size + start_pos).tolist()
+        max_precision = common_utils.max_decimal_precision(parameter='z')
+        position_values = [round(val, max_precision) for val in position_values]
         return {index: value for index, value in enumerate(position_values)}
 

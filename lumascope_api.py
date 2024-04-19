@@ -45,6 +45,7 @@ from pyloncamera import PylonCamera
 from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
+import modules.objectives_loader as objectives_loader
 import pathlib
 import time
 import threading
@@ -61,6 +62,7 @@ class Lumascope():
     def __init__(self):
         """Initialize Microscope"""
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
+        self._objectives_loader = objectives_loader.ObjectiveLoader()
 
         # LED Control Board
         try:
@@ -109,8 +111,8 @@ class Lumascope():
     def set_labware(self, labware):
         self._labware = labware
 
-    def set_objective(self, objective):
-        self._objective = objective
+    def set_objective(self, objective_id):
+        self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
 
     def set_scale_bar(self, enabled: bool):
         self._scale_bar['enabled'] = enabled
@@ -211,7 +213,7 @@ class Lumascope():
             self.image_buffer = self.camera.array.copy()
 
             if use_scale_bar:
-                self.image_buffer = image_utils.add_scale_bar(image=self.image_buffer, objective=self._objective) #magnification=self._objective['magnification'])
+                self.image_buffer = image_utils.add_scale_bar(image=self.image_buffer, objective=self._objective)
 
             if force_to_8bit and self.image_buffer.dtype != np.uint8:
                 self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)

@@ -7,20 +7,7 @@
         "x": 5500.0,
         "y": 4000.0
     },
-    "objective": {
-        "desc": "20x",
-        "magnification": 20,
-        "aperture": 0.4,
-        "DOF": 5.8,
-        "AF_min": 2.0,
-        "AF_max": 18.0,
-        "AF_range": 40.0,
-        "z_fine": 2.9,
-        "z_coarse": 29.0,
-        "xy_fine": 20.0,
-        "xy_coarse": 200.0,
-        "ID": "20x"
-    },
+    "objective_id": "20x Oly",
     "frame": {
         "width": 1900,
         "height": 1900

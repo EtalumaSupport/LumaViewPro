@@ -128,6 +128,7 @@ from modules.color_channels import ColorChannel
 from modules.composite_generation import CompositeGeneration
 import modules.coord_transformations as coord_transformations
 import modules.labware_loader as labware_loader
+import modules.objectives_loader as objectives_loader
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_run_modes import ProtocolRunMode
 from modules.zstack_config import ZStackConfig
@@ -149,6 +150,9 @@ global cell_count_content
 
 global wellplate_loader
 wellplate_loader = None
+
+global objective_helper
+objective_helper = None
 
 global coordinate_transformer
 coordinate_transformer = None
@@ -220,6 +224,88 @@ def is_image_saving_enabled() -> bool:
     return True
 
 
+def get_zstack_positions() -> tuple[bool, dict]:
+    zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
+    range = float(zstack_settings.ids['zstack_range_id'].text)
+    step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
+    z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
+        text_label=zstack_settings.ids['zstack_spinner'].text
+    )
+
+    current_pos = lumaview.scope.get_current_position('Z')
+
+    zstack_config = ZStackConfig(
+        range=range,
+        step_size=step_size,
+        current_z_reference=z_reference,
+        current_z_value=current_pos
+    )
+
+    if zstack_config.number_of_steps() <= 0:
+        return False, {None: None}
+
+    return True, zstack_config.step_positions()
+
+
+def get_current_objective_info() -> tuple[str, dict]:
+    objective_id = settings['objective_id']
+    objective = objective_helper.get_objective_info(objective_id=objective_id)
+    return objective_id, objective
+
+
+def _handle_ui_update_for_axis(axis: str):
+    axis = axis.upper()
+    if axis == 'Z':
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_gui()
+    elif axis in ('X', 'Y', 'XY'):
+        lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
+
+
+# Wrapper function when moving to update UI position
+def move_absolute_position(
+    axis: str,
+    pos: float,
+    wait_until_complete: bool = False,
+    overshoot_enabled: bool = True
+):
+    lumaview.scope.move_absolute_position(
+        axis=axis,
+        pos=pos,
+        wait_until_complete=wait_until_complete,
+        overshoot_enabled=overshoot_enabled
+    )
+
+    _handle_ui_update_for_axis(axis=axis)
+
+
+# Wrapper function when moving to update UI position
+def move_relative_position(
+    axis: str,
+    um: float,
+    wait_until_complete: bool = False,
+    overshoot_enabled: bool = True
+):
+    lumaview.scope.move_relative_position(
+        axis=axis,
+        um=um,
+        wait_until_complete=wait_until_complete,
+        overshoot_enabled=overshoot_enabled
+    )
+
+    _handle_ui_update_for_axis(axis=axis)
+
+
+def move_home(axis: str):
+    axis = axis.upper()
+
+    if axis == 'Z':
+        lumaview.scope.zhome()
+    elif axis == 'XY':
+        lumaview.scope.xyhome()
+
+    _handle_ui_update_for_axis(axis=axis)
+
+
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
 # -------------------------------------------------------------------------
@@ -275,14 +361,14 @@ class ScopeDisplay(Image):
                 x_dist_pixel = texture_click_pos_x - texture_width/2 # Positive means to the right of center
                 y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
 
-                focal_length = settings['objective']['focal_length']
-                pixel_size_um = common_utils.get_pixel_size(focal_length=focal_length)
+                _, objective = get_current_objective_info()
+                pixel_size_um = common_utils.get_pixel_size(focal_length=objective['focal_length'])
 
                 x_dist_um = x_dist_pixel * pixel_size_um
                 y_dist_um = y_dist_pixel * pixel_size_um
 
-                lumaview.scope.move_relative_position(axis='X', um=x_dist_um)
-                lumaview.scope.move_relative_position(axis='Y', um=y_dist_um)
+                move_relative_position(axis='X', um=x_dist_um)
+                move_relative_position(axis='Y', um=y_dist_um)
 
 
     @staticmethod
@@ -652,7 +738,7 @@ class CompositeCapture(FloatLayout):
 
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3), dtype=dtype)
 
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_fluorescence_layers():
             if settings[layer]['acquire'] == True:
 
                 # Go to focus and wait for arrival
@@ -670,15 +756,6 @@ class CompositeCapture(FloatLayout):
                 # update illumination to currently selected settings
                 illumination = settings[layer]['ill']
 
-                # Dark field capture
-                scope_leds_off()
-
-                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
-                time.sleep(2*exposure/1000+0.2)
-                scope_display.update_scopedisplay() # Why?
-
-                darkfield = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
-
                 # Florescent capture
                 if lumaview.scope.led:
                     lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
@@ -688,17 +765,15 @@ class CompositeCapture(FloatLayout):
 
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
-                exposed = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+                img_gray = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
 
-                scope_display.update_scopedisplay() # Why?
-                corrected = exposed - np.minimum(exposed,darkfield)
                 # buffer the images
                 if layer == 'Blue':
-                    img[:,:,0] = corrected
+                    img[:,:,0] = img_gray
                 elif layer == 'Green':
-                    img[:,:,1] = corrected
+                    img[:,:,1] = img_gray
                 elif layer == 'Red':
-                    img[:,:,2] = corrected
+                    img[:,:,2] = img_gray
                 # # if Brightfield is included
                 # else:
                 #     a = 0.3
@@ -908,16 +983,17 @@ void main (void) {
             if 'ctrl' in self._active_key_presses:
                 # Focus control
                 vertical_control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
+                overshoot_enabled = False
                 if touch.button == 'scrolldown':
                     if 'shift' in self._active_key_presses:
-                        vertical_control.coarse_up()
+                        vertical_control.coarse_up(overshoot_enabled=overshoot_enabled)
                     else:
-                        vertical_control.fine_up()
+                        vertical_control.fine_up(overshoot_enabled=overshoot_enabled)
                 elif touch.button == 'scrollup':
                     if 'shift' in self._active_key_presses:
-                        vertical_control.coarse_down()
+                        vertical_control.coarse_down(overshoot_enabled=overshoot_enabled)
                     else:
-                        vertical_control.fine_down()
+                        vertical_control.fine_down(overshoot_enabled=overshoot_enabled)
 
             else:
                 # Digital zoom control
@@ -1174,68 +1250,59 @@ class VideoCreationControls(BoxLayout):
     def __init__(self, **kwargs):
         global video_creation_controls
         super().__init__(**kwargs)
-        logger.info('LVP Main: VideoCreationControls.__init__()')
-        self._post = post_processing.PostProcessing()
         video_creation_controls = self
-        self._first_open = False
-        self._input_images_loc = None
-        self._output_file_loc = None
-
-    
-    def activate(self):
-        if self._first_open is False:
-            self._first_open = True
-
-
-    def deactivate(self):
-        pass
-
-
-    def set_input_images_loc(self, directory: str | pathlib.Path) -> None:
-        self._input_images_loc = pathlib.Path(directory)
-
-    
-    def set_output_file_loc(self, file_loc: str | pathlib.Path) -> None:
-        self._output_file_loc = pathlib.Path(file_loc)
 
 
     @show_popup
-    def create_video(self, popup) -> None:
+    def run_video_gen(self, popup, path) -> None:
         status_map = {
             True: "Success",
             False: "FAILED"
         }
 
         popup.title = "Video Builder"
-        popup.text = "Generating video..."
+        popup.text = "Generating video(s)..."
 
-        if self._input_images_loc is None:
-            popup.text = f"{popup.text} {status_map[False]} - Set Image Folder"
-            time.sleep(2)
+        fps = int(self.ids['video_gen_fps_id'].text)
+        
+        ts_overlay_btn = self.ids['enable_timestamp_overlay_btn']
+        enable_timestamp_overlay = True if ts_overlay_btn.state == 'down' else False
+
+        if fps < 1:
+            msg = "Video generation frames/second must be >= 1 fps"
+            final_text = f"Generating video(s) - {status_map[False]}"
+            final_text += f"\n{msg}"
+            popup.text = final_text
+            logger.error(f"{msg}")
+            time.sleep(5)
             self.done = True
-            return
-
-        if self._output_file_loc is None:
-            self._output_file_loc = self._input_images_loc.joinpath("movie.avi")
 
         video_builder = VideoBuilder()
-        status = video_builder.create_video_from_directory(
-            input_directory=self._input_images_loc,
-            frames_per_sec=10,
-            output_file_loc=self._output_file_loc,
+        result = video_builder.load_folder(
+            path=pathlib.Path(path),
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            frames_per_sec=fps,
+            enable_timestamp_overlay=enable_timestamp_overlay
         )
-
-        popup.text = f"{popup.text} {status_map[status]}\n- Output: {self._output_file_loc}"
+        final_text = f"Generating video(s) - {status_map[result['status']]}"
+        if result['status'] is False:
+            final_text += f"\n{result['message']}"
+            popup.text = final_text
+            time.sleep(5)
+            self.done = True
+            return
+        
+        popup.text = final_text
         time.sleep(2)
         self.done = True
-        self._launch_video()
+        # self._launch_video()       
 
     
-    def _launch_video(self) -> None:
-        try:
-            os.startfile(self._output_file_loc)
-        except Exception as e:
-            logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
+    # def _launch_video(self) -> None:
+    #     try:
+    #         os.startfile(self._output_file_loc)
+    #     except Exception as e:
+    #         logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
 
 
 class CellCountControls(BoxLayout):
@@ -2003,10 +2070,8 @@ class VerticalControl(BoxLayout):
         self.is_complete = False
         self.record_autofocus_to_file = False
 
-        Clock.schedule_interval(self.update_gui, 0.3)
-        
 
-    def update_gui(self, dt=0):
+    def update_gui(self):
         try:
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
@@ -2015,34 +2080,39 @@ class VerticalControl(BoxLayout):
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
-    def coarse_up(self):
+
+    def coarse_up(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
-        coarse = settings['objective']['z_coarse']
-        lumaview.scope.move_relative_position('Z', coarse)                  # Move UP
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        coarse = objective['z_coarse']
+        move_relative_position('Z', coarse, overshoot_enabled=overshoot_enabled)
 
-    def fine_up(self):
+
+    def fine_up(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
-        fine = settings['objective']['z_fine']
-        lumaview.scope.move_relative_position('Z', fine)                    # Move UP
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        fine = objective['z_fine']
+        move_relative_position('Z', fine, overshoot_enabled=overshoot_enabled)
 
-    def fine_down(self):
+
+    def fine_down(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
-        fine = settings['objective']['z_fine']
-        lumaview.scope.move_relative_position('Z', -fine)                   # Move DOWN
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        fine = objective['z_fine']
+        move_relative_position('Z', -fine, overshoot_enabled=overshoot_enabled)
 
-    def coarse_down(self):
+
+    def coarse_down(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
-        coarse = settings['objective']['z_coarse']
-        lumaview.scope.move_relative_position('Z', -coarse)                 # Move DOWN
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        coarse = objective['z_coarse']
+        move_relative_position('Z', -coarse, overshoot_enabled=overshoot_enabled)
+
 
     def set_position(self, pos):
         logger.info('[LVP Main  ] VerticalControl.set_position()')
-        lumaview.scope.move_absolute_position('Z', float(pos))
-        self.update_gui()
+        move_absolute_position('Z', float(pos))
+
 
     def set_bookmark(self):
         logger.info('[LVP Main  ] VerticalControl.set_bookmark()')
@@ -2063,13 +2133,11 @@ class VerticalControl(BoxLayout):
     def goto_bookmark(self):
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         pos = settings['bookmark']['z']
-        lumaview.scope.move_absolute_position('Z', pos)
-        self.update_gui()
+        move_absolute_position('Z', pos)
 
     def home(self):
         logger.info('[LVP Main  ] VerticalControl.home()')
-        lumaview.scope.zhome()
-        self.update_gui()
+        move_home(axis='Z')
 
     # User selected the autofocus function
     def autofocus(self):
@@ -2100,11 +2168,12 @@ class VerticalControl(BoxLayout):
             return
 
         center = lumaview.scope.get_current_position('Z')
-        range =  settings['objective']['AF_range']
+        _, objective = get_current_objective_info()
+        range =  objective['AF_range']
 
         self.z_min = max(0, center-range)                   # starting minimum z-height for autofocus
         self.z_max = center+range                           # starting maximum z-height for autofocus
-        self.resolution = settings['objective']['AF_max']   # starting step size for autofocus
+        self.resolution = objective['AF_max']   # starting step size for autofocus
         self.exposure = lumaview.scope.get_exposure_time()  # camera exposure to determine 'wait' time
 
         self.positions = []       # List of positions to step through
@@ -2118,7 +2187,7 @@ class VerticalControl(BoxLayout):
             self.is_autofocus = True
 
             # Start the autofocus process at z-minimum
-            lumaview.scope.move_absolute_position('Z', self.z_min)
+            move_absolute_position('Z', self.z_min)
 
             # schedule focus iterate
             logger.info('[LVP Main  ] Clock.schedule_interval(self.focus_iterate, 0.01)')
@@ -2203,7 +2272,8 @@ class VerticalControl(BoxLayout):
             if next_target > self.z_max:
 
                 # Calculate new step size for resolution
-                AF_min = settings['objective']['AF_min']
+                _, objective = get_current_objective_info()
+                AF_min = objective['AF_min']
                 prev_resolution = self.resolution
                 self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
 
@@ -2225,7 +2295,7 @@ class VerticalControl(BoxLayout):
                     self.focus_measures = []
 
                     # go to new z_min
-                    lumaview.scope.move_absolute_position('Z', self.z_min)
+                    move_absolute_position('Z', self.z_min)
 
                     if self.resolution == AF_min:
                         self.last = True
@@ -2235,7 +2305,7 @@ class VerticalControl(BoxLayout):
                     focus = self.focus_best(self.positions, self.focus_measures)
 
                     # go to best focus
-                    lumaview.scope.move_absolute_position('Z', focus) # move to absolute target
+                    move_absolute_position('Z', focus) # move to absolute target
 
                     # end autofocus sequence
                     logger.info('[LVP Main  ] Clock.unschedule(self.focus_iterate)')
@@ -2252,7 +2322,7 @@ class VerticalControl(BoxLayout):
 
             else:
                 # move to next position
-                lumaview.scope.move_relative_position('Z', self.resolution)
+                move_relative_position('Z', self.resolution)
 
             # update last focus
             self.last_focus = focus
@@ -2267,7 +2337,6 @@ class VerticalControl(BoxLayout):
             if self.record_autofocus_to_file:
                 self.save_autofocus_data()
 
-        self.update_gui()
 
     # Algorithms for estimating the quality of the focus
     def focus_function(self, image, algorithm = 'vollath4'):
@@ -2413,51 +2482,51 @@ class XYStageControl(BoxLayout):
 
     def fine_left(self):
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
-        fine = settings['objective']['xy_fine']
-        lumaview.scope.move_relative_position('X', -fine)  # Move LEFT fine step
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        fine = objective['xy_fine']
+        move_relative_position('X', -fine)  # Move LEFT fine step
 
     def fine_right(self):
         logger.info('[LVP Main  ] XYStageControl.fine_right()')
-        fine = settings['objective']['xy_fine']
-        lumaview.scope.move_relative_position('X', fine)  # Move RIGHT fine step
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        fine = objective['xy_fine']
+        move_relative_position('X', fine)  # Move RIGHT fine step
 
     def coarse_left(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_left()')
-        coarse = settings['objective']['xy_coarse']
-        lumaview.scope.move_relative_position('X', -coarse)  # Move LEFT coarse step
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        coarse = objective['xy_coarse']
+        move_relative_position('X', -coarse)  # Move LEFT coarse step
 
     def coarse_right(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_right()')
-        coarse = settings['objective']['xy_coarse']
-        lumaview.scope.move_relative_position('X', coarse)  # Move RIGHT
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        coarse = objective['xy_coarse']
+        move_relative_position('X', coarse)  # Move RIGHT
 
     def fine_back(self):
         logger.info('[LVP Main  ] XYStageControl.fine_back()')
-        fine = settings['objective']['xy_fine']
-        lumaview.scope.move_relative_position('Y', -fine)  # Move BACK 
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        fine = objective['xy_fine']
+        move_relative_position('Y', -fine)  # Move BACK 
 
     def fine_fwd(self):
         logger.info('[LVP Main  ] XYStageControl.fine_fwd()')
-        fine = settings['objective']['xy_fine']
-        lumaview.scope.move_relative_position('Y', fine)  # Move FORWARD 
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        fine = objective['xy_fine']
+        move_relative_position('Y', fine)  # Move FORWARD 
 
     def coarse_back(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_back()')
-        coarse = settings['objective']['xy_coarse']
-        lumaview.scope.move_relative_position('Y', -coarse)  # Move BACK
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        coarse = objective['xy_coarse']
+        move_relative_position('Y', -coarse)  # Move BACK
 
     def coarse_fwd(self):
         logger.info('[LVP Main  ] XYStageControl.coarse_fwd()')
-        coarse = settings['objective']['xy_coarse']
-        lumaview.scope.move_relative_position('Y', coarse)  # Move FORWARD 
-        self.update_gui()
+        _, objective = get_current_objective_info()
+        coarse = objective['xy_coarse']
+        move_relative_position('Y', coarse)  # Move FORWARD 
 
     def set_xposition(self, x_pos):
         logger.info('[LVP Main  ] XYStageControl.set_xposition()')
@@ -2476,8 +2545,8 @@ class XYStageControl(BoxLayout):
         logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
-        lumaview.scope.move_absolute_position('X', stage_x)  # position in text is in mm
-        self.update_gui()
+        move_absolute_position('X', stage_x)  # position in text is in mm
+
 
     def set_yposition(self, y_pos):
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
@@ -2494,8 +2563,8 @@ class XYStageControl(BoxLayout):
         )
 
         # Move to y-position
-        lumaview.scope.move_absolute_position('Y', stage_y)  # position in text is in mm
-        self.update_gui()
+        move_absolute_position('Y', stage_y)  # position in text is in mm
+
 
     def set_xbookmark(self):
         logger.info('[LVP Main  ] XYStageControl.set_xbookmark()')
@@ -2548,7 +2617,7 @@ class XYStageControl(BoxLayout):
             px=x_pos,
             py=0
         )
-        lumaview.scope.move_absolute_position('X', stage_x)  # set current x position in um
+        move_absolute_position('X', stage_x)  # set current x position in um
 
     def goto_ybookmark(self):
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
@@ -2565,7 +2634,7 @@ class XYStageControl(BoxLayout):
             px=0,
             py=y_pos
         )
-        lumaview.scope.move_absolute_position('Y', stage_y)  # set current y position in um
+        move_absolute_position('Y', stage_y)  # set current y position in um
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')
@@ -2586,8 +2655,7 @@ class XYStageControl(BoxLayout):
         global lumaview
 
         if lumaview.scope.motion.driver: # motor controller is actively connected
-            lumaview.scope.xyhome()
-            # TODO: update GUI, 
+            move_home(axis='XY')
             
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
@@ -2714,9 +2782,10 @@ class ProtocolSettings(CompositeCapture):
         labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
         labware.set_positions()
         
+        _, objective = get_current_objective_info()
         tiles = self.tiling_config.get_tile_centers(
             config_label=self.ids['tiling_size_spinner'].text,
-            focal_length=settings['objective']['focal_length'],
+            focal_length=objective['focal_length'],
             frame_size=settings['frame'],
             fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position']
         )
@@ -2724,14 +2793,6 @@ class ProtocolSettings(CompositeCapture):
         if len(tiles) == 1: # No tiling
             return
 
-        # Get existing max tile group ID to start from
-        # existing_max_tile_group_id = -1
-
-        # for row_idx in range(len(self._protocol_df)):
-        #     step = self._protocol_df.iloc[row_idx]
-        #     tile_group_id = step['Tile']
-        #     if tile_group_id != "":
-        #         existing_max_tile_group_id = max(tile_group_id, existing_max_tile_group_id)
         existing_max_tile_group_id = self._protocol_df['Tile Group ID'].max()
 
         tile_group_id = existing_max_tile_group_id + 1
@@ -2754,24 +2815,6 @@ class ProtocolSettings(CompositeCapture):
                 
                 x_tile = round(x + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
                 y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
-
-                # if orig_step_df["Custom Step"]:
-                #     new_step_name = common_utils.generate_default_step_name(
-                #         custom_name_prefix=orig_step_df['Name'],
-                #         well_label=orig_step_df['Well'],
-                #         color=orig_step_df['Color'],
-                #         z_height_idx=None,
-                #         scan_count=None,
-                #         tile_label=tile_label
-                #     )
-                # else:
-                #     new_step_name = common_utils.generate_default_step_name(
-                #         well_label=orig_step_df['Well'],
-                #         color=orig_step_df['Color'],
-                #         z_height_idx=orig_step_df['Z-Slice'],
-                #         scan_count=None,
-                #         tile_label=tile_label
-                #     )
                 
                 new_step_dict = self.create_step_dict(
                     name=orig_step_df['Name'],
@@ -2797,6 +2840,61 @@ class ProtocolSettings(CompositeCapture):
                 new_steps.append(new_step_dict)
             
             tile_group_id += 1
+
+        self._protocol_df = pd.DataFrame.from_dict(new_steps)
+        stage.set_protocol_steps(df=self._protocol_df)
+        self.update_step_ui()
+
+    
+    def apply_zstacking(self):
+        logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
+        labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
+        labware.set_positions()
+        
+        zstack_valid, zstack_positions = get_zstack_positions()
+        if not zstack_valid:
+            return
+        
+        existing_max_zstack_group_id = self._protocol_df['Z-Stack Group ID'].max()
+
+        zstack_group_id = existing_max_zstack_group_id + 1
+
+        new_steps = list()
+        for row_idx in range(len(self._protocol_df)):
+            orig_step_df = self._protocol_df.iloc[row_idx]
+            orig_step_dict = orig_step_df.to_dict()
+
+            # If already part of a Z-Stack, copy it over to the new protocol
+            if orig_step_df['Z-Slice'] not in (None, "", -1):
+                new_steps.append(orig_step_dict)
+                continue
+            
+            # Create a z-stack  
+            for zstack_slice, zstack_position in zstack_positions.items():
+                new_step_dict = self.create_step_dict(
+                    name=orig_step_df['Name'],
+                    x=orig_step_df["X"],
+                    y=orig_step_df["Y"],
+                    z=zstack_position,
+                    af=orig_step_df['Auto_Focus'],
+                    color=orig_step_df['Color'],
+                    fc=orig_step_df['False_Color'],
+                    ill=orig_step_df['Illumination'],
+                    gain=orig_step_df['Gain'],
+                    auto_gain=orig_step_df['Auto_Gain'],
+                    exp=orig_step_df['Exposure'],
+                    objective=orig_step_df['Objective'],
+                    well=orig_step_df['Well'],
+                    tile=orig_step_df['Tile'],
+                    zslice=zstack_slice,
+                    custom_step=orig_step_df['Custom Step'],
+                    tile_group_id=orig_step_df['Tile Group ID'],
+                    zstack_group_id=zstack_group_id
+                )
+
+                new_steps.append(new_step_dict)
+            
+            zstack_group_id += 1
 
         self._protocol_df = pd.DataFrame.from_dict(new_steps)
         stage.set_protocol_steps(df=self._protocol_df)
@@ -2912,42 +3010,19 @@ class ProtocolSettings(CompositeCapture):
         labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
         labware.set_positions()
         
+        objective_id, objective = get_current_objective_info()
         tiles = self.tiling_config.get_tile_centers(
             config_label=self.ids['tiling_size_spinner'].text,
-            focal_length=settings['objective']['focal_length'],
+            focal_length=objective['focal_length'],
             frame_size=settings['frame'],
             fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position']
         )
         
         self._protocol_df = self.create_empty_protocol()
 
-        # Z-stack related
-        def _zstack_positions() -> dict:
-            zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
-            range = float(zstack_settings.ids['zstack_range_id'].text)
-            step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
-            z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
-                text_label=zstack_settings.ids['zstack_spinner'].text
-            )
-
-            current_pos = lumaview.scope.get_current_position('Z')
-
-            zstack_config = ZStackConfig(
-                range=range,
-                step_size=step_size,
-                current_z_reference=z_reference,
-                current_z_value=current_pos
-            )
-
-            if zstack_config.number_of_steps() <= 0:
-                return {None: None}
-
-            # begin moving to the first position
-            return zstack_config.step_positions()
-
         use_zstacking = self.ids['acquire_zstack_id'].active
         if use_zstacking:
-            zstack_positions = _zstack_positions()
+            _, zstack_positions = get_zstack_positions()
         else:
             zstack_positions = {None: None}
 
@@ -2958,7 +3033,6 @@ class ProtocolSettings(CompositeCapture):
         for pos in labware.pos_list:
             for tile_label, tile_position in tiles.items():
                 for zstack_slice, zstack_position in zstack_positions.items():
-                    # Iterate through all the colors to create the steps
                     for layer in common_utils.get_layers():
                         if settings[layer]['acquire'] == False:
                             continue
@@ -2966,7 +3040,7 @@ class ProtocolSettings(CompositeCapture):
                         x = round(pos[0] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
                         y = round(pos[1] + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
 
-                        if use_zstacking:
+                        if use_zstacking and (zstack_slice is not None):
                             z = zstack_position
                         else:
                             z = settings[layer]['focus']
@@ -2979,7 +3053,6 @@ class ProtocolSettings(CompositeCapture):
                         gain = round(settings[layer]['gain'], common_utils.max_decimal_precision('gain'))
                         auto_gain = common_utils.to_bool(settings[layer]['auto_gain'])
                         exp = round(settings[layer]['exp'], common_utils.max_decimal_precision('exposure'))
-                        objective = settings['objective']['ID']
                         custom_step = False
                         well_label = labware.get_well_label(x=pos[0], y=pos[1])
 
@@ -3010,7 +3083,7 @@ class ProtocolSettings(CompositeCapture):
                             gain=gain,
                             auto_gain=auto_gain,
                             exp=exp,
-                            objective=objective,
+                            objective=objective_id,
                             well=well_label,
                             tile=tile_label,
                             zslice=zstack_slice_label,
@@ -3310,9 +3383,9 @@ class ProtocolSettings(CompositeCapture):
 
         # Move into position
         if lumaview.scope.motion.driver:
-            lumaview.scope.move_absolute_position('X', sx)
-            lumaview.scope.move_absolute_position('Y', sy)
-            lumaview.scope.move_absolute_position('Z', step["Z"])
+            move_absolute_position('X', sx)
+            move_absolute_position('Y', sy)
+            move_absolute_position('Z', step["Z"])
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
@@ -3322,7 +3395,6 @@ class ProtocolSettings(CompositeCapture):
         # open ImageSettings
         lumaview.ids['imagesettings_id'].ids['toggle_imagesettings'].state = 'down'
         lumaview.ids['imagesettings_id'].toggle_settings()
-        
         
         # set accordion item to corresponding channel
         id = f"{color}_accordion"
@@ -3360,9 +3432,6 @@ class ProtocolSettings(CompositeCapture):
         settings[color]['exp'] = step["Exposure"]
         layer.ids['exp_text'].text = str(step["Exposure"])
         layer.ids['exp_slider'].value = float(step["Exposure"])
-
-        # update position in stage control
-        lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
 
         layer.apply_settings(ignore_auto_gain=ignore_auto_gain)
 
@@ -3435,7 +3504,9 @@ class ProtocolSettings(CompositeCapture):
         self._protocol_df.at[self.curr_step, "Gain"] = round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain'))
         self._protocol_df.at[self.curr_step, "Auto_Gain"] = layer_id.ids['auto_gain'].active
         self._protocol_df.at[self.curr_step, "Exposure"] = round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure'))
-        self._protocol_df.at[self.curr_step, "Objective"] = settings['objective']['ID']
+
+        objective_id, _ = get_current_objective_info()
+        self._protocol_df.at[self.curr_step, "Objective"] = objective_id
         stage.set_protocol_steps(df=self._protocol_df)
 
 
@@ -3480,6 +3551,7 @@ class ProtocolSettings(CompositeCapture):
         zstack_group_id = -1
         z = lumaview.scope.get_current_position('Z')
 
+        objective_id, _ = get_current_objective_info()
         step_dict = self.create_step_dict(
             name=name,
             x=round(px, common_utils.max_decimal_precision('x')),
@@ -3492,7 +3564,7 @@ class ProtocolSettings(CompositeCapture):
             gain=round(layer_id.ids['gain_slider'].value, common_utils.max_decimal_precision('gain')),
             auto_gain=layer_id.ids['auto_gain'].active,
             exp=round(layer_id.ids['exp_slider'].value, common_utils.max_decimal_precision('exposure')),
-            objective=settings['objective']['ID'],
+            objective=objective_id,
             well=well,
             tile=tile,
             zslice=zslice,
@@ -3596,9 +3668,9 @@ class ProtocolSettings(CompositeCapture):
             )
 
             # Move into position
-            lumaview.scope.move_absolute_position('X', sx)
-            lumaview.scope.move_absolute_position('Y', sy)
-            lumaview.scope.move_absolute_position('Z', step["Z"])
+            move_absolute_position('X', sx)
+            move_absolute_position('Y', sy)
+            move_absolute_position('Z', step["Z"])
 
             logger.info('[LVP Main  ] Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
             Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
@@ -3750,12 +3822,12 @@ class ProtocolSettings(CompositeCapture):
     def perform_grease_redistribution(self):
         z_orig = lumaview.scope.get_current_position('Z')
         logger.info('[LVP Main  ] Performing Z-axis grease redistribution')
-        lumaview.scope.move_absolute_position('Z', 0)
+        move_absolute_position('Z', 0)
         z_status = False
         while not z_status:
             z_status = lumaview.scope.get_target_status('Z')
             time.sleep(0.1)
-        lumaview.scope.move_absolute_position('Z', z_orig)
+        move_absolute_position('Z', z_orig)
         z_status = False
         while not z_status:
             z_status = lumaview.scope.get_target_status('Z')
@@ -4151,10 +4223,9 @@ class Stage(Widget):
                 py=plate_y
             )
 
-            lumaview.scope.move_absolute_position('X', stage_x)
-            lumaview.scope.move_absolute_position('Y', stage_y)
-            lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
-    
+            move_absolute_position('X', stage_x)
+            move_absolute_position('Y', stage_y)
+
 
     def draw_labware(
         self,
@@ -4385,13 +4456,17 @@ class MicroscopeSettings(BoxLayout):
             logger.exception('[LVP Main  ] Unable to read scopes.json.')
             raise
 
-        try:
-            os.chdir(source_path)
-            with open('./data/objectives.json', "r") as read_file:
-                self.objectives = json.load(read_file)
-        except:
-            logger.exception('[LVP Main  ] Unable to open objectives.json.')
-            raise
+        # try:
+        #     os.chdir(source_path)
+        #     with open('./data/objectives.json', "r") as read_file:
+        #         self.objectives = json.load(read_file)
+        # except:
+        #     logger.exception('[LVP Main  ] Unable to open objectives.json.')
+        #     raise
+
+
+    # def get_objective_info(self, objective_id: str) -> dict:
+    #     return self.objectives[objective_id]
 
 
     # load settings from JSON file
@@ -4458,10 +4533,11 @@ class MicroscopeSettings(BoxLayout):
                 # self.update_binning_size()
                 lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
-                self.ids['objective_spinner'].text = settings['objective']['ID']
-                # TODO self.ids['objective_spinner'].text = settings['objective']['description']
-                self.ids['magnification_id'].text = str(settings['objective']['magnification'])
-                lumaview.scope.set_objective(objective=settings['objective'])
+                objective_id = settings['objective_id']
+                self.ids['objective_spinner'].text = objective_id
+                objective = objective_helper.get_objective_info(objective_id=objective_id)
+                self.ids['magnification_id'].text = f"{objective['magnification']}"
+                lumaview.scope.set_objective(objective_id=objective_id)
                 
                 self.ids['frame_width_id'].text = str(settings['frame']['width'])
                 self.ids['frame_height_id'].text = str(settings['frame']['height'])
@@ -4647,10 +4723,10 @@ class MicroscopeSettings(BoxLayout):
         stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
 
            
-    def load_ojectives(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.load_ojectives()')
+    def load_objectives(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.load_objectives()')
         spinner = self.ids['objective_spinner']
-        spinner.values = list(self.objectives.keys())
+        spinner.values = objective_helper.get_objectives_list()
 
 
     def select_objective(self):
@@ -4658,16 +4734,16 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
         global settings
 
-        spinner = self.ids['objective_spinner']
-        settings['objective'] = self.objectives[spinner.text]
-        settings['objective']['ID'] = spinner.text
+        objective_id = self.ids['objective_spinner'].text
+        objective = objective_helper.get_objective_info(objective_id=objective_id)
+        settings['objective_id'] = objective_id
         microscope_settings_id = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
-        microscope_settings_id.ids['magnification_id'].text = str(settings['objective']['magnification'])
+        microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
 
-        lumaview.scope.set_objective(settings['objective'])
+        lumaview.scope.set_objective(objective_id=objective_id)
 
         fov_size = common_utils.get_field_of_view(
-            focal_length=settings['objective']['focal_length'],
+            focal_length=objective['focal_length'],
             frame_size=settings['frame']
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
@@ -4690,8 +4766,11 @@ class MicroscopeSettings(BoxLayout):
         self.ids['frame_width_id'].text = str(width)
         self.ids['frame_height_id'].text = str(height)
 
+        objective_id = settings['objective_id']
+        objective = objective_helper.get_objective_info(objective_id=objective_id)
+
         fov_size = common_utils.get_field_of_view(
-            focal_length=settings['objective']['focal_length'],
+            focal_length=objective['focal_length'],
             frame_size=settings['frame']
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
@@ -4828,9 +4907,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
         global lumaview
         pos = settings[self.layer]['focus']
-        lumaview.scope.move_absolute_position('Z', pos)  # set current z height in usteps
-        control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
-        control.update_gui()
+        move_absolute_position('Z', pos)  # set current z height in usteps
 
 
     def update_led_state(self):
@@ -4951,7 +5028,7 @@ class ZStack(CompositeCapture):
         # begin moving to the first position
         self.positions = zstack_config.step_positions()
         self.n_pos = 0
-        lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
+        move_absolute_position('Z', self.positions[self.n_pos])
 
         if self.ids['zstack_aqr_btn'].state == 'down':
             logger.info('[LVP Main  ] Clock.schedule_interval(self.zstack_iterate, 0.01)')
@@ -4963,7 +5040,7 @@ class ZStack(CompositeCapture):
             # self.zstack_event.cancel()
             logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
             Clock.unschedule(self.zstack_iterate)
-            lumaview.scope.move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
+            move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
 
 
     def zstack_iterate(self, dt):
@@ -4988,13 +5065,13 @@ class ZStack(CompositeCapture):
             self.n_pos += 1
 
             if self.n_pos < len(self.positions):
-                lumaview.scope.move_absolute_position('Z', self.positions[self.n_pos])
+                move_absolute_position('Z', self.positions[self.n_pos])
             else:
                 self.ids['zstack_aqr_btn'].text = 'Acquire'
                 self.ids['zstack_aqr_btn'].state = 'normal'
                 logger.info('[LVP Main  ] Clock.unschedule(self.zstack_iterate)')
                 Clock.unschedule(self.zstack_iterate)
-                lumaview.scope.move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
+                move_absolute_position('Z', self._current_z_pos, wait_until_complete=True)
 
 
 # Button the triggers 'filechooser.open_file()' from plyer
@@ -5094,7 +5171,11 @@ class FolderChooseBTN(Button):
         self.context = context
 
         # Show previously selected/default folder
-        if self.context in ("apply_stitching_to_folder", "apply_composite_gen_to_folder"):
+        if self.context in (
+            "apply_stitching_to_folder",
+            "apply_composite_gen_to_folder",
+            "apply_video_gen_to_folder"
+        ):
             selected_path = pathlib.Path(settings['live_folder']) / PROTOCOL_DATA_DIR_NAME
             if selected_path.exists() is False:
                 selected_path = pathlib.Path(settings['live_folder'])
@@ -5151,10 +5232,6 @@ class FolderChooseBTN(Button):
 
         if self.context == 'live_folder':
             settings['live_folder'] = str(pathlib.Path(path).resolve())
-
-        elif self.context == 'video_input_images_folder':
-            video_creation_controls.set_input_images_loc(directory=path)
-
         elif self.context == 'apply_cell_count_method_to_folder':
             cell_count_content.apply_method_to_folder(
                 path=path
@@ -5163,6 +5240,8 @@ class FolderChooseBTN(Button):
             stitch_controls.run_stitcher(path=pathlib.Path(path))
         elif self.context == 'apply_composite_gen_to_folder':
             composite_gen_controls.run_composite_gen(path=pathlib.Path(path))
+        elif self.context == 'apply_video_gen_to_folder':
+            video_creation_controls.run_video_gen(path=pathlib.Path(path))
         else:
             raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 
@@ -5181,8 +5260,6 @@ class FileSaveBTN(Button):
             filetypes = [('TSV', '.tsv')]
         elif self.context == 'saveas_cell_count_method':
             filetypes = [('JSON', '.json')]
-        elif self.context == 'video_output_path':
-            filetypes = [('AVI', '.avi')]
         else:
             logger.exception(f"Unsupported handling for {self.context}")
             return
@@ -5235,14 +5312,6 @@ class FileSaveBTN(Button):
                 if os.path.splitext(filename)[1] == "":
                     filename += ".json"
                 cell_count_content.save_method_as(file=filename)
-        
-        elif self.context == 'video_output_path':
-            if self.selection:
-                logger.info('[LVP Main  ] Set video output path to file:' + self.selection[0])
-                filepath = pathlib.Path(self.selection[0])
-                if filepath.suffix == "":
-                    filepath = filepath.with_suffix(".avi")
-                video_creation_controls.set_output_file_loc(file_loc=filepath)
 
 
 def load_log_level():
@@ -5291,8 +5360,7 @@ class LumaViewProApp(App):
         load_log_level()
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
-        lumaview.scope.xyhome()
-
+        move_home(axis='XY')
 
 
     def build(self):
@@ -5313,6 +5381,7 @@ class LumaViewProApp(App):
         global stage
         global wellplate_loader
         global coordinate_transformer
+        global objective_helper
         self.icon = './data/icons/icon.png'
 
         stage = Stage()
@@ -5341,7 +5410,9 @@ class LumaViewProApp(App):
 
         # load labware file
         wellplate_loader = labware_loader.WellPlateLoader()
-        coordinate_transformer = coord_transformations.CoordinateTransformer()#wellplate_loader=wellplate_loader)
+        coordinate_transformer = coord_transformations.CoordinateTransformer()
+
+        objective_helper = objectives_loader.ObjectiveLoader()
 
         # load settings file
         if os.path.exists("./data/current.json"):
