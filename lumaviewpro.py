@@ -2846,6 +2846,7 @@ class ProtocolSettings(CompositeCapture):
         self._protocol_df = protocol.Protocol().optimize_step_ordering(protocol_df=self._protocol_df)
         stage.set_protocol_steps(df=self._protocol_df)
         self.update_step_ui()
+        self.go_to_step()
 
 
     def apply_zstacking(self):
@@ -2902,6 +2903,7 @@ class ProtocolSettings(CompositeCapture):
         self._protocol_df = protocol.Protocol().optimize_step_ordering(protocol_df=self._protocol_df)
         stage.set_protocol_steps(df=self._protocol_df)
         self.update_step_ui()
+        self.go_to_step()
 
 
     def update_step_ui(self):
@@ -3106,6 +3108,7 @@ class ProtocolSettings(CompositeCapture):
 
         self.curr_step = 0 # start at the first step
         self.update_step_ui()
+        self.go_to_step()
         settings['protocol']['filepath'] = ''        
         self.ids['protocol_filename'].text = ''
 
@@ -3253,6 +3256,7 @@ class ProtocolSettings(CompositeCapture):
         # Make steps available for drawing locations
         stage.set_protocol_steps(df=self._protocol_df)
 
+        self.update_step_ui()
         if lumaview.scope.has_xyhomed():
             self.go_to_step()
     
