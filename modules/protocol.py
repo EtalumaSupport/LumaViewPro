@@ -21,7 +21,6 @@ class Protocol:
     PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
     COLUMNS_V1 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective']
     COLUMNS_V2 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID']
-    # COLUMNS_V2 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Step Index', 'Color', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID']
     CURRENT_VERSION = 2
     CURRENT_COLUMNS = COLUMNS_V2
     STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|EP|PC)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
@@ -43,11 +42,7 @@ class Protocol:
                 z_height_map = {z_height: idx for idx, z_height in enumerate(z_heights)}
 
             return z_height_map
-    
-    # @staticmethod
-    # def _get_column_index_map(column_names: list) -> dict[str, int]:
-    #     return {column_name: idx for idx, column_name in enumerate(column_names)}
-    
+
 
     # Not used yet
     def to_file(self, file_path: pathlib.Path):
@@ -70,6 +65,22 @@ class Protocol:
             for _, row in steps.iterrows():
                 csvwriter.writerow(row)
 
+
+    @staticmethod
+    def optimize_step_ordering(protocol_df: pd.DataFrame) -> pd.DataFrame:
+
+        # First group by X/Y location
+        grouped_df = protocol_df.groupby(by=['X','Y'], sort=False)
+
+        # For each X/Y location, sort by Z-height
+        grouped_list = []
+        for _, group_df in grouped_df:
+            group_df = group_df.sort_values(by=['Z'], ascending=True)
+            grouped_list.append(group_df)
+
+        # Re-combine into single dataframe
+        df = pd.concat(grouped_list, ignore_index=True).reset_index(drop=True)
+        return df
 
 
     @classmethod
@@ -109,12 +120,6 @@ class Protocol:
         labware = next(csvreader)
         config['labware'] = labware[1]
 
-        # if config['version'] >= 2:
-        #     tiling_config_row = next(csvreader)
-        #     config['tiling'] = tiling_config_row[1]
-
-        # empty = next(csvreader)
-
         # Search for "Steps" to indicate start of steps
         while True:
             tmp = next(csvreader)
@@ -124,74 +129,12 @@ class Protocol:
             if tmp[0] == "Steps":
                 break
         
-
-        # orig_labware = labware
-        # labware_valid, labware = self._validate_labware(labware=orig_labware)
-        # if not labware_valid:
-            # raise Exception(f"Invalid labware: {labware}")
-            # logger.error(f'[LVP Main  ] ProtocolSettings.load_protocol() -> Invalid labware in protocol: {orig_labware}, setting to {labware}')
-
         table_lines = []
         for line in fp:
             table_lines.append(line)
         
         table_str = ''.join(table_lines)
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
-
-        #     columns = next(csvreader)
-        #     column_map = cls._get_column_index_map(column_names=columns)
-
-            # Check if version is 1A (Extra columns added)
-            # use_version_1a = True
-            # if config['version'] == 1:
-
-            #     for column in ('Color', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'):
-            #         if column not in protocol_df.columns:
-            #             use_version_1a = False
-
-        #     steps = []
-        #     for row in csvreader:
-        #         step = {
-        #             'name': row[column_map['Name']],
-        #             'x': round(common_utils.to_float(val=row[column_map['X']]), common_utils.max_decimal_precision('x')),
-        #             'y': round(common_utils.to_float(val=row[column_map['Y']]), common_utils.max_decimal_precision('y')),
-        #             'z': round(common_utils.to_float(val=row[column_map['Z']]), common_utils.max_decimal_precision('z')),
-        #             'auto_focus': common_utils.to_bool(val=row[column_map['Auto_Focus']]),
-        #             # 'channel': int(float(row[column_map['Channel']])),
-        #             'false_color': common_utils.to_bool(val=row[column_map['False_Color']]),
-        #             'illumination': round(common_utils.to_float(val=row[column_map['Illumination']]), common_utils.max_decimal_precision('illumination')),
-        #             'gain': round(common_utils.to_float(val=row[column_map['Gain']]), common_utils.max_decimal_precision('gain')),
-        #             'auto_gain': common_utils.to_bool(val=row[column_map['Auto_Gain']]),
-        #             'exposure': round(common_utils.to_float(val=row[column_map['Exposure']]), common_utils.max_decimal_precision('exposure')),
-        #             'objective': row[column_map['Objective']]
-        #         }
-
-        #         if config['version'] == 1:
-        #             if not use_version_1a:
-        #                 step['channel'] = common_utils.to_int(val=row[column_map['Channel']])
-
-        #             if use_version_1a:
-        #                 step['color'] = row[column_map['Color']]
-        #                 step['well'] = row[column_map['Well']]
-        #                 step['tile'] = row[column_map['Tile']]
-        #                 step['z_slice'] = row[column_map['Z-Slice']]
-        #                 step['custom_step'] = row[column_map['Custom Step']]
-        #                 step['tile_group_id'] = row[column_map['Tile Group ID']]
-        #                 step['zstack_group_id'] = row[column_map['Z-Stack Group ID']]
-
-        #         if config['version'] >= 2:
-        #             step['well'] = row[column_map['Well']]
-        #             step['tile'] = row[column_map['Tile']]
-        #             step['z_slice'] = row[column_map['Z-Slice']]
-        #             step['step_index'] = row[column_map['Step Index']]
-        #             step['color'] = row[column_map['Color']]
-        #             step['custom_step'] = row[column_map['Custom Step']]
-        #             step['tile_group_id'] = row[column_map['Tile Group ID']]
-        #             step['zstack_group_id'] = row[column_map['Z-Stack Group ID']]
-
-        #         steps.append(step) 
-
-        # steps_df = pd.DataFrame(steps)
 
         if config['version'] == 1:
             protocol_df['Step Index'] = protocol_df.index
@@ -211,12 +154,7 @@ class Protocol:
             if not use_version_1a:
                 protocol_df = protocol_df.apply(cls.extract_data_from_step_name, axis=1)
                 protocol_df['Custom Step'] = False
-
-        # Index and build a map of Z-heights. Indicies will be used in step/file naming
-        # Only build the height map if we have at least 2 heights in the protocol.
-        # Otherwise, we don't want "_Z<slice>" added to the name
-        # config['z_height_map'] = cls._build_z_height_map(values=steps_df['z'])
-        
+       
         elif config['version'] == 2:
             protocol_df['Step Index'] = protocol_df.index
 
@@ -266,7 +204,6 @@ class Protocol:
                 'Color',
                 'Z-Slice',
                 'Objective',
-                # 'Z-Stack Group ID',
                 'Custom Step'
             ],
             dropna=False

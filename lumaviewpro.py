@@ -129,6 +129,7 @@ from modules.composite_generation import CompositeGeneration
 import modules.coord_transformations as coord_transformations
 import modules.labware_loader as labware_loader
 import modules.objectives_loader as objectives_loader
+import modules.protocol as protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_run_modes import ProtocolRunMode
 from modules.zstack_config import ZStackConfig
@@ -2842,10 +2843,11 @@ class ProtocolSettings(CompositeCapture):
             tile_group_id += 1
 
         self._protocol_df = pd.DataFrame.from_dict(new_steps)
+        self._protocol_df = protocol.Protocol().optimize_step_ordering(protocol_df=self._protocol_df)
         stage.set_protocol_steps(df=self._protocol_df)
         self.update_step_ui()
 
-    
+
     def apply_zstacking(self):
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
         labware = wellplate_loader.get_plate(plate_key=settings['protocol']['labware'])
@@ -2897,6 +2899,7 @@ class ProtocolSettings(CompositeCapture):
             zstack_group_id += 1
 
         self._protocol_df = pd.DataFrame.from_dict(new_steps)
+        self._protocol_df = protocol.Protocol().optimize_step_ordering(protocol_df=self._protocol_df)
         stage.set_protocol_steps(df=self._protocol_df)
         self.update_step_ui()
 
