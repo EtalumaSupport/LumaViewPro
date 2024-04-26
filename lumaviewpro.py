@@ -133,7 +133,8 @@ from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.protocol_run_modes import ProtocolRunMode
 from modules.zstack_config import ZStackConfig
 from modules.json_helper import CustomJSONizer
-from modules.imagej_helper import ImageJHelper
+import modules.imagej_helper as imagej_helper
+import modules.zprojector as zprojector
 
 import cv2
 import skimage
@@ -157,6 +158,9 @@ objective_helper = None
 
 global coordinate_transformer
 coordinate_transformer = None
+
+global ij_helper
+ij_helper = None
 
 global last_save_folder
 last_save_folder = None
@@ -1207,6 +1211,48 @@ class StitchControls(BoxLayout):
         time.sleep(2)
         self.done = True
 
+
+class ZProjectionControls(BoxLayout):
+
+    done = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        global zprojection_controls
+        super().__init__(**kwargs)
+        zprojection_controls = self
+        Clock.schedule_once(self._init_ui, 0)
+    
+
+    def _init_ui(self, dt=0):
+        self.ids['zprojection_method_spinner'].values = zprojector.ZProjector.methods()
+        self.ids['zprojection_method_spinner'].text = zprojector.ZProjector.methods()[1]
+
+
+    @show_popup
+    def run_zprojection(self, popup, path):
+        status_map = {
+            True: "Success",
+            False: "FAILED"
+        }
+        popup.title = "Z-Projection"
+        popup.text = "Generating Z-Projection images..."
+        zproj = zprojector.ZProjector(ij_helper=ij_helper)
+        result = zproj.load_folder(
+            path=pathlib.Path(path),
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            method_name=self.ids['zprojection_method_spinner'].text
+        )
+        final_text = f"Generating Z-Projection images - {status_map[result['status']]}"
+        if result['status'] is False:
+            final_text += f"\n{result['message']}"
+            popup.text = final_text
+            time.sleep(5)
+            self.done = True
+            return
+
+        popup.text = final_text
+        time.sleep(2)
+        self.done = True
 
 class CompositeGenControls(BoxLayout):
 
@@ -4008,7 +4054,7 @@ class ProtocolSettings(CompositeCapture):
             return False
         
         return True
-    
+
 
     def run_scan_from_ui(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
@@ -5004,8 +5050,8 @@ class ZStack(CompositeCapture):
         settings['zstack']['position'] = self.ids['zstack_spinner'].text
 
 
-    def aquire_zstack(self):
-        logger.info('[LVP Main  ] ZStack.aquire_zstack()')
+    def acquire_zstack(self):
+        logger.info('[LVP Main  ] ZStack.acquire_zstack()')
         global lumaview
 
         range = float(self.ids['zstack_range_id'].text)
@@ -5175,7 +5221,8 @@ class FolderChooseBTN(Button):
         if self.context in (
             "apply_stitching_to_folder",
             "apply_composite_gen_to_folder",
-            "apply_video_gen_to_folder"
+            "apply_video_gen_to_folder",
+            "apply_zprojection_to_folder"
         ):
             selected_path = pathlib.Path(settings['live_folder']) / PROTOCOL_DATA_DIR_NAME
             if selected_path.exists() is False:
@@ -5243,6 +5290,8 @@ class FolderChooseBTN(Button):
             composite_gen_controls.run_composite_gen(path=pathlib.Path(path))
         elif self.context == 'apply_video_gen_to_folder':
             video_creation_controls.run_video_gen(path=pathlib.Path(path))
+        elif self.context == 'apply_zprojection_to_folder':
+            zprojection_controls.run_zprojection(path=pathlib.Path(path))
         else:
             raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 
@@ -5378,15 +5427,14 @@ class LumaViewProApp(App):
         global cell_count_content
         global video_creation_controls
         global stitch_controls
+        global zprojection_controls
         global composite_gen_controls
         global stage
         global wellplate_loader
         global coordinate_transformer
         global objective_helper
+        global ij_helper
         self.icon = './data/icons/icon.png'
-
-        ij_helper = ImageJHelper()
-        ij_helper.test()
 
         stage = Stage()
 
@@ -5417,6 +5465,8 @@ class LumaViewProApp(App):
         coordinate_transformer = coord_transformations.CoordinateTransformer()
 
         objective_helper = objectives_loader.ObjectiveLoader()
+        
+        ij_helper = imagej_helper.ImageJHelper()
 
         # load settings file
         if os.path.exists("./data/current.json"):
