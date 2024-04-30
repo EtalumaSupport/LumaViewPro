@@ -566,26 +566,41 @@ class Lumascope():
             self.move_absolute_position('T', degrees, wait_until_complete=True)
 
 
-    def get_target_position(self, axis):
+    def get_target_position(self, axis=None):
         """MOTION CONTROL FUNCTIONS
         Get the value of the target position of the axis relative to home
         Returns position (um), or 0 if the motion board is inactive
         values of axis 'X', 'Y', 'Z', and 'T' """
 
         if not self.motion.driver: return 0
-        target_position = self.motion.target_pos(axis)
-        return target_position
+
+        if axis is None:
+            positions = {}
+            for ax in ('X', 'Y', 'Z', 'T'):
+                positions[ax] = self.motion.target_pos(axis=ax)
+            return positions
         
-    def get_current_position(self, axis):
+        position = self.motion.target_pos(axis)
+        return position
+        
+    def get_current_position(self, axis=None):
         """MOTION CONTROL FUNCTIONS
         Get the value of the current position of the axis relative to home
         Returns position (um), or 0 if the motion board is inactive
         values of axis 'X', 'Y', 'Z', and 'T' """
 
         if not self.motion.driver: return 0
-        target_position = self.motion.current_pos(axis)
-        return target_position
+
+        if axis is None:
+            positions = {}
+            for ax in ('X', 'Y', 'Z', 'T'):
+                positions[ax] = self.motion.current_pos(axis=ax)
+            return positions
         
+        position = self.motion.current_pos(axis)
+        return position
+
+
     def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True):
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""

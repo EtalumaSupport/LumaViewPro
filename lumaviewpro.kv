@@ -525,7 +525,7 @@
 			height: '30dp'
 			text: 'Acquire'
 			font_size: '12dp'
-			on_release: root.acquire_zstack()
+			on_release: root.run_zstack_acquire_from_ui()
 
 		Label:
 
@@ -971,15 +971,15 @@
 					on_release: root.prev_step()
 				TextInput:
 					id: step_number_input
-					text: '1'
+					text: '0'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					halign: 'center'
 					multiline: False
 					input_filter: 'int'
-					on_text_validate: root.go_to_step()
-					on_focus: if not self.focus: root.go_to_step()
+					on_text_validate: root.handle_step_ui_input_change()
+					on_focus: if not self.focus: root.handle_step_ui_input_change()
 					valign: 'center'
 				Label:
 					text: 'of'

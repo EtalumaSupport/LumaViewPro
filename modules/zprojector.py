@@ -53,7 +53,7 @@ class ZProjector:
 
         # TODO
         result = self._ij_helper.zproject(
-            images_data=
+            images_data=TODO,
             method=method
         )
         
