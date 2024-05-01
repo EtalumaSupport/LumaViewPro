@@ -174,10 +174,13 @@ class ProtocolPostProcessingHelper:
         df = self._add_stitch_group_index(df=df)
         df = self._add_composite_group_index(df=df)
         df = self._add_video_group_index(df=df)
+        df = self._add_zproject_group_index(df=df)
         df = df.fillna('')
 
         return df
     
+
+
 
     @staticmethod
     def _add_stitch_group_index(df: pd.DataFrame) -> pd.DataFrame:
@@ -221,6 +224,24 @@ class ProtocolPostProcessingHelper:
             by=[
                 'Protocol Group Index',
                 'Z-Slice',
+                'Well',
+                'Color',
+                'Objective',
+                'X',
+                'Y',
+                'Tile',
+                'Custom Step'
+            ],
+            dropna=False
+        ).ngroup()
+        return df
+
+
+    @staticmethod
+    def _add_zproject_group_index(df: pd.DataFrame) -> pd.DataFrame:
+        df['Z-Project Group Index'] = df.groupby(
+            by=[
+                'Scan Count',
                 'Well',
                 'Color',
                 'Objective',
@@ -288,6 +309,7 @@ class ProtocolPostProcessingHelper:
                 stitched_images_df = self._add_stitch_group_index(df=stitched_images_df)
                 stitched_images_df = self._add_composite_group_index(df=stitched_images_df)
                 stitched_images_df = self._add_video_group_index(df=stitched_images_df)
+                stitched_images_df = self._add_zproject_group_index(df=stitched_images_df)
                 stitched_images_df['Stitched'] = True
         else:
             stitched_images_df = None
@@ -304,6 +326,7 @@ class ProtocolPostProcessingHelper:
                 composite_images_df = self._add_stitch_group_index(df=composite_images_df)
                 composite_images_df = self._add_composite_group_index(df=composite_images_df)
                 composite_images_df = self._add_video_group_index(df=composite_images_df)
+                composite_images_df = self._add_zproject_group_index(df=composite_images_df)
                 composite_images_df['Composite'] = True
         else:
             composite_images_df = None
@@ -323,6 +346,7 @@ class ProtocolPostProcessingHelper:
                 composite_and_stitched_images_df = self._add_stitch_group_index(df=composite_and_stitched_images_df)
                 composite_and_stitched_images_df = self._add_composite_group_index(df=composite_and_stitched_images_df)
                 composite_and_stitched_images_df = self._add_video_group_index(df=composite_and_stitched_images_df)
+                composite_and_stitched_images_df = self._add_zproject_group_index(df=composite_and_stitched_images_df)
                 composite_and_stitched_images_df['Composite'] = True
                 composite_and_stitched_images_df['Stitched'] = True
         else:
