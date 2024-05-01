@@ -382,10 +382,7 @@ def get_layer_configs(
         layer_configs[layer] = {}
         layer_settings = settings[layer]
 
-        if layer_settings['acquire'] == False:
-            layer_configs[layer]['acquire'] = False
-            continue
-
+        acquire = layer_settings['acquire']
         autofocus = layer_settings['autofocus']
         false_color = layer_settings['false_color']
         illumination = round(layer_settings['ill'], common_utils.max_decimal_precision('illumination'))
@@ -395,7 +392,7 @@ def get_layer_configs(
         focus = layer_settings['focus']
 
         layer_configs[layer] = {
-            'acquire': True,
+            'acquire': acquire,
             'autofocus': autofocus,
             'false_color': false_color,
             'illumination': illumination,
@@ -2414,6 +2411,7 @@ class VerticalControl(BoxLayout):
         labware_id, _ = get_selected_labware()
         active_layer, active_layer_config = get_active_layer_config()
         active_layer_config['autofocus'] = True
+        active_layer_config['acquire'] = True
         curr_position = get_current_plate_position()
         curr_position.update({'name': 'AF'})
 
@@ -2438,7 +2436,7 @@ class VerticalControl(BoxLayout):
             'duration': None,
             'frame_dimensions': get_current_frame_dimensions()
         }
-
+      
         autofocus_sequence = Protocol.from_config(
             input_config=config,
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
@@ -4381,9 +4379,11 @@ class ZStack(CompositeCapture):
         objective_id, _ = get_current_objective_info()
         zstack_positions_valid, zstack_positions = get_zstack_positions()
         active_layer, active_layer_config = get_active_layer_config()
+        active_layer_config['acquire'] = True
 
         if not config['zstack_positions_valid']:
             logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
+            button_reset_func()
             return
         
         curr_position = get_current_plate_position()
