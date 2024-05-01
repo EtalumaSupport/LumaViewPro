@@ -97,6 +97,18 @@ class WellPlate(LabWare):
             x, y = self.get_well_position(well[0], well[1])
             self.pos_list.append([x, y])
 
+    
+    def get_positions_with_labels(self) -> tuple[float,float,str]:
+        self.set_positions()
+        tmp = []
+        for pos in self.pos_list:
+            x, y = pos
+            label = self.get_well_label(x=x, y=y)
+            tmp.append((x, y, label))
+        
+        return tmp
+    
+
     # Get center position of well on plate in mm given its index (i, j)
     def get_well_position(self, i, j):
 
