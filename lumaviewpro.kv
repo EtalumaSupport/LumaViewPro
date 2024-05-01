@@ -393,7 +393,7 @@
     		    height: '30dp'
     			font_size: '12sp'
     			text: 'Autofocus'
-    			on_release: root.autofocus()
+    			on_release: root.run_autofocus_from_ui()
 
 	Label:
 		text:'Turret Selection'
@@ -1201,7 +1201,7 @@
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
-				on_release: root.run_autofocus_scan()
+				on_release: root.run_autofocus_scan_from_ui()
 				disabled: False
 
 			# Run Protocol

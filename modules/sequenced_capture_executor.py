@@ -11,6 +11,7 @@ from lumascope_api import Lumascope
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.labware_loader as labware_loader
+from modules.autofocus_executor import AutofocusExecutor
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
@@ -25,10 +26,19 @@ class SequencedCaptureExecutor:
         self,
         scope: Lumascope,
         stage_offset: dict,
+        autofocus_executor: AutofocusExecutor | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
         self._stage_offset = stage_offset
+
+        if autofocus_executor is None:
+            self._autofocus_executor = AutofocusExecutor(
+                scope=scope,
+                use_kivy_clock=True,
+            )
+        else:
+            self._autofocus_executor = autofocus_executor
 
         self._scope = scope
         self._run_trigger_source = None
@@ -92,6 +102,13 @@ class SequencedCaptureExecutor:
         )
         self._start_t = datetime.datetime.now()
 
+        if self._disable_saving_artifacts:
+            return {
+                'status': True,
+                'data': None,
+                'error': None
+            }
+
         try:
             self._parent_dir.mkdir(parents=True, exist_ok=True)
         except FileNotFoundError:
@@ -101,7 +118,7 @@ class SequencedCaptureExecutor:
                 'data': None,
                 'error': err_str,
             }
-        
+    
         result = self._create_run_dir()
         if not result['status']:
             return result
@@ -188,8 +205,8 @@ class SequencedCaptureExecutor:
         run_trigger_source: str,
         run_mode: SequencedCaptureRunMode,
         sequence_name: str,
-        parent_dir: pathlib.Path,
         image_capture_config: dict,
+        parent_dir: pathlib.Path | None = None,
         enable_image_saving: bool = True,
         separate_folder_per_channel: bool = False,
         autogain_target_brightness: float = 0.3,
@@ -197,6 +214,9 @@ class SequencedCaptureExecutor:
         callbacks: dict[str, typing.Callable] | None = None,
         max_scans: int | None = None,
         return_to_position: dict | None = None,
+        disable_saving_artifacts: bool = False,
+        save_autofocus_data: bool = False,
+        update_z_pos_from_autofocus: bool = False,
     ):
         if self._run_in_progress:
             logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
@@ -213,6 +233,12 @@ class SequencedCaptureExecutor:
         self._autogain_max_duration = autogain_max_duration
         self._callbacks = callbacks
         self._return_to_position = return_to_position
+        self._disable_saving_artifacts = disable_saving_artifacts
+        self._save_autofocus_data = save_autofocus_data
+        self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
+
+        if self._parent_dir is None:
+            self._disable_saving_artifacts = True
 
         self._cancel_all_scheduled_events()
         result = self._init_for_new_scan(max_scans=max_scans)
@@ -271,8 +297,8 @@ class SequencedCaptureExecutor:
         Clock.schedule_interval(self._scan_iterate, 0.1)
     
 
-    def _scan_iterate(self, dt):       
-        if self._scope.is_focusing:
+    def _scan_iterate(self, dt):
+        if self._autofocus_executor.in_progress():
             return
 
         # Check if at desired position
@@ -305,13 +331,21 @@ class SequencedCaptureExecutor:
             self._auto_gain_countdown -= 0.1
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
-        autofocus_is_complete = not self._scope.is_focusing
-        if step['Auto_Focus'] and not autofocus_is_complete:
+        if step['Auto_Focus'] and not self._autofocus_executor.complete():
 
             if 'autofocus_in_progress' in self._callbacks:
                 self._callbacks['autofocus_in_progress']()
 
-            self._scope.autofocus()
+            af_executor_callbacks = {}
+            if 'move_position' in self._callbacks:
+                af_executor_callbacks['move_position'] = self._callbacks['move_position']
+
+            self._autofocus_executor.run(
+                objective_id=step['Objective'],
+                save_results_to_file=self._save_autofocus_data,
+                results_dir=self._parent_dir,
+                callbacks=af_executor_callbacks,
+            )
             
             return
         
@@ -322,46 +356,56 @@ class SequencedCaptureExecutor:
         # Reset the autogain countdown
         self._auto_gain_countdown = self._autogain_max_duration.total_seconds
         
+        # Update the Z position with autofocus results
+        if step['Auto_Focus'] and self._update_z_pos_from_autofocus:
+            new_z_pos = self._autofocus_executor.best_focus_position()
+            self._protocol.modify_step_z_height(
+                step_idx=self._curr_step,
+                z=new_z_pos,
+            )
+
         # reset the is_complete flag on autofocus
         if 'autofocus_complete' in self._callbacks:
             self._callbacks['autofocus_complete']()
-        # lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
-
-        if self._separate_folder_per_channel:
-            save_folder = self._run_dir / step["Color"]
-            save_folder.mkdir(parents=True, exist_ok=True)
-        else:
-            save_folder = self._run_dir
 
         if step["Auto_Focus"]:
             self._autofocus_count += 1
 
-        image_filepath = self._capture(
-            save_folder=save_folder,
-            step=step,
-            scan_count=self._scan_count,
-        )
+        if not self._disable_saving_artifacts:
 
-        if self._enable_image_saving == True:
-            if image_filepath is None:
+            if self._separate_folder_per_channel:
+                save_folder = self._run_dir / step["Color"]
+                save_folder.mkdir(parents=True, exist_ok=True)
+            else:
+                save_folder = self._run_dir
+
+            image_filepath = self._capture(
+                save_folder=save_folder,
+                step=step,
+                scan_count=self._scan_count,
+            )
+
+            if self._enable_image_saving:
+                if image_filepath is None:
+                    image_filepath_name = "unsaved"
+
+                elif self._separate_folder_per_channel:
+                    image_filepath_name = pathlib.Path(step["Color"]) / image_filepath.name
+
+                else:
+                    image_filepath_name = image_filepath.name
+            else:
                 image_filepath_name = "unsaved"
 
-            elif self._separate_folder_per_channel:
-                image_filepath_name = pathlib.Path(step["Color"]) / image_filepath.name
+            self._protocol_execution_record.add_step(
+                image_file_name=image_filepath_name,
+                step_name=step['Name'],
+                step_index=self._curr_step,
+                scan_count=self._scan_count,
+                timestamp=datetime.datetime.now()
+            )
 
-            else:
-                image_filepath_name = image_filepath.name
-        else:
-            image_filepath_name = "unsaved"
-
-        self._protocol_execution_record.add_step(
-            image_file_name=image_filepath_name,
-            step_name=step['Name'],
-            step_index=self._curr_step,
-            scan_count=self._scan_count,
-            timestamp=datetime.datetime.now()
-        )
-
+        self._autofocus_executor.reset()
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
             self._scope.set_auto_gain(state=False)
@@ -376,7 +420,6 @@ class SequencedCaptureExecutor:
                 self._callbacks['update_step_number'](self._curr_step+1)
             self._go_to_step(step_idx=self._curr_step)
             return
-
 
         # At the end of a scan, if we've performed more than 100 AFs, cycle the Z-axis to re-distribute grease
         if self._autofocus_count >= 100:
@@ -487,7 +530,8 @@ class SequencedCaptureExecutor:
         if 'leds_off' in self._callbacks:
             self._callbacks['leds_off']()
 
-        self._protocol_execution_record.complete()
+        if not self._disable_saving_artifacts:
+            self._protocol_execution_record.complete()
 
         if self._return_to_position is not None:
             self._default_move(
@@ -499,7 +543,7 @@ class SequencedCaptureExecutor:
         self._run_in_progress = False
 
         if 'run_complete' in self._callbacks:
-            self._callbacks['run_complete']()
+            self._callbacks['run_complete'](protocol=self._protocol)
 
 
     def _capture(

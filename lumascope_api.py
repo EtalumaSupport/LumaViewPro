@@ -92,6 +92,7 @@ class Lumascope():
 
         self.is_focusing = False         # Is the microscope currently attempting autofocus
         self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
+        self.last_focus_score = None
 
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
@@ -783,7 +784,7 @@ class Lumascope():
 
         self.AF_positions = []       # List of positions to step through
         self.focus_measures = []     # Measure focus score at each position
-        self.last_focus_score = 0    # Last / Previous focus score
+        self.last_focus_score = None    # Last / Previous focus score
         self.last_focus_pass = False # Are we on the last scan for autofocus?
 
         # Start the autofocus process at z-minimum
@@ -870,6 +871,7 @@ class Lumascope():
             # end autofocus sequence
             self.autofocus_return = focus
             self.is_focusing = False
+            self.last_focus_score = focus
 
             # Stop thread image when autofocus is complete
             done=True

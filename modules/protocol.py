@@ -136,6 +136,15 @@ class Protocol:
         return self._config['steps']
     
 
+    def modify_autofocus(self, step_idx: int, enabled: bool):
+        self._config['steps'].at[step_idx, "Auto_Focus"] = enabled
+
+    
+    def modify_autofocus_all_steps(self, enabled: bool):
+        for idx, _ in self._config['steps'].iterrows():
+            self.modify_autofocus(step_idx=idx, enabled=enabled)
+    
+
     def delete_step(self, step_idx: int):
         num_steps = self.num_steps()
 
@@ -461,25 +470,27 @@ class Protocol:
             zstack_positions = {None: None}
 
         if positions is not None:
-            # Add in an empty label for positions to match format of labware positions
-            tmp = []
-            for position in positions:
-                if len(position) == 2:
-                    x, y = position
-                    pos_name = ""
-                elif len(position) == 3:
-                    x, y, pos_name = position
-                else:
-                    raise Exception(f"Expected position tuple to be length 2 or 3, not {len(position)}")
-                
-                tmp.append((x, y, pos_name))
-            actual_positions = tmp
+            actual_positions = positions
             position_source = 'from_manual'
         else:
             wellplate_loader = labware_loader.WellPlateLoader()
             labware_obj = wellplate_loader.get_plate(plate_key=labware_id)
             labware_obj.set_positions()
-            actual_positions = labware_obj.get_positions_with_labels()
+            well_positions = labware_obj.get_positions_with_labels()
+
+            tmp = []
+            for well_position in well_positions:
+                well_x, well_y, well_label = well_position
+                tmp.append(
+                    {
+                        'x': well_x,
+                        'y': well_y,
+                        'z': None,
+                        'name': well_label,
+                    }
+                )
+
+            actual_positions = tmp
             position_source = 'from_labware'            
 
         tile_group_id = 0
@@ -495,11 +506,14 @@ class Protocol:
                         if layer_config['acquire'] == False:
                             continue
                         
-                        x = round(pos[0] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
-                        y = round(pos[1] + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
+                        x = round(pos['x'] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
+                        y = round(pos['y'] + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
 
                         if zstack_slice is None:
-                            z = layer_config['focus']
+                            if pos['z'] is None:
+                                z = layer_config['focus']
+                            else:
+                                z = pos['z']
                         else:
                             z = zstack_position
 
@@ -512,7 +526,7 @@ class Protocol:
                         auto_gain = common_utils.to_bool(layer_config['auto_gain'])
                         exposure = round(layer_config['exposure'], common_utils.max_decimal_precision('exposure'))
 
-                        well_label = pos[2]
+                        well_label = pos['name']
                         if position_source == 'from_labware':
                             custom_step = False
                         else:

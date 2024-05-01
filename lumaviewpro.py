@@ -38,6 +38,7 @@ June 24, 2023
 '''
 
 # General
+import copy
 import logging
 import datetime
 import os
@@ -123,14 +124,13 @@ from modules.tiling_config import TilingConfig
 import modules.common_utils as common_utils
 
 import labware
+from modules.autofocus_executor import AutofocusExecutor
 from modules.stitcher import Stitcher
-from modules.color_channels import ColorChannel
 from modules.composite_generation import CompositeGeneration
 import modules.coord_transformations as coord_transformations
 import modules.labware_loader as labware_loader
 import modules.objectives_loader as objectives_loader
 from modules.protocol import Protocol
-from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.sequenced_capture_executor import SequencedCaptureExecutor
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
 from modules.zstack_config import ZStackConfig
@@ -166,6 +166,9 @@ ij_helper = None
 
 global sequenced_capture_executor
 sequenced_capture_executor = None
+
+# global autofocus_executor
+# autofocus_executor = None
 
 global last_save_folder
 last_save_folder = None
@@ -2370,281 +2373,105 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.home()')
         move_home(axis='Z')
 
-    # User selected the autofocus function
-    def autofocus(self):
-        logger.info('[LVP Main  ] VerticalControl.autofocus()')
+
+    def _reset_run_autofocus_button(self, **kwargs):
+        self.ids['autofocus_id'].state = 'normal'
+        self.ids['autofocus_id'].text = 'Autofocus'
+
+
+    def _cleanup_at_end_of_autofocus(self):
+        sequenced_capture_executor.reset()
+        self._reset_run_autofocus_button()
+
+
+    def run_autofocus_from_ui(self):
+        logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
 
         if ENGINEERING_MODE == True:
-            self.record_autofocus_to_file = True
+            save_autofocus_data = True
+            parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Autofocus Characterization"
         else:
-            self.record_autofocus_to_file = False
+            save_autofocus_data = False
+            parent_dir = None
 
-        if self.record_autofocus_to_file:
-            self._af_save_folder = pathlib.Path(settings['live_folder']) / "Autofocus Characterization"
-            self._af_save_folder.mkdir(parents=True, exist_ok=True)
-            now = datetime.datetime.now()
-            self._af_time_string = now.strftime("%Y%m%d_%H%M%S")
-            self._af_data = []
-            
-        global lumaview
-        self.is_autofocus = True
-        self.is_complete = False
-        
-        if lumaview.scope.camera.active == False:
-            logger.warning('[LVP Main  ] Error: VerticalControl.autofocus()')
+        trigger_source = 'autofocus'
+        button_reset_func = self._reset_run_autofocus_button
 
-            self.ids['autofocus_id'].state == 'normal'
-            self.is_autofocus = False
-
-            return
-
-        center = lumaview.scope.get_current_position('Z')
-        _, objective = get_current_objective_info()
-        range =  objective['AF_range']
-
-        self.z_min = max(0, center-range)                   # starting minimum z-height for autofocus
-        self.z_max = center+range                           # starting maximum z-height for autofocus
-        self.resolution = objective['AF_max']   # starting step size for autofocus
-        self.exposure = lumaview.scope.get_exposure_time()  # camera exposure to determine 'wait' time
-
-        self.positions = []       # List of positions to step through
-        self.focus_measures = []  # Measure focus score at each position
-        self.last_focus = 0       # Last / Previous focus score
-        self.last = False         # Are we on the last scan for autofocus?
-
-        # set button text if button is pressed
-        if self.ids['autofocus_id'].state == 'down':
-            self.ids['autofocus_id'].text = 'Focusing...'
-            self.is_autofocus = True
-
-            # Start the autofocus process at z-minimum
-            move_absolute_position('Z', self.z_min)
-
-            # schedule focus iterate
-            logger.info('[LVP Main  ] Clock.schedule_interval(self.focus_iterate, 0.01)')
-            Clock.schedule_interval(self.focus_iterate, 0.01)
-
-
-    def save_autofocus_data(self):
-        # Reset to false
-        self.record_autofocus_to_file = False
-
-        if len(self._af_data) == 0:
-            # No data to save
+        run_trigger_source = sequenced_capture_executor.run_trigger_source()
+        if sequenced_capture_executor.run_in_progress() and \
+            (run_trigger_source != trigger_source):
+            button_reset_func()
+            logger.warning(f"Cannot start autofocus. Run already in progress from {run_trigger_source}")
             return
         
-        df = pd.DataFrame(self._af_data)
-        data_outfile_loc = self._af_save_folder / f"autofocus_data_{self._af_time_string}.csv"
-        df.to_csv(data_outfile_loc, header=True, index=False)
-
-        plot_filename = f"autofocus_plot_{self._af_time_string}.png"
-        plot_outfile_loc = self._af_save_folder / plot_filename
-        fig, axs = plt.subplots(figsize=(12,12))
-        df.reset_index().plot.scatter(x="position", y="score", ax=axs)
-        
-        axs.set_title(f"""
-            Autofocus Characterization
-            {plot_filename}
-        """, fontsize=10)
-
-        axs.set_xlabel("Position (um)")
-        axs.set_ylabel("Focus Score")
-        axs.grid()
-        # axs.legend()
-
-        fig.savefig(str(plot_outfile_loc))
-        plt.close()
-
-
-    def focus_iterate(self, dt):
-
-        logger.info('[LVP Main  ] VerticalControl.focus_iterate()')
-        global lumaview
-
-        # If the z-height has reached its target
-        if lumaview.scope.get_target_status('Z') and not lumaview.scope.get_overshoot():
-        # if lumaview.scope.get_target_status('Z'):
-
-            # Wait two exposure lengths
-            time.sleep(2*self.exposure/1000+0.2) # TODO: msec into sec
-
-            # observe the image 
-            image = lumaview.scope.get_image()
-
-            if image is False:
-                logger.exception(f"[LVP Main  ] Failed to retrieve image for focus iterate")
-                return
-            
-            rows, cols = image.shape
-
-            # Use center quarter of image for focusing
-            image = image[int(rows/4):int(3*rows/4),int(cols/4):int(3*cols/4)]
-
-            # calculate the position and focus measure
-            try:
-                current = lumaview.scope.get_current_position('Z')
-                focus = self.focus_function(image)
-                next_target = lumaview.scope.get_target_position('Z') + self.resolution
-            except:
-                logger.warning('[LVP Main  ] Error talking to motion controller.')
-                raise
-
-            # append to positions and focus measures
-            self.positions.append(current)
-            self.focus_measures.append(focus)
-
-            if self.record_autofocus_to_file:
-                self._af_data.append({
-                    'position': round(current,5),
-                    'score': focus
-                })
-
-            # if (focus < self.last_focus) or (next_target > self.z_max):
-            if next_target > self.z_max:
-
-                # Calculate new step size for resolution
-                _, objective = get_current_objective_info()
-                AF_min = objective['AF_min']
-                prev_resolution = self.resolution
-                self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
-
-                if self.resolution < AF_min:
-                    self.resolution = AF_min
-
-                # As long as the step size is larger than or equal to the minimum and not the last pass
-                if self.resolution >= AF_min and not self.last:
-
-                    # compute best focus
-                    focus = self.focus_best(self.positions, self.focus_measures)
-
-                    # assign new z_min, z_max, resolution, and sweep
-                    self.z_min = focus-prev_resolution 
-                    self.z_max = focus+prev_resolution 
-
-                    # reset positions and focus measures
-                    self.positions = []
-                    self.focus_measures = []
-
-                    # go to new z_min
-                    move_absolute_position('Z', self.z_min)
-
-                    if self.resolution == AF_min:
-                        self.last = True
-
-                else:
-                    # compute best focus
-                    focus = self.focus_best(self.positions, self.focus_measures)
-
-                    # go to best focus
-                    move_absolute_position('Z', focus) # move to absolute target
-
-                    # end autofocus sequence
-                    logger.info('[LVP Main  ] Clock.unschedule(self.focus_iterate)')
-                    Clock.unschedule(self.focus_iterate)
-
-                    if self.record_autofocus_to_file:
-                        self.save_autofocus_data()
-
-                    # update button status
-                    self.ids['autofocus_id'].state = 'normal'
-                    self.ids['autofocus_id'].text = 'Autofocus'
-                    self.is_autofocus = False
-                    self.is_complete = True
-
-            else:
-                # move to next position
-                move_relative_position('Z', self.resolution)
-
-            # update last focus
-            self.last_focus = focus
-
-        # In case user cancels autofocus, end autofocus sequence
         if self.ids['autofocus_id'].state == 'normal':
-            self.ids['autofocus_id'].text = 'Autofocus'
-            self.is_autofocus = False
-
-            logger.info('[LVP Main  ] Clock.unschedule(self.focus_iterate)')
-            Clock.unschedule(self.focus_iterate)
-            if self.record_autofocus_to_file:
-                self.save_autofocus_data()
-
-
-    # Algorithms for estimating the quality of the focus
-    def focus_function(self, image, algorithm = 'vollath4'):
-        logger.info('[LVP Main  ] VerticalControl.focus_function()')
-        w = image.shape[0]
-        h = image.shape[1]
-
-        # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
-        if algorithm == 'vollath4': # pg 266
-            image = np.double(image)
-            sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
-            sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            logger.info('[LVP Main  ] Focus Score Vollath: ' + str(sum_one - sum_two))
-            return sum_one - sum_two
-
-        elif algorithm == 'skew':
-            hist = np.histogram(image, bins=256,range=(0,256))
-            hist = np.asarray(hist[0], dtype='int')
-            max_index = hist.argmax()
-
-            edges = np.histogram_bin_edges(image, bins=1)
-            white_edge = edges[1]
-
-            skew = white_edge-max_index
-            logger.info('[LVP Main  ] Focus Score Skew: ' + str(skew))
-            return skew
-
-        elif algorithm == 'pixel_variation':
-            sum = np.sum(image)
-            ssq = np.sum(np.square(image))
-            var = ssq*w*h-sum**2
-            logger.info('[LVP Main  ] Focus Score Pixel Variation: ' + str(var))
-            return var
+            self._cleanup_at_end_of_autofocus()
+            return
         
-            '''
-        elif algorithm == 'convolve2D':
-            # Bueno-Ibarra et al. Optical Engineering 44(6), 063601 (June 2005)
-            kernel = np.array([ [0, -1, 0],
-                                [-1, 4,-1],
-                                [0, -1, 0]], dtype='float') / 6
-            n = 9
-            a = 1
-            kernel = np.zeros([n,n])
-            for i in range(n):
-                for j in range(n):
-                    r2 = ((i-(n-1)/2)**2 + (j-(n-1)/2)**2)/a**2
-                    kernel[i,j] = 2*(1-r2)*np.exp(-0.5*r2)/np.sqrt(3*a)
-            logger.info('[LVP Main  ] kernel\t' + str(kernel))
-            convolve = signal.convolve2d(image, kernel, mode='valid')
-            sum = np.sum(convolve)
-            logger.info('[LVP Main  ] sum\t' + str(sum))
-            return sum
-            '''
-        else:
-            return 0
+        self.ids['autofocus_id'].text = 'Focusing...'
 
-    def focus_best(self, positions, values, algorithm='direct'):
-        logger.info('[LVP Main  ] VerticalControl.focus_best()')
-        if algorithm == 'direct':
-            max_value = max(values)
-            max_index = values.index(max_value)
-            focus_log(positions, values)
-            return positions[max_index]
+        objective_id, _ = get_current_objective_info()
+        labware_id, _ = get_selected_labware()
+        active_layer, active_layer_config = get_active_layer_config()
+        active_layer_config['autofocus'] = True
+        curr_position = get_current_plate_position()
+        curr_position.update({'name': 'AF'})
 
-        elif algorithm == 'mov_avg':
-            avg_values = np.convolve(values, [.5, 1, 0.5], 'same')
-            max_index = avg_values.argmax()
-            return positions[max_index]
+        positions = [
+            curr_position,
+        ]
 
-        else:
-            return positions[0]
+        tiling_config = TilingConfig(
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+        )
 
-    # Image Sharpening using Richardson-Lucy deconvolution algorithm
-    def Richardson_Lucy(self, image):
-        # https://scikit-image.org/docs/dev/auto_examples/filters/
-        # plot_deconvolution.html#sphx-glr-download-auto-examples-filters-plot-deconvolution-py
-        pass
+        config = {
+            'labware_id': labware_id,
+            'positions': positions,
+            'objective_id': objective_id,
+            'zstack_positions': {None: None},
+            'zstack_positions_valid': True,
+            'use_zstacking': False,
+            'tiling': tiling_config.no_tiling_label(),
+            'layer_configs': {active_layer: active_layer_config},
+            'period': None,
+            'duration': None,
+            'frame_dimensions': get_current_frame_dimensions()
+        }
+
+        autofocus_sequence = Protocol.from_config(
+            input_config=config,
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+        )
+
+        autogain_target_brightness = settings['protocol']['autogain']['target_brightness']
+        autogain_max_duration = datetime.timedelta(seconds=settings['protocol']['autogain']['max_duration_seconds'])
+
+        callbacks = {
+            'move_position': _handle_ui_update_for_axis,
+            'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+            'scan_iterate_post': button_reset_func,
+            'run_complete': button_reset_func,
+        }
+
+        sequenced_capture_executor.run(
+            protocol=autofocus_sequence,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+            run_trigger_source=trigger_source,
+            max_scans=1,
+            sequence_name='af',
+            parent_dir=parent_dir,
+            image_capture_config=get_image_capture_config_from_ui(),
+            enable_image_saving=False,
+            disable_saving_artifacts=True,
+            separate_folder_per_channel=False,
+            autogain_target_brightness=autogain_target_brightness,
+            autogain_max_duration=autogain_max_duration,
+            callbacks=callbacks,
+            return_to_position=None,
+            save_autofocus_data=save_autofocus_data,
+        )
+
 
     def turret_left(self):
         lumaview.scope.turret_bias -= 1
@@ -3199,7 +3026,6 @@ class ProtocolSettings(CompositeCapture):
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
 
-
     #
     # Multiple Exposures
     # ------------------------------
@@ -3356,7 +3182,6 @@ class ProtocolSettings(CompositeCapture):
 
     def update_acquire_zstack(self):
         pass
-        # self.determine_and_set_run_autofocus_scan_allow()
 
 
     def update_show_step_locations(self):
@@ -3365,7 +3190,6 @@ class ProtocolSettings(CompositeCapture):
 
     def update_tiling_selection(self):
         pass
-        # self.determine_and_set_run_autofocus_scan_allow()
 
 
     def determine_and_set_run_autofocus_scan_allow(self):
@@ -3377,141 +3201,11 @@ class ProtocolSettings(CompositeCapture):
             self.set_run_autofocus_scan_allow(allow=True)
 
 
-    # Run one scan of protocol, autofocus at each step, and update protocol
-    def run_zstack_scan(self):
-        logger.debug('[LVP Main  ] ProtocolSettings.run_zstack_scan() not yet implemented')
-        #logger.info('[LVP Main  ] ProtocolSettings.run_zstack_scan()')
-        # TODO
-
-
     def set_run_autofocus_scan_allow(self, allow: bool):
         if allow:
             self.ids['run_autofocus_btn'].disabled = False
         else:
             self.ids['run_autofocus_btn'].disabled = True
-
-        
-    # Run one scan of protocol, autofocus at each step, and update protocol
-    def run_autofocus_scan(self):
-        logger.info('[LVP Main  ] ProtocolSettings.run_autofocus_scan()')
-
-        # If there are no steps, do not continue
-        if self._protocol.num_steps() < 1:
-            logger.warning('[LVP Main  ] Protocol has no steps.')
-            self.ids['run_autofocus_btn'].state =='normal'
-            self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-            return
-
-        # If the toggle button is in the down position: start autofocus scan
-        if self.ids['run_autofocus_btn'].state == 'down':
-            self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
-
-            # reset the is_complete flag on autofocus
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
-
-            # begin at current step (curr_step = 0)
-            self.curr_step = 0
-            self.update_step_ui()
-
-            step = self._protocol.step(idx=self.curr_step)
- 
-            # Convert plate coordinates to stage coordinates
-            _, labware = get_selected_labware()
-            sx, sy = coordinate_transformer.plate_to_stage(
-                labware=labware,
-                stage_offset=settings['stage_offset'],
-                px=step["X"],
-                py=step["Y"]
-            )
-
-            # Move into position
-            move_absolute_position('X', sx)
-            move_absolute_position('Y', sy)
-            move_absolute_position('Z', step["Z"])
-
-            logger.info('[LVP Main  ] Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)')
-            Clock.schedule_interval(self.autofocus_scan_iterate, 0.1)
-
-        # If the toggle button is in the up position: Stop Running Autofocus Scan
-        else:  # self.ids['run_autofocus_btn'].state =='normal'
-            self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-
-            scope_leds_off()
-
-            logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
-            Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of autofocus scan iterate
-        
-    def autofocus_scan_iterate(self, dt):
-        global lumaview
-        global settings
-
-        # If the autofocus is currently active, leave the function before continuing step
-        is_autofocus = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_autofocus
-        if is_autofocus:
-            return
-
-        # If the autofocus just completed, go to next steps
-        is_complete = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete
-
-        if is_complete:
-            # reset the is_complete flag on autofocus
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
-
-            # update protocol to focused z-position
-            z = lumaview.scope.get_current_position('Z')
-            self._protocol.modify_step_z_height(
-                step_idx=self.curr_step,
-                z=round(z, common_utils.max_decimal_precision('z'))
-            )
-
-            # determine and go to next positions
-            num_steps = self._protocol.num_steps()
-            if self.curr_step < num_steps-1:
-
-                # increment to the next step. Don't let it exceed the number of steps in the protocol
-                self.curr_step = min(self.curr_step+1, num_steps-1)
-
-                # Update Step number text
-                self.update_step_ui()
-                self.go_to_step()
-
-            # if all positions have already been reached
-            else:
-                logger.info('[LVP Main  ] Autofocus Scan Complete')
-                self.ids['run_autofocus_btn'].state = 'normal'
-                self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
-                scope_leds_off()
-
-                logger.info('[LVP Main  ] Clock.unschedule(self.autofocus_scan_iterate)')
-                Clock.unschedule(self.autofocus_scan_iterate) # unschedule all copies of scan iterate
-            
-            return
-
-        # Check if at desired position 
-        x_status = lumaview.scope.get_target_status('X')
-        y_status = lumaview.scope.get_target_status('Y')
-        z_status = lumaview.scope.get_target_status('Z')
-
-        # If target location has been reached
-        if (not x_status) or (not y_status) or (not z_status) or lumaview.scope.get_overshoot():
-            return
-        
-        step = self._protocol.step(idx=self.curr_step)
-        logger.info(f"[LVP Main  ] Autofocus Scan Step ({self.curr_step}): {step['Name']}")
-
-        step = self.get_curr_step()
-        
-        # set camera settings and turn on LED
-        lumaview.scope.leds_off()
-        lumaview.scope.led_on(step['Color'], step['Illumination'])
-        lumaview.scope.set_gain(step['Gain'])
-        lumaview.scope.set_auto_gain(step['Auto_Gain'], target_brightness=settings['protocol']['autogain']['target_brightness'])
-        lumaview.scope.set_exposure_time(step['Exposure'])
-
-        # Begin autofocus routine
-        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
-        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].autofocus()
-        return
 
 
     def get_curr_step(self):
@@ -3521,13 +3215,17 @@ class ProtocolSettings(CompositeCapture):
         return self._protocol.step(idx=self.curr_step)
 
 
+    def _reset_run_autofocus_scan_button(self, **kwargs):
+        self.ids['run_autofocus_btn'].state = 'normal'
+        self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
 
-    def _reset_run_scan_button(self):
+
+    def _reset_run_scan_button(self, **kwargs):
         self.ids['run_scan_btn'].state = 'normal'
         self.ids['run_scan_btn'].text = 'Run One Scan'
 
     
-    def _reset_run_protocol_button(self):
+    def _reset_run_protocol_button(self, **kwargs):
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
         
@@ -3535,24 +3233,92 @@ class ProtocolSettings(CompositeCapture):
     def _is_protocol_valid(self) -> bool:
         if self._protocol.num_steps() == 0:
             logger.warning('[LVP Main  ] Protocol has no steps.')
-            self._reset_run_scan_button()
             return False
         
         return True
 
 
-    def run_scan_from_ui(self):
-        logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
+    def _autofocus_run_complete_callback(self, **kwargs):
+        self._reset_run_autofocus_scan_button()
+        focused_protocol = kwargs['protocol']
+        return
+
+
+    def run_autofocus_scan_from_ui(self):
+        logger.info('[LVP Main  ] ProtocolSettings.run_autofocus_scan_from_ui()')
+        trigger_source = 'autofocus_scan'
+        button_reset_func = self._reset_run_autofocus_scan_button
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
-            (run_trigger_source != 'scan'):
-            self._reset_run_scan_button()
+            (run_trigger_source != trigger_source):
+            button_reset_func()
+            logger.warning(f"Cannot start autofocus scan. Run already in progress from {run_trigger_source}")
+            return
+        
+        if not self._is_protocol_valid():
+            button_reset_func()
+            return
+        
+        if self.ids['run_autofocus_btn'].state == 'normal':
+            self._cleanup_at_end_of_protocol()
+            return
+        
+        self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
+
+        callbacks = {
+            'move_position': _handle_ui_update_for_axis,
+            'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+            'run_scan_pre': self._run_scan_pre_callback,
+            'autofocus_in_progress': self._autofocus_in_progress_callback,
+            'autofocus_complete': self._autofocus_complete_callback,
+            'scan_iterate_post': button_reset_func,
+            'run_complete': self._autofocus_run_complete_callback,
+        }
+
+        initial_position = get_current_plate_position()
+
+        autogain_target_brightness = settings['protocol']['autogain']['target_brightness']
+        autogain_max_duration = datetime.timedelta(seconds=settings['protocol']['autogain']['max_duration_seconds'])
+
+        sequence = copy.deepcopy(self._protocol)
+        sequence.modify_autofocus_all_steps(enabled=True)
+
+        sequenced_capture_executor.run(
+            protocol=sequence,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            run_trigger_source=trigger_source,
+            max_scans=1,
+            sequence_name='af_scan',
+            parent_dir=None,
+            image_capture_config=get_image_capture_config_from_ui(),
+            enable_image_saving=False,
+            separate_folder_per_channel=False,
+            autogain_target_brightness=autogain_target_brightness,
+            autogain_max_duration=autogain_max_duration,
+            callbacks=callbacks,
+            return_to_position=initial_position,
+            update_z_pos_from_autofocus=True,
+        )
+
+        # TODO merge sequence (with autofocus set to true) Z-heights back to original protocol
+        return
+
+
+    def run_scan_from_ui(self):
+        logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
+        trigger_source = 'scan'
+        button_reset_func = self._reset_run_scan_button
+
+        run_trigger_source = sequenced_capture_executor.run_trigger_source()
+        if sequenced_capture_executor.run_in_progress() and \
+            (run_trigger_source != trigger_source):
+            button_reset_func()
             logger.warning(f"Cannot start scan. Run already in progress from {run_trigger_source}")
             return
         
         if not self._is_protocol_valid():
-            self._reset_run_scan_button()
+            button_reset_func()
             return
         
         if self.ids['run_scan_btn'].state == 'normal':
@@ -3565,14 +3331,13 @@ class ProtocolSettings(CompositeCapture):
             'run_scan_pre': self._run_scan_pre_callback,
             'autofocus_in_progress': self._autofocus_in_progress_callback,
             'autofocus_complete': self._autofocus_complete_callback,
-            'scan_iterate_post': self._reset_run_scan_button,
-            'run_complete': self._reset_run_scan_button,
-            # 'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+            'scan_iterate_post': button_reset_func,
+            'run_complete': button_reset_func,
         }
 
         self.run_sequenced_capture(
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            run_trigger_source='scan',
+            run_trigger_source=trigger_source,
             max_scans=1,
             callbacks=callbacks,
         )
@@ -3580,16 +3345,18 @@ class ProtocolSettings(CompositeCapture):
 
     def run_protocol_from_ui(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol_from_ui()')
+        trigger_source = 'protocol'
+        button_reset_func = self._reset_run_protocol_button
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
-            (run_trigger_source != 'protocol'):
-            self._reset_run_protocol_button()
+            (run_trigger_source != trigger_source):
+            button_reset_func()
             logger.warning(f"Cannot start protocol run. Run already in progress from {run_trigger_source}")
             return
         
         if not self._is_protocol_valid():
-            self._reset_run_protocol_button()
+            button_reset_func()
             return
         
         if self.ids['run_protocol_btn'].state == 'normal':
@@ -3604,7 +3371,7 @@ class ProtocolSettings(CompositeCapture):
             'run_scan_pre': self._run_scan_pre_callback,
             'autofocus_in_progress': self._autofocus_in_progress_callback,
             'autofocus_complete': self._autofocus_complete_callback,
-            'run_complete': self._reset_run_protocol_button,
+            'run_complete': button_reset_func,
         }
 
         time_params = get_protocol_time_params()
@@ -3615,7 +3382,7 @@ class ProtocolSettings(CompositeCapture):
 
         self.run_sequenced_capture(
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-            run_trigger_source='protocol',
+            run_trigger_source=trigger_source,
             max_scans=None,
             callbacks=callbacks,
         )
@@ -3650,6 +3417,8 @@ class ProtocolSettings(CompositeCapture):
         run_trigger_source: str,
         max_scans: int | None,
         callbacks: dict[str, typing.Callable],
+        disable_saving_artifacts: bool = False,
+        return_to_position: dict | None = None,
     ):
 
         logger.info('[LVP Main  ] ProtocolSettings.run_sequenced_capture()')
@@ -3681,6 +3450,8 @@ class ProtocolSettings(CompositeCapture):
             autogain_target_brightness=settings['protocol']['autogain']['target_brightness'],
             autogain_max_duration=datetime.timedelta(seconds=settings['protocol']['autogain']['max_duration_seconds']),
             callbacks=callbacks,
+            disable_saving_artifacts=disable_saving_artifacts,
+            return_to_position=return_to_position,
         )
         
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
@@ -3695,6 +3466,7 @@ class ProtocolSettings(CompositeCapture):
         sequenced_capture_executor.reset()
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
+        self._reset_run_autofocus_scan_button()
 
 
 # Widget for displaying Microscope Stage area, labware, and current position 
@@ -4570,7 +4342,7 @@ class ZStack(CompositeCapture):
         settings['zstack']['position'] = self.ids['zstack_spinner'].text
 
 
-    def _reset_run_zstack_acquire_button(self):
+    def _reset_run_zstack_acquire_button(self, **kwargs):
         self.ids['zstack_aqr_btn'].state = 'normal'
         self.ids['zstack_aqr_btn'].text = 'Acquire'
 
@@ -4583,10 +4355,12 @@ class ZStack(CompositeCapture):
     def run_zstack_acquire_from_ui(self):
         logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
 
+        trigger_source = 'zstack'
+        button_reset_func = self._reset_run_zstack_acquire_button
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
-            (run_trigger_source != 'zstack'):
-            self._reset_run_zstack_acquire_button()
+            (run_trigger_source != trigger_source):
+            button_reset_func()
             logger.warning(f"Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}")
             return
         
@@ -4609,9 +4383,10 @@ class ZStack(CompositeCapture):
             return
         
         curr_position = get_current_plate_position()
+        curr_position.update({'name': 'ZStack'})
 
         positions = [
-            (curr_position['x'], curr_position['y'], 'ZStack'),
+            curr_position,
         ]
         
         tiling_config = TilingConfig(
@@ -4643,7 +4418,7 @@ class ZStack(CompositeCapture):
         callbacks = {
             'move_position': _handle_ui_update_for_axis,
             'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
-            'run_complete': self._reset_run_zstack_acquire_button,
+            'run_complete': button_reset_func,
         }
 
         parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
@@ -4653,7 +4428,7 @@ class ZStack(CompositeCapture):
         sequenced_capture_executor.run(
             protocol=zstack_sequence,
             run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-            run_trigger_source='zstack',
+            run_trigger_source=trigger_source,
             max_scans=1,
             sequence_name='zstack',
             parent_dir=parent_dir,
@@ -4982,6 +4757,7 @@ class LumaViewProApp(App):
         global objective_helper
         global ij_helper
         global sequenced_capture_executor
+        # global autofocus_executor
         self.icon = './data/icons/icon.png'
 
         stage = Stage()
@@ -5027,9 +4803,15 @@ class LumaViewProApp(App):
             else:
                 raise FileNotFoundError('No settings files found.')
             
+        autofocus_executor = AutofocusExecutor(
+            scope=lumaview.scope,
+            use_kivy_clock=True,
+        )
+
         sequenced_capture_executor = SequencedCaptureExecutor(
             scope=lumaview.scope,
             stage_offset=settings['stage_offset'],
+            autofocus_executor=autofocus_executor,
         )
         
         # Continuously update image of stage and protocol
