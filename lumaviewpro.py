@@ -3240,8 +3240,10 @@ class ProtocolSettings(CompositeCapture):
 
     def _autofocus_run_complete_callback(self, **kwargs):
         self._reset_run_autofocus_scan_button()
+
+        # Copy the Z-heights from the autofocus scan into the protocol
         focused_protocol = kwargs['protocol']
-        return
+        self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
 
 
     def run_autofocus_scan_from_ui(self):
@@ -3300,9 +3302,6 @@ class ProtocolSettings(CompositeCapture):
             return_to_position=initial_position,
             update_z_pos_from_autofocus=True,
         )
-
-        # TODO merge sequence (with autofocus set to true) Z-heights back to original protocol
-        return
 
 
     def run_scan_from_ui(self):
