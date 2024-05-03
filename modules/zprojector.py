@@ -132,6 +132,7 @@ class ZProjector:
         write_result = tf.imwrite(
             file_loc,
             data=result,
+            compression='lzw',
         )
 
         if not write_result:
