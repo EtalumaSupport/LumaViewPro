@@ -4579,13 +4579,26 @@ class FolderChooseBTN(Button):
             "apply_stitching_to_folder",
             "apply_composite_gen_to_folder",
             "apply_video_gen_to_folder",
-            "apply_zprojection_to_folder"
         ):
             selected_path = pathlib.Path(settings['live_folder']) / PROTOCOL_DATA_DIR_NAME
-            if selected_path.exists() is False:
+            if not selected_path.exists():
                 selected_path = pathlib.Path(settings['live_folder'])
             
             selected_path = str(selected_path)
+        elif self.context in (
+            "apply_zprojection_to_folder",
+        ):
+            # Special handling for Z-Projections since they can either be from protocols or
+            # from manually-acquired Z-Stacks
+            if last_save_folder is not None:
+                selected_path = pathlib.Path(last_save_folder)
+                if not selected_path.exists():
+                    selected_path = pathlib.Path(settings['live_folder'])
+            else:
+                selected_path = pathlib.Path(settings['live_folder'])
+
+            selected_path = str(selected_path)
+            
         else:
             selected_path = settings['live_folder']
 
