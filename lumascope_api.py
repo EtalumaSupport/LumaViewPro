@@ -143,6 +143,23 @@ class Lumascope():
         if not self.led: return -1
 
         return self.led.get_led_ma(color=color)
+    
+
+    def get_led_state(self, color: str):
+        """ LED BOARD FUNCTIONS
+        Get a dictionary containing the LED state and illumination (mA)"""
+        if not self.led: return -1
+
+        return self.led.get_led_state(color=color)
+    
+
+    def get_led_states(self):
+        """ LED BOARD FUNCTIONS
+        Get a dictionary of dictionaries containing the LED states and illumination (mA)"""
+        if not self.led: return -1
+
+        return self.led.get_led_states()
+    
 
     def led_on(self, channel, mA):
         """ LED BOARD FUNCTIONS

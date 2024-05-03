@@ -217,11 +217,17 @@ class SequencedCaptureExecutor:
         disable_saving_artifacts: bool = False,
         save_autofocus_data: bool = False,
         update_z_pos_from_autofocus: bool = False,
+        leds_state_at_end: str = "off",
     ):
         if self._run_in_progress:
             logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
             return
         
+        if leds_state_at_end not in ("off", "return_to_original",):
+            raise ValueError(f"Unsupported value for leds_state_at_end: {leds_state_at_end}")
+        
+        self._original_led_states = self._scope.get_led_states()
+
         self._protocol = protocol
         self._run_mode = run_mode
         self._sequence_name = sequence_name
@@ -236,6 +242,7 @@ class SequencedCaptureExecutor:
         self._disable_saving_artifacts = disable_saving_artifacts
         self._save_autofocus_data = save_autofocus_data
         self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
+        self._leds_state_at_end = leds_state_at_end
 
         if self._parent_dir is None:
             self._disable_saving_artifacts = True
@@ -317,10 +324,7 @@ class SequencedCaptureExecutor:
             state=step['Auto_Gain'],
             target_brightness=self._autogain_target_brightness,
         )
-        self._scope.led_on(
-            channel=self._scope.color2ch(step['Color']),
-            mA=step['Illumination'],
-        )
+        self._led_on(color=step['Color'], illumination=step['Illumination'])
 
         if not step['Auto_Gain']:
             self._scope.set_gain(step['Gain'])
@@ -520,15 +524,37 @@ class SequencedCaptureExecutor:
         Clock.unschedule(self._scan_iterate)
 
 
+    def _leds_off(self):
+        self._scope.leds_off()
+        if 'leds_off' in self._callbacks:
+            self._callbacks['leds_off']()
+
+    
+    def _led_on(self, color: str, illumination: float):
+        self._scope.led_on(
+            channel=self._scope.color2ch(color),
+            mA=illumination,
+        )
+
+        if 'led_state' in self._callbacks:
+            self._callbacks['led_state'](layer=color, enabled=True)
+
+
     def _cleanup(self):
         if not self._run_in_progress:
             return
         
         self._cancel_all_scheduled_events()
-        self._scope.leds_off()
 
-        if 'leds_off' in self._callbacks:
-            self._callbacks['leds_off']()
+        if self._leds_state_at_end == "off":
+            self._leds_off()
+        elif self._leds_state_at_end == "return_to_original":
+            self._leds_off()
+            for color, color_data in self._original_led_states.items():
+                if color_data['enabled']:
+                    self._led_on(color=color, illumination=color_data['illumination'])
+        else:
+            raise NotImplementedError(f"Unsupported LEDs state at end value: {self._leds_state_at_end}")
 
         if not self._disable_saving_artifacts:
             self._protocol_execution_record.complete()
@@ -567,9 +593,8 @@ class SequencedCaptureExecutor:
 
         # Illuminate
         if self._scope.led:
-            channel = self._scope.color2ch(step['Color'])
-            self._scope.led_on(channel, step['Illumination'])
-            logger.info(f"[{self.LOGGER_NAME} ] scope.led_on({channel}, {step['Illumination']})")
+            self._led_on(color=step['Color'], illumination=step['Illumination'])
+            logger.info(f"[{self.LOGGER_NAME} ] scope.led_on({step['Color']}, {step['Illumination']})")
         else:
             logger.warning('LED controller not available.')
 
@@ -597,7 +622,6 @@ class SequencedCaptureExecutor:
         else:
             image_filepath = None
 
-        if 'leds_off' in self._callbacks:
-            self._callbacks['leds_off']()
+        self._leds_off()
 
         return image_filepath

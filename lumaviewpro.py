@@ -227,6 +227,16 @@ def _handle_ui_for_leds_off():
         lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
 
+def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
+    global lumaview
+    if enabled:
+        state = "down"
+    else:
+        state = "normal"
+
+    lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = state
+
+
 def scope_leds_off():
     global lumaview
 
@@ -2378,6 +2388,11 @@ class VerticalControl(BoxLayout):
         self.ids['autofocus_id'].state = 'normal'
         self.ids['autofocus_id'].text = 'Autofocus'
 
+    
+    def _set_run_autofocus_button(self, **kwargs):
+        self.ids['autofocus_id'].state = 'down'
+        self.ids['autofocus_id'].text = 'Focusing...'
+
 
     def _cleanup_at_end_of_autofocus(self):
         sequenced_capture_executor.reset()
@@ -2408,7 +2423,7 @@ class VerticalControl(BoxLayout):
             self._cleanup_at_end_of_autofocus()
             return
         
-        self.ids['autofocus_id'].text = 'Focusing...'
+        self._set_run_autofocus_button()
 
         objective_id, _ = get_current_objective_info()
         labware_id, _ = get_selected_labware()
@@ -2452,6 +2467,8 @@ class VerticalControl(BoxLayout):
             'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
             'scan_iterate_post': button_reset_func,
             'run_complete': button_reset_func,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
         }
 
         sequenced_capture_executor.run(
@@ -2470,6 +2487,7 @@ class VerticalControl(BoxLayout):
             callbacks=callbacks,
             return_to_position=None,
             save_autofocus_data=save_autofocus_data,
+            leds_state_at_end="return_to_original",
         )
 
 
@@ -3281,6 +3299,8 @@ class ProtocolSettings(CompositeCapture):
             'autofocus_complete': self._autofocus_complete_callback,
             'scan_iterate_post': button_reset_func,
             'run_complete': self._autofocus_run_complete_callback,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
         }
 
         initial_position = get_current_plate_position()
@@ -3306,6 +3326,7 @@ class ProtocolSettings(CompositeCapture):
             callbacks=callbacks,
             return_to_position=initial_position,
             update_z_pos_from_autofocus=True,
+            leds_state_at_end="off",
         )
 
 
@@ -3337,6 +3358,8 @@ class ProtocolSettings(CompositeCapture):
             'autofocus_complete': self._autofocus_complete_callback,
             'scan_iterate_post': button_reset_func,
             'run_complete': button_reset_func,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
         }
 
         self.run_sequenced_capture(
@@ -3376,6 +3399,8 @@ class ProtocolSettings(CompositeCapture):
             'autofocus_in_progress': self._autofocus_in_progress_callback,
             'autofocus_complete': self._autofocus_complete_callback,
             'run_complete': button_reset_func,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
         }
 
         time_params = get_protocol_time_params()
@@ -3408,10 +3433,11 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _autofocus_in_progress_callback(self):
-        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['autofocus_id'].state = 'down'
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']._set_run_autofocus_button()
 
 
     def _autofocus_complete_callback(self):
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']._reset_run_autofocus_button()
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
 
 
@@ -3431,6 +3457,7 @@ class ProtocolSettings(CompositeCapture):
             {
                 'move_position': _handle_ui_update_for_axis,
                 'leds_off': _handle_ui_for_leds_off,
+                'led_state': _handle_ui_for_led,
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,
                 'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
@@ -3456,6 +3483,7 @@ class ProtocolSettings(CompositeCapture):
             callbacks=callbacks,
             disable_saving_artifacts=disable_saving_artifacts,
             return_to_position=return_to_position,
+            leds_state_at_end="off",
         )
         
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
@@ -4423,6 +4451,8 @@ class ZStack(CompositeCapture):
             'move_position': _handle_ui_update_for_axis,
             'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
             'run_complete': button_reset_func,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
         }
 
         parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
@@ -4443,6 +4473,7 @@ class ZStack(CompositeCapture):
             autogain_max_duration=autogain_max_duration,
             callbacks=callbacks,
             return_to_position=initial_position,
+            leds_state_at_end="off",
         )
 
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
