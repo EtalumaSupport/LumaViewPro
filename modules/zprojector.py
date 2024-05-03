@@ -54,20 +54,76 @@ class ZProjector:
         outfile = f"{name}_zproj_{method.value}.tiff"
         return outfile
     
-    
-    def _zproject(self, path: pathlib.Path, df: pd.DataFrame, method):
 
-        images = []
-        for _, row in df.iterrows():
-            image_filepath = path / row['Filename']
-            images.append(tf.imread(str(image_filepath)))
+    def _zproject_for_multi_channel(
+        self,
+        images_data: list[np.ndarray],
+        method: str
+    ) -> np.ndarray | None:
+        sample_image = images_data[0]
+        used_color_planes = image_utils.get_used_color_planes(image=sample_image)
+        out_image = np.zeros_like(sample_image, dtype=sample_image.dtype)
+
+        for used_color_plane in used_color_planes:
+            images_for_color_plane = []
+
+            for image_data in images_data:
+                images_for_color_plane.append(image_data[:,:,used_color_plane])
+
+            project_result = self._ij_helper.zproject(
+                images_data=images_for_color_plane,
+                method=method
+            )
+
+            if project_result is None:
+                logger.error(f"Failed to create Z-Projection for color plane {used_color_plane}")
+                return None
+            
+            out_image[:,:,used_color_plane] = project_result
         
+        return out_image
+    
+
+    def _zproject_for_single_channel(
+        self,
+        images_data: list[np.ndarray],
+        method: str
+    ) -> np.ndarray | None:
         project_result = self._ij_helper.zproject(
-            images_data=images,
+            images_data=images_data,
             method=method
         )
 
         if project_result is None:
+            logger.error(f"Failed to create Z-Projection")
+            return None
+        
+        return project_result
+    
+    
+    def _zproject(self, path: pathlib.Path, df: pd.DataFrame, method):
+
+        orig_images = []
+        for _, row in df.iterrows():
+            image_filepath = path / row['Filename']
+            orig_images.append(tf.imread(str(image_filepath)))
+
+        # If working with color images, split the list of color images into separate lists for 
+        # each color plane
+        if image_utils.is_color_image(image=orig_images[0]):
+            result = self._zproject_for_multi_channel(
+                images_data=orig_images,
+                method=method,
+            )
+        
+        else: # Grayscale images
+            result = self._zproject_for_single_channel(
+                images_data=orig_images,
+                method=method
+            )
+
+        if result is None:
+            logger.error(f"Failed to create Z-Projection")
             return False
         
         filename = self._generate_zproject_filename(df=df, method=method)
@@ -75,7 +131,7 @@ class ZProjector:
 
         write_result = tf.imwrite(
             file_loc,
-            data=project_result,
+            data=result,
         )
 
         if not write_result:

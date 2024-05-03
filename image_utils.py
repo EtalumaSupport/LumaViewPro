@@ -35,6 +35,19 @@ def image_file_to_image(image_file):
     return image
 
 
+def get_used_color_planes(image) -> list:
+    if not is_color_image(image=image):
+        return []
+    
+    used_color_planes = []
+    for color_plane_idx in range(image.shape[2]):
+        image_view = image[:,:,color_plane_idx]
+        if np.any(image_view):
+            used_color_planes.append(color_plane_idx)
+
+    return used_color_planes
+
+
 def rgb_image_to_gray(image):
 
     def _is_grayscale(image):
@@ -45,13 +58,9 @@ def rgb_image_to_gray(image):
         return False
     
     def _values_in_one_plane(image):
-        count = 0
-        for color_plane_idx in range(image.shape[2]):
-            image_view = image[:,:,color_plane_idx]
-            if np.any(image_view):
-                count += 1
+        used_color_planes = get_used_color_planes(image=image)
 
-        if count <= 1:
+        if len(used_color_planes) <= 1:
             return True
         else:
             return False
