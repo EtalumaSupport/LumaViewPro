@@ -8,6 +8,7 @@ import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
+from modules.protocol_post_record import ProtocolPostRecord
 
 from lvp_logger import logger
 
@@ -19,7 +20,15 @@ class ProtocolPostProcessingHelper:
 
 
     @staticmethod
-    def _get_image_filenames_from_folder(path: pathlib.Path, exclude_paths: list = []) -> list:
+    def _get_image_filenames_from_folder(
+        path: pathlib.Path, 
+        exclude_subpaths: list = [],
+        include_subpaths: list = [],
+    ) -> list:
+        
+        if (len(include_subpaths) != 0) and (len(exclude_subpaths) != 0):
+            raise Exception(f"Specify only include_subpaths OR exclude_subpaths. Not both.")
+        
         tiff_images = path.rglob('*.tif[f]')
         ome_tiff_images = path.rglob('*.ome.tif[f]')
         images = []
@@ -30,7 +39,10 @@ class ProtocolPostProcessingHelper:
             image_name = os.path.relpath(image, path)
             parent_dir = str(pathlib.Path(image_name).parent)
 
-            if parent_dir in exclude_paths:
+            if len(exclude_subpaths) > 0 and (parent_dir in exclude_subpaths):
+                continue
+
+            elif len(include_subpaths) > 0 and (parent_dir not in include_subpaths):
                 continue
             
             image_names.append(image_name)
@@ -39,28 +51,52 @@ class ProtocolPostProcessingHelper:
 
 
     def _find_protocol_tsvs(self, path: pathlib.Path) -> dict[str, pathlib.Path] | None:
-        tsv_files = list(path.glob('*.tsv'))
-        if len(tsv_files) !=  2:
-            return None
-        
-        tsv_file_names = [tsv_file.name for tsv_file in tsv_files]
-        
-        # Confirm one of the two files matches the protocol execution record filename
-        if ProtocolExecutionRecord.DEFAULT_FILENAME not in tsv_file_names:
-            return None
-        
-        # Find the other filename as the protocol file
-        for tsv_file_name in tsv_file_names:
-            if tsv_file_name != ProtocolExecutionRecord.DEFAULT_FILENAME:
-                protocol_file = tsv_file_name
-                break
 
-        return {
-            'protocol_execution_record': path / ProtocolExecutionRecord.DEFAULT_FILENAME,
-            'protocol': path / protocol_file
-        }
+        # If provided a file, change to the parent folder
+        try:
+            if not path.is_dir():
+                path = path.parent
+        except:
+            return None
+
+        loc_data = {}
+
+        # Search for the protocol execution record TSV in the current directory and the parent directory
+        protocol_execution_record_filename = ProtocolExecutionRecord.DEFAULT_FILENAME
+        protocol_execution_record_file_loc = path / protocol_execution_record_filename
+        if protocol_execution_record_file_loc.is_file():
+            protocol_root_dir = path
+        else:
+            try:
+                protocol_execution_record_file_loc = path.parent / protocol_execution_record_filename
+                if protocol_execution_record_file_loc.is_file():
+                    protocol_root_dir = path.parent
+            except:
+                return None
+            
+        loc_data['protocol_root_dir'] = protocol_root_dir
+        loc_data['protocol_execution_record'] = protocol_execution_record_file_loc
+        protocol_execution_record = ProtocolExecutionRecord.from_file(file_path=protocol_execution_record_file_loc)
+            
+        # Search for the post-processing record TSV
+        post_record_filename = ProtocolPostRecord.DEFAULT_FILENAME
+        post_record_file_loc = protocol_root_dir / post_record_filename
+        if post_record_file_loc.is_file():
+            loc_data['protocol_post_record'] = post_record_file_loc
+        else:
+            loc_data['protocol_post_record'] = None
+
+        # Search for the protocol TSV
+        protocol_file_relative_loc = protocol_execution_record.protocol_file_loc()
+        protocol_file_loc = protocol_root_dir / protocol_file_relative_loc
+        if not protocol_file_loc.is_file():
+            return None
         
-    
+        loc_data['protocol'] = protocol_file_loc
+       
+        return loc_data
+
+
     @staticmethod
     def _is_stitched_image(image_filename: str) -> bool:
         if 'stitched' in image_filename:
@@ -263,18 +299,31 @@ class ProtocolPostProcessingHelper:
         include_composite_images: bool = False,
         include_composite_and_stitched_images: bool = False,
     ) -> dict:
-        logger.info(f'{self._name}: Loading folder {path}')
-        path = pathlib.Path(path)
+        selected_path = pathlib.Path(path)
+        logger.info(f'{self._name}: Loading folder {selected_path}')
 
-        protocol_tsvs = self._find_protocol_tsvs(path=path)
+        protocol_tsvs = self._find_protocol_tsvs(path=selected_path)
+
+        root_path = protocol_tsvs['protocol_root_dir']
+
         if protocol_tsvs is None:
             logger.error(f"{self._name}: Protocol and/or protocol record not found in folder")
             return {
                 'status': False,
                 'message': 'Protocol and/or Protocol Record not found in folder'
             }
-        
-        logger.info(f"{self._name}: Found -> protocol {protocol_tsvs['protocol']}, protocol execution record {protocol_tsvs['protocol_execution_record']}")
+                
+        # Special handling for logging this since it may be None or a pathlib file
+        protocol_post_record_str = "None" if protocol_tsvs['protocol_post_record'] is None else protocol_tsvs['protocol_post_record'].name
+
+        logger.info(f"""{self._name}: Found ->
+            Selected dir:                      {selected_path}
+            Protocol root dir:                 {root_path}
+            Protocol:                          {protocol_tsvs['protocol'].name}
+            Protocol execution record:         {protocol_tsvs['protocol_execution_record'].name}
+            Protocol post-processing metadata: {protocol_post_record_str}
+        """)
+
         protocol = Protocol.from_file(
             file_path=protocol_tsvs['protocol'],
             tiling_configs_file_loc=tiling_configs_file_loc
@@ -287,13 +336,76 @@ class ProtocolPostProcessingHelper:
                 'message': 'Protocol not loaded'
             }
         
-        protocol_execution_record = ProtocolExecutionRecord.from_file(file_path=protocol_tsvs['protocol_execution_record'])
+        protocol_execution_record = ProtocolExecutionRecord.from_file(
+            file_path=protocol_tsvs['protocol_execution_record'],
+        )
+
         if protocol_execution_record is None:
             logger.error(f"{self._name}: Protocol Execution Record not loaded")
             return {
                 'status': False,
                 'message': 'Protocol Execution Record not loaded'
             }
+        
+        
+        protocol_post_record = None
+        if protocol_tsvs['protocol_post_record'] is not None:
+            try:
+                protocol_post_record = ProtocolPostRecord.from_file(
+                    file_path=protocol_tsvs['protocol_post_record'],
+                )
+                logger.info(f"Loaded existing protocol post record {protocol_tsvs['protocol_post_record']}")
+            except:
+                logger.error(f"Unable to load the protocol post record file {protocol_tsvs['protocol_post_record']}. Creating new record.")
+
+        if protocol_post_record is None:
+            protocol_post_record = ProtocolPostRecord(
+                outfile=root_path / ProtocolPostRecord.DEFAULT_FILENAME
+            )
+
+        protocol_tile_groups = protocol.get_tile_groups()
+        # exclude_paths = [
+        #     artifact_locations.composite_output_dir(),
+        #     artifact_locations.stitcher_output_dir(),
+        #     artifact_locations.composite_and_stitched_output_dir()
+        # ]
+
+        
+        if selected_path == root_path:
+            include_subpaths=[]
+        else:
+            include_subpaths = [
+                selected_path.name
+            ]
+
+        image_names = self._get_image_filenames_from_folder(
+            path=root_path,
+            exclude_subpaths=[],
+            include_subpaths=include_subpaths
+        )
+
+        image_tile_groups_df = self._get_image_tile_groups(
+            image_names=image_names,
+            protocol_tile_groups=protocol_tile_groups,
+            protocol_execution_record=protocol_execution_record,
+        )
+
+        return {
+            'status': True,
+            'root_path': root_path,
+            'selected_path': selected_path,
+            'protocol': protocol,
+            'protocol_execution_record': protocol_execution_record,
+            'protocol_post_record': protocol_post_record,
+            'image_names': image_names,
+            'protocol_tile_groups': protocol_tile_groups,
+            'image_tile_groups':image_tile_groups_df,
+            # 'stitched_images': stitched_images_df,
+            # 'composite_images': composite_images_df,
+            # 'composite_and_stitched_images': composite_and_stitched_images_df,
+        }
+
+                
 
         if include_stitched_images:
             stitched_images_df = self._get_post_generated_images(

@@ -125,8 +125,8 @@ class SequencedCaptureExecutor:
         
         try:
             self._initialize_run_dir()
-        except:
-            err_str = f"Unable to initialize sequenced run directory."
+        except Exception as ex:
+            err_str = f"Unable to initialize sequenced run directory: {ex}"
             return {
                 'status': False,
                 'data': None,
@@ -177,17 +177,20 @@ class SequencedCaptureExecutor:
         if self._sequence_name in (None, ""):
             self._sequence_name = 'unsaved_protocol'
             
-        filename = self._sequence_name
-        if not filename.endswith(".tsv"):
-            filename += ".tsv"
+        protocol_filename = self._sequence_name
+        if not protocol_filename.endswith(".tsv"):
+            protocol_filename += ".tsv"
 
-        protocol_file_loc = self._run_dir / filename
+        protocol_file_loc = self._run_dir / protocol_filename
         self._protocol.to_file(
             file_path=protocol_file_loc
         )
 
         protocol_record_file_loc = self._run_dir / ProtocolExecutionRecord.DEFAULT_FILENAME
-        self._protocol_execution_record = ProtocolExecutionRecord(outfile=protocol_record_file_loc)
+        self._protocol_execution_record = ProtocolExecutionRecord(
+            outfile=protocol_record_file_loc,
+            protocol_file_loc=protocol_filename,
+        )
 
         return True
 
@@ -251,6 +254,7 @@ class SequencedCaptureExecutor:
         result = self._init_for_new_scan(max_scans=max_scans)
         if not result['status']:
             self._run_in_progress = False
+            logger.error(f"[{self.LOGGER_NAME} ] {result['error']}")
             return 
         
         self._run_trigger_source = run_trigger_source

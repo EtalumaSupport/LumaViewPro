@@ -1,5 +1,11 @@
 
+# if __name__ == '__main__':
+#     # Ref: https://github.com/kivy/kivy/issues/4744
+#     import multiprocessing as mp
+#     mp.freeze_support()
+
 import itertools
+import multiprocessing as mp
 import os
 import pathlib
 
@@ -9,8 +15,11 @@ import pandas as pd
 
 import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
+import modules.processing_utils as processing_utils
+import modules.stitcher_helper as stitcher_helper
 import image_utils
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
+from modules.protocol_post_record import ProtocolPostRecord
 
 from lvp_logger import logger
 
@@ -22,10 +31,16 @@ class Stitcher:
         self._protocol_post_processing_helper = ProtocolPostProcessingHelper()
         
 
-    def load_folder(self, path: str | pathlib.Path, tiling_configs_file_loc: pathlib.Path) -> dict:
-        path = pathlib.Path(path)
+    # def _run_stitch_on_group(self, group):
+    #     print('hi')
+        
+    def load_folder(
+        self, path: str | pathlib.Path,
+        tiling_configs_file_loc: pathlib.Path
+    ) -> dict:
+        selected_path = pathlib.Path(path)
         results = self._protocol_post_processing_helper.load_folder(
-            path=path,
+            path=selected_path,
             tiling_configs_file_loc=tiling_configs_file_loc,
             include_stitched_images=False,
             include_composite_images=True,
@@ -35,54 +50,66 @@ class Stitcher:
         if results['status'] is False:
             return {
                 'status': False,
-                'message': f'Failed to load protocol data from {path}'
+                'message': f'Failed to load protocol data using path: {selected_path}'
             }
         
+        root_path = results['root_path']
+        protocol_post_record = results['protocol_post_record']
+
         output_path = path / artifact_locations.stitcher_output_dir()
-        output_path_stitched_and_composite = path / artifact_locations.composite_and_stitched_output_dir()
+        # output_path_stitched_and_composite = path / artifact_locations.composite_and_stitched_output_dir()
 
         df = results['image_tile_groups']
+        loop_list = df.groupby(by=['Stitch Group Index'])
 
-        composite_images_df = results['composite_images']
-        if composite_images_df is not None:
-            loop_list = itertools.chain(
-                df.groupby(by=['Stitch Group Index']),
-                composite_images_df.groupby(by=['Stitch Group Index'])
-            )
-        else:
-            loop_list = df.groupby(by=['Stitch Group Index'])
+
+        # composite_images_df = results['composite_images']
+        # if composite_images_df is not None:
+        #     loop_list = itertools.chain(
+        #         df.groupby(by=['Stitch Group Index']),
+        #         composite_images_df.groupby(by=['Stitch Group Index'])
+        #     )
+        # else:
+        #     loop_list = df.groupby(by=['Stitch Group Index'])
         
         logger.info(f"{self._name}: Generating stitched images")
-        stitched_metadata = []
-        stitched_metadata_composite = []
+        metadata = []
+        # stitched_metadata_composite = []
 
         count = 0
-        for _, stitch_group in loop_list:
+
+        num_workers = processing_utils.get_usable_cpu_count()
+        resullt = stitcher_helper.run_stitcher_mp(num_workers=num_workers, items=loop_list)
+        # with mp.Pool(num_workers) as pool:
+        #     result = pool.map(stitcher_helper, loop_list)
+
+        print('hi')
+        for _, group in loop_list:
             # pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
-            if len(stitch_group) == 0:
+            if len(group) == 0:
                 continue
 
-            if len(stitch_group) == 1:
-                logger.debug(f"{self._name}: Skipping stitching generation for {stitch_group.iloc[0]['Filename']} since only {len(stitch_group)} image tile found.")
+            if len(group) == 1:
+                logger.debug(f"{self._name}: Skipping stitching generation for {group.iloc[0]['Filename']} since only {len(group)} image tile found.")
                 continue
 
             stitched_image, center = self.simple_position_stitcher(
                 path=path,
-                df=stitch_group[['Filename', 'X', 'Y', 'Z-Slice']]
+                df=group[['Filename', 'X', 'Y', 'Z-Slice']]
             )
 
-            stitched_filename = self._generate_stitched_filename(df=stitch_group)
+            stitched_filename = self._generate_stitched_filename(df=group)
             
-            first_row = stitch_group.iloc[0]
-            if first_row['Composite'] == True:
-                selected_output_path = output_path_stitched_and_composite
-                selected_metadata = stitched_metadata_composite
-            else:
-                selected_output_path = output_path
-                selected_metadata = stitched_metadata
+            first_row = group.iloc[0]
+            # if first_row['Composite'] == True:
+            #     selected_output_path = output_path_stitched_and_composite
+            #     selected_metadata = stitched_metadata_composite
+            # else:
+            # selected_output_path = output_path
+            # selected_metadata = stitched_metadata
 
-            if not selected_output_path.exists():
-                selected_output_path.mkdir(exist_ok=True, parents=True)
+            if not output_path.exists():
+                output_path.mkdir(exist_ok=True, parents=True)
 
             # stitched_image = self.position_stitcher(
             #     path=path,
@@ -90,7 +117,7 @@ class Stitcher:
             #     pos2pix=int(pos2pix * tiling_config.TilingConfig.DEFAULT_FILL_FACTORS['position'])
             # )
             
-            output_file_loc = selected_output_path / stitched_filename
+            output_file_loc = output_path / stitched_filename
             logger.debug(f"{self._name}: - {output_file_loc}")
 
             if not cv2.imwrite(
@@ -100,7 +127,7 @@ class Stitcher:
                 logger.error(f"{self._name}: Unable to write image {output_file_loc}")
                 continue
 
-            selected_metadata.append({
+            metadata.append({
                 'Filename': stitched_filename,
                 'Name': first_row['Name'],
                 'Protocol Group Index': first_row['Protocol Group Index'],
@@ -129,8 +156,8 @@ class Stitcher:
             }
 
         for metadata, path, metadata_filename in (
-            (stitched_metadata, output_path, artifact_locations.stitcher_output_metadata_filename()),
-            (stitched_metadata_composite, output_path_stitched_and_composite, artifact_locations.composite_and_stitched_output_metadata_filename())
+            (metadata, output_path, artifact_locations.stitcher_output_metadata_filename()),
+            # (stitched_metadata_composite, output_path_stitched_and_composite, artifact_locations.composite_and_stitched_output_metadata_filename())
         ):
             metadata_df = pd.DataFrame(metadata)
             if len(metadata_df) == 0:
