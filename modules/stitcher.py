@@ -1,6 +1,4 @@
 
-import copy
-import itertools
 import os
 import pathlib
 
@@ -8,12 +6,12 @@ import cv2
 import numpy as np
 import pandas as pd
 
-# import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
 import image_utils
+
 from modules.protocol_post_processing_functions import PostFunction
-from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
+from modules.protocol_post_record import ProtocolPostRecord
 
 from lvp_logger import logger
 
@@ -22,11 +20,9 @@ class Stitcher(ProtocolPostProcessingExecutor):
 
     def __init__(self):
         super().__init__(
-            post_function=PostFunction.Stitched
+            post_function=PostFunction.STITCHED
         )
         self._name = self.__class__.__name__
-        # self._post_function = PostFunction.STITCHED
-        # self._protocol_post_processing_helper = ProtocolPostProcessingHelper()
         
 
     @staticmethod
@@ -47,6 +43,22 @@ class Stitcher(ProtocolPostProcessingExecutor):
         )
     
 
+    @staticmethod
+    def _generate_filename(df: pd.DataFrame) -> str:
+        row0 = df.iloc[0]
+
+        name = common_utils.generate_default_step_name(
+            custom_name_prefix=row0['Name'],
+            well_label=row0['Well'],
+            color=row0['Color'],
+            z_height_idx=row0['Z-Slice'],
+            scan_count=row0['Scan Count']
+        )
+        
+        outfile = f"{name}_stitched.tiff"
+        return outfile
+    
+
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
         # Skip already stitched outputs
@@ -63,190 +75,44 @@ class Stitcher(ProtocolPostProcessingExecutor):
         path: pathlib.Path,
         df: pd.DataFrame,
     ):
-        image, center = Stitcher._simple_position_stitcher(
+        return Stitcher._simple_position_stitcher(
             path=path,
             df=df[['Filepath', 'X', 'Y']]
         )
-        return {
-            'image': image,
-            'center': center,
-        }
-
-        
-    def load_folder(
-        self, path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path
-    ) -> dict:
-        selected_path = pathlib.Path(path)
-        results = self._protocol_post_processing_helper.load_folder(
-            path=selected_path,
-            tiling_configs_file_loc=tiling_configs_file_loc,
-        )
-
-        if results['status'] is False:
-            return {
-                'status': False,
-                'message': f'Failed to load protocol data using path: {selected_path}'
-            }
-        
-        df = results['images_df']
-        if len(df) == 0:
-            return {
-                'status': False,
-                'message': 'No images found in selected folder'
-            }
-        
-        root_path = results['root_path']
-        protocol_post_record = results['protocol_post_record']
-
-        df = self._filter_ignored_types(df=df)
-        groups = self._get_groups(df)
-
-        logger.info(f"{self._name}: Generating {self._post_function.value.lower()} images")
-
-        new_count = 0
-        existing_count = 0
-
-        for _, group in groups:
-            # pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
-            if len(group) == 0:
-                continue
-
-            if len(group) == 1:
-                logger.debug(f"{self._name}: Skipping generation for {group.iloc[0]['Filepath']} since only {len(group)} image found.")
-                continue
-
-            output_filename = self._generate_stitched_filename(df=group)
-            first_row = group.iloc[0]
-            record_data_post_functions = first_row[PostFunction.list_values()]
-            record_data_post_functions[self._post_function.value] = True
-            output_subfolder = self._protocol_post_processing_helper.generate_output_dir_name(record=record_data_post_functions)
-            output_path = root_path / output_subfolder
-            output_file_loc = output_path / output_filename
-            output_file_loc_rel = output_file_loc.relative_to(root_path)
-
-            if protocol_post_record.file_exists_in_records(
-                filepath=output_file_loc_rel
-            ):
-                logger.info(f"{output_file_loc_rel} already exists in record, skipping for generation.")
-                existing_count += 1 # Count this so we don't error out if no other matches are found
-                continue
-
-            image, center = self.simple_position_stitcher(
-                path=path,
-                df=group[['Filepath', 'X', 'Y']]
-            )
-
-            if not output_path.exists():
-                output_path.mkdir(exist_ok=True, parents=True)
-
-            # stitched_image = self.position_stitcher(
-            #     path=path,
-            #     df=stitch_group[['filename', 'x', 'y']],
-            #     pos2pix=int(pos2pix * tiling_config.TilingConfig.DEFAULT_FILL_FACTORS['position'])
-            # )
-            
-            logger.debug(f"{self._name}: - {output_file_loc}")
-
-            if not cv2.imwrite(
-                filename=str(output_file_loc),
-                img=image
-            ):
-                logger.error(f"{self._name}: Unable to write image {output_file_loc}")
-                continue
-
-            
-            protocol_post_record.add_record(
-                root_path=root_path,
-                file_path=output_file_loc_rel,
-                timestamp=first_row['Timestamp'],
-                name=first_row['Name'],
-                # protocol_group_index=first_row['Protocol Group Index'],
-                scan_count=first_row['Scan Count'],
-                x=center['x'],
-                y=center['y'],
-                z=first_row['Z'],
-                z_slice=first_row['Z-Slice'],
-                well=first_row['Well'],
-                color=first_row['Color'],
-                objective=first_row['Objective'],
-                tile_group_id=first_row['Tile Group ID'],
-                custom_step=first_row['Custom Step'],
-                **record_data_post_functions.to_dict(),
-                # composite=first_row[PostFunction.COMPOSITE.value],
-                # stitched=record_data[self._post_function.value],
-                # z_project=first_row[PostFunction.ZPROJECT.value],
-                # video=first_row[PostFunction.VIDEO.value],
-                
-                
-                
-                
-                # stitch_group_index=first_row['Stitch Group Index'],
-            )
-      
-            new_count += 1
-
-        protocol_post_record.complete()
-
-        if (new_count == 0) and (existing_count == 0):
-            logger.info(f"{self._name}: No sets of images found to stitch")
-            return {
-                'status': False,
-                'message': 'No images found'
-            }
-
-        # for metadata, path, metadata_filename in (
-        #     (metadata, output_path, artifact_locations.stitcher_output_metadata_filename()),
-        #     # (stitched_metadata_composite, output_path_stitched_and_composite, artifact_locations.composite_and_stitched_output_metadata_filename())
-        # ):
-        #     metadata_df = pd.DataFrame(metadata)
-        #     if len(metadata_df) == 0:
-        #         continue
-
-        #     if not path.exists():
-        #         path.mkdir(parents=True, exist_ok=True)
-        
-        #     metadata_df = pd.DataFrame(metadata)
-        #     metadata_df.to_csv(
-        #         path_or_buf=path / metadata_filename,
-        #         header=True,
-        #         index=False,
-        #         sep='\t',
-        #         lineterminator='\n',
-        #     )
-        
-        logger.info(f"{self._name}: Complete - Created {new_count} stitched images.")
-        return {
-            'status': True,
-            'message': 'Success'
-        }
 
 
     @staticmethod
-    def _calc_pos2pix_from_objective(objective: str) -> int:
-        # TODO
-        if objective == '4x':
-            return 625 #550
-        else:
-            raise NotImplementedError(f"Image stitching for objectives other than 4x is not implemented")
-    
+    def _add_record(
+        protocol_post_record: ProtocolPostRecord,
+        alg_metadata: dict,
+        root_path: pathlib.Path,
+        file_path: pathlib.Path,
+        row0: pd.Series,
+        **kwargs: dict,
+    ):
+        
+        # Filter out certain keys
+        remove_keys = ('x', 'y')
+        for key in remove_keys:
+            kwargs.pop(key, None)
 
-    @staticmethod
-    def _generate_stitched_filename(df: pd.DataFrame) -> str:
-        row0 = df.iloc[0]
-        # custom_step = common_utils.to_bool(row0['Custom Step'])
-        # custom_step = row0['Custom Step']
-
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=row0['Name'],
-            well_label=row0['Well'],
+        protocol_post_record.add_record(
+            root_path=root_path,
+            file_path=file_path,
+            timestamp=row0['Timestamp'],
+            name=row0['Name'],
+            scan_count=row0['Scan Count'],
+            x=alg_metadata['center']['x'],
+            y=alg_metadata['center']['y'],
+            z=row0['Z'],
+            z_slice=row0['Z-Slice'],
+            well=row0['Well'],
             color=row0['Color'],
-            z_height_idx=row0['Z-Slice'],
-            scan_count=row0['Scan Count']
+            objective=row0['Objective'],
+            tile_group_id=row0['Tile Group ID'],
+            custom_step=row0['Custom Step'],
+            **kwargs,
         )
-        
-        outfile = f"{name}_stitched.tiff"
-        return outfile
 
 
     @staticmethod
@@ -336,7 +202,14 @@ class Stitcher(ProtocolPostProcessingExecutor):
                     else:
                         stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
 
-        return stitched_img, center
+        return {
+            'status': True,
+            'error': None,
+            'image': stitched_img,
+            'metadata': {
+                'center': center,
+            }
+        }
 
 
     @staticmethod
