@@ -814,29 +814,8 @@ class Protocol:
             s['tile'] = details['tile_label']
 
         return s
-    
-    
-    def get_tile_groups(self):
-        steps = self._config['steps']
-        tile_groups = steps.groupby(
-            by=[
-                'Tile Group ID',
-                'Well',
-                'Color',
-                'Z-Slice',
-                'Objective',
-                'Custom Step'
-            ],
-            dropna=False
-        )
 
-        tile_dict = {}
-        for idx, (_, group_info) in enumerate(tile_groups):
-            tile_dict[idx] = group_info[['Name','X','Y','Color','Well','Tile','Step Index','Z-Slice','Objective','Tile Group ID','Z-Stack Group ID','Custom Step']]
-        
-        return tile_dict
-    
 
 if __name__ == "__main__":
     protocol = Protocol.from_file(file_path=pathlib.Path("modules/protocol_test6.tsv"))
-    tile_groups = protocol.get_tile_groups()
+

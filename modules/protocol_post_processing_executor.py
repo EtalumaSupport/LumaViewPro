@@ -1,4 +1,5 @@
 
+import abc
 import copy
 import itertools
 import os
@@ -8,77 +9,51 @@ import cv2
 import numpy as np
 import pandas as pd
 
-# import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
 import image_utils
 from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
-from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
 
 from lvp_logger import logger
 
 
-class Stitcher(ProtocolPostProcessingExecutor):
+class ProtocolPostProcessingExecutor(abc.ABC):
 
-    def __init__(self):
-        super().__init__(
-            post_function=PostFunction.Stitched
-        )
+    def __init__(
+        self,
+        post_function: PostFunction
+    ):
         self._name = self.__class__.__name__
-        # self._post_function = PostFunction.STITCHED
-        # self._protocol_post_processing_helper = ProtocolPostProcessingHelper()
+        self._post_function = post_function
+        self._post_processing_helper = ProtocolPostProcessingHelper()
         
 
+    @abc.abstractmethod
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
-        return df.groupby(
-            by=[
-                'Scan Count',
-                'Z-Slice',
-                'Well',
-                'Color',
-                'Objective',
-                'Tile Group ID',
-                'Custom Step',
-                'Raw',
-                *PostFunction.list_values()
-            ],
-            dropna=False
-        )
+        raise NotImplementedError(f"Implement in child class")
     
 
+    @abc.abstractmethod
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
-
-        # Skip already stitched outputs
-        df = df[df[self._post_function.value] == False]
-
-        # Skip videos
-        df = df[df[PostFunction.VIDEO.value] == False]
-
-        return df
+        raise NotImplementedError(f"Implement in child class")
     
 
+    @abc.abstractmethod
     @staticmethod
     def _group_algorithm(
         path: pathlib.Path,
-        df: pd.DataFrame,
+        df: pd.DataFrame
     ):
-        image, center = Stitcher._simple_position_stitcher(
-            path=path,
-            df=df[['Filepath', 'X', 'Y']]
-        )
-        return {
-            'image': image,
-            'center': center,
-        }
+        raise NotImplementedError(f"Implement in child class")
 
-        
+
     def load_folder(
         self, path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path
     ) -> dict:
         selected_path = pathlib.Path(path)
-        results = self._protocol_post_processing_helper.load_folder(
+        results = self._post_processing_helper.load_folder(
             path=selected_path,
             tiling_configs_file_loc=tiling_configs_file_loc,
         )
@@ -108,7 +83,6 @@ class Stitcher(ProtocolPostProcessingExecutor):
         existing_count = 0
 
         for _, group in groups:
-            # pos2pix = self._calc_pos2pix_from_objective(objective=stitch_group['objective'].values[0])
             if len(group) == 0:
                 continue
 
@@ -120,7 +94,7 @@ class Stitcher(ProtocolPostProcessingExecutor):
             first_row = group.iloc[0]
             record_data_post_functions = first_row[PostFunction.list_values()]
             record_data_post_functions[self._post_function.value] = True
-            output_subfolder = self._protocol_post_processing_helper.generate_output_dir_name(record=record_data_post_functions)
+            output_subfolder = self._post_processing_helper.generate_output_dir_name(record=record_data_post_functions)
             output_path = root_path / output_subfolder
             output_file_loc = output_path / output_filename
             output_file_loc_rel = output_file_loc.relative_to(root_path)
@@ -250,7 +224,7 @@ class Stitcher(ProtocolPostProcessingExecutor):
 
 
     @staticmethod
-    def _simple_position_stitcher(path: pathlib.Path, df: pd.DataFrame):
+    def simple_position_stitcher(path: pathlib.Path, df: pd.DataFrame):
         '''
         Performs a simple concatenation of images, given a set of X/Y positions the images were captured from.
         Assumes no overlap between images.

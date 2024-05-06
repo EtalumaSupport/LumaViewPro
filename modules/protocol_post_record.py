@@ -1,9 +1,15 @@
 
 import csv
 import datetime
+import io
 import pathlib
 
+import numpy as np
 import pandas as pd
+
+from modules.protocol_post_processing_functions import PostFunction
+
+from lvp_logger import logger
 
 
 class ProtocolPostRecord:
@@ -11,26 +17,40 @@ class ProtocolPostRecord:
     FILE_HEADER = "LumaViewPro Protocol Post-Processing Record"
     CURRENT_VERSION = 1
     DEFAULT_FILENAME = 'protocol_post_record.tsv'
-    COLUMNS = ('Filename', 'Timestamp') #'Step Name', 'Step Index', 'Scan Count', 'Timestamp')
+    COLUMNS = (
+        'Filepath',
+        'Timestamp',
+        'Name',
+        'Scan Count',
+        'X',
+        'Y',
+        'Z',
+        'Z-Slice',
+        'Well',
+        'Color',
+        'Objective',
+        'Tile Group ID',
+        'Custom Step',
+        *PostFunction.list_values(),
+    )
 
     def __init__(
         self,
-        outfile: pathlib.Path | None = None,
+        file_loc: pathlib.Path,
         records: pd.DataFrame | None = None
     ):
-        if (outfile is not None) and (records is not None):
-            raise Exception(f"Specify only outfile OR records")
-        
-        if (outfile is None) and (records is None):
-            raise Exception(f"Must specify outfile OR records")
+        self._name = self.__class__.__name__
 
-        self._outfile_fp = None
-        if outfile is not None:
-            self._mode = "to_file"
-            self._outfile = outfile
-            self._initialize_outfile(outfile=outfile)
+        self._file_loc = file_loc
+
+        if not self._file_loc.exists():
+            self._initialize_outfile(outfile=self._file_loc)
         else:
-            self._mode = "from_file"
+            self._reopen_outfile(outfile=self._file_loc)
+
+        if records is None:
+            self._records = self._create_empty_df()
+        else:
             self._records = records
 
 
@@ -39,8 +59,15 @@ class ProtocolPostRecord:
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
         self._outfile_csv.writerow([self.FILE_HEADER])
         self._outfile_csv.writerow(['Version', self.CURRENT_VERSION])
+        self._outfile_csv.writerow([])
+        self._outfile_csv.writerow(['Images'])
         self._outfile_csv.writerow(self.COLUMNS)
  
+
+    def _reopen_outfile(self, outfile: pathlib.Path):
+        self._outfile_fp = open(outfile, 'a')
+        self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
+
 
     def complete(self):
         self._close_outfile()
@@ -53,32 +80,189 @@ class ProtocolPostRecord:
         self._outfile_fp.close()
 
 
-    def add_step(
-        self,
-        image_file_name: pathlib.Path,
-        # step_name: str,
-        # step_index: int,
-        # scan_count: int,
-        timestamp: datetime.datetime
-    ):
-        if self._mode != "to_file":
-            raise Exception(f"add_step() can only be called when the instance is initialized with an 'outfile'.")
-        
-        self._outfile_csv.writerow([image_file_name, timestamp])# step_name, step_index, scan_count, timestamp])
-        self._outfile_fp.flush()
-        
+    @staticmethod
+    def _create_empty_df() -> pd.DataFrame:
+        post_functions = PostFunction.list_values()
+        post_function_tuples = [(post_function, bool) for post_function in post_functions]
+        dtypes = np.dtype(
+            [
+                ("Filepath", str),
+                ("Timestamp", str),
+                ("Name", str),
+                ("Scan Count", int),
+                ("X", float),
+                ("Y", float),
+                ("Z", float),
+                ("Z-Slice", int),
+                ("Well", str),
+                ("Color", str),
+                ("Objective", str),
+                ("Tile Group ID", int),
+                ("Custom Step", bool),
+                *post_function_tuples,
+            ]
+        )
+        df = pd.DataFrame(np.empty(0, dtype=dtypes))
+        return df
+
+
+    def records(self) -> pd.DataFrame:
+        return self._records
     
-    def get_data_from_filename(self, filename: str | pathlib.Path) -> dict | None:
-        record = self._records.loc[self._records['Filename'] == filename]
-        if len(record) != 1:
-            return None
+
+    def file_exists_in_records(self, filepath: pathlib.Path) -> bool:
+        df = self._records
+        df = df[df['Filepath'] == filepath]
+        num_matches = len(df)
+        if num_matches == 0:
+            return False
         
-        first_row = record.iloc[0]
+        if num_matches == 1:
+            return True
+        
+        if num_matches > 1:
+            raise Exception(f"Expected 0 or 1 matched in post record for {filepath}, but found {num_matches}.")
+
+
+    @staticmethod
+    def _create_record_dict(
+        root_path: pathlib.Path,
+        file_path: pathlib.Path,
+        timestamp: datetime.datetime,
+        name: str,
+        scan_count: int,
+        x: float,
+        y: float,
+        z: float,
+        z_slice: int,
+        well: str,
+        color: str,
+        objective: str,
+        tile_group_id: int | str,
+        custom_step: bool,
+        **kwargs: dict,
+    ) -> dict:
+        abs_path = root_path / file_path
+
         return {
-            # 'Step Index': first_row['Step Index'],
-            # 'Scan Count': first_row['Scan Count'],
-            'Timestamp': first_row['Timestamp']
+            "Filepath": file_path,
+            "Timestamp": timestamp,
+            "Name": name,
+            "Scan Count": scan_count,
+            "X": x,
+            "Y": y,
+            "Z": z,
+            "Z-Slice": z_slice,
+            "Well": well,
+            "Color": color,
+            "Objective": objective,
+            "Tile Group ID": tile_group_id,
+            "Custom Step": custom_step,
+            "Raw": False,
+            "File Exists": abs_path.exists(),
+            **kwargs,
         }
+
+    def add_record(
+        self,
+        root_path: pathlib.Path,
+        file_path: pathlib.Path,
+        timestamp: datetime.datetime,
+        name: str,
+        scan_count: int,
+        x: float,
+        y: float,
+        z: float,
+        z_slice: int,
+        well: str,
+        color: str,
+        objective: str,
+        tile_group_id: int | str,
+        custom_step: bool,
+        **kwargs: dict,
+    ):
+        
+        if self.file_exists_in_records(filepath=file_path):
+            logger.info(f"[{self._name} ] File {file_path} already exists in records. Skipping.")
+
+        record_dict = self._create_record_dict(
+            root_path=root_path,
+            file_path=file_path,
+            timestamp=timestamp,
+            name=name,
+            scan_count=scan_count,
+            x=x,
+            y=y,
+            z=z,
+            z_slice=z_slice,
+            well=well,
+            color=color,
+            objective=objective,
+            tile_group_id=tile_group_id,
+            custom_step=custom_step,
+            **kwargs
+        )
+
+        new_record_df = pd.DataFrame([record_dict])
+
+        df_list = [self._records, new_record_df]
+        self._records = pd.concat([df for df in df_list if not df.empty], ignore_index=True).reset_index(drop=True)
+
+        self._add_record_to_file(
+            file_path=file_path,
+            timestamp=timestamp,
+            name=name,
+            scan_count=scan_count,
+            x=x,
+            y=y,
+            z=z,
+            z_slice=z_slice,
+            well=well,
+            color=color,
+            objective=objective,
+            tile_group_id=tile_group_id,
+            custom_step=custom_step,
+            **kwargs
+        )
+
+
+    def _add_record_to_file(
+        self,
+        file_path: pathlib.Path,
+        timestamp: datetime.datetime,
+        name: str,
+        scan_count: int,
+        x: float,
+        y: float,
+        z: float,
+        z_slice: int,
+        well: str,
+        color: str,
+        objective: str,
+        tile_group_id: int | str,
+        custom_step: bool,
+        **kwargs: dict,
+    ):
+
+        self._outfile_csv.writerow(
+            [
+                file_path,
+                timestamp,
+                name,
+                scan_count,
+                x,
+                y,
+                z,
+                z_slice,
+                well,
+                color,
+                objective,
+                tile_group_id,
+                custom_step,
+                *kwargs.values(),
+            ]
+        )
+        self._outfile_fp.flush()
 
 
     @classmethod
@@ -95,32 +279,33 @@ class ProtocolPostRecord:
             
             if int(version[1]) not in (1,):
                 raise Exception(f"Unsupported protocol execution record version")
-                        
-            _ = next(csvreader) # Column names
+            
+            # Search for "Images" to indicate start of images data
+            while True:
+                tmp = next(csvreader)
+                if len(tmp) == 0:
+                    continue
 
-            records = []
-            for row in csvreader:
-                records.append(
-                    {
-                        'Filename': row[0],
-                        # 'Step Name': row[1],
-                        # 'Step Index': int(row[2]),
-                        # 'Scan Count': int(row[3]),
-                        'Timestamp': datetime.datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S.%f")
-                    }
-                )
+                if tmp[0] == "Images":
+                    break
 
-            df = pd.DataFrame(records)
+            table_lines = []
+            for line in fp:
+                table_lines.append(line)
+
+            table_str = ''.join(table_lines)
+            df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
+
+            # Convert filename to pathlib type
+            df['Filepath'] = df.apply(lambda row: pathlib.Path(row['Filepath']), axis=1)
+
+            root_path = file_path.parent
+            df['File Exists'] = df.apply(lambda row: True if (root_path / row['Filepath']).is_file() else False, axis=1)
+
+            if len(df) == 0:
+                cls._create_empty_df()
 
             return ProtocolPostRecord(
+                file_loc=file_path,
                 records=df,
             )
-
-            
-
-            
-
-        
-
-    
-    

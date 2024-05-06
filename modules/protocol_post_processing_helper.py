@@ -8,6 +8,7 @@ import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
+from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_record import ProtocolPostRecord
 
 from lvp_logger import logger
@@ -24,8 +25,15 @@ class ProtocolPostProcessingHelper:
         path: pathlib.Path, 
         exclude_subpaths: list = [],
         include_subpaths: list = [],
-    ) -> list:
+    ) -> dict[str, list]:
         
+        raw_image_names = []
+        post_image_names = []
+        raw_image_dirs = [
+            '.',
+            *common_utils.get_layers()
+        ]
+
         if (len(include_subpaths) != 0) and (len(exclude_subpaths) != 0):
             raise Exception(f"Specify only include_subpaths OR exclude_subpaths. Not both.")
         
@@ -45,9 +53,27 @@ class ProtocolPostProcessingHelper:
             elif len(include_subpaths) > 0 and (parent_dir not in include_subpaths):
                 continue
             
-            image_names.append(image_name)
+            if parent_dir not in raw_image_dirs:
+                post_image_names.append(image_name)
+            else:
+                raw_image_names.append(image_name)
 
-        return image_names
+        return {
+            'raw': raw_image_names,
+            'post': post_image_names,
+        }
+
+
+    @staticmethod
+    def generate_output_dir_name(record: pd.Series) -> pathlib.Path:
+        # Filter to only the true values
+        record = record[record==True]
+
+        # Get the post-processing function names, in alphabetical order
+        used_functions = sorted(record.keys().to_list())
+
+        return pathlib.Path('-'.join(used_functions))
+
 
 
     def _find_protocol_tsvs(self, path: pathlib.Path) -> dict[str, pathlib.Path] | None:
@@ -71,6 +97,8 @@ class ProtocolPostProcessingHelper:
                 protocol_execution_record_file_loc = path.parent / protocol_execution_record_filename
                 if protocol_execution_record_file_loc.is_file():
                     protocol_root_dir = path.parent
+                else:
+                    return None
             except:
                 return None
             
@@ -95,144 +123,70 @@ class ProtocolPostProcessingHelper:
         loc_data['protocol'] = protocol_file_loc
        
         return loc_data
+ 
 
-
-    @staticmethod
-    def _is_stitched_image(image_filename: str) -> bool:
-        if 'stitched' in image_filename:
-
-            # For now, dont allow images that are both stitched and composite
-            if 'Composite' in image_filename:
-                return False
-            
-            return True
-        
-        return False
-    
-
-    @staticmethod
-    def _is_composite_image(image_filename: str) -> bool:
-        if 'Composite' in image_filename:
-
-            # For now, dont allow images that are both stitched and composite
-            if 'stitched' in image_filename:
-                return False
-            
-            return True
-        
-        return False
-    
-
-    def _get_post_generated_images(
-        self,
-        parent_path: pathlib.Path,
-        artifact_subfolder: str,
-        metadata_filename: str
-    ) -> pd.DataFrame | None:
-        images_path = parent_path / artifact_subfolder
-        image_metadata_path = images_path / metadata_filename
-
-        load_images = True
-        if not images_path.exists():
-            logger.info(f'{self._name}: No folder found at {images_path}')
-            load_images = False
-         
-        if load_images and not image_metadata_path.exists():
-            logger.error(f'{self._name}: No metadata found at {image_metadata_path}')
-            load_images = False
-
-        if not load_images:
-            return None
-
-        parse_dates = ['Timestamp']
-        df = pd.read_csv(
-            filepath_or_buffer=image_metadata_path,
-            sep='\t',
-            lineterminator='\n',
-            parse_dates=parse_dates
-        )
-
-        # Add subfolder to filename path
-        df['Filename'] = df.apply(lambda row: str(pathlib.Path(artifact_subfolder, row['Filename'])), axis=1)
-
-        df = df.fillna('')
-        return df
-    
-
-    def _get_image_tile_groups(
+    def _get_raw_images_df(
         self,
         image_names: list,
-        protocol_tile_groups,
-        protocol_execution_record,
+        protocol: Protocol,
+        protocol_execution_record: ProtocolExecutionRecord,
     ) -> pd.DataFrame | None:
                 
-        image_tile_groups = []
+        image_data = []
         for image_name in image_names:
-            file_data = protocol_execution_record.get_data_from_filename(filename=image_name)
+            file_data = protocol_execution_record.get_data_from_filename(file_path=image_name)
             if file_data is None:
                 logger.warning(f"No info found in protocol execution record for {image_name}")
                 continue
 
-            for protocol_group_index, protocol_group_data in protocol_tile_groups.items():
-                match = protocol_group_data[protocol_group_data['Step Index'] == file_data['Step Index']]
-                if len(match) == 0:
-                    continue
+            step_idx = file_data['Step Index']
+            step = protocol.step(idx=step_idx)
 
-                if len(match) > 1:
-                    raise Exception(f"Expected 1 match, but found multiple")
-                
-                first_row = match.iloc[0]
-                image_tile_groups.append(
-                    {
-                        'Filename': image_name,
-                        'Name': first_row['Name'],
-                        'Protocol Group Index': protocol_group_index,
-                        'Scan Count': file_data['Scan Count'],
-                        'Step Index': first_row['Step Index'],
-                        'X': first_row['X'],
-                        'Y': first_row['Y'],
-                        'Z-Slice': first_row['Z-Slice'],
-                        'Well': first_row['Well'],
-                        'Color': first_row['Color'],
-                        'Objective': first_row['Objective'],
-                        'Tile': first_row['Tile'],
-                        'Tile Group ID': first_row['Tile Group ID'],
-                        'Z-Stack Group ID': first_row['Z-Stack Group ID'],
-                        'Custom Step': first_row['Custom Step'],
-                        'Timestamp': file_data['Timestamp'],
-                        'Stitched': False,
-                        'Composite': False
-                    }
-                )
+            image_data.append(
+                {
+                    'Filepath': image_name,
+                    'Name': step['Name'],
+                    'Scan Count': file_data['Scan Count'],
+                    'Step Index': step_idx,
+                    'X': step['X'],
+                    'Y': step['Y'],
+                    'Z': step['Z'],
+                    'Z-Slice': step['Z-Slice'],
+                    'Well': step['Well'],
+                    'Color': step['Color'],
+                    'Objective': step['Objective'],
+                    'Tile': step['Tile'],
+                    'Tile Group ID': step['Tile Group ID'],
+                    'Z-Stack Group ID': step['Z-Stack Group ID'],
+                    'Custom Step': step['Custom Step'],
+                    'Timestamp': file_data['Timestamp'],
+                }
+            )
 
-        df = pd.DataFrame(image_tile_groups)
-
-        df = self._add_stitch_group_index(df=df)
-        df = self._add_composite_group_index(df=df)
-        df = self._add_video_group_index(df=df)
-        df = self._add_zproject_group_index(df=df)
+        df = pd.DataFrame(image_data)
         df = df.fillna('')
 
         return df
     
 
+    def _get_post_images_df(
+        self,
+        image_names: list,
+        protocol_post_record: ProtocolPostRecord,
+    ) -> pd.DataFrame | None:
+        
+        df = protocol_post_record.records()
+        if len(df) == 0:
+            return df
 
+        # Filter out any images that are missing from the filesystem
+        # This is not strictly needed since the following filter using 'image_names'
+        # will also inherently remove non-existent files
+        df = df[df['File Exists'] == True]
 
-    @staticmethod
-    def _add_stitch_group_index(df: pd.DataFrame) -> pd.DataFrame:
-        df['Stitch Group Index'] = df.groupby(
-            by=[
-                'Protocol Group Index',
-                'Scan Count',
-                'Z-Slice',
-                'Well',
-                'Color',
-                'Objective',
-                'Tile Group ID',
-                'Custom Step'
-            ],
-            dropna=False
-        ).ngroup()
+        # Filter out any images that are not path of the selected images provided
+        df = df[df['Filepath'].isin(image_names)]
+
         return df
     
 
@@ -304,14 +258,14 @@ class ProtocolPostProcessingHelper:
 
         protocol_tsvs = self._find_protocol_tsvs(path=selected_path)
 
-        root_path = protocol_tsvs['protocol_root_dir']
-
         if protocol_tsvs is None:
             logger.error(f"{self._name}: Protocol and/or protocol record not found in folder")
             return {
                 'status': False,
                 'message': 'Protocol and/or Protocol Record not found in folder'
             }
+        
+        root_path = protocol_tsvs['protocol_root_dir']
                 
         # Special handling for logging this since it may be None or a pathlib file
         protocol_post_record_str = "None" if protocol_tsvs['protocol_post_record'] is None else protocol_tsvs['protocol_post_record'].name
@@ -360,15 +314,8 @@ class ProtocolPostProcessingHelper:
 
         if protocol_post_record is None:
             protocol_post_record = ProtocolPostRecord(
-                outfile=root_path / ProtocolPostRecord.DEFAULT_FILENAME
+                file_loc=root_path / ProtocolPostRecord.DEFAULT_FILENAME
             )
-
-        protocol_tile_groups = protocol.get_tile_groups()
-        # exclude_paths = [
-        #     artifact_locations.composite_output_dir(),
-        #     artifact_locations.stitcher_output_dir(),
-        #     artifact_locations.composite_and_stitched_output_dir()
-        # ]
 
         
         if selected_path == root_path:
@@ -384,11 +331,24 @@ class ProtocolPostProcessingHelper:
             include_subpaths=include_subpaths
         )
 
-        image_tile_groups_df = self._get_image_tile_groups(
-            image_names=image_names,
-            protocol_tile_groups=protocol_tile_groups,
+        raw_images_df = self._get_raw_images_df(
+            image_names=image_names['raw'],
+            protocol=protocol,
             protocol_execution_record=protocol_execution_record,
         )
+        raw_images_df['Raw'] = True
+
+        post_processing_names = PostFunction.list_values()
+        raw_images_df[post_processing_names] = False
+
+        post_images_df = self._get_post_images_df(
+            image_names=image_names['post'],
+            protocol_post_record=protocol_post_record,
+        )
+        post_images_df['Raw'] = False
+
+        df_list = [raw_images_df, post_images_df]
+        images_df = pd.concat([df for df in df_list if not df.empty])
 
         return {
             'status': True,
@@ -397,100 +357,5 @@ class ProtocolPostProcessingHelper:
             'protocol': protocol,
             'protocol_execution_record': protocol_execution_record,
             'protocol_post_record': protocol_post_record,
-            'image_names': image_names,
-            'protocol_tile_groups': protocol_tile_groups,
-            'image_tile_groups':image_tile_groups_df,
-            # 'stitched_images': stitched_images_df,
-            # 'composite_images': composite_images_df,
-            # 'composite_and_stitched_images': composite_and_stitched_images_df,
-        }
-
-                
-
-        if include_stitched_images:
-            stitched_images_df = self._get_post_generated_images(
-                parent_path=path,
-                artifact_subfolder=artifact_locations.stitcher_output_dir(),
-                metadata_filename=artifact_locations.stitcher_output_metadata_filename()
-            )
-
-            if stitched_images_df is not None:
-                # Create empty 'Tile label' for already stitched images
-                stitched_images_df['Tile'] = ""
-
-                stitched_images_df = self._add_stitch_group_index(df=stitched_images_df)
-                stitched_images_df = self._add_composite_group_index(df=stitched_images_df)
-                stitched_images_df = self._add_video_group_index(df=stitched_images_df)
-                stitched_images_df = self._add_zproject_group_index(df=stitched_images_df)
-                stitched_images_df['Stitched'] = True
-        else:
-            stitched_images_df = None
-
-
-        if include_composite_images:
-            composite_images_df = self._get_post_generated_images(
-                parent_path=path,
-                artifact_subfolder=artifact_locations.composite_output_dir(),
-                metadata_filename=artifact_locations.composite_output_metadata_filename()
-            )
-
-            if composite_images_df is not None:
-                composite_images_df = self._add_stitch_group_index(df=composite_images_df)
-                composite_images_df = self._add_composite_group_index(df=composite_images_df)
-                composite_images_df = self._add_video_group_index(df=composite_images_df)
-                composite_images_df = self._add_zproject_group_index(df=composite_images_df)
-                composite_images_df['Composite'] = True
-        else:
-            composite_images_df = None
-
-        if include_composite_and_stitched_images:
-            # Create empty 'Tile label' for already stitched images
-            if stitched_images_df is not None:
-                stitched_images_df['Tile'] = ""
-
-            composite_and_stitched_images_df = self._get_post_generated_images(
-                parent_path=path,
-                artifact_subfolder=artifact_locations.composite_and_stitched_output_dir(),
-                metadata_filename=artifact_locations.composite_and_stitched_output_metadata_filename()
-            )
-
-            if composite_and_stitched_images_df is not None:
-                composite_and_stitched_images_df = self._add_stitch_group_index(df=composite_and_stitched_images_df)
-                composite_and_stitched_images_df = self._add_composite_group_index(df=composite_and_stitched_images_df)
-                composite_and_stitched_images_df = self._add_video_group_index(df=composite_and_stitched_images_df)
-                composite_and_stitched_images_df = self._add_zproject_group_index(df=composite_and_stitched_images_df)
-                composite_and_stitched_images_df['Composite'] = True
-                composite_and_stitched_images_df['Stitched'] = True
-        else:
-            composite_and_stitched_images_df = None
-
-
-        protocol_tile_groups = protocol.get_tile_groups()
-        exclude_paths = [
-            artifact_locations.composite_output_dir(),
-            artifact_locations.stitcher_output_dir(),
-            artifact_locations.composite_and_stitched_output_dir()
-        ]
-
-        image_names = self._get_image_filenames_from_folder(
-            path=path,
-            exclude_paths=exclude_paths
-        )
-
-        image_tile_groups_df = self._get_image_tile_groups(
-            image_names=image_names,
-            protocol_tile_groups=protocol_tile_groups,
-            protocol_execution_record=protocol_execution_record,
-        )
-
-        return {
-            'status': True,
-            'protocol': protocol,
-            'protocol_execution_record': protocol_execution_record,
-            'image_names': image_names,
-            'protocol_tile_groups': protocol_tile_groups,
-            'image_tile_groups':image_tile_groups_df,
-            'stitched_images': stitched_images_df,
-            'composite_images': composite_images_df,
-            'composite_and_stitched_images': composite_and_stitched_images_df,
+            'images_df': images_df,
         }
