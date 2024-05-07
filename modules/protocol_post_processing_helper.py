@@ -4,7 +4,6 @@ import pathlib
 
 import pandas as pd
 
-import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
