@@ -138,7 +138,7 @@ class PylonCamera:
             camera.ReverseX.SetValue(True)
             self.init_auto_gain_focus()
             self.exposure_t(t=10)
-            self.frame_size(w=1900, h=1900)
+            self.set_frame_size(w=1900, h=1900)
 
 
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
@@ -178,11 +178,16 @@ class PylonCamera:
             logger.exception(f"[CAM Class ] Unsupported bin size: {size}")
             return False
         
+        logger.debug(f"Binning size before update: {self.get_binning_size()}")
+        logger.debug(f"Frame size size before update: {self.get_frame_size()}")
         with self.update_camera_config():
             self.active.BinningVertical.SetValue(size)
             self.active.BinningVerticalMode.SetValue('Sum')
             self.active.BinningHorizontal.SetValue(size)
             self.active.BinningVerticalMode.SetValue('Sum')
+
+        logger.debug(f"Binning size after update: {self.get_binning_size()}")
+        logger.debug(f"Frame size size after update: {self.get_frame_size()}")
                 
         return True
     
@@ -237,11 +242,11 @@ class PylonCamera:
             return False
   
 
-    def frame_size(self, w, h):
+    def set_frame_size(self, w, h):
         """ Set camera frame size to w by h and keep centered """
         camera = self.active
         if camera == False:
-            logger.warning('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive')
+            logger.warning('[CAM Class ] PylonCamera.set_frame_size('+str(w)+','+str(h)+')'+'; inactive')
             return
 
         width = int(min(int(w), camera.Width.Max)/4)*4
@@ -253,8 +258,22 @@ class PylonCamera:
             camera.BslCenterX.Execute()
             camera.BslCenterY.Execute()
 
-        logger.info('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded')
+        logger.info('[CAM Class ] PylonCamera.set_frame_size('+str(w)+','+str(h)+')'+'; succeeded')
  
+
+    def get_frame_size(self):
+        camera = self.active
+        if camera == False:
+            return
+        
+        width = camera.Width.GetValue()
+        height = camera.Height.GetValue()
+
+        return {
+            'width': width,
+            'height': height,
+        }
+    
 
     def get_gain(self):
         if self.active == False:

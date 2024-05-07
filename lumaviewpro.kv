@@ -1799,7 +1799,6 @@
 	        text: 'Select'
 			font_size:'12dp'
 			text_autoupdate: True
-	        # on_release: root.load_binning_sizes()
 	        on_text: root.select_image_output_format()
 			values: ('TIFF', 'OME-TIFF')
 
@@ -1869,24 +1868,24 @@
 			on_release: root.update_crosshairs_state()
 			state: 'normal'
 
-	# BoxLayout:
-    #     orientation: 'horizontal'
-    #     size_hint_y: None
-    #     height: '30dp'
-    #     Label:
-    #         text: 'Binning'
-	# 		halign: 'left'
-	# 		valign: 'middle'
-	# 		text_size: self.size
-	# 		font_size: '12sp'
-	#     Spinner:
-	# 		id: binning_spinner
-	# 		sync_height: True
-	#         text: 'Select'
-	# 		font_size:'12dp'
-	# 		text_autoupdate: True
-	#         on_release: root.load_binning_sizes()
-	#         on_text: root.select_binning_size()
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Binning'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+	    Spinner:
+			id: binning_spinner
+			sync_height: True
+	        text: 'Select'
+			font_size:'12dp'
+			text_autoupdate: True
+	        on_release: root.load_binning_sizes()
+	        on_text: root.select_binning_size()
 
 	BoxLayout:
 		height: '30dp'

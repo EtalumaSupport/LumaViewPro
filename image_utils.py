@@ -99,9 +99,16 @@ def write_ome_tiff(
     z_pos_um: float,
     exposure_time_ms: float,
     gain_db: float,
-    ill_ma: float
+    ill_ma: float,
+    binning: int,
 ):
-    pixel_size = round(common_utils.get_pixel_size(focal_length=focal_length), common_utils.max_decimal_precision('pixel_size'))
+    pixel_size = round(
+        common_utils.get_pixel_size(
+            focal_length=focal_length,
+            binning=binning,
+        ),
+        common_utils.max_decimal_precision('pixel_size'),
+    )
 
     use_color = image_utils.is_color_image(data)
 
@@ -153,7 +160,11 @@ def write_ome_tiff(
         )
 
 
-def add_scale_bar(image, objective: dict):
+def add_scale_bar(
+    image,
+    objective: dict,
+    binning: int
+):
     height, width = image.shape[0], image.shape[1]
 
     dtype = image.dtype
@@ -179,7 +190,10 @@ def add_scale_bar(image, objective: dict):
     else:
         image[y_start:y_end+1,x_start:x_end+1] = scale_bar_value
 
-    pixel_size_um = common_utils.get_pixel_size(focal_length=objective['focal_length'])
+    pixel_size_um = common_utils.get_pixel_size(
+        focal_length=objective['focal_length'],
+        binning=binning
+    )
     scale_bar_length_um = round(scale_bar_length * pixel_size_um)
     text_x_pos = x_start
     text_y_pos = y_end + 5

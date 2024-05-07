@@ -41,6 +41,7 @@ June 24, 2023
 import copy
 import logging
 import datetime
+import math
 import os
 import pathlib
 import matplotlib.pyplot as plt
@@ -357,6 +358,10 @@ def go_to_step(
     layer.apply_settings(ignore_auto_gain=ignore_auto_gain)
 
 
+def get_binning_from_ui() -> int:
+    return int(lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['binning_spinner'].text)
+
+
 def get_zstack_positions() -> tuple[bool, dict]:
     zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
     range = float(zstack_settings.ids['zstack_range_id'].text)
@@ -505,6 +510,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
     use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
     frame_dimensions = get_current_frame_dimensions()
     zstack_positions_valid, zstack_positions = get_zstack_positions()
+    binning = get_binning_from_ui()
 
     layer_configs = get_layer_configs()
 
@@ -518,7 +524,8 @@ def get_sequenced_capture_config_from_ui() -> dict:
         'layer_configs': layer_configs,
         'period': time_params['period'],
         'duration': time_params['duration'],
-        'frame_dimensions': frame_dimensions
+        'frame_dimensions': frame_dimensions,
+        'binning': binning,
     }
 
     return config
@@ -639,7 +646,10 @@ class ScopeDisplay(Image):
                 y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
 
                 _, objective = get_current_objective_info()
-                pixel_size_um = common_utils.get_pixel_size(focal_length=objective['focal_length'])
+                pixel_size_um = common_utils.get_pixel_size(
+                    focal_length=objective['focal_length'],
+                    binning=get_binning_from_ui(),
+                )
 
                 x_dist_um = x_dist_pixel * pixel_size_um
                 y_dist_um = y_dist_pixel * pixel_size_um
@@ -2789,7 +2799,7 @@ class ProtocolSettings(CompositeCapture):
         protocol_config = get_sequenced_capture_config_from_ui()
         self._protocol = Protocol.create_empty(
             config=protocol_config,
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
         )
         self.select_labware()
         self.update_step_ui()
@@ -2873,7 +2883,8 @@ class ProtocolSettings(CompositeCapture):
         self._protocol.apply_tiling(
             tiling=self.ids['tiling_size_spinner'].text,
             frame_dimensions=get_current_frame_dimensions(),
-            objective_id=objective_id, 
+            objective_id=objective_id,
+            binning=get_binning_from_ui(),
         )
         
         self._protocol.optimize_step_ordering()
@@ -3898,8 +3909,8 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['image_output_format_spinner'].text = settings['image_output_format']
                 self.select_image_output_format()
 
-                # self.ids['binning_spinner'].text = str(settings['binning_size'])
-                # self.update_binning_size()
+                self.ids['binning_spinner'].text = str(settings['binning']['size'])
+                self.update_binning_size()
                 lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
                 objective_id = settings['objective_id']
@@ -4007,11 +4018,9 @@ class MicroscopeSettings(BoxLayout):
     
     def update_binning_size(self):
         global settings
-
         size = int(self.ids['binning_spinner'].text)
-
-        lumaview.scope.camera.set_binning_size(size=size)
-        settings['binning_size'] = size
+        lumaview.scope.set_binning_size(size=size)
+        settings['binning']['size'] = size
 
 
     def update_scale_bar_state(self):
@@ -4043,17 +4052,28 @@ class MicroscopeSettings(BoxLayout):
             json.dump(settings, write_file, indent = 4, cls=CustomJSONizer)
 
     
-    # def load_binning_sizes(self):
-    #     spinner = self.ids['binning_spinner']
-    #     sizes = (1,2,4)
-    #     spinner.values = list(map(str,sizes))
+    def load_binning_sizes(self):
+        spinner = self.ids['binning_spinner']
+        sizes = (1,2,4)
+        spinner.values = list(map(str,sizes))
 
 
-    # def select_binning_size(self):
-    #     global settings
-    #     spinner = self.ids['binning_spinner']
-    #     settings['binning_size'] = spinner.text
-    #     self.update_binning_size()
+    def select_binning_size(self):
+        global settings
+
+        orig_binning_size = lumaview.scope.get_binning_size()
+        orig_frame_size = get_current_frame_dimensions()
+
+        new_binning_size = int(self.ids['binning_spinner'].text)
+        ratio = new_binning_size / orig_binning_size
+        new_frame_size = {
+            'width': math.floor(orig_frame_size['width'] / ratio),
+            'height': math.floor(orig_frame_size['height'] / ratio),
+        }
+        self.ids['frame_width_id'].text = str(new_frame_size['width'])
+        self.ids['frame_height_id'].text = str(new_frame_size['height'])
+        self.frame_size()
+        self.update_binning_size()
 
 
     def load_scopes(self):
@@ -4113,7 +4133,8 @@ class MicroscopeSettings(BoxLayout):
 
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
-            frame_size=settings['frame']
+            frame_size=settings['frame'],
+            binning=get_binning_from_ui(),
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
@@ -4123,11 +4144,10 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
         global settings
 
-        w = int(self.ids['frame_width_id'].text)
-        h = int(self.ids['frame_height_id'].text)
+        current_frame_size = get_current_frame_dimensions()
 
-        width = int(min(w, lumaview.scope.get_max_width())/4)*4
-        height = int(min(h, lumaview.scope.get_max_height())/4)*4
+        width = int(min(current_frame_size['width'], lumaview.scope.get_max_width())/4)*4
+        height = int(min(current_frame_size['height'], lumaview.scope.get_max_height())/4)*4
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
@@ -4140,7 +4160,8 @@ class MicroscopeSettings(BoxLayout):
 
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
-            frame_size=settings['frame']
+            frame_size=settings['frame'],
+            binning=get_binning_from_ui(),
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))

@@ -99,6 +99,10 @@
             "max_duration_seconds": 1.0
         }
     },
+    "binning":
+    {
+        "size": 1
+    },
     "logging": {
         "default": {
             "level": "INFO"

@@ -200,7 +200,8 @@ def to_int(val) -> int | None:
 
 
 def get_pixel_size(
-    focal_length: float
+    focal_length: float,
+    binning: int,
 ):
     magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
                                         # in theory could be different in different scopes
@@ -209,14 +210,20 @@ def get_pixel_size(
     pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
     um_per_pixel = pixel_width / magnification
 
-    return um_per_pixel
+    um_per_pixel_w_binning = um_per_pixel * binning
+
+    return um_per_pixel_w_binning
 
 
 def get_field_of_view(
     focal_length: float,
-    frame_size: dict
+    frame_size: dict,
+    binning: int,
 ):
-    um_per_pixel = get_pixel_size(focal_length=focal_length)
+    um_per_pixel = get_pixel_size(
+        focal_length=focal_length,
+        binning=binning,
+    )
     fov_x = um_per_pixel * frame_size['width']
     fov_y = um_per_pixel * frame_size['height']
     

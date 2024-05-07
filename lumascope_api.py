@@ -100,6 +100,10 @@ class Lumascope():
         self._labware = None             # The labware currently installed
         self._objective = None           # The objective currently installed
         self._stage_offset = None        # The stage offset for the microscope
+        if self.camera:
+            self._binning_size = self.camera.get_binning_size()
+        else:
+            self._binning_size = 1
 
         self._scale_bar = {
             'enabled': False
@@ -120,6 +124,19 @@ class Lumascope():
 
     def set_stage_offset(self, stage_offset):
         self._stage_offset = stage_offset
+
+    def set_binning_size(self, size):
+        self._binning_size = size
+
+        if self.camera:
+            self.camera.set_binning_size(size=size)
+
+    def get_binning_size(self) -> int:
+        if not self.camera:
+            return 1
+
+        return self.camera.get_binning_size()
+    
 
     ########################################################################
     # LED BOARD FUNCTIONS
@@ -231,7 +248,11 @@ class Lumascope():
             self.image_buffer = self.camera.array.copy()
 
             if use_scale_bar:
-                self.image_buffer = image_utils.add_scale_bar(image=self.image_buffer, objective=self._objective)
+                self.image_buffer = image_utils.add_scale_bar(
+                    image=self.image_buffer,
+                    objective=self._objective,
+                    binning=self._binning_size,
+                )
 
             if force_to_8bit and self.image_buffer.dtype != np.uint8:
                 self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
@@ -306,7 +327,7 @@ class Lumascope():
         append = 'ms',
         color = 'BF',
         tail_id_mode = "increment",
-        output_format: str = "TIFF"
+        output_format: str = "TIFF",
     ):
         """CAMERA FUNCTIONS
         save image (as array) to file
@@ -381,7 +402,8 @@ class Lumascope():
                     z_pos_um=z,
                     exposure_time_ms=round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
                     gain_db=round(self.get_gain(), common_utils.max_decimal_precision('gain')),
-                    ill_ma=round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination'))
+                    ill_ma=round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
+                    binning=self._binning_size,
                 )
             else:
                 cv2.imwrite(str(path), img.astype(src_dtype))
@@ -442,11 +464,20 @@ class Lumascope():
 
     def set_frame_size(self, w, h):
         """CAMERA FUNCTIONS
-        Set frame size (pixel width by picel height
+        Set frame size (pixel width by pixel height
         of camera to w by h"""
 
         if not self.camera: return
-        self.camera.frame_size(w, h)
+        self.camera.set_frame_size(w, h)
+
+    def get_frame_size(self):
+        """CAMERA FUNCTIONS
+        Get frame size (pixel width by pixel height
+        of camera to w by h"""
+
+        if not self.camera: return
+        return self.camera.get_frame_size()
+
 
     def get_gain(self):
         """CAMERA FUNCTIONS

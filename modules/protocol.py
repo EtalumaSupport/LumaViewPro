@@ -321,14 +321,16 @@ class Protocol:
         self,
         tiling: str,
         frame_dimensions: dict,
-        objective_id: str
+        objective_id: str,
+        binning: int,
     ):       
         objective = self._objective_loader.get_objective_info(objective_id=objective_id)
         tiles = self._tiling_config.get_tile_centers(
             config_label=tiling,
             focal_length=objective['focal_length'],
             frame_size=frame_dimensions,
-            fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position']
+            fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
+            binning=binning,
         )
 
         if len(tiles) == 1: # No tiling
@@ -461,6 +463,7 @@ class Protocol:
         period = input_config['period']
         duration = input_config['duration']
         frame_dimensions = input_config['frame_dimensions']
+        binning = input_config['binning']
 
         objective_loader = ObjectiveLoader()
         objective = objective_loader.get_objective_info(objective_id=objective_id)
@@ -469,7 +472,8 @@ class Protocol:
             config_label=tiling,
             focal_length=objective['focal_length'],
             frame_size=frame_dimensions,
-            fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position']
+            fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
+            binning=binning,
         )
 
         config = {
@@ -625,6 +629,7 @@ class Protocol:
         period = config['period']
         duration = config['duration']
         frame_dimensions = config['frame_dimensions']
+        binning = config['binning']
 
         input_config = {
             'labware_id': labware_id,
@@ -637,6 +642,7 @@ class Protocol:
             'period': period,
             'duration': duration,
             'frame_dimensions': frame_dimensions,
+            'binning': binning,
         }
 
         return cls.from_config(
