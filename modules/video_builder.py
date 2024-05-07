@@ -55,9 +55,9 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         name = common_utils.generate_default_step_name(
             custom_name_prefix=row0['Name'],
             well_label=row0['Well'],
-            color='Composite',
+            color=row0['Color'],
             z_height_idx=row0['Z-Slice'],
-            scan_count=row0['Scan Count'],
+            scan_count=None,
             tile_label=row0['Tile'],
             stitched=row0['Stitched'],
             video=True,
@@ -162,8 +162,10 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
             return frame_ts_str
 
         (frame_height, frame_width), is_color = _get_image_info()
+        output_file_loc_abs = path / output_file_loc
+        output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         video = cv2.VideoWriter(
-            filename=str(output_file_loc),
+            filename=str(output_file_loc_abs),
             fourcc=fourcc,
             fps=frames_per_sec,
             frameSize=(frame_width, frame_height),
