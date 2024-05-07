@@ -93,6 +93,7 @@ class ZProjector(ProtocolPostProcessingExecutor):
             path=path,
             df=df[['Filepath','Color']],
             method=kwargs['method'],
+            output_file_loc=kwargs['output_file_loc'],
         )
 
 
@@ -198,7 +199,8 @@ class ZProjector(ProtocolPostProcessingExecutor):
         self,
         path: pathlib.Path,
         df: pd.DataFrame,
-        method: str
+        method: str,
+        output_file_loc: pathlib.Path,
     ):
         method = imagej_helper.ZProjectMethod[method]
 
@@ -224,7 +226,14 @@ class ZProjector(ProtocolPostProcessingExecutor):
         if result['status'] == False:
             return result
         
-        if type(result['image']) != np.ndarray:
-            result['image'] = result['image'].to_numpy()
+        output_file_loc_abs = path / output_file_loc
+        output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
+        tf.imwrite(
+            output_file_loc_abs,
+            data=result['image'],
+            compression='lzw',
+        )
+
+        del result['image']
 
         return result

@@ -3,12 +3,13 @@ import abc
 import datetime
 import pathlib
 
+import cv2
 import pandas as pd
-import tifffile as tf
 
 from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_record import ProtocolPostRecord
+import image_utils
 
 from lvp_logger import logger
 
@@ -140,17 +141,12 @@ class ProtocolPostProcessingExecutor(abc.ABC):
             
                 logger.debug(f"[{self._name} ] Writing {output_file_loc_rel}")
 
-                tf.imwrite(
-                    output_file_loc,
-                    data=alg_results['image'],
-                    compression='lzw',
-                )
-                # if not cv2.imwrite(
-                #     filename=str(output_file_loc),
-                #     img=alg_results['image']
-                # ):
-                #     logger.error(f"[{self._name} ] Unable to write image {output_file_loc}")
-                #     continue
+                if not cv2.imwrite(
+                    filename=str(output_file_loc),
+                    img=alg_results['image']
+                ):
+                    logger.error(f"[{self._name} ] Unable to write image {output_file_loc}")
+                    continue
 
             
             self._add_record(
