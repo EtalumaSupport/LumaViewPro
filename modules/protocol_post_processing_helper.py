@@ -190,25 +190,6 @@ class ProtocolPostProcessingHelper:
 
 
     @staticmethod
-    def _add_video_group_index(df: pd.DataFrame) -> pd.DataFrame:
-        df['Video Group Index'] = df.groupby(
-            by=[
-                'Protocol Group Index',
-                'Z-Slice',
-                'Well',
-                'Color',
-                'Objective',
-                'X',
-                'Y',
-                'Tile',
-                'Custom Step'
-            ],
-            dropna=False
-        ).ngroup()
-        return df
-
-
-    @staticmethod
     def _add_zproject_group_index(df: pd.DataFrame) -> pd.DataFrame:
         df['Z-Project Group Index'] = df.groupby(
             by=[

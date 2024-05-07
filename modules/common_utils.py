@@ -12,6 +12,7 @@ def generate_default_step_name(
     tile_label = None,
     custom_name_prefix = None,
     stitched: bool = False,
+    video: bool = False,
 ):
     if custom_name_prefix not in (None, ""):
         name = f"{custom_name_prefix}_{color}"
@@ -30,6 +31,9 @@ def generate_default_step_name(
 
     if stitched:
         name = f'{name}_stitched'
+
+    if video:
+        name = f'{name}_video'
     
     return name
 

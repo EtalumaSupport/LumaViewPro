@@ -70,10 +70,11 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
         return df
     
 
-    @staticmethod
     def _group_algorithm(
+        self,
         path: pathlib.Path,
         df: pd.DataFrame,
+        **kwargs,
     ):
         return CompositeGeneration._create_composite_image(
             path=path,

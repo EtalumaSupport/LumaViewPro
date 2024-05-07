@@ -41,7 +41,6 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         raise NotImplementedError(f"Implement in child class")
     
 
-    @staticmethod
     @abc.abstractmethod
     def _group_algorithm(
         path: pathlib.Path,
@@ -63,7 +62,8 @@ class ProtocolPostProcessingExecutor(abc.ABC):
     def load_folder(
         self,
         path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path
+        tiling_configs_file_loc: pathlib.Path,
+        **kwargs: dict,
     ) -> dict:
         start_ts = datetime.datetime.now()
         selected_path = pathlib.Path(path)
@@ -122,26 +122,30 @@ class ProtocolPostProcessingExecutor(abc.ABC):
                 existing_count += 1 # Count this so we don't error out if no other matches are found
                 continue
 
+            kwargs['output_file_loc'] = output_file_loc_rel
+
             alg_results = self._group_algorithm(
                 path=root_path,
-                df=group
+                df=group,
+                **kwargs,
             )
 
             if not alg_results['status'] == True:
                 logger.error(f"Failed to generate {output_file_loc_rel}: {alg_results['error']}")
                 continue
 
-            if not output_path.exists():
-                output_path.mkdir(exist_ok=True, parents=True)
-         
-            logger.debug(f"[{self._name} ] Writing {output_file_loc_rel}")
+            if 'image' in alg_results:
+                if not output_path.exists():
+                    output_path.mkdir(exist_ok=True, parents=True)
+            
+                logger.debug(f"[{self._name} ] Writing {output_file_loc_rel}")
 
-            if not cv2.imwrite(
-                filename=str(output_file_loc),
-                img=alg_results['image']
-            ):
-                logger.error(f"[{self._name} ] Unable to write image {output_file_loc}")
-                continue
+                if not cv2.imwrite(
+                    filename=str(output_file_loc),
+                    img=alg_results['image']
+                ):
+                    logger.error(f"[{self._name} ] Unable to write image {output_file_loc}")
+                    continue
 
             
             self._add_record(

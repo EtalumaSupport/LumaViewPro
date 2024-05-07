@@ -6,14 +6,15 @@ import cv2
 import pandas as pd
 
 import image_utils
-import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
-from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
+from modules.protocol_post_processing_functions import PostFunction
+from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
+from modules.protocol_post_record import ProtocolPostRecord
 
 from lvp_logger import logger
 
 
-class VideoBuilder:
+class VideoBuilder(ProtocolPostProcessingExecutor):
 
     CODECS = [
         0,
@@ -22,149 +23,100 @@ class VideoBuilder:
     ]
 
     def __init__(self):
+        super().__init__(
+            post_function=PostFunction.VIDEO
+        )
         self._name = self.__class__.__name__
-        self._protocol_post_processing_helper = ProtocolPostProcessingHelper()
 
     
-    def load_folder(
-        self, path: str | pathlib.Path,
-        tiling_configs_file_loc: pathlib.Path,
-        frames_per_sec: int,
-        enable_timestamp_overlay: bool
-    ) -> dict:
-        results = self._protocol_post_processing_helper.load_folder(
+    @staticmethod
+    def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
+        return df.groupby(
+            by=[
+                'Well',
+                'Color',
+                'Objective',
+                'X',
+                'Y',
+                'Z-Slice',
+                'Tile',
+                'Custom Step',
+                'Raw',
+                *PostFunction.list_values()
+            ],
+            dropna=False
+        )
+
+
+    @staticmethod
+    def _generate_filename(df: pd.DataFrame) -> str:
+        row0 = df.iloc[0]
+
+        name = common_utils.generate_default_step_name(
+            custom_name_prefix=row0['Name'],
+            well_label=row0['Well'],
+            color='Composite',
+            z_height_idx=row0['Z-Slice'],
+            scan_count=row0['Scan Count'],
+            tile_label=row0['Tile'],
+            stitched=row0['Stitched'],
+            video=True,
+        )
+
+        outfile = f"{name}.avi"
+        return outfile
+    
+
+    def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
+
+        # Skip already composited outputs
+        df = df[df[self._post_function.value] == False]
+
+        return df
+    
+
+    def _group_algorithm(
+        self,
+        path: pathlib.Path,
+        df: pd.DataFrame,
+        **kwargs,
+    ):
+        return self._create_video(
             path=path,
-            tiling_configs_file_loc=tiling_configs_file_loc,
-            include_stitched_images=True,
-            include_composite_images=True,
-            include_composite_and_stitched_images=True,
+            df=df[['Filepath', 'Scan Count', 'Timestamp']],
+            frames_per_sec=kwargs['frames_per_sec'],
+            enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
+            output_file_loc=kwargs['output_file_loc'],
         )
+    
 
-        if results['status'] is False:
-            return {
-                'status': False,
-                'message': f'Failed to load protocol data from {path}'
-            }
-
-        df = results['image_tile_groups']
-        
-        if len(df) == 0:
-            return {
-                'status': False,
-                'message': 'No images found in selected folder'
-            }
-        
-        grouping_key = 'Video Group Index'
-
-        # Raw images first
-        loop_list = df.groupby(by=[grouping_key])
-
-        stitched_images_df = results['stitched_images']
-        if stitched_images_df is not None:
-            loop_list = itertools.chain(
-                loop_list,
-                stitched_images_df.groupby(by=[grouping_key])
-            )
-
-        composite_images_df = results['composite_images']
-        if composite_images_df is not None:
-            loop_list = itertools.chain(
-                loop_list,
-                composite_images_df.groupby(by=[grouping_key])
-            )
-
-        composite_and_stitched_images_df = results['composite_and_stitched_images']
-        if composite_and_stitched_images_df is not None:
-            loop_list = itertools.chain(
-                loop_list,
-                composite_and_stitched_images_df.groupby(by=[grouping_key])
-            )
-
-        logger.info(f"{self._name}: Generating video(s)")
-        metadata = []
-        
-        for _, video_group in loop_list:
-            
-            if len(video_group) == 0:
-                continue
-
-            if len(video_group) == 1:
-                logger.debug(f"{self._name}: Skipping video generation for {video_group.iloc[0]['Filename']} since only {len(video_group)} image found.")
-                continue
-
-            first_row = video_group.iloc[0]
-            video_filename_base = common_utils.generate_default_step_name(
-                well_label=first_row['Well'],
-                color=first_row['Color'],
-                z_height_idx=first_row['Z-Slice'],
-                tile_label=first_row['Tile'],
-                custom_name_prefix=first_row['Name'],
-                stitched=first_row['Stitched']
-            )
-            video_filename = f"{video_filename_base}.avi"
-
-            output_path = path / artifact_locations.video_output_dir()
-            if not output_path.exists():
-                output_path.mkdir(exist_ok=True, parents=True)
-
-            output_file_loc = output_path / video_filename
-
-            status = self._create_video(
-                path=path,
-                df=video_group[['Filename', 'Scan Count', 'Timestamp']],
-                frames_per_sec=frames_per_sec,
-                enable_timestamp_overlay=enable_timestamp_overlay,
-                output_file_loc=str(output_file_loc)
-            )
-
-            if status == False:
-                logger.error(f"{self._name}: Unable to create video {output_file_loc}")
-                continue
-            
-            metadata.append({
-                'Filename': video_filename,
-                'Name': first_row['Name'],
-                'Protocol Group Index': first_row['Protocol Group Index'],
-                'X': first_row['X'],
-                'Y': first_row['Y'],
-                'Z-Slice': first_row['Z-Slice'],
-                'Well': first_row['Well'],
-                'Color': first_row['Color'],
-                'Objective': first_row['Objective'],
-                'Tile Group ID': first_row['Tile Group ID'],
-                'Custom Step': first_row['Custom Step'],
-                'Stitch Group Index': first_row['Stitch Group Index'],
-                'Composite Group Index': first_row['Composite Group Index'],
-                'Video Group Index': first_row['Video Group Index'],
-                'Stitched': first_row['Stitched'],
-                'Composite': first_row['Composite'],
-            })
-
-        metadata_df = pd.DataFrame(metadata)
-        
-        if len(metadata_df) == 0:
-            return {
-                'status': False,
-                'message': 'No images found'
-            }
-
-        if not output_path.exists():
-            path.mkdir(parents=True, exist_ok=True)
-
-        metadata_filename = artifact_locations.video_output_metadata_filename()
-        metadata_df.to_csv(
-            path_or_buf=output_path / metadata_filename,
-            header=True,
-            index=False,
-            sep='\t',
-            lineterminator='\n',
+    @staticmethod
+    def _add_record(
+        protocol_post_record: ProtocolPostRecord,
+        alg_metadata: dict,
+        root_path: pathlib.Path,
+        file_path: pathlib.Path,
+        row0: pd.Series,
+        **kwargs: dict,
+    ):
+        protocol_post_record.add_record(
+            root_path=root_path,
+            file_path=file_path,
+            timestamp=row0['Timestamp'],
+            name=row0['Name'],
+            scan_count=row0['Scan Count'],
+            x=row0['X'],
+            y=row0['Y'],
+            z=row0['Z'],
+            z_slice=row0['Z-Slice'],
+            well=row0['Well'],
+            color=row0['Color'],
+            objective=row0['Objective'],
+            tile_group_id=row0['Tile Group ID'],
+            tile=row0['Tile'],
+            custom_step=row0['Custom Step'],
+            **kwargs,
         )
-        
-        logger.info(f"{self._name}: Complete")
-        return {
-            'status': True,
-            'message': 'Success'
-        }
 
 
     @staticmethod
@@ -192,7 +144,7 @@ class VideoBuilder:
         fourcc = self._get_fourcc_code(codec=codec)
 
         def _get_image_info() -> tuple:
-            source_image_sample_filename = df['Filename'].values[0]
+            source_image_sample_filename = df['Filepath'].values[0]
             source_image_sample_filepath = path / source_image_sample_filename
             source_image_sample = cv2.imread(str(source_image_sample_filepath), cv2.IMREAD_UNCHANGED)
             is_color = True if source_image_sample.ndim == 3 else False
@@ -221,7 +173,7 @@ class VideoBuilder:
         logger.info(f"[{self._name}] Writing video to {output_file_loc}")
         
         for _, row in df.iterrows():
-            image_path = path / row['Filename']
+            image_path = path / row['Filepath']
             image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
 
             if enable_timestamp_overlay:
@@ -235,4 +187,8 @@ class VideoBuilder:
 
         logger.debug(f"[{self._name}] - Complete")
 
-        return True
+        return {
+            'status': True,
+            'error': None,
+            'metadata': {},
+        }

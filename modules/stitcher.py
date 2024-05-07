@@ -70,10 +70,11 @@ class Stitcher(ProtocolPostProcessingExecutor):
         return df
     
 
-    @staticmethod
     def _group_algorithm(
+        self,
         path: pathlib.Path,
         df: pd.DataFrame,
+        **kwargs,
     ):
         return Stitcher._simple_position_stitcher(
             path=path,

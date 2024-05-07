@@ -303,7 +303,13 @@ class ProtocolPostRecord:
                 table_lines.append(line)
 
             table_str = ''.join(table_lines)
-            df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
+            df = pd.read_csv(
+                io.StringIO(table_str),
+                sep='\t',
+                lineterminator='\n',
+            ).fillna('')
+
+            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
             # Convert filename to pathlib type
             df['Filepath'] = df.apply(lambda row: pathlib.Path(row['Filepath']), axis=1)
