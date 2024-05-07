@@ -61,7 +61,8 @@ class ProtocolPostProcessingExecutor(abc.ABC):
 
 
     def load_folder(
-        self, path: str | pathlib.Path,
+        self,
+        path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path
     ) -> dict:
         start_ts = datetime.datetime.now()
@@ -122,7 +123,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
                 continue
 
             alg_results = self._group_algorithm(
-                path=path,
+                path=root_path,
                 df=group
             )
 
