@@ -6,7 +6,7 @@ import enum
 class PostFunction(enum.Enum):
     COMPOSITE = "Composite"
     STITCHED = "Stitched"
-    ZPROJECT = "Z-Project"
+    ZPROJECT = "ZProject"
     VIDEO = "Video"
 
     @classmethod

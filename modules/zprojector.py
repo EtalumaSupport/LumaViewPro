@@ -1,28 +1,32 @@
 
-import itertools
-import os
 import pathlib
 
-import cv2
 import numpy as np
 import pandas as pd
 import tifffile as tf
 
-import modules.artifact_locations as artifact_locations
 import modules.common_utils as common_utils
 import image_utils
-from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
+
+from modules.protocol_post_processing_functions import PostFunction
+from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
+from modules.protocol_post_record import ProtocolPostRecord
 
 import modules.imagej_helper as imagej_helper
 
 from lvp_logger import logger
 
 
-class ZProjector:
+class ZProjector(ProtocolPostProcessingExecutor):
 
-    def __init__(self, ij_helper: imagej_helper.ImageJHelper = None):
+    def __init__(
+        self,
+        ij_helper: imagej_helper.ImageJHelper = None
+    ):
+        super().__init__(
+            post_function=PostFunction.ZPROJECT
+        )
         self._name = self.__class__.__name__
-        self._protocol_post_processing_helper = ProtocolPostProcessingHelper()
         
         if ij_helper is None:
             self._ij_helper = imagej_helper.ImageJHelper()
@@ -31,15 +35,26 @@ class ZProjector:
         
 
     @staticmethod
-    def methods() -> list[str]:
-        return imagej_helper.ZProjectMethod.list()
-
+    def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
+        return df.groupby(
+            by=[
+                'Scan Count',
+                'Well',
+                'Color',
+                'Objective',
+                'X',
+                'Y',
+                'Tile',
+                'Custom Step',
+                'Raw',
+                *PostFunction.list_values()
+            ],
+            dropna=False
+        )
+    
 
     @staticmethod
-    def _generate_zproject_filename(
-        df: pd.DataFrame,
-        method
-    ) -> str:
+    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
 
         name = common_utils.generate_default_step_name(
@@ -49,11 +64,71 @@ class ZProjector:
             z_height_idx=None,
             scan_count=row0['Scan Count'],
             tile_label=row0['Tile'],
+            stitched=row0['Stitched'],
+            zprojection=kwargs['method'].lower(),
         )
-        
-        outfile = f"{name}_zproj_{method.value}.tiff"
+
+        outfile = f"{name}.tiff"
         return outfile
     
+
+    def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
+
+        # Skip already composited outputs
+        df = df[df[self._post_function.value] == False]
+
+        # Skip videos
+        df = df[df[PostFunction.VIDEO.value] == False]
+
+        return df
+    
+
+    def _group_algorithm(
+        self,
+        path: pathlib.Path,
+        df: pd.DataFrame,
+        **kwargs,
+    ):
+        return self._zproject(
+            path=path,
+            df=df[['Filepath','Color']],
+            method=kwargs['method'],
+        )
+
+
+    @staticmethod
+    def _add_record(
+        protocol_post_record: ProtocolPostRecord,
+        alg_metadata: dict,
+        root_path: pathlib.Path,
+        file_path: pathlib.Path,
+        row0: pd.Series,
+        **kwargs: dict,
+    ):
+        protocol_post_record.add_record(
+            root_path=root_path,
+            file_path=file_path,
+            timestamp=row0['Timestamp'],
+            name=row0['Name'],
+            scan_count=row0['Scan Count'],
+            x=row0['X'],
+            y=row0['Y'],
+            z="",
+            z_slice="",
+            well=row0['Well'],
+            color=row0['Color'],
+            objective=row0['Objective'],
+            tile_group_id=row0['Tile Group ID'],
+            tile=row0['Tile'],
+            custom_step=row0['Custom Step'],
+            **kwargs,
+        )
+
+
+    @staticmethod
+    def methods() -> list[str]:
+        return imagej_helper.ZProjectMethod.list()
+
 
     def _zproject_for_multi_channel(
         self,
@@ -76,12 +151,21 @@ class ZProjector:
             )
 
             if project_result is None:
-                logger.error(f"Failed to create Z-Projection for color plane {used_color_plane}")
-                return None
+                error = f"Failed to create Z-Projection for color plane {used_color_plane}"
+                logger.error(error)
+                return {
+                    'status': False,
+                    'error': error,
+                }
             
             out_image[:,:,used_color_plane] = project_result
         
-        return out_image
+        return {
+            'status': True,
+            'error': None,
+            'image': out_image,
+            'metadata': {},
+        }
     
 
     def _zproject_for_single_channel(
@@ -95,17 +179,32 @@ class ZProjector:
         )
 
         if project_result is None:
-            logger.error(f"Failed to create Z-Projection")
-            return None
+            error = f"Failed to create Z-Projection"
+            logger.error(error)
+            return {
+                'status': False,
+                'error': error,
+            }
         
-        return project_result
+        return {
+            'status': True,
+            'error': None,
+            'image': project_result,
+            'metadata': {},
+        }
     
     
-    def _zproject(self, path: pathlib.Path, df: pd.DataFrame, method):
+    def _zproject(
+        self,
+        path: pathlib.Path,
+        df: pd.DataFrame,
+        method: str
+    ):
+        method = imagej_helper.ZProjectMethod[method]
 
         orig_images = []
         for _, row in df.iterrows():
-            image_filepath = path / row['Filename']
+            image_filepath = path / row['Filepath']
             orig_images.append(tf.imread(str(image_filepath)))
 
         # If working with color images, split the list of color images into separate lists for 
@@ -122,76 +221,10 @@ class ZProjector:
                 method=method
             )
 
-        if result is None:
-            logger.error(f"Failed to create Z-Projection")
-            return False
+        if result['status'] == False:
+            return result
         
-        filename = self._generate_zproject_filename(df=df, method=method)
-        file_loc = path / filename
+        if type(result['image']) != np.ndarray:
+            result['image'] = result['image'].to_numpy()
 
-        write_result = tf.imwrite(
-            file_loc,
-            data=result,
-            compression='lzw',
-        )
-
-        if not write_result:
-            return False
-        
-        return True
-    
-
-    def load_folder(self, path: str | pathlib.Path, tiling_configs_file_loc: pathlib.Path, method_name: str) -> dict:
-        path = pathlib.Path(path)
-        results = self._protocol_post_processing_helper.load_folder(
-            path=path,
-            tiling_configs_file_loc=tiling_configs_file_loc,
-            include_stitched_images=False,
-            include_composite_images=False,
-            include_composite_and_stitched_images=False,
-        )
-
-        if results['status'] is False:
-            return {
-                'status': False,
-                'message': f'Failed to load protocol data from {path}'
-            }
-        
-        method = imagej_helper.ZProjectMethod[method_name]
-
-        df = results['image_tile_groups']
-        loop_list = df.groupby(by=['Z-Project Group Index'])
-        logger.info(f"{self._name}: Generating Z-Projected images")
-
-        count = 0
-        for _, group in loop_list:
-
-            if len(group) == 0:
-                continue
-
-            if len(group) == 1:
-                logger.debug(f"{self._name}: Skipping Z-Project generation for {group.iloc[0]['Filename']} since only {len(group)} image found.")
-                continue
-
-            result = self._zproject(
-                path=path,
-                df=df,
-                method=method,
-            )
-            
-            count += 1
-
-        if count == 0:
-            logger.info(f"{self._name}: No sets of images found to run Z-Projection on")
-            return {
-                'status': False,
-                'message': 'No images found'
-            }
-        
-        logger.info(f"{self._name}: Complete")
-        return {
-            'status': True,
-            'message': 'Success'
-        }
-
-
+        return result

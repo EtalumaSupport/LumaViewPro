@@ -1434,7 +1434,7 @@ class ZProjectionControls(BoxLayout):
         result = zproj.load_folder(
             path=pathlib.Path(path),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            method_name=self.ids['zprojection_method_spinner'].text
+            method=self.ids['zprojection_method_spinner'].text
         )
         final_text = f"Generating Z-Projection images - {status_map[result['status']]}"
         if result['status'] is False:

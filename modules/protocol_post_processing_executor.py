@@ -3,8 +3,8 @@ import abc
 import datetime
 import pathlib
 
-import cv2
 import pandas as pd
+import tifffile as tf
 
 from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
@@ -32,7 +32,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    def _generate_filename(df: pd.DataFrame) -> str:
+    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
         raise NotImplementedError(f"Implement in child class")
 
 
@@ -104,7 +104,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
                 logger.debug(f"[{self._name} ] Skipping generation for {group.iloc[0]['Filepath']} since only {len(group)} image found.")
                 continue
 
-            output_filename = self._generate_filename(df=group)
+            output_filename = self._generate_filename(df=group, **kwargs)
             row0 = group.iloc[0]
             record_data_post_functions = row0[PostFunction.list_values()]
             record_data_post_functions[self._post_function.value] = True
@@ -140,12 +140,17 @@ class ProtocolPostProcessingExecutor(abc.ABC):
             
                 logger.debug(f"[{self._name} ] Writing {output_file_loc_rel}")
 
-                if not cv2.imwrite(
-                    filename=str(output_file_loc),
-                    img=alg_results['image']
-                ):
-                    logger.error(f"[{self._name} ] Unable to write image {output_file_loc}")
-                    continue
+                tf.imwrite(
+                    output_file_loc,
+                    data=alg_results['image'],
+                    compression='lzw',
+                )
+                # if not cv2.imwrite(
+                #     filename=str(output_file_loc),
+                #     img=alg_results['image']
+                # ):
+                #     logger.error(f"[{self._name} ] Unable to write image {output_file_loc}")
+                #     continue
 
             
             self._add_record(

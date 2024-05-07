@@ -13,6 +13,7 @@ def generate_default_step_name(
     custom_name_prefix = None,
     stitched: bool = False,
     video: bool = False,
+    zprojection: str | None = None,
 ):
     if custom_name_prefix not in (None, ""):
         name = f"{custom_name_prefix}_{color}"
@@ -34,6 +35,9 @@ def generate_default_step_name(
 
     if video:
         name = f'{name}_video'
+
+    if zprojection is not None:
+        name = f'{name}_zproj_{zprojection}'
     
     return name
 

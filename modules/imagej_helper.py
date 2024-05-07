@@ -1,5 +1,6 @@
 
 import enum
+import logging
 
 import numpy as np
 
@@ -10,6 +11,8 @@ try:
     import imagej
     import scyjava
     imagej_imported = True
+    logging.getLogger('scyjava').setLevel(level=logging.INFO)
+    logging.getLogger('imagej').setLevel(level=logging.INFO)
 except ImportError:
     imagej_imported = False
 

@@ -49,7 +49,7 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
 
 
     @staticmethod
-    def _generate_filename(df: pd.DataFrame) -> str:
+    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
 
         name = common_utils.generate_default_step_name(
