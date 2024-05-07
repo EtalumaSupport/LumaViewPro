@@ -30,6 +30,7 @@ class ProtocolPostRecord:
         'Color',
         'Objective',
         'Tile Group ID',
+        'Tile',
         'Custom Step',
         *PostFunction.list_values(),
     )
@@ -98,6 +99,7 @@ class ProtocolPostRecord:
                 ("Color", str),
                 ("Objective", str),
                 ("Tile Group ID", int),
+                ("Tile", str),
                 ("Custom Step", bool),
                 *post_function_tuples,
             ]
@@ -139,6 +141,7 @@ class ProtocolPostRecord:
         color: str,
         objective: str,
         tile_group_id: int | str,
+        tile: str,
         custom_step: bool,
         **kwargs: dict,
     ) -> dict:
@@ -157,6 +160,7 @@ class ProtocolPostRecord:
             "Color": color,
             "Objective": objective,
             "Tile Group ID": tile_group_id,
+            "Tile": tile,
             "Custom Step": custom_step,
             "Raw": False,
             "File Exists": abs_path.exists(),
@@ -178,6 +182,7 @@ class ProtocolPostRecord:
         color: str,
         objective: str,
         tile_group_id: int | str,
+        tile: str,
         custom_step: bool,
         **kwargs: dict,
     ):
@@ -199,6 +204,7 @@ class ProtocolPostRecord:
             color=color,
             objective=objective,
             tile_group_id=tile_group_id,
+            tile=tile,
             custom_step=custom_step,
             **kwargs
         )
@@ -221,6 +227,7 @@ class ProtocolPostRecord:
             color=color,
             objective=objective,
             tile_group_id=tile_group_id,
+            tile=tile,
             custom_step=custom_step,
             **kwargs
         )
@@ -240,6 +247,7 @@ class ProtocolPostRecord:
         color: str,
         objective: str,
         tile_group_id: int | str,
+        tile: str,
         custom_step: bool,
         **kwargs: dict,
     ):
@@ -258,6 +266,7 @@ class ProtocolPostRecord:
                 color,
                 objective,
                 tile_group_id,
+                tile,
                 custom_step,
                 *kwargs.values(),
             ]

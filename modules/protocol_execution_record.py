@@ -77,7 +77,7 @@ class ProtocolExecutionRecord:
         
     
     def get_data_from_filename(self, file_path: str | pathlib.Path) -> dict | None:
-        record = self._records.loc[self._records['Filename'] == file_path]
+        record = self._records.loc[self._records['Filename'] == str(file_path)]
         if len(record) != 1:
             return None
         

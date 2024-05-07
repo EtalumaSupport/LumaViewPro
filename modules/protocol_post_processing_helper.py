@@ -25,7 +25,7 @@ class ProtocolPostProcessingHelper:
         path: pathlib.Path, 
         exclude_subpaths: list = [],
         include_subpaths: list = [],
-    ) -> dict[str, list]:
+    ) -> dict[str, list[pathlib.Path]]:
         
         raw_image_names = []
         post_image_names = []
@@ -42,10 +42,9 @@ class ProtocolPostProcessingHelper:
         images = []
         images.extend(tiff_images)
         images.extend(ome_tiff_images)
-        image_names = []
         for image in images:
-            image_name = os.path.relpath(image, path)
-            parent_dir = str(pathlib.Path(image_name).parent)
+            image_name = pathlib.Path(os.path.relpath(image, path))
+            parent_dir = str(image_name.parent)
 
             if len(exclude_subpaths) > 0 and (parent_dir in exclude_subpaths):
                 continue
@@ -171,7 +170,7 @@ class ProtocolPostProcessingHelper:
 
     def _get_post_images_df(
         self,
-        image_names: list,
+        image_names: list[pathlib.Path],
         protocol_post_record: ProtocolPostRecord,
     ) -> pd.DataFrame | None:
         
@@ -188,25 +187,7 @@ class ProtocolPostProcessingHelper:
         df = df[df['Filepath'].isin(image_names)]
 
         return df
-    
 
-    @staticmethod
-    def _add_composite_group_index(df: pd.DataFrame) -> pd.DataFrame:
-        df['Composite Group Index'] = df.groupby(
-            by=[
-                'Scan Count',
-                'Z-Slice',
-                'Well',
-                'Objective',
-                'X',
-                'Y',
-                'Tile',
-                'Custom Step'
-            ],
-            dropna=False
-        ).ngroup()
-        return df
-    
 
     @staticmethod
     def _add_video_group_index(df: pd.DataFrame) -> pd.DataFrame:
@@ -249,9 +230,6 @@ class ProtocolPostProcessingHelper:
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
-        include_stitched_images: bool = False,
-        include_composite_images: bool = False,
-        include_composite_and_stitched_images: bool = False,
     ) -> dict:
         selected_path = pathlib.Path(path)
         logger.info(f'{self._name}: Loading folder {selected_path}')

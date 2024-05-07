@@ -13,8 +13,6 @@ from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
 from modules.protocol_post_record import ProtocolPostRecord
 
-from lvp_logger import logger
-
 
 class Stitcher(ProtocolPostProcessingExecutor):
 
@@ -52,10 +50,12 @@ class Stitcher(ProtocolPostProcessingExecutor):
             well_label=row0['Well'],
             color=row0['Color'],
             z_height_idx=row0['Z-Slice'],
-            scan_count=row0['Scan Count']
+            scan_count=row0['Scan Count'],
+            tile_label=None,
+            stitched=True,
         )
         
-        outfile = f"{name}_stitched.tiff"
+        outfile = f"{name}.tiff"
         return outfile
     
 
@@ -90,12 +90,6 @@ class Stitcher(ProtocolPostProcessingExecutor):
         row0: pd.Series,
         **kwargs: dict,
     ):
-        
-        # Filter out certain keys
-        remove_keys = ('x', 'y')
-        for key in remove_keys:
-            kwargs.pop(key, None)
-
         protocol_post_record.add_record(
             root_path=root_path,
             file_path=file_path,
@@ -110,6 +104,7 @@ class Stitcher(ProtocolPostProcessingExecutor):
             color=row0['Color'],
             objective=row0['Objective'],
             tile_group_id=row0['Tile Group ID'],
+            tile="",
             custom_step=row0['Custom Step'],
             **kwargs,
         )
@@ -143,7 +138,8 @@ class Stitcher(ProtocolPostProcessingExecutor):
         source_image_sample_row = df.iloc[0]
         source_image_sample_filename = source_image_sample_row['Filepath']
         source_image_sample = images[source_image_sample_filename]
-        source_image_h, source_image_w = source_image_sample.shape
+        source_image_h = source_image_sample.shape[0]
+        source_image_w = source_image_sample.shape[1]
         
         df = df.sort_values(['X','Y'], ascending=False)
         df['x_index'] = df.groupby(by=['X']).ngroup()

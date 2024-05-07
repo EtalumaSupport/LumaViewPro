@@ -1,5 +1,6 @@
 
 import abc
+import datetime
 import pathlib
 
 import cv2
@@ -63,6 +64,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         self, path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path
     ) -> dict:
+        start_ts = datetime.datetime.now()
         selected_path = pathlib.Path(path)
         results = self._post_processing_helper.load_folder(
             path=selected_path,
@@ -121,7 +123,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
 
             alg_results = self._group_algorithm(
                 path=path,
-                df=group[['Filepath', 'X', 'Y']]
+                df=group
             )
 
             if not alg_results['status'] == True:
@@ -161,8 +163,9 @@ class ProtocolPostProcessingExecutor(abc.ABC):
                 'message': 'No images found'
             }
 
-        
-        logger.info(f"{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} images.")
+        end_ts = datetime.datetime.now()
+        elapsed_time = end_ts - start_ts
+        logger.info(f"{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} artifacts in {elapsed_time}.")
         return {
             'status': True,
             'message': 'Success'
