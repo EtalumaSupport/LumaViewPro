@@ -191,7 +191,7 @@ def add_scale_bar(
 
     good_numbers = np.array(
         [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1250, 1500, 1750, 2000, 2500, 3000]
-    ).astype(int)
+    )
 
     # If needed, adjust the good numbers by factors of 10 to keep them 'good'
     if scale_bar_length_range_um['min'] > good_numbers.max():
@@ -199,7 +199,7 @@ def add_scale_bar(
             good_numbers *= 10
     elif scale_bar_length_range_um['max'] < good_numbers.min():
         while scale_bar_length_range_um['max'] < good_numbers.min():
-            good_numbers /= 10
+            good_numbers = (good_numbers / 10)
 
     # Find the nearest good number to the midpoint target
     good_numbers_diff = np.absolute(good_numbers-scale_bar_length_range_um['mid'])
