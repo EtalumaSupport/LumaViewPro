@@ -99,8 +99,7 @@
             "max_duration_seconds": 1.0
         }
     },
-    "binning":
-    {
+    "binning": {
         "size": 1
     },
     "logging": {
