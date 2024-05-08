@@ -167,11 +167,49 @@ def add_scale_bar(
 ):
     height, width = image.shape[0], image.shape[1]
 
+    MIN_IMAGE_WIDTH_PIXELS = 100
+    if width < MIN_IMAGE_WIDTH_PIXELS:
+        # Don't try to add a scale bar if the image is too small
+        return image
+
     dtype = image.dtype
     is_color = is_color_image(image=image)
 
-    scale_bar_length = min(100, int(width/10))
-    scale_bar_thickness = min(3, int(height/300))
+    pixel_size_um = common_utils.get_pixel_size(
+        focal_length=objective['focal_length'],
+        binning=binning
+    )
+
+    # Scale bar should be 1/8 to 1/4 the image length
+    scale_bar_length_range_pixels = {
+        'min': int(width/8),
+        'max': int(width/4),
+    }
+    scale_bar_length_range_pixels['mid'] = int((scale_bar_length_range_pixels['min'] + scale_bar_length_range_pixels['max']) / 2)
+
+    scale_bar_length_range_um = {k: v*pixel_size_um for k,v in scale_bar_length_range_pixels.items()}
+
+    good_numbers = np.array(
+        [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1250, 1500, 1750, 2000, 2500, 3000]
+    ).astype(int)
+
+    # If needed, adjust the good numbers by factors of 10 to keep them 'good'
+    if scale_bar_length_range_um['min'] > good_numbers.max():
+        while scale_bar_length_range_um['min'] > good_numbers.max():
+            good_numbers *= 10
+    elif scale_bar_length_range_um['max'] < good_numbers.min():
+        while scale_bar_length_range_um['max'] < good_numbers.min():
+            good_numbers /= 10
+
+    # Find the nearest good number to the midpoint target
+    good_numbers_diff = np.absolute(good_numbers-scale_bar_length_range_um['mid'])
+    good_numbers_index = good_numbers_diff.argmin()
+    scale_bar_length_um = good_numbers[good_numbers_index]
+
+    # Convert the calculated value back to pixels
+    scale_bar_length_pixels = int(scale_bar_length_um / pixel_size_um)
+
+    scale_bar_thickness_pixels = min(3, int(height/300))
     scale_bar_bottom_offset = int(height/40)
     scale_bar_right_offset = int(width/40)
 
@@ -181,31 +219,45 @@ def add_scale_bar(
         scale_bar_value = 2**12-1
 
     x_end = width - scale_bar_right_offset
-    x_start = x_end - scale_bar_length
+    x_start = x_end - scale_bar_length_pixels
     y_start = scale_bar_bottom_offset
-    y_end = y_start + scale_bar_thickness
+    y_end = y_start + scale_bar_thickness_pixels
 
     if is_color:
         image[y_start:y_end+1,x_start:x_end+1,:] = scale_bar_value
     else:
         image[y_start:y_end+1,x_start:x_end+1] = scale_bar_value
 
-    pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'],
-        binning=binning
-    )
-    scale_bar_length_um = round(scale_bar_length * pixel_size_um)
     text_x_pos = x_start
     text_y_pos = y_end + 5
-    font_scale = max(0.4, width/4000)
+    font_scale = max(0.75, width/2000)
+    font_face = cv2.FONT_HERSHEY_SIMPLEX
+    font_thickness = 1
+
+    scale_bar_text = f"{scale_bar_length_um}um, {objective['magnification']}x"
+
+    # Adjust the font scaling until the text string is smaller than the scale bar length
+    while True:
+        text_size, _ = cv2.getTextSize(
+            text=scale_bar_text,
+            fontFace=font_face,
+            fontScale=font_scale,
+            thickness=font_thickness
+        )
+        text_w, text_h = text_size
+        if text_w < scale_bar_length_pixels:
+            break
+
+        font_scale *= 0.75
+
     cv2.putText(
         img=image, 
-        text=f"{scale_bar_length_um}um, {objective['magnification']}x",
+        text=scale_bar_text,
         org=(text_x_pos, text_y_pos),
-        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+        fontFace=font_face,
         fontScale=font_scale,
         color=(scale_bar_value,scale_bar_value,scale_bar_value),
-        thickness=1,
+        thickness=font_thickness,
         lineType=cv2.LINE_AA,
         bottomLeftOrigin=True
     )
