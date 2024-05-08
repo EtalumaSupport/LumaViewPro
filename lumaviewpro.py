@@ -3910,7 +3910,7 @@ class MicroscopeSettings(BoxLayout):
                 self.select_image_output_format()
 
                 self.ids['binning_spinner'].text = str(settings['binning']['size'])
-                self.update_binning_size()
+                self.select_binning_size()
                 lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
                 objective_id = settings['objective_id']
@@ -4016,9 +4016,9 @@ class MicroscopeSettings(BoxLayout):
         settings['image_output_format'] = self.ids['image_output_format_spinner'].text
 
     
-    def update_binning_size(self):
+    def update_binning_size(self, size: int):
         global settings
-        size = int(self.ids['binning_spinner'].text)
+        # size = int(self.ids['binning_spinner'].text)
         lumaview.scope.set_binning_size(size=size)
         settings['binning']['size'] = size
 
@@ -4065,6 +4065,7 @@ class MicroscopeSettings(BoxLayout):
         orig_frame_size = get_current_frame_dimensions()
 
         new_binning_size = int(self.ids['binning_spinner'].text)
+        self.update_binning_size(size=new_binning_size)
         ratio = new_binning_size / orig_binning_size
         new_frame_size = {
             'width': math.floor(orig_frame_size['width'] / ratio),
@@ -4073,7 +4074,6 @@ class MicroscopeSettings(BoxLayout):
         self.ids['frame_width_id'].text = str(new_frame_size['width'])
         self.ids['frame_height_id'].text = str(new_frame_size['height'])
         self.frame_size()
-        self.update_binning_size()
 
 
     def load_scopes(self):
@@ -4146,8 +4146,8 @@ class MicroscopeSettings(BoxLayout):
 
         current_frame_size = get_current_frame_dimensions()
 
-        width = int(min(current_frame_size['width'], lumaview.scope.get_max_width())/4)*4
-        height = int(min(current_frame_size['height'], lumaview.scope.get_max_height())/4)*4
+        width = int(min(current_frame_size['width'], lumaview.scope.get_max_width()))
+        height = int(min(current_frame_size['height'], lumaview.scope.get_max_height()))
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
