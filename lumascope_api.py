@@ -434,18 +434,19 @@ class Lumascope():
             return 
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format)
  
+
     def get_max_width(self):
         """CAMERA FUNCTIONS
         Grab the max pixel width of camera
         """
-        if not self.camera: return 0
+        if (not self.camera) or (not self.camera.active): return 0
         return self.camera.active.Width.Max
 
     def get_max_height(self):
         """CAMERA FUNCTIONS
         Grab the max pixel height of camera
         """
-        if not self.camera: return 0
+        if (not self.camera) or (not self.camera.active): return 0
         return self.camera.active.Height.Max
       
     def get_width(self):

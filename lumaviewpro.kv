@@ -948,6 +948,8 @@
 					halign: 'center'
 					multiline: False
 					hint_text: 'Step Name'
+					on_text_validate: root.step_name_validation(self.text)
+					on_focus: if not self.focus: root.step_name_validation(self.text)
 
 			BoxLayout:
 				orientation: 'horizontal'

@@ -2834,8 +2834,12 @@ class ProtocolSettings(CompositeCapture):
         )
 
 
+    def step_name_validation(self, text: str):
+        self.ids['step_name_input'].text = Protocol.sanitize_step_name(input=text)
+
+
     # Labware Selection
-    def select_labware(self, labware : str = None):
+    def select_labware(self, labware: str = None):
         global settings
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
         if labware is None:
