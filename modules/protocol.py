@@ -70,7 +70,7 @@ class Protocol:
 
     @staticmethod
     def sanitize_step_name(input: str) -> str:
-        return re.sub(r'[^a-zA-Z0-9-]', '', input)
+        return re.sub(r'[^a-zA-Z0-9-_]', '', input)
     
 
     def to_file(self, file_path: pathlib.Path):   
