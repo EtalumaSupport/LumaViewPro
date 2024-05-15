@@ -319,19 +319,68 @@ class Lumascope():
         return path
 
 
-    def save_image(
+    def generate_image_metadata(self, color) -> dict:
+        def _validate():
+            if self._objective is None:
+                raise Exception(f"[SCOPE API ] Objective not set")
+            
+            if 'focal_length' not in self._objective:
+                raise Exception(f"[SCOPE API ] Objective focal length not provided")
+
+            if self._labware is None:
+                raise Exception(f"[SCOPE API ] Labware not set")
+            
+            if self._stage_offset is None:
+                raise Exception(f"[SCOPE API ] Stage offset not set")
+            
+        _validate()
+
+        px, py = self._coordinate_transformer.stage_to_plate(
+            labware=self._labware,
+            stage_offset=self._stage_offset,
+            sx=self.get_current_position(axis='X'),
+            sy=self.get_current_position(axis='Y')
+        )
+        z = self.get_current_position(axis='Z')
+
+        px = round(px, common_utils.max_decimal_precision('x'))
+        py = round(py, common_utils.max_decimal_precision('y'))
+        z  = round(z,  common_utils.max_decimal_precision('z'))
+
+        pixel_size_um = round(
+            common_utils.get_pixel_size(
+                focal_length=metadata['focal_length'],
+                binning=metadata['binning_size'],
+            ),
+            common_utils.max_decimal_precision('pixel_size'),
+        )
+        
+        metadata = {
+            'channel': color,
+            'focal_length': self._objective['focal_length'],
+            'plate_pos_mm': {'x': px, 'y': py},
+            'z_pos_um': z,
+            'exposure_time_ms': round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
+            'gain_db': round(self.get_gain(), common_utils.max_decimal_precision('gain')),
+            'illumination_ma': round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
+            'binning_size': self._binning_size,
+            'pixel_size_um': pixel_size_um,
+        }
+
+        return metadata
+    
+
+    def prepare_image_for_saving(
         self,
-        array,
-        save_folder = './capture',
-        file_root = 'img_',
-        append = 'ms',
-        color = 'BF',
-        tail_id_mode = "increment",
-        output_format: str = "TIFF",
+        array: np.ndarray,
+        save_folder: str,
+        file_root: str,
+        append: str,
+        color: str,
+        tail_id_mode: str,
+        output_format: str,
     ):
-        """CAMERA FUNCTIONS
-        save image (as array) to file
-        """
+        metadata = self.generate_image_metadata()
 
         src_dtype = array.dtype
 
@@ -360,59 +409,59 @@ class Lumascope():
             output_format=output_format
         )
 
+        metadata['file_loc'] = path
+
+        return {
+            'image': img,
+            'metadata': metadata,
+        }
+
+
+    def save_image(
+        self,
+        array,
+        save_folder = './capture',
+        file_root = 'img_',
+        append = 'ms',
+        color = 'BF',
+        tail_id_mode = "increment",
+        output_format: str = "TIFF",
+    ):
+        """CAMERA FUNCTIONS
+        save image (as array) to file
+        """
+
+        image_data = self.prepare_image_for_saving(
+            array=array,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            color=color,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+        )
+
+        image = image_data['image']
+        metadata = image_data['metadata']
+        file_loc = metadata['file_loc']
+
         try:
             if output_format == 'OME-TIFF':
-
-                def _validate():
-                    if self._objective is None:
-                        raise Exception(f"[SCOPE API ] Objective not set")
-                    
-                    if 'focal_length' not in self._objective:
-                        raise Exception(f"[SCOPE API ] Objective focal length not provided")
-
-                    if self._labware is None:
-                        raise Exception(f"[SCOPE API ] Labware not set")
-                    
-                    if self._stage_offset is None:
-                        raise Exception(f"[SCOPE API ] Stage offset not set")
-                
-                _validate()
-                
-                px, py = self._coordinate_transformer.stage_to_plate(
-                    labware=self._labware,
-                    stage_offset=self._stage_offset,
-                    sx=self.get_current_position(axis='X'),
-                    sy=self.get_current_position(axis='Y')
-                )
-                z = self.get_current_position(axis='Z')
-
-                if image_utils.is_color_image(img):
-                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-                px = round(px, common_utils.max_decimal_precision('x'))
-                py = round(px, common_utils.max_decimal_precision('y'))
-                z  = round(z,  common_utils.max_decimal_precision('z'))
-
                 image_utils.write_ome_tiff(
-                    data=img,
-                    file_loc=path,
-                    channel=color,
-                    focal_length=self._objective['focal_length'],
-                    plate_pos_mm={'x': px, 'y': py},
-                    z_pos_um=z,
-                    exposure_time_ms=round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
-                    gain_db=round(self.get_gain(), common_utils.max_decimal_precision('gain')),
-                    ill_ma=round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
-                    binning=self._binning_size,
+                    data=image,
+                    file_loc=file_loc,
+                    metadata=metadata,
                 )
+            elif output_format == 'TIFF':
+                cv2.imwrite(str(file_loc), image.astype(array.src_dtype))
             else:
-                cv2.imwrite(str(path), img.astype(src_dtype))
+                return image_data
 
-            logger.info(f'[SCOPE API ] Saving Image to {path}')
+            logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
-        return path
+        return file_loc
     
 
     def save_live_image(

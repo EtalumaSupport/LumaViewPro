@@ -90,26 +90,7 @@ def convert_12bit_to_16bit(image):
     return (new_image * 16)
 
 
-def write_ome_tiff(
-    data,
-    file_loc: pathlib.Path,
-    channel: str,
-    focal_length: float,
-    plate_pos_mm: dict[str, float],
-    z_pos_um: float,
-    exposure_time_ms: float,
-    gain_db: float,
-    ill_ma: float,
-    binning: int,
-):
-    pixel_size = round(
-        common_utils.get_pixel_size(
-            focal_length=focal_length,
-            binning=binning,
-        ),
-        common_utils.max_decimal_precision('pixel_size'),
-    )
-
+def generate_ome_tiff_support_data(data, metadata: dict):
     use_color = image_utils.is_color_image(data)
 
     if use_color:
@@ -119,44 +100,72 @@ def write_ome_tiff(
         photometric = 'minisblack'
         axes = 'YX'
 
-    with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
-        metadata={
-            'axes': axes,
-            'SignificantBits': data.itemsize*8,
-            'PhysicalSizeX': pixel_size,
-            'PhysicalSizeXUnit': 'µm',
-            'PhysicalSizeY': pixel_size,
-            'PhysicalSizeYUnit': 'µm',
-            'Channel': {'Name': [channel]},
-            'Plane': {
-                'PositionX': plate_pos_mm['x'],
-                'PositionY': plate_pos_mm['y'],
-                'PositionZ': z_pos_um,
-                'PositionXUnit': 'mm',
-                'PositionYUnit': 'mm',
-                'PositionZUnit': 'um',
-                'ExposureTime': exposure_time_ms,
-                'ExposureTimeUnit': 'ms',
-                'Gain': gain_db,
-                'GainUnit': 'dB',
-                'Illumination': ill_ma,
-                'IlluminationUnit': 'mA'
-            }
+    metadata={
+        'axes': axes,
+        'SignificantBits': data.itemsize*8,
+        'PhysicalSizeX': metadata['pixel_size_um'],
+        'PhysicalSizeXUnit': 'µm',
+        'PhysicalSizeY': metadata['pixel_size_um'],
+        'PhysicalSizeYUnit': 'µm',
+        'Channel': {'Name': [metadata['channel']]},
+        'Plane': {
+            'PositionX': metadata['plate_pos_mm']['x'],
+            'PositionY': metadata['plate_pos_mm']['y'],
+            'PositionZ': metadata['z_pos_um'],
+            'PositionXUnit': 'mm',
+            'PositionYUnit': 'mm',
+            'PositionZUnit': 'um',
+            'ExposureTime': metadata['exposure_time_ms'],
+            'ExposureTimeUnit': 'ms',
+            'Gain': metadata['gain_db'],
+            'GainUnit': 'dB',
+            'Illumination': metadata['illumination_ma'],
+            'IlluminationUnit': 'mA'
         }
+    }
 
-        options=dict(
-            photometric=photometric,
-            tile=(128, 128),
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=2
-        )
+    options=dict(
+        photometric=photometric,
+        tile=(128, 128),
+        compression='lzw',
+        resolutionunit='CENTIMETER',
+        maxworkers=2
+    )
 
+    resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
+
+    return {
+        'metadata': metadata,
+        'options': options,
+        'resolution': resolution,
+    }
+
+
+def write_ome_tiff(
+    data,
+    file_loc: pathlib.Path,
+    metadata: dict,
+):
+    # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
+    # them before writing out to OME tiff
+    use_color = image_utils.is_color_image(data)
+    if use_color:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    # if use_color:
+    #     photometric = 'rgb'
+    #     axes = 'YXS'
+    # else:
+    #     photometric = 'minisblack'
+    #     axes = 'YX'
+    ome_tiff_support_data = generate_ome_tiff_support_data(data=data, metadata=metadata)
+
+    with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
         tif.write(
             data,
-            resolution=(1e4 / pixel_size, 1e4 / pixel_size),
-            metadata=metadata,
-            **options
+            resolution=ome_tiff_support_data['resolution'],
+            metadata=ome_tiff_support_data['metadata'],
+            **ome_tiff_support_data['options']
         )
 
 

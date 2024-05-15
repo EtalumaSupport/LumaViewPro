@@ -1,5 +1,4 @@
 
-
 import csv
 import datetime
 import io
@@ -804,6 +803,30 @@ class Protocol:
             config=config
         )
     
+
+    def mark_zstack_starts_and_ends(self) -> None:
+        df = self.steps().copy()
+        df['Z-Stack Group Index'] = df.groupby(by=['Z-Stack Group ID']).cumcount()
+        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: True if x==0 else False)
+        df['Last Z'] = df.groupby(by=['Z-Stack Group ID'])['Z-Stack Group Index'].transform('max') == df['Z-Stack Group Index']
+        df = df.drop(columns=['Z-Stack Group Index'])
+        self._config['steps'] = df
+
+
+    def remove_zstack_starts_and_ends(self) -> None:
+        df = self.steps()
+        df = df.drop(columns=['First Z','Last Z'])
+        self._config['steps'] = df
+
+
+    def has_zstacks(self) -> bool:
+        max_group_id = self.steps()['Z-Stack Group ID'].max()
+        if max_group_id > -1:
+            return True
+        else:
+            return False
+    
+        
 
     @classmethod
     def extract_data_from_step_name(cls, s):

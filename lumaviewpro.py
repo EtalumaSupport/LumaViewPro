@@ -496,9 +496,11 @@ def get_image_capture_config_from_ui() -> dict:
     microscope_settings = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
     output_format = microscope_settings.ids['image_output_format_spinner'].text = settings['image_output_format']
     use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
+    save_to_z_tiff_stack = True
     return {
         'output_format': output_format,
         'use_full_pixel_depth': use_full_pixel_depth,
+        'save_to_z_tiff_stack': save_to_z_tiff_stack,
     }
 
 def get_sequenced_capture_config_from_ui() -> dict:

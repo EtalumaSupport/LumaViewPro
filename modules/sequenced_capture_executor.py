@@ -5,11 +5,15 @@ import os
 import time
 import typing
 
+import cv2
+import tifffile as tf
+
 from kivy.clock import Clock
 
 from lumascope_api import Lumascope
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
+import image_utils
 import modules.labware_loader as labware_loader
 from modules.autofocus_executor import AutofocusExecutor
 from modules.protocol import Protocol
@@ -57,6 +61,8 @@ class SequencedCaptureExecutor:
         self._scan_in_progress = False
         self._autofocus_count = 0
         self._autogain_countdown = 0
+        self._image_capture_tiff_writers = {}
+        self._use_tiff_stacks = False
 
 
     @staticmethod
@@ -100,6 +106,11 @@ class SequencedCaptureExecutor:
             run_mode=self._run_mode,
             max_scans=max_scans,
         )
+
+        self._use_tiff_stacks = self._protocol.has_zstacks() and self._image_capture_config['save_to_z_tiff_stack']
+        if self._use_tiff_stacks:
+            self._protocol.mark_zstack_starts_and_ends()
+
         self._start_t = datetime.datetime.now()
 
         if self._disable_saving_artifacts:
@@ -132,7 +143,7 @@ class SequencedCaptureExecutor:
                 'data': None,
                 'error': err_str
             }
-        
+
         return {
             'status': True,
             'data': None,
@@ -387,21 +398,76 @@ class SequencedCaptureExecutor:
             else:
                 save_folder = self._run_dir
 
-            image_filepath = self._capture(
+            output_format=self._image_capture_config['output_format']
+
+            if self._use_tiff_stacks:
+                # Override to OME stack
+                output_format = 'OME-TIFF-STACK'
+
+                # Reset the stack writers on the first Z step of the group
+                if step['First Z']:
+                    self._image_capture_tiff_writers = {}
+
+                if step['Color'] not in self._image_capture_tiff_writers:
+
+                    name = common_utils.generate_default_step_name(
+                        well_label=step['Well'],
+                        color=step['Color'],
+                        z_height_idx=None, #step['Z-Slice'],
+                        scan_count=self._scan_count,
+                        custom_name_prefix=step['Name'],
+                        tile_label=step['Tile']
+                    )
+                    filename = f"{name}.ome.tiff"
+                    self._image_capture_tiff_writers[step['Color']] = tf.TiffWriter(save_folder / filename, bigtiff=False)
+
+            output_format=self._image_capture_config['output_format']
+
+            image_capture_result = self._capture(
                 save_folder=save_folder,
                 step=step,
                 scan_count=self._scan_count,
+                output_format=output_format,
             )
 
+            if self._use_tiff_stacks:
+                image = image_capture_result['image']
+                writer = self._image_capture_tiff_writers[step['Color']]
+                image_metadata = self._scope.generate_image_metadata(color=step['Color'])
+
+                ome_tiff_support_data = image_utils.generate_ome_tiff_support_data(
+                    data=image,
+                    metadata=image_metadata
+                )
+
+                use_color = image_utils.is_color_image(image)
+                if use_color:
+                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+                writer.write(
+                    image,
+                    resolution=ome_tiff_support_data['resolution'],
+                    metadata=ome_tiff_support_data['metadata'],
+                    **ome_tiff_support_data['options'],
+                )
+
+                if step['Last Z']:
+                    for writer in self._image_capture_tiff_writers.values():
+                        writer.close()
+                    self._image_capture_tiff_writers = {}
+
             if self._enable_image_saving:
-                if image_filepath is None:
+                if image_capture_result is None:
                     image_filepath_name = "unsaved"
 
+                elif type(image_capture_result) == dict:
+                    pass
+
                 elif self._separate_folder_per_channel:
-                    image_filepath_name = pathlib.Path(step["Color"]) / image_filepath.name
+                    image_filepath_name = pathlib.Path(step["Color"]) / image_capture_result.name
 
                 else:
-                    image_filepath_name = image_filepath.name
+                    image_filepath_name = image_capture_result.name
             else:
                 image_filepath_name = "unsaved"
 
@@ -548,6 +614,9 @@ class SequencedCaptureExecutor:
         if not self._run_in_progress:
             return
         
+        if self._use_tiff_stacks:
+            self._protocol.remove_zstack_starts_and_ends()
+        
         self._cancel_all_scheduled_events()
 
         if self._leds_state_at_end == "off":
@@ -580,6 +649,7 @@ class SequencedCaptureExecutor:
         self,
         save_folder,
         step,
+        output_format: str,
         scan_count = None,
     ):
         if not step['Auto_Gain']:
@@ -613,19 +683,20 @@ class SequencedCaptureExecutor:
 
         if self._enable_image_saving == True:
             use_full_pixel_depth = self._image_capture_config['use_full_pixel_depth']
+            # output_format = self._image_capture_config['output_format']
 
-            image_filepath = self._scope.save_live_image(
+            result = self._scope.save_live_image(
                 save_folder=save_folder,
                 file_root=None,
                 append=name,
                 color=use_color,
                 tail_id_mode=None,
                 force_to_8bit=not use_full_pixel_depth,
-                output_format=self._image_capture_config['output_format']
+                output_format=output_format
             )
         else:
-            image_filepath = None
+            result = None
 
         self._leds_off()
 
-        return image_filepath
+        return result
