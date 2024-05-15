@@ -3861,16 +3861,9 @@ class ProtocolSettings(CompositeCapture):
         logger.info(f"[LVP Main  ] Scan Step: {step['Name']}")
         
         # Set camera settings
-        lumaview.scope.set_auto_gain(step['Auto_Gain'], target_brightness=settings['protocol']['autogain']['target_brightness'])
         lumaview.scope.led_on(lumaview.scope.color2ch(step['Color']), step['Illumination'])
 
-        if not step['Auto_Gain']:
-            lumaview.scope.set_gain(step['Gain'])
-            # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
-            lumaview.scope.set_exposure_time(step['Exposure'])
-
-        
-        if step['Auto_Gain'] and auto_gain_countdown > 0:
+        if step['Auto_Gain'] and (auto_gain_countdown > 0):
             auto_gain_countdown -= 0.1
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
@@ -3886,7 +3879,7 @@ class ProtocolSettings(CompositeCapture):
             return
         
         # Check if autogain has time-finished after auto-focus so that they can run in parallel
-        if step['Auto_Gain'] and auto_gain_countdown > 0:
+        if step['Auto_Gain'] and (auto_gain_countdown > 0):
             return
         else:
             auto_gain_countdown = settings['protocol']['autogain']['max_duration_seconds']
@@ -4946,6 +4939,14 @@ class LayerControl(BoxLayout):
                 if layer != self.layer:
                     lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
+        # update exposure to currently selected settings
+        # -----------------------------------------------------
+        exposure = settings[self.layer]['exp']
+        gain = settings[self.layer]['gain']
+
+        lumaview.scope.set_gain(gain)
+        lumaview.scope.set_exposure_time(exposure)
+
         # update gain to currently selected settings
         # -----------------------------------------------------
         auto_gain_enabled = settings[self.layer]['auto_gain']
@@ -4953,16 +4954,6 @@ class LayerControl(BoxLayout):
         if not ignore_auto_gain:
             lumaview.scope.set_auto_gain(auto_gain_enabled, target_brightness=auto_gain_target_brightness)
 
-
-        # update exposure to currently selected settings
-        # -----------------------------------------------------
-        exposure = settings[self.layer]['exp']
-        gain = settings[self.layer]['gain']
-
-        if not auto_gain_enabled:
-            lumaview.scope.set_gain(gain)
-            lumaview.scope.set_exposure_time(exposure)
-        
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
         if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
