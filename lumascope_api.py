@@ -444,13 +444,18 @@ class Lumascope():
         if not self.camera: return
         self.camera.gain(gain)
 
-    def set_auto_gain(self, state=True, target_brightness: float=0.5):
+    def set_auto_gain(self, state: bool, settings: dict):
         """CAMERA FUNCTIONS
         Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
         if not self.camera: return
-        self.camera.auto_gain(state, target_brightness=target_brightness)
+        self.camera.auto_gain(
+            state,
+            target_brightness=settings['target_brightness'],
+            min_gain=settings['min_gain'],
+            max_gain=settings['max_gain'],
+        )
 
     def set_exposure_time(self, t):
         """CAMERA FUNCTIONS

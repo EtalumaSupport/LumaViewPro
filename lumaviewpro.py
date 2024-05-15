@@ -247,6 +247,10 @@ def get_zstack_positions() -> tuple[bool, dict]:
     return True, zstack_config.step_positions()
 
 
+def get_auto_gain_settings() -> dict:
+    return settings['protocol']['autogain']
+
+
 def get_current_objective_info() -> tuple[str, dict]:
     objective_id = settings['objective_id']
     objective = objective_helper.get_objective_info(objective_id=objective_id)
@@ -3742,7 +3746,8 @@ class ProtocolSettings(CompositeCapture):
         lumaview.scope.leds_off()
         lumaview.scope.led_on(step['Color'], step['Illumination'])
         lumaview.scope.set_gain(step['Gain'])
-        lumaview.scope.set_auto_gain(step['Auto_Gain'], target_brightness=settings['protocol']['autogain']['target_brightness'])
+        autogain_settings = get_auto_gain_settings()
+        lumaview.scope.set_auto_gain(step['Auto_Gain'], settings=autogain_settings)
         lumaview.scope.set_exposure_time(step['Exposure'])
 
         # Begin autofocus routine
@@ -3935,7 +3940,8 @@ class ProtocolSettings(CompositeCapture):
 
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
-            lumaview.scope.set_auto_gain(state=False)
+            autogain_settings = get_auto_gain_settings()
+            lumaview.scope.set_auto_gain(state=False, settings=autogain_settings)
 
         if self.curr_step < len(self._protocol_df)-1:
 
@@ -4490,7 +4496,9 @@ class MicroscopeSettings(BoxLayout):
                 if 'autogain' not in settings['protocol']:
                     settings['protocol']['autogain'] = {
                         'max_duration_seconds': 1.0,
-                        'target_brightness': 0.3
+                        'target_brightness': 0.3,
+                        'min_gain': 0.0,
+                        'max_gain': 20.0,
                     }
 
                 settings['live_folder'] = str(pathlib.Path(settings['live_folder']).resolve())
@@ -4951,8 +4959,10 @@ class LayerControl(BoxLayout):
         # -----------------------------------------------------
         auto_gain_enabled = settings[self.layer]['auto_gain']
         auto_gain_target_brightness = settings['protocol']['autogain']['target_brightness']
+
         if not ignore_auto_gain:
-            lumaview.scope.set_auto_gain(auto_gain_enabled, target_brightness=auto_gain_target_brightness)
+            autogain_settings = get_auto_gain_settings()
+            lumaview.scope.set_auto_gain(auto_gain_enabled, settings=autogain_settings)
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------

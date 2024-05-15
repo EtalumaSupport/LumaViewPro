@@ -96,7 +96,9 @@
         "filepath": "./data/new_default_protocol.tsv",
         "autogain": {
             "target_brightness": 0.3,
-            "max_duration_seconds": 1.0
+            "max_duration_seconds": 1.0,
+            "min_gain": 0.0,
+            "max_gain": 20.0
         }
     },
     "logging": {
