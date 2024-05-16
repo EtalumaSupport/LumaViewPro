@@ -765,6 +765,7 @@ class Protocol:
         
         table_str = ''.join(table_lines)
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
+        protocol_df['Name'] = protocol_df['Name'].astype(str)
 
         if config['version'] == 1:
             protocol_df['Step Index'] = protocol_df.index
