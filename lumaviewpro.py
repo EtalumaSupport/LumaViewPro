@@ -3205,6 +3205,9 @@ class ProtocolSettings(CompositeCapture):
         table_str = ''.join(table_lines)
         new_protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n')
 
+        # Handle special case where all values in Name column are integers, so Pandas defaults to integer type for this col
+        new_protocol_df['Name'] = new_protocol_df['Name'].astype(str)
+
         # Since there is currently no versioning in the protocol file, this is a workaround to add 'Objective'
         # to the protocol file, and still be able to load older protocol files which do not contain an 'Objective' column
         # for row in csvreader:

@@ -138,6 +138,9 @@ class Protocol:
         table_str = ''.join(table_lines)
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
 
+        # Handle special case where all values in Name column are integers, so Pandas defaults to integer type for this col
+        protocol_df['Name'] = protocol_df['Name'].astype(str)
+
         #     columns = next(csvreader)
         #     column_map = cls._get_column_index_map(column_names=columns)
 
