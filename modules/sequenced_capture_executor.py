@@ -61,8 +61,8 @@ class SequencedCaptureExecutor:
         self._scan_in_progress = False
         self._autofocus_count = 0
         self._autogain_countdown = 0
-        self._image_capture_tiff_writers = {}
-        self._use_tiff_stacks = False
+        # self._image_capture_tiff_writers = {}
+        # self._use_tiff_stacks = False
 
 
     @staticmethod
@@ -107,9 +107,9 @@ class SequencedCaptureExecutor:
             max_scans=max_scans,
         )
 
-        self._use_tiff_stacks = self._protocol.has_zstacks() and self._image_capture_config['save_to_z_tiff_stack']
-        if self._use_tiff_stacks:
-            self._protocol.mark_zstack_starts_and_ends()
+        # self._use_tiff_stacks = self._image_capture_config['output_format'] == 'ImageJ Hyperstack' #self._protocol.has_zstacks() and self._image_capture_config['save_to_z_tiff_stack']
+        # if self._use_tiff_stacks:
+        #     self._protocol.mark_zstack_starts_and_ends()
 
         self._start_t = datetime.datetime.now()
 
@@ -400,28 +400,26 @@ class SequencedCaptureExecutor:
 
             output_format=self._image_capture_config['output_format']
 
-            if self._use_tiff_stacks:
-                # Override to OME stack
-                output_format = 'OME-TIFF-STACK'
+            # if self._use_tiff_stacks:
+            #     # Override to OME stack
+            #     output_format = 'OME-TIFF-STACK'
 
-                # Reset the stack writers on the first Z step of the group
-                if step['First Z']:
-                    self._image_capture_tiff_writers = {}
+            #     # Reset the stack writers on the first Z step of the group
+            #     if step['First Z']:
+            #         self._image_capture_tiff_writers = {}
 
-                if step['Color'] not in self._image_capture_tiff_writers:
+            #     if step['Color'] not in self._image_capture_tiff_writers:
 
-                    name = common_utils.generate_default_step_name(
-                        well_label=step['Well'],
-                        color=step['Color'],
-                        z_height_idx=None, #step['Z-Slice'],
-                        scan_count=self._scan_count,
-                        custom_name_prefix=step['Name'],
-                        tile_label=step['Tile']
-                    )
-                    filename = f"{name}.ome.tiff"
-                    self._image_capture_tiff_writers[step['Color']] = tf.TiffWriter(save_folder / filename, bigtiff=False)
-
-            output_format=self._image_capture_config['output_format']
+            #         name = common_utils.generate_default_step_name(
+            #             well_label=step['Well'],
+            #             color=step['Color'],
+            #             z_height_idx=None, #step['Z-Slice'],
+            #             scan_count=self._scan_count,
+            #             custom_name_prefix=step['Name'],
+            #             tile_label=step['Tile']
+            #         )
+            #         filename = f"{name}.ome.tiff"
+            #         self._image_capture_tiff_writers[step['Color']] = tf.TiffWriter(save_folder / filename, bigtiff=False)
 
             image_capture_result = self._capture(
                 save_folder=save_folder,
@@ -430,38 +428,39 @@ class SequencedCaptureExecutor:
                 output_format=output_format,
             )
 
-            if self._use_tiff_stacks:
-                image = image_capture_result['image']
-                writer = self._image_capture_tiff_writers[step['Color']]
-                image_metadata = self._scope.generate_image_metadata(color=step['Color'])
+            # if self._use_tiff_stacks:
+            #     image = image_capture_result['image']
+            #     writer = self._image_capture_tiff_writers[step['Color']]
+            #     image_metadata = self._scope.generate_image_metadata(color=step['Color'])
 
-                ome_tiff_support_data = image_utils.generate_ome_tiff_support_data(
-                    data=image,
-                    metadata=image_metadata
-                )
+            #     ome_tiff_support_data = image_utils.generate_ome_tiff_support_data(
+            #         data=image,
+            #         metadata=image_metadata
+            #     )
 
-                use_color = image_utils.is_color_image(image)
-                if use_color:
-                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            #     use_color = image_utils.is_color_image(image)
+            #     if use_color:
+            #         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-                writer.write(
-                    image,
-                    resolution=ome_tiff_support_data['resolution'],
-                    metadata=ome_tiff_support_data['metadata'],
-                    **ome_tiff_support_data['options'],
-                )
+            #     writer.write(
+            #         image,
+            #         imagej=True,
+            #         resolution=ome_tiff_support_data['resolution'],
+            #         metadata=ome_tiff_support_data['metadata'],
+            #         **ome_tiff_support_data['options'],
+            #     )
 
-                if step['Last Z']:
-                    for writer in self._image_capture_tiff_writers.values():
-                        writer.close()
-                    self._image_capture_tiff_writers = {}
+            #     if step['Last Z']:
+            #         for writer in self._image_capture_tiff_writers.values():
+            #             writer.close()
+            #         self._image_capture_tiff_writers = {}
 
             if self._enable_image_saving:
                 if image_capture_result is None:
                     image_filepath_name = "unsaved"
 
                 elif type(image_capture_result) == dict:
-                    pass
+                    image_filepath_name = image_capture_result['metadata']['file_loc']
 
                 elif self._separate_folder_per_channel:
                     image_filepath_name = pathlib.Path(step["Color"]) / image_capture_result.name
@@ -614,8 +613,8 @@ class SequencedCaptureExecutor:
         if not self._run_in_progress:
             return
         
-        if self._use_tiff_stacks:
-            self._protocol.remove_zstack_starts_and_ends()
+        # if self._use_tiff_stacks:
+        #     self._protocol.remove_zstack_starts_and_ends()
         
         self._cancel_all_scheduled_events()
 
@@ -640,6 +639,13 @@ class SequencedCaptureExecutor:
             )
 
         self._run_in_progress = False
+
+        # if self._use_tiff_stacks:
+        #     stack_builder = StackBuilder()
+        #     stack_builder.load_folder(
+        #         path=self._run_dir,
+        #         tiling_configs_file_loc=self._tiling_configs_file_loc,
+        #     )
 
         if 'run_complete' in self._callbacks:
             self._callbacks['run_complete'](protocol=self._protocol)
@@ -679,6 +685,10 @@ class SequencedCaptureExecutor:
         if 'update_scope_display' in self._callbacks:
             self._callbacks['update_scope_display']()
         
+        # if 'OME' in output_format:
+        #     # Force OME captures to only be single channel per image
+        #     use_color = False
+        # else:
         use_color = step['Color'] if step['False_Color'] else 'BF'
 
         if self._enable_image_saving == True:
@@ -692,7 +702,8 @@ class SequencedCaptureExecutor:
                 color=use_color,
                 tail_id_mode=None,
                 force_to_8bit=not use_full_pixel_depth,
-                output_format=output_format
+                output_format=output_format,
+                true_color=step['Color'],
             )
         else:
             result = None

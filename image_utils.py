@@ -100,7 +100,7 @@ def generate_ome_tiff_support_data(data, metadata: dict):
         photometric = 'minisblack'
         axes = 'YX'
 
-    metadata={
+    ome_metadata={
         'axes': axes,
         'SignificantBits': data.itemsize*8,
         'PhysicalSizeX': metadata['pixel_size_um'],
@@ -135,7 +135,7 @@ def generate_ome_tiff_support_data(data, metadata: dict):
     resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
 
     return {
-        'metadata': metadata,
+        'metadata': ome_metadata,
         'options': options,
         'resolution': resolution,
     }

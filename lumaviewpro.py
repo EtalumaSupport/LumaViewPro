@@ -134,6 +134,7 @@ import modules.objectives_loader as objectives_loader
 from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureExecutor
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+from modules.stack_builder import StackBuilder
 from modules.zstack_config import ZStackConfig
 from modules.json_helper import CustomJSONizer
 import modules.imagej_helper as imagej_helper
@@ -496,11 +497,11 @@ def get_image_capture_config_from_ui() -> dict:
     microscope_settings = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
     output_format = microscope_settings.ids['image_output_format_spinner'].text = settings['image_output_format']
     use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
-    save_to_z_tiff_stack = True
+    # save_to_z_tiff_stack = True
     return {
         'output_format': output_format,
         'use_full_pixel_depth': use_full_pixel_depth,
-        'save_to_z_tiff_stack': save_to_z_tiff_stack,
+        # 'save_to_z_tiff_stack': save_to_z_tiff_stack,
     }
 
 def get_sequenced_capture_config_from_ui() -> dict:
@@ -512,7 +513,6 @@ def get_sequenced_capture_config_from_ui() -> dict:
     use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
     frame_dimensions = get_current_frame_dimensions()
     zstack_positions_valid, zstack_positions = get_zstack_positions()
-    binning = get_binning_from_ui()
 
     layer_configs = get_layer_configs()
 
@@ -527,7 +527,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
         'period': time_params['period'],
         'duration': time_params['duration'],
         'frame_dimensions': frame_dimensions,
-        'binning': binning,
+        'binning_size': get_binning_from_ui(),
     }
 
     return config
@@ -3483,6 +3483,8 @@ class ProtocolSettings(CompositeCapture):
 
         sequence_name = self.ids['protocol_filename'].text
 
+        image_capture_config=get_image_capture_config_from_ui()
+
         sequenced_capture_executor.run(
             protocol=self._protocol,
             run_mode=run_mode,
@@ -3490,7 +3492,7 @@ class ProtocolSettings(CompositeCapture):
             max_scans=max_scans,
             sequence_name=sequence_name,
             parent_dir=parent_dir,
-            image_capture_config=get_image_capture_config_from_ui(),
+            image_capture_config=image_capture_config,
             enable_image_saving=is_image_saving_enabled(),
             separate_folder_per_channel=lumaview.ids['motionsettings_id'].ids['microscope_settings_id']._seperate_folder_per_channel,
             autogain_target_brightness=settings['protocol']['autogain']['target_brightness'],
@@ -3502,6 +3504,13 @@ class ProtocolSettings(CompositeCapture):
         )
         
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
+
+        if image_capture_config['output_format'] == 'ImageJ Hyperstack':
+            stack_builder = StackBuilder()
+            stack_builder.load_folder(
+                path=self._run_dir,
+                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            )
         
         if run_mode == SequencedCaptureRunMode.FULL_PROTOCOL:
             self._update_protocol_run_button_status(
@@ -4463,7 +4472,8 @@ class ZStack(CompositeCapture):
             'layer_configs': {active_layer: active_layer_config},
             'period': None,
             'duration': None,
-            'frame_dimensions': get_current_frame_dimensions()
+            'frame_dimensions': get_current_frame_dimensions(),
+            'binning_size': get_binning_from_ui(),
         }
         
         zstack_sequence = Protocol.from_config(
@@ -4485,6 +4495,7 @@ class ZStack(CompositeCapture):
         parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
 
         initial_position = get_current_plate_position()
+        image_capture_config = get_image_capture_config_from_ui()
 
         sequenced_capture_executor.run(
             protocol=zstack_sequence,
@@ -4493,7 +4504,7 @@ class ZStack(CompositeCapture):
             max_scans=1,
             sequence_name='zstack',
             parent_dir=parent_dir,
-            image_capture_config=get_image_capture_config_from_ui(),
+            image_capture_config=image_capture_config,
             enable_image_saving=is_image_saving_enabled(),
             separate_folder_per_channel=False,
             autogain_target_brightness=autogain_target_brightness,
@@ -4504,6 +4515,13 @@ class ZStack(CompositeCapture):
         )
 
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
+
+        if image_capture_config['output_format'] == 'ImageJ Hyperstack':
+            stack_builder = StackBuilder()
+            stack_builder.load_folder(
+                path=self._run_dir,
+                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            )
         
 
 class FileChooseBTN(Button):
@@ -4887,6 +4905,7 @@ class LumaViewProApp(App):
             scope=lumaview.scope,
             stage_offset=settings['stage_offset'],
             autofocus_executor=autofocus_executor,
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
         )
         
         # Continuously update image of stage and protocol

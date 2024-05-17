@@ -80,6 +80,9 @@ class ZProjector(ProtocolPostProcessingExecutor):
         # Skip videos
         df = df[df[PostFunction.VIDEO.value] == False]
 
+        # Skip stacks
+        df = df[df[PostFunction.STACK.value] == False]
+
         return df
     
 

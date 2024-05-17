@@ -467,7 +467,7 @@ class Protocol:
         period = input_config['period']
         duration = input_config['duration']
         frame_dimensions = input_config['frame_dimensions']
-        binning = input_config['binning']
+        binning = input_config['binning_size']
 
         objective_loader = ObjectiveLoader()
         objective = objective_loader.get_objective_info(objective_id=objective_id)
@@ -633,7 +633,6 @@ class Protocol:
         period = config['period']
         duration = config['duration']
         frame_dimensions = config['frame_dimensions']
-        binning = config['binning']
 
         input_config = {
             'labware_id': labware_id,
@@ -646,7 +645,7 @@ class Protocol:
             'period': period,
             'duration': duration,
             'frame_dimensions': frame_dimensions,
-            'binning': binning,
+            'binning_size': config['binning_size'],
         }
 
         return cls.from_config(

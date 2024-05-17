@@ -6,7 +6,7 @@ import re
 
 def generate_default_step_name(
     well_label,
-    color,
+    color = None,
     z_height_idx = None,
     scan_count = None,
     tile_label = None,
@@ -14,11 +14,16 @@ def generate_default_step_name(
     stitched: bool = False,
     video: bool = False,
     zprojection: str | None = None,
+    stack: bool = False,
+    hyperstack: bool = False,
 ):
     if custom_name_prefix not in (None, ""):
-        name = f"{custom_name_prefix}_{color}"
+        name = f"{custom_name_prefix}"
     else:
-        name = f"{well_label}_{color}"
+        name = f"{well_label}"
+
+    if color not in (None, ""):
+        name = f"{name}_{color}"
     
     if tile_label not in (None, "", -1):
         name = f"{name}_T{tile_label}"
@@ -38,6 +43,12 @@ def generate_default_step_name(
 
     if zprojection is not None:
         name = f'{name}_zproj_{zprojection}'
+
+    if stack:
+        name = f'{name}_stack'
+
+    if hyperstack:
+        name = f'{name}_hyperstack'
     
     return name
 

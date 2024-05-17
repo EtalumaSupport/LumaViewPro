@@ -69,8 +69,11 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
-        # Skip already composited outputs
+        # Skip self outputs
         df = df[df[self._post_function.value] == False]
+
+        # Skip stacks
+        df = df[df[PostFunction.STACK.value] == False]
 
         return df
     

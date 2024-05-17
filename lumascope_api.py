@@ -349,8 +349,8 @@ class Lumascope():
 
         pixel_size_um = round(
             common_utils.get_pixel_size(
-                focal_length=metadata['focal_length'],
-                binning=metadata['binning_size'],
+                focal_length=self._objective['focal_length'],
+                binning=self._binning_size,
             ),
             common_utils.max_decimal_precision('pixel_size'),
         )
@@ -379,8 +379,9 @@ class Lumascope():
         color: str,
         tail_id_mode: str,
         output_format: str,
+        true_color: str,
     ):
-        metadata = self.generate_image_metadata()
+        metadata = self.generate_image_metadata(color=true_color)
 
         src_dtype = array.dtype
 
@@ -426,6 +427,7 @@ class Lumascope():
         color = 'BF',
         tail_id_mode = "increment",
         output_format: str = "TIFF",
+        true_color: str = 'BF',
     ):
         """CAMERA FUNCTIONS
         save image (as array) to file
@@ -439,6 +441,7 @@ class Lumascope():
             color=color,
             tail_id_mode=tail_id_mode,
             output_format=output_format,
+            true_color=true_color,
         )
 
         image = image_data['image']
@@ -453,7 +456,7 @@ class Lumascope():
                     metadata=metadata,
                 )
             elif output_format == 'TIFF':
-                cv2.imwrite(str(file_loc), image.astype(array.src_dtype))
+                cv2.imwrite(str(file_loc), image.astype(array.dtype))
             else:
                 return image_data
 
@@ -472,7 +475,8 @@ class Lumascope():
             color = 'BF',
             tail_id_mode = "increment",
             force_to_8bit: bool = True,
-            output_format: str = "TIFF"
+            output_format: str = "TIFF",
+            true_color: str = 'BF',
         ):
 
         """CAMERA FUNCTIONS
@@ -481,7 +485,7 @@ class Lumascope():
         array = self.get_image(force_to_8bit=force_to_8bit)
         if array is False:
             return 
-        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format)
+        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
  
 
     def get_max_width(self):
