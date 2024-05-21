@@ -172,7 +172,7 @@ def write_ome_tiff(
 def add_scale_bar(
     image,
     objective: dict,
-    binning: int
+    binning_size: int
 ):
     height, width = image.shape[0], image.shape[1]
 
@@ -186,7 +186,7 @@ def add_scale_bar(
 
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
-        binning=binning
+        binning_size=binning_size
     )
 
     # Scale bar should be 1/8 to 1/4 the image length

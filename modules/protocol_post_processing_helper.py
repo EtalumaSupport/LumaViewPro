@@ -242,10 +242,11 @@ class ProtocolPostProcessingHelper:
         )
 
         if protocol is None:
-            logger.error(f"{self._name}: Protocol not loaded")
+            msg = "Protocol not loaded"
+            logger.error(f"{self._name}: {msg}")
             return {
                 'status': False,
-                'message': 'Protocol not loaded'
+                'message': msg,
             }
         
         protocol_execution_record = ProtocolExecutionRecord.from_file(
@@ -253,10 +254,19 @@ class ProtocolPostProcessingHelper:
         )
 
         if protocol_execution_record is None:
-            logger.error(f"{self._name}: Protocol Execution Record not loaded")
+            msg = "Protocol Execution Record not loaded"
+            logger.error(f"{self._name}: {msg}")
             return {
                 'status': False,
-                'message': 'Protocol Execution Record not loaded'
+                'message': msg,
+            }
+        
+        if protocol_execution_record.num_records() == 0:
+            msg = "Protocol Execution Record has no records"
+            logger.error(f"{self._name}: {msg}")
+            return {
+                'status': False,
+                'message': msg,
             }
         
         
@@ -304,6 +314,14 @@ class ProtocolPostProcessingHelper:
             protocol_post_record=protocol_post_record,
         )
         post_images_df['Raw'] = False
+
+        if (len(raw_images_df) == 0) and (len(post_images_df) == 0):
+            msg = "No images found to process"
+            logger.error(f"{self._name}: {msg}")
+            return {
+                'status': False,
+                'message': msg,
+            }
 
         df_list = [raw_images_df, post_images_df]
         images_df = pd.concat([df for df in df_list if not df.empty])

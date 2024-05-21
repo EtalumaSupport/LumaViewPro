@@ -4,7 +4,7 @@ import pathlib
 import numpy as np
 import pandas as pd
 import tifffile as tf
-from ome_types.model import OME, Image, Pixels, UnitsTime, UnitsLength, Channel
+# from ome_types.model import OME, Image, Pixels, UnitsTime, UnitsLength, Channel
 
 import image_utils
 
@@ -18,7 +18,7 @@ class StackBuilder(ProtocolPostProcessingExecutor):
 
     def __init__(self):
         super().__init__(
-            post_function=PostFunction.STACK
+            post_function=PostFunction.HYPERSTACK
         )
         self._name = self.__class__.__name__
         
@@ -27,14 +27,10 @@ class StackBuilder(ProtocolPostProcessingExecutor):
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
         return df.groupby(
             by=[
-                # 'Scan Count',
-                # 'Z-Slice',
                 'Well',
-                # 'Color',
                 'Objective',
                 'X',
                 'Y',
-                # 'Z',
                 'Tile',
                 'Tile Group ID',
                 'Custom Step',
@@ -124,91 +120,6 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         binning_size: int,
         focal_length: float,
     ):
-        
-        """
-        px, py = self._coordinate_transformer.stage_to_plate(
-            labware=self._labware,
-            stage_offset=self._stage_offset,
-            sx=self.get_current_position(axis='X'),
-            sy=self.get_current_position(axis='Y')
-        )
-        z = self.get_current_position(axis='Z')
-
-        px = round(px, common_utils.max_decimal_precision('x'))
-        py = round(py, common_utils.max_decimal_precision('y'))
-        z  = round(z,  common_utils.max_decimal_precision('z'))
-
-        pixel_size_um = round(
-            common_utils.get_pixel_size(
-                focal_length=self._objective['focal_length'],
-                binning=self._binning_size,
-            ),
-            common_utils.max_decimal_precision('pixel_size'),
-        )
-        
-        metadata = {
-            'channel': color,
-            'focal_length': self._objective['focal_length'],
-            'plate_pos_mm': {'x': px, 'y': py},
-            'z_pos_um': z,
-            'exposure_time_ms': round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
-            'gain_db': round(self.get_gain(), common_utils.max_decimal_precision('gain')),
-            'illumination_ma': round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
-            'binning_size': self._binning_size,
-            'pixel_size_um': pixel_size_um,
-        }
-        """
-
-        """
-        use_color = image_utils.is_color_image(data)
-
-        if use_color:
-            photometric = 'rgb'
-            axes = 'YXS'
-        else:
-            photometric = 'minisblack'
-            axes = 'YX'
-
-        ome_metadata={
-            'axes': axes,
-            'SignificantBits': data.itemsize*8,
-            'PhysicalSizeX': metadata['pixel_size_um'],
-            'PhysicalSizeXUnit': 'µm',
-            'PhysicalSizeY': metadata['pixel_size_um'],
-            'PhysicalSizeYUnit': 'µm',
-            'Channel': {'Name': [metadata['channel']]},
-            'Plane': {
-                'PositionX': metadata['plate_pos_mm']['x'],
-                'PositionY': metadata['plate_pos_mm']['y'],
-                'PositionZ': metadata['z_pos_um'],
-                'PositionXUnit': 'mm',
-                'PositionYUnit': 'mm',
-                'PositionZUnit': 'um',
-                'ExposureTime': metadata['exposure_time_ms'],
-                'ExposureTimeUnit': 'ms',
-                'Gain': metadata['gain_db'],
-                'GainUnit': 'dB',
-                'Illumination': metadata['illumination_ma'],
-                'IlluminationUnit': 'mA'
-            }
-        }
-
-        options=dict(
-            photometric=photometric,
-            tile=(128, 128),
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=2
-        )
-
-        resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
-
-        return {
-            'metadata': ome_metadata,
-            'options': options,
-            'resolution': resolution,
-        }
-        """
 
         axes = "TZCYX"
         photometric = 'minisblack'
@@ -226,7 +137,7 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         pixel_size_um = round(
             common_utils.get_pixel_size(
                 focal_length=focal_length,
-                binning=binning_size,
+                binning_size=binning_size,
             ),
             common_utils.max_decimal_precision('pixel_size'),
         )
@@ -279,129 +190,126 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         }
     
 
-    @staticmethod
-    def _generate_image_metadata_ome_types(
-        df: pd.DataFrame,
-        path: pathlib.Path,
-        output_file_loc: pathlib.Path,
-        plane_metadata: dict,
-        binning_size: int,
-        focal_length: float,
-    ):
-        num_t = df['Scan Count'].nunique()
-        num_z = df['Z-Slice'].nunique()
-        num_c = df['Color'].nunique()
+    # @staticmethod
+    # def _generate_image_metadata_ome_types(
+    #     df: pd.DataFrame,
+    #     path: pathlib.Path,
+    #     output_file_loc: pathlib.Path,
+    #     plane_metadata: dict,
+    #     binning_size: int,
+    #     focal_length: float,
+    # ):
+    #     num_t = df['Scan Count'].nunique()
+    #     num_z = df['Z-Slice'].nunique()
+    #     num_c = df['Color'].nunique()
 
-        channel_names = df['Color'].unique().tolist()
+    #     channel_names = df['Color'].unique().tolist()
 
-        row0 = df.iloc[0]
-        sample_image_file_loc = path / row0['Filepath']
-        sample_image = tf.imread(sample_image_file_loc)
-        sample_image_shape = sample_image.shape
-        h, w = sample_image_shape[0], sample_image_shape[1]
+    #     row0 = df.iloc[0]
+    #     sample_image_file_loc = path / row0['Filepath']
+    #     sample_image = tf.imread(sample_image_file_loc)
+    #     sample_image_shape = sample_image.shape
+    #     h, w = sample_image_shape[0], sample_image_shape[1]
 
-        pixel_size_um = round(
-            common_utils.get_pixel_size(
-                focal_length=focal_length,
-                binning=binning_size,
-            ),
-            common_utils.max_decimal_precision('pixel_size'),
-        )
-        ome = OME()
+    #     pixel_size_um = round(
+    #         common_utils.get_pixel_size(
+    #             focal_length=focal_length,
+    #             binning_size=binning_size,
+    #         ),
+    #         common_utils.max_decimal_precision('pixel_size'),
+    #     )
+    #     ome = OME()
 
 
-        channels = []
-        for channel_name in channel_names:
-            channels.append(
-                Channel(
-                    name=channel_name,
-                )
-            )
+    #     channels = []
+    #     for channel_name in channel_names:
+    #         channels.append(
+    #             Channel(
+    #                 name=channel_name,
+    #             )
+    #         )
 
-        pixels=Pixels(
-            dimension_order='XYCZT',
-            size_c=num_c,
-            size_t=num_t,
-            size_z=num_z,
-            size_x=w,
-            size_y=h,
-            type=str(sample_image.dtype),
-            channels=channels,
-            physical_size_x=pixel_size_um,
-            physical_size_x_unit=UnitsLength.MICROMETER,
-            physical_size_y=pixel_size_um,
-            physical_size_y_unit=UnitsLength.MICROMETER,
-            time_increment=1,
-            time_increment_unit=UnitsTime.SECOND,
-        )
-        image_metadata = Image(
-            # id=output_file_loc.name,
-            name=output_file_loc.name,
-            pixels=pixels,
-        )
-        ome.images.append(image_metadata)
+    #     pixels=Pixels(
+    #         dimension_order='XYCZT',
+    #         size_c=num_c,
+    #         size_t=num_t,
+    #         size_z=num_z,
+    #         size_x=w,
+    #         size_y=h,
+    #         type=str(sample_image.dtype),
+    #         channels=channels,
+    #         physical_size_x=pixel_size_um,
+    #         physical_size_x_unit=UnitsLength.MICROMETER,
+    #         physical_size_y=pixel_size_um,
+    #         physical_size_y_unit=UnitsLength.MICROMETER,
+    #         time_increment=1,
+    #         time_increment_unit=UnitsTime.SECOND,
+    #     )
+    #     image_metadata = Image(
+    #         # id=output_file_loc.name,
+    #         name=output_file_loc.name,
+    #         pixels=pixels,
+    #     )
+    #     ome.images.append(image_metadata)
 
-        return ome
+    #     return ome
 
-        axes = "TZCYX"
-        photometric = 'minisblack'
-
-        
-        z_vals = df['Z'].unique().tolist()
-        row0 = df.iloc[0]
-        # num_planes = len(z_vals)
-        # num_channels = len(channel_names)
+    #     axes = "TZCYX"
+    #     photometric = 'minisblack'
 
         
+    #     z_vals = df['Z'].unique().tolist()
+    #     row0 = df.iloc[0]
+    #     # num_planes = len(z_vals)
+    #     # num_channels = len(channel_names)
 
-       
 
-        row0 = df.iloc[0]
-        sample_image_file_loc = path / row0['Filepath']
-        sample_image = tf.imread(sample_image_file_loc)
+        # row0 = df.iloc[0]
+        # sample_image_file_loc = path / row0['Filepath']
+        # sample_image = tf.imread(sample_image_file_loc)
 
-        metadata={
-            'axes': axes,
-            'SignificantBits': sample_image.itemsize*8,
-            'Pixels': {
-                'PhysicalSizeX': pixel_size_um,
-                'PhysicalSizeXUnit': 'µm',
-                'PhysicalSizeY': pixel_size_um,
-                'PhysicalSizeYUnit': 'µm',
-            },
-            'Channel': {'Name': channel_names},
+        # metadata={
+        #     'axes': axes,
+        #     'SignificantBits': sample_image.itemsize*8,
+        #     'Pixels': {
+        #         'PhysicalSizeX': pixel_size_um,
+        #         'PhysicalSizeXUnit': 'µm',
+        #         'PhysicalSizeY': pixel_size_um,
+        #         'PhysicalSizeYUnit': 'µm',
+        #     },
+        #     'Channel': {'Name': channel_names},
 
-            # 'Plane': plane_metadata, #,{
-            #     'PositionX': num_planes*[row0['X']],
-            #     'PositionY': num_planes*[row0['Y']],
-            #     'PositionZ': z_vals, #['z_pos_um'],
-            #     'PositionXUnit': num_planes*['mm'],
-            #     'PositionYUnit': num_planes*['mm'],
-            #     'PositionZUnit': num_planes*['um'],
-            #     # 'ExposureTime': num_planes*[0], #metadata['exposure_time_ms'],
-            #     # 'ExposureTimeUnit': num_planes*['ms'],
-            #     # 'Gain': num_planes*[0], #metadata['gain_db'],
-            #     # 'GainUnit': num_planes*['dB'],
-            #     # 'Illumination': num_planes*[0], #metadata['illumination_ma'],
-            #     # 'IlluminationUnit': num_planes*['mA'],
-            # }
-        }
+        #     # 'Plane': plane_metadata, #,{
+        #     #     'PositionX': num_planes*[row0['X']],
+        #     #     'PositionY': num_planes*[row0['Y']],
+        #     #     'PositionZ': z_vals, #['z_pos_um'],
+        #     #     'PositionXUnit': num_planes*['mm'],
+        #     #     'PositionYUnit': num_planes*['mm'],
+        #     #     'PositionZUnit': num_planes*['um'],
+        #     #     # 'ExposureTime': num_planes*[0], #metadata['exposure_time_ms'],
+        #     #     # 'ExposureTimeUnit': num_planes*['ms'],
+        #     #     # 'Gain': num_planes*[0], #metadata['gain_db'],
+        #     #     # 'GainUnit': num_planes*['dB'],
+        #     #     # 'Illumination': num_planes*[0], #metadata['illumination_ma'],
+        #     #     # 'IlluminationUnit': num_planes*['mA'],
+        #     # }
+        # }
 
-        options=dict(
-            photometric=photometric,
-            tile=(128, 128),
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=2
-        )
+        # options=dict(
+        #     photometric=photometric,
+        #     tile=(128, 128),
+        #     compression='lzw',
+        #     resolutionunit='CENTIMETER',
+        #     maxworkers=2
+        # )
         
-        resolution = (1e4 / pixel_size_um, 1e4 / pixel_size_um)
+        # resolution = (1e4 / pixel_size_um, 1e4 / pixel_size_um)
 
-        return {
-            'metadata': metadata,
-            'options': options,
-            'resolution': resolution,
-        }
+        # return {
+        #     'metadata': metadata,
+        #     'options': options,
+        #     'resolution': resolution,
+        # }
 
 
 
@@ -431,8 +339,6 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             dtype=sample_image.dtype,
         )
 
-        
-
         # ome = OME()
         # pixels = Pixels(
         #     size_c=num_c,
@@ -456,15 +362,13 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         # ome.images.append(img_meta)
         # print(ome.to_xml())
         df = df.sort_values(by=['Scan Count', 'Z-Slice', 'Color Index'], ascending=True)
-        
-        
 
         plane_metadata = {
-              'PositionX': [],
-              'PositionY': [],
-              'PositionZ': [],
+            'PositionX': [],
+            'PositionY': [],
+            'PositionZ': [],
         }
-                #         'PositionX': num_planes*[row0['X']],
+                # 'PositionX': num_planes*[row0['X']],
                 # 'PositionY': num_planes*[row0['Y']],
                 # 'PositionZ': z_vals, #['z_pos_um'],
                 # 'PositionXUnit': num_planes*['mm'],

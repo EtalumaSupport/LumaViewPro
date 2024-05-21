@@ -87,6 +87,10 @@ class ProtocolExecutionRecord:
             'Scan Count': first_row['Scan Count'],
             'Timestamp': first_row['Timestamp']
         }
+    
+    
+    def num_records(self) -> int:
+        return len(self._records)
 
 
     @classmethod

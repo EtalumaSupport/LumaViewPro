@@ -467,7 +467,7 @@ class Protocol:
         period = input_config['period']
         duration = input_config['duration']
         frame_dimensions = input_config['frame_dimensions']
-        binning = input_config['binning_size']
+        binning_size = input_config['binning_size']
 
         objective_loader = ObjectiveLoader()
         objective = objective_loader.get_objective_info(objective_id=objective_id)
@@ -477,7 +477,7 @@ class Protocol:
             focal_length=objective['focal_length'],
             frame_size=frame_dimensions,
             fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
-            binning=binning,
+            binning_size=binning_size,
         )
 
         config = {

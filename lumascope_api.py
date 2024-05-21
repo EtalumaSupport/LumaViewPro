@@ -251,7 +251,7 @@ class Lumascope():
                 self.image_buffer = image_utils.add_scale_bar(
                     image=self.image_buffer,
                     objective=self._objective,
-                    binning=self._binning_size,
+                    binning_size=self._binning_size,
                 )
 
             if force_to_8bit and self.image_buffer.dtype != np.uint8:
@@ -350,7 +350,7 @@ class Lumascope():
         pixel_size_um = round(
             common_utils.get_pixel_size(
                 focal_length=self._objective['focal_length'],
-                binning=self._binning_size,
+                binning_size=self._binning_size,
             ),
             common_utils.max_decimal_precision('pixel_size'),
         )
@@ -455,10 +455,8 @@ class Lumascope():
                     file_loc=file_loc,
                     metadata=metadata,
                 )
-            elif output_format == 'TIFF':
-                cv2.imwrite(str(file_loc), image.astype(array.dtype))
             else:
-                return image_data
+                cv2.imwrite(str(file_loc), image.astype(array.dtype))
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
         except:
@@ -547,13 +545,18 @@ class Lumascope():
         if not self.camera: return
         self.camera.gain(gain)
 
-    def set_auto_gain(self, state=True, target_brightness: float=0.5):
+    def set_auto_gain(self, state: bool, settings: dict):
         """CAMERA FUNCTIONS
         Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
         if not self.camera: return
-        self.camera.auto_gain(state, target_brightness=target_brightness)
+        self.camera.auto_gain(
+            state,
+            target_brightness=settings['target_brightness'],
+            min_gain=settings['min_gain'],
+            max_gain=settings['max_gain'],
+        )
 
     def set_exposure_time(self, t):
         """CAMERA FUNCTIONS

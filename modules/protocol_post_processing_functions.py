@@ -8,7 +8,7 @@ class PostFunction(enum.Enum):
     STITCHED = "Stitched"
     ZPROJECT = "ZProject"
     VIDEO = "Video"
-    STACK = "Stack"
+    HYPERSTACK = "Hyperstack"
 
     @classmethod
     def list_values(cls):

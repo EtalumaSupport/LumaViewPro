@@ -1,19 +1,15 @@
 
 import datetime
 import pathlib
-import os
 import time
 import typing
-
-import cv2
-import tifffile as tf
 
 from kivy.clock import Clock
 
 from lumascope_api import Lumascope
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
-import image_utils
+
 import modules.labware_loader as labware_loader
 from modules.autofocus_executor import AutofocusExecutor
 from modules.protocol import Protocol
@@ -61,8 +57,6 @@ class SequencedCaptureExecutor:
         self._scan_in_progress = False
         self._autofocus_count = 0
         self._autogain_countdown = 0
-        # self._image_capture_tiff_writers = {}
-        # self._use_tiff_stacks = False
 
 
     @staticmethod
@@ -106,10 +100,6 @@ class SequencedCaptureExecutor:
             run_mode=self._run_mode,
             max_scans=max_scans,
         )
-
-        # self._use_tiff_stacks = self._image_capture_config['output_format'] == 'ImageJ Hyperstack' #self._protocol.has_zstacks() and self._image_capture_config['save_to_z_tiff_stack']
-        # if self._use_tiff_stacks:
-        #     self._protocol.mark_zstack_starts_and_ends()
 
         self._start_t = datetime.datetime.now()
 
@@ -220,11 +210,10 @@ class SequencedCaptureExecutor:
         run_mode: SequencedCaptureRunMode,
         sequence_name: str,
         image_capture_config: dict,
+        autogain_settings: dict,
         parent_dir: pathlib.Path | None = None,
         enable_image_saving: bool = True,
         separate_folder_per_channel: bool = False,
-        autogain_target_brightness: float = 0.3,
-        autogain_max_duration: datetime.timedelta = 1.0,
         callbacks: dict[str, typing.Callable] | None = None,
         max_scans: int | None = None,
         return_to_position: dict | None = None,
@@ -249,8 +238,7 @@ class SequencedCaptureExecutor:
         self._image_capture_config = image_capture_config
         self._enable_image_saving = enable_image_saving
         self._separate_folder_per_channel = separate_folder_per_channel
-        self._autogain_target_brightness = autogain_target_brightness
-        self._autogain_max_duration = autogain_max_duration
+        self._autogain_settings = autogain_settings
         self._callbacks = callbacks
         self._return_to_position = return_to_position
         self._disable_saving_artifacts = disable_saving_artifacts
@@ -270,7 +258,7 @@ class SequencedCaptureExecutor:
         
         self._run_trigger_source = run_trigger_source
         self._run_in_progress = True
-        self._scope.camera.update_auto_gain_target_brightness(self._autogain_target_brightness)
+        self._scope.camera.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
         self._run_scan()
         Clock.schedule_interval(self._protocol_iterate, 1)
@@ -337,7 +325,7 @@ class SequencedCaptureExecutor:
         # Set camera settings
         self._scope.set_auto_gain(
             state=step['Auto_Gain'],
-            target_brightness=self._autogain_target_brightness,
+            settings=self._autogain_settings,
         )
         self._led_on(color=step['Color'], illumination=step['Illumination'])
 
@@ -373,7 +361,7 @@ class SequencedCaptureExecutor:
             return
         
         # Reset the autogain countdown
-        self._auto_gain_countdown = self._autogain_max_duration.total_seconds
+        self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds
         
         # Update the Z position with autofocus results
         if step['Auto_Focus'] and self._update_z_pos_from_autofocus:
@@ -400,26 +388,9 @@ class SequencedCaptureExecutor:
 
             output_format=self._image_capture_config['output_format']['sequenced']
 
-            # if self._use_tiff_stacks:
-            #     # Override to OME stack
-            #     output_format = 'OME-TIFF-STACK'
-
-            #     # Reset the stack writers on the first Z step of the group
-            #     if step['First Z']:
-            #         self._image_capture_tiff_writers = {}
-
-            #     if step['Color'] not in self._image_capture_tiff_writers:
-
-            #         name = common_utils.generate_default_step_name(
-            #             well_label=step['Well'],
-            #             color=step['Color'],
-            #             z_height_idx=None, #step['Z-Slice'],
-            #             scan_count=self._scan_count,
-            #             custom_name_prefix=step['Name'],
-            #             tile_label=step['Tile']
-            #         )
-            #         filename = f"{name}.ome.tiff"
-            #         self._image_capture_tiff_writers[step['Color']] = tf.TiffWriter(save_folder / filename, bigtiff=False)
+            # Handle hyperstack creation as a post-processing function for now. Capture images in TIFF.
+            if output_format == 'ImageJ Hyperstack':
+                output_format = 'TIFF'
 
             image_capture_result = self._capture(
                 save_folder=save_folder,
@@ -428,32 +399,6 @@ class SequencedCaptureExecutor:
                 output_format=output_format,
             )
 
-            # if self._use_tiff_stacks:
-            #     image = image_capture_result['image']
-            #     writer = self._image_capture_tiff_writers[step['Color']]
-            #     image_metadata = self._scope.generate_image_metadata(color=step['Color'])
-
-            #     ome_tiff_support_data = image_utils.generate_ome_tiff_support_data(
-            #         data=image,
-            #         metadata=image_metadata
-            #     )
-
-            #     use_color = image_utils.is_color_image(image)
-            #     if use_color:
-            #         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-            #     writer.write(
-            #         image,
-            #         imagej=True,
-            #         resolution=ome_tiff_support_data['resolution'],
-            #         metadata=ome_tiff_support_data['metadata'],
-            #         **ome_tiff_support_data['options'],
-            #     )
-
-            #     if step['Last Z']:
-            #         for writer in self._image_capture_tiff_writers.values():
-            #             writer.close()
-            #         self._image_capture_tiff_writers = {}
 
             if self._enable_image_saving:
                 if image_capture_result is None:
@@ -640,12 +585,6 @@ class SequencedCaptureExecutor:
 
         self._run_in_progress = False
 
-        # if self._use_tiff_stacks:
-        #     stack_builder = StackBuilder()
-        #     stack_builder.load_folder(
-        #         path=self._run_dir,
-        #         tiling_configs_file_loc=self._tiling_configs_file_loc,
-        #     )
 
         if 'run_complete' in self._callbacks:
             self._callbacks['run_complete'](protocol=self._protocol)

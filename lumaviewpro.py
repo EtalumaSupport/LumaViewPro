@@ -500,11 +500,9 @@ def get_image_capture_config_from_ui() -> dict:
         'sequenced': microscope_settings.ids['sequenced_image_output_format_spinner'].text,
     }
     use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
-    # save_to_z_tiff_stack = True
     return {
         'output_format': output_format,
         'use_full_pixel_depth': use_full_pixel_depth,
-        # 'save_to_z_tiff_stack': save_to_z_tiff_stack,
     }
 
 def get_sequenced_capture_config_from_ui() -> dict:
@@ -534,6 +532,26 @@ def get_sequenced_capture_config_from_ui() -> dict:
     }
 
     return config
+
+
+def get_auto_gain_settings() -> dict:
+    autogain_settings = settings['protocol']['autogain'].copy()
+    autogain_settings['max_duration'] = datetime.timedelta(seconds=autogain_settings['max_duration_seconds'])
+    del autogain_settings['max_duration_seconds']
+    return autogain_settings
+
+
+def create_hyperstacks_if_needed():
+    image_capture_config = get_image_capture_config_from_ui()
+    if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+        _, objective = get_current_objective_info()
+        stack_builder = StackBuilder()
+        stack_builder.load_folder(
+            path=sequenced_capture_executor.run_dir(),
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            binning_size=get_binning_from_ui(),
+            focal_length=objective['focal_length'],
+        )
 
 
 def get_current_objective_info() -> tuple[str, dict]:
@@ -654,7 +672,7 @@ class ScopeDisplay(Image):
                 _, objective = get_current_objective_info()
                 pixel_size_um = common_utils.get_pixel_size(
                     focal_length=objective['focal_length'],
-                    binning=get_binning_from_ui(),
+                    binning_size=get_binning_from_ui(),
                 )
 
                 x_dist_um = x_dist_pixel * pixel_size_um
@@ -2406,6 +2424,10 @@ class VerticalControl(BoxLayout):
         self._reset_run_autofocus_button()
 
 
+    def _autofocus_run_complete(self, **kwargs):
+        self._reset_run_autofocus_button()
+
+
     def run_autofocus_from_ui(self):
         logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
 
@@ -2417,12 +2439,13 @@ class VerticalControl(BoxLayout):
             parent_dir = None
 
         trigger_source = 'autofocus'
-        button_reset_func = self._reset_run_autofocus_button
+        run_complete_func = self._autofocus_run_complete
+        run_not_started_func = self._reset_run_autofocus_button
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
-            button_reset_func()
+            run_not_started_func()
             logger.warning(f"Cannot start autofocus. Run already in progress from {run_trigger_source}")
             return
         
@@ -2459,7 +2482,8 @@ class VerticalControl(BoxLayout):
             'layer_configs': {active_layer: active_layer_config},
             'period': None,
             'duration': None,
-            'frame_dimensions': get_current_frame_dimensions()
+            'frame_dimensions': get_current_frame_dimensions(),
+            'binning_size': get_binning_from_ui(),
         }
       
         autofocus_sequence = Protocol.from_config(
@@ -2467,14 +2491,13 @@ class VerticalControl(BoxLayout):
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
         )
 
-        autogain_target_brightness = settings['protocol']['autogain']['target_brightness']
-        autogain_max_duration = datetime.timedelta(seconds=settings['protocol']['autogain']['max_duration_seconds'])
+        autogain_settings = get_auto_gain_settings()
 
         callbacks = {
             'move_position': _handle_ui_update_for_axis,
             'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
-            'scan_iterate_post': button_reset_func,
-            'run_complete': button_reset_func,
+            'scan_iterate_post': run_complete_func,
+            'run_complete': run_complete_func,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
         }
@@ -2490,8 +2513,7 @@ class VerticalControl(BoxLayout):
             enable_image_saving=False,
             disable_saving_artifacts=True,
             separate_folder_per_channel=False,
-            autogain_target_brightness=autogain_target_brightness,
-            autogain_max_duration=autogain_max_duration,
+            autogain_settings=autogain_settings,
             callbacks=callbacks,
             return_to_position=None,
             save_autofocus_data=save_autofocus_data,
@@ -2888,7 +2910,7 @@ class ProtocolSettings(CompositeCapture):
             tiling=self.ids['tiling_size_spinner'].text,
             frame_dimensions=get_current_frame_dimensions(),
             objective_id=objective_id,
-            binning=get_binning_from_ui(),
+            binning_size=get_binning_from_ui(),
         )
         
         self._protocol.optimize_step_ordering()
@@ -3285,17 +3307,17 @@ class ProtocolSettings(CompositeCapture):
     def run_autofocus_scan_from_ui(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_autofocus_scan_from_ui()')
         trigger_source = 'autofocus_scan'
-        button_reset_func = self._reset_run_autofocus_scan_button
+        run_not_started_func = self._reset_run_autofocus_scan_button
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
-            button_reset_func()
+            run_not_started_func()
             logger.warning(f"Cannot start autofocus scan. Run already in progress from {run_trigger_source}")
             return
         
         if not self._is_protocol_valid():
-            button_reset_func()
+            run_not_started_func()
             return
         
         if self.ids['run_autofocus_btn'].state == 'normal':
@@ -3310,7 +3332,7 @@ class ProtocolSettings(CompositeCapture):
             'run_scan_pre': self._run_scan_pre_callback,
             'autofocus_in_progress': self._autofocus_in_progress_callback,
             'autofocus_complete': self._autofocus_complete_callback,
-            'scan_iterate_post': button_reset_func,
+            'scan_iterate_post': run_not_started_func,
             'run_complete': self._autofocus_run_complete_callback,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
@@ -3318,8 +3340,7 @@ class ProtocolSettings(CompositeCapture):
 
         initial_position = get_current_plate_position()
 
-        autogain_target_brightness = settings['protocol']['autogain']['target_brightness']
-        autogain_max_duration = datetime.timedelta(seconds=settings['protocol']['autogain']['max_duration_seconds'])
+        autogain_settings = get_auto_gain_settings()
 
         sequence = copy.deepcopy(self._protocol)
         sequence.modify_autofocus_all_steps(enabled=True)
@@ -3334,8 +3355,7 @@ class ProtocolSettings(CompositeCapture):
             image_capture_config=get_image_capture_config_from_ui(),
             enable_image_saving=False,
             separate_folder_per_channel=False,
-            autogain_target_brightness=autogain_target_brightness,
-            autogain_max_duration=autogain_max_duration,
+            autogain_settings=autogain_settings,
             callbacks=callbacks,
             return_to_position=initial_position,
             update_z_pos_from_autofocus=True,
@@ -3343,20 +3363,26 @@ class ProtocolSettings(CompositeCapture):
         )
 
 
+    def _scan_run_complete(self, **kwargs):
+        self._reset_run_scan_button()
+        create_hyperstacks_if_needed()
+
+
     def run_scan_from_ui(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
         trigger_source = 'scan'
-        button_reset_func = self._reset_run_scan_button
+        run_complete_func = self._scan_run_complete
+        run_not_started_func = self._reset_run_scan_button
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
-            button_reset_func()
+            run_not_started_func()
             logger.warning(f"Cannot start scan. Run already in progress from {run_trigger_source}")
             return
         
         if not self._is_protocol_valid():
-            button_reset_func()
+            run_not_started_func()
             return
         
         if self.ids['run_scan_btn'].state == 'normal':
@@ -3369,8 +3395,8 @@ class ProtocolSettings(CompositeCapture):
             'run_scan_pre': self._run_scan_pre_callback,
             'autofocus_in_progress': self._autofocus_in_progress_callback,
             'autofocus_complete': self._autofocus_complete_callback,
-            'scan_iterate_post': button_reset_func,
-            'run_complete': button_reset_func,
+            'scan_iterate_post': run_not_started_func,
+            'run_complete': run_complete_func,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
         }
@@ -3383,20 +3409,26 @@ class ProtocolSettings(CompositeCapture):
         )
 
 
+    def _protocol_run_complete(self, **kwargs):
+        self._reset_run_protocol_button()
+        create_hyperstacks_if_needed()
+
+
     def run_protocol_from_ui(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol_from_ui()')
         trigger_source = 'protocol'
-        button_reset_func = self._reset_run_protocol_button
+        run_complete_func = self._protocol_run_complete
+        run_not_started_func = self._reset_run_protocol_button
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
-            button_reset_func()
+            run_not_started_func()
             logger.warning(f"Cannot start protocol run. Run already in progress from {run_trigger_source}")
             return
         
         if not self._is_protocol_valid():
-            button_reset_func()
+            run_not_started_func()
             return
         
         if self.ids['run_protocol_btn'].state == 'normal':
@@ -3411,7 +3443,7 @@ class ProtocolSettings(CompositeCapture):
             'run_scan_pre': self._run_scan_pre_callback,
             'autofocus_in_progress': self._autofocus_in_progress_callback,
             'autofocus_complete': self._autofocus_complete_callback,
-            'run_complete': button_reset_func,
+            'run_complete': run_complete_func,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
         }
@@ -3481,7 +3513,8 @@ class ProtocolSettings(CompositeCapture):
 
         sequence_name = self.ids['protocol_filename'].text
 
-        image_capture_config=get_image_capture_config_from_ui()
+        image_capture_config = get_image_capture_config_from_ui()
+        autogain_settings = get_auto_gain_settings()
 
         sequenced_capture_executor.run(
             protocol=self._protocol,
@@ -3493,8 +3526,7 @@ class ProtocolSettings(CompositeCapture):
             image_capture_config=image_capture_config,
             enable_image_saving=is_image_saving_enabled(),
             separate_folder_per_channel=lumaview.ids['motionsettings_id'].ids['microscope_settings_id']._seperate_folder_per_channel,
-            autogain_target_brightness=settings['protocol']['autogain']['target_brightness'],
-            autogain_max_duration=datetime.timedelta(seconds=settings['protocol']['autogain']['max_duration_seconds']),
+            autogain_settings=autogain_settings,
             callbacks=callbacks,
             disable_saving_artifacts=disable_saving_artifacts,
             return_to_position=return_to_position,
@@ -3503,13 +3535,6 @@ class ProtocolSettings(CompositeCapture):
         
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
 
-        if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
-            stack_builder = StackBuilder()
-            stack_builder.load_folder(
-                path=self._run_dir,
-                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            )
-        
         if run_mode == SequencedCaptureRunMode.FULL_PROTOCOL:
             self._update_protocol_run_button_status(
                 remaining_scans=sequenced_capture_executor.remaining_scans()
@@ -3521,6 +3546,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
+        create_hyperstacks_if_needed()
 
 
 # Widget for displaying Microscope Stage area, labware, and current position 
@@ -3890,7 +3916,9 @@ class MicroscopeSettings(BoxLayout):
                 if 'autogain' not in settings['protocol']:
                     settings['protocol']['autogain'] = {
                         'max_duration_seconds': 1.0,
-                        'target_brightness': 0.3
+                        'target_brightness': 0.3,
+                        'min_gain': 0.0,
+                        'max_gain': 20.0,
                     }
 
                 settings['live_folder'] = str(pathlib.Path(settings['live_folder']).resolve())
@@ -4162,7 +4190,7 @@ class MicroscopeSettings(BoxLayout):
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
-            binning=get_binning_from_ui(),
+            binning_size=get_binning_from_ui(),
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
@@ -4189,7 +4217,7 @@ class MicroscopeSettings(BoxLayout):
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
-            binning=get_binning_from_ui(),
+            binning_size=get_binning_from_ui(),
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
@@ -4364,23 +4392,22 @@ class LayerControl(BoxLayout):
                 if layer != self.layer:
                     lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
 
-        # update gain to currently selected settings
-        # -----------------------------------------------------
-        auto_gain_enabled = settings[self.layer]['auto_gain']
-        auto_gain_target_brightness = settings['protocol']['autogain']['target_brightness']
-        if not ignore_auto_gain:
-            lumaview.scope.set_auto_gain(auto_gain_enabled, target_brightness=auto_gain_target_brightness)
-
-
         # update exposure to currently selected settings
         # -----------------------------------------------------
         exposure = settings[self.layer]['exp']
         gain = settings[self.layer]['gain']
 
-        if not auto_gain_enabled:
-            lumaview.scope.set_gain(gain)
-            lumaview.scope.set_exposure_time(exposure)
-        
+        lumaview.scope.set_gain(gain)
+        lumaview.scope.set_exposure_time(exposure)
+
+        # update gain to currently selected settings
+        # -----------------------------------------------------
+        auto_gain_enabled = settings[self.layer]['auto_gain']
+
+        if not ignore_auto_gain:
+            autogain_settings = get_auto_gain_settings()
+            lumaview.scope.set_auto_gain(auto_gain_enabled, settings=autogain_settings)
+
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
         if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
@@ -4431,15 +4458,22 @@ class ZStack(CompositeCapture):
         self._reset_run_zstack_acquire_button()
 
 
+    def _zstack_run_complete(self, **kwargs):
+        self._reset_run_zstack_acquire_button()
+        create_hyperstacks_if_needed()
+
+
     def run_zstack_acquire_from_ui(self):
         logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
 
         trigger_source = 'zstack'
-        button_reset_func = self._reset_run_zstack_acquire_button
+        run_not_started_func = self._reset_run_zstack_acquire_button
+        run_complete_func = self._zstack_run_complete
+
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
-            button_reset_func()
+            run_not_started_func()
             logger.warning(f"Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}")
             return
         
@@ -4460,7 +4494,7 @@ class ZStack(CompositeCapture):
 
         if not config['zstack_positions_valid']:
             logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
-            button_reset_func()
+            run_not_started_func()
             return
         
         curr_position = get_current_plate_position()
@@ -4494,13 +4528,12 @@ class ZStack(CompositeCapture):
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
         )
 
-        autogain_target_brightness = settings['protocol']['autogain']['target_brightness']
-        autogain_max_duration = datetime.timedelta(seconds=settings['protocol']['autogain']['max_duration_seconds'])
+        autogain_settings = get_auto_gain_settings()
 
         callbacks = {
             'move_position': _handle_ui_update_for_axis,
             'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
-            'run_complete': button_reset_func,
+            'run_complete': run_complete_func,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
         }
@@ -4520,8 +4553,7 @@ class ZStack(CompositeCapture):
             image_capture_config=image_capture_config,
             enable_image_saving=is_image_saving_enabled(),
             separate_folder_per_channel=False,
-            autogain_target_brightness=autogain_target_brightness,
-            autogain_max_duration=autogain_max_duration,
+            autogain_settings=autogain_settings,
             callbacks=callbacks,
             return_to_position=initial_position,
             leds_state_at_end="off",
@@ -4529,13 +4561,6 @@ class ZStack(CompositeCapture):
 
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
 
-        if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
-            stack_builder = StackBuilder()
-            stack_builder.load_folder(
-                path=self._run_dir,
-                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            )
-        
 
 class FileChooseBTN(Button):
     context  = StringProperty()
