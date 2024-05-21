@@ -495,7 +495,10 @@ def get_selected_labware() -> tuple[str, labware.WellPlate]:
 
 def get_image_capture_config_from_ui() -> dict:
     microscope_settings = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
-    output_format = microscope_settings.ids['image_output_format_spinner'].text = settings['image_output_format']
+    output_format = {
+        'live': microscope_settings.ids['live_image_output_format_spinner'].text,
+        'sequenced': microscope_settings.ids['sequenced_image_output_format_spinner'].text,
+    }
     use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
     # save_to_z_tiff_stack = True
     return {
@@ -606,6 +609,7 @@ class ScopeDisplay(Image):
         logger.info('[LVP Main  ] ScopeDisplay.__init__()')
         self.use_bullseye = False
         self.use_crosshairs = False
+        self.use_live_image_histogram_equalization = False
         self.use_full_pixel_depth = False
         self.start()
 
@@ -743,58 +747,62 @@ class ScopeDisplay(Image):
         global lumaview
         global debug_counter
 
-        if lumaview.scope.camera.active != False:
-            image = lumaview.scope.get_image(force_to_8bit=True)
-            if (image is False) or (image.size == 0):
-                return
-            
-            if ENGINEERING_MODE == True:
-
-                debug_counter += 1
-                if debug_counter == 30:
-                    debug_counter = 0
-
-                if debug_counter % 10 == 0:
-                    mean = round(np.mean(a=image), 2)
-                    stddev = round(np.std(a=image), 2)
-                    af_score = lumaview.scope.focus_function(
-                        image=image,
-                        include_logging=False
-                    )
-
-                    open_layer = None
-                    for layer in common_utils.get_layers():
-                        accordion = layer + '_accordion'
-                        if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
-                            open_layer = layer
-                            break
-                    
-                    if open_layer is not None:
-                        lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_mean_id'].text = f"Mean: {mean}"
-                        lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
-                        lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_af_score_id'].text = f"AF Score: {af_score}"
-
-                if debug_counter % 3 == 0:
-                    if self.use_bullseye:
-                        image_bullseye = self.transform_to_bullseye(image=image)
-
-                        if self.use_crosshairs:
-                            image_bullseye = self.add_crosshairs(image=image_bullseye)
-
-                        texture = Texture.create(size=(image_bullseye.shape[1],image_bullseye.shape[0]), colorfmt='rgb')
-                        texture.blit_buffer(image_bullseye.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
-                        self.texture = texture
-                
-            if not self.use_bullseye:
-                if self.use_crosshairs:
-                    image = self.add_crosshairs(image=image)
-
-                # Convert to texture for display (using OpenGL)
-                texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
-                texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
-                self.texture = texture
-        else:
+        if lumaview.scope.camera.active == False:
             self.source = "./data/icons/camera to USB.png"
+            return
+
+        image = lumaview.scope.get_image(force_to_8bit=True)
+        if (image is False) or (image.size == 0):
+            return
+        
+        if ENGINEERING_MODE == True:
+
+            debug_counter += 1
+            if debug_counter == 30:
+                debug_counter = 0
+
+            if debug_counter % 10 == 0:
+                mean = round(np.mean(a=image), 2)
+                stddev = round(np.std(a=image), 2)
+                af_score = lumaview.scope.focus_function(
+                    image=image,
+                    include_logging=False
+                )
+
+                open_layer = None
+                for layer in common_utils.get_layers():
+                    accordion = layer + '_accordion'
+                    if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+                        open_layer = layer
+                        break
+                
+                if open_layer is not None:
+                    lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_mean_id'].text = f"Mean: {mean}"
+                    lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
+                    lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_af_score_id'].text = f"AF Score: {af_score}"
+
+            if debug_counter % 3 == 0:
+                if self.use_bullseye:
+                    image_bullseye = self.transform_to_bullseye(image=image)
+
+                    if self.use_crosshairs:
+                        image_bullseye = self.add_crosshairs(image=image_bullseye)
+
+                    texture = Texture.create(size=(image_bullseye.shape[1],image_bullseye.shape[0]), colorfmt='rgb')
+                    texture.blit_buffer(image_bullseye.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+                    self.texture = texture
+            
+        if not self.use_bullseye:
+            if self.use_live_image_histogram_equalization:
+                image=cv2.equalizeHist(src=image)
+
+            if self.use_crosshairs:
+                image = self.add_crosshairs(image=image)
+
+            # Convert to texture for display (using OpenGL)
+            texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
+            texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+            self.texture = texture
 
         if self.record == True:
             lumaview.live_capture()
@@ -1115,16 +1123,6 @@ uniform mat4       modelview_mat;
 uniform mat4       projection_mat;
 uniform vec4       color;
 '''
-
-# global illumination_vals
-# illumination_vals = (0., )*4
-
-# global gain_vals
-# gain_vals = (1., )*4
-
-
-            
-    
 
 class ShaderViewer(Scatter):
     black = ObjectProperty(0.)
@@ -3505,7 +3503,7 @@ class ProtocolSettings(CompositeCapture):
         
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
 
-        if image_capture_config['output_format'] == 'ImageJ Hyperstack':
+        if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
             stack_builder = StackBuilder()
             stack_builder.load_folder(
                 path=self._run_dir,
@@ -3921,8 +3919,11 @@ class MicroscopeSettings(BoxLayout):
                         self.ids['separate_folder_per_channel_id'].state = 'normal'
                 self.update_separate_folders_per_channel()
 
-                self.ids['image_output_format_spinner'].text = settings['image_output_format']
-                self.select_image_output_format()
+                self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
+                self.select_live_image_output_format()
+
+                self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
+                self.select_sequenced_image_output_format()
 
                 self.ids['binning_spinner'].text = str(settings['binning']['size'])
                 self.select_binning_size()
@@ -4026,9 +4027,14 @@ class MicroscopeSettings(BoxLayout):
         settings['use_full_pixel_depth'] = use_full_pixel_depth
 
     
-    def select_image_output_format(self):
+    def select_live_image_output_format(self):
         global settings
-        settings['image_output_format'] = self.ids['image_output_format_spinner'].text
+        settings['image_output_format']['live'] = self.ids['live_image_output_format_spinner'].text
+
+
+    def select_sequenced_image_output_format(self):
+        global settings
+        settings['image_output_format']['sequenced'] = self.ids['sequenced_image_output_format_spinner'].text
 
     
     def update_binning_size(self, size: int):
@@ -4052,6 +4058,13 @@ class MicroscopeSettings(BoxLayout):
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs = True
         else:
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs = False
+
+
+    def update_live_image_histogram_equalization(self):
+        if self.ids['enable_live_image_histogram_equalization_btn'].state == 'down':
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = True
+        else:
+            lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = False
 
 
     # Save settings to JSON file
@@ -4516,7 +4529,7 @@ class ZStack(CompositeCapture):
 
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
 
-        if image_capture_config['output_format'] == 'ImageJ Hyperstack':
+        if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
             stack_builder = StackBuilder()
             stack_builder.load_folder(
                 path=self._run_dir,
@@ -4905,7 +4918,6 @@ class LumaViewProApp(App):
             scope=lumaview.scope,
             stage_offset=settings['stage_offset'],
             autofocus_executor=autofocus_executor,
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
         )
         
         # Continuously update image of stage and protocol

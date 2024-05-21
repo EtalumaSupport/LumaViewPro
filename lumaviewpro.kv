@@ -514,6 +514,7 @@
 			height: '30dp'
 	        text: 'Z Stack'
 			font_size: '12dp'
+			option_cls: "SpinnerOption0"
 			text_autoupdate: True
 			values: ('Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 			on_text: root.set_position()
@@ -1066,6 +1067,7 @@
 					font_size: '12dp'
 					size_hint_y: None
 					height: '30dp'
+					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					values: ''
 					on_text: root.update_tiling_selection()
@@ -1600,6 +1602,9 @@
 
 # MicroscopeSettings - Settings for  Microscope within ImageSettings
 # ------------------------------------------
+<SpinnerOption0@SpinnerOption>:
+    font_size: 12
+
 <MicroscopeSettings>:
     padding: '5dp'
     spacing: '5dp'
@@ -1625,6 +1630,7 @@
 			sync_height: True
 	        text: 'Select'
 			font_size:'12dp'
+			option_cls: "SpinnerOption0"
 			text_autoupdate: True
 	        on_release: root.load_scopes()
 	        on_text: root.select_scope()
@@ -1643,6 +1649,7 @@
 			sync_height: True
 	        text: 'Select'
 			font_size:'12dp'
+			option_cls: "SpinnerOption0"
 			text_autoupdate: True
 	        on_release: root.load_objectives()
 	        on_text: root.select_objective()
@@ -1790,18 +1797,39 @@
         size_hint_y: None
         height: '30dp'
         Label:
-            text: 'Image Output Format'
+            text: 'Live Image Format'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
 			font_size: '12sp'
 	    Spinner:
-			id: image_output_format_spinner
+			id: live_image_output_format_spinner
 			sync_height: True
 	        text: 'Select'
 			font_size:'12dp'
+			option_cls: "SpinnerOption0"
 			text_autoupdate: True
-	        on_text: root.select_image_output_format()
+	        on_text: root.select_live_image_output_format()
+			values: ('TIFF', 'OME-TIFF')
+
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Sequenced Image Format'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+	    Spinner:
+			id: sequenced_image_output_format_spinner
+			sync_height: True
+	        text: 'Select'
+			font_size:'12dp'
+			option_cls: "SpinnerOption0"
+			text_autoupdate: True
+	        on_text: root.select_sequenced_image_output_format()
 			values: ('TIFF', 'OME-TIFF', 'ImageJ Hyperstack')
 
 	BoxLayout:
@@ -1874,6 +1902,28 @@
         orientation: 'horizontal'
         size_hint_y: None
         height: '30dp'
+		Label:
+			font_size: '12sp'
+			text: 'Live Image Histogram Equalization'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		ToggleButton:
+			id: enable_live_image_histogram_equalization_btn
+			size_hint: None, None
+			size: '45dp', '30dp'
+			border: 0, 0, 0, 0
+			valign: 'middle'
+			background_normal: './data/icons/ToggleL.png'
+			background_down: './data/icons/ToggleRW.png'
+			on_release: root.update_live_image_histogram_equalization()
+			state: 'normal'
+
+
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
         Label:
             text: 'Binning'
 			halign: 'left'
@@ -1885,6 +1935,7 @@
 			sync_height: True
 	        text: 'Select'
 			font_size:'12dp'
+			option_cls: "SpinnerOption0"
 			text_autoupdate: True
 	        on_release: root.load_binning_sizes()
 	        on_text: root.select_binning_size()

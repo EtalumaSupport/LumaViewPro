@@ -398,7 +398,7 @@ class SequencedCaptureExecutor:
             else:
                 save_folder = self._run_dir
 
-            output_format=self._image_capture_config['output_format']
+            output_format=self._image_capture_config['output_format']['sequenced']
 
             # if self._use_tiff_stacks:
             #     # Override to OME stack
@@ -684,16 +684,11 @@ class SequencedCaptureExecutor:
 
         if 'update_scope_display' in self._callbacks:
             self._callbacks['update_scope_display']()
-        
-        # if 'OME' in output_format:
-        #     # Force OME captures to only be single channel per image
-        #     use_color = False
-        # else:
+
         use_color = step['Color'] if step['False_Color'] else 'BF'
 
         if self._enable_image_saving == True:
             use_full_pixel_depth = self._image_capture_config['use_full_pixel_depth']
-            # output_format = self._image_capture_config['output_format']
 
             result = self._scope.save_live_image(
                 save_folder=save_folder,
