@@ -466,8 +466,12 @@ def get_current_plate_position():
 
 def get_current_frame_dimensions() -> dict:
     microscope_settings = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
-    frame_width = int(microscope_settings.ids['frame_width_id'].text)
-    frame_height = int(microscope_settings.ids['frame_height_id'].text)
+    try:
+        frame_width = int(microscope_settings.ids['frame_width_id'].text)
+        frame_height = int(microscope_settings.ids['frame_height_id'].text)
+    except:
+        raise ValueError(f"Invalid value for frame width/height")
+    
     frame = {
         'width': frame_width,
         'height': frame_height
@@ -4200,7 +4204,13 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
         global settings
 
-        current_frame_size = get_current_frame_dimensions()
+        try:
+            current_frame_size = get_current_frame_dimensions()
+        except ValueError:
+            current_frame_size = {
+                'width': settings['frame']['width'],
+                'height': settings['frame']['height'],
+            }
 
         width = int(min(current_frame_size['width'], lumaview.scope.get_max_width()))
         height = int(min(current_frame_size['height'], lumaview.scope.get_max_height()))
