@@ -3032,19 +3032,20 @@ class ProtocolSettings(CompositeCapture):
         duration = round(self._protocol.duration().total_seconds() / 3600, 2)
         labware = self._protocol.labware()
 
+        scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+
+        # If the scope has no XY stage, then don't allow the protocol to modify the labware
+        if selected_scope_config['XYStage'] == False:
+            labware = "Center Plate"
+
         self.ids['capture_period'].text = str(period)
         self.ids['capture_dur'].text = str(duration)
        
         settings['protocol']['period'] = period
         settings['protocol']['duration'] = duration
         settings['protocol']['labware'] = labware
-        
-        scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
-        selected_scope_config = scope_configs[settings['microscope']]
-
-        # If the scope has no XY stage, then don't allow the protocol to modify the labware
-        if selected_scope_config['XYStage']:
-            self.ids['labware_spinner'].text = settings['protocol']['labware']
+        self.ids['labware_spinner'].text = settings['protocol']['labware']
 
         # Make steps available for drawing locations
         stage.set_protocol_steps(df=self._protocol.steps())
