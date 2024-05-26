@@ -2874,8 +2874,10 @@ class ProtocolSettings(CompositeCapture):
             spinner.values = wellplate_loader.get_plate_list()
             settings['protocol']['labware'] = spinner.text
         else:
+            center_plate_str = 'Center Plate'
             spinner = self.ids['labware_spinner']
-            spinner.values = list('Center Plate',)
+            spinner.values = list(center_plate_str,)
+            spinner.text = center_plate_str
             settings['protocol']['labware'] = labware
 
         labware_id, labware = get_selected_labware()
@@ -2894,6 +2896,9 @@ class ProtocolSettings(CompositeCapture):
         labware_spinner.height = '30dp' if visible else 0
         labware_spinner.opacity = 1 if visible else 0
         labware_spinner.disabled = not visible
+
+        if not visible:
+            labware_spinner.text = 'Center Plate'
 
     
     def set_show_protocol_step_locations_visibility(self, visible: bool) -> None:
@@ -3034,7 +3039,12 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['duration'] = duration
         settings['protocol']['labware'] = labware
         
-        self.ids['labware_spinner'].text = settings['protocol']['labware']
+        scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+
+        # If the scope has no XY stage, then don't allow the protocol to modify the labware
+        if selected_scope_config['XYStage']:
+            self.ids['labware_spinner'].text = settings['protocol']['labware']
 
         # Make steps available for drawing locations
         stage.set_protocol_steps(df=self._protocol.steps())
@@ -4011,7 +4021,7 @@ class MicroscopeSettings(BoxLayout):
                 lumaview.scope.set_frame_size(settings['frame']['width'], settings['frame']['height'])
             except:
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
-        
+
         self.set_ui_features_for_scope()
 
 
