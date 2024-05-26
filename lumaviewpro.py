@@ -75,6 +75,7 @@ if getattr(sys, 'frozen', False):
 from kivy.config import Config
 Config.set('input', 'mouse', 'mouse, disable_multitouch')
 Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
+Config.set('kivy', 'exit_on_escape', '0')
 
 # if fixed size at launch
 #Config.set('graphics', 'width', '1920')
