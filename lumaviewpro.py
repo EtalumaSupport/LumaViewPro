@@ -827,7 +827,9 @@ class ScopeDisplay(Image):
             
         if not self.use_bullseye:
             if self.use_live_image_histogram_equalization:
-                image=cv2.equalizeHist(src=image)
+                # image=cv2.equalizeHist(src=image)
+                image=cv2.normalize(src=image, dst=None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+                image = (255*image).astype(np.uint8)
 
             if self.use_crosshairs:
                 image = self.add_crosshairs(image=image)
