@@ -482,8 +482,18 @@ def get_current_frame_dimensions() -> dict:
 
 def get_protocol_time_params() -> dict:
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-    period = datetime.timedelta(minutes=float(protocol_settings.ids['capture_period'].text))
-    duration = datetime.timedelta(hours=float(protocol_settings.ids['capture_dur'].text))
+    try:
+        period = float(protocol_settings.ids['capture_period'].text)
+    except:
+        period = 1
+
+    period = datetime.timedelta(minutes=period)
+    try:
+        duration = float(protocol_settings.ids['capture_dur'].text)
+    except:
+        duration = 1
+
+    duration = datetime.timedelta(hours=duration)
 
     return {
         'period': period,
@@ -1537,8 +1547,12 @@ class VideoCreationControls(BoxLayout):
         popup.title = "Video Builder"
         popup.text = "Generating video(s)..."
 
-        fps = int(self.ids['video_gen_fps_id'].text)
-        
+        try:
+            fps = int(self.ids['video_gen_fps_id'].text)
+        except:
+            fps = 5
+            logger.error(f"Could not retrieve valid FPS for video generation. Using {fps} fps.")
+
         ts_overlay_btn = self.ids['enable_timestamp_overlay_btn']
         enable_timestamp_overlay = True if ts_overlay_btn.state == 'down' else False
 
@@ -2385,7 +2399,12 @@ class VerticalControl(BoxLayout):
 
     def set_position(self, pos):
         logger.info('[LVP Main  ] VerticalControl.set_position()')
-        move_absolute_position('Z', float(pos))
+        try:
+            pos = float(pos)
+        except:
+            return
+        
+        move_absolute_position('Z', pos)
 
 
     def set_bookmark(self):
@@ -2642,6 +2661,10 @@ class XYStageControl(BoxLayout):
     def set_xposition(self, x_pos):
         logger.info('[LVP Main  ] XYStageControl.set_xposition()')
         global lumaview
+        try:
+            x_pos = float(x_pos)
+        except:
+            return
 
         # x_pos is the the plate position in mm
         # Find the coordinates for the stage
@@ -2649,7 +2672,7 @@ class XYStageControl(BoxLayout):
         stage_x, _ = coordinate_transformer.plate_to_stage(
             labware=labware,
             stage_offset=settings['stage_offset'],
-            px=float(x_pos),
+            px=x_pos,
             py=0
         )
 
@@ -2663,6 +2686,11 @@ class XYStageControl(BoxLayout):
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
         global lumaview
 
+        try:
+            y_pos = float(y_pos)
+        except:
+            return
+
         # y_pos is the the plate position in mm
         # Find the coordinates for the stage
         _, labware = get_selected_labware()
@@ -2670,7 +2698,7 @@ class XYStageControl(BoxLayout):
             labware=labware,
             stage_offset=settings['stage_offset'],
             px=0,
-            py=float(y_pos)
+            py=y_pos
         )
 
         # Move to y-position
@@ -3124,7 +3152,11 @@ class ProtocolSettings(CompositeCapture):
         self
     ):
         obj = self.ids['step_number_input']
-        val = int(obj.text)
+        try:
+            val = int(obj.text)
+        except:
+            return
+        
         num_steps = self._protocol.num_steps()
         if num_steps < 1:
             val = 0
@@ -4305,7 +4337,11 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.ill_text()')
         ill_min = self.ids['ill_slider'].min
         ill_max = self.ids['ill_slider'].max
-        ill_val = float(self.ids['ill_text'].text)
+        try:
+            ill_val = float(self.ids['ill_text'].text)
+        except:
+            return
+        
         illumination = float(np.clip(ill_val, ill_min, ill_max))
 
         settings[self.layer]['ill'] = illumination
@@ -4333,7 +4369,11 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.gain_text()')
         gain_min = self.ids['gain_slider'].min
         gain_max = self.ids['gain_slider'].max
-        gain_val = float(self.ids['gain_text'].text)
+        try:
+            gain_val = float(self.ids['gain_text'].text)
+        except:
+            return
+        
         gain = float(np.clip(gain_val, gain_min, gain_max))
 
         settings[self.layer]['gain'] = gain
@@ -4353,7 +4393,12 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.exp_text()')
         exp_min = self.ids['exp_slider'].min
         exp_max = self.ids['exp_slider'].max
-        exp_val = float(self.ids['exp_text'].text)
+
+        try:
+            exp_val = float(self.ids['exp_text'].text)
+        except:
+            return
+        
         exposure = float(np.clip(exp_val, exp_min, exp_max))
 
         settings[self.layer]['exp'] = exposure
@@ -4460,8 +4505,11 @@ class ZStack(CompositeCapture):
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')
 
-        settings['zstack']['step_size'] = float(self.ids['zstack_stepsize_id'].text)
-        settings['zstack']['range'] = float(self.ids['zstack_range_id'].text)
+        try:
+            settings['zstack']['step_size'] = float(self.ids['zstack_stepsize_id'].text)
+            settings['zstack']['range'] = float(self.ids['zstack_range_id'].text)
+        except:
+            return
 
         z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
             text_label=self.ids['zstack_spinner'].text
