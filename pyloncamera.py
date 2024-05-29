@@ -285,6 +285,28 @@ class PylonCamera:
             camera.BslCenterY.Execute()
 
         logger.info('[CAM Class ] PylonCamera.set_frame_size('+str(w)+','+str(h)+')'+'; succeeded')
+
+    
+    def get_min_frame_size(self) -> dict:
+        camera = self.active
+        if camera == False:
+            return {}
+        
+        return {
+            'width': camera.Width.GetMin(),
+            'height': camera.Height.GetMin(),
+        }
+    
+
+    def get_max_frame_size(self) -> dict:
+        camera = self.active
+        if camera == False:
+            return {}
+        
+        return {
+            'width': camera.Width.GetMax(),
+            'height': camera.Height.GetMax(),
+        }
  
 
     def get_frame_size(self):
