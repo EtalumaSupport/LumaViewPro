@@ -129,6 +129,7 @@ import labware
 from modules.autofocus_executor import AutofocusExecutor
 from modules.stitcher import Stitcher
 from modules.composite_generation import CompositeGeneration
+from modules.contrast_stretcher import ContrastStretcher
 import modules.coord_transformations as coord_transformations
 import modules.labware_loader as labware_loader
 import modules.objectives_loader as objectives_loader
@@ -643,6 +644,13 @@ class ScopeDisplay(Image):
         self.use_bullseye = False
         self.use_crosshairs = False
         self.use_live_image_histogram_equalization = False
+
+        self._contrast_stretcher = ContrastStretcher(
+            window_len=3,
+            bottom_pct=0.3,
+            top_pct=0.3,
+        )
+        
         self.use_full_pixel_depth = False
         self.start()
 
@@ -787,9 +795,8 @@ class ScopeDisplay(Image):
         image = lumaview.scope.get_image(force_to_8bit=True)
         if (image is False) or (image.size == 0):
             return
-        
-        if ENGINEERING_MODE == True:
 
+        if ENGINEERING_MODE == True:
             debug_counter += 1
             if debug_counter == 30:
                 debug_counter = 0
@@ -827,9 +834,8 @@ class ScopeDisplay(Image):
             
         if not self.use_bullseye:
             if self.use_live_image_histogram_equalization:
-                # image=cv2.equalizeHist(src=image)
-                image=cv2.normalize(src=image, dst=None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
-                image = (255*image).astype(np.uint8)
+                image = self._contrast_stretcher.update(image)
+                # image=cv2.normalize(src=image, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
             if self.use_crosshairs:
                 image = self.add_crosshairs(image=image)
