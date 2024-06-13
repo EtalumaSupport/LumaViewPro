@@ -326,7 +326,7 @@ class Protocol:
         tiling: str,
         frame_dimensions: dict,
         objective_id: str,
-        binning: int,
+        binning_size: int,
     ):       
         objective = self._objective_loader.get_objective_info(objective_id=objective_id)
         tiles = self._tiling_config.get_tile_centers(
@@ -334,7 +334,7 @@ class Protocol:
             focal_length=objective['focal_length'],
             frame_size=frame_dimensions,
             fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
-            binning=binning,
+            binning_size=binning_size,
         )
 
         if len(tiles) == 1: # No tiling
