@@ -4009,6 +4009,10 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
                 self.select_sequenced_image_output_format()
 
+                self.ids['frame_width_id'].text = str(settings['frame']['width'])
+                self.ids['frame_height_id'].text = str(settings['frame']['height'])
+                lumaview.scope.set_frame_size(settings['frame']['width'], settings['frame']['height'])
+
                 self.ids['binning_spinner'].text = str(settings['binning']['size'])
                 self.select_binning_size()
                 lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
@@ -4018,9 +4022,6 @@ class MicroscopeSettings(BoxLayout):
                 objective = objective_helper.get_objective_info(objective_id=objective_id)
                 self.ids['magnification_id'].text = f"{objective['magnification']}"
                 lumaview.scope.set_objective(objective_id=objective_id)
-                
-                self.ids['frame_width_id'].text = str(settings['frame']['width'])
-                self.ids['frame_height_id'].text = str(settings['frame']['height'])
 
                 if settings['scale_bar']['enabled'] == True:
                     self.ids['enable_scale_bar_btn'].state = 'down'
@@ -4059,7 +4060,6 @@ class MicroscopeSettings(BoxLayout):
                     lumaview.ids['imagesettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
                     lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
-                lumaview.scope.set_frame_size(settings['frame']['width'], settings['frame']['height'])
             except:
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
 
