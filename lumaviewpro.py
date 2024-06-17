@@ -4256,6 +4256,9 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
         global settings
 
+        if not lumaview.scope.camera_is_connected():
+            return
+
         try:
             current_frame_size = get_current_frame_dimensions()
         except ValueError:

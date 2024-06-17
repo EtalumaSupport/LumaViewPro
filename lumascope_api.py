@@ -582,6 +582,16 @@ class Lumascope():
         if not self.camera: return
         self.camera.auto_exposure_t(state)
 
+    
+    def camera_is_connected(self) -> bool:
+        if not self.camera:
+            return False
+        
+        if not self.camera.active:
+            return False
+    
+        return True
+
     ########################################################################
     # MOTION CONTROL FUNCTIONS
     ########################################################################
