@@ -106,6 +106,9 @@ class Protocol:
     def optimize_step_ordering(self):
         steps = self.steps()
 
+        if len(steps) == 0:
+            return
+
         # First group by X/Y location
         grouped_df = steps.groupby(by=['X','Y'], sort=False)
 
