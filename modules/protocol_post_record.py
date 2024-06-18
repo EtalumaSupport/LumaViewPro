@@ -309,6 +309,9 @@ class ProtocolPostRecord:
                 lineterminator='\n',
             ).fillna('')
 
+            if len(df) == 0:
+                raise Exception(f"No steps in protocol execution record")
+
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
             # Convert filename to pathlib type

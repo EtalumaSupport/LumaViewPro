@@ -3377,7 +3377,7 @@ class ProtocolSettings(CompositeCapture):
             return
         
         if self.ids['run_autofocus_btn'].state == 'normal':
-            self._cleanup_at_end_of_protocol()
+            self._cleanup_at_end_of_protocol(autofocus_scan=True)
             return
         
         self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
@@ -3442,7 +3442,7 @@ class ProtocolSettings(CompositeCapture):
             return
         
         if self.ids['run_scan_btn'].state == 'normal':
-            self._cleanup_at_end_of_protocol()
+            self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
         
         self.ids['run_scan_btn'].text = 'Running Scan'
@@ -3488,7 +3488,7 @@ class ProtocolSettings(CompositeCapture):
             return
         
         if self.ids['run_protocol_btn'].state == 'normal':
-            self._cleanup_at_end_of_protocol()
+            self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
         
         # Note: This will be quickly overwritten by the remaining number of scans
@@ -3597,12 +3597,14 @@ class ProtocolSettings(CompositeCapture):
             )
 
 
-    def _cleanup_at_end_of_protocol(self):
+    def _cleanup_at_end_of_protocol(self, autofocus_scan: bool):
         sequenced_capture_executor.reset()
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
-        create_hyperstacks_if_needed()
+
+        if not autofocus_scan:
+            create_hyperstacks_if_needed()
 
 
 # Widget for displaying Microscope Stage area, labware, and current position 
