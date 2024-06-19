@@ -916,7 +916,7 @@ class CompositeCapture(FloatLayout):
                 append,
                 color,
                 force_to_8bit=force_to_8bit_pixel_depth,
-                output_format=settings['image_output_format']
+                output_format=settings['image_output_format']['live']
             )
         
         else:
