@@ -150,7 +150,7 @@ def write_ome_tiff(
     # them before writing out to OME tiff
     use_color = image_utils.is_color_image(data)
     if use_color:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
 
     # if use_color:
     #     photometric = 'rgb'
