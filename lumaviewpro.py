@@ -5007,9 +5007,6 @@ class LumaViewProApp(App):
             logger.exception('[LVP Main  ] Cannot open main display.')
             raise
 
-        if getattr(sys, 'frozen', False):
-            pyi_splash.close()
-
         # load labware file
         wellplate_loader = labware_loader.WellPlateLoader()
         coordinate_transformer = coord_transformations.CoordinateTransformer()
@@ -5055,6 +5052,9 @@ class LumaViewProApp(App):
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
         scope_leds_off()
+
+        if getattr(sys, 'frozen', False):
+            pyi_splash.close()
 
         return lumaview
 
