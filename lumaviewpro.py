@@ -4959,6 +4959,8 @@ class LumaViewProApp(App):
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
         move_home(axis='XY')
+        if getattr(sys, 'frozen', False):
+            pyi_splash.close()
 
 
     def build(self):
@@ -5052,9 +5054,6 @@ class LumaViewProApp(App):
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
         scope_leds_off()
-
-        if getattr(sys, 'frozen', False):
-            pyi_splash.close()
 
         return lumaview
 
