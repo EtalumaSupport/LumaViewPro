@@ -304,6 +304,8 @@ class SequencedCaptureExecutor:
 
         self._go_to_step(step_idx=self._curr_step)
 
+        self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
+
         Clock.schedule_interval(self._scan_iterate, 0.1)
     
 
@@ -361,7 +363,7 @@ class SequencedCaptureExecutor:
             return
         
         # Reset the autogain countdown
-        self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds
+        self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
         
         # Update the Z position with autofocus results
         if step['Auto_Focus'] and self._update_z_pos_from_autofocus:
@@ -426,7 +428,7 @@ class SequencedCaptureExecutor:
         self._autofocus_executor.reset()
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
-            self._scope.set_auto_gain(state=False)
+            self._scope.set_auto_gain(state=False, settings=self._autogain_settings,)
 
         num_steps = self._protocol.num_steps()
         if self._curr_step < num_steps-1:
