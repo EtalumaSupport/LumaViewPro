@@ -3389,6 +3389,7 @@ class ProtocolSettings(CompositeCapture):
             'autofocus_in_progress': self._autofocus_in_progress_callback,
             'autofocus_complete': self._autofocus_complete_callback,
             'scan_iterate_post': run_not_started_func,
+            'update_step_number': _update_step_number_callback,
             'run_complete': self._autofocus_run_complete_callback,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
