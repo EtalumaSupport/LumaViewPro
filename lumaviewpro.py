@@ -3980,9 +3980,9 @@ class MicroscopeSettings(BoxLayout):
                         'max_gain': 20.0,
                     }
 
-                print(f"live_folder before resolve: {settings['live_folder']}")
-                settings['live_folder'] = str(pathlib.Path(settings['live_folder']).resolve())
-                print(f"live_folder after resolve: {settings['live_folder']}")
+                live_folder = pathlib.Path(settings['live_folder']).resolve()
+                live_folder.mkdir(exist_ok=True, parents=True)
+                settings['live_folder'] = str(live_folder)
                 
                 # update GUI values from JSON data:
                
@@ -4864,9 +4864,7 @@ class FileSaveBTN(Button):
             logger.exception(f"Unsupported handling for {self.context}")
             return
         
-        
         selected_path = settings['live_folder']
-        print(f"FileSaveBTN context: {context}, selected_path: {selected_path}")
         
         # Use root with attributes to keep filedialog on top
         # Ref: https://stackoverflow.com/questions/3375227/how-to-give-tkinter-file-dialog-focus
