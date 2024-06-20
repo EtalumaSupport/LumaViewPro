@@ -2803,6 +2803,10 @@ class XYStageControl(BoxLayout):
 
         if lumaview.scope.motion.driver: # motor controller is actively connected
             move_home(axis='XY')
+
+            # Firmware seems to move the turret back to position 1 when performing XY homing
+            # Use this command to make sure the UI is in-sync
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=1)
             
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
