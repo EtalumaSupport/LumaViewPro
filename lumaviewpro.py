@@ -3269,7 +3269,7 @@ class ProtocolSettings(CompositeCapture):
         
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
 
-        active_layer, active_layer_config = get_active_layer_config()
+        acquired_layers = [layer_config for layer_config in get_layer_configs() if get_layer_configs()[layer_config]["acquire"] == True]
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
@@ -3279,19 +3279,22 @@ class ProtocolSettings(CompositeCapture):
         else:
             after_step = None
             before_step = self.curr_step
+        
+        for acquired_layer in acquired_layers:
+            acquired_layer_config = get_layer_configs()[acquired_layer]
 
-        step_name = self._protocol.insert_step(
-            step_name=None,
-            layer=active_layer,
-            layer_config=active_layer_config,
-            plate_position=plate_position,
-            objective_id=objective_id,
-            before_step=before_step,
-            after_step=after_step
-        )
+            step_name = self._protocol.insert_step(
+                step_name=None,
+                layer=acquired_layer,
+                layer_config=acquired_layer_config,
+                plate_position=plate_position,
+                objective_id=objective_id,
+                before_step=before_step,
+                after_step=after_step
+            )
 
-        if after_current_step or (self.curr_step < 0):
-            self.curr_step += 1
+            if after_current_step or (self.curr_step < 0):
+                self.curr_step += 1
 
         self.update_step_ui()
         stage.set_protocol_steps(df=self._protocol.steps())
