@@ -3270,8 +3270,6 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
 
         acquired_layers = [layer_config for layer_config in get_layer_configs() if get_layer_configs()[layer_config]["acquire"] == True]
-        #acquired_layer_configs = [get_layer_configs[acquired_layer] for acquired_layer in acquired_layers]
-        #active_layer, active_layer_config = get_active_layer_config()
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
@@ -3298,9 +3296,9 @@ class ProtocolSettings(CompositeCapture):
             if after_current_step or (self.curr_step < 0):
                 self.curr_step += 1
 
-            self.update_step_ui()
-            stage.set_protocol_steps(df=self._protocol.steps())
-            self.go_to_step()
+        self.update_step_ui()
+        stage.set_protocol_steps(df=self._protocol.steps())
+        self.go_to_step()
 
 
     def update_acquire_zstack(self):
