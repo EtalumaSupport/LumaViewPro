@@ -4025,10 +4025,12 @@ class MicroscopeSettings(BoxLayout):
                 # Multiplying frame size by the binning size to account for the select_binning_size() call
                 # Effectively sets the frame size to the size it was prior to pixel binning, then bins
                 
-                self.ids['frame_width_id'].text = str(settings['frame']['width']*int(settings['binning']['size']))
-                self.ids['frame_height_id'].text = str(settings['frame']['height']*int(settings['binning']['size']))
-                lumaview.scope.set_frame_size(settings['frame']['width']*int(settings['binning']['size']),
-                                               settings['frame']['height']*int(settings['binning']['size']))
+                binning_size = int(settings['binning']['size'])
+
+                self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
+                self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
+                lumaview.scope.set_frame_size(settings['frame']['width'] * binning_size,
+                                              settings['frame']['height'] * binning_size)
 
                 # Pixel Binning
 
