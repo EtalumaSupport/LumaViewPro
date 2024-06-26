@@ -4021,9 +4021,16 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
                 self.select_sequenced_image_output_format()
 
-                self.ids['frame_width_id'].text = str(settings['frame']['width'])
-                self.ids['frame_height_id'].text = str(settings['frame']['height'])
-                lumaview.scope.set_frame_size(settings['frame']['width'], settings['frame']['height'])
+                # Set Frame Size
+                # Multiplying frame size by the binning size to account for the select_binning_size() call
+                # Effectively sets the frame size to the size it was prior to pixel binning, then bins
+                
+                self.ids['frame_width_id'].text = str(settings['frame']['width']*int(settings['binning']['size']))
+                self.ids['frame_height_id'].text = str(settings['frame']['height']*int(settings['binning']['size']))
+                lumaview.scope.set_frame_size(settings['frame']['width']*int(settings['binning']['size']),
+                                               settings['frame']['height']*int(settings['binning']['size']))
+
+                # Pixel Binning
 
                 self.ids['binning_spinner'].text = str(settings['binning']['size'])
                 self.select_binning_size()
