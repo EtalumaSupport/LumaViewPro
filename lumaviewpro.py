@@ -619,14 +619,17 @@ def move_relative_position(
 
 
 def move_home(axis: str):
+    global version
     axis = axis.upper()
 
+    Window.set_title(f"Lumaview Pro {version}   |   Homing, please wait...")
     if axis == 'Z':
         lumaview.scope.zhome()
     elif axis == 'XY':
         lumaview.scope.xyhome()
 
     _handle_ui_update_for_axis(axis=axis)
+    Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}"), 1)
 
 
 # -------------------------------------------------------------------------
@@ -5003,6 +5006,7 @@ class LumaViewProApp(App):
         global objective_helper
         global ij_helper
         global sequenced_capture_executor
+        global version
         # global autofocus_executor
         self.icon = './data/icons/icon.png'
 
