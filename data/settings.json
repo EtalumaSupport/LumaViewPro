@@ -1,7 +1,10 @@
 {
     "microscope": "LS850",
     "use_full_pixel_depth": false,
-    "image_output_format": "TIFF",
+    "image_output_format": {
+        "live": "TIFF",
+        "sequenced": "ImageJ Hyperstack"
+    },
     "separate_folder_per_channel": false,
     "stage_offset": {
         "x": 5500.0,
@@ -96,8 +99,13 @@
         "filepath": "./data/new_default_protocol.tsv",
         "autogain": {
             "target_brightness": 0.3,
-            "max_duration_seconds": 1.0
+            "max_duration_seconds": 1.0,
+            "min_gain": 0.0,
+            "max_gain": 20.0
         }
+    },
+    "binning": {
+        "size": 1
     },
     "logging": {
         "default": {

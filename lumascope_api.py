@@ -92,6 +92,7 @@ class Lumascope():
 
         self.is_focusing = False         # Is the microscope currently attempting autofocus
         self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
+        self.last_focus_score = None
 
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
@@ -99,6 +100,10 @@ class Lumascope():
         self._labware = None             # The labware currently installed
         self._objective = None           # The objective currently installed
         self._stage_offset = None        # The stage offset for the microscope
+        if self.camera:
+            self._binning_size = self.camera.get_binning_size()
+        else:
+            self._binning_size = 1
 
         self._scale_bar = {
             'enabled': False
@@ -119,6 +124,19 @@ class Lumascope():
 
     def set_stage_offset(self, stage_offset):
         self._stage_offset = stage_offset
+
+    def set_binning_size(self, size):
+        self._binning_size = size
+
+        if self.camera:
+            self.camera.set_binning_size(size=size)
+
+    def get_binning_size(self) -> int:
+        if not self.camera:
+            return 1
+
+        return self.camera.get_binning_size()
+    
 
     ########################################################################
     # LED BOARD FUNCTIONS
@@ -142,6 +160,23 @@ class Lumascope():
         if not self.led: return -1
 
         return self.led.get_led_ma(color=color)
+    
+
+    def get_led_state(self, color: str):
+        """ LED BOARD FUNCTIONS
+        Get a dictionary containing the LED state and illumination (mA)"""
+        if not self.led: return -1
+
+        return self.led.get_led_state(color=color)
+    
+
+    def get_led_states(self):
+        """ LED BOARD FUNCTIONS
+        Get a dictionary of dictionaries containing the LED states and illumination (mA)"""
+        if not self.led: return -1
+
+        return self.led.get_led_states()
+    
 
     def led_on(self, channel, mA):
         """ LED BOARD FUNCTIONS
@@ -213,7 +248,11 @@ class Lumascope():
             self.image_buffer = self.camera.array.copy()
 
             if use_scale_bar:
-                self.image_buffer = image_utils.add_scale_bar(image=self.image_buffer, objective=self._objective)
+                self.image_buffer = image_utils.add_scale_bar(
+                    image=self.image_buffer,
+                    objective=self._objective,
+                    binning_size=self._binning_size,
+                )
 
             if force_to_8bit and self.image_buffer.dtype != np.uint8:
                 self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
@@ -280,19 +319,69 @@ class Lumascope():
         return path
 
 
-    def save_image(
+    def generate_image_metadata(self, color) -> dict:
+        def _validate():
+            if self._objective is None:
+                raise Exception(f"[SCOPE API ] Objective not set")
+            
+            if 'focal_length' not in self._objective:
+                raise Exception(f"[SCOPE API ] Objective focal length not provided")
+
+            if self._labware is None:
+                raise Exception(f"[SCOPE API ] Labware not set")
+            
+            if self._stage_offset is None:
+                raise Exception(f"[SCOPE API ] Stage offset not set")
+            
+        _validate()
+
+        px, py = self._coordinate_transformer.stage_to_plate(
+            labware=self._labware,
+            stage_offset=self._stage_offset,
+            sx=self.get_current_position(axis='X'),
+            sy=self.get_current_position(axis='Y')
+        )
+        z = self.get_current_position(axis='Z')
+
+        px = round(px, common_utils.max_decimal_precision('x'))
+        py = round(py, common_utils.max_decimal_precision('y'))
+        z  = round(z,  common_utils.max_decimal_precision('z'))
+
+        pixel_size_um = round(
+            common_utils.get_pixel_size(
+                focal_length=self._objective['focal_length'],
+                binning_size=self._binning_size,
+            ),
+            common_utils.max_decimal_precision('pixel_size'),
+        )
+        
+        metadata = {
+            'channel': color,
+            'focal_length': self._objective['focal_length'],
+            'plate_pos_mm': {'x': px, 'y': py},
+            'z_pos_um': z,
+            'exposure_time_ms': round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
+            'gain_db': round(self.get_gain(), common_utils.max_decimal_precision('gain')),
+            'illumination_ma': round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
+            'binning_size': self._binning_size,
+            'pixel_size_um': pixel_size_um,
+        }
+
+        return metadata
+    
+
+    def prepare_image_for_saving(
         self,
-        array,
-        save_folder = './capture',
-        file_root = 'img_',
-        append = 'ms',
-        color = 'BF',
-        tail_id_mode = "increment",
-        output_format: str = "TIFF"
+        array: np.ndarray,
+        save_folder: str,
+        file_root: str,
+        append: str,
+        color: str,
+        tail_id_mode: str,
+        output_format: str,
+        true_color: str,
     ):
-        """CAMERA FUNCTIONS
-        save image (as array) to file
-        """
+        metadata = self.generate_image_metadata(color=true_color)
 
         src_dtype = array.dtype
 
@@ -321,58 +410,59 @@ class Lumascope():
             output_format=output_format
         )
 
+        metadata['file_loc'] = path
+
+        return {
+            'image': img,
+            'metadata': metadata,
+        }
+
+
+    def save_image(
+        self,
+        array,
+        save_folder = './capture',
+        file_root = 'img_',
+        append = 'ms',
+        color = 'BF',
+        tail_id_mode = "increment",
+        output_format: str = "TIFF",
+        true_color: str = 'BF',
+    ):
+        """CAMERA FUNCTIONS
+        save image (as array) to file
+        """
+
+        image_data = self.prepare_image_for_saving(
+            array=array,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            color=color,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+            true_color=true_color,
+        )
+
+        image = image_data['image']
+        metadata = image_data['metadata']
+        file_loc = metadata['file_loc']
+
         try:
             if output_format == 'OME-TIFF':
-
-                def _validate():
-                    if self._objective is None:
-                        raise Exception(f"[SCOPE API ] Objective not set")
-                    
-                    if 'focal_length' not in self._objective:
-                        raise Exception(f"[SCOPE API ] Objective focal length not provided")
-
-                    if self._labware is None:
-                        raise Exception(f"[SCOPE API ] Labware not set")
-                    
-                    if self._stage_offset is None:
-                        raise Exception(f"[SCOPE API ] Stage offset not set")
-                
-                _validate()
-                
-                px, py = self._coordinate_transformer.stage_to_plate(
-                    labware=self._labware,
-                    stage_offset=self._stage_offset,
-                    sx=self.get_current_position(axis='X'),
-                    sy=self.get_current_position(axis='Y')
-                )
-                z = self.get_current_position(axis='Z')
-
-                if image_utils.is_color_image(img):
-                    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-                px = round(px, common_utils.max_decimal_precision('x'))
-                py = round(px, common_utils.max_decimal_precision('y'))
-                z  = round(z,  common_utils.max_decimal_precision('z'))
-
                 image_utils.write_ome_tiff(
-                    data=img,
-                    file_loc=path,
-                    channel=color,
-                    focal_length=self._objective['focal_length'],
-                    plate_pos_mm={'x': px, 'y': py},
-                    z_pos_um=z,
-                    exposure_time_ms=round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
-                    gain_db=round(self.get_gain(), common_utils.max_decimal_precision('gain')),
-                    ill_ma=round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination'))
+                    data=image,
+                    file_loc=file_loc,
+                    metadata=metadata,
                 )
             else:
-                cv2.imwrite(str(path), img.astype(src_dtype))
+                cv2.imwrite(str(file_loc), image.astype(array.dtype))
 
-            logger.info(f'[SCOPE API ] Saving Image to {path}')
+            logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
         except:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
-        return path
+        return file_loc
     
 
     def save_live_image(
@@ -383,7 +473,8 @@ class Lumascope():
             color = 'BF',
             tail_id_mode = "increment",
             force_to_8bit: bool = True,
-            output_format: str = "TIFF"
+            output_format: str = "TIFF",
+            true_color: str = 'BF',
         ):
 
         """CAMERA FUNCTIONS
@@ -392,20 +483,21 @@ class Lumascope():
         array = self.get_image(force_to_8bit=force_to_8bit)
         if array is False:
             return 
-        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format)
+        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
  
+
     def get_max_width(self):
         """CAMERA FUNCTIONS
         Grab the max pixel width of camera
         """
-        if not self.camera: return 0
+        if (not self.camera) or (not self.camera.active): return 0
         return self.camera.active.Width.Max
 
     def get_max_height(self):
         """CAMERA FUNCTIONS
         Grab the max pixel height of camera
         """
-        if not self.camera: return 0
+        if (not self.camera) or (not self.camera.active): return 0
         return self.camera.active.Height.Max
       
     def get_width(self):
@@ -424,11 +516,20 @@ class Lumascope():
 
     def set_frame_size(self, w, h):
         """CAMERA FUNCTIONS
-        Set frame size (pixel width by picel height
+        Set frame size (pixel width by pixel height
         of camera to w by h"""
 
         if not self.camera: return
-        self.camera.frame_size(w, h)
+        self.camera.set_frame_size(w, h)
+
+    def get_frame_size(self):
+        """CAMERA FUNCTIONS
+        Get frame size (pixel width by pixel height
+        of camera to w by h"""
+
+        if not self.camera: return
+        return self.camera.get_frame_size()
+
 
     def get_gain(self):
         """CAMERA FUNCTIONS
@@ -444,13 +545,18 @@ class Lumascope():
         if not self.camera: return
         self.camera.gain(gain)
 
-    def set_auto_gain(self, state=True, target_brightness: float=0.5):
+    def set_auto_gain(self, state: bool, settings: dict):
         """CAMERA FUNCTIONS
         Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
         if not self.camera: return
-        self.camera.auto_gain(state, target_brightness=target_brightness)
+        self.camera.auto_gain(
+            state,
+            target_brightness=settings['target_brightness'],
+            min_gain=settings['min_gain'],
+            max_gain=settings['max_gain'],
+        )
 
     def set_exposure_time(self, t):
         """CAMERA FUNCTIONS
@@ -475,6 +581,16 @@ class Lumascope():
 
         if not self.camera: return
         self.camera.auto_exposure_t(state)
+
+    
+    def camera_is_connected(self) -> bool:
+        if not self.camera:
+            return False
+        
+        if not self.camera.active:
+            return False
+    
+        return True
 
     ########################################################################
     # MOTION CONTROL FUNCTIONS
@@ -566,26 +682,41 @@ class Lumascope():
             self.move_absolute_position('T', degrees, wait_until_complete=True)
 
 
-    def get_target_position(self, axis):
+    def get_target_position(self, axis=None):
         """MOTION CONTROL FUNCTIONS
         Get the value of the target position of the axis relative to home
         Returns position (um), or 0 if the motion board is inactive
         values of axis 'X', 'Y', 'Z', and 'T' """
 
         if not self.motion.driver: return 0
-        target_position = self.motion.target_pos(axis)
-        return target_position
+
+        if axis is None:
+            positions = {}
+            for ax in ('X', 'Y', 'Z', 'T'):
+                positions[ax] = self.motion.target_pos(axis=ax)
+            return positions
         
-    def get_current_position(self, axis):
+        position = self.motion.target_pos(axis)
+        return position
+        
+    def get_current_position(self, axis=None):
         """MOTION CONTROL FUNCTIONS
         Get the value of the current position of the axis relative to home
         Returns position (um), or 0 if the motion board is inactive
         values of axis 'X', 'Y', 'Z', and 'T' """
 
         if not self.motion.driver: return 0
-        target_position = self.motion.current_pos(axis)
-        return target_position
+
+        if axis is None:
+            positions = {}
+            for ax in ('X', 'Y', 'Z', 'T'):
+                positions[ax] = self.motion.current_pos(axis=ax)
+            return positions
         
+        position = self.motion.current_pos(axis)
+        return position
+
+
     def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True):
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
@@ -768,7 +899,7 @@ class Lumascope():
 
         self.AF_positions = []       # List of positions to step through
         self.focus_measures = []     # Measure focus score at each position
-        self.last_focus_score = 0    # Last / Previous focus score
+        self.last_focus_score = None    # Last / Previous focus score
         self.last_focus_pass = False # Are we on the last scan for autofocus?
 
         # Start the autofocus process at z-minimum
@@ -855,6 +986,7 @@ class Lumascope():
             # end autofocus sequence
             self.autofocus_return = focus
             self.is_focusing = False
+            self.last_focus_score = focus
 
             # Stop thread image when autofocus is complete
             done=True
