@@ -174,6 +174,9 @@ sequenced_capture_executor = None
 # global autofocus_executor
 # autofocus_executor = None
 
+global live_histo_setting
+live_histo_setting = False
+
 global last_save_folder
 last_save_folder = None
 global stage
@@ -631,6 +634,15 @@ def move_home(axis: str):
     _handle_ui_update_for_axis(axis=axis)
     Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}"), 1)
 
+def live_histo_off():
+    if live_histo_setting == True and lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization == True:
+        lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = False
+        logger.info('[LVP Main  ] Live Histogram Equalization] False')
+
+def live_histo_reverse(): 
+    if live_histo_setting == True and lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization == False:
+        lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = True
+        logger.info('[LVP Main  ] Live Histogram Equalization] True')
 
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
@@ -995,6 +1007,8 @@ class CompositeCapture(FloatLayout):
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
         global lumaview
 
+        live_histo_off()
+
         if lumaview.scope.camera.active == False:
             return
 
@@ -1068,6 +1082,7 @@ class CompositeCapture(FloatLayout):
             output_format=settings['image_output_format']
         )
 
+        live_histo_reverse()
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -3376,14 +3391,19 @@ class ProtocolSettings(CompositeCapture):
         run_not_started_func = self._reset_run_autofocus_scan_button
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
+
+        live_histo_off()
+
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
             run_not_started_func()
+            live_histo_reverse()
             logger.warning(f"Cannot start autofocus scan. Run already in progress from {run_trigger_source}")
             return
         
         if not self._is_protocol_valid():
             run_not_started_func()
+            live_histo_reverse()
             return
         
         if self.ids['run_autofocus_btn'].state == 'normal':
@@ -3433,6 +3453,7 @@ class ProtocolSettings(CompositeCapture):
     def _scan_run_complete(self, **kwargs):
         self._reset_run_scan_button()
         create_hyperstacks_if_needed()
+        live_histo_reverse()
 
 
     def run_scan_from_ui(self):
@@ -3478,6 +3499,7 @@ class ProtocolSettings(CompositeCapture):
 
     def _protocol_run_complete(self, **kwargs):
         self._reset_run_protocol_button()
+        live_histo_reverse()
         create_hyperstacks_if_needed()
 
 
@@ -3562,6 +3584,7 @@ class ProtocolSettings(CompositeCapture):
         disable_saving_artifacts: bool = False,
         return_to_position: dict | None = None,
     ):
+        live_histo_off()
 
         logger.info('[LVP Main  ] ProtocolSettings.run_sequenced_capture()')
 
@@ -3613,6 +3636,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
+        live_histo_reverse()
 
         if not autofocus_scan:
             create_hyperstacks_if_needed()
@@ -4169,10 +4193,13 @@ class MicroscopeSettings(BoxLayout):
 
 
     def update_live_image_histogram_equalization(self):
+        global live_histo_setting
         if self.ids['enable_live_image_histogram_equalization_btn'].state == 'down':
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = True
+            live_histo_setting = True
         else:
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = False
+            live_histo_setting = False
 
 
     # Save settings to JSON file
@@ -4567,20 +4594,25 @@ class ZStack(CompositeCapture):
     def _reset_run_zstack_acquire_button(self, **kwargs):
         self.ids['zstack_aqr_btn'].state = 'normal'
         self.ids['zstack_aqr_btn'].text = 'Acquire'
+        live_histo_reverse()
 
 
     def _cleanup_at_end_of_acquire(self):
         sequenced_capture_executor.reset()
         self._reset_run_zstack_acquire_button()
+        live_histo_reverse()
 
 
     def _zstack_run_complete(self, **kwargs):
         self._reset_run_zstack_acquire_button()
         create_hyperstacks_if_needed()
+        live_histo_reverse()
 
 
     def run_zstack_acquire_from_ui(self):
         logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
+
+        live_histo_off()
 
         trigger_source = 'zstack'
         run_not_started_func = self._reset_run_zstack_acquire_button
