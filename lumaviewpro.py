@@ -2475,6 +2475,7 @@ class VerticalControl(BoxLayout):
 
 
     def _autofocus_run_complete(self, **kwargs):
+        live_histo_reverse()
         self._reset_run_autofocus_button()
 
 
@@ -2487,6 +2488,8 @@ class VerticalControl(BoxLayout):
         else:
             save_autofocus_data = False
             parent_dir = None
+
+        live_histo_off()
 
         trigger_source = 'autofocus'
         run_complete_func = self._autofocus_run_complete
@@ -3378,6 +3381,7 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _autofocus_run_complete_callback(self, **kwargs):
+        live_histo_reverse()
         self._reset_run_autofocus_scan_button()
 
         # Copy the Z-heights from the autofocus scan into the protocol
@@ -3633,10 +3637,11 @@ class ProtocolSettings(CompositeCapture):
 
     def _cleanup_at_end_of_protocol(self, autofocus_scan: bool):
         sequenced_capture_executor.reset()
+        live_histo_reverse()
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
-        live_histo_reverse()
+        
 
         if not autofocus_scan:
             create_hyperstacks_if_needed()
