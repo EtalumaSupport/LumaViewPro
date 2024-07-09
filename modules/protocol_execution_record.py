@@ -9,12 +9,13 @@ import pandas as pd
 class ProtocolExecutionRecord:
 
     FILE_HEADER = "LumaViewPro Protocol Execution Record"
-    CURRENT_VERSION = 1
+    CURRENT_VERSION = 2
     DEFAULT_FILENAME = 'protocol_record.tsv'
     COLUMNS = ('Filename', 'Step Name', 'Step Index', 'Scan Count', 'Timestamp')
 
     def __init__(
         self,
+        protocol_file_loc: pathlib.Path, # | None = None,
         outfile: pathlib.Path | None = None,
         records: pd.DataFrame | None = None
     ):
@@ -23,6 +24,8 @@ class ProtocolExecutionRecord:
         
         if (outfile is None) and (records is None):
             raise Exception(f"Must specify outfile or records")
+        
+        self._protocol_file_loc = pathlib.Path(protocol_file_loc)
 
         self._outfile_fp = None
         if outfile is not None:
@@ -39,9 +42,14 @@ class ProtocolExecutionRecord:
         self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
         self._outfile_csv.writerow([self.FILE_HEADER])
         self._outfile_csv.writerow(['Version', self.CURRENT_VERSION])
+        self._outfile_csv.writerow(['Protocol File', str(self._protocol_file_loc)])
         self._outfile_csv.writerow(self.COLUMNS)
 
     
+    def protocol_file_loc(self) -> pathlib.Path:
+        return self._protocol_file_loc
+    
+
     def complete(self):
         self._close_outfile()
 
@@ -68,8 +76,8 @@ class ProtocolExecutionRecord:
         self._outfile_fp.flush()
         
     
-    def get_data_from_filename(self, filename: str | pathlib.Path) -> dict | None:
-        record = self._records.loc[self._records['Filename'] == filename]
+    def get_data_from_filename(self, file_path: str | pathlib.Path) -> dict | None:
+        record = self._records.loc[self._records['Filename'] == str(file_path)]
         if len(record) != 1:
             return None
         
@@ -79,6 +87,10 @@ class ProtocolExecutionRecord:
             'Scan Count': first_row['Scan Count'],
             'Timestamp': first_row['Timestamp']
         }
+    
+    
+    def num_records(self) -> int:
+        return len(self._records)
 
 
     @classmethod
@@ -93,8 +105,14 @@ class ProtocolExecutionRecord:
             if version[0] != 'Version':
                 raise Exception(f"Version key not found")
             
-            if int(version[1]) not in (1,):
+            if int(version[1]) not in (2,):
                 raise Exception(f"Unsupported protocol execution record version")
+            
+            protocol_file_loc_row = next(csvreader)
+            if protocol_file_loc_row[0] != "Protocol File":
+                raise Exception(f"Protocol file location not found in file")
+            
+            protocol_file_loc = protocol_file_loc_row[1]
             
             _ = next(csvreader) # Column names
 
@@ -112,7 +130,10 @@ class ProtocolExecutionRecord:
 
             df = pd.DataFrame(records)
 
-            return ProtocolExecutionRecord(records=df)
+            return ProtocolExecutionRecord(
+                records=df,
+                protocol_file_loc=protocol_file_loc
+            )
 
             
 

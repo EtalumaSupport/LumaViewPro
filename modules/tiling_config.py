@@ -68,14 +68,16 @@ class TilingConfig:
         config_label: str,
         focal_length: float,
         frame_size: dict[int],
-        fill_factor: int
+        fill_factor: int,
+        binning_size: int,
     ) -> dict[dict]:
         
         tiling_mxn = self.get_mxn_size(config_label)
 
         fov_size = common_utils.get_field_of_view(
             focal_length=focal_length,
-            frame_size=frame_size
+            frame_size=frame_size,
+            binning_size=binning_size,
         )  
         
         x_fov = fill_factor * fov_size['width']
@@ -109,13 +111,15 @@ class TilingConfig:
             config_label: str,
             focal_length: float,
             frame_size: dict[int],
-            fill_factor: int
+            fill_factor: int,
+            binning_size: int,
     ) -> dict:
         ranges = self._calc_range(
             config_label=config_label,
             focal_length=focal_length,
             frame_size=frame_size,
-            fill_factor=fill_factor
+            fill_factor=fill_factor,
+            binning_size=binning_size,
         )
 
         tiling_mxn = ranges['mxn']

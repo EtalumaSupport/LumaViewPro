@@ -35,6 +35,19 @@ def image_file_to_image(image_file):
     return image
 
 
+def get_used_color_planes(image) -> list:
+    if not is_color_image(image=image):
+        return []
+    
+    used_color_planes = []
+    for color_plane_idx in range(image.shape[2]):
+        image_view = image[:,:,color_plane_idx]
+        if np.any(image_view):
+            used_color_planes.append(color_plane_idx)
+
+    return used_color_planes
+
+
 def rgb_image_to_gray(image):
 
     def _is_grayscale(image):
@@ -45,13 +58,9 @@ def rgb_image_to_gray(image):
         return False
     
     def _values_in_one_plane(image):
-        count = 0
-        for color_plane_idx in range(image.shape[2]):
-            image_view = image[:,:,color_plane_idx]
-            if np.any(image_view):
-                count += 1
+        used_color_planes = get_used_color_planes(image=image)
 
-        if count <= 1:
+        if len(used_color_planes) <= 1:
             return True
         else:
             return False
@@ -81,19 +90,7 @@ def convert_12bit_to_16bit(image):
     return (new_image * 16)
 
 
-def write_ome_tiff(
-    data,
-    file_loc: pathlib.Path,
-    channel: str,
-    focal_length: float,
-    plate_pos_mm: dict[str, float],
-    z_pos_um: float,
-    exposure_time_ms: float,
-    gain_db: float,
-    ill_ma: float
-):
-    pixel_size = round(common_utils.get_pixel_size(focal_length=focal_length), common_utils.max_decimal_precision('pixel_size'))
-
+def generate_ome_tiff_support_data(data, metadata: dict):
     use_color = image_utils.is_color_image(data)
 
     if use_color:
@@ -103,55 +100,125 @@ def write_ome_tiff(
         photometric = 'minisblack'
         axes = 'YX'
 
-    with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
-        metadata={
-            'axes': axes,
-            'SignificantBits': data.itemsize*8,
-            'PhysicalSizeX': pixel_size,
-            'PhysicalSizeXUnit': 'µm',
-            'PhysicalSizeY': pixel_size,
-            'PhysicalSizeYUnit': 'µm',
-            'Channel': {'Name': [channel]},
-            'Plane': {
-                'PositionX': plate_pos_mm['x'],
-                'PositionY': plate_pos_mm['y'],
-                'PositionZ': z_pos_um,
-                'PositionXUnit': 'mm',
-                'PositionYUnit': 'mm',
-                'PositionZUnit': 'um',
-                'ExposureTime': exposure_time_ms,
-                'ExposureTimeUnit': 'ms',
-                'Gain': gain_db,
-                'GainUnit': 'dB',
-                'Illumination': ill_ma,
-                'IlluminationUnit': 'mA'
-            }
+    ome_metadata={
+        'axes': axes,
+        'SignificantBits': data.itemsize*8,
+        'PhysicalSizeX': metadata['pixel_size_um'],
+        'PhysicalSizeXUnit': 'µm',
+        'PhysicalSizeY': metadata['pixel_size_um'],
+        'PhysicalSizeYUnit': 'µm',
+        'Channel': {'Name': [metadata['channel']]},
+        'Plane': {
+            'PositionX': metadata['plate_pos_mm']['x'],
+            'PositionY': metadata['plate_pos_mm']['y'],
+            'PositionZ': metadata['z_pos_um'],
+            'PositionXUnit': 'mm',
+            'PositionYUnit': 'mm',
+            'PositionZUnit': 'um',
+            'ExposureTime': metadata['exposure_time_ms'],
+            'ExposureTimeUnit': 'ms',
+            'Gain': metadata['gain_db'],
+            'GainUnit': 'dB',
+            'Illumination': metadata['illumination_ma'],
+            'IlluminationUnit': 'mA'
         }
+    }
 
-        options=dict(
-            photometric=photometric,
-            tile=(128, 128),
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=2
-        )
+    options=dict(
+        photometric=photometric,
+        tile=(128, 128),
+        compression='lzw',
+        resolutionunit='CENTIMETER',
+        maxworkers=2
+    )
 
+    resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
+
+    return {
+        'metadata': ome_metadata,
+        'options': options,
+        'resolution': resolution,
+    }
+
+
+def write_ome_tiff(
+    data,
+    file_loc: pathlib.Path,
+    metadata: dict,
+):
+    # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
+    # them before writing out to OME tiff
+    use_color = image_utils.is_color_image(data)
+    if use_color:
+        data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+
+    # if use_color:
+    #     photometric = 'rgb'
+    #     axes = 'YXS'
+    # else:
+    #     photometric = 'minisblack'
+    #     axes = 'YX'
+    ome_tiff_support_data = generate_ome_tiff_support_data(data=data, metadata=metadata)
+
+    with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
         tif.write(
             data,
-            resolution=(1e4 / pixel_size, 1e4 / pixel_size),
-            metadata=metadata,
-            **options
+            resolution=ome_tiff_support_data['resolution'],
+            metadata=ome_tiff_support_data['metadata'],
+            **ome_tiff_support_data['options']
         )
 
 
-def add_scale_bar(image, objective: dict):
+def add_scale_bar(
+    image,
+    objective: dict,
+    binning_size: int
+):
     height, width = image.shape[0], image.shape[1]
+
+    MIN_IMAGE_WIDTH_PIXELS = 100
+    if width < MIN_IMAGE_WIDTH_PIXELS:
+        # Don't try to add a scale bar if the image is too small
+        return image
 
     dtype = image.dtype
     is_color = is_color_image(image=image)
 
-    scale_bar_length = min(100, int(width/10))
-    scale_bar_thickness = min(3, int(height/300))
+    pixel_size_um = common_utils.get_pixel_size(
+        focal_length=objective['focal_length'],
+        binning_size=binning_size
+    )
+
+    # Scale bar should be 1/8 to 1/4 the image length
+    scale_bar_length_range_pixels = {
+        'min': int(width/8),
+        'max': int(width/4),
+    }
+    scale_bar_length_range_pixels['mid'] = int((scale_bar_length_range_pixels['min'] + scale_bar_length_range_pixels['max']) / 2)
+
+    scale_bar_length_range_um = {k: v*pixel_size_um for k,v in scale_bar_length_range_pixels.items()}
+
+    good_numbers = np.array(
+        [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1250, 1500, 1750, 2000, 2500, 3000]
+    )
+
+    # If needed, adjust the good numbers by factors of 10 to keep them 'good'
+    if scale_bar_length_range_um['min'] > good_numbers.max():
+        while scale_bar_length_range_um['min'] > good_numbers.max():
+            good_numbers *= 10
+    elif scale_bar_length_range_um['max'] < good_numbers.min():
+        while scale_bar_length_range_um['max'] < good_numbers.min():
+            good_numbers = (good_numbers / 10)
+
+    # Find the nearest good number to the midpoint target
+    good_numbers_diff = np.absolute(good_numbers-scale_bar_length_range_um['mid'])
+    good_numbers_index = good_numbers_diff.argmin()
+    scale_bar_length_um = good_numbers[good_numbers_index]
+
+    # Convert the calculated value back to pixels
+    scale_bar_length_pixels = int(scale_bar_length_um / pixel_size_um)
+
+    scale_bar_thickness_pixels = min(3, int(height/300))
     scale_bar_bottom_offset = int(height/40)
     scale_bar_right_offset = int(width/40)
 
@@ -161,28 +228,45 @@ def add_scale_bar(image, objective: dict):
         scale_bar_value = 2**12-1
 
     x_end = width - scale_bar_right_offset
-    x_start = x_end - scale_bar_length
+    x_start = x_end - scale_bar_length_pixels
     y_start = scale_bar_bottom_offset
-    y_end = y_start + scale_bar_thickness
+    y_end = y_start + scale_bar_thickness_pixels
 
     if is_color:
         image[y_start:y_end+1,x_start:x_end+1,:] = scale_bar_value
     else:
         image[y_start:y_end+1,x_start:x_end+1] = scale_bar_value
 
-    pixel_size_um = common_utils.get_pixel_size(focal_length=objective['focal_length'])
-    scale_bar_length_um = round(scale_bar_length * pixel_size_um)
     text_x_pos = x_start
     text_y_pos = y_end + 5
-    font_scale = max(0.4, width/4000)
+    font_scale = max(0.75, width/2000)
+    font_face = cv2.FONT_HERSHEY_SIMPLEX
+    font_thickness = 1
+
+    scale_bar_text = f"{scale_bar_length_um}um, {objective['magnification']}x"
+
+    # Adjust the font scaling until the text string is smaller than the scale bar length
+    while True:
+        text_size, _ = cv2.getTextSize(
+            text=scale_bar_text,
+            fontFace=font_face,
+            fontScale=font_scale,
+            thickness=font_thickness
+        )
+        text_w, text_h = text_size
+        if text_w < scale_bar_length_pixels:
+            break
+
+        font_scale *= 0.75
+
     cv2.putText(
         img=image, 
-        text=f"{scale_bar_length_um}um, {objective['magnification']}x",
+        text=scale_bar_text,
         org=(text_x_pos, text_y_pos),
-        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+        fontFace=font_face,
         fontScale=font_scale,
         color=(scale_bar_value,scale_bar_value,scale_bar_value),
-        thickness=1,
+        thickness=font_thickness,
         lineType=cv2.LINE_AA,
         bottomLeftOrigin=True
     )

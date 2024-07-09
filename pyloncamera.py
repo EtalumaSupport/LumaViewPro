@@ -108,7 +108,6 @@ class PylonCamera:
 
             camera.Open()
             self.init_camera_config()
-
             self.start_grabbing()
 
             self.error_report_count = 0
@@ -138,7 +137,7 @@ class PylonCamera:
             camera.ReverseX.SetValue(True)
             self.init_auto_gain_focus()
             self.exposure_t(t=10)
-            self.frame_size(w=1900, h=1900)
+            self.set_frame_size(w=1900, h=1900)
 
 
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
@@ -178,11 +177,16 @@ class PylonCamera:
             logger.exception(f"[CAM Class ] Unsupported bin size: {size}")
             return False
         
+        logger.debug(f"Binning size before update: {self.get_binning_size()}")
+        logger.debug(f"Frame size size before update: {self.get_frame_size()}")
         with self.update_camera_config():
             self.active.BinningVertical.SetValue(size)
             self.active.BinningVerticalMode.SetValue('Sum')
             self.active.BinningHorizontal.SetValue(size)
             self.active.BinningVerticalMode.SetValue('Sum')
+
+        logger.debug(f"Binning size after update: {self.get_binning_size()}")
+        logger.debug(f"Frame size size after update: {self.get_frame_size()}")
                 
         return True
     
@@ -200,20 +204,47 @@ class PylonCamera:
         return vert_bin
 
 
-    def init_auto_gain_focus(self, auto_target_brightness: float=0.5):
+    def init_auto_gain_focus(
+        self,
+        auto_target_brightness: float=0.5,
+        min_gain: float | None = None,
+        max_gain: float | None = None,
+    ):
         self.active.AutoFunctionROIWidth.SetValue(self.active.Width.Max - 2*self.active.AutoFunctionROIOffsetX.GetValue())
         self.active.AutoFunctionROIHeight.SetValue(self.active.Height.Max - 2*self.active.AutoFunctionROIOffsetY.GetValue())
         self.active.AutoFunctionROIUseBrightness = True
         self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
         self.active.AutoFunctionROISelector.SetValue('ROI1')
-        self.active.AutoGainLowerLimit.SetValue(self.active.AutoGainLowerLimit.Min)
-        self.active.AutoGainUpperLimit.SetValue(self.active.AutoGainUpperLimit.Max)
-        self.active.AutoFunctionProfile.SetValue('MinimizeGain')
+
+        if min_gain is None:
+            min_gain = self.active.AutoGainLowerLimit.Min
+        
+        if max_gain is None:
+            max_gain = self.active.AutoGainUpperLimit.Max
+
+        self.active.AutoGainLowerLimit.SetValue(min_gain)
+        self.active.AutoGainUpperLimit.SetValue(max_gain)
+        self.active.AutoFunctionProfile.SetValue('MinimizeExposureTime')
 
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
         with self.update_camera_config():
             self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
+
+
+    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None):
+        if not self.active:
+            return
+        
+        if min_gain is None:
+            min_gain = self.active.AutoGainLowerLimit.Min
+        
+        if max_gain is None:
+            max_gain = self.active.AutoGainUpperLimit.Max
+
+        with self.update_camera_config():
+            self.active.AutoGainLowerLimit.SetValue(min_gain)
+            self.active.AutoGainUpperLimit.SetValue(max_gain)
 
 
     def grab(self):
@@ -237,11 +268,11 @@ class PylonCamera:
             return False
   
 
-    def frame_size(self, w, h):
+    def set_frame_size(self, w, h):
         """ Set camera frame size to w by h and keep centered """
         camera = self.active
         if camera == False:
-            logger.warning('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; inactive')
+            logger.warning('[CAM Class ] PylonCamera.set_frame_size('+str(w)+','+str(h)+')'+'; inactive')
             return
 
         width = int(min(int(w), camera.Width.Max)/4)*4
@@ -253,8 +284,44 @@ class PylonCamera:
             camera.BslCenterX.Execute()
             camera.BslCenterY.Execute()
 
-        logger.info('[CAM Class ] PylonCamera.frame_size('+str(w)+','+str(h)+')'+'; succeeded')
+        logger.info('[CAM Class ] PylonCamera.set_frame_size('+str(w)+','+str(h)+')'+'; succeeded')
+
+    
+    def get_min_frame_size(self) -> dict:
+        camera = self.active
+        if camera == False:
+            return {}
+        
+        return {
+            'width': camera.Width.GetMin(),
+            'height': camera.Height.GetMin(),
+        }
+    
+
+    def get_max_frame_size(self) -> dict:
+        camera = self.active
+        if camera == False:
+            return {}
+        
+        return {
+            'width': camera.Width.GetMax(),
+            'height': camera.Height.GetMax(),
+        }
  
+
+    def get_frame_size(self):
+        camera = self.active
+        if camera == False:
+            return
+        
+        width = camera.Width.GetValue()
+        height = camera.Height.GetValue()
+
+        return {
+            'width': width,
+            'height': height,
+        }
+    
 
     def get_gain(self):
         if self.active == False:
@@ -274,7 +341,13 @@ class PylonCamera:
         logger.info('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': succeeded')
 
 
-    def auto_gain(self, state = True, target_brightness: float = 0.5):
+    def auto_gain(
+        self,
+        state = True,
+        target_brightness: float = 0.5,
+        min_gain: float | None = None,
+        max_gain: float | None = None
+    ):
         """ Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
@@ -284,6 +357,7 @@ class PylonCamera:
 
         if state == True:
             self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
+            self.update_auto_gain_min_max(min_gain=min_gain, max_gain=max_gain)
             self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
         else:

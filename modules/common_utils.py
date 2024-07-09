@@ -6,17 +6,24 @@ import re
 
 def generate_default_step_name(
     well_label,
-    color,
+    color = None,
     z_height_idx = None,
     scan_count = None,
     tile_label = None,
     custom_name_prefix = None,
     stitched: bool = False,
+    video: bool = False,
+    zprojection: str | None = None,
+    stack: bool = False,
+    hyperstack: bool = False,
 ):
     if custom_name_prefix not in (None, ""):
-        name = f"{custom_name_prefix}_{color}"
+        name = f"{custom_name_prefix}"
     else:
-        name = f"{well_label}_{color}"
+        name = f"{well_label}"
+
+    if color not in (None, ""):
+        name = f"{name}_{color}"
     
     if tile_label not in (None, "", -1):
         name = f"{name}_T{tile_label}"
@@ -30,6 +37,18 @@ def generate_default_step_name(
 
     if stitched:
         name = f'{name}_stitched'
+
+    if video:
+        name = f'{name}_video'
+
+    if zprojection is not None:
+        name = f'{name}_zproj_{zprojection}'
+
+    if stack:
+        name = f'{name}_stack'
+
+    if hyperstack:
+        name = f'{name}_hyperstack'
     
     return name
 
@@ -192,7 +211,8 @@ def to_int(val) -> int | None:
 
 
 def get_pixel_size(
-    focal_length: float
+    focal_length: float,
+    binning_size: int,
 ):
     magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
                                         # in theory could be different in different scopes
@@ -201,14 +221,20 @@ def get_pixel_size(
     pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
     um_per_pixel = pixel_width / magnification
 
-    return um_per_pixel
+    um_per_pixel_w_binning = um_per_pixel * binning_size
+
+    return um_per_pixel_w_binning
 
 
 def get_field_of_view(
     focal_length: float,
-    frame_size: dict
+    frame_size: dict,
+    binning_size: int,
 ):
-    um_per_pixel = get_pixel_size(focal_length=focal_length)
+    um_per_pixel = get_pixel_size(
+        focal_length=focal_length,
+        binning_size=binning_size,
+    )
     fov_x = um_per_pixel * frame_size['width']
     fov_y = um_per_pixel * frame_size['height']
     

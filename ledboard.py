@@ -195,6 +195,33 @@ class LEDBoard:
     def get_led_ma(self, color):
         return self.led_ma.get(color, -1)
     
+
+    def is_led_on(self, color) -> bool:
+        mA = self.led_ma[color]
+        if mA > 0:
+            return True
+        else:
+            return False
+        
+    
+    def get_led_state(self, color) -> dict:
+        enabled = self.is_led_on(color=color)
+        mA = self.get_led_ma(color=color)
+
+        return {
+            'enabled': enabled,
+            'illumination': mA,
+        }
+    
+
+    def get_led_states(self) -> dict:
+        states = {}
+        for color in self.led_ma.keys():
+            states[color] = self.get_led_state(color=color)
+
+        return states
+        
+    
     def led_on(self, channel, mA):
         """ Turn on LED at channel number at mA power """
         color = self.ch2color(channel=channel)
