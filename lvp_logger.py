@@ -40,6 +40,8 @@ lvp_logger.py configures a standard python logger for LumaViewPro.
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import sys
+import ctypes
 
 os.makedirs("logs/LVP_Log", exist_ok=True)
 
@@ -59,6 +61,19 @@ class CustomFormatter(logging.Formatter):
         #     # if INFO level, only log the message
         #     return record.getMessage()
         return logging.Formatter.format(self, record)
+    
+def minimize_logger_window():
+    if sys.platform == "win32":
+        try:
+            console_window = ctypes.windll.kernel32.GetConsoleWindow()
+            if console_window:
+                # Setting the found console window to a minimized state (state 6)
+                ctypes.windll.user32.ShowWindow(console_window, 6)
+                logger.info("[Logger  ] Console window minimized")
+            else:
+                logger.warning("[Logger  ] Console window not found.")
+        except Exception as e:
+            logger.error(f"[Logger  ] Failed to minimize console window: {e}")
 
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
@@ -83,3 +98,4 @@ file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 # file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setFormatter(CustomFormatter())
 logger.addHandler(file_handler)
+minimize_logger_window()
