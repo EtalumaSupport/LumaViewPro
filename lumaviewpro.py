@@ -952,11 +952,27 @@ class CompositeCapture(FloatLayout):
             if image_orig is False:
                 return 
             
+            # Save both versions of the image (unaltered and overlayed)
+            now = datetime.datetime.now()
+            time_string = now.strftime("%Y%m%d_%H%M%S")
+            append = f"{append}_{time_string}"
+            
             # If not in 8-bit mode, generate an 8-bit copy of the image for visualization
             if use_full_pixel_depth:
                 image = image_utils.convert_12bit_to_8bit(image_orig)
             else:
                 image = image_orig
+
+            # Original image may be in 8 or 12-bit
+            lumaview.scope.save_image(
+                array=image_orig,
+                save_folder=save_folder,
+                file_root=file_root,
+                append=append,
+                color=color,
+                tail_id_mode=None,
+                output_format=settings['image_output_format']
+            )
 
             if use_bullseye:
                 bullseye_image = lumaview.ids['viewer_id'].ids['scope_display_id'].transform_to_bullseye(image)
@@ -974,28 +990,12 @@ class CompositeCapture(FloatLayout):
             else:
                 crosshairs_image = bullseye_image
 
-            # Save both versions of the image (unaltered and overlayed)
-            now = datetime.datetime.now()
-            time_string = now.strftime("%Y%m%d_%H%M%S")
-            append = f"{append}_{time_string}"
-
             # Overlay image is in 8-bits
             lumaview.scope.save_image(
                 array=crosshairs_image,
                 save_folder=save_folder,
                 file_root=file_root,
                 append=f"{append}_overlay",
-                color=color,
-                tail_id_mode=None,
-                output_format=settings['image_output_format']
-            )
-
-            # Original image may be in 8 or 12-bit
-            lumaview.scope.save_image(
-                array=image_orig,
-                save_folder=save_folder,
-                file_root=file_root,
-                append=append,
                 color=color,
                 tail_id_mode=None,
                 output_format=settings['image_output_format']
