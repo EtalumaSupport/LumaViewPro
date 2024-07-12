@@ -58,6 +58,11 @@ import tkinter
 from tkinter import filedialog, Tk
 from plyer import filechooser
 
+import imagej.doctor
+import imagej
+imagej.doctor.checkup()
+import scyjava
+
 import modules.profiling_utils as profiling_utils
 global profiling_helper
 profiling_helper = None
