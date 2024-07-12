@@ -7,13 +7,15 @@ LumaViewPro is an open source fluorescence microscope control interface written 
 LumaViewPro contains certain functionality and features which rely on external frameworks and libraries such as Java, ImageJ, etc.  These frameworks/libraries need to be installed prior to using LumaViewPro for these capabilities to be enabled.
 
 ### Java
-Please navigate to https://www.azul.com/downloads/?version=java-8-lts&package=jdk-fx#zulu and download/install the specific Azul Java 8 JDK+FX package for your operating system.  Please select the installation option to set the `JAVA_HOME` environment variable.
+1. Please navigate to https://www.azul.com/downloads/?version=java-8-lts&package=jdk-fx#zulu and download/install the specific Azul Java 8 JDK+FX package for your operating system.
+2. During installation, please select the installation option to set the `JAVA_HOME` environment variable.
 
 Note(s):
 1. Depending on your platform and installation method, you may be required to add the `./bin` folder to your `PATH` environment variable.
 
 ### Apache Maven
-Please navigate to https://maven.apache.org/download.cgi and download/install the Maven 3.9.6 release.
+1. Please navigate to https://maven.apache.org/download.cgi and download the Maven 3.9.8 Binary Zip Archive release.
+2. Extract the downloaded zip file to any directory.
 
 Note(s):
 1. Depending on your platform and installation method, you may be required to add the `./bin` folder to your `PATH` environment variable.
