@@ -1,9 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from kivy_deps import sdl2, glew
+from PyInstaller.utils.hooks import copy_metadata
 
 block_cipher = None
 app_name = 'lumaviewpro'
+datas = [
+    ('.','.')
+]
+
+for pkg in ('numpy','scyjava','imglyb','pyimagej'):
+    datas.extend(copy_metadata(pkg))
+
 
 hiddenimports = [
     'imagecodecs._imcd',
@@ -18,9 +26,7 @@ a = Analysis(
     ['lumaviewpro.py'],
     pathex=['.'],
     binaries=[],
-    datas=[
-        ('.','.')
-    ],
+    datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},

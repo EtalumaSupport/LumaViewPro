@@ -8,6 +8,7 @@ from lvp_logger import logger
 
 
 try:
+    import imagej.doctor
     import imagej
     import scyjava
     imagej_imported = True
@@ -33,6 +34,13 @@ class ZProjectMethod(enum.Enum):
 class ImageJHelper:
 
     def __init__(self):
+        try:
+            imagej.doctor.checkup()
+        except Exception as ex:
+            logger.info(f"[ImageJ Helper] Unable to run ImageJ Doctor Checkup: {ex}")
+
+        self._test_dependencies()
+
         if imagej_imported == False:
             logger.error(f"[ImageJ Helper] ImageJ module failed to import, unable to use {self.__class__.__name__}")
             self._ij = None
@@ -44,6 +52,16 @@ class ImageJHelper:
         except Exception as ex:
             self._ij = None
             logger.error(f"[ImageJ Helper] Unable to initialize ImageJ: {ex}")
+
+
+    def _test_dependencies(self):
+        import importlib
+        for pkg in ('imglyb', 'jgo', 'jpype', 'labeling', 'numpy', 'scyjava', 'xarray'):
+            try:
+                mod = importlib.import_module(pkg)
+                logger.info(f"Imported {mod.__name__}")
+            except Exception as ex:
+                logger.error(f"Unable to import {pkg}: {ex}")
 
 
     def _log_uninitialized(self):
