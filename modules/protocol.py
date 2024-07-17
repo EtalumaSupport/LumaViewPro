@@ -20,10 +20,13 @@ from modules.objectives_loader import ObjectiveLoader
 class Protocol:
 
     PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
-    COLUMNS_V1 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective']
-    COLUMNS_V2 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID']
-    CURRENT_VERSION = 2
-    CURRENT_COLUMNS = COLUMNS_V2
+    COLUMNS = {
+        1: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective'],
+        2: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'],
+        3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Video', 'Video Config'],
+    }
+    CURRENT_VERSION = 3
+    CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
     STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|EP|PC)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
     
     def __init__(
@@ -143,7 +146,9 @@ class Protocol:
                 ("Z-Slice", int),
                 ("Custom Step", bool),
                 ("Tile Group ID", int),
-                ("Z-Stack Group ID", int)
+                ("Z-Stack Group ID", int),
+                ("Video", bool),
+                ("Video Config", dict),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -235,6 +240,8 @@ class Protocol:
         self._config['steps'].at[step_idx, "Auto_Gain"] = layer_config['auto_gain']
         self._config['steps'].at[step_idx, "Exposure"] = layer_config['exposure']
         self._config['steps'].at[step_idx, "Objective"] = objective_id
+        self._config['steps'].at[step_idx, "Video"] = True if layer_config['acquire'] == "video" else False
+        self._config['steps'].at[step_idx, "Video Config"] = layer_config['video_config']
 
 
     def insert_step(
@@ -273,6 +280,7 @@ class Protocol:
         custom_step = True
         tile_group_id = -1
         zstack_group_id = -1
+        video = True if layer_config['acquire'] == 'video' else False
 
         step_dict = self._create_step_dict(
             name=step_name,
@@ -292,7 +300,9 @@ class Protocol:
             zslice=zslice,
             custom_step=custom_step,
             tile_group_id=tile_group_id,
-            zstack_group_id=zstack_group_id
+            zstack_group_id=zstack_group_id,
+            video=video,
+            video_config=layer_config['video_config'],
         )
 
         if before_step is not None:
@@ -385,7 +395,7 @@ class Protocol:
                     zslice=orig_step_df['Z-Slice'],
                     custom_step=orig_step_df['Custom Step'],
                     tile_group_id=tile_group_id,
-                    zstack_group_id=orig_step_df['Z-Stack Group ID']
+                    zstack_group_id=orig_step_df['Z-Stack Group ID'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -529,7 +539,7 @@ class Protocol:
             for tile_label, tile_position in tiles.items():
                 for zstack_slice, zstack_position in zstack_positions.items():
                     for layer_name, layer_config in layer_configs.items():
-                        if layer_config['acquire'] == False:
+                        if layer_config['acquire'] == None:
                             continue
                         
                         x = round(pos['x'] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
@@ -551,6 +561,8 @@ class Protocol:
                         gain = round(layer_config['gain'], common_utils.max_decimal_precision('gain'))
                         auto_gain = common_utils.to_bool(layer_config['auto_gain'])
                         exposure = round(layer_config['exposure'], common_utils.max_decimal_precision('exposure'))
+                        video = True if layer_config['acquire'] == "video" else False
+                        video_config = layer_config['video_config']
 
                         well_label = pos['name']
                         if position_source == 'from_labware':
@@ -591,7 +603,9 @@ class Protocol:
                             zslice=zstack_slice_label,
                             custom_step=custom_step,
                             tile_group_id=tile_group_id_label,
-                            zstack_group_id=zstack_group_id_label
+                            zstack_group_id=zstack_group_id_label,
+                            video=video,
+                            video_config=video_config,
                         )
                         steps.append(step_dict)
                 
@@ -676,7 +690,9 @@ class Protocol:
         zslice,
         custom_step,
         tile_group_id,
-        zstack_group_id
+        zstack_group_id,
+        video,
+        video_config,
     ):
         return {
             "Name": name,
@@ -696,7 +712,9 @@ class Protocol:
             "Z-Slice": zslice,
             "Custom Step": custom_step,
             "Tile Group ID": tile_group_id,
-            "Z-Stack Group ID": zstack_group_id
+            "Z-Stack Group ID": zstack_group_id,
+            "Video": video,
+            "Video Config": video_config,
         }
 
 
@@ -738,7 +756,9 @@ class Protocol:
             return
 
         config['version'] = int(version_row[1])
-        if config['version'] != 2:
+
+        # TODO add converter from V2 to V3
+        if config['version'] != cls.CURRENT_VERSION:
             logger.error(f"Unable to load {file_path} which contains a protocol version that is not supported.\nPlease create a new protocol using this version of LumaViewPro.")
             return
 
@@ -768,7 +788,7 @@ class Protocol:
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
         protocol_df['Name'] = protocol_df['Name'].astype(str)
 
-        if config['version'] == 1:
+        if config['version'] in (1,):
             protocol_df['Step Index'] = protocol_df.index
 
             if not use_version_1a:
@@ -787,7 +807,7 @@ class Protocol:
                 protocol_df = protocol_df.apply(cls.extract_data_from_step_name, axis=1)
                 protocol_df['Custom Step'] = False
        
-        elif config['version'] == 2:
+        elif config['version'] in (2, 3,):
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names

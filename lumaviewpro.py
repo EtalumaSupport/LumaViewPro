@@ -409,6 +409,7 @@ def get_layer_configs(
         layer_settings = settings[layer]
 
         acquire = layer_settings['acquire']
+        video_config = layer_settings['video_config']
         autofocus = layer_settings['autofocus']
         false_color = layer_settings['false_color']
         illumination = round(layer_settings['ill'], common_utils.max_decimal_precision('illumination'))
@@ -419,6 +420,7 @@ def get_layer_configs(
 
         layer_configs[layer] = {
             'acquire': acquire,
+            'video_config': video_config,
             'autofocus': autofocus,
             'false_color': false_color,
             'illumination': illumination,
@@ -1028,7 +1030,7 @@ class CompositeCapture(FloatLayout):
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3), dtype=dtype)
 
         for layer in common_utils.get_fluorescence_layers():
-            if settings[layer]['acquire'] == True:
+            if settings[layer]['acquire'] == "image":
 
                 # Go to focus and wait for arrival
                 lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
@@ -2517,7 +2519,7 @@ class VerticalControl(BoxLayout):
         labware_id, _ = get_selected_labware()
         active_layer, active_layer_config = get_active_layer_config()
         active_layer_config['autofocus'] = True
-        active_layer_config['acquire'] = True
+        active_layer_config['acquire'] = "image"
         curr_position = get_current_plate_position()
         curr_position.update({'name': 'AF'})
 
@@ -3295,7 +3297,12 @@ class ProtocolSettings(CompositeCapture):
         
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
 
-        acquired_layers = [layer_config for layer_config in get_layer_configs() if get_layer_configs()[layer_config]["acquire"] == True]
+        layer_configs = get_layer_configs()
+        acquired_layers = []
+        for layer, layer_config in layer_configs.items():
+            if (layer_config['acquire'] != None):
+                acquired_layers.append(layer_config)
+
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
@@ -3309,7 +3316,7 @@ class ProtocolSettings(CompositeCapture):
         for acquired_layer in acquired_layers:
             acquired_layer_config = get_layer_configs()[acquired_layer]
 
-            step_name = self._protocol.insert_step(
+            _ = self._protocol.insert_step(
                 step_name=None,
                 layer=acquired_layer,
                 layer_config=acquired_layer_config,
@@ -4115,7 +4122,29 @@ class MicroscopeSettings(BoxLayout):
                     lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
                     # lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
                     lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
+
+                    if settings[layer]['acquire'] == "image":
+                        lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_image'].active = True
+                    elif settings[layer]['acquire'] == "video":
+                        lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_video'].active = True
+                    else:
+                        settings[layer]['acquire'] = None
+                        lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_none'].active = True
+
+                    video_config = settings[layer]['video_config']
+                    DEFAULT_VIDEO_FPS = 5
+                    if video_config is not None:
+                        try:
+                            lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text = str(video_config['fps'])
+                        except:  
+                            lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text = str(DEFAULT_VIDEO_FPS)
+                            logger.error(f'[LVP Main  ] Unable to set video config FPS for {layer} layer, using {DEFAULT_VIDEO_FPS} fps.')
+                        
+                    else:
+                        lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text = str(DEFAULT_VIDEO_FPS)
+
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_slider'].value = int(lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text)
+
                     lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
             except:
@@ -4422,6 +4451,29 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
+    def video_fps_slider(self):
+        logger.info('[LVP Main  ] LayerControl.video_fps_slider()')
+        fps = self.ids['video_fps_slider'].value
+        settings[self.layer]['video_config']['fps'] = fps
+        self.apply_settings()
+
+    def video_fps_text(self):
+        logger.info('[LVP Main  ] LayerControl.video_fps_text()')
+        fps_min = self.ids['video_fps_slider'].min
+        fps_max = self.ids['video_fps_slider'].max
+        try:
+            fps_val = float(self.ids['video_fps_text'].text)
+        except:
+            return
+        
+        fps = float(np.clip(fps_val, fps_min, fps_max))
+
+        settings[self.layer]['video_config']['fps'] = fps
+        self.ids['video_fps_slider'].value = fps
+        self.ids['video_fps_text'].text = str(fps)
+
+        self.apply_settings()
+
     def update_auto_gain(self):
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':
@@ -4487,7 +4539,13 @@ class LayerControl(BoxLayout):
 
     def update_acquire(self):
         logger.info('[LVP Main  ] LayerControl.update_acquire()')
-        settings[self.layer]['acquire'] = self.ids['acquire'].active
+
+        if self.ids['acquire_image'].active:
+            settings[self.layer]['acquire'] = "image"
+        elif self.ids['acquire_video'].active:
+            settings[self.layer]['acquire'] = "video"
+        else:
+            settings[self.layer]['acquire'] = None
 
     def update_autofocus(self):
         logger.info('[LVP Main  ] LayerControl.update_autofocus()')
@@ -4648,7 +4706,7 @@ class ZStack(CompositeCapture):
         objective_id, _ = get_current_objective_info()
         zstack_positions_valid, zstack_positions = get_zstack_positions()
         active_layer, active_layer_config = get_active_layer_config()
-        active_layer_config['acquire'] = True
+        active_layer_config['acquire'] = "image"
 
         if not config['zstack_positions_valid']:
             logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
