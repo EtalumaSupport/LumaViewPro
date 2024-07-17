@@ -23,7 +23,7 @@ class Protocol:
     COLUMNS = {
         1: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective'],
         2: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'],
-        3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Video', 'Video Config'],
+        3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
     }
     CURRENT_VERSION = 3
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
@@ -147,7 +147,7 @@ class Protocol:
                 ("Custom Step", bool),
                 ("Tile Group ID", int),
                 ("Z-Stack Group ID", int),
-                ("Video", bool),
+                ("Acquire", str),
                 ("Video Config", dict),
             ]
         )
@@ -240,7 +240,7 @@ class Protocol:
         self._config['steps'].at[step_idx, "Auto_Gain"] = layer_config['auto_gain']
         self._config['steps'].at[step_idx, "Exposure"] = layer_config['exposure']
         self._config['steps'].at[step_idx, "Objective"] = objective_id
-        self._config['steps'].at[step_idx, "Video"] = True if layer_config['acquire'] == "video" else False
+        self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
         self._config['steps'].at[step_idx, "Video Config"] = layer_config['video_config']
 
 
@@ -280,7 +280,6 @@ class Protocol:
         custom_step = True
         tile_group_id = -1
         zstack_group_id = -1
-        video = True if layer_config['acquire'] == 'video' else False
 
         step_dict = self._create_step_dict(
             name=step_name,
@@ -301,7 +300,7 @@ class Protocol:
             custom_step=custom_step,
             tile_group_id=tile_group_id,
             zstack_group_id=zstack_group_id,
-            video=video,
+            acquire=layer_config['acquire'],
             video_config=layer_config['video_config'],
         )
 
@@ -494,7 +493,7 @@ class Protocol:
         )
 
         config = {
-            'version': 2,
+            'version': cls.CURRENT_VERSION,
             'period': period,
             'duration': duration,
             'positions': positions,
@@ -561,7 +560,6 @@ class Protocol:
                         gain = round(layer_config['gain'], common_utils.max_decimal_precision('gain'))
                         auto_gain = common_utils.to_bool(layer_config['auto_gain'])
                         exposure = round(layer_config['exposure'], common_utils.max_decimal_precision('exposure'))
-                        video = True if layer_config['acquire'] == "video" else False
                         video_config = layer_config['video_config']
 
                         well_label = pos['name']
@@ -604,7 +602,7 @@ class Protocol:
                             custom_step=custom_step,
                             tile_group_id=tile_group_id_label,
                             zstack_group_id=zstack_group_id_label,
-                            video=video,
+                            acquire=layer_config['acquire'],
                             video_config=video_config,
                         )
                         steps.append(step_dict)
@@ -691,7 +689,7 @@ class Protocol:
         custom_step,
         tile_group_id,
         zstack_group_id,
-        video,
+        acquire,
         video_config,
     ):
         return {
@@ -713,7 +711,7 @@ class Protocol:
             "Custom Step": custom_step,
             "Tile Group ID": tile_group_id,
             "Z-Stack Group ID": zstack_group_id,
-            "Video": video,
+            "Acquire": acquire,
             "Video Config": video_config,
         }
 

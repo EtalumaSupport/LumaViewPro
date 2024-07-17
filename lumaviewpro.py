@@ -4132,18 +4132,24 @@ class MicroscopeSettings(BoxLayout):
                         lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_none'].active = True
 
                     video_config = settings[layer]['video_config']
+                    DEFAULT_VIDEO_DURATION_SEC = 5
                     DEFAULT_VIDEO_FPS = 5
-                    if video_config is not None:
-                        try:
-                            lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text = str(video_config['fps'])
-                        except:  
-                            lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text = str(DEFAULT_VIDEO_FPS)
-                            logger.error(f'[LVP Main  ] Unable to set video config FPS for {layer} layer, using {DEFAULT_VIDEO_FPS} fps.')
-                        
-                    else:
-                        lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text = str(DEFAULT_VIDEO_FPS)
+                    if video_config is None:
+                        video_config = {}
 
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_slider'].value = int(lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text)
+                    if 'fps' not in video_config:
+                        video_config['fps'] = DEFAULT_VIDEO_FPS
+
+                    if 'duration' not in video_config:
+                        video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
+
+                    settings[layer]['video_config'] = video_config
+
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text = str(video_config['fps'])
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_slider'].value = video_config['fps']
+
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_text'].text = str(video_config['duration'])
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_slider'].value = video_config['duration']
 
                     lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
@@ -4462,15 +4468,38 @@ class LayerControl(BoxLayout):
         fps_min = self.ids['video_fps_slider'].min
         fps_max = self.ids['video_fps_slider'].max
         try:
-            fps_val = float(self.ids['video_fps_text'].text)
+            fps_val = int(self.ids['video_fps_text'].text)
         except:
             return
         
-        fps = float(np.clip(fps_val, fps_min, fps_max))
+        fps = int(np.clip(fps_val, fps_min, fps_max))
 
         settings[self.layer]['video_config']['fps'] = fps
         self.ids['video_fps_slider'].value = fps
         self.ids['video_fps_text'].text = str(fps)
+
+        self.apply_settings()
+
+    def video_duration_slider(self):
+        logger.info('[LVP Main  ] LayerControl.video_duration_slider()')
+        duration = self.ids['video_duration_slider'].value
+        settings[self.layer]['video_config']['duration'] = duration
+        self.apply_settings()
+
+    def video_duration_text(self):
+        logger.info('[LVP Main  ] LayerControl.video_duration_text()')
+        duration_min = self.ids['video_duration_slider'].min
+        duration_max = self.ids['video_duration_slider'].max
+        try:
+            duration_val = int(self.ids['video_duration_text'].text)
+        except:
+            return
+        
+        duration = int(np.clip(duration_val, duration_min, duration_max))
+
+        settings[self.layer]['video_config']['duration'] = duration
+        self.ids['video_duration_slider'].value = duration
+        self.ids['video_duration_text'].text = str(duration)
 
         self.apply_settings()
 

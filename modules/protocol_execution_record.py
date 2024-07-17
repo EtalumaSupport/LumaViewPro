@@ -63,7 +63,7 @@ class ProtocolExecutionRecord:
 
     def add_step(
         self,
-        image_file_name: pathlib.Path,
+        capture_result_file_name: pathlib.Path,
         step_name: str,
         step_index: int,
         scan_count: int,
@@ -72,7 +72,7 @@ class ProtocolExecutionRecord:
         if self._mode != "to_file":
             raise Exception(f"add_step() can only be called when the instance is initialized with an 'outfile'.")
         
-        self._outfile_csv.writerow([image_file_name, step_name, step_index, scan_count, timestamp])
+        self._outfile_csv.writerow([capture_result_file_name, step_name, step_index, scan_count, timestamp])
         self._outfile_fp.flush()
         
     

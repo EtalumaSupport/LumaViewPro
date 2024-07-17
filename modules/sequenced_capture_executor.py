@@ -388,37 +388,43 @@ class SequencedCaptureExecutor:
             else:
                 save_folder = self._run_dir
 
-            output_format=self._image_capture_config['output_format']['sequenced']
+            if step["Acquire"] == "video":
+                print(f"TODO skipping video save since not implemented")
+                capture_result = None
 
-            # Handle hyperstack creation as a post-processing function for now. Capture images in TIFF.
-            if output_format == 'ImageJ Hyperstack':
-                output_format = 'TIFF'
+            elif step["Acquire"] == "image":
 
-            image_capture_result = self._capture(
-                save_folder=save_folder,
-                step=step,
-                scan_count=self._scan_count,
-                output_format=output_format,
-            )
+                output_format=self._image_capture_config['output_format']['sequenced']
+
+                # Handle hyperstack creation as a post-processing function for now. Capture images in TIFF.
+                if output_format == 'ImageJ Hyperstack':
+                    output_format = 'TIFF'
+
+                capture_result = self._capture(
+                    save_folder=save_folder,
+                    step=step,
+                    scan_count=self._scan_count,
+                    output_format=output_format,
+                )
 
 
             if self._enable_image_saving:
-                if image_capture_result is None:
-                    image_filepath_name = "unsaved"
+                if capture_result is None:
+                    capture_result_filepath_name = "unsaved"
 
-                elif type(image_capture_result) == dict:
-                    image_filepath_name = image_capture_result['metadata']['file_loc']
+                elif type(capture_result) == dict:
+                    capture_result_filepath_name = capture_result['metadata']['file_loc']
 
                 elif self._separate_folder_per_channel:
-                    image_filepath_name = pathlib.Path(step["Color"]) / image_capture_result.name
+                    capture_result_filepath_name = pathlib.Path(step["Color"]) / capture_result.name
 
                 else:
-                    image_filepath_name = image_capture_result.name
+                    capture_result_filepath_name = capture_result.name
             else:
-                image_filepath_name = "unsaved"
+                capture_result_filepath_name = "unsaved"
 
             self._protocol_execution_record.add_step(
-                image_file_name=image_filepath_name,
+                capture_result_file_name=capture_result_filepath_name,
                 step_name=step['Name'],
                 step_index=self._curr_step,
                 scan_count=self._scan_count,

@@ -2296,7 +2296,47 @@
 				spacing: '5dp'
 
 				Label:
-					text: 'Video FPS'
+					text: 'Duration (s)'
+					halign: 'left'
+					valign: 'middle'
+					font_size: '12sp'
+					size_hint_x: None
+					width: '95dp'
+					text_size: self.size
+				ModSlider:
+					id: video_duration_slider
+					min: 1
+					max: 30
+					value: 5
+					step: 1
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					value_track: True
+					value_track_color: root.bg_color
+					value_track_width: 5
+					on_release: root.video_duration_slider()
+				TextInput:
+					id: video_duration_text
+					size_hint_x: None
+					width: '45dp'
+					multiline: False
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: 'float'
+					text: format(video_duration_slider.value, '.4g')
+					on_text_validate: root.video_duration_text()
+					on_focus: if not self.focus: root.video_duration_text()
+					
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				padding: '0dp'
+				spacing: '5dp'
+
+				Label:
+					text: 'FPS'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
