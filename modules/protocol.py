@@ -397,6 +397,8 @@ class Protocol:
                     custom_step=orig_step_df['Custom Step'],
                     tile_group_id=tile_group_id,
                     zstack_group_id=orig_step_df['Z-Stack Group ID'],
+                    acquire=orig_step_df['Acquire'],
+                    video_config=orig_step_df['Video Config'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -446,7 +448,9 @@ class Protocol:
                     zslice=zstack_slice,
                     custom_step=orig_step_df['Custom Step'],
                     tile_group_id=orig_step_df['Tile Group ID'],
-                    zstack_group_id=zstack_group_id
+                    zstack_group_id=zstack_group_id,
+                    acquire=orig_step_df['Acquire'],
+                    video_config=orig_step_df['Video Config'],
                 )
 
                 new_steps.append(new_step_dict)

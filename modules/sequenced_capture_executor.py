@@ -663,6 +663,9 @@ class SequencedCaptureExecutor:
                 seconds_per_frame = 1.0 / fps
 
                 while time.time() < stop_ts:
+                    if 'update_scope_display' in self._callbacks:
+                        self._callbacks['update_scope_display']()
+                        
                     force_to_8bit = not use_full_pixel_depth
                     image = self._scope.get_image(force_to_8bit=force_to_8bit)
 
