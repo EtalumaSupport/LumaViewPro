@@ -15,6 +15,7 @@ import modules.common_utils as common_utils
 import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
 from modules.objectives_loader import ObjectiveLoader
+from modules.zstack_config import ZStackConfig
 
 
 class Protocol:
@@ -397,7 +398,7 @@ class Protocol:
 
     def apply_zstacking(
         self,
-        zstack_positions: dict,
+        zstack_params: dict,
     ):
         steps = self.steps()
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
@@ -414,6 +415,18 @@ class Protocol:
             if orig_step_df['Z-Slice'] not in (None, "", -1):
                 new_steps.append(orig_step_dict)
                 continue
+
+            zstack_config = ZStackConfig(
+                range=zstack_params['range'],
+                step_size=zstack_params['step_size'],
+                current_z_reference=zstack_params['z_reference'],
+                current_z_value=orig_step_df["Z"],
+            )
+
+            if zstack_config.number_of_steps() == 0:
+                continue
+
+            zstack_positions = zstack_config.step_positions()
             
             # Create a z-stack  
             for zstack_slice, zstack_position in zstack_positions.items():
@@ -463,7 +476,7 @@ class Protocol:
 
         labware_id = input_config['labware_id']
         objective_id = input_config['objective_id']
-        zstack_positions = input_config['zstack_positions']
+        zstack_params = input_config['zstack_params']
         use_zstacking = input_config['use_zstacking']
         tiling = input_config['tiling']
         layer_configs = input_config['layer_configs']
@@ -492,9 +505,6 @@ class Protocol:
             'custom_step_count': 0,
         }
         
-        if not use_zstacking:
-            zstack_positions = {None: None}
-
         if positions is not None:
             actual_positions = positions
             position_source = 'from_manual'
@@ -527,7 +537,19 @@ class Protocol:
          # Iterate through all the positions in the scan
         for pos in actual_positions:
             for tile_label, tile_position in tiles.items():
-                for zstack_slice, zstack_position in zstack_positions.items():
+
+                if not use_zstacking:
+                    zstack_position_offsets = {None: None}
+                else:
+                    zstack_config = ZStackConfig(
+                        range=zstack_params['range'],
+                        step_size=zstack_params['step_size'],
+                        current_z_reference=zstack_params['z_reference'],
+                        current_z_value=0,
+                    )
+                    zstack_position_offsets = zstack_config.step_positions()
+
+                for zstack_slice, zstack_position_offset in zstack_position_offsets.items():
                     for layer_name, layer_config in layer_configs.items():
                         if layer_config['acquire'] == False:
                             continue
@@ -535,13 +557,13 @@ class Protocol:
                         x = round(pos['x'] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
                         y = round(pos['y'] + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
 
-                        if zstack_slice is None:
-                            if pos['z'] is None:
-                                z = layer_config['focus']
-                            else:
-                                z = pos['z']
+                        if pos['z'] is None:
+                            z = layer_config['focus']
                         else:
-                            z = zstack_position
+                            z = pos['z']
+
+                        if zstack_slice is not None:
+                            z += zstack_position_offset
 
                         z = round(z, common_utils.max_decimal_precision('z'))
 
@@ -628,8 +650,7 @@ class Protocol:
         
         labware_id = config['labware_id']
         objective_id = config['objective_id']
-        zstack_positions = {None: None}
-        zstack_positions_valid = False
+        zstack_params = {'range': 0, 'step_size': 0}
         use_zstacking = False
         tiling = tc.no_tiling_label()
         layer_configs = {}
@@ -640,8 +661,7 @@ class Protocol:
         input_config = {
             'labware_id': labware_id,
             'objective_id': objective_id,
-            'zstack_positions': zstack_positions,
-            'zstack_positions_valid': zstack_positions_valid,
+            'zstack_params': zstack_params,
             'use_zstacking': use_zstacking,
             'tiling': tiling,
             'layer_configs': layer_configs,
