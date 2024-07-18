@@ -366,6 +366,17 @@ def go_to_step(
     layer.ids['exp_text'].text = str(step["Exposure"])
     layer.ids['exp_slider'].value = float(step["Exposure"])
 
+    # acquire type
+    for acquire_sel in ('acquire_video', 'acquire_image', 'acquire_none'):  
+        layer.ids[acquire_sel].active = False
+
+    if step['Acquire'] == 'video':
+        layer.ids['acquire_video'].active = True
+    elif step['Acquire'] == 'image':
+        layer.ids['acquire_image'].active = True
+    else:
+        layer.ids['acquire_none'].active = True
+
     layer.apply_settings(ignore_auto_gain=ignore_auto_gain)
 
 
@@ -3297,12 +3308,6 @@ class ProtocolSettings(CompositeCapture):
         
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
 
-        layer_configs = get_layer_configs()
-        acquired_layers = []
-        for layer, layer_config in layer_configs.items():
-            if (layer_config['acquire'] != None):
-                acquired_layers.append(layer_config)
-
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
@@ -3313,13 +3318,16 @@ class ProtocolSettings(CompositeCapture):
             after_step = None
             before_step = self.curr_step
         
-        for acquired_layer in acquired_layers:
-            acquired_layer_config = get_layer_configs()[acquired_layer]
+        layer_configs = get_layer_configs()
+        for layer, layer_config in layer_configs.items():
+            if layer_config['acquire'] == None:
+                continue
+
 
             _ = self._protocol.insert_step(
                 step_name=None,
-                layer=acquired_layer,
-                layer_config=acquired_layer_config,
+                layer=layer,
+                layer_config=layer_config,
                 plate_position=plate_position,
                 objective_id=objective_id,
                 before_step=before_step,

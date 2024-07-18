@@ -368,7 +368,6 @@ class Lumascope():
         }
 
         return metadata
-    
 
     def prepare_image_for_saving(
         self,
@@ -383,23 +382,10 @@ class Lumascope():
     ):
         metadata = self.generate_image_metadata(color=true_color)
 
-        src_dtype = array.dtype
-
-        if src_dtype == np.uint16:
+        if array.dtype == np.uint16:
             array = image_utils.convert_12bit_to_16bit(array)
 
-        # Convert to color if needed - if its grayscale, and should become color
-        if (not image_utils.is_color_image(array)) and (color in common_utils.get_fluorescence_layers()):
-            img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
-            if color == 'Blue':
-                img[:,:,0] = array
-            elif color == 'Green':
-                img[:,:,1] = array
-            elif color == 'Red':
-                img[:,:,2] = array
-        else:
-            img = array
-
+        img = image_utils.add_false_color(array=array, color=color)
         img = np.flip(img, 0)
 
         path = self.generate_image_save_path(

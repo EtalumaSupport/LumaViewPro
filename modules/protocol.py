@@ -148,7 +148,7 @@ class Protocol:
                 ("Tile Group ID", int),
                 ("Z-Stack Group ID", int),
                 ("Acquire", str),
-                ("Video Config", dict),
+                ("Video Config", object),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -310,6 +310,8 @@ class Protocol:
             pos_index = after_step+0.5
 
         line = pd.DataFrame(data=step_dict, index=[pos_index])
+        line = line.astype({'Video Config': 'object'})
+        line.at[pos_index, 'Video Config'] = step_dict['Video Config']
         self._config['steps'] = pd.concat([self._config['steps'], line], ignore_index=False, axis=0)
         self._config['steps'] = self._config['steps'].sort_index().reset_index(drop=True)
 
@@ -755,9 +757,15 @@ class Protocol:
 
         config['version'] = int(version_row[1])
 
-        # TODO add converter from V2 to V3
-        if config['version'] != cls.CURRENT_VERSION:
-            logger.error(f"Unable to load {file_path} which contains a protocol version that is not supported.\nPlease create a new protocol using this version of LumaViewPro.")
+        allowed = False
+        if config['version'] == cls.CURRENT_VERSION:
+            allowed = True
+
+        elif (config['version'] == 2) and (cls.CURRENT_VERSION == 3):
+            allowed = True
+                
+        if not allowed:
+            logger.error(f"Unable to load {file_path} which contains protocol version {config['version']}.\nPlease create a new protocol using this version of LumaViewPro.")
             return
 
         period_row = next(csvreader)
@@ -786,26 +794,16 @@ class Protocol:
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
         protocol_df['Name'] = protocol_df['Name'].astype(str)
 
-        if config['version'] in (1,):
-            protocol_df['Step Index'] = protocol_df.index
+        # Converter for v2 to v3
+        if (config['version'] == 2) and (cls.CURRENT_VERSION == 3):
+            logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
+            protocol_df['Acquire'] = "image"
+            protocol_df['Video Config'] = {
+                'fps': 5,
+                'duration': 5
+            }
 
-            if not use_version_1a:
-                protocol_df['color'] = protocol_df.apply(lambda s: color_channels.ColorChannel(s['channel']).name, axis=1)
-                protocol_df = protocol_df.drop(columns=['channel'])
-
-            # Extract tiling config from step names
-            tc = TilingConfig(
-                tiling_configs_file_loc=tiling_configs_file_loc
-            )
-            config['tiling'] = tc.determine_tiling_label_from_names(
-                names=protocol_df['Name'].to_list()
-            )
-
-            if not use_version_1a:
-                protocol_df = protocol_df.apply(cls.extract_data_from_step_name, axis=1)
-                protocol_df['Custom Step'] = False
-       
-        elif config['version'] in (2, 3,):
+        if config['version'] in (2, 3,):
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names
