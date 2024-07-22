@@ -424,6 +424,10 @@ class SequencedCaptureExecutor:
                 scan_count=self._scan_count,
                 timestamp=datetime.datetime.now()
             )
+        else:
+            # Normally LEDs are turned off at the end of a capture. However, when not capturing, need to manually turn
+            # off LEDs (such as in autofocus scan)
+            self._leds_off()
 
         self._autofocus_executor.reset()
         # Disable autogain when moving between steps
