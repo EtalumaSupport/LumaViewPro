@@ -245,6 +245,7 @@ class SequencedCaptureExecutor:
         self._save_autofocus_data = save_autofocus_data
         self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
         self._leds_state_at_end = leds_state_at_end
+        self._autofocus_executor.reset()
 
         if self._parent_dir is None:
             self._disable_saving_artifacts = True
