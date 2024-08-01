@@ -52,6 +52,59 @@ import json
 import subprocess
 import sys
 import typing
+import shutil
+
+############################################################################
+#---------------------Directory Initialization-----------------------------#
+############################################################################
+
+abspath = os.path.abspath(__file__)
+basename = os.path.basename(__file__)
+script_path = abspath[:-len(basename)]
+
+print(f"Script Location: {script_path}")
+
+os.chdir(script_path)
+# The version.txt file is in the same directory as the actual script, so making sure it can find the version file.
+
+global version
+
+version = ""
+try:
+    with open("version.txt") as f:
+        version = f.readlines()[0].strip()
+except:
+    pass
+
+PROTOCOL_DATA_DIR_NAME = "ProtocolData"
+
+appdata_folder = os.getenv("LOCALAPPDATA")
+os.chdir(appdata_folder)
+lvp_appdata = os.path.join(appdata_folder, f"LumaViewPro {version}")
+
+if os.path.exists(lvp_appdata):
+    pass
+else:
+    os.mkdir(lvp_appdata)
+
+source_path = lvp_appdata
+print(f"Data Location: {source_path}")
+
+os.chdir(source_path)
+
+if os.path.exists(os.path.join(lvp_appdata, "data")):
+    pass
+else:
+    shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
+
+if os.path.exists(os.path.join(lvp_appdata, "logs")):
+    pass
+else:
+    shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
+
+############################################################################
+#--------------------------------------------------------------------------#
+############################################################################
 
 from lvp_logger import logger
 import tkinter
@@ -192,13 +245,6 @@ ENGINEERING_MODE = False
 
 global debug_counter
 debug_counter = 0
-
-PROTOCOL_DATA_DIR_NAME = "ProtocolData"
-
-abspath = os.path.abspath(__file__)
-basename = os.path.basename(__file__)
-source_path = abspath[:-len(basename)]
-print(source_path)
 
 start_str = time.strftime("%Y %m %d %H_%M_%S")
 start_str = str(int(round(time.time() * 1000)))
@@ -5048,20 +5094,12 @@ class LumaViewProApp(App):
         global objective_helper
         global ij_helper
         global sequenced_capture_executor
-        global version
+        
         # global autofocus_executor
         self.icon = './data/icons/icon.png'
 
         stage = Stage()
 
-        version = ""
-        try:
-            with open("version.txt") as f:
-                version = f.readlines()[0]
-        except:
-            pass
-        
-        self.title = f'LumaViewPro {version}'
 
         try:
             from kivy.core.window import Window

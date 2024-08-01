@@ -43,6 +43,24 @@ import os
 import sys
 import ctypes
 
+abspath = os.path.abspath(__file__)
+basename = os.path.basename(__file__)
+script_path = abspath[:-len(basename)]
+
+os.chdir(script_path)
+
+version = ""
+try:
+    with open("version.txt") as f:
+        version = f.readlines()[0].strip()
+except:
+    pass
+
+appdata_folder = os.getenv("LOCALAPPDATA")
+lvp_appdata = os.path.join(appdata_folder, f"LumaViewPro {version}")
+
+os.chdir(lvp_appdata)
+
 os.makedirs("logs/LVP_Log", exist_ok=True)
 
 # file to which messages are logged 
