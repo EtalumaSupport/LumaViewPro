@@ -384,7 +384,7 @@ def get_binning_from_ui() -> int:
     return int(lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['binning_spinner'].text)
 
 
-def get_zstack_positions() -> tuple[bool, dict]:
+def get_zstack_params() -> dict:
     zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
     range = float(zstack_settings.ids['zstack_range_id'].text)
     step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
@@ -392,12 +392,22 @@ def get_zstack_positions() -> tuple[bool, dict]:
         text_label=zstack_settings.ids['zstack_spinner'].text
     )
 
+    return {
+        'range': range,
+        'step_size': step_size,
+        'z_reference': z_reference,
+    }
+
+
+def get_zstack_positions() -> tuple[bool, dict]:
+    config = get_zstack_params()
+
     current_pos = lumaview.scope.get_current_position('Z')
 
     zstack_config = ZStackConfig(
-        range=range,
-        step_size=step_size,
-        current_z_reference=z_reference,
+        range=config['range'],
+        step_size=config['step_size'],
+        current_z_reference=config['z_reference'],
         current_z_value=current_pos
     )
 
@@ -550,15 +560,14 @@ def get_sequenced_capture_config_from_ui() -> dict:
     tiling = protocol_settings.ids['tiling_size_spinner'].text
     use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
     frame_dimensions = get_current_frame_dimensions()
-    zstack_positions_valid, zstack_positions = get_zstack_positions()
+    zstack_params = get_zstack_params()
 
     layer_configs = get_layer_configs()
 
     config = {
         'labware_id': labware_id,
         'objective_id': objective_id,
-        'zstack_positions': zstack_positions,
-        'zstack_positions_valid': zstack_positions_valid,
+        'zstack_params': zstack_params,
         'use_zstacking': use_zstacking,
         'tiling': tiling,
         'layer_configs': layer_configs,
@@ -2546,8 +2555,7 @@ class VerticalControl(BoxLayout):
             'labware_id': labware_id,
             'positions': positions,
             'objective_id': objective_id,
-            'zstack_positions': {None: None},
-            'zstack_positions_valid': True,
+            'zstack_params': {'range': 0, 'step_size': 0},
             'use_zstacking': False,
             'tiling': tiling_config.no_tiling_label(),
             'layer_configs': {active_layer: active_layer_config},
@@ -3010,13 +3018,10 @@ class ProtocolSettings(CompositeCapture):
 
     def apply_zstacking(self):
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
-        zstack_valid, zstack_positions = get_zstack_positions()
-
-        if not zstack_valid:
-            return
+        zstack_params = get_zstack_params()
         
         self._protocol.apply_zstacking(
-            zstack_positions=zstack_positions,
+            zstack_params=zstack_params,
         )
        
         self._protocol.optimize_step_ordering()
@@ -3444,6 +3449,7 @@ class ProtocolSettings(CompositeCapture):
             'autofocus_complete': self._autofocus_complete_callback,
             'scan_iterate_post': run_not_started_func,
             'update_step_number': _update_step_number_callback,
+            'go_to_step': go_to_step,
             'run_complete': self._autofocus_run_complete_callback,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
@@ -4741,11 +4747,12 @@ class ZStack(CompositeCapture):
 
         labware_id, _ = get_selected_labware()
         objective_id, _ = get_current_objective_info()
-        zstack_positions_valid, zstack_positions = get_zstack_positions()
+        zstack_positions_valid, _ = get_zstack_positions()
+        zstack_params = get_zstack_params()
         active_layer, active_layer_config = get_active_layer_config()
         active_layer_config['acquire'] = "image"
 
-        if not config['zstack_positions_valid']:
+        if not zstack_positions_valid:
             logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
             run_not_started_func()
             return
@@ -4765,8 +4772,7 @@ class ZStack(CompositeCapture):
             'labware_id': labware_id,
             'positions': positions,
             'objective_id': objective_id,
-            'zstack_positions': zstack_positions,
-            'zstack_positions_valid': zstack_positions_valid,
+            'zstack_params': zstack_params,
             'use_zstacking': True,
             'tiling': tiling_config.no_tiling_label(),
             'layer_configs': {active_layer: active_layer_config},
