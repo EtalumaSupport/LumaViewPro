@@ -1,4 +1,5 @@
 
+import ast
 import csv
 import datetime
 import io
@@ -799,13 +800,23 @@ class Protocol:
         protocol_df['Name'] = protocol_df['Name'].astype(str)
 
         # Converter for v2 to v3
+        DEFAULT_VIDEO_CONFIG = {
+            'fps': 5,
+            'duration': 5
+        }
+
         if (config['version'] == 2) and (cls.CURRENT_VERSION == 3):
             logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
             protocol_df['Acquire'] = "image"
-            protocol_df['Video Config'] = {
-                'fps': 5,
-                'duration': 5
-            }
+            protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
+        else:
+
+            # Convert Video Config strings per step to dictionary
+            try:
+                protocol_df['Video Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Video Config']), axis=1)
+            except Exception as ex:
+                logger.error(f"Unable to parse video config, using default instead: {ex}")
+                protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
 
         if config['version'] in (2, 3,):
             protocol_df['Step Index'] = protocol_df.index
