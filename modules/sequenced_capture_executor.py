@@ -671,14 +671,18 @@ class SequencedCaptureExecutor:
                     if 'update_scope_display' in self._callbacks:
                         self._callbacks['update_scope_display']()
                         
-                    force_to_8bit = not use_full_pixel_depth
+                    # Currently only support 8-bit images for video
+                    force_to_8bit = True
                     image = self._scope.get_image(force_to_8bit=force_to_8bit)
 
                     if type(image) == np.ndarray:
+                        
+                        # Should never be used since forcing images to 8-bit
                         if image.dtype == np.uint16:
                             image = image_utils.convert_12bit_to_16bit(image)
 
-                        if step['False_Color']:
+                        # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
+                        if (image.dtype != np.uint16) and (step['False_Color']):
                             image = image_utils.add_false_color(array=image, color=use_color)
 
                         image = np.flip(image, 0)
