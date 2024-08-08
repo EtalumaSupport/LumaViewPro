@@ -621,7 +621,14 @@ class SequencedCaptureExecutor:
 
         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
-        time.sleep(2*step['Exposure']/1000+0.2)
+        delay_time_s = 2*step['Exposure']/1000+0.2
+
+        # Temporary fix to clamp the minimum delay time so that short exposure captures have enough time for the scope
+        # settings to be applied.  Bug seen in protocols with flipping between transmitted/fluorescence where at least
+        # 1 of the channels has a very short exposure time (e.g. 2 ms)
+        delay_time_s = max(delay_time_s, 0.6)
+
+        time.sleep(delay_time_s)
 
         if 'update_scope_display' in self._callbacks:
             self._callbacks['update_scope_display']()
