@@ -273,9 +273,13 @@ class Lumascope():
                     logger.warn(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
 
             # In case of timeout, if we hit the timeout because of the all ones check, then just let it continue and return the all ones image
-            if (datetime.datetime.now() > stop_time) and (all_ones_failed == False):
-                logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
-                return False
+            if datetime.datetime.now() > stop_time: 
+                if all_ones_failed == False:
+                    logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
+                    return False
+                else:
+                    logger.warn(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded with all_ones_failed")
+                    break
             
             if grab_status == False:
                 logger.error(f"[SCOPE API ] get_image grab failed, retrying")
