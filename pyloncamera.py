@@ -35,6 +35,7 @@ March 20, 2023
 '''
 
 import contextlib
+import datetime
 
 import numpy as np
 from pypylon import pylon, genicam
@@ -253,19 +254,19 @@ class PylonCamera:
         returns False if unsuccessful
         access the image using camera.array where camera is the instance of the class"""
         if not self.cam_image_handler:
-            return False
+            return False, None
         
         try:
-            result, image = self.cam_image_handler.GetLastImage()
+            result, image, image_ts = self.cam_image_handler.GetLastImage()
             if result is False:
-                return False
+                return False, None
             
             self.array = image
-            return True
+            return True, image_ts
 
         except Exception as ex:
             logger.exception(f"Failed to grab image: {ex}")
-            return False
+            return False, None
   
 
     def set_frame_size(self, w, h):
@@ -425,6 +426,7 @@ class ImageHandler(pylon.ImageEventHandler):
         self.last_result = False
         self.last_img = None
         self._failed_grabs = 0
+        self._last_img_ts = None
         
 
     def OnImageGrabbed(self, camera, grabResult):
@@ -432,6 +434,7 @@ class ImageHandler(pylon.ImageEventHandler):
             self.last_result = grabResult.GrabSucceeded()
             if self.last_result:
                 self.last_img = grabResult.GetArray()
+                self._last_img_ts = datetime.datetime.now()
             else:
                 self._failed_grabs += 1
                 logger.exception(f"Grab Failed -> result: {self.last_result}, {self._failed_grabs} failed grabs")
@@ -440,9 +443,9 @@ class ImageHandler(pylon.ImageEventHandler):
 
     def GetLastImage(self):
         if self.last_result is False:
-            return False, None
+            return False, None, None
         
-        return self.last_result, self.last_img.copy()
+        return self.last_result, self.last_img.copy(), self._last_img_ts
     
 
 # class ConfigurationEventPrinter(pylon.ConfigurationEventHandler):
