@@ -43,6 +43,13 @@ import os
 import sys
 import ctypes
 
+global windows_machine 
+
+windows_machine = False
+
+if os.name == "nt":
+    windows_machine = True
+
 abspath = os.path.abspath(__file__)
 basename = os.path.basename(__file__)
 script_path = abspath[:-len(basename)]
@@ -56,10 +63,12 @@ try:
 except:
     pass
 
-appdata_folder = os.getenv("LOCALAPPDATA")
-lvp_appdata = os.path.join(appdata_folder, f"LumaViewPro {version}")
+if windows_machine:
 
-os.chdir(lvp_appdata)
+    appdata_folder = os.getenv("LOCALAPPDATA")
+    lvp_appdata = os.path.join(appdata_folder, f"LumaViewPro {version}")
+
+    os.chdir(lvp_appdata)
 
 os.makedirs("logs/LVP_Log", exist_ok=True)
 

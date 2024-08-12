@@ -68,6 +68,13 @@ os.chdir(script_path)
 # The version.txt file is in the same directory as the actual script, so making sure it can find the version file.
 
 global version
+global windows_machine 
+
+windows_machine = False
+
+if os.name == "nt":
+    windows_machine = True
+    
 
 version = ""
 try:
@@ -78,29 +85,36 @@ except:
 
 PROTOCOL_DATA_DIR_NAME = "ProtocolData"
 
-appdata_folder = os.getenv("LOCALAPPDATA")
-os.chdir(appdata_folder)
-lvp_appdata = os.path.join(appdata_folder, f"LumaViewPro {version}")
+if windows_machine:
+    print("Machine-Type - WINDOWS")
+    
+    appdata_folder = os.getenv("LOCALAPPDATA")
+    os.chdir(appdata_folder)
+    lvp_appdata = os.path.join(appdata_folder, f"LumaViewPro {version}")
 
-if os.path.exists(lvp_appdata):
-    pass
+    if os.path.exists(lvp_appdata):
+        pass
+    else:
+        os.mkdir(lvp_appdata)
+
+    source_path = lvp_appdata
+    print(f"Data Location: {source_path}")
+
+    os.chdir(source_path)
+
+    if os.path.exists(os.path.join(lvp_appdata, "data")):
+        pass
+    else:
+        shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
+
+    if os.path.exists(os.path.join(lvp_appdata, "logs")):
+        pass
+    else:
+        shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
+
 else:
-    os.mkdir(lvp_appdata)
-
-source_path = lvp_appdata
-print(f"Data Location: {source_path}")
-
-os.chdir(source_path)
-
-if os.path.exists(os.path.join(lvp_appdata, "data")):
-    pass
-else:
-    shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
-
-if os.path.exists(os.path.join(lvp_appdata, "logs")):
-    pass
-else:
-    shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
+    print("Machine-Type - NON-WINDOWS")
+    source_path = script_path
 
 ############################################################################
 #--------------------------------------------------------------------------#
