@@ -46,6 +46,7 @@ from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
+import datetime
 import pathlib
 import time
 import threading
@@ -234,32 +235,73 @@ class Lumascope():
     # CAMERA FUNCTIONS
     ########################################################################
 
-    def get_image(self, force_to_8bit: bool = True):
+    def get_image(
+        self,
+        force_to_8bit: bool = True,
+        earliest_image_ts: datetime.datetime | None = None,
+        timeout: datetime.timedelta = datetime.timedelta(seconds=0),
+        all_ones_check: bool = False,
+    ):
         """ CAMERA FUNCTIONS
         Grab and return image from camera
         # If use_host_buffer set to true, it will return the results already stored in the
         # host array. It will not wait for the next capture.
         """
+        start_time = datetime.datetime.now()
+        stop_time = start_time + timeout
+        
+        while True:
+            all_ones_failed = False
+            grab_status, grab_image_ts = self.camera.grab()
+
+            if grab_status == True:
+                self.image_buffer = self.camera.array.copy()
+
+                if all_ones_check == True:
+
+                    if np.all(self.image_buffer == np.iinfo(self.image_buffer.dtype).max):
+                        all_ones_failed = True
+                        logger.warn(f"[SCOPE API ] get_image all_ones_check failed")
+
+                if all_ones_failed == False:
+                    if earliest_image_ts is None:
+                        break
+                    
+                    if grab_image_ts >= earliest_image_ts:
+                        break
+
+                    logger.warn(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
+
+            # In case of timeout, if we hit the timeout because of the all ones check, then just let it continue and return the all ones image
+            if datetime.datetime.now() > stop_time: 
+                if all_ones_failed == False:
+                    logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
+                    return False
+                else:
+                    logger.warn(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded with all_ones_failed")
+                    break
+            
+            if grab_status == False:
+                logger.error(f"[SCOPE API ] get_image grab failed, retrying")
+
+            time.sleep(0.05)
+
         use_scale_bar = self._scale_bar['enabled']
         if self._objective is None:
             use_scale_bar = False
 
-        if self.camera.grab():
-            self.image_buffer = self.camera.array.copy()
+        if use_scale_bar:
+            self.image_buffer = image_utils.add_scale_bar(
+                image=self.image_buffer,
+                objective=self._objective,
+                binning_size=self._binning_size,
+            )
 
-            if use_scale_bar:
-                self.image_buffer = image_utils.add_scale_bar(
-                    image=self.image_buffer,
-                    objective=self._objective,
-                    binning_size=self._binning_size,
-                )
+        if force_to_8bit and self.image_buffer.dtype != np.uint8:
+            self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
 
-            if force_to_8bit and self.image_buffer.dtype != np.uint8:
-                self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
+        return self.image_buffer
 
-            return self.image_buffer
-        else:
-            return False
         
     def get_next_save_path(self, path):
         """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
@@ -461,12 +503,20 @@ class Lumascope():
             force_to_8bit: bool = True,
             output_format: str = "TIFF",
             true_color: str = 'BF',
+            earliest_image_ts: datetime.datetime | None = None,
+            timeout: datetime.timedelta = datetime.timedelta(seconds=0),
+            all_ones_check: bool = False,
         ):
 
         """CAMERA FUNCTIONS
         Grab the current live image and save to file
         """
-        array = self.get_image(force_to_8bit=force_to_8bit)
+        array = self.get_image(
+            force_to_8bit=force_to_8bit,
+            earliest_image_ts=earliest_image_ts,
+            timeout=timeout,
+            all_ones_check=all_ones_check,
+        )
         if array is False:
             return 
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
