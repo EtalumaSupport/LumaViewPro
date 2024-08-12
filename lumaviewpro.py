@@ -426,6 +426,17 @@ def go_to_step(
     layer.ids['exp_text'].text = str(step["Exposure"])
     layer.ids['exp_slider'].value = float(step["Exposure"])
 
+    # acquire type
+    for acquire_sel in ('acquire_video', 'acquire_image', 'acquire_none'):  
+        layer.ids[acquire_sel].active = False
+
+    if step['Acquire'] == 'video':
+        layer.ids['acquire_video'].active = True
+    elif step['Acquire'] == 'image':
+        layer.ids['acquire_image'].active = True
+    else:
+        layer.ids['acquire_none'].active = True
+
     layer.apply_settings(ignore_auto_gain=ignore_auto_gain)
 
 
@@ -433,7 +444,7 @@ def get_binning_from_ui() -> int:
     return int(lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['binning_spinner'].text)
 
 
-def get_zstack_positions() -> tuple[bool, dict]:
+def get_zstack_params() -> dict:
     zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
     range = float(zstack_settings.ids['zstack_range_id'].text)
     step_size = float(zstack_settings.ids['zstack_stepsize_id'].text)
@@ -441,12 +452,22 @@ def get_zstack_positions() -> tuple[bool, dict]:
         text_label=zstack_settings.ids['zstack_spinner'].text
     )
 
+    return {
+        'range': range,
+        'step_size': step_size,
+        'z_reference': z_reference,
+    }
+
+
+def get_zstack_positions() -> tuple[bool, dict]:
+    config = get_zstack_params()
+
     current_pos = lumaview.scope.get_current_position('Z')
 
     zstack_config = ZStackConfig(
-        range=range,
-        step_size=step_size,
-        current_z_reference=z_reference,
+        range=config['range'],
+        step_size=config['step_size'],
+        current_z_reference=config['z_reference'],
         current_z_value=current_pos
     )
 
@@ -469,6 +490,7 @@ def get_layer_configs(
         layer_settings = settings[layer]
 
         acquire = layer_settings['acquire']
+        video_config = layer_settings['video_config']
         autofocus = layer_settings['autofocus']
         false_color = layer_settings['false_color']
         illumination = round(layer_settings['ill'], common_utils.max_decimal_precision('illumination'))
@@ -479,6 +501,7 @@ def get_layer_configs(
 
         layer_configs[layer] = {
             'acquire': acquire,
+            'video_config': video_config,
             'autofocus': autofocus,
             'false_color': false_color,
             'illumination': illumination,
@@ -597,15 +620,14 @@ def get_sequenced_capture_config_from_ui() -> dict:
     tiling = protocol_settings.ids['tiling_size_spinner'].text
     use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
     frame_dimensions = get_current_frame_dimensions()
-    zstack_positions_valid, zstack_positions = get_zstack_positions()
+    zstack_params = get_zstack_params()
 
     layer_configs = get_layer_configs()
 
     config = {
         'labware_id': labware_id,
         'objective_id': objective_id,
-        'zstack_positions': zstack_positions,
-        'zstack_positions_valid': zstack_positions_valid,
+        'zstack_params': zstack_params,
         'use_zstacking': use_zstacking,
         'tiling': tiling,
         'layer_configs': layer_configs,
@@ -1088,7 +1110,7 @@ class CompositeCapture(FloatLayout):
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3), dtype=dtype)
 
         for layer in common_utils.get_fluorescence_layers():
-            if settings[layer]['acquire'] == True:
+            if settings[layer]['acquire'] == "image":
 
                 # Go to focus and wait for arrival
                 lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
@@ -2577,7 +2599,7 @@ class VerticalControl(BoxLayout):
         labware_id, _ = get_selected_labware()
         active_layer, active_layer_config = get_active_layer_config()
         active_layer_config['autofocus'] = True
-        active_layer_config['acquire'] = True
+        active_layer_config['acquire'] = "image"
         curr_position = get_current_plate_position()
         curr_position.update({'name': 'AF'})
 
@@ -2593,8 +2615,7 @@ class VerticalControl(BoxLayout):
             'labware_id': labware_id,
             'positions': positions,
             'objective_id': objective_id,
-            'zstack_positions': {None: None},
-            'zstack_positions_valid': True,
+            'zstack_params': {'range': 0, 'step_size': 0},
             'use_zstacking': False,
             'tiling': tiling_config.no_tiling_label(),
             'layer_configs': {active_layer: active_layer_config},
@@ -3057,13 +3078,10 @@ class ProtocolSettings(CompositeCapture):
 
     def apply_zstacking(self):
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
-        zstack_valid, zstack_positions = get_zstack_positions()
-
-        if not zstack_valid:
-            return
+        zstack_params = get_zstack_params()
         
         self._protocol.apply_zstacking(
-            zstack_positions=zstack_positions,
+            zstack_params=zstack_params,
         )
        
         self._protocol.optimize_step_ordering()
@@ -3355,7 +3373,6 @@ class ProtocolSettings(CompositeCapture):
         
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
 
-        acquired_layers = [layer_config for layer_config in get_layer_configs() if get_layer_configs()[layer_config]["acquire"] == True]
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
@@ -3366,13 +3383,16 @@ class ProtocolSettings(CompositeCapture):
             after_step = None
             before_step = self.curr_step
         
-        for acquired_layer in acquired_layers:
-            acquired_layer_config = get_layer_configs()[acquired_layer]
+        layer_configs = get_layer_configs()
+        for layer, layer_config in layer_configs.items():
+            if layer_config['acquire'] == None:
+                continue
 
-            step_name = self._protocol.insert_step(
+
+            _ = self._protocol.insert_step(
                 step_name=None,
-                layer=acquired_layer,
-                layer_config=acquired_layer_config,
+                layer=layer,
+                layer_config=layer_config,
                 plate_position=plate_position,
                 objective_id=objective_id,
                 before_step=before_step,
@@ -3489,6 +3509,7 @@ class ProtocolSettings(CompositeCapture):
             'autofocus_complete': self._autofocus_complete_callback,
             'scan_iterate_post': run_not_started_func,
             'update_step_number': _update_step_number_callback,
+            'go_to_step': go_to_step,
             'run_complete': self._autofocus_run_complete_callback,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
@@ -4175,7 +4196,35 @@ class MicroscopeSettings(BoxLayout):
                     lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
                     # lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
                     lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['acquire'].active = settings[layer]['acquire']
+
+                    if settings[layer]['acquire'] == "image":
+                        lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_image'].active = True
+                    elif settings[layer]['acquire'] == "video":
+                        lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_video'].active = True
+                    else:
+                        settings[layer]['acquire'] = None
+                        lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_none'].active = True
+
+                    video_config = settings[layer]['video_config']
+                    DEFAULT_VIDEO_DURATION_SEC = 5
+                    DEFAULT_VIDEO_FPS = 5
+                    if video_config is None:
+                        video_config = {}
+
+                    if 'fps' not in video_config:
+                        video_config['fps'] = DEFAULT_VIDEO_FPS
+
+                    if 'duration' not in video_config:
+                        video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
+
+                    settings[layer]['video_config'] = video_config
+
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text = str(video_config['fps'])
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_slider'].value = video_config['fps']
+
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_text'].text = str(video_config['duration'])
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_slider'].value = video_config['duration']
+
                     lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
             except:
@@ -4482,6 +4531,52 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
+    def video_fps_slider(self):
+        logger.info('[LVP Main  ] LayerControl.video_fps_slider()')
+        fps = self.ids['video_fps_slider'].value
+        settings[self.layer]['video_config']['fps'] = fps
+        self.apply_settings()
+
+    def video_fps_text(self):
+        logger.info('[LVP Main  ] LayerControl.video_fps_text()')
+        fps_min = self.ids['video_fps_slider'].min
+        fps_max = self.ids['video_fps_slider'].max
+        try:
+            fps_val = int(self.ids['video_fps_text'].text)
+        except:
+            return
+        
+        fps = int(np.clip(fps_val, fps_min, fps_max))
+
+        settings[self.layer]['video_config']['fps'] = fps
+        self.ids['video_fps_slider'].value = fps
+        self.ids['video_fps_text'].text = str(fps)
+
+        self.apply_settings()
+
+    def video_duration_slider(self):
+        logger.info('[LVP Main  ] LayerControl.video_duration_slider()')
+        duration = self.ids['video_duration_slider'].value
+        settings[self.layer]['video_config']['duration'] = duration
+        self.apply_settings()
+
+    def video_duration_text(self):
+        logger.info('[LVP Main  ] LayerControl.video_duration_text()')
+        duration_min = self.ids['video_duration_slider'].min
+        duration_max = self.ids['video_duration_slider'].max
+        try:
+            duration_val = int(self.ids['video_duration_text'].text)
+        except:
+            return
+        
+        duration = int(np.clip(duration_val, duration_min, duration_max))
+
+        settings[self.layer]['video_config']['duration'] = duration
+        self.ids['video_duration_slider'].value = duration
+        self.ids['video_duration_text'].text = str(duration)
+
+        self.apply_settings()
+
     def update_auto_gain(self):
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':
@@ -4547,7 +4642,13 @@ class LayerControl(BoxLayout):
 
     def update_acquire(self):
         logger.info('[LVP Main  ] LayerControl.update_acquire()')
-        settings[self.layer]['acquire'] = self.ids['acquire'].active
+
+        if self.ids['acquire_image'].active:
+            settings[self.layer]['acquire'] = "image"
+        elif self.ids['acquire_video'].active:
+            settings[self.layer]['acquire'] = "video"
+        else:
+            settings[self.layer]['acquire'] = None
 
     def update_autofocus(self):
         logger.info('[LVP Main  ] LayerControl.update_autofocus()')
@@ -4706,11 +4807,12 @@ class ZStack(CompositeCapture):
 
         labware_id, _ = get_selected_labware()
         objective_id, _ = get_current_objective_info()
-        zstack_positions_valid, zstack_positions = get_zstack_positions()
+        zstack_positions_valid, _ = get_zstack_positions()
+        zstack_params = get_zstack_params()
         active_layer, active_layer_config = get_active_layer_config()
-        active_layer_config['acquire'] = True
+        active_layer_config['acquire'] = "image"
 
-        if not config['zstack_positions_valid']:
+        if not zstack_positions_valid:
             logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
             run_not_started_func()
             return
@@ -4730,8 +4832,7 @@ class ZStack(CompositeCapture):
             'labware_id': labware_id,
             'positions': positions,
             'objective_id': objective_id,
-            'zstack_positions': zstack_positions,
-            'zstack_positions_valid': zstack_positions_valid,
+            'zstack_params': zstack_params,
             'use_zstacking': True,
             'tiling': tiling_config.no_tiling_label(),
             'layer_configs': {active_layer: active_layer_config},

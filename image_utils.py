@@ -17,6 +17,22 @@ def is_color_image(image) -> bool:
     return False
 
 
+def add_false_color(array, color):
+    src_dtype = array.dtype
+    if (not image_utils.is_color_image(array)) and (color in common_utils.get_fluorescence_layers()):
+        img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
+        if color == 'Blue':
+            img[:,:,0] = array
+        elif color == 'Green':
+            img[:,:,1] = array
+        elif color == 'Red':
+            img[:,:,2] = array
+    else:
+        img = array
+
+    return img
+
+
 def image_file_to_image(image_file):
     logger.info(f'[LVP image_utils  ] Loading: {image_file}')
     if not cv2.haveImageReader(image_file):
@@ -302,6 +318,7 @@ def add_timestamp(image, timestamp_str: str):
     else: # 16-bit
         text_intensity = 2**16-1
 
+    image = image.copy()
     cv2.rectangle(
         image,
         (left_offset, top_offset),

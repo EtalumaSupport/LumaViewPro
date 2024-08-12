@@ -4,9 +4,14 @@ import pathlib
 import time
 import typing
 
+import numpy as np
+
 from kivy.clock import Clock
 
 from lumascope_api import Lumascope
+
+import image_utils
+
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 
@@ -15,6 +20,7 @@ from modules.autofocus_executor import AutofocusExecutor
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+from modules.video_writer import VideoWriter
 from lvp_logger import logger
 
 
@@ -245,6 +251,7 @@ class SequencedCaptureExecutor:
         self._save_autofocus_data = save_autofocus_data
         self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
         self._leds_state_at_end = leds_state_at_end
+        self._autofocus_executor.reset()
 
         if self._parent_dir is None:
             self._disable_saving_artifacts = True
@@ -388,13 +395,14 @@ class SequencedCaptureExecutor:
             else:
                 save_folder = self._run_dir
 
+
             output_format=self._image_capture_config['output_format']['sequenced']
 
             # Handle hyperstack creation as a post-processing function for now. Capture images in TIFF.
             if output_format == 'ImageJ Hyperstack':
                 output_format = 'TIFF'
 
-            image_capture_result = self._capture(
+            capture_result = self._capture(
                 save_folder=save_folder,
                 step=step,
                 scan_count=self._scan_count,
@@ -403,27 +411,31 @@ class SequencedCaptureExecutor:
 
 
             if self._enable_image_saving:
-                if image_capture_result is None:
-                    image_filepath_name = "unsaved"
+                if capture_result is None:
+                    capture_result_filepath_name = "unsaved"
 
-                elif type(image_capture_result) == dict:
-                    image_filepath_name = image_capture_result['metadata']['file_loc']
+                elif type(capture_result) == dict:
+                    capture_result_filepath_name = capture_result['metadata']['file_loc']
 
                 elif self._separate_folder_per_channel:
-                    image_filepath_name = pathlib.Path(step["Color"]) / image_capture_result.name
+                    capture_result_filepath_name = pathlib.Path(step["Color"]) / capture_result.name
 
                 else:
-                    image_filepath_name = image_capture_result.name
+                    capture_result_filepath_name = capture_result.name
             else:
-                image_filepath_name = "unsaved"
+                capture_result_filepath_name = "unsaved"
 
             self._protocol_execution_record.add_step(
-                image_file_name=image_filepath_name,
+                capture_result_file_name=capture_result_filepath_name,
                 step_name=step['Name'],
                 step_index=self._curr_step,
                 scan_count=self._scan_count,
                 timestamp=datetime.datetime.now()
             )
+        else:
+            # Normally LEDs are turned off at the end of a capture. However, when not capturing, need to manually turn
+            # off LEDs (such as in autofocus scan)
+            self._leds_off()
 
         self._autofocus_executor.reset()
         # Disable autogain when moving between steps
@@ -599,6 +611,8 @@ class SequencedCaptureExecutor:
         output_format: str,
         scan_count = None,
     ):
+        
+        is_video = True if step['Acquire'] == "video" else False
 
         if not step['Auto_Gain']:
             self._scope.set_gain(step['Gain'])
@@ -610,7 +624,8 @@ class SequencedCaptureExecutor:
             z_height_idx=step['Z-Slice'],
             scan_count=scan_count,
             custom_name_prefix=step['Name'],
-            tile_label=step['Tile']
+            tile_label=step['Tile'],
+            video=is_video,
         )
 
         # Illuminate
@@ -633,19 +648,67 @@ class SequencedCaptureExecutor:
         if self._enable_image_saving == True:
             use_full_pixel_depth = self._image_capture_config['use_full_pixel_depth']
 
-            result = self._scope.save_live_image(
-                save_folder=save_folder,
-                file_root=None,
-                append=name,
-                color=use_color,
-                tail_id_mode=None,
-                force_to_8bit=not use_full_pixel_depth,
-                output_format=output_format,
-                true_color=step['Color'],
-                earliest_image_ts=earliest_image_ts,
-                timeout=datetime.timedelta(seconds=1.0),
-                all_ones_check=True,
-            )
+            if is_video:
+                duration_sec = step['Video Config']['duration']
+                fps = step['Video Config']['fps']
+
+                # Clamp the FPS to be no faster than the exposure rate
+                exposure = step['Exposure']
+                exposure_freq = 1.0 / (exposure / 1000)
+                fps = min(fps, exposure_freq)
+
+                output_file_loc = save_folder / f"{name}.mp4v"
+                video_writer = VideoWriter(
+                    output_file_loc=output_file_loc,
+                    fps=fps,
+                    include_timestamp_overlay=True
+                )
+
+                start_ts = time.time()
+                stop_ts = start_ts + duration_sec
+                seconds_per_frame = 1.0 / fps
+
+                while time.time() < stop_ts:
+                    if 'update_scope_display' in self._callbacks:
+                        self._callbacks['update_scope_display']()
+                        
+                    # Currently only support 8-bit images for video
+                    force_to_8bit = True
+                    image = self._scope.get_image(force_to_8bit=force_to_8bit)
+
+                    if type(image) == np.ndarray:
+                        
+                        # Should never be used since forcing images to 8-bit
+                        if image.dtype == np.uint16:
+                            image = image_utils.convert_12bit_to_16bit(image)
+
+                        # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
+                        if (image.dtype != np.uint16) and (step['False_Color']):
+                            image = image_utils.add_false_color(array=image, color=use_color)
+
+                        image = np.flip(image, 0)
+                        video_writer.add_frame(image=image)
+                    
+                    time.sleep(seconds_per_frame)
+
+                video_writer.finish()
+                result = output_file_loc
+            
+            else:
+
+                result = self._scope.save_live_image(
+                    save_folder=save_folder,
+                    file_root=None,
+                    append=name,
+                    color=use_color,
+                    tail_id_mode=None,
+                    force_to_8bit=not use_full_pixel_depth,
+                    output_format=output_format,
+                    true_color=step['Color'],
+                    earliest_image_ts=earliest_image_ts,
+                    timeout=datetime.timedelta(seconds=1.0),
+                    all_ones_check=True,
+                )
         else:
             result = None
 

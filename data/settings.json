@@ -30,7 +30,11 @@
         "gain": 1.0,
         "auto_gain": false,
         "exp": 2.0,
-        "acquire": false
+        "acquire": null,
+        "video_config": {
+            "fps": 5,
+            "duration": 5
+        }
     },
     "PC": {
         "file_root": "PC_",
@@ -41,7 +45,11 @@
         "gain": 1.0,
         "auto_gain": false,
         "exp": 5.0,
-        "acquire": false
+        "acquire": null,
+        "video_config": {
+            "fps": 5,
+            "duration": 5
+        }
     },
     "EP": {
         "file_root": "EP_",
@@ -52,7 +60,11 @@
         "gain": 1.0,
         "auto_gain": false,
         "exp": 30.0,
-        "acquire": false
+        "acquire": null,
+        "video_config": {
+            "fps": 5,
+            "duration": 5
+        }
     },
     "Blue": {
         "file_root": "B_",
@@ -63,7 +75,11 @@
         "gain": 10.0,
         "auto_gain": false,
         "exp": 100.0,
-        "acquire": false
+        "acquire": null,
+        "video_config": {
+            "fps": 5,
+            "duration": 5
+        }
     },
     "Green": {
         "file_root": "G_",
@@ -74,7 +90,11 @@
         "gain": 20.0,
         "auto_gain": false,
         "exp": 100.0,
-        "acquire": false
+        "acquire": null,
+        "video_config": {
+            "fps": 5,
+            "duration": 5
+        }
     },
     "Red": {
         "file_root": "R_",
@@ -85,7 +105,11 @@
         "gain": 30.0,
         "auto_gain": false,
         "exp": 100.0,
-        "acquire": false
+        "acquire": null,
+        "video_config": {
+            "fps": 5,
+            "duration": 5
+        }
     },
     "zstack": {
         "step_size": 0,

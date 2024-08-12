@@ -1,4 +1,5 @@
 
+import ast
 import csv
 import datetime
 import io
@@ -15,15 +16,19 @@ import modules.common_utils as common_utils
 import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
 from modules.objectives_loader import ObjectiveLoader
+from modules.zstack_config import ZStackConfig
 
 
 class Protocol:
 
     PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
-    COLUMNS_V1 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective']
-    COLUMNS_V2 = ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID']
-    CURRENT_VERSION = 2
-    CURRENT_COLUMNS = COLUMNS_V2
+    COLUMNS = {
+        1: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective'],
+        2: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'],
+        3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
+    }
+    CURRENT_VERSION = 3
+    CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
     STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|EP|PC)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
     
     def __init__(
@@ -143,7 +148,9 @@ class Protocol:
                 ("Z-Slice", int),
                 ("Custom Step", bool),
                 ("Tile Group ID", int),
-                ("Z-Stack Group ID", int)
+                ("Z-Stack Group ID", int),
+                ("Acquire", str),
+                ("Video Config", object),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -235,6 +242,8 @@ class Protocol:
         self._config['steps'].at[step_idx, "Auto_Gain"] = layer_config['auto_gain']
         self._config['steps'].at[step_idx, "Exposure"] = layer_config['exposure']
         self._config['steps'].at[step_idx, "Objective"] = objective_id
+        self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
+        self._config['steps'].at[step_idx, "Video Config"] = layer_config['video_config']
 
 
     def insert_step(
@@ -292,7 +301,9 @@ class Protocol:
             zslice=zslice,
             custom_step=custom_step,
             tile_group_id=tile_group_id,
-            zstack_group_id=zstack_group_id
+            zstack_group_id=zstack_group_id,
+            acquire=layer_config['acquire'],
+            video_config=layer_config['video_config'],
         )
 
         if before_step is not None:
@@ -301,6 +312,8 @@ class Protocol:
             pos_index = after_step+0.5
 
         line = pd.DataFrame(data=step_dict, index=[pos_index])
+        line = line.astype({'Video Config': 'object'})
+        line.at[pos_index, 'Video Config'] = step_dict['Video Config']
         self._config['steps'] = pd.concat([self._config['steps'], line], ignore_index=False, axis=0)
         self._config['steps'] = self._config['steps'].sort_index().reset_index(drop=True)
 
@@ -385,7 +398,9 @@ class Protocol:
                     zslice=orig_step_df['Z-Slice'],
                     custom_step=orig_step_df['Custom Step'],
                     tile_group_id=tile_group_id,
-                    zstack_group_id=orig_step_df['Z-Stack Group ID']
+                    zstack_group_id=orig_step_df['Z-Stack Group ID'],
+                    acquire=orig_step_df['Acquire'],
+                    video_config=orig_step_df['Video Config'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -397,7 +412,7 @@ class Protocol:
 
     def apply_zstacking(
         self,
-        zstack_positions: dict,
+        zstack_params: dict,
     ):
         steps = self.steps()
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
@@ -414,6 +429,18 @@ class Protocol:
             if orig_step_df['Z-Slice'] not in (None, "", -1):
                 new_steps.append(orig_step_dict)
                 continue
+
+            zstack_config = ZStackConfig(
+                range=zstack_params['range'],
+                step_size=zstack_params['step_size'],
+                current_z_reference=zstack_params['z_reference'],
+                current_z_value=orig_step_df["Z"],
+            )
+
+            if zstack_config.number_of_steps() == 0:
+                continue
+
+            zstack_positions = zstack_config.step_positions()
             
             # Create a z-stack  
             for zstack_slice, zstack_position in zstack_positions.items():
@@ -435,7 +462,9 @@ class Protocol:
                     zslice=zstack_slice,
                     custom_step=orig_step_df['Custom Step'],
                     tile_group_id=orig_step_df['Tile Group ID'],
-                    zstack_group_id=zstack_group_id
+                    zstack_group_id=zstack_group_id,
+                    acquire=orig_step_df['Acquire'],
+                    video_config=orig_step_df['Video Config'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -463,7 +492,7 @@ class Protocol:
 
         labware_id = input_config['labware_id']
         objective_id = input_config['objective_id']
-        zstack_positions = input_config['zstack_positions']
+        zstack_params = input_config['zstack_params']
         use_zstacking = input_config['use_zstacking']
         tiling = input_config['tiling']
         layer_configs = input_config['layer_configs']
@@ -484,7 +513,7 @@ class Protocol:
         )
 
         config = {
-            'version': 2,
+            'version': cls.CURRENT_VERSION,
             'period': period,
             'duration': duration,
             'positions': positions,
@@ -492,9 +521,6 @@ class Protocol:
             'custom_step_count': 0,
         }
         
-        if not use_zstacking:
-            zstack_positions = {None: None}
-
         if positions is not None:
             actual_positions = positions
             position_source = 'from_manual'
@@ -527,21 +553,33 @@ class Protocol:
          # Iterate through all the positions in the scan
         for pos in actual_positions:
             for tile_label, tile_position in tiles.items():
-                for zstack_slice, zstack_position in zstack_positions.items():
+
+                if not use_zstacking:
+                    zstack_position_offsets = {None: None}
+                else:
+                    zstack_config = ZStackConfig(
+                        range=zstack_params['range'],
+                        step_size=zstack_params['step_size'],
+                        current_z_reference=zstack_params['z_reference'],
+                        current_z_value=0,
+                    )
+                    zstack_position_offsets = zstack_config.step_positions()
+
+                for zstack_slice, zstack_position_offset in zstack_position_offsets.items():
                     for layer_name, layer_config in layer_configs.items():
-                        if layer_config['acquire'] == False:
+                        if layer_config['acquire'] == None:
                             continue
                         
                         x = round(pos['x'] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
                         y = round(pos['y'] + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
 
-                        if zstack_slice is None:
-                            if pos['z'] is None:
-                                z = layer_config['focus']
-                            else:
-                                z = pos['z']
+                        if pos['z'] is None:
+                            z = layer_config['focus']
                         else:
-                            z = zstack_position
+                            z = pos['z']
+
+                        if zstack_slice is not None:
+                            z += zstack_position_offset
 
                         z = round(z, common_utils.max_decimal_precision('z'))
 
@@ -551,6 +589,7 @@ class Protocol:
                         gain = round(layer_config['gain'], common_utils.max_decimal_precision('gain'))
                         auto_gain = common_utils.to_bool(layer_config['auto_gain'])
                         exposure = round(layer_config['exposure'], common_utils.max_decimal_precision('exposure'))
+                        video_config = layer_config['video_config']
 
                         well_label = pos['name']
                         if position_source == 'from_labware':
@@ -591,7 +630,9 @@ class Protocol:
                             zslice=zstack_slice_label,
                             custom_step=custom_step,
                             tile_group_id=tile_group_id_label,
-                            zstack_group_id=zstack_group_id_label
+                            zstack_group_id=zstack_group_id_label,
+                            acquire=layer_config['acquire'],
+                            video_config=video_config,
                         )
                         steps.append(step_dict)
                 
@@ -628,8 +669,7 @@ class Protocol:
         
         labware_id = config['labware_id']
         objective_id = config['objective_id']
-        zstack_positions = {None: None}
-        zstack_positions_valid = False
+        zstack_params = {'range': 0, 'step_size': 0}
         use_zstacking = False
         tiling = tc.no_tiling_label()
         layer_configs = {}
@@ -640,8 +680,7 @@ class Protocol:
         input_config = {
             'labware_id': labware_id,
             'objective_id': objective_id,
-            'zstack_positions': zstack_positions,
-            'zstack_positions_valid': zstack_positions_valid,
+            'zstack_params': zstack_params,
             'use_zstacking': use_zstacking,
             'tiling': tiling,
             'layer_configs': layer_configs,
@@ -676,7 +715,9 @@ class Protocol:
         zslice,
         custom_step,
         tile_group_id,
-        zstack_group_id
+        zstack_group_id,
+        acquire,
+        video_config,
     ):
         return {
             "Name": name,
@@ -696,7 +737,9 @@ class Protocol:
             "Z-Slice": zslice,
             "Custom Step": custom_step,
             "Tile Group ID": tile_group_id,
-            "Z-Stack Group ID": zstack_group_id
+            "Z-Stack Group ID": zstack_group_id,
+            "Acquire": acquire,
+            "Video Config": video_config,
         }
 
 
@@ -738,8 +781,16 @@ class Protocol:
             return
 
         config['version'] = int(version_row[1])
-        if config['version'] != 2:
-            logger.error(f"Unable to load {file_path} which contains a protocol version that is not supported.\nPlease create a new protocol using this version of LumaViewPro.")
+
+        allowed = False
+        if config['version'] == cls.CURRENT_VERSION:
+            allowed = True
+
+        elif (config['version'] == 2) and (cls.CURRENT_VERSION == 3):
+            allowed = True
+                
+        if not allowed:
+            logger.error(f"Unable to load {file_path} which contains protocol version {config['version']}.\nPlease create a new protocol using this version of LumaViewPro.")
             return
 
         period_row = next(csvreader)
@@ -768,26 +819,26 @@ class Protocol:
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
         protocol_df['Name'] = protocol_df['Name'].astype(str)
 
-        if config['version'] == 1:
-            protocol_df['Step Index'] = protocol_df.index
+        # Converter for v2 to v3
+        DEFAULT_VIDEO_CONFIG = {
+            'fps': 5,
+            'duration': 5
+        }
 
-            if not use_version_1a:
-                protocol_df['color'] = protocol_df.apply(lambda s: color_channels.ColorChannel(s['channel']).name, axis=1)
-                protocol_df = protocol_df.drop(columns=['channel'])
+        if (config['version'] == 2) and (cls.CURRENT_VERSION == 3):
+            logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
+            protocol_df['Acquire'] = "image"
+            protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
+        else:
 
-            # Extract tiling config from step names
-            tc = TilingConfig(
-                tiling_configs_file_loc=tiling_configs_file_loc
-            )
-            config['tiling'] = tc.determine_tiling_label_from_names(
-                names=protocol_df['Name'].to_list()
-            )
+            # Convert Video Config strings per step to dictionary
+            try:
+                protocol_df['Video Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Video Config']), axis=1)
+            except Exception as ex:
+                logger.error(f"Unable to parse video config, using default instead: {ex}")
+                protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
 
-            if not use_version_1a:
-                protocol_df = protocol_df.apply(cls.extract_data_from_step_name, axis=1)
-                protocol_df['Custom Step'] = False
-       
-        elif config['version'] == 2:
+        if config['version'] in (2, 3,):
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names
