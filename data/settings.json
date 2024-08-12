@@ -3,7 +3,7 @@
     "use_full_pixel_depth": false,
     "image_output_format": {
         "live": "TIFF",
-        "sequenced": "ImageJ Hyperstack"
+        "sequenced": "TIFF"
     },
     "separate_folder_per_channel": false,
     "stage_offset": {
