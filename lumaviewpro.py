@@ -2967,14 +2967,26 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _init_ui(self, dt=0):
+        global settings
+
         self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
         self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
 
-        protocol_config = get_sequenced_capture_config_from_ui()
-        self._protocol = Protocol.create_empty(
-            config=protocol_config,
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-        )
+        try:
+            filepath = settings['protocol']['filepath']
+            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
+        except:
+            logger.exception('[LVP Main  ] Unable to load protocol at startup')
+            # If protocol file is missing or incomplete, file name and path are cleared from memory. 
+            filepath=''	
+            settings['protocol']['filepath']=''
+
+            protocol_config = get_sequenced_capture_config_from_ui()
+            self._protocol = Protocol.create_empty(
+                config=protocol_config,
+                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            )
+
         self.select_labware()
         self.update_step_ui()
 
@@ -3153,7 +3165,7 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
         if not pathlib.Path(filepath).exists():
-            return
+            raise FileNotFoundError(f"Protocol not found at {filepath}")
         
         self._protocol = Protocol.from_file(
             file_path=filepath,
@@ -3168,9 +3180,6 @@ class ProtocolSettings(CompositeCapture):
             self.curr_step = -1
         else:
             self.curr_step = 0
-
-        self.update_step_ui()
-        self.go_to_step()
 
         period = round(self._protocol.period().total_seconds() / 60, 2)
         duration = round(self._protocol.duration().total_seconds() / 3600, 2)
@@ -5183,6 +5192,10 @@ class LumaViewProApp(App):
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
         move_home(axis='XY')
+
+        lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
+        scope_leds_off()
+
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
 
@@ -5259,18 +5272,6 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
-
-        try:
-            filepath = settings['protocol']['filepath']
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
-        except:
-            logger.exception('[LVP Main  ] Unable to load protocol at startup')
-            # If protocol file is missing or incomplete, file name and path are cleared from memory. 
-            filepath=''	
-            settings['protocol']['filepath']=''
-
-        lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
-        scope_leds_off()
 
         return lumaview
 
