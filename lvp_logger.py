@@ -42,6 +42,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import sys
 import ctypes
+import userpaths
 
 global windows_machine 
 
@@ -65,8 +66,8 @@ except:
 
 if windows_machine:
 
-    appdata_folder = os.getenv("LOCALAPPDATA")
-    lvp_appdata = os.path.join(appdata_folder, f"LumaViewPro {version}")
+    documents_folder = userpaths.get_my_documents()
+    lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
 
     os.chdir(lvp_appdata)
 

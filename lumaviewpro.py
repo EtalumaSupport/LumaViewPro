@@ -53,6 +53,7 @@ import subprocess
 import sys
 import typing
 import shutil
+import userpaths
 
 ############################################################################
 #---------------------Directory Initialization-----------------------------#
@@ -87,10 +88,10 @@ PROTOCOL_DATA_DIR_NAME = "ProtocolData"
 
 if windows_machine:
     print("Machine-Type - WINDOWS")
-    
-    appdata_folder = os.getenv("LOCALAPPDATA")
-    os.chdir(appdata_folder)
-    lvp_appdata = os.path.join(appdata_folder, f"LumaViewPro {version}")
+
+    documents_folder = userpaths.get_my_documents()
+    os.chdir(documents_folder)
+    lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
 
     if os.path.exists(lvp_appdata):
         pass
