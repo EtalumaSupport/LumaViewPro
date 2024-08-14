@@ -58,8 +58,11 @@ class VideoWriter:
     
 
     @staticmethod
-    def _get_timestamp_str():
-        ts = datetime.datetime.now()
+    def _get_timestamp_str(timestamp=None):
+        if timestamp is not None:
+            ts = timestamp
+        else:
+            ts = datetime.datetime.now()
         ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         return ts_str
 
@@ -93,14 +96,17 @@ class VideoWriter:
         # )
 
 
-    def add_frame(self, image: np.ndarray):
+    def add_frame(self, image: np.ndarray, timestamp=None):
 
         # First frame initialization
         if self._video is None:
             self._init_video(image=image)
         
         if self._include_timestamp_overlay:
-            ts = self._get_timestamp_str()
+            if timestamp is not None:
+                ts = self._get_timestamp_str(timestamp)
+            else:
+                ts = self._get_timestamp_str()
             image = image_utils.add_timestamp(image=image, timestamp_str=ts)
         
         self._video.write(image)
