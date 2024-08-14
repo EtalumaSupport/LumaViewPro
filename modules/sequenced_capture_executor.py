@@ -666,15 +666,19 @@ class SequencedCaptureExecutor:
 
                 start_ts = time.time()
                 stop_ts = start_ts + duration_sec
+                expected_frames = fps * duration_sec
+                captured_frames = 0
                 seconds_per_frame = 1.0 / fps
 
-                while time.time() < stop_ts:
+                while time.time() < stop_ts or captured_frames < expected_frames:
                     if 'update_scope_display' in self._callbacks:
                         self._callbacks['update_scope_display']()
                         
                     # Currently only support 8-bit images for video
                     force_to_8bit = True
                     image = self._scope.get_image(force_to_8bit=force_to_8bit)
+
+                    captured_frames += 1
 
                     if type(image) == np.ndarray:
                         
