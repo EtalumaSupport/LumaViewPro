@@ -658,21 +658,20 @@ class SequencedCaptureExecutor:
                 fps = min(fps, exposure_freq)
 
                 output_file_loc = save_folder / f"{name}.mp4v"
-                video_writer = VideoWriter(
-                    output_file_loc=output_file_loc,
-                    fps=fps,
-                    include_timestamp_overlay=True
-                )
 
                 start_ts = time.time()
                 stop_ts = start_ts + duration_sec
                 expected_frames = fps * duration_sec
                 captured_frames = 0
                 seconds_per_frame = 1.0 / fps
+                video_images = []
 
-                while time.time() < stop_ts or captured_frames < expected_frames:
+                while time.time() < stop_ts:
+                    
+                    """     **NOT BEING REFRESHED ON SCREEN EVEN IF ENABLED**
                     if 'update_scope_display' in self._callbacks:
                         self._callbacks['update_scope_display']()
+                    """
                         
                     # Currently only support 8-bit images for video
                     force_to_8bit = True
@@ -691,9 +690,19 @@ class SequencedCaptureExecutor:
                             image = image_utils.add_false_color(array=image, color=use_color)
 
                         image = np.flip(image, 0)
-                        video_writer.add_frame(image=image)
+                        video_images.append((image, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]))
                     
-                    time.sleep(seconds_per_frame)
+                    # Some process is slowing the video-process down (getting fewer frames than expected if delay of seconds_per_frame), so a shorter sleep time can be used
+                    time.sleep(seconds_per_frame*0.9)
+
+                video_writer = VideoWriter(
+                    output_file_loc=output_file_loc,
+                    fps=captured_frames//duration_sec,
+                    include_timestamp_overlay=True
+                )
+
+                for image_ts_pair in video_images:
+                    video_writer.add_frame(image=image_ts_pair[0], timestamp=image_ts_pair[1])
 
                 video_writer.finish()
                 result = output_file_loc
