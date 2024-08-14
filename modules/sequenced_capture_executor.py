@@ -690,7 +690,7 @@ class SequencedCaptureExecutor:
                             image = image_utils.add_false_color(array=image, color=use_color)
 
                         image = np.flip(image, 0)
-                        video_images.append((image, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]))
+                        video_images.append((image, datetime.datetime.now()))
                     
                     # Some process is slowing the video-process down (getting fewer frames than expected if delay of seconds_per_frame), so a shorter sleep time can be used
                     time.sleep(seconds_per_frame*0.9)
