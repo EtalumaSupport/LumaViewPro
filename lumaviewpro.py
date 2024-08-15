@@ -4517,6 +4517,8 @@ class LayerControl(BoxLayout):
     
     def _init_ui(self, dt=0):
         self.update_auto_gain()
+        self.init_acquire()
+        self.init_autofocus()
 
     def ill_slider(self):
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
@@ -4627,6 +4629,14 @@ class LayerControl(BoxLayout):
         settings[self.layer]['false_color'] = self.ids['false_color'].active
         self.apply_settings()
 
+    def init_acquire(self):
+        if settings[self.layer]['acquire'] == "image":
+            self.ids['acquire_image'].state = 'down'
+        elif settings[self.layer]['acquire'] == 'video':
+            self.ids['acquire_video'].state = 'down'
+        else:
+            self.ids['acquire_none'].state = 'down'
+
     def update_acquire(self):
         logger.info('[LVP Main  ] LayerControl.update_acquire()')
 
@@ -4636,6 +4646,12 @@ class LayerControl(BoxLayout):
             settings[self.layer]['acquire'] = "video"
         else:
             settings[self.layer]['acquire'] = None
+
+    def init_autofocus(self):
+        if settings[self.layer]['autofocus'] == False:
+            self.ids['autofocus'].state = 'normal'
+        else:
+            self.ids['autofocus'].state = 'down'
 
     def update_autofocus(self):
         logger.info('[LVP Main  ] LayerControl.update_autofocus()')

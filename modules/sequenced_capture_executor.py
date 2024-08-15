@@ -655,7 +655,7 @@ class SequencedCaptureExecutor:
                 # Clamp the FPS to be no faster than the exposure rate
                 exposure = step['Exposure']
                 exposure_freq = 1.0 / (exposure / 1000)
-                fps = exposure_freq
+                fps = min(exposure_freq, 40)
 
                 output_file_loc = save_folder / f"{name}.mp4v"
 
@@ -677,7 +677,6 @@ class SequencedCaptureExecutor:
                     force_to_8bit = True
                     image = self._scope.get_image(force_to_8bit=force_to_8bit)
 
-                    captured_frames += 1
 
                     if type(image) == np.ndarray:
                         
@@ -691,21 +690,36 @@ class SequencedCaptureExecutor:
 
                         image = np.flip(image, 0)
                         video_images.append((image, datetime.datetime.now()))
+
+                        captured_frames += 1
                     
                     # Some process is slowing the video-process down (getting fewer frames than expected if delay of seconds_per_frame), so a shorter sleep time can be used
                     time.sleep(seconds_per_frame*0.9)
 
+                calculated_fps = captured_frames//duration_sec
+
                 video_writer = VideoWriter(
                     output_file_loc=output_file_loc,
-                    fps=captured_frames//duration_sec,
+                    fps=calculated_fps,
                     include_timestamp_overlay=True
                 )
 
+                logger.info(f"Protocol-Video] Images present in video array: {len(video_images) > 0}")
+                logger.info(f"Protocol-Video] Captured Frames: {captured_frames}")
+                logger.info(f"Protocol-Video] Video FPS: {calculated_fps}")
+                logger.info("Protocol-Video] Writing video...")
+
                 for image_ts_pair in video_images:
-                    video_writer.add_frame(image=image_ts_pair[0], timestamp=image_ts_pair[1])
+                    try:
+                        video_writer.add_frame(image=image_ts_pair[0], timestamp=image_ts_pair[1])
+                    except:
+                        logger.error("Protocol-Video] FAILED TO WRITE FRAME")
 
                 video_writer.finish()
                 result = output_file_loc
+                
+                logger.info("Protocol-Video] Video writing finished.")
+                logger.info(f"Protocol-Video] Video saved at {result}")
             
             else:
 
