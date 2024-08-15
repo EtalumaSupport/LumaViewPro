@@ -4541,29 +4541,6 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
-    def video_fps_slider(self):
-        logger.info('[LVP Main  ] LayerControl.video_fps_slider()')
-        fps = self.ids['video_fps_slider'].value
-        settings[self.layer]['video_config']['fps'] = fps
-        self.apply_settings()
-
-    def video_fps_text(self):
-        logger.info('[LVP Main  ] LayerControl.video_fps_text()')
-        fps_min = self.ids['video_fps_slider'].min
-        fps_max = self.ids['video_fps_slider'].max
-        try:
-            fps_val = int(self.ids['video_fps_text'].text)
-        except:
-            return
-        
-        fps = int(np.clip(fps_val, fps_min, fps_max))
-
-        settings[self.layer]['video_config']['fps'] = fps
-        self.ids['video_fps_slider'].value = fps
-        self.ids['video_fps_text'].text = str(fps)
-
-        self.apply_settings()
-
     def video_duration_slider(self):
         logger.info('[LVP Main  ] LayerControl.video_duration_slider()')
         duration = self.ids['video_duration_slider'].value

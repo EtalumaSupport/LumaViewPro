@@ -655,7 +655,7 @@ class SequencedCaptureExecutor:
                 # Clamp the FPS to be no faster than the exposure rate
                 exposure = step['Exposure']
                 exposure_freq = 1.0 / (exposure / 1000)
-                fps = min(fps, exposure_freq)
+                fps = exposure_freq
 
                 output_file_loc = save_folder / f"{name}.mp4v"
 
