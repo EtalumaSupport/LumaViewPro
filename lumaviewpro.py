@@ -244,6 +244,9 @@ ij_helper = None
 global sequenced_capture_executor
 sequenced_capture_executor = None
 
+global show_tooltips
+show_tooltips = False
+
 # global autofocus_executor
 # autofocus_executor = None
 
@@ -4331,6 +4334,14 @@ class MicroscopeSettings(BoxLayout):
             live_histo_setting = False
 
 
+    def update_show_tooltips(self):
+        global show_tooltips
+        if self.ids['show_tooltips_btn'].state == 'down':
+            show_tooltips = True
+        else:
+            show_tooltips = False
+
+
     # Save settings to JSON file
     def save_settings(self, file="./data/current.json"):
         logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
@@ -5266,6 +5277,14 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
+        # Creates and manages Tooltips
+        self.tooltip_attr_widgets = self.find_widgets_with_tooltips(lumaview)
+        self.widget_to_accordion_dict = self.create_widget_to_parent_dict(self.tooltip_attr_widgets)
+        self.tt_widget = Tooltip()
+        self.widget_being_described = None
+        Window.bind(mouse_pos=self.mouse_moved)
+        self.tt_shown = False
+        self.tt_clock_event = None
 
         return lumaview
 
@@ -5285,5 +5304,172 @@ class LumaViewProApp(App):
 
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
+    # Returns a list of widgets with tooltip_text attribute
+    def find_widgets_with_tooltips(self, widget):
+        widgets = []
+        children = widget.children
+        if len(children) == 0:
+            if hasattr(widget, 'tooltip_text'):
+                if widget.tooltip_text != "":
+                    widgets.append(widget)
+                    return widgets
+        for child in children:
+            widgets += self.find_widgets_with_tooltips(child)
+        return widgets
+    
+    # Helper function to find a widget's Accordion
+    def find_accordion_parents(self, widget):
+        if widget.parent is None:
+            return None
+        if isinstance(widget.parent, kivy.uix.accordion.AccordionItem) or isinstance(widget.parent, AccordionItem):
+            return widget.parent
+        else:
+            return self.find_accordion_parents(widget.parent)
+        
+    # Creates a dictionary to relate a widget to the Accordion it is in
+    def create_widget_to_parent_dict(self, tt_attr_widgets):
+        dict = {}
+        for widget in tt_attr_widgets:
+            dict[widget] = self.find_accordion_parents(widget)
+        return dict
+    
+    # Called every time mouse is moved
+    # Used to check if tooltip should be shown
+    def mouse_moved(self, *args):
+
+        delay_until_tooltip = 0.5   # In Seconds
+
+        mouse_pos = args[1]
+        self.mouse_pos = mouse_pos
+        on_widget = False
+
+
+        if self.widget_being_described is not None:
+                if not self.widget_being_described.collide_point(*self.mouse_pos):
+                    self.hide_tooltip()
+                if self.tt_clock_event is not None:
+                    Clock.unschedule(self.tt_clock_event)
+                    self.tt_clock_event = None
+
+        for widget in self.tooltip_attr_widgets:
+            if widget.pos[0] > -100 and widget.pos[0] < Window.width and widget.pos[1] > 0 and widget.pos[1] < Window.height:
+                if widget.collide_point(*mouse_pos):
+                    accordion_parent = self.widget_to_accordion_dict[widget]
+                    self.widget_being_described = widget
+
+                    # If widget is not in an Accordion, it is always visible, so show tooltip
+                    if accordion_parent is None:
+                        on_widget = True
+                        if not self.tt_shown:
+                            self.tt_widget.text = widget.tooltip_text
+                            self.tt_clock_event = Clock.schedule_once(self.show_tooltip, delay_until_tooltip)
+                        break
+
+                    # If widget is in an Accordion that is NOT collapsed, it is visible, so show tooltip
+                    elif accordion_parent.collapse == False:
+                        on_widget = True
+                        if not self.tt_shown:
+                            self.tt_widget.text = widget.tooltip_text
+                            self.tt_clock_event = Clock.schedule_once(self.show_tooltip, delay_until_tooltip)
+                        break
+                else:
+                    on_widget = False
+            else:
+                on_widget = False
+                
+        if not on_widget:
+            if self.tt_clock_event:
+                Clock.unschedule(self.tt_clock_event)
+                self.tt_clock_event = None
+            
+            self.hide_tooltip()
+
+
+    def show_tooltip(self, *args):
+        global show_tooltips
+
+        if show_tooltips:
+            if self.widget_being_described is not None:
+                if self.widget_being_described.collide_point(*self.mouse_pos):
+                    self.tt_widget._update_rect()
+                    # Default offsets
+                    vert_offset = 15
+                    horiz_offset = 15
+
+                    # If mouse is low on the screen
+                    low_screen_vert_offset = 7
+
+                    # If mouse is far right on the screen
+                    right_screen_horiz_offset = 7
+
+                    # If mouse is in lower quarter of screen, show tooltip above mouse instead of below
+                    if self.mouse_pos[1] < Window.height / 4:
+                        lower_half = True
+                    else:
+                        lower_half = False
+
+                    if self.mouse_pos[0] > Window.width - Window.width / 4:
+                        far_right = True
+                    else:
+                        far_right = False
+
+                    if not self.tt_shown:
+                        
+                        # Remove and add the widget to ensure it shows up at the front of the screen
+                        lumaview.remove_widget(self.tt_widget)
+                        lumaview.add_widget(self.tt_widget)
+                        self.tt_widget.size = Window.size
+
+                        if lower_half:
+                            # - self.tt_widget.texture_size[1]/2 - self.tt_widget.vert_padding/2 + 1
+                            #tt_widget_y = self.mouse_pos[1] - self.tt_widget.height + low_screen_vert_offset - self.tt_widget.texture_size[1]/2 + (Window.height / 2)
+                            tt_widget_y = self.mouse_pos[1] - self.tt_widget.height + low_screen_vert_offset + (Window.height / 2)
+                            tt_widget_rect_y = self.mouse_pos[1] + low_screen_vert_offset/2 + (self.tt_widget.vert_padding / 2) - self.tt_widget.texture_size[1]/2 - self.tt_widget.vert_padding/2 + 1
+                        else:
+                            # Upper Half
+                            tt_widget_y = self.mouse_pos[1] - self.tt_widget.height - vert_offset + (Window.height / 2)
+                            tt_widget_rect_y = self.mouse_pos[1] - vert_offset/2 + (self.tt_widget.vert_padding / 2) - self.tt_widget.rect.size[1] - 2*self.tt_widget.vert_padding + self.tt_widget.texture_size[1]/2
+
+                        if far_right:
+                            tt_widget_x = self.mouse_pos[0] - right_screen_horiz_offset - (Window.width / 2) - (self.tt_widget.texture_size[0]/2)
+                            tt_widget_rect_x = self.mouse_pos[0] - right_screen_horiz_offset - (self.tt_widget.horiz_padding / 2) - (self.tt_widget.texture_size[0])
+                        else:
+                            # Left Side
+                            tt_widget_x = self.mouse_pos[0] + horiz_offset - (Window.width / 2) + (self.tt_widget.texture_size[0]/2)
+                            tt_widget_rect_x = self.mouse_pos[0] + horiz_offset - (self.tt_widget.horiz_padding / 2)
+
+                        self.tt_widget.pos = (tt_widget_x, tt_widget_y)
+                        self.tt_widget.rect.pos = (tt_widget_rect_x, tt_widget_rect_y)
+
+                        self.tt_widget.opacity = 1
+                        self.tt_shown = True
+
+    def hide_tooltip(self, *args):
+        global show_tooltips
+        if show_tooltips:
+            self.widget_being_described = None
+            if self.tt_shown:
+                self.tt_widget.opacity = 0
+                self.tt_shown = False
+
+class Tooltip(Label):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.horiz_padding = 4      #4
+        self.vert_padding = 4       #4
+
+        self.opacity = 0
+        self.font_size = '12sp'
+        self.color = [0, 0, 0, 1]  # Black text
+        self.bind(size=self._update_rect, pos=self._update_rect)
+        with self.canvas.before:
+            Color(1, 1, 1, 1)  # White background
+            self.rect = Rectangle(size=(self.texture_size[0] + self.horiz_padding, self.texture_size[1] + self.vert_padding))
+        
+        self.opacity = 0  # Initially hidden
+
+    def _update_rect(self, *args):
+        self.rect.size = (self.texture_size[0] + self.horiz_padding, self.texture_size[1] + self.vert_padding)
 
 LumaViewProApp().run()
