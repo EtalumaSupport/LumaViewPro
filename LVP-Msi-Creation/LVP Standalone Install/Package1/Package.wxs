@@ -1,0 +1,39 @@
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+	<!--
+	Make sure to update the name and version for each Msi Creation
+	-->
+  <Package Name="LumaViewPro 2.1.0" Manufacturer="Etaluma" Version="2.1.0" Compressed="yes" UpgradeCode="90907569-ca5a-4e20-b393-2e042e9f8b93">
+    <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)" />
+	  <DirectoryRef Id="INSTALLFOLDER">
+		  <!-- 
+		  INSTALLFOLDER goes to ProgramFiles LVP folder.
+		  Make sure that the directory to the desired base LVP folder is correct and has \** after in order to include all in folder
+	      -->
+		<Files Include="C:\Users\EtalumaDemoLaptop8\Downloads\LumaViewPro-2.1.0\**" />
+		  <Component Id="LVPINSTALLFOLDERComponent" Guid="7c20a30c-6247-43ea-bdf6-8bf1b915fdd3">
+			  <RemoveFolder Id="INSTALLFOLDER" On="uninstall" />
+		  </Component>
+	  </DirectoryRef>
+	  
+	  <!-- Make sure to update icon directory -->
+	  <Icon Id="icon.ico" SourceFile="C:\Users\EtalumaDemoLaptop8\Downloads\LumaViewPro-2.1.0\data\icons\icon.ico"/>
+	  <Property Id="ARPPRODUCTICON" Value="icon.ico" />
+	  <DirectoryRef Id="ApplicationProgramsFolder">
+		  <Component Id="ApplicationShortcut" Guid="90907569-ca5a-4e20-b393-2e042e9f8b93">
+			  <Shortcut Id="ApplicationStartMenuShortcut"
+						Name="LumaViewPro 2.1.0"
+						Description="Etaluma LumaViewPro"
+						Target="[INSTALLFOLDER]lumaviewpro.exe"
+						WorkingDirectory="INSTALLFOLDER"/>
+			  <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall"/>
+			  <RegistryValue Root="HKCU" Key="Software\Etaluma\LumaViewPro" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+		  </Component>
+	  </DirectoryRef>
+	  
+	  <Component Id="pathComponent" Guid="a096f34d-64fb-48af-ac95-1f24648ce759" KeyPath="yes">
+		  <CreateFolder />
+		  <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]apache-maven-3.9.8\bin" Permanent="no" Part="last" Action="set" System="yes" />
+	  </Component>
+	  
+  </Package>
+</Wix>
