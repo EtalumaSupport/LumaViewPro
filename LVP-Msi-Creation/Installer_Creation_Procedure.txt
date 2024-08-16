@@ -1,0 +1,28 @@
+Msi Install Creation Procedure
+------------------------------
+0) Create the exe for LVP. Unzip the folder. In the LVP folder, paste the apache-maven-3.9.8 folder. (Should be in the same way a package folder is in the LVP folder)
+
+1) Make sure that you have Visual Studio 2022 downloaded and installed along with the .NET framework and Visual C++
+
+2) Have the HeatWave for VS2022 extension installed
+
+3) Start by opening up the VS solution under the LVP Standalone Install folder (LVP Standalone Install.sln) in Visual Studio
+
+4) Ensure that the folder paths for each item in Package.wxs are correct. Ensure that the name and version are up to date.
+
+5) Have Package.wxs open. In the toolbar at the top of VS, under Build, click Build Solution.
+
+6) If everything was successful, there should be a "Build completed" message at the bottom of output and the directory of the build a few lines above.
+	(On my system defaulted to C:\Users\{user}\source\repos\LVP Standalone Install\Package1\bin\x86\Debug\en-US\LumaViewPro2.1.0.msi
+
+7) After a successful build, open the VS solution in the other folder, LVP Bundle Install Package.
+
+8) Ensure the folder paths for each item in Bundle.wxs is correct and the Name/Version are up to date. 
+	- The pylon camera driver and AmazonCorreto install msi's are located here. https://drive.google.com/drive/folders/1t-mWYLfNixwiFCNlYboxWbOGRj__Ggc2?usp=sharing
+	- They can be put anywhere as long as the path in Bundle.wxs is correct
+
+9) Build Bundle.wxs as you did with Package.wxs.
+
+10) After a successful build, find the installer.
+
+11) Test and distribute.
