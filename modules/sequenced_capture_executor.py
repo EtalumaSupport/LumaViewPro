@@ -649,6 +649,16 @@ class SequencedCaptureExecutor:
             use_full_pixel_depth = self._image_capture_config['use_full_pixel_depth']
 
             if is_video:
+                # Disable autogain and then reenable it only for the first frame
+                print(self._callbacks)
+                if step["Auto_Gain"]:
+                    self._scope.set_auto_gain(state=False, settings=self._autogain_settings)
+                    self._scope.camera.auto_gain_once(state=True, 
+                                                      target_brightness=self._autogain_settings['target_brightness'], 
+                                                      min_gain=self._autogain_settings['min_gain'], 
+                                                      max_gain=self._autogain_settings['max_gain']
+                                                      )
+
                 duration_sec = step['Video Config']['duration']
                 fps = step['Video Config']['fps']
 
@@ -665,6 +675,8 @@ class SequencedCaptureExecutor:
                 captured_frames = 0
                 seconds_per_frame = 1.0 / fps
                 video_images = []
+
+                logger.info(f"Protocol-Video] Capturing video...")
 
                 while time.time() < stop_ts:
                     

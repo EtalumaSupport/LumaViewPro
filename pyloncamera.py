@@ -365,6 +365,30 @@ class PylonCamera:
             self.active.GainAuto.SetValue('Off')
             self.active.ExposureAuto.SetValue('Off')
         logger.info('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': succeeded')
+
+    def auto_gain_once(
+        self,
+        state = True,
+        target_brightness: float = 0.5,
+        min_gain: float | None = None,
+        max_gain: float | None = None
+    ):
+        """ Enable / Disable camera auto_gain with the value of 'state'
+        Auto Gain/Exposure executed one time """
+
+        if self.active == False:
+            logger.warning('[CAM Class ] PylonCamera.auto_gain_once('+str(state)+')'+': inactive camera')
+            return
+
+        if state == True:
+            self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
+            self.update_auto_gain_min_max(min_gain=min_gain, max_gain=max_gain)
+            self.active.GainAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+            self.active.ExposureAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        else:
+            self.active.GainAuto.SetValue('Off')
+            self.active.ExposureAuto.SetValue('Off')
+        logger.info('[CAM Class ] PylonCamera.auto_gain_once('+str(state)+')'+': succeeded')
             
             
     def exposure_t(self, t):
