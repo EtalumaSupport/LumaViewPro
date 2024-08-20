@@ -142,5 +142,7 @@
     },
     "scale_bar": {
         "enabled": false
-    }
+    },
+    "video_as_frames": false
+    
 }

@@ -1837,6 +1837,26 @@
         orientation: 'horizontal'
         size_hint_y: None
         height: '30dp'
+        Label:
+            text: 'Video Recording\nFormat'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+	    Spinner:
+			id: video_recording_format_spinner
+			sync_height: True
+	        text: 'Select'
+			font_size:'12dp'
+			option_cls: "SpinnerOption0"
+			text_autoupdate: True
+	        on_text: root.select_video_recording_format()
+			values: ('mp4', 'Frames')
+
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
 		Label:
 			font_size: '12sp'
 			text: 'Enable Scale Bar'

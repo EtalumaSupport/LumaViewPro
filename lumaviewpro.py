@@ -2658,6 +2658,7 @@ class VerticalControl(BoxLayout):
             return_to_position=None,
             save_autofocus_data=save_autofocus_data,
             leds_state_at_end="return_to_original",
+            video_as_frames=settings['video_as_frames']
         )
 
 
@@ -3547,6 +3548,7 @@ class ProtocolSettings(CompositeCapture):
             return_to_position=initial_position,
             update_z_pos_from_autofocus=True,
             leds_state_at_end="off",
+            video_as_frames=settings['video_as_frames']
         )
 
 
@@ -3721,6 +3723,7 @@ class ProtocolSettings(CompositeCapture):
             disable_saving_artifacts=disable_saving_artifacts,
             return_to_position=return_to_position,
             leds_state_at_end="off",
+            video_as_frames=settings['video_as_frames']
         )
         
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
@@ -4149,6 +4152,11 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
                 self.select_sequenced_image_output_format()
 
+                if settings['video_as_frames'] == False:
+                    self.ids['video_recording_format_spinner'].text = 'mp4'
+                else:
+                    self.ids['video_recording_format_spinner'].text = 'Frames'
+
                 # Set Frame Size
                 # Multiplying frame size by the binning size to account for the select_binning_size() call
                 # Effectively sets the frame size to the size it was prior to pixel binning, then bins
@@ -4296,6 +4304,13 @@ class MicroscopeSettings(BoxLayout):
     def select_sequenced_image_output_format(self):
         global settings
         settings['image_output_format']['sequenced'] = self.ids['sequenced_image_output_format_spinner'].text
+
+    def select_video_recording_format(self):
+        global settings
+        if self.ids['video_recording_format_spinner'].text == 'mp4':
+            settings['video_as_frames'] = False
+        else:
+            settings['video_as_frames'] = True
 
     
     def update_binning_size(self, size: int):
@@ -4879,6 +4894,7 @@ class ZStack(CompositeCapture):
             callbacks=callbacks,
             return_to_position=initial_position,
             leds_state_at_end="off",
+            video_as_frames = settings['video_as_frames']
         )
 
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())

@@ -5,6 +5,7 @@ import time
 import typing
 
 import numpy as np
+import cv2
 
 from kivy.clock import Clock
 
@@ -227,6 +228,7 @@ class SequencedCaptureExecutor:
         save_autofocus_data: bool = False,
         update_z_pos_from_autofocus: bool = False,
         leds_state_at_end: str = "off",
+        video_as_frames: bool = False,
     ):
         if self._run_in_progress:
             logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
@@ -251,6 +253,7 @@ class SequencedCaptureExecutor:
         self._save_autofocus_data = save_autofocus_data
         self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
         self._leds_state_at_end = leds_state_at_end
+        self._video_as_frames = video_as_frames
         self._autofocus_executor.reset()
 
         if self._parent_dir is None:
@@ -613,6 +616,7 @@ class SequencedCaptureExecutor:
     ):
         
         is_video = True if step['Acquire'] == "video" else False
+        video_as_frames = self._video_as_frames
 
         if not step['Auto_Gain']:
             self._scope.set_gain(step['Gain'])
@@ -650,7 +654,6 @@ class SequencedCaptureExecutor:
 
             if is_video:
                 # Disable autogain and then reenable it only for the first frame
-                print(self._callbacks)
                 if step["Auto_Gain"]:
                     self._scope.set_auto_gain(state=False, settings=self._autogain_settings)
                     self._scope.camera.auto_gain_once(state=True, 
@@ -666,8 +669,12 @@ class SequencedCaptureExecutor:
                 exposure = step['Exposure']
                 exposure_freq = 1.0 / (exposure / 1000)
                 fps = min(exposure_freq, 40)
+                
+                if video_as_frames:
+                    save_folder = save_folder / f"{name}"
 
-                output_file_loc = save_folder / f"{name}.mp4v"
+                else:    
+                    output_file_loc = save_folder / f"{name}.mp4v"
 
                 start_ts = time.time()
                 stop_ts = start_ts + duration_sec
@@ -701,6 +708,7 @@ class SequencedCaptureExecutor:
                             image = image_utils.add_false_color(array=image, color=use_color)
 
                         image = np.flip(image, 0)
+
                         video_images.append((image, datetime.datetime.now()))
 
                         captured_frames += 1
@@ -710,25 +718,48 @@ class SequencedCaptureExecutor:
 
                 calculated_fps = captured_frames//duration_sec
 
-                video_writer = VideoWriter(
-                    output_file_loc=output_file_loc,
-                    fps=calculated_fps,
-                    include_timestamp_overlay=True
-                )
-
                 logger.info(f"Protocol-Video] Images present in video array: {len(video_images) > 0}")
                 logger.info(f"Protocol-Video] Captured Frames: {captured_frames}")
                 logger.info(f"Protocol-Video] Video FPS: {calculated_fps}")
                 logger.info("Protocol-Video] Writing video...")
 
-                for image_ts_pair in video_images:
-                    try:
-                        video_writer.add_frame(image=image_ts_pair[0], timestamp=image_ts_pair[1])
-                    except:
-                        logger.error("Protocol-Video] FAILED TO WRITE FRAME")
+                if video_as_frames:
+                    frame_num = 0
+                    result = save_folder
+                    if not save_folder.exists():
+                        save_folder.mkdir(exist_ok=True, parents=True)
 
-                video_writer.finish()
-                result = output_file_loc
+                    for image_ts_pair in video_images:
+                        frame_num += 1
+
+                        image = image_ts_pair[0]
+                        ts = image_ts_pair[1]
+                        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+                        image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
+
+                        frame_name = f"{name}_Frame_{frame_num:04}"
+
+                        output_file_loc = save_folder / f"{frame_name}.tiff"
+
+                        if not cv2.imwrite(filename=str(output_file_loc), img=image):
+                            logger.error(f"Protocol-Video] Failed to write frame {frame_num}")
+
+                else:
+                    video_writer = VideoWriter(
+                        output_file_loc=output_file_loc,
+                        fps=calculated_fps,
+                        include_timestamp_overlay=True
+                    )
+
+                    for image_ts_pair in video_images:
+                        try:
+                            video_writer.add_frame(image=image_ts_pair[0], timestamp=image_ts_pair[1])
+                        except:
+                            logger.error("Protocol-Video] FAILED TO WRITE FRAME")
+
+                    video_writer.finish()
+                    result = output_file_loc
                 
                 logger.info("Protocol-Video] Video writing finished.")
                 logger.info(f"Protocol-Video] Video saved at {result}")
