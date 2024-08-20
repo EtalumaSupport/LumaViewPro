@@ -118,7 +118,7 @@
             background_down: './data/icons/stop.png' # Press to Stop Recording
             size_hint: None, None
             size: '40dp', '40dp'
-            on_press: root.record()
+            on_press: root.record_button()
 
         Button:
             id: fit_btn
@@ -1832,6 +1832,26 @@
 			text_autoupdate: True
 	        on_text: root.select_sequenced_image_output_format()
 			values: ('TIFF', 'OME-TIFF', 'ImageJ Hyperstack')
+
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Video Recording\nFormat'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+	    Spinner:
+			id: video_recording_format_spinner
+			sync_height: True
+	        text: 'Select'
+			font_size:'12dp'
+			option_cls: "SpinnerOption0"
+			text_autoupdate: True
+	        on_text: root.select_video_recording_format()
+			values: ('mp4', 'Frames')
 
 	BoxLayout:
         orientation: 'horizontal'

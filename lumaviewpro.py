@@ -214,6 +214,7 @@ from modules.zstack_config import ZStackConfig
 from modules.json_helper import CustomJSONizer
 import modules.imagej_helper as imagej_helper
 import modules.zprojector as zprojector
+from modules.video_writer import VideoWriter
 
 import cv2
 import skimage
@@ -1180,6 +1181,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
     def __init__(self, **kwargs):
         super(MainDisplay,self).__init__(**kwargs)
         self.scope = lumascope_api.Lumascope()
+        self.recording = False
 
     def cam_toggle(self):
         logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
@@ -1197,12 +1199,159 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             scope_display.play = True
             scope_display.start()
 
-    def record(self):
+    def record_button(self):
+        if self.recording:
+            return
+        self.record_init()
+
+    def record_init(self):
         logger.info('[LVP Main  ] MainDisplay.record()')
-        scope_display = self.ids['viewer_id'].ids['scope_display_id']
         if self.scope.camera.active == False:
             return
-        scope_display.record = not scope_display.record
+
+        self.video_as_frames = settings['video_as_frames']
+
+        color = None
+
+        for layer in common_utils.get_layers():
+            accordion = layer + '_accordion'
+            if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+
+                if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
+                    color = layer
+                    
+                break
+
+        if color is not None:
+            self.video_false_color = color
+        else:
+            self.video_false_color = None
+
+        # Clamp the FPS to be no faster than the exposure rate
+        exposure = self.scope.camera.get_exposure_t()
+        exposure_freq = 1.0 / (exposure / 1000)
+        self.video_fps = min(exposure_freq, 40)
+        max_duration = 30   # in seconds
+        
+        start_time = datetime.datetime.now()
+        self.start_time_str = start_time.strftime("%Y-%m-%d_%H.%M.%S")
+        
+        if self.video_as_frames:
+            save_folder = pathlib.Path(settings['live_folder']) / "Manual" / f"Video_{self.start_time_str}"
+        else:
+            save_folder = pathlib.Path(settings['live_folder']) / "Manual"
+            
+        self.video_save_folder = save_folder
+
+        self.start_ts = time.time()
+        self.stop_ts = self.start_ts + max_duration
+        seconds_per_frame = 1.0 / self.video_fps
+        self.current_video_frames = []
+        self.current_captured_frames = 0
+
+        logger.info(f"Manual-Video] Capturing video...")
+        
+        self.recording = True
+        self.recording_check = Clock.schedule_interval(self.check_recording_state, seconds_per_frame)
+        self.recording_event = Clock.schedule_interval(self.record_helper, seconds_per_frame)
+
+    def check_recording_state(self, dt):
+        # Over the max duration, stop video
+        if time.time() >= self.stop_ts:
+            Clock.unschedule(self.recording_check)
+            Clock.unschedule(self.recording_event)
+            self.video_duration = time.time() - self.start_ts
+            self.recording_complete_event = Clock.schedule_once(self.recording_complete)
+            
+        # Button not clicked yet, keep recording
+        if self.ids['record_btn'].state == 'down':
+            return
+        
+        # Button clicked, stop recording
+        Clock.unschedule(self.recording_check)
+        Clock.unschedule(self.recording_event)
+        self.video_duration = time.time() - self.start_ts
+        self.recording_complete_event = Clock.schedule_once(self.recording_complete)
+
+    def recording_complete(self, dt):
+        self.recording = False
+
+        calculated_fps = self.current_captured_frames//self.video_duration
+
+        logger.info(f"Manual-Video] Images present in video array: {len(self.current_video_frames) > 0}")
+        logger.info(f"Manual-Video] Captured Frames: {self.current_captured_frames}")
+        logger.info(f"Manual-Video] Video FPS: {calculated_fps}")
+        logger.info("Manual-Video] Writing video...")
+
+        if self.video_as_frames:
+            frame_num = 0
+            save_folder = self.video_save_folder
+
+            if not save_folder.exists():
+                save_folder.mkdir(exist_ok=True, parents=True)
+
+            for image_ts_pair in self.current_video_frames:
+                frame_num += 1
+
+                image = image_ts_pair[0]
+                ts = image_ts_pair[1]
+                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+                image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
+
+                frame_name = f"ManualVideo_Frame_{frame_num:04}"
+
+                output_file_loc = save_folder / f"{frame_name}.tiff"
+
+                if not cv2.imwrite(filename=str(output_file_loc), img=image):
+                    logger.error(f"Manual-Video] Failed to write frame {frame_num}")
+
+        else:
+            if not self.video_save_folder.exists():
+                self.video_save_folder.mkdir(exist_ok=True, parents=True)
+
+            output_file_loc = self.video_save_folder / f"Video_{self.start_time_str}.mp4v"
+
+            video_writer = VideoWriter(
+                output_file_loc=output_file_loc,
+                fps=calculated_fps,
+                include_timestamp_overlay=True
+            )
+
+            for image_ts_pair in self.current_video_frames:
+                try:
+                    video_writer.add_frame(image=image_ts_pair[0], timestamp=image_ts_pair[1])
+                except:
+                    logger.error("Manual-Video] FAILED TO WRITE FRAME")
+
+            video_writer.finish()
+        
+        logger.info("Manual-Video] Video writing finished.")
+        set_last_save_folder(self.video_save_folder)
+        Clock.unschedule(self.recording_complete_event)
+
+    def record_helper(self, dt):
+
+        # Currently only support 8-bit images for video
+        force_to_8bit = True
+        image = self.scope.get_image(force_to_8bit=force_to_8bit)
+
+        if type(image) == np.ndarray:
+            
+            # Should never be used since forcing images to 8-bit
+            if image.dtype == np.uint16:
+                image = image_utils.convert_12bit_to_16bit(image)
+
+            # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
+            if (image.dtype != np.uint16) and (self.video_false_color is not None):
+                image = image_utils.add_false_color(array=image, color=self.video_false_color)
+
+            image = np.flip(image, 0)
+
+            self.current_video_frames.append((image, datetime.datetime.now()))
+
+            self.current_captured_frames += 1
+            
 
     def fit_image(self):
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
@@ -2658,6 +2807,7 @@ class VerticalControl(BoxLayout):
             return_to_position=None,
             save_autofocus_data=save_autofocus_data,
             leds_state_at_end="return_to_original",
+            video_as_frames=settings['video_as_frames']
         )
 
 
@@ -3547,6 +3697,7 @@ class ProtocolSettings(CompositeCapture):
             return_to_position=initial_position,
             update_z_pos_from_autofocus=True,
             leds_state_at_end="off",
+            video_as_frames=settings['video_as_frames']
         )
 
 
@@ -3721,6 +3872,7 @@ class ProtocolSettings(CompositeCapture):
             disable_saving_artifacts=disable_saving_artifacts,
             return_to_position=return_to_position,
             leds_state_at_end="off",
+            video_as_frames=settings['video_as_frames']
         )
         
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
@@ -4149,6 +4301,11 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
                 self.select_sequenced_image_output_format()
 
+                if settings['video_as_frames'] == False:
+                    self.ids['video_recording_format_spinner'].text = 'mp4'
+                else:
+                    self.ids['video_recording_format_spinner'].text = 'Frames'
+
                 # Set Frame Size
                 # Multiplying frame size by the binning size to account for the select_binning_size() call
                 # Effectively sets the frame size to the size it was prior to pixel binning, then bins
@@ -4296,6 +4453,13 @@ class MicroscopeSettings(BoxLayout):
     def select_sequenced_image_output_format(self):
         global settings
         settings['image_output_format']['sequenced'] = self.ids['sequenced_image_output_format_spinner'].text
+
+    def select_video_recording_format(self):
+        global settings
+        if self.ids['video_recording_format_spinner'].text == 'mp4':
+            settings['video_as_frames'] = False
+        else:
+            settings['video_as_frames'] = True
 
     
     def update_binning_size(self, size: int):
@@ -4879,6 +5043,7 @@ class ZStack(CompositeCapture):
             callbacks=callbacks,
             return_to_position=initial_position,
             leds_state_at_end="off",
+            video_as_frames = settings['video_as_frames']
         )
 
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
