@@ -4306,6 +4306,8 @@ class MicroscopeSettings(BoxLayout):
                 else:
                     self.ids['video_recording_format_spinner'].text = 'Frames'
 
+                self.select_video_recording_format()
+
                 # Set Frame Size
                 # Multiplying frame size by the binning size to account for the select_binning_size() call
                 # Effectively sets the frame size to the size it was prior to pixel binning, then bins
@@ -4374,20 +4376,15 @@ class MicroscopeSettings(BoxLayout):
 
                     video_config = settings[layer]['video_config']
                     DEFAULT_VIDEO_DURATION_SEC = 5
-                    DEFAULT_VIDEO_FPS = 5
+
                     if video_config is None:
                         video_config = {}
 
-                    if 'fps' not in video_config:
-                        video_config['fps'] = DEFAULT_VIDEO_FPS
 
                     if 'duration' not in video_config:
                         video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
 
                     settings[layer]['video_config'] = video_config
-
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_text'].text = str(video_config['fps'])
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_fps_slider'].value = video_config['fps']
 
                     lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_text'].text = str(video_config['duration'])
                     lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_slider'].value = video_config['duration']

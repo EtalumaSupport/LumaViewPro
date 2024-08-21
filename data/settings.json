@@ -32,7 +32,6 @@
         "exp": 2.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
         }
     },
@@ -47,7 +46,6 @@
         "exp": 5.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
         }
     },
@@ -62,7 +60,6 @@
         "exp": 30.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
         }
     },
@@ -77,7 +74,6 @@
         "exp": 100.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
         }
     },
@@ -92,7 +88,6 @@
         "exp": 100.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
         }
     },
@@ -107,7 +102,6 @@
         "exp": 100.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
         }
     },
