@@ -663,7 +663,6 @@ class SequencedCaptureExecutor:
                                                       )
 
                 duration_sec = step['Video Config']['duration']
-                fps = step['Video Config']['fps']
 
                 # Clamp the FPS to be no faster than the exposure rate
                 exposure = step['Exposure']
