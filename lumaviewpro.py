@@ -3627,6 +3627,7 @@ class ProtocolSettings(CompositeCapture):
 
     def _autofocus_run_complete_callback(self, **kwargs):
         live_histo_reverse()
+        reset_acquire_ui()
         self._reset_run_autofocus_scan_button()
 
         # Copy the Z-heights from the autofocus scan into the protocol
@@ -3705,6 +3706,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_scan_button()
         create_hyperstacks_if_needed()
         live_histo_reverse()
+        reset_acquire_ui()
 
 
     def run_scan_from_ui(self):
@@ -3752,6 +3754,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_protocol_button()
         live_histo_reverse()
         create_hyperstacks_if_needed()
+        reset_acquire_ui()
 
 
     def run_protocol_from_ui(self):
@@ -4895,6 +4898,15 @@ class LayerControl(BoxLayout):
             lumaview.ids['viewer_id'].update_shader(self.layer)
         else:
             lumaview.ids['viewer_id'].update_shader('none')
+
+def reset_acquire_ui():
+    for layer in common_utils.get_layers():
+        if settings[layer]['acquire'] == "image":
+            lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_image'].active = True
+        elif settings[layer]['acquire'] == "video":
+            lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_video'].active = True
+        else:
+            lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_none'].active = True
 
 # Z Stack functions class
 # ---------------------------------------------------------------------
