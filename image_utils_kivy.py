@@ -11,6 +11,9 @@ def image_to_texture(image) -> Texture:
     # Vertical flip
     image = cv2.flip(image, 0)
 
+    if not image_utils.is_color_image(image=image):
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+
     buf = image.tostring()
 
     image_texture = Texture.create(

@@ -106,6 +106,14 @@ def convert_12bit_to_16bit(image):
     return (new_image * 16)
 
 
+def convert_16bit_to_8bit(image):
+    if image.dtype == 'uint8':
+        return image
+    
+    new_image = image.copy()
+    return (new_image/256).astype('uint8')
+
+
 def generate_ome_tiff_support_data(data, metadata: dict):
     use_color = image_utils.is_color_image(data)
 
