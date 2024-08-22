@@ -150,6 +150,12 @@ class CellCount:
 
     def process_image(self, image, settings, include_images=['filtered_contours']):
 
+        if image.dtype != np.uint8:
+            if image.dtype == np.uint16:
+                image = image_utils.convert_16bit_to_8bit(image=image)
+            else:
+                raise NotImplementedError(f"Unable to process image of type {image.dtype}")
+
         if include_images=='all':
             include_images = [
                 'gray',
