@@ -5306,7 +5306,7 @@ class LumaViewProApp(App):
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
     # Returns a list of widgets with tooltip_text attribute
-    def find_widgets_with_tooltips(self, widget):
+    def find_widgets_with_tooltips(self, widget) -> list:
         widgets = []
         
         children = widget.children
@@ -5319,16 +5319,18 @@ class LumaViewProApp(App):
         return widgets
     
     # Helper function to find a widget's Accordion
-    def find_accordion_parents(self, widget):
+    # Returns a list of all parents that are accordions. As list increments, accordions approach head of widget tree
+    def find_accordion_parents(self, widget) -> list:
+        return_list = []
         if widget.parent is None:
-            return None
+            return return_list
         if isinstance(widget.parent, kivy.uix.accordion.AccordionItem) or isinstance(widget.parent, AccordionItem):
-            return widget.parent
+            return return_list + [widget.parent] + self.find_accordion_parents(widget.parent)
         else:
             return self.find_accordion_parents(widget.parent)
         
-    # Creates a dictionary to relate a widget to the Accordion it is in
-    def create_widget_to_parent_dict(self, tt_attr_widgets):
+    # Creates a dictionary to relate a widget to the Accordion(s) it is in
+    def create_widget_to_parent_dict(self, tt_attr_widgets) -> dict:
         dict = {}
         for widget in tt_attr_widgets:
             dict[widget] = self.find_accordion_parents(widget)
@@ -5337,7 +5339,7 @@ class LumaViewProApp(App):
 
     # Called every time mouse is moved
     # Used to check if tooltip should be shown
-    def mouse_moved(self, *args):
+    def mouse_moved(self, *args) -> None:
         delay_until_tooltip = 0.5   # In Seconds
 
         mouse_pos = args[1]
@@ -5346,6 +5348,8 @@ class LumaViewProApp(App):
 
         if show_tooltips:
             self.hidden = False
+            
+            # Hide tooltip on mouse movement if not colliding anymore (Put here to check asap after a change)
             if self.widget_being_described is not None:
                     if not self.tt_collision(self.widget_being_described, mouse_pos[0], mouse_pos[1]):
                         self.hide_tooltip()
@@ -5353,6 +5357,7 @@ class LumaViewProApp(App):
                         Clock.unschedule(self.tt_clock_event)
                         self.tt_clock_event = None
 
+            # Checks collision and if tooltip is visible. If it isn't on any tooltip, hide the tooltip
             for widget in self.tooltip_attr_widgets:
 
                 if widget.pos[0] > -100 and widget.pos[0] < Window.width and widget.pos[1] > 0 and widget.pos[1] < Window.height:
@@ -5360,25 +5365,28 @@ class LumaViewProApp(App):
                     collision = self.tt_collision(widget, mouse_pos[0], mouse_pos[1])
 
                     if collision:
-                        accordion_parent = self.widget_to_accordion_dict[widget]
+                        accordion_parents = self.widget_to_accordion_dict[widget]
                         self.widget_being_described = widget
-                        
 
                         # If widget is not in an Accordion, it is always visible, so show tooltip
-                        if accordion_parent is None:
+                        if len(accordion_parents) < 1:
+                        
                             on_widget = True
                             if not self.tt_shown:
                                 self.tt_widget.text = widget.tooltip_text
                                 self.tt_clock_event = Clock.schedule_once(self.show_tooltip, delay_until_tooltip)
                             break
 
-                        # If widget is in an Accordion that is NOT collapsed, it is visible, so show tooltip
-                        elif accordion_parent.collapse == False:
+                        # If all accordions above the widget are not collapsed, show the widget
+                        elif True not in [accordion.collapse for accordion in accordion_parents]:
                             on_widget = True
                             if not self.tt_shown:
                                 self.tt_widget.text = widget.tooltip_text
                                 self.tt_clock_event = Clock.schedule_once(self.show_tooltip, delay_until_tooltip)
                             break
+                        else:
+                            continue
+                        
                     else:
                         on_widget = False
                 else:
@@ -5391,6 +5399,7 @@ class LumaViewProApp(App):
                 
                 self.hide_tooltip()
         else:
+            # Hides tooltip one time if tooltips are turned off (else always remains on screen)
             if not self.hidden:
                 self.hide_tooltip()
                 if self.tt_clock_event is not None:
@@ -5399,7 +5408,9 @@ class LumaViewProApp(App):
                 self.hidden = True
 
 
-    def tt_collision(self, widget, mouse_x: float, mouse_y: float): 
+    def tt_collision(self, widget, mouse_x: float, mouse_y: float) -> bool: 
+        # Shows hitboxes for tooltips.
+        # Only seems to work for widgets not in channel control for some reason
         show_hitboxes = False
 
         true_widget_x = widget.to_window(*widget.pos)[0]
@@ -5420,6 +5431,7 @@ class LumaViewProApp(App):
         
         else:
             # Widget is a Label
+            # Hitbox is only on the text portion of the label, unless wrapping is present
 
             text_width = widget.texture_size[0]
             text_height = widget.texture_size[1]
@@ -5453,7 +5465,8 @@ class LumaViewProApp(App):
 
             return text_x <= mouse_x <= (text_x + text_width) and text_y <= mouse_y <= (text_y + text_height)
         
-    def calculate_label_text_size(self, widget):
+    # Used to calculate a label's text dimensions when the label size is preset (keeps collision only on the text)
+    def calculate_label_text_size(self, widget) -> tuple:
         text = widget.text
         font_size = widget.font_size
 
@@ -5469,29 +5482,9 @@ class LumaViewProApp(App):
             text_width, text_height = temp_label.texture_size
 
         return text_width, text_height
-        
-    def label_collision(self, widget, mouse_x, mouse_y):
-        true_widget_x = widget.to_window(*widget.pos)[0]
-        true_widget_y = widget.to_window(*widget.pos)[1]
 
-        text_width = widget.texture_size[0]
-        text_height = widget.texture_size[1]
 
-        # Setting text_x and text_y to represent the bottom left corner of the label text
-        text_y = true_widget_y + widget.padding[3] # Bottom padding
-        
-        if widget.halign == 'left':
-            text_x = true_widget_x + widget.padding[0]  # padding[0] is the left padding
-        elif widget.halign == 'center':
-            text_x = true_widget_x + (widget.width - text_width) / 2
-        elif widget.halign == 'right':
-            text_x = true_widget_x + widget.width - widget.padding[2] - text_width  # padding[2] is the right padding
-        else:
-            text_x = true_widget_x
-
-        return text_x <= mouse_x <= (text_x + text_width) and text_y <= mouse_y <= (text_y + text_height)
-
-    def show_tooltip(self, *args):
+    def show_tooltip(self, *args) -> None:
         global show_tooltips
 
         if show_tooltips:
@@ -5526,8 +5519,6 @@ class LumaViewProApp(App):
                     self.tt_widget.size = Window.size
 
                     if lower_half:
-                        # - self.tt_widget.texture_size[1]/2 - self.tt_widget.vert_padding/2 + 1
-                        #tt_widget_y = self.mouse_pos[1] - self.tt_widget.height + low_screen_vert_offset - self.tt_widget.texture_size[1]/2 + (Window.height / 2)
                         tt_widget_y = self.mouse_pos[1] - self.tt_widget.height + low_screen_vert_offset + (Window.height / 2)
                         tt_widget_rect_y = self.mouse_pos[1] + low_screen_vert_offset/2 + (self.tt_widget.vert_padding / 2) - self.tt_widget.texture_size[1]/2 - self.tt_widget.vert_padding/2 + 1
                     else:
@@ -5549,7 +5540,7 @@ class LumaViewProApp(App):
                     self.tt_widget.opacity = 1
                     self.tt_shown = True
 
-    def hide_tooltip(self, *args):
+    def hide_tooltip(self, *args) -> None:
         self.widget_being_described = None
         if self.tt_shown:
             self.tt_widget.opacity = 0
@@ -5563,7 +5554,7 @@ class Tooltip(Label):
         self.vert_padding = 4       #4
 
         self.opacity = 0
-        self.font_size = '12sp'
+        self.font_size = '16sp'
         self.color = [0, 0, 0, 1]  # Black text
         self.bind(size=self._update_rect, pos=self._update_rect)
         with self.canvas.before:
