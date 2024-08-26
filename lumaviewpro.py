@@ -5186,7 +5186,6 @@ def load_mode():
 
         ENGINEERING_MODE = False
              
-
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
 # -------------------------------------------------------------------------
@@ -5277,7 +5276,9 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
+
         # Creates and manages Tooltips
+        self.hidden = True
         self.tooltip_attr_widgets = self.find_widgets_with_tooltips(lumaview)
         self.widget_to_accordion_dict = self.create_widget_to_parent_dict(self.tooltip_attr_widgets)
         self.tt_widget = Tooltip()
@@ -5307,12 +5308,12 @@ class LumaViewProApp(App):
     # Returns a list of widgets with tooltip_text attribute
     def find_widgets_with_tooltips(self, widget):
         widgets = []
+        
         children = widget.children
-        if len(children) == 0:
-            if hasattr(widget, 'tooltip_text'):
-                if widget.tooltip_text != "":
-                    widgets.append(widget)
-                    return widgets
+        if hasattr(widget, 'tooltip_text'):
+            if widget.tooltip_text != "":
+                widgets.append(widget)
+                return widgets
         for child in children:
             widgets += self.find_widgets_with_tooltips(child)
         return widgets
@@ -5333,124 +5334,226 @@ class LumaViewProApp(App):
             dict[widget] = self.find_accordion_parents(widget)
         return dict
     
+
     # Called every time mouse is moved
     # Used to check if tooltip should be shown
     def mouse_moved(self, *args):
-
         delay_until_tooltip = 0.5   # In Seconds
 
         mouse_pos = args[1]
         self.mouse_pos = mouse_pos
         on_widget = False
 
+        if show_tooltips:
+            self.hidden = False
+            if self.widget_being_described is not None:
+                    if not self.tt_collision(self.widget_being_described, mouse_pos[0], mouse_pos[1]):
+                        self.hide_tooltip()
+                    if self.tt_clock_event is not None:
+                        Clock.unschedule(self.tt_clock_event)
+                        self.tt_clock_event = None
 
-        if self.widget_being_described is not None:
-                if not self.widget_being_described.collide_point(*self.mouse_pos):
-                    self.hide_tooltip()
+            for widget in self.tooltip_attr_widgets:
+
+                if widget.pos[0] > -100 and widget.pos[0] < Window.width and widget.pos[1] > 0 and widget.pos[1] < Window.height:
+                    
+                    collision = self.tt_collision(widget, mouse_pos[0], mouse_pos[1])
+
+                    if collision:
+                        accordion_parent = self.widget_to_accordion_dict[widget]
+                        self.widget_being_described = widget
+                        
+
+                        # If widget is not in an Accordion, it is always visible, so show tooltip
+                        if accordion_parent is None:
+                            on_widget = True
+                            if not self.tt_shown:
+                                self.tt_widget.text = widget.tooltip_text
+                                self.tt_clock_event = Clock.schedule_once(self.show_tooltip, delay_until_tooltip)
+                            break
+
+                        # If widget is in an Accordion that is NOT collapsed, it is visible, so show tooltip
+                        elif accordion_parent.collapse == False:
+                            on_widget = True
+                            if not self.tt_shown:
+                                self.tt_widget.text = widget.tooltip_text
+                                self.tt_clock_event = Clock.schedule_once(self.show_tooltip, delay_until_tooltip)
+                            break
+                    else:
+                        on_widget = False
+                else:
+                    on_widget = False
+                    
+            if not on_widget:
+                if self.tt_clock_event:
+                    Clock.unschedule(self.tt_clock_event)
+                    self.tt_clock_event = None
+                
+                self.hide_tooltip()
+        else:
+            if not self.hidden:
+                self.hide_tooltip()
                 if self.tt_clock_event is not None:
                     Clock.unschedule(self.tt_clock_event)
                     self.tt_clock_event = None
+                self.hidden = True
 
-        for widget in self.tooltip_attr_widgets:
-            if widget.pos[0] > -100 and widget.pos[0] < Window.width and widget.pos[1] > 0 and widget.pos[1] < Window.height:
-                if widget.collide_point(*mouse_pos):
-                    accordion_parent = self.widget_to_accordion_dict[widget]
-                    self.widget_being_described = widget
 
-                    # If widget is not in an Accordion, it is always visible, so show tooltip
-                    if accordion_parent is None:
-                        on_widget = True
-                        if not self.tt_shown:
-                            self.tt_widget.text = widget.tooltip_text
-                            self.tt_clock_event = Clock.schedule_once(self.show_tooltip, delay_until_tooltip)
-                        break
+    def tt_collision(self, widget, mouse_x: float, mouse_y: float): 
+        show_hitboxes = False
 
-                    # If widget is in an Accordion that is NOT collapsed, it is visible, so show tooltip
-                    elif accordion_parent.collapse == False:
-                        on_widget = True
-                        if not self.tt_shown:
-                            self.tt_widget.text = widget.tooltip_text
-                            self.tt_clock_event = Clock.schedule_once(self.show_tooltip, delay_until_tooltip)
-                        break
-                else:
-                    on_widget = False
+        true_widget_x = widget.to_window(*widget.pos)[0]
+        true_widget_y = widget.to_window(*widget.pos)[1]
+        
+        if type(widget) is not Label:
+            left = true_widget_x
+            right = true_widget_x + widget.width
+            bottom = true_widget_y
+            top = true_widget_y + widget.height
+
+            if show_hitboxes:
+                with widget.canvas.after:
+                    Color(1,0,0,1)
+                    Line(rectangle=(left, bottom, right-left, top-bottom))
+
+            return left <= mouse_x <= right and bottom <= mouse_y <= top
+        
+        else:
+            # Widget is a Label
+
+            text_width = widget.texture_size[0]
+            text_height = widget.texture_size[1]
+            total_width = widget.width
+            total_height = widget.height
+
+            if text_width == total_width and text_height == total_height:
+                text_width, text_height = self.calculate_label_text_size(widget)
+
+            # Setting text_x and text_y to represent the bottom left corner of the label text
+
+            if widget.halign == "left":
+                text_x = true_widget_x
+            elif widget.halign == "right":
+                text_x = true_widget_x + (total_width - text_width)
             else:
-                on_widget = False
-                
-        if not on_widget:
-            if self.tt_clock_event:
-                Clock.unschedule(self.tt_clock_event)
-                self.tt_clock_event = None
+                text_x = ((total_width - text_width) / 2) + true_widget_x
             
-            self.hide_tooltip()
+            if widget.valign == "top":
+                text_y = true_widget_y + (total_height - text_height)
+            else:
+                text_y = ((total_height - text_height) / 2) + true_widget_y
+            
+            if show_hitboxes:
+                with widget.canvas.after:  # Use canvas.after to draw on top of everything else
+                # Optional: Set a color for the hitbox
+                    Color(1, 0, 0, 1)  # Red color, fully opaque
 
+                    # Draw a rectangle around the widget's bounding box
+                    Line(rectangle=(text_x, text_y, text_width, text_height), width=1)
+
+            return text_x <= mouse_x <= (text_x + text_width) and text_y <= mouse_y <= (text_y + text_height)
+        
+    def calculate_label_text_size(self, widget):
+        text = widget.text
+        font_size = widget.font_size
+
+        temp_label = Label(text=text, font_size=font_size,)
+
+        temp_label.texture_update()
+
+        text_width, text_height = temp_label.texture_size
+
+        if text_width > widget.size[0]:
+            temp_label.text_size[0] = widget.size[0]
+            temp_label.texture_update()
+            text_width, text_height = temp_label.texture_size
+
+        return text_width, text_height
+        
+    def label_collision(self, widget, mouse_x, mouse_y):
+        true_widget_x = widget.to_window(*widget.pos)[0]
+        true_widget_y = widget.to_window(*widget.pos)[1]
+
+        text_width = widget.texture_size[0]
+        text_height = widget.texture_size[1]
+
+        # Setting text_x and text_y to represent the bottom left corner of the label text
+        text_y = true_widget_y + widget.padding[3] # Bottom padding
+        
+        if widget.halign == 'left':
+            text_x = true_widget_x + widget.padding[0]  # padding[0] is the left padding
+        elif widget.halign == 'center':
+            text_x = true_widget_x + (widget.width - text_width) / 2
+        elif widget.halign == 'right':
+            text_x = true_widget_x + widget.width - widget.padding[2] - text_width  # padding[2] is the right padding
+        else:
+            text_x = true_widget_x
+
+        return text_x <= mouse_x <= (text_x + text_width) and text_y <= mouse_y <= (text_y + text_height)
 
     def show_tooltip(self, *args):
         global show_tooltips
 
         if show_tooltips:
             if self.widget_being_described is not None:
-                if self.widget_being_described.collide_point(*self.mouse_pos):
-                    self.tt_widget._update_rect()
-                    # Default offsets
-                    vert_offset = 15
-                    horiz_offset = 15
+                self.tt_widget._update_rect()
+                # Default offsets
+                vert_offset = 15
+                horiz_offset = 15
 
-                    # If mouse is low on the screen
-                    low_screen_vert_offset = 7
+                # If mouse is low on the screen
+                low_screen_vert_offset = 7
 
-                    # If mouse is far right on the screen
-                    right_screen_horiz_offset = 7
+                # If mouse is far right on the screen
+                right_screen_horiz_offset = 7
 
-                    # If mouse is in lower quarter of screen, show tooltip above mouse instead of below
-                    if self.mouse_pos[1] < Window.height / 4:
-                        lower_half = True
+                # If mouse is in lower quarter of screen, show tooltip above mouse instead of below
+                if self.mouse_pos[1] < Window.height / 4:
+                    lower_half = True
+                else:
+                    lower_half = False
+
+                if self.mouse_pos[0] > Window.width - Window.width / 4:
+                    far_right = True
+                else:
+                    far_right = False
+
+                if not self.tt_shown:
+                    
+                    # Remove and add the widget to ensure it shows up at the front of the screen
+                    lumaview.remove_widget(self.tt_widget)
+                    lumaview.add_widget(self.tt_widget)
+                    self.tt_widget.size = Window.size
+
+                    if lower_half:
+                        # - self.tt_widget.texture_size[1]/2 - self.tt_widget.vert_padding/2 + 1
+                        #tt_widget_y = self.mouse_pos[1] - self.tt_widget.height + low_screen_vert_offset - self.tt_widget.texture_size[1]/2 + (Window.height / 2)
+                        tt_widget_y = self.mouse_pos[1] - self.tt_widget.height + low_screen_vert_offset + (Window.height / 2)
+                        tt_widget_rect_y = self.mouse_pos[1] + low_screen_vert_offset/2 + (self.tt_widget.vert_padding / 2) - self.tt_widget.texture_size[1]/2 - self.tt_widget.vert_padding/2 + 1
                     else:
-                        lower_half = False
+                        # Upper Half
+                        tt_widget_y = self.mouse_pos[1] - self.tt_widget.height - vert_offset + (Window.height / 2)
+                        tt_widget_rect_y = self.mouse_pos[1] - vert_offset/2 + (self.tt_widget.vert_padding / 2) - self.tt_widget.rect.size[1] - 2*self.tt_widget.vert_padding + self.tt_widget.texture_size[1]/2
 
-                    if self.mouse_pos[0] > Window.width - Window.width / 4:
-                        far_right = True
+                    if far_right:
+                        tt_widget_x = self.mouse_pos[0] - right_screen_horiz_offset - (Window.width / 2) - (self.tt_widget.texture_size[0]/2)
+                        tt_widget_rect_x = self.mouse_pos[0] - right_screen_horiz_offset - (self.tt_widget.horiz_padding / 2) - (self.tt_widget.texture_size[0])
                     else:
-                        far_right = False
+                        # Left Side
+                        tt_widget_x = self.mouse_pos[0] + horiz_offset - (Window.width / 2) + (self.tt_widget.texture_size[0]/2)
+                        tt_widget_rect_x = self.mouse_pos[0] + horiz_offset - (self.tt_widget.horiz_padding / 2)
 
-                    if not self.tt_shown:
-                        
-                        # Remove and add the widget to ensure it shows up at the front of the screen
-                        lumaview.remove_widget(self.tt_widget)
-                        lumaview.add_widget(self.tt_widget)
-                        self.tt_widget.size = Window.size
+                    self.tt_widget.pos = (tt_widget_x, tt_widget_y)
+                    self.tt_widget.rect.pos = (tt_widget_rect_x, tt_widget_rect_y)
 
-                        if lower_half:
-                            # - self.tt_widget.texture_size[1]/2 - self.tt_widget.vert_padding/2 + 1
-                            #tt_widget_y = self.mouse_pos[1] - self.tt_widget.height + low_screen_vert_offset - self.tt_widget.texture_size[1]/2 + (Window.height / 2)
-                            tt_widget_y = self.mouse_pos[1] - self.tt_widget.height + low_screen_vert_offset + (Window.height / 2)
-                            tt_widget_rect_y = self.mouse_pos[1] + low_screen_vert_offset/2 + (self.tt_widget.vert_padding / 2) - self.tt_widget.texture_size[1]/2 - self.tt_widget.vert_padding/2 + 1
-                        else:
-                            # Upper Half
-                            tt_widget_y = self.mouse_pos[1] - self.tt_widget.height - vert_offset + (Window.height / 2)
-                            tt_widget_rect_y = self.mouse_pos[1] - vert_offset/2 + (self.tt_widget.vert_padding / 2) - self.tt_widget.rect.size[1] - 2*self.tt_widget.vert_padding + self.tt_widget.texture_size[1]/2
-
-                        if far_right:
-                            tt_widget_x = self.mouse_pos[0] - right_screen_horiz_offset - (Window.width / 2) - (self.tt_widget.texture_size[0]/2)
-                            tt_widget_rect_x = self.mouse_pos[0] - right_screen_horiz_offset - (self.tt_widget.horiz_padding / 2) - (self.tt_widget.texture_size[0])
-                        else:
-                            # Left Side
-                            tt_widget_x = self.mouse_pos[0] + horiz_offset - (Window.width / 2) + (self.tt_widget.texture_size[0]/2)
-                            tt_widget_rect_x = self.mouse_pos[0] + horiz_offset - (self.tt_widget.horiz_padding / 2)
-
-                        self.tt_widget.pos = (tt_widget_x, tt_widget_y)
-                        self.tt_widget.rect.pos = (tt_widget_rect_x, tt_widget_rect_y)
-
-                        self.tt_widget.opacity = 1
-                        self.tt_shown = True
+                    self.tt_widget.opacity = 1
+                    self.tt_shown = True
 
     def hide_tooltip(self, *args):
-        global show_tooltips
-        if show_tooltips:
-            self.widget_being_described = None
-            if self.tt_shown:
-                self.tt_widget.opacity = 0
-                self.tt_shown = False
+        self.widget_being_described = None
+        if self.tt_shown:
+            self.tt_widget.opacity = 0
+            self.tt_shown = False
 
 class Tooltip(Label):
     def __init__(self, **kwargs):
