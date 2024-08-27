@@ -3716,8 +3716,9 @@ class ProtocolSettings(CompositeCapture):
         run_not_started_func = self._reset_run_scan_button
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
-        if sequenced_capture_executor.run_in_progress() and \
-            (run_trigger_source != trigger_source):
+        if (sequenced_capture_executor.run_in_progress() and (run_trigger_source != trigger_source)) \
+            or sequenced_capture_executor._autofocus_executor.in_progress():
+            
             run_not_started_func()
             logger.warning(f"Cannot start scan. Run already in progress from {run_trigger_source}")
             return
