@@ -1185,6 +1185,7 @@
 				CheckBox:
 					id: acquire_zstack_id
 					size_hint_x: None
+					tooltip_text: 'Use Z-stack settings under Objective Settings\nfor Protocol creation'
 					width: '30dp'
 					active: False
 					on_release: root.update_acquire_zstack()
@@ -1209,6 +1210,7 @@
 					size_hint_x: None
 					width: '30dp'
 					active: False
+					tooltip_text: 'Display yellow cross for each Step'
 					on_release: root.update_show_step_locations()
 
 				Label:
@@ -1392,6 +1394,7 @@
 
 		ToggleButton:
 			id: enable_timestamp_overlay_btn
+			tooltip_text: 'Add real time values to lower left corner of video'
 			size_hint: None, None
 			size: '45dp', '30dp'
 			padding: ['2dp', (self.height-self.line_height)/2]
@@ -1569,7 +1572,6 @@
 		AccordionItem:
 			id: cell_count_accordion_id
 			title: 'Object Analysis'
-			tooltip_text: 'Count and measure objects in images'
 			on_collapse: root.accordion_collapse()
 
 			BoxLayout:
@@ -1585,6 +1587,7 @@
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
+					tooltip_text: 'Count and measure objects in images'
 					on_release: root.open_cell_count()
 			
 				Widget:
@@ -1905,7 +1908,7 @@
         height: '30dp'
         Label:
             text: 'Sequenced Image Format'
-			tooltip_text: 'Choose between TIFF, OME-TIFF or\nImageJ Hyperstack\nfor Protocl image capture'
+			tooltip_text: 'Choose between TIFF, OME-TIFF or\nImageJ Hyperstack\nfor Protocol image capture'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
@@ -1927,6 +1930,7 @@
 		Label:
 			font_size: '12sp'
 			text: 'Enable Scale Bar'
+			tooltip_text: 'Show scale bar in lower right corner of image'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
@@ -1959,6 +1963,7 @@
 		ToggleButton:
 			id: separate_folder_per_channel_id
 			size_hint: None, None
+			tooltip_text: "Save each channels' images separately"
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
 			valign: 'middle'
@@ -1980,6 +1985,7 @@
 			text_size: self.size
 		ToggleButton:
 			id: enable_crosshairs_btn
+			tooltip_text: 'Display a bullseye pattern on live image, not saved images'
 			size_hint: None, None
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
@@ -1996,6 +2002,7 @@
 		Label:
 			font_size: '12sp'
 			text: 'Live Image Contrast Stretching'
+			tooltip_text: 'Expand pixel brightness histogram to full dynamic range,\ndoes not effect saved image'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
@@ -2047,6 +2054,7 @@
 		ToggleButton:
 			id: show_tooltips_btn
 			size_hint: None, None
+			tooltip_text: 'Display hint while hovering over controls'
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
 			valign: 'middle'
@@ -2143,6 +2151,7 @@
 				ToggleButton:
 					id: enable_led_btn
 					size_hint: None, None
+					tooltip_text: 'Turn on channel LED'
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
@@ -2160,6 +2169,7 @@
 				Label:
 					text: 'Illumination (mA)'
 					halign: 'left'
+					tooltip_text: 'Adjust LED brightness'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
@@ -2217,6 +2227,7 @@
 					id: auto_gain
 					size_hint_x: None
 					width: '25dp'
+					tooltip_text: 'Turn on autogain/exposure for this channel'
 					active: False
 					on_release: root.update_auto_gain()
 
@@ -2357,6 +2368,7 @@
 					height: '30dp'
 					font_size: '12sp'
 					text: 'Go to Focus'
+					tooltip_text: 'Go to saved focus'
 					on_release: root.goto_focus()
 			
 			# Protocol Settings
@@ -2385,10 +2397,11 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Enable image contrast-based autofocus in Protocol'
 					on_release: root.update_autofocus()
 				Label:
 					text: 'Auto Focus'
-					tooltip_text: 'Enable image contrast-based autofocus in Protocol '
+					tooltip_text: 'Enable image contrast-based autofocus in Protocol'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -2478,6 +2491,7 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Channel not used in Protocol'
 					on_release: root.update_acquire()
 					allow_no_selection: False
 				Label:
@@ -2494,6 +2508,7 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Acquire image in Protocol'
 					on_release: root.update_acquire()
 					allow_no_selection: False
 				Label:
@@ -2510,6 +2525,7 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Acquire video in Protocol'
 					on_release: root.update_acquire()
 					allow_no_selection: False
 				Label:
@@ -2587,6 +2603,7 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Apply false emission color to image'
 					on_release: root.false_color()
 				Label:		
 					id: false_color_label
@@ -2601,6 +2618,7 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Change x axis of histogram to log scale'
 					state: 'normal'
 				Label:
 					text: 'Log'

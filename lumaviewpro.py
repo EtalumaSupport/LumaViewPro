@@ -5554,7 +5554,7 @@ class Tooltip(Label):
         self.vert_padding = 4       #4
 
         self.opacity = 0
-        self.font_size = '16sp'
+        self.font_size = '15sp'
         self.color = [0, 0, 0, 1]  # Black text
         self.bind(size=self._update_rect, pos=self._update_rect)
         with self.canvas.before:
