@@ -1,0 +1,12 @@
+LumaViewPro Protocol
+Version	3
+Period	1.0
+Duration	0.05
+Labware	Center Plate
+
+Steps
+Name	X	Y	Z	Auto_Focus	Color	False_Color	Illumination	Gain	Auto_Gain	Exposure	Objective	Well	Tile	Z-Slice	Custom Step	Tile Group ID	Z-Stack Group ID	Acquire	Video Config
+	64.88	42.74	4700.0	False	BF	False	5.0	1.0	False	2.0	4x Oly	A1		0	False	-1	0	image	{'duration': 5}
+	64.88	42.74	4800.0	False	BF	False	5.0	1.0	False	2.0	4x Oly	A1		1	False	-1	0	image	{'duration': 5}
+	64.88	42.74	4900.0	False	BF	False	5.0	1.0	False	2.0	4x Oly	A1		2	False	-1	0	image	{'duration': 5}
+custom1	64.88	42.74	5199.99766	False	Red	True	225.0	41.6	False	13.34	4x Oly			-1	True	-1	-1	video	{'duration': 1}

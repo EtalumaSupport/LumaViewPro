@@ -18,10 +18,18 @@ class AutofocusExecutor:
     def __init__(
         self,
         scope: lumascope_api.Lumascope,
-        use_kivy_clock: bool = False,
+        scheduler_config: dict | None = None,
     ):
         self._scope = scope
-        self._use_kivy_clock = use_kivy_clock
+        
+        if scheduler_config is None:
+            self._use_kivy_clock = True
+        else:
+            self._use_kivy_clock = scheduler_config['use_kivy_clock']
+
+            if False == self._use_kivy_clock:
+                self._scheduler = scheduler_config['scheduler']
+
 
         if not self._scope.camera.active:
             return
@@ -37,25 +45,6 @@ class AutofocusExecutor:
         self._reset_state()
 
 
-    def _schedule_interval_func(
-        self,
-        func: typing.Callable,
-        interval_sec: float
-    ):
-        if self._use_kivy_clock:
-            self._kivy_clock_module.Clock.schedule_interval(func, interval_sec)
-        else:
-            raise NotImplementedError(f"Not implemented for support outside Kivy")
-        
-    
-    def _unschedule_func(
-        self,
-        func: typing.Callable,
-    ):
-        if self._use_kivy_clock:
-            self._kivy_clock_module.Clock.unschedule(func)
-        else:
-            raise NotImplementedError(f"Not implemented for support outside Kivy")
 
     
     def _calculate_params(self):
@@ -102,10 +91,21 @@ class AutofocusExecutor:
         self._calculate_params()
         self._move_absolute_position(pos=self._params['z_min'])
 
-        self._schedule_interval_func(
-            func=self._iterate,
-            interval_sec=0.01,
-        )
+        self._schedule_iterate(interval_sec=0.01)
+
+    
+    def _schedule_iterate(self, interval_sec: float):
+        if self._use_kivy_clock:
+            self._kivy_clock_module.Clock.schedule_interval(self._iterate, interval_sec)
+        else:
+            self._scheduler.schedule_interval(self._iterate, interval_sec)
+
+
+    def _unschedule_iterate(self):
+        if self._use_kivy_clock:
+            self._kivy_clock_module.Clock.unschedule(self._iterate)
+        else:
+            self._scheduler.unschedule(self._iterate)
 
 
     def _iterate(self, dt):
@@ -170,7 +170,7 @@ class AutofocusExecutor:
         best_focus_position = self._find_best(df=df)
 
         if self._last_pass == True:
-            self._unschedule_func(func=self._iterate)
+            self._unschedule_iterate()
             self._move_absolute_position(pos=best_focus_position)
 
             if self._save_results_to_file:

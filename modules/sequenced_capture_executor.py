@@ -1,5 +1,6 @@
 
 import datetime
+import importlib
 import pathlib
 import time
 import typing
@@ -34,15 +35,28 @@ class SequencedCaptureExecutor:
         scope: Lumascope,
         stage_offset: dict,
         autofocus_executor: AutofocusExecutor | None = None,
+        scheduler_config: dict | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
         self._stage_offset = stage_offset
 
+        if scheduler_config is None:
+            self._use_kivy_clock = True
+        else:
+            self._use_kivy_clock = scheduler_config['use_kivy_clock']
+
+            if False == self._use_kivy_clock:
+                self._scheduler = scheduler_config['scheduler']
+
+        if self._use_kivy_clock:
+            self._kivy_clock_module = importlib.import_module('kivy.clock')
+
+
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
                 scope=scope,
-                use_kivy_clock=True,
+                scheduler_config=scheduler_config,
             )
         else:
             self._autofocus_executor = autofocus_executor
@@ -271,9 +285,17 @@ class SequencedCaptureExecutor:
         self._scope.camera.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
         self._run_scan()
-        Clock.schedule_interval(self._protocol_iterate, 1)
 
-    
+        self._schedule_protocol_iterate(interval_sec=1)
+
+
+    def _schedule_protocol_iterate(self, interval_sec: float):
+        if self._use_kivy_clock:
+            self._kivy_clock_module.Clock.schedule_interval(self._protocol_iterate, interval_sec)
+        else:
+            self._scheduler.schedule_interval(self._protocol_iterate, interval_sec)
+
+
     def _protocol_iterate(self, dt):
         if self._scan_in_progress:
             return
@@ -316,8 +338,15 @@ class SequencedCaptureExecutor:
 
         self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
 
-        Clock.schedule_interval(self._scan_iterate, 0.1)
-    
+        self._schedule_scan_iterate(interval_sec=0.1)
+
+
+    def _schedule_scan_iterate(self, interval_sec: float):
+        if self._use_kivy_clock:
+            self._kivy_clock_module.Clock.schedule_interval(self._scan_iterate, interval_sec)
+        else:
+            self._scheduler.schedule_interval(self._scan_iterate, interval_sec)
+
 
     def _scan_iterate(self, dt):
         if self._autofocus_executor.in_progress():
@@ -466,8 +495,22 @@ class SequencedCaptureExecutor:
         if 'scan_iterate_post' in self._callbacks is not None:
             self._callbacks['scan_iterate_post']()
 
-        Clock.unschedule(self._scan_iterate)
+        self._unschedule_scan_iterate()
         self._scan_in_progress = False
+
+
+    def _unschedule_scan_iterate(self):
+        if self._use_kivy_clock:
+            self._kivy_clock_module.Clock.unschedule(self._scan_iterate)
+        else:
+            self._scheduler.unschedule(self._scan_iterate)
+
+    
+    def _unschedule_protocol_iterate(self):
+        if self._use_kivy_clock:
+            self._kivy_clock_module.Clock.unschedule(self._protocol_iterate)
+        else:
+            self._scheduler.unschedule(self._protocol_iterate)
 
 
     def run_in_progress(self) -> bool:
@@ -496,12 +539,16 @@ class SequencedCaptureExecutor:
 
             self._scope.move_absolute_position('X', sx)
             self._scope.move_absolute_position('Y', sy)
-            self._callbacks['move_position']('X')
-            self._callbacks['move_position']('Y')
+
+            if 'move_position' in self._callbacks:
+                self._callbacks['move_position']('X')
+                self._callbacks['move_position']('Y')
 
         if z is not None:
             self._scope.move_absolute_position('Z', z)
-            self._callbacks['move_position']('Z')
+
+            if 'move_position' in self._callbacks:
+                self._callbacks['move_position']('Z')
 
 
     def _go_to_step(
@@ -551,8 +598,8 @@ class SequencedCaptureExecutor:
 
 
     def _cancel_all_scheduled_events(self):
-        Clock.unschedule(self._protocol_iterate)
-        Clock.unschedule(self._scan_iterate)
+        self._unschedule_protocol_iterate()
+        self._unschedule_scan_iterate()
 
 
     def _leds_off(self):
