@@ -1511,6 +1511,13 @@
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.open_cell_count()
+
+				Button:
+					text: 'Graph Generation'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.open_graphing()
 			
 				Widget:
 
@@ -2510,6 +2517,175 @@
 		Line:
 			width: 1
 			rectangle: (self.x, self.y, self.width, self.height)
+
+<GraphingControls>:
+	orientation: 'horizontal'
+
+	# Controls
+	BoxLayout:
+		orientation: 'vertical'
+		size_hint_x: 0.35
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '30dp'
+		
+		# Select TSV to graph
+		FileChooseBTN:
+			text: 'Load Object-Analysis Data'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('load_graphing_data')
+		
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '30dp'
+
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 1
+
+			Label:
+				text: 'X-Axis Data'
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			Spinner:
+				id: graphing_x_axis_spinner
+				text_autoupdate: True
+				sync_height: True
+				size_hint_y: None
+				height: '30dp'
+				text: 'X-Axis'
+				on_text: root.set_x_axis()
+				values: root.available_axes
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '15dp'
+
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 1
+
+			Label:
+				text: 'Y-Axis Data'
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			Spinner:
+				id: graphing_y_axis_spinner
+				text_autoupdate: True
+				sync_height: True
+				size_hint_y: None
+				height: '30dp'
+				text: 'Y-Axis'
+				on_text: root.set_y_axis()
+				values: root.available_axes
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '30dp'
+
+		# X-Axis Labeling
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 1
+
+			Label:
+				text: 'X-Axis Label'
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: x_axis_label_input
+				valign: 'center'
+				text: root.x_axis_label
+				height: '20dp'
+				width: '80dp'
+				multiline: False
+				on_text: root.update_x_axis_label()
+
+		# Y-Axis Labeling
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 1
+
+			Label:
+				text: 'Y-Axis Label'
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: y_axis_label_input
+				valign: 'center'
+				text: root.y_axis_label
+				height: '20dp'
+				width: '80dp'
+				multiline: False
+				on_text: root.update_y_axis_label()
+
+		# Trendline
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 1
+
+			Label:
+				text: 'Trendline'
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+			
+			Spinner:
+				id: trendline_spinner
+				text_autoupdate: True
+				sync_height: True
+				size_hint_y: None
+				height: '30dp'
+				text: ''
+				on_text: root.update_trendline()
+				values: ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
+
+
+
+		# Empty Widget to consume space at bottom of controls panel
+		Widget:
+
+	# Graphing Area
+	BoxLayout:
+		id: graphing_area
+		orientation: 'vertical'
+		size_hint_x: 0.65
+		size_hint_y: 1
+		canvas:
+			Color:
+				rgba: 0,0,0,0
+
+		
 
 <CellCountControls>:
 	orientation: 'horizontal'

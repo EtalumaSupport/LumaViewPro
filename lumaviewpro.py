@@ -41,10 +41,12 @@ June 24, 2023
 import copy
 import logging
 import datetime
+from datetime import datetime as date_time
 import math
 import os
 import pathlib
 import matplotlib.pyplot as plt
+from matplotlib.dates import ConciseDateFormatter
 import numpy as np
 import pandas as pd
 import time
@@ -137,7 +139,7 @@ profiling_helper = None
 
 
 if getattr(sys, 'frozen', False):
-    import pyi_splash
+    import pyi_splash # type: ignore
     pyi_splash.update_text("")
 
 # Deactivate kivy logging
@@ -170,6 +172,7 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 #from kivy.animation import Animation
 from kivy.graphics import Line, Color, Rectangle, Ellipse
+from kivy_garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
 
 # User Interface
 from kivy.uix.accordion import AccordionItem
@@ -229,6 +232,7 @@ import image_utils_kivy
 global lumaview
 global settings
 global cell_count_content
+global graphing_controls
 
 global wellplate_loader
 wellplate_loader = None
@@ -1855,6 +1859,197 @@ class VideoCreationControls(BoxLayout):
     #     except Exception as e:
     #         logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
 
+class GraphingControls(BoxLayout):
+    x_axis_label = "X-Axis"
+    y_axis_label = "Y-Axis"
+    available_axes = ['No Data Loaded']
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        logger.info('LVP Main: GraphingControls.__init__()')
+        self._source_csv = None
+        self.fig = None
+        self._post = post_processing.PostProcessing()
+        self.graphing_area = self.ids.graphing_area
+        self.graph_widget = None
+        self.x_axis_data = []
+        self.y_axis_data = []
+        self.selected_x_axis = None
+        self.selected_y_axis = None
+        self.trendline_enabled = False
+        self.graph_df = None
+        self.initialize_graph()
+
+    def set_x_axis(self):
+        if self._source_csv:
+            self.selected_x_axis = self.ids['graphing_x_axis_spinner'].text
+            self.ids.x_axis_label_input.text = self.selected_x_axis
+            self.x_axis_data = self.graph_df[self.selected_x_axis]
+            self.update_x_axis_label()
+            if self.selected_y_axis is None:
+                return
+            
+            self.initialize_graph()
+            self.update_x_axis_label()
+            if "TIME" in self.selected_x_axis.upper():
+                self.ax.xaxis.set_major_formatter(ConciseDateFormatter(self.ax.xaxis.get_major_locator()))
+            self.ax.scatter(self.x_axis_data, self.y_axis_data)
+            self.update_graph()
+
+    def set_y_axis(self):
+        if self._source_csv:
+            self.selected_y_axis = self.ids['graphing_y_axis_spinner'].text
+            self.ids.y_axis_label_input.text = self.selected_y_axis
+            self.y_axis_data = self.graph_df[self.selected_y_axis]
+            self.update_y_axis_label()
+            if self.selected_x_axis is None:
+                return
+            
+            self.initialize_graph()
+            self.update_y_axis_label()
+            if "TIME" in self.selected_y_axis.upper():
+                self.ax.yaxis.set_major_formatter(ConciseDateFormatter(self.ax.yaxis.get_major_locator()))
+            self.ax.scatter(self.x_axis_data, self.y_axis_data)
+            self.update_graph()
+
+    def update_x_axis_label(self):
+        self.ax.set_xlabel(self.ids.x_axis_label_input.text)
+        self.x_axis_label = self.ids.x_axis_label_input.text
+        self.update_graph()
+
+    def update_y_axis_label(self):
+        self.ax.set_ylabel(self.ids.y_axis_label_input.text)
+        self.y_axis_label = self.ids.y_axis_label_input.text
+        self.update_graph()
+
+    def update_available_axes(self):
+        self.ids.graphing_x_axis_spinner.values = self.available_axes
+        self.ids.graphing_y_axis_spinner.values = self.available_axes
+
+    def update_trendline(self):
+        trendline_type = self.ids.trendline_spinner.text
+        if trendline_type == "None":
+            self.trendline_enabled = False
+
+        self.regenerate_graph()
+
+        self.trendline_enabled = True
+
+        x_data = self.x_axis_data.to_numpy()
+        y_data = self.y_axis_data.to_numpy()
+
+        # If we are dealing with time, convert to an ordinal fomat for trendline creation
+        if 'time' in self.selected_x_axis:
+            x_data = self.x_axis_data.map(date_time.toordinal).to_numpy()
+        if 'time' in self.selected_y_axis:
+            y_data = self.y_axis_data.map(date_time.toordinal).to_numpy()
+
+        if len(x_data) > 1 and len(y_data) > 1:
+            print(x_data)
+            print(y_data)
+
+            if trendline_type == "Linear":
+                z = np.polyfit(x_data, y_data, 1)  # 1st degree polynomial (linear fit)
+                p = np.poly1d(z)
+
+                self.ax.plot(x_data, p(x_data), "r--")
+
+            elif trendline_type == "Quadratic":
+                z = np.polyfit(x_data, y_data, 2)
+                p = np.poly1d(z)
+
+                self.ax.plot(x_data, p(x_data), "r--")
+
+            elif trendline_type == "Exponential":
+                log_y_data = np.log(y_data)
+
+                # Calculate the exponential trendline
+                z = np.polyfit(x_data, log_y_data, 1)
+                p = np.poly1d(z)
+
+                # Convert back to original scale
+                exp_y_data = np.exp(p(x_data))
+
+                self.ax.plot(x_data, exp_y_data, "r--")
+
+            elif trendline_type == "Power":
+                # Transform data for power fit
+                log_x_data = np.log(x_data)
+                log_y_data = np.log(y_data)
+
+                # Calculate the power trendline
+                z = np.polyfit(log_x_data, log_y_data, 1)
+                p = np.poly1d(z)
+
+                # Convert back to original scale
+                power_y_data = np.exp(p(np.log(x_data)))
+
+                plt.plot(x_data, power_y_data, "r--")
+
+            elif trendline_type == "Logarithmic":
+                # Transform x_data for logarithmic fit
+                log_x_data = np.log(x_data)
+
+                # Calculate the logarithmic trendline
+                z = np.polyfit(log_x_data, y_data, 1)
+                p = np.poly1d(z)
+
+                self.ax.plot(x_data, p(np.log(x_data)), "r--")
+                
+            self.update_graph()
+
+
+    def regenerate_graph(self):
+        self.initialize_graph()
+        self.set_x_axis()
+        self.set_y_axis()
+        if self.trendline_enabled:
+            self.update_trendline()
+
+    def initialize_graph(self):
+        if plt:
+            plt.clf()
+        graphing_area = self.graphing_area
+        self.fig, self.ax = plt.subplots()
+        self.ax.scatter([], [])
+        self.ax.set_xlabel(self.x_axis_label)
+        self.ax.set_ylabel(self.y_axis_label)
+
+        if self.graph_widget:
+            graphing_area.remove_widget(self.graph_widget)
+
+        self.graph_widget = FigureCanvasKivyAgg(plt.gcf())
+        
+        graphing_area.add_widget(self.graph_widget)
+
+
+    def update_graph(self):
+        self.graph_widget.draw()
+
+    def set_graphing_source(self, file):
+        self._source_csv = file
+        self.initialize_graph()
+        try:
+            self.graph_df = pd.read_csv(file)
+            print("Created DF")
+            self.available_axes = list(self.graph_df.keys())
+            if self.available_axes[0] == "file":
+                self.available_axes = self.available_axes[1:]
+            if "time" in self.available_axes:
+                self.graph_df['time'] = [date_time.strptime(datetime_obj, '%c') for datetime_obj in self.graph_df['time']]
+                    
+            self.update_available_axes()
+            self.set_x_axis()
+            self.set_y_axis()
+
+        except Exception as e:
+            logger.error(f"Graph Generation | Set graphing source | {e}")
+
+
+
+    def set_post_processing_module(self, postprocessingmodule):
+        self._post = postprocessingmodule
+
 
 class CellCountControls(BoxLayout):
 
@@ -2264,6 +2459,7 @@ class PostProcessingAccordion(BoxLayout):
         }
 
         self.init_cell_count()
+        self._graphing_popup = None
 
 
     @staticmethod
@@ -2343,6 +2539,19 @@ class PostProcessingAccordion(BoxLayout):
             )
 
         self._cell_count_popup.open()
+
+    def open_graphing(self):
+        global graphing_controls
+        if self._graphing_popup is None:
+            graphing_controls.set_post_processing_module(self.post)
+            self._graphing_popup = Popup(
+                title="Post Processing - Graph Generation",
+                content=graphing_controls,
+                size_hint=(0.85,0.85),
+                auto_dismiss=True
+            )
+        
+        self._graphing_popup.open()
 
 
 class CellCountDisplay(FloatLayout):
@@ -5084,6 +5293,9 @@ class FileChooseBTN(Button):
         elif self.context == "load_cell_count_method":
             filetypes_tk = [('JSON', '.json')]
             filetypes=["*.json"]
+        elif self.context == "load_graphing_data":
+            filetypes_tk = [('CSV', '.csv')]
+            filetypes=["*.csv"]
         else:
             logger.exception(f"Unsupported handling for {self.context}")
             return
@@ -5128,7 +5340,10 @@ class FileChooseBTN(Button):
         logger.info('[LVP Main  ] FileChooseBTN.on_selection_function()')
         global lumaview
         
+        
         if self.selection:
+            print("Selection")
+            print(f"Self.context: {self.context}")
             if self.context == 'load_settings':
                 lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
 
@@ -5137,6 +5352,10 @@ class FileChooseBTN(Button):
             
             elif self.context == 'load_cell_count_input_image':
                 cell_count_content.set_preview_source_file(file=self.selection[0])
+
+            elif self.context == 'load_graphing_data':
+                print("Set Graphing source")
+                graphing_controls.set_graphing_source(file=self.selection[0])
 
             elif self.context == 'load_cell_count_method':
                 cell_count_content.load_method_from_file(file=self.selection[0])
@@ -5380,6 +5599,7 @@ class LumaViewProApp(App):
         global Window
         global lumaview
         global cell_count_content
+        global graphing_controls
         global video_creation_controls
         global stitch_controls
         global zprojection_controls
@@ -5402,6 +5622,7 @@ class LumaViewProApp(App):
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
             cell_count_content = CellCountControls()
+            graphing_controls = GraphingControls()
             #Window.maximize()
         except:
             logger.exception('[LVP Main  ] Cannot open main display.')

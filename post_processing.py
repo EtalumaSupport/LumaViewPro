@@ -142,10 +142,9 @@ class PostProcessing:
             for record in results:
                 writer.writerow(record.values())
 
-        df = pandas.read_csv(results_file_path)
-        print(df)
+        """df = pandas.read_csv(results_file_path)
         fig, ax = plt.subplots()
         ax.plot([datetime.strptime(datetime_obj, '%c') for datetime_obj in df['time']], df['num_cells'])
         ax.xaxis.set_major_formatter(ConciseDateFormatter(ax.xaxis.get_major_locator()))
-        plt.show()
+        plt.show()"""
         
