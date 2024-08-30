@@ -1862,6 +1862,7 @@ class VideoCreationControls(BoxLayout):
 class GraphingControls(BoxLayout):
     x_axis_label = "X-Axis"
     y_axis_label = "Y-Axis"
+    graph_title = ""
     available_axes = ['No Data Loaded']
     
     def __init__(self, **kwargs):
@@ -1884,7 +1885,9 @@ class GraphingControls(BoxLayout):
         if self._source_csv:
             self.selected_x_axis = self.ids['graphing_x_axis_spinner'].text
             self.ids.x_axis_label_input.text = self.selected_x_axis
-            self.x_axis_data = self.graph_df[self.selected_x_axis]
+
+            sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
+            self.x_axis_data = sorted_graph_df[self.selected_x_axis]
             self.update_x_axis_label()
             if self.selected_y_axis is None:
                 return
@@ -1894,22 +1897,31 @@ class GraphingControls(BoxLayout):
             if "TIME" in self.selected_x_axis.upper():
                 self.ax.xaxis.set_major_formatter(ConciseDateFormatter(self.ax.xaxis.get_major_locator()))
             self.ax.scatter(self.x_axis_data, self.y_axis_data)
+            if self.trendline_enabled:
+                self.update_trendline(axis=True)
             self.update_graph()
 
     def set_y_axis(self):
         if self._source_csv:
             self.selected_y_axis = self.ids['graphing_y_axis_spinner'].text
             self.ids.y_axis_label_input.text = self.selected_y_axis
-            self.y_axis_data = self.graph_df[self.selected_y_axis]
-            self.update_y_axis_label()
+            
             if self.selected_x_axis is None:
+                self.y_axis_data = self.graph_df[self.selected_y_axis]
+                self.update_y_axis_label()
                 return
+            
+            sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
+            self.y_axis_data = sorted_graph_df[self.selected_y_axis]
+            self.update_y_axis_label()
             
             self.initialize_graph()
             self.update_y_axis_label()
             if "TIME" in self.selected_y_axis.upper():
                 self.ax.yaxis.set_major_formatter(ConciseDateFormatter(self.ax.yaxis.get_major_locator()))
             self.ax.scatter(self.x_axis_data, self.y_axis_data)
+            if self.trendline_enabled:
+                self.update_trendline(axis=True)
             self.update_graph()
 
     def update_x_axis_label(self):
@@ -1926,14 +1938,25 @@ class GraphingControls(BoxLayout):
         self.ids.graphing_x_axis_spinner.values = self.available_axes
         self.ids.graphing_y_axis_spinner.values = self.available_axes
 
-    def update_trendline(self):
+    def update_graph_title(self):
+        self.ax.set_title(self.ids.graph_title_input.text)
+        self.graph_title = self.ids.graph_title_input.text
+        self.update_graph()
+
+    def update_trendline(self, axis: bool=False):
         trendline_type = self.ids.trendline_spinner.text
         if trendline_type == "None":
             self.trendline_enabled = False
 
-        self.regenerate_graph()
+        
+        if not axis:
+            self.initialize_graph()
+            self.set_x_axis()
+            self.set_y_axis()
 
         self.trendline_enabled = True
+
+        #self.y_axis_data = self.graph_df[self.selected_y_axis]
 
         x_data = self.x_axis_data.to_numpy()
         y_data = self.y_axis_data.to_numpy()
@@ -1943,6 +1966,8 @@ class GraphingControls(BoxLayout):
             x_data = self.x_axis_data.map(date_time.toordinal).to_numpy()
         if 'time' in self.selected_y_axis:
             y_data = self.y_axis_data.map(date_time.toordinal).to_numpy()
+
+        print("Data should be ordinal")
 
         if len(x_data) > 1 and len(y_data) > 1:
             print(x_data)
@@ -1968,7 +1993,7 @@ class GraphingControls(BoxLayout):
                 p = np.poly1d(z)
 
                 # Convert back to original scale
-                exp_y_data = np.exp(p(x_data))
+                exp_y_data = np.exp(p(self.x_axis_data))
 
                 self.ax.plot(x_data, exp_y_data, "r--")
 
@@ -2014,6 +2039,7 @@ class GraphingControls(BoxLayout):
         self.ax.scatter([], [])
         self.ax.set_xlabel(self.x_axis_label)
         self.ax.set_ylabel(self.y_axis_label)
+        self.ax.set_title(self.graph_title)
 
         if self.graph_widget:
             graphing_area.remove_widget(self.graph_widget)
@@ -2025,6 +2051,9 @@ class GraphingControls(BoxLayout):
 
     def update_graph(self):
         self.graph_widget.draw()
+
+    def save_graph(self, filepath):
+        plt.savefig(filepath)
 
     def set_graphing_source(self, file):
         self._source_csv = file
@@ -5478,6 +5507,8 @@ class FileSaveBTN(Button):
             filetypes = [('TSV', '.tsv')]
         elif self.context == 'saveas_cell_count_method':
             filetypes = [('JSON', '.json')]
+        elif self.context == 'save_graph':
+            filetypes = [('PNG', '.png')]
         else:
             logger.exception(f"Unsupported handling for {self.context}")
             return
@@ -5522,6 +5553,11 @@ class FileSaveBTN(Button):
             if self.selection:
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
                 logger.info('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
+
+        elif self.context == 'save_graph':
+            if self.selection:
+                graphing_controls.save_graph(filepath=self.selection[0])
+                logger.info('[LVP Main  ] Saving Graph PNG to File:' + self.selection[0])
         
         elif self.context == 'saveas_cell_count_method':
             if self.selection:

@@ -2600,6 +2600,29 @@
 			size_hint_y: None
 			height: '30dp'
 
+		# Graph Title
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 1
+
+			Label:
+				text: 'Graph Title'
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: graph_title_input
+				valign: 'center'
+				text: root.graph_title
+				height: '20dp'
+				width: '80dp'
+				multiline: False
+				on_text: root.update_graph_title()
+
 		# X-Axis Labeling
 		BoxLayout:
 			orientation: 'horizontal'
@@ -2670,6 +2693,13 @@
 				on_text: root.update_trendline()
 				values: ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
 
+		# Save graph as png
+		FileSaveBTN:
+			text: 'Save Graph as PNG'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			on_release: self.choose('save_graph')
 
 
 		# Empty Widget to consume space at bottom of controls panel
