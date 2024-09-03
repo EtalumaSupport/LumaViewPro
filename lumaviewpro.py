@@ -3644,6 +3644,10 @@ class ProtocolSettings(CompositeCapture):
 
         live_histo_off()
 
+        if self.ids['run_autofocus_btn'].state == 'normal' or (sequenced_capture_executor.run_in_progress() and run_trigger_source == trigger_source):
+            self._cleanup_at_end_of_protocol(autofocus_scan=True)
+            return
+        
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
             run_not_started_func()
@@ -3656,9 +3660,7 @@ class ProtocolSettings(CompositeCapture):
             live_histo_reverse()
             return
         
-        if self.ids['run_autofocus_btn'].state == 'normal':
-            self._cleanup_at_end_of_protocol(autofocus_scan=True)
-            return
+        
         
         self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
 
@@ -3715,10 +3717,14 @@ class ProtocolSettings(CompositeCapture):
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
 
+        # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
+        if self.ids['run_scan_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
+            run_not_started_func()
+            logger.warning(f"Cannot start scan. Autofocus still in progress.")
+            return
+
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
-        if (sequenced_capture_executor.run_in_progress() and (run_trigger_source != trigger_source)) \
-            or sequenced_capture_executor._autofocus_executor.in_progress():
-            
+        if (sequenced_capture_executor.run_in_progress() and (run_trigger_source != trigger_source)):
             run_not_started_func()
             logger.warning(f"Cannot start scan. Run already in progress from {run_trigger_source}")
             return
@@ -3765,8 +3771,14 @@ class ProtocolSettings(CompositeCapture):
         run_not_started_func = self._reset_run_protocol_button
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
-        if sequenced_capture_executor.run_in_progress() and \
-            (run_trigger_source != trigger_source):
+
+        # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
+        if self.ids['run_protocol_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
+            run_not_started_func()
+            logger.warning(f"Cannot start protocol run. Autofocus still in progress.")
+            return
+
+        if (sequenced_capture_executor.run_in_progress() and (run_trigger_source != trigger_source)):
             run_not_started_func()
             logger.warning(f"Cannot start protocol run. Run already in progress from {run_trigger_source}")
             return
