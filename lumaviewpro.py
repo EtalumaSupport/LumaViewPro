@@ -1896,6 +1896,9 @@ class GraphingControls(BoxLayout):
             self.update_x_axis_label()
             if "TIME" in self.selected_x_axis.upper():
                 self.ax.xaxis.set_major_formatter(ConciseDateFormatter(self.ax.xaxis.get_major_locator()))
+                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
+            elif "TIME" not in self.selected_y_axis.upper():
+                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
             self.ax.scatter(self.x_axis_data, self.y_axis_data)
             if self.trendline_enabled:
                 self.update_trendline(axis=True)
@@ -1919,6 +1922,9 @@ class GraphingControls(BoxLayout):
             self.update_y_axis_label()
             if "TIME" in self.selected_y_axis.upper():
                 self.ax.yaxis.set_major_formatter(ConciseDateFormatter(self.ax.yaxis.get_major_locator()))
+                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
+            elif "TIME" not in self.selected_x_axis.upper():
+                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
             self.ax.scatter(self.x_axis_data, self.y_axis_data)
             if self.trendline_enabled:
                 self.update_trendline(axis=True)
@@ -1971,7 +1977,6 @@ class GraphingControls(BoxLayout):
 
             # Normalize x-data for scaling purposes
             x_data = (x_data - x_ref_time).dt.total_seconds()
-            print(f"NORMALIZED TIME DATA: {x_data}")
             x_data = x_data.to_numpy()
             time_x = True
         else:
@@ -1989,11 +1994,7 @@ class GraphingControls(BoxLayout):
             y_data = y_data.to_numpy()
 
 
-        print("Data should be ordinal")
-
         if len(x_data) > 1 and len(y_data) > 1:
-            print(x_data)
-            print(y_data)
 
             if trendline_type == "Linear":
                 z = np.polyfit(x_data, y_data, 1)  # 1st degree polynomial (linear fit)
@@ -2040,10 +2041,10 @@ class GraphingControls(BoxLayout):
                 # Convert back to original scale
                 power_y_data = np.exp(p(np.log(x_data)))
 
-                if time_x:
-                    self.ax.plot(x_time_data_original, power_y_data, "r--")
-                else:
+                try:
                     self.ax.plot(x_data, power_y_data, "r--")
+                except Exception as e:
+                    logger.error(f"Graphing ] Power trendline error: {e}")
 
             elif trendline_type == "Logarithmic":
                 # Transform x_data for logarithmic fit
@@ -2053,10 +2054,10 @@ class GraphingControls(BoxLayout):
                 z = np.polyfit(log_x_data, y_data, 1)
                 p = np.poly1d(z)
 
-                if time_x:
-                    self.ax.plot(x_time_data_original, p(np.log(x_data)), "r--")
-                else:
+                try:
                     self.ax.plot(x_data, p(np.log(x_data)), "r--")
+                except Exception as e:
+                    logger.error(f"Graphing ] Logarithmic trendline error: {e}")
                 
             self.update_graph()
 

@@ -2558,7 +2558,7 @@
 		# Pad
 		Widget:
 			size_hint_y: None
-			height: '30dp'
+			height: '7dp'
 
 		BoxLayout:
 			orientation: 'horizontal'
@@ -2582,11 +2582,6 @@
 				text: 'X-Axis'
 				on_text: root.set_x_axis()
 				values: root.available_axes
-
-		# Pad
-		Widget:
-			size_hint_y: None
-			height: '15dp'
 
 		BoxLayout:
 			orientation: 'horizontal'
@@ -2614,7 +2609,7 @@
 		# Pad
 		Widget:
 			size_hint_y: None
-			height: '30dp'
+			height: '10dp'
 
 		# Graph Title
 		BoxLayout:
@@ -2638,6 +2633,11 @@
 				width: '80dp'
 				multiline: False
 				on_text: root.update_graph_title()
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '7dp'
 
 		# X-Axis Labeling
 		BoxLayout:
@@ -2685,6 +2685,11 @@
 				multiline: False
 				on_text: root.update_y_axis_label()
 
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '10dp'
+
 		# Trendline
 		BoxLayout:
 			orientation: 'horizontal'
@@ -2708,6 +2713,11 @@
 				text: ''
 				on_text: root.update_trendline()
 				values: ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '12dp'
 
 		# Save graph as png
 		FileSaveBTN:
