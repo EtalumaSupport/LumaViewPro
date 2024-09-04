@@ -1281,6 +1281,11 @@
 		height: '30dp'
 		font_size: '12sp'
 		on_release: self.choose('apply_video_gen_to_folder')
+
+	# Pad
+	Widget:
+		size_hint_y: None
+		height: '5dp'
 	
 	# FPS
 	BoxLayout:
@@ -1441,6 +1446,7 @@
 			id: create_avi_accordion_id
 			title: 'Create Video'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 			collapse: False
 
 			VideoCreationControls:
@@ -1450,6 +1456,7 @@
 			id: stitch_accordion_id
 			title: 'Stitch'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			StitchControls:
 				id: stitch_controls_id
@@ -1458,6 +1465,7 @@
 			id: composite_gen_accordion_id
 			title: 'Composite Generation'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			CompositeGenControls:
 				id: composite_gen_controls_id
@@ -1466,6 +1474,7 @@
 			id: zprojection_accordion_id
 			title: 'Z-Projection'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			ZProjectionControls:
 				id: zprojection_controls_id
@@ -1474,6 +1483,7 @@
 			id: open_last_save_folder_accordion_id
 			title: 'Open Last Save Folder'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			BoxLayout:
 				orientation: 'vertical'
@@ -1494,8 +1504,9 @@
 
 		AccordionItem:
 			id: cell_count_accordion_id
-			title: 'Cell Count'
+			title: 'Object Analysis'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			BoxLayout:
 				orientation: 'vertical'
@@ -1506,14 +1517,19 @@
 					height: '30dp'
 
 				Button:
-					text:'Open Cell Count'
+					text:'Analyze'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.open_cell_count()
 
+				# Pad
+				Widget:
+					size_hint_y: None
+					height: '5dp'
+
 				Button:
-					text: 'Graph Generation'
+					text: 'Plot'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'

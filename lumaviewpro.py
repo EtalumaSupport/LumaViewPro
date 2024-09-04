@@ -1958,14 +1958,36 @@ class GraphingControls(BoxLayout):
 
         #self.y_axis_data = self.graph_df[self.selected_y_axis]
 
-        x_data = self.x_axis_data.to_numpy()
-        y_data = self.y_axis_data.to_numpy()
+        x_data = self.x_axis_data
+        y_data = self.y_axis_data
+
+        time_x = False
+        time_y = False
 
         # If we are dealing with time, convert to an ordinal fomat for trendline creation
         if 'time' in self.selected_x_axis:
-            x_data = self.x_axis_data.map(date_time.toordinal).to_numpy()
+            x_time_data_original = x_data
+            x_ref_time = x_data.min()
+
+            # Normalize x-data for scaling purposes
+            x_data = (x_data - x_ref_time).dt.total_seconds()
+            print(f"NORMALIZED TIME DATA: {x_data}")
+            x_data = x_data.to_numpy()
+            time_x = True
+        else:
+            x_data = x_data.to_numpy()
+            
         if 'time' in self.selected_y_axis:
-            y_data = self.y_axis_data.map(date_time.toordinal).to_numpy()
+            y_time_data_original = y_data
+            y_ref_time = y_data.min()
+
+            # Normalize y-data for scaling purposes
+            y_data = (y_data - y_ref_time).dt.total_seconds()
+            y_data = y_data.to_numpy()
+            time_y = True
+        else:
+            y_data = y_data.to_numpy()
+
 
         print("Data should be ordinal")
 
@@ -1977,13 +1999,19 @@ class GraphingControls(BoxLayout):
                 z = np.polyfit(x_data, y_data, 1)  # 1st degree polynomial (linear fit)
                 p = np.poly1d(z)
 
-                self.ax.plot(x_data, p(x_data), "r--")
+                if time_x:
+                    self.ax.plot(x_time_data_original, p(x_data), "r--")
+                else:
+                    self.ax.plot(x_data, p(x_data), "r--")
 
             elif trendline_type == "Quadratic":
                 z = np.polyfit(x_data, y_data, 2)
                 p = np.poly1d(z)
 
-                self.ax.plot(x_data, p(x_data), "r--")
+                if time_x:
+                    self.ax.plot(x_time_data_original, p(x_data), "r--")
+                else:
+                    self.ax.plot(x_data, p(x_data), "r--")
 
             elif trendline_type == "Exponential":
                 log_y_data = np.log(y_data)
@@ -1993,9 +2021,12 @@ class GraphingControls(BoxLayout):
                 p = np.poly1d(z)
 
                 # Convert back to original scale
-                exp_y_data = np.exp(p(self.x_axis_data))
+                exp_y_data = np.exp(p(x_data))
 
-                self.ax.plot(x_data, exp_y_data, "r--")
+                if time_x:
+                    self.ax.plot(x_time_data_original, exp_y_data, "r--")
+                else:
+                    self.ax.plot(x_data, exp_y_data, "r--")
 
             elif trendline_type == "Power":
                 # Transform data for power fit
@@ -2009,7 +2040,10 @@ class GraphingControls(BoxLayout):
                 # Convert back to original scale
                 power_y_data = np.exp(p(np.log(x_data)))
 
-                plt.plot(x_data, power_y_data, "r--")
+                if time_x:
+                    self.ax.plot(x_time_data_original, power_y_data, "r--")
+                else:
+                    self.ax.plot(x_data, power_y_data, "r--")
 
             elif trendline_type == "Logarithmic":
                 # Transform x_data for logarithmic fit
@@ -2019,7 +2053,10 @@ class GraphingControls(BoxLayout):
                 z = np.polyfit(log_x_data, y_data, 1)
                 p = np.poly1d(z)
 
-                self.ax.plot(x_data, p(np.log(x_data)), "r--")
+                if time_x:
+                    self.ax.plot(x_time_data_original, p(np.log(x_data)), "r--")
+                else:
+                    self.ax.plot(x_data, p(np.log(x_data)), "r--")
                 
             self.update_graph()
 
@@ -2483,9 +2520,16 @@ class PostProcessingAccordion(BoxLayout):
         self.accordion_item_states = {
             'cell_count_accordion_id': None,
             'stitch_accordion_id': None,
+            'composite_gen_accordion_id': None,
+            'zprojection_accordion_id': None,
             'open_last_save_folder_accordion_id': None,
             'create_avi_accordion_id': None
         }
+        print("===============================================================")
+        print(self.ids)
+        print("===============================================================")
+        """for id in self.accordion_item_states.keys():
+            self.ids[id].background_color = [0.753, 0.816, 0.910, 1]"""
 
         self.init_cell_count()
         self._graphing_popup = None
@@ -2502,6 +2546,8 @@ class PostProcessingAccordion(BoxLayout):
         return {
             'cell_count_accordion_id': self.accordion_item_state(self.ids['cell_count_accordion_id']),
             'stitch_accordion_id': self.accordion_item_state(self.ids['stitch_accordion_id']),
+            'composite_gen_accordion_id': self.accordion_item_state(self.ids['composite_gen_accordion_id']),
+            'zprojection_accordion_id': self.accordion_item_state(self.ids['zprojection_accordion_id']),
             'open_last_save_folder_accordion_id': self.accordion_item_state(self.ids['open_last_save_folder_accordion_id']),
             'create_avi_accordion_id': self.accordion_item_state(self.ids['create_avi_accordion_id']),
         }
@@ -2561,7 +2607,7 @@ class PostProcessingAccordion(BoxLayout):
         if self._cell_count_popup is None:
             cell_count_content.set_post_processing_module(self.post)
             self._cell_count_popup = Popup(
-                title="Post Processing - Cell Count",
+                title="Post Processing - Object Analysis",
                 content=cell_count_content,
                 size_hint=(0.85,0.85),
                 auto_dismiss=True
@@ -2574,7 +2620,7 @@ class PostProcessingAccordion(BoxLayout):
         if self._graphing_popup is None:
             graphing_controls.set_post_processing_module(self.post)
             self._graphing_popup = Popup(
-                title="Post Processing - Graph Generation",
+                title="Post Processing - Object Plotting",
                 content=graphing_controls,
                 size_hint=(0.85,0.85),
                 auto_dismiss=True
