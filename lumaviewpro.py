@@ -3889,16 +3889,19 @@ class ProtocolSettings(CompositeCapture):
     def _reset_run_autofocus_scan_button(self, **kwargs):
         self.ids['run_autofocus_btn'].state = 'normal'
         self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+        stage.set_motion_capability(True)
 
 
     def _reset_run_scan_button(self, **kwargs):
         self.ids['run_scan_btn'].state = 'normal'
         self.ids['run_scan_btn'].text = 'Run One Scan'
+        stage.set_motion_capability(True)
 
     
     def _reset_run_protocol_button(self, **kwargs):
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
+        stage.set_motion_capability(True)
         
 
     def _is_protocol_valid(self) -> bool:
@@ -3927,6 +3930,7 @@ class ProtocolSettings(CompositeCapture):
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
 
         live_histo_off()
+        stage.set_motion_capability(False)
 
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
@@ -3991,6 +3995,7 @@ class ProtocolSettings(CompositeCapture):
         create_hyperstacks_if_needed()
         live_histo_reverse()
         reset_acquire_ui()
+        stage.set_motion_capability(True)
 
 
     def run_scan_from_ui(self):
@@ -3998,6 +4003,8 @@ class ProtocolSettings(CompositeCapture):
         trigger_source = 'scan'
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
+
+        stage.set_motion_capability(False)
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
@@ -4039,6 +4046,7 @@ class ProtocolSettings(CompositeCapture):
         live_histo_reverse()
         create_hyperstacks_if_needed()
         reset_acquire_ui()
+        stage.set_motion_capability(True)
 
 
     def run_protocol_from_ui(self):
@@ -4046,6 +4054,8 @@ class ProtocolSettings(CompositeCapture):
         trigger_source = 'protocol'
         run_complete_func = self._protocol_run_complete
         run_not_started_func = self._reset_run_protocol_button
+
+        stage.set_motion_capability(False)
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
         if sequenced_capture_executor.run_in_progress() and \
@@ -4176,6 +4186,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
+        stage.set_motion_capability(True)
         
 
         if not autofocus_scan:
