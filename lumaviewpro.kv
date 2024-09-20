@@ -2545,29 +2545,94 @@
 		# Pad
 		Widget:
 			size_hint_y: None
-			height: '30dp'
+			height: '10dp'
 		
 		# Select TSV to graph
 		FileChooseBTN:
-			text: 'Load Object-Analysis Data'
+			markup: True
+			text: '[b]Load Object-Analysis Data[/b]'
+			background_normal: ""
+			background_color: [0.306, 0.341, 0.380, 1]
+			size_hint_x: 0.97
 			size_hint_y: None
-			height: '30dp'
-			font_size: '12sp'
+			height: '40dp'
+			font_size: '16sp'
 			on_release: self.choose('load_graphing_data')
 		
 		# Pad
 		Widget:
 			size_hint_y: None
-			height: '7dp'
+			height: '20dp'
+
+		# Graph Title
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 0.97
+
+			Label:
+				markup: True
+				text: '[b]Graph Title[/b] '
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: graph_title_input
+				valign: 'center'
+				text: root.graph_title
+				width: '80dp'
+				font_size: '12sp'
+				multiline: False
+				padding: ['7dp', (self.height-self.line_height)/2]
+				on_text: root.update_graph_title()
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '25dp'
+
+		# X-Axis Labeling
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 0.97
+
+			Label:
+				markup: True
+				text: '[b]X-Axis Label[/b] '
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: x_axis_label_input
+				valign: 'center'
+				text: root.x_axis_label
+				width: '80dp'
+				font_size: '12sp'
+				multiline: False
+				padding: ['7dp', (self.height-self.line_height)/2]
+				on_text: root.update_x_axis_label()
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '0dp'
 
 		BoxLayout:
 			orientation: 'horizontal'
 			size_hint_y: None
 			height: '40dp'
-			size_hint_x: 1
+			size_hint_x: 0.97
 
 			Label:
-				text: 'X-Axis Data'
+				markup: True
+				text: '[b]X-Axis Data[/b]'
 				size_hint_x: None
 				width: '70dp'
 				font_size: '12sp'
@@ -2578,19 +2643,56 @@
 				text_autoupdate: True
 				sync_height: True
 				size_hint_y: None
+				font_size: '12sp'
 				height: '30dp'
 				text: 'X-Axis'
 				on_text: root.set_x_axis()
 				values: root.available_axes
 
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '25dp'
+
+		# Y-Axis Labeling
 		BoxLayout:
 			orientation: 'horizontal'
 			size_hint_y: None
 			height: '40dp'
-			size_hint_x: 1
+			size_hint_x: 0.97
 
 			Label:
-				text: 'Y-Axis Data'
+				markup: True
+				text: '[b]Y-Axis Label[/b] '
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: y_axis_label_input
+				valign: 'center'
+				text: root.y_axis_label
+				width: '80dp'
+				font_size: '12sp'
+				multiline: False
+				padding: ['7dp', (self.height-self.line_height)/2]
+				on_text: root.update_y_axis_label()
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '0dp'
+
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 0.97
+
+			Label:
+				markup: True
+				text: '[b]Y-Axis Data[/b]'
 				size_hint_x: None
 				width: '70dp'
 				font_size: '12sp'
@@ -2602,88 +2704,10 @@
 				sync_height: True
 				size_hint_y: None
 				height: '30dp'
+				font_size: '12sp'
 				text: 'Y-Axis'
 				on_text: root.set_y_axis()
 				values: root.available_axes
-
-		# Pad
-		Widget:
-			size_hint_y: None
-			height: '10dp'
-
-		# Graph Title
-		BoxLayout:
-			orientation: 'horizontal'
-			size_hint_y: None
-			height: '40dp'
-			size_hint_x: 1
-
-			Label:
-				text: 'Graph Title'
-				size_hint_x: None
-				width: '70dp'
-				font_size: '12sp'
-				halign: 'left'
-
-			TextInput:
-				id: graph_title_input
-				valign: 'center'
-				text: root.graph_title
-				height: '20dp'
-				width: '80dp'
-				multiline: False
-				on_text: root.update_graph_title()
-
-		# Pad
-		Widget:
-			size_hint_y: None
-			height: '7dp'
-
-		# X-Axis Labeling
-		BoxLayout:
-			orientation: 'horizontal'
-			size_hint_y: None
-			height: '40dp'
-			size_hint_x: 1
-
-			Label:
-				text: 'X-Axis Label'
-				size_hint_x: None
-				width: '70dp'
-				font_size: '12sp'
-				halign: 'left'
-
-			TextInput:
-				id: x_axis_label_input
-				valign: 'center'
-				text: root.x_axis_label
-				height: '20dp'
-				width: '80dp'
-				multiline: False
-				on_text: root.update_x_axis_label()
-
-		# Y-Axis Labeling
-		BoxLayout:
-			orientation: 'horizontal'
-			size_hint_y: None
-			height: '40dp'
-			size_hint_x: 1
-
-			Label:
-				text: 'Y-Axis Label'
-				size_hint_x: None
-				width: '70dp'
-				font_size: '12sp'
-				halign: 'left'
-
-			TextInput:
-				id: y_axis_label_input
-				valign: 'center'
-				text: root.y_axis_label
-				height: '20dp'
-				width: '80dp'
-				multiline: False
-				on_text: root.update_y_axis_label()
 
 		# Pad
 		Widget:
@@ -2695,10 +2719,11 @@
 			orientation: 'horizontal'
 			size_hint_y: None
 			height: '40dp'
-			size_hint_x: 1
+			size_hint_x: 0.97
 
 			Label:
-				text: 'Trendline'
+				markup: True
+				text: '[b]Trendline[/b]'
 				size_hint_x: None
 				width: '70dp'
 				font_size: '12sp'
@@ -2710,6 +2735,7 @@
 				sync_height: True
 				size_hint_y: None
 				height: '30dp'
+				font_size: '12sp'
 				text: ''
 				on_text: root.update_trendline()
 				values: ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
@@ -2717,14 +2743,18 @@
 		# Pad
 		Widget:
 			size_hint_y: None
-			height: '12dp'
+			height: '25dp'
 
 		# Save graph as png
 		FileSaveBTN:
-			text: 'Save Graph as PNG'
+			markup: True
+			text: '[b]Save Graph as PNG[/b]'
+			background_normal: ""
+			background_color: [0.306, 0.341, 0.380, 1]
 			size_hint_y: None
-			height: '30dp'
-			font_size: '12sp'
+			height: '40dp'
+			font_size: '16sp'
+			size_hint_x: 0.97
 			on_release: self.choose('save_graph')
 
 
@@ -2736,7 +2766,7 @@
 		id: graphing_area
 		orientation: 'vertical'
 		size_hint_x: 0.65
-		size_hint_y: 1
+		size_hint_y: 0.99
 		canvas:
 			Color:
 				rgba: 0,0,0,0

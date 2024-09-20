@@ -602,8 +602,13 @@ def get_protocol_time_params() -> dict:
 def get_selected_labware() -> tuple[str, labware.WellPlate]:
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
     labware_id = protocol_settings.ids['labware_spinner'].text
-    labware = wellplate_loader.get_plate(plate_key=labware_id)
-    return labware_id, labware
+    try:
+        labware = wellplate_loader.get_plate(plate_key=labware_id)
+        return labware_id, labware
+    except Exception as e:
+        logger.error("LVP Main: Labware file issue. Replace file with a known working version")
+        logger.error(e)
+
 
 
 def get_image_capture_config_from_ui() -> dict:
@@ -1941,8 +1946,16 @@ class GraphingControls(BoxLayout):
         self.update_graph()
 
     def update_available_axes(self):
-        self.ids.graphing_x_axis_spinner.values = self.available_axes
-        self.ids.graphing_y_axis_spinner.values = self.available_axes
+        self.available_x_axes = self.available_axes
+        self.available_y_axes = self.available_axes
+
+        # Remove time from y-axis because it cannot be properly formatted at the moment and causes trendline issues
+        if 'time' in self.available_y_axes:
+            self.available_y_axes.remove('time')
+
+        self.ids.graphing_x_axis_spinner.values = self.available_x_axes
+        self.ids.graphing_y_axis_spinner.values = self.available_y_axes
+
 
     def update_graph_title(self):
         self.ax.set_title(self.ids.graph_title_input.text)
@@ -1950,6 +1963,9 @@ class GraphingControls(BoxLayout):
         self.update_graph()
 
     def update_trendline(self, axis: bool=False):
+        if self.selected_x_axis is None or self.selected_y_axis is None:
+            return
+        
         trendline_type = self.ids.trendline_spinner.text
         if trendline_type == "None":
             self.trendline_enabled = False
