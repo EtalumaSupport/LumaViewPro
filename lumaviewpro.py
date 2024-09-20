@@ -447,7 +447,10 @@ def go_to_step(
 
 
 def get_binning_from_ui() -> int:
-    return int(lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['binning_spinner'].text)
+    try:
+        return int(lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['binning_spinner'].text)
+    except:
+        return 1
 
 
 def get_zstack_params() -> dict:
@@ -601,12 +604,15 @@ def get_protocol_time_params() -> dict:
 
 def get_selected_labware() -> tuple[str, labware.WellPlate]:
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-    labware_id = protocol_settings.ids['labware_spinner'].text
+    labware_id = protocol_settings.ids['labware_spinner'].text\
+    
+    if len(labware_id) < 1:
+        labware_id = settings['protocol']['labware']
     try:
         labware = wellplate_loader.get_plate(plate_key=labware_id)
         return labware_id, labware
     except Exception as e:
-        logger.error("LVP Main: Labware file issue. Replace file with a known working version")
+        logger.error("LVP Main: Settings file issue. Replace file with a known working version")
         logger.error(e)
 
 
@@ -4616,6 +4622,16 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
                 self.select_sequenced_image_output_format()
 
+                settings_max_accel_percent = settings['max_accel_percent']
+
+                # Safeguard to prevent incorrect acceleration value
+                if settings_max_accel_percent > 100 or settings_max_accel_percent < 0:
+                    settings_max_accel_percent = 100 # DEFAULT MAX ACCELERATION
+                    settings['max_accel_percent'] = settings_max_accel_percent
+
+                self.ids['max_accel_text'].text = settings_max_accel_percent
+                self.ids['max_accel_slider'].value = settings_max_accel_percent
+
                 if settings['video_as_frames'] == False:
                     self.ids['video_recording_format_spinner'].text = 'mp4'
                 else:
@@ -4710,6 +4726,41 @@ class MicroscopeSettings(BoxLayout):
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
 
         self.set_ui_features_for_scope()
+
+    def max_accel_slider(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.max_accel_slider()')
+        max_accel = self.ids['max_accel_slider'].value
+        settings['max_accel_percent'] = max_accel
+        self.apply_acceleration()
+
+    def max_accel_text(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.max_accel_text()')
+        max_accel_min = self.ids['max_accel_slider'].min
+        max_accel_max = self.ids['max_accel_slider'].max
+        try:
+            max_accel_val = float(self.ids['max_accel_text'].text)
+        except:
+            return
+        
+        max_accel = float(np.clip(max_accel_val, max_accel_min, max_accel_max))
+
+        settings['max_accel_percent'] = max_accel
+        self.ids['max_accel_slider'].value = max_accel
+        self.ids['max_accel_text'].text = str(max_accel)
+
+        self.apply_acceleration()
+
+    # Not yet implemented
+    def apply_acceleration(self):
+
+        pass
+
+        max_scope_accel = 0 # Value that is read on startup from the microscope STILL NEEDS TO BE IMPLEMENTED
+
+        # Set the 4 registers to the desired percentage of the max acceleration
+        user_defined_max_accel = max_scope_accel * settings['max_accel_percent']/100
+
+
 
 
     def update_separate_folders_per_channel(self):

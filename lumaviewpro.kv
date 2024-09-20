@@ -1783,6 +1783,47 @@
 			font_size: '12sp'
 			halign: 'center'
 
+	# Max Acceleration Controls
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+
+		Label:
+			text: 'Max Acceleration (%)'
+			halign: 'left'
+			valign: 'middle'
+			font_size: '12sp'
+			size_hint_x: None
+			width: '95dp'
+			text_size: self.size
+		ModSlider:
+			id: max_accel_slider
+			min: 1.
+			max: 100.
+			value: 100.
+			step: 5
+			cursor_size: '20dp','20dp'
+			cursor_image: './data/icons/slider_cursor.png'
+			value_track: True
+			value_track_color: (0.5, 0.5, 0.5, 0.5)
+			value_track_width: 5
+			on_release: root.max_accel_slider()
+		TextInput:
+			id: max_accel_text
+			size_hint_x: None
+			width: '45dp'
+			multiline: False
+			font_size: '12sp'
+			padding: ['4dp', (self.height-self.line_height)/2]
+			halign: 'right'
+			input_filter: 'float'
+			text: format(max_accel_slider.value, '.4g')
+			on_text_validate: root.max_accel_text()
+			on_focus: if not self.focus: root.max_accel_text()
+
 	FileChooseBTN:
 		text: 'Load'
 		size_hint_y: None

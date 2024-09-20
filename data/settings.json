@@ -137,6 +137,8 @@
     "scale_bar": {
         "enabled": false
     },
-    "video_as_frames": false
+    
+    "video_as_frames": false,
+    "max_accel_percent": 100
     
 }
