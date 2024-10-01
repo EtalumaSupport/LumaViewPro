@@ -1952,8 +1952,8 @@ class GraphingControls(BoxLayout):
         self.update_graph()
 
     def update_available_axes(self):
-        self.available_x_axes = self.available_axes
-        self.available_y_axes = self.available_axes
+        self.available_x_axes = list(self.available_axes)
+        self.available_y_axes = list(self.available_axes)
 
         # Remove time from y-axis because it cannot be properly formatted at the moment and causes trendline issues
         if 'time' in self.available_y_axes:
@@ -2019,67 +2019,88 @@ class GraphingControls(BoxLayout):
         if len(x_data) > 1 and len(y_data) > 1:
 
             if trendline_type == "Linear":
-                z = np.polyfit(x_data, y_data, 1)  # 1st degree polynomial (linear fit)
-                p = np.poly1d(z)
+                try:
+                    z = np.polyfit(x_data, y_data, 1)  # 1st degree polynomial (linear fit)
+                    p = np.poly1d(z)
 
-                if time_x:
-                    self.ax.plot(x_time_data_original, p(x_data), "r--")
-                else:
-                    self.ax.plot(x_data, p(x_data), "r--")
+                    if time_x:
+                        self.ax.plot(x_time_data_original, p(x_data), "r--")
+                    else:
+                        self.ax.plot(x_data, p(x_data), "r--")
+                except Exception as e:
+                    logger.error(f"[Graphing  ] Could not fit linear trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
+
 
             elif trendline_type == "Quadratic":
-                z = np.polyfit(x_data, y_data, 2)
-                p = np.poly1d(z)
+                try:
+                    z = np.polyfit(x_data, y_data, 2)
+                    p = np.poly1d(z)
 
-                if time_x:
-                    self.ax.plot(x_time_data_original, p(x_data), "r--")
-                else:
-                    self.ax.plot(x_data, p(x_data), "r--")
+                    if time_x:
+                        self.ax.plot(x_time_data_original, p(x_data), "r--")
+                    else:
+                        self.ax.plot(x_data, p(x_data), "r--")
+                except Exception as e:
+                    logger.error(f"[Graphing  ] Could not fit quadratic trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
 
             elif trendline_type == "Exponential":
-                log_y_data = np.log(y_data)
+                try:
+                    log_y_data = np.log(y_data)
 
-                # Calculate the exponential trendline
-                z = np.polyfit(x_data, log_y_data, 1)
-                p = np.poly1d(z)
+                    # Calculate the exponential trendline
+                    z = np.polyfit(x_data, log_y_data, 1)
+                    p = np.poly1d(z)
 
-                # Convert back to original scale
-                exp_y_data = np.exp(p(x_data))
+                    # Convert back to original scale
+                    exp_y_data = np.exp(p(x_data))
 
-                if time_x:
-                    self.ax.plot(x_time_data_original, exp_y_data, "r--")
-                else:
-                    self.ax.plot(x_data, exp_y_data, "r--")
+                    if time_x:
+                        self.ax.plot(x_time_data_original, exp_y_data, "r--")
+                    else:
+                        self.ax.plot(x_data, exp_y_data, "r--")
+                except Exception as e:
+                    logger.error(f"[Graphing  ] Could not fit exponential trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
 
             elif trendline_type == "Power":
-                # Transform data for power fit
-                log_x_data = np.log(x_data)
-                log_y_data = np.log(y_data)
-
-                # Calculate the power trendline
-                z = np.polyfit(log_x_data, log_y_data, 1)
-                p = np.poly1d(z)
-
-                # Convert back to original scale
-                power_y_data = np.exp(p(np.log(x_data)))
-
                 try:
-                    self.ax.plot(x_data, power_y_data, "r--")
+                    # Transform data for power fit
+                    log_x_data = np.log(x_data)
+                    log_y_data = np.log(y_data)
+
+                    # Calculate the power trendline
+                    z = np.polyfit(log_x_data, log_y_data, 1)
+                    p = np.poly1d(z)
+
+                    # Convert back to original scale
+                    power_y_data = np.exp(p(np.log(x_data)))
+
+                    try:
+                        self.ax.plot(x_data, power_y_data, "r--")
+                    except Exception as e:
+                        logger.error(f"Graphing ] Power trendline error: {e}")
                 except Exception as e:
-                    logger.error(f"Graphing ] Power trendline error: {e}")
+                    logger.error(f"[Graphing  ] Could not fit power trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
 
             elif trendline_type == "Logarithmic":
-                # Transform x_data for logarithmic fit
-                log_x_data = np.log(x_data)
-
-                # Calculate the logarithmic trendline
-                z = np.polyfit(log_x_data, y_data, 1)
-                p = np.poly1d(z)
-
                 try:
-                    self.ax.plot(x_data, p(np.log(x_data)), "r--")
+                    # Transform x_data for logarithmic fit
+                    log_x_data = np.log(x_data)
+
+                    # Calculate the logarithmic trendline
+                    z = np.polyfit(log_x_data, y_data, 1)
+                    p = np.poly1d(z)
+
+                    try:
+                        self.ax.plot(x_data, p(np.log(x_data)), "r--")
+                    except Exception as e:
+                        logger.error(f"Graphing ] Logarithmic trendline error: {e}")
                 except Exception as e:
-                    logger.error(f"Graphing ] Logarithmic trendline error: {e}")
+                    logger.error(f"[Graphing  ] Could not fit logarithmic trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
                 
             self.update_graph()
 
@@ -2120,7 +2141,6 @@ class GraphingControls(BoxLayout):
         self.initialize_graph()
         try:
             self.graph_df = pd.read_csv(file)
-            print("Created DF")
             self.available_axes = list(self.graph_df.keys())
             if self.available_axes[0] == "file":
                 self.available_axes = self.available_axes[1:]
