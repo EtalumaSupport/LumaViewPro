@@ -3131,7 +3131,7 @@ class ProtocolSettings(CompositeCapture):
             filepath = settings['protocol']['filepath']
             lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
         except:
-            logger.exception('[LVP Main  ] Unable to load protocol at startup')
+            logger.error('[LVP Main  ] Unable to load protocol at startup')
             # If protocol file is missing or incomplete, file name and path are cleared from memory. 
             filepath=''	
             settings['protocol']['filepath']=''
