@@ -86,9 +86,10 @@ except:
 
 PROTOCOL_DATA_DIR_NAME = "ProtocolData"
 
-if windows_machine:
-    print("Machine-Type - WINDOWS")
+lvp_installed = True if os.getenv("LVP_INSTALLED", "True") == "True" else False
 
+if windows_machine and (lvp_installed == True):
+    print("Machine-Type - WINDOWS")
     documents_folder = userpaths.get_my_documents()
     os.chdir(documents_folder)
     lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
@@ -113,6 +114,9 @@ if windows_machine:
     else:
         shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
 
+elif windows_machine and (lvp_installed == False):
+    print("Machine-Type - WINDOWS (not installed)")
+    source_path = script_path
 else:
     print("Machine-Type - NON-WINDOWS")
     source_path = script_path
@@ -4249,6 +4253,32 @@ class MicroscopeSettings(BoxLayout):
     # def get_objective_info(self, objective_id: str) -> dict:
     #     return self.objectives[objective_id]
 
+    def acceleration_pct_slider(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_slider()')
+        acc_val = self.ids['acceleration_pct_slider'].value
+        self.set_acceleration_limit(val_pct=acc_val)       
+
+
+    def acceleration_pct_text(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_text()')
+        acc_min = self.ids['acceleration_pct_slider'].min
+        acc_max = self.ids['acceleration_pct_slider'].max
+        try:
+            acc_val = int(self.ids['acceleration_pct_text'].text)
+        except:
+            return
+        
+        acc_val = int(np.clip(acc_val, acc_min, acc_max))
+
+        self.ids['acceleration_pct_slider'].value = acc_val
+        self.ids['acceleration_pct_text'].text = str(acc_val)
+        self.set_acceleration_limit(val_pct=acc_val)
+
+
+    def set_acceleration_limit(self, val_pct: int):
+        settings['motion']['acceleration_max_pct'] = val_pct
+        lumaview.scope.set_acceleration_limit(val_pct=val_pct)
+
 
     # load settings from JSON file
     def load_settings(self, filename="./data/current.json"):
@@ -4323,6 +4353,10 @@ class MicroscopeSettings(BoxLayout):
                     self.ids['video_recording_format_spinner'].text = 'Frames'
 
                 self.select_video_recording_format()
+
+                acceleration_limit = settings['motion']['acceleration_max_pct']
+                self.ids['acceleration_pct_slider'].value = acceleration_limit
+                self.acceleration_pct_slider()
 
                 # Set Frame Size
                 # Multiplying frame size by the binning size to account for the select_binning_size() call

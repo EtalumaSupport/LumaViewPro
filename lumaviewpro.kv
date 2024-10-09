@@ -1962,6 +1962,41 @@
 	        on_text: root.select_binning_size()
 
 	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Acceleration Max (%)'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+	    ModSlider:
+			id: acceleration_pct_slider
+			min: 1
+			max: 100
+			value: 100
+			step: 1
+			cursor_size: '20dp','20dp'
+			cursor_image: './data/icons/slider_cursor.png'
+			value_track: True
+			#value_track_color: root.bg_color
+			value_track_width: 5
+			on_release: root.acceleration_pct_slider() # on_touch_move # on_release
+		TextInput:
+			id: acceleration_pct_text
+			size_hint_x: None
+			width: '45dp'
+			multiline: False
+			font_size: '12sp'
+			padding: ['4dp', (self.height-self.line_height)/2]
+			halign: 'right'
+			input_filter: 'int'
+			text: format(acceleration_pct_slider.value)
+			on_text_validate: root.acceleration_pct_text()
+			on_focus: if not self.focus: root.acceleration_pct_text()
+
+	BoxLayout:
 		height: '30dp'
 		size_hint_y: None
 		orientation: 'horizontal'
