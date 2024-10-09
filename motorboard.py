@@ -272,7 +272,9 @@ class MotorBoard:
             },
         }
 
-        addr = SPI_ADDRS[axis][parameter]
+        WRITE_OFFSET = 0x80
+
+        addr = SPI_ADDRS[axis][parameter] + WRITE_OFFSET
         command = f"SPI{axis}0x{addr:02x}{setpoint}"
         resp = self.exchange_command(command)
         logger.info(f"[XYZ Class ] MotorBoard.set_acceleration_limit({axis}, {parameter}, {val_pct}%): {command} -> {resp}")
