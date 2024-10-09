@@ -294,6 +294,7 @@ class MotorBoard:
         command = f"SPI{axis}0x{addr:02x}"
         resp = self.exchange_command(command)
         logger.debug(f"[XYZ Class ] MotorBoard.spi_read({axis}, 0x{addr:02x}): {command} -> {resp}")
+        return resp
 
     
     def spi_write(self, axis: str, addr: int, payload: str) -> str:
@@ -302,6 +303,7 @@ class MotorBoard:
         command = f"SPI{axis}0x{write_addr:02x}{payload}"
         resp = self.exchange_command(command)
         logger.debug(f"[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}): {command} -> {resp}")
+        return resp
 
 
     #----------------------------------------------------------
