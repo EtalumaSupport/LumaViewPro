@@ -272,12 +272,12 @@ class MotorBoard:
             },
         }
 
-        WRITE_OFFSET = 0x80
-
-        addr = SPI_ADDRS[axis][parameter] + WRITE_OFFSET
-        command = f"SPI{axis}0x{addr:02x}{setpoint}"
-        resp = self.exchange_command(command)
-        logger.info(f"[XYZ Class ] MotorBoard.set_acceleration_limit({axis}, {parameter}, {val_pct}%): {command} -> {resp}")
+        self.spi_write(
+            axis=axis,
+            addr=SPI_ADDRS[axis][parameter],
+            payload=setpoint
+        )
+        logger.info(f"[XYZ Class ] MotorBoard.set_acceleration_limit({axis}, {parameter}, {val_pct}%)")
 
     
     # Sets the percentage acceleration/deceleration (of max) for all supported axes/parameters
@@ -287,6 +287,21 @@ class MotorBoard:
             for parameter in config['parameters']:
                 self.set_acceleration_limit(axis=axis, parameter=parameter, val_pct=val_pct)
 
+    #----------------------------------------------------------
+    # SPI-direct related functions
+    #----------------------------------------------------------
+    def spi_read(self, axis: str, addr: int) -> str:
+        command = f"SPI{axis}0x{addr:02x}"
+        resp = self.exchange_command(command)
+        logger.debug(f"[XYZ Class ] MotorBoard.spi_read({axis}, 0x{addr:02x}): {command} -> {resp}")
+
+    
+    def spi_write(self, axis: str, addr: int, payload: str) -> str:
+        WRITE_OFFSET = 0x80
+        write_addr = addr + WRITE_OFFSET
+        command = f"SPI{axis}0x{write_addr:02x}{payload}"
+        resp = self.exchange_command(command)
+        logger.debug(f"[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}): {command} -> {resp}")
 
 
     #----------------------------------------------------------
