@@ -857,6 +857,10 @@ class Lumascope():
         return
     
 
+    def set_acceleration_limit(self, val_pct: int):
+        self.motion.set_acceleration_limits(val_pct=val_pct)
+    
+
     def get_microscope_model(self):
         if not self.motion.driver:
             return None

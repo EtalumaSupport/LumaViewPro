@@ -36,11 +36,7 @@ MODIFIED:
 June 1, 2023
 '''
 
-#import threading
-#import queue
 import time
-# import requests
-# import ampy
 from requests.structures import CaseInsensitiveDict
 import serial
 import serial.tools.list_ports as list_ports
@@ -189,6 +185,125 @@ class MotorBoard:
     def get_microscope_model(self):
         info = self._fullinfo
         return info['model']
+    
+    #----------------------------------------------------------
+    # Acceleration control functions
+    #----------------------------------------------------------
+
+    # Get single acceleration limit for a specific axis and parameter
+    def acceleration_limit(self, axis: str, parameter: str) -> int:
+        if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
+            return 0
+        
+        parameter_map = {
+            'acceleration': 'A',
+            'deceleration': 'D'
+        }
+
+        parameter_char = parameter_map[parameter]
+        command = f"{parameter_char}MAX{axis}"
+        DEFAULT_ACCELERATION_LIMIT = 30000
+        using_default = False
+        try:
+            resp = self.exchange_command(command)
+
+            # In case firmware doesn't support retrieving the acceleration limits
+            if resp.startswith("ERROR"):
+                raise
+        except:
+            resp = DEFAULT_ACCELERATION_LIMIT
+            using_default = True
+
+        using_default_str = "-> default" if using_default else ""
+        logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp} {using_default_str}')
+        
+        # TODO parse response value out of response string once implemented
+        return resp
+
+    
+    def _acceleration_validate_inputs(self, axis: str, parameter: str):
+        config = self._acceleration_supported_info()
+        if axis not in config['axes']:
+            raise NotImplementedError(f"Support for acceleration limit on axis {axis} not implemented")
+        
+        if parameter not in config['parameters']:
+            raise NotImplementedError(f"Support for acceleration limit parameter {parameter} not implemented.")
+        
+        return True
+    
+
+    def _acceleration_supported_info(self):
+        return {
+            'axes': ('X','Y'),
+            'parameters': ('acceleration', 'deceleration')
+        }
+    
+    # Get all acceleration limits for all axes and parameters
+    def acceleration_limits(self) -> dict[str, dict[str, int]]:
+        limits = {}
+        config = self._acceleration_supported_info()
+        for axis in config['axes']:
+            limits[axis] = {}
+            for parameter in config['parameters']:
+                limits[axis][parameter] = self.acceleration_limit(axis=axis, parameter=parameter)
+
+        return limits
+
+
+    # Sets the percentage acceleration/deceleration limit (of max) for a single axis/parameter
+    def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int):
+        if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
+            return
+        
+        if (val_pct < 1) or (val_pct > 100):
+            raise ValueError(f"Acceleration limit of {val_pct}% is out of bounds. Must be between 1 and 100.")
+        
+        limit = self.acceleration_limit(axis=axis, parameter=parameter)
+        setpoint = round(limit*(val_pct/100))
+
+        SPI_ADDRS = {
+            'X': {
+                'acceleration': 0x26,
+                'deceleration': 0x28,
+            },
+            'Y': {
+                'acceleration': 0x46,
+                'deceleration': 0x48,
+            },
+        }
+
+        self.spi_write(
+            axis=axis,
+            addr=SPI_ADDRS[axis][parameter],
+            payload=setpoint
+        )
+        logger.info(f"[XYZ Class ] MotorBoard.set_acceleration_limit({axis}, {parameter}, {val_pct}%)")
+
+    
+    # Sets the percentage acceleration/deceleration (of max) for all supported axes/parameters
+    def set_acceleration_limits(self, val_pct):
+        config = self._acceleration_supported_info()
+        for axis in config['axes']:
+            for parameter in config['parameters']:
+                self.set_acceleration_limit(axis=axis, parameter=parameter, val_pct=val_pct)
+
+    #----------------------------------------------------------
+    # SPI-direct related functions
+    #----------------------------------------------------------
+    def spi_read(self, axis: str, addr: int) -> str:
+        command = f"SPI{axis}0x{addr:02x}"
+        resp = self.exchange_command(command)
+        logger.debug(f"[XYZ Class ] MotorBoard.spi_read({axis}, 0x{addr:02x}): {command} -> {resp}")
+        return resp
+
+    
+    def spi_write(self, axis: str, addr: int, payload: str) -> str:
+        WRITE_OFFSET = 0x80
+        write_addr = addr + WRITE_OFFSET
+        command = f"SPI{axis}0x{write_addr:02x}{payload}"
+        resp = self.exchange_command(command)
+        logger.debug(f"[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}): {command} -> {resp}")
+        return resp
 
 
     #----------------------------------------------------------
