@@ -732,17 +732,6 @@
 					background_down: './data/icons/UU_down.png'
 					on_release: root.coarse_fwd()
 
-	# # Select Labware
-	# Spinner:
-	# 	id: labware_spinner
-	# 	sync_height: True
-	# 	text: 'New'
-	# 	font_size: '12dp'
-	# 	size_hint_y: None
-	# 	height: '30dp'
-	# 	text_autoupdate: True
-	# 	# on_text: root.select_labware()
-
 	# Stage Display
 	FloatLayout:
 		padding: '5dp'
@@ -1962,10 +1951,15 @@
 	        on_text: root.select_binning_size()
 
 	BoxLayout:
+		id: acceleration_control_box
+		size_hint_y: None if self.visible else 0
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
+		visible: True
         orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
         Label:
+			id: acceleration_pct_label
             text: 'Acceleration Max (%)'
 			halign: 'left'
 			valign: 'middle'

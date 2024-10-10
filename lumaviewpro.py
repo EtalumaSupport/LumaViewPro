@@ -3131,7 +3131,7 @@ class ProtocolSettings(CompositeCapture):
             filepath = settings['protocol']['filepath']
             lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
         except:
-            logger.error('[LVP Main  ] Unable to load protocol at startup')
+            logger.warning('[LVP Main  ] Unable to load protocol at startup')
             # If protocol file is missing or incomplete, file name and path are cleared from memory. 
             filepath=''	
             settings['protocol']['filepath']=''
@@ -4254,6 +4254,12 @@ class MicroscopeSettings(BoxLayout):
     #     return self.objectives[objective_id]
 
     def acceleration_pct_slider(self):
+        scope_configs = self.scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+
+        if selected_scope_config['XYStage'] == False:
+            return
+        
         logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_slider()')
         acc_val = self.ids['acceleration_pct_slider'].value
         self.set_acceleration_limit(val_pct=acc_val)       
@@ -4278,6 +4284,11 @@ class MicroscopeSettings(BoxLayout):
     def set_acceleration_limit(self, val_pct: int):
         settings['motion']['acceleration_max_pct'] = val_pct
         lumaview.scope.set_acceleration_limit(val_pct=val_pct)
+
+    
+    def set_acceleration_control_visibility(self, visible):
+        for acceleration_id in ('acceleration_control_box',):
+            self.ids[acceleration_id].visible = visible
 
 
     # load settings from JSON file
@@ -4597,8 +4608,12 @@ class MicroscopeSettings(BoxLayout):
 
 
     def set_ui_features_for_scope(self) -> None:
-        scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
+        microscope_settings = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
+        scope_configs = microscope_settings.scopes
         selected_scope_config = scope_configs[settings['microscope']]
+
+        microscope_settings.set_acceleration_control_visibility(visible=selected_scope_config['XYStage'])
+        
         motion_settings =  lumaview.ids['motionsettings_id']
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
         motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
