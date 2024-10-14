@@ -210,6 +210,11 @@ class MotorBoard:
             # In case firmware doesn't support retrieving the acceleration limits
             if resp.startswith("ERROR"):
                 raise
+
+            # Extra protection for now in case motorboard responds with a different string that doesnt start with ERROR
+            if not resp.isdigit():
+                raise
+
         except:
             resp = DEFAULT_ACCELERATION_LIMIT
             using_default = True
@@ -291,7 +296,9 @@ class MotorBoard:
     # SPI-direct related functions
     #----------------------------------------------------------
     def spi_read(self, axis: str, addr: int) -> str:
-        command = f"SPI{axis}0x{addr:02x}"
+        # Add a dummy payload of "00" to the end in order for the firmware to not error out on a read.
+        # It is expecting a payload.
+        command = f"SPI{axis}0x{addr:02x}00"
         resp = self.exchange_command(command)
         logger.debug(f"[XYZ Class ] MotorBoard.spi_read({axis}, 0x{addr:02x}): {command} -> {resp}")
         return resp
