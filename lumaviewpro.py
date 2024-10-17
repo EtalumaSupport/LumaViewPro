@@ -1689,6 +1689,10 @@ class StitchControls(BoxLayout):
         super().__init__(**kwargs)
         stitch_controls = self
 
+    
+    def set_button_enabled_state(self, state: bool):
+        self.ids['stitch_apply_btn'].disabled = not state
+
 
     @show_popup
     def run_stitcher(self, popup, path):
@@ -4622,6 +4626,8 @@ class MicroscopeSettings(BoxLayout):
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
         protocol_settings.set_show_protocol_step_locations_visibility(visible=selected_scope_config['XYStage'])
+
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['stitch_controls_id'].set_button_enabled_state(state=selected_scope_config['XYStage'])
 
         if selected_scope_config['XYStage'] is False:
             stage.remove_parent()
