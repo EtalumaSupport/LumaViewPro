@@ -41,9 +41,19 @@ class ProtocolPostProcessingHelper:
         images = []
         images.extend(tiff_images)
         images.extend(ome_tiff_images)
+
+        # If folder is a collection of video frames, set the directory of the protocol record to be 1 level higher
+        if "_video" in str(path):
+            path = path.parent
+
         for image in images:
             image_name = pathlib.Path(os.path.relpath(image, path))
-            parent_dir = str(image_name.parent)
+
+            if "video_Frame" in str(image_name):
+                parent_dir = str(image_name.parent.parent)
+            
+            else:
+                parent_dir = str(image_name.parent)
 
             if len(exclude_subpaths) > 0 and (parent_dir in exclude_subpaths):
                 continue
@@ -131,8 +141,14 @@ class ProtocolPostProcessingHelper:
     ) -> pd.DataFrame | None:
                 
         image_data = []
+
         for image_name in image_names:
-            file_data = protocol_execution_record.get_data_from_filename(file_path=image_name)
+            # If video frame, then set the filepath to be one level higher
+            if "_video_Frame" in str(image_name):
+                file_data = protocol_execution_record.get_data_from_filename(file_path=image_name.parent)
+            else:
+                file_data = protocol_execution_record.get_data_from_filename(file_path=image_name)
+
             if file_data is None:
                 logger.warning(f"No info found in protocol execution record for {image_name}")
                 continue
@@ -293,17 +309,27 @@ class ProtocolPostProcessingHelper:
                 selected_path.name
             ]
 
-        image_names = self._get_image_filenames_from_folder(
-            path=root_path,
-            exclude_subpaths=[],
-            include_subpaths=include_subpaths
-        )
+        # If the selected folder is a specific folder of image frames, send the path as the selected folder instead of the root folder
+        # Also ensure that we are only checking this folder for images
+        if "_video" in str(path):
+            image_names = self._get_image_filenames_from_folder(
+                path=path,
+                exclude_subpaths=[],
+                include_subpaths=[]
+            )
+        else:
+            image_names = self._get_image_filenames_from_folder(
+                path=root_path,
+                exclude_subpaths=[],
+                include_subpaths=include_subpaths
+            )
 
         raw_images_df = self._get_raw_images_df(
             image_names=image_names['raw'],
             protocol=protocol,
             protocol_execution_record=protocol_execution_record,
         )
+
         raw_images_df['Raw'] = True
 
         post_processing_names = PostFunction.list_values()
