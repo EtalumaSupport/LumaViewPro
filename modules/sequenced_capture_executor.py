@@ -208,6 +208,10 @@ class SequencedCaptureExecutor:
             return
         
         self._cleanup()
+
+
+    def protocol_interval(self):
+        return self._protocol.period()
     
 
     def run(
@@ -284,7 +288,7 @@ class SequencedCaptureExecutor:
             return 
 
         if 'protocol_iterate_pre' in self._callbacks:
-            self._callbacks['protocol_iterate_pre'](remaining_scans=remaining_scans)
+            self._callbacks['protocol_iterate_pre'](remaining_scans=remaining_scans, interval=self._protocol.period())
 
         current_time = datetime.datetime.now()
         elapsed_time = current_time - self._start_t

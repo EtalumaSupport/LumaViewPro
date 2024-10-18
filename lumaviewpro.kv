@@ -732,17 +732,6 @@
 					background_down: './data/icons/UU_down.png'
 					on_release: root.coarse_fwd()
 
-	# # Select Labware
-	# Spinner:
-	# 	id: labware_spinner
-	# 	sync_height: True
-	# 	text: 'New'
-	# 	font_size: '12dp'
-	# 	size_hint_y: None
-	# 	height: '30dp'
-	# 	text_autoupdate: True
-	# 	# on_text: root.select_labware()
-
 	# Stage Display
 	FloatLayout:
 		padding: '5dp'
@@ -1230,7 +1219,8 @@
 				id: run_protocol_btn
 				text: 'Run Full Protocol'
 				size_hint_y: None
-				height: '30dp'
+				height: '60dp'
+				halign: 'center'
 				font_size: '12sp'
 				on_release: root.run_protocol_from_ui()
 
@@ -1350,11 +1340,13 @@
 		height: '30dp'
 
 	FolderChooseBTN:
+		id: stitch_apply_btn
 		text: 'Apply Stitching to Protocol Folder'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
 		on_release: self.choose('apply_stitching_to_folder')
+		disabled: False
 	
 	# Empty widget to consume space at bottom of controls panel
 	Widget:
@@ -1983,6 +1975,46 @@
 			text_autoupdate: True
 	        on_release: root.load_binning_sizes()
 	        on_text: root.select_binning_size()
+
+	BoxLayout:
+		id: acceleration_control_box
+		size_hint_y: None if self.visible else 0
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
+		visible: True
+        orientation: 'horizontal'
+        Label:
+			id: acceleration_pct_label
+            text: 'Acceleration Max (%)'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+	    ModSlider:
+			id: acceleration_pct_slider
+			min: 1
+			max: 100
+			value: 100
+			step: 1
+			cursor_size: '20dp','20dp'
+			cursor_image: './data/icons/slider_cursor.png'
+			value_track: True
+			#value_track_color: root.bg_color
+			value_track_width: 5
+			on_release: root.acceleration_pct_slider() # on_touch_move # on_release
+		TextInput:
+			id: acceleration_pct_text
+			size_hint_x: None
+			width: '45dp'
+			multiline: False
+			font_size: '12sp'
+			padding: ['4dp', (self.height-self.line_height)/2]
+			halign: 'right'
+			input_filter: 'int'
+			text: format(acceleration_pct_slider.value)
+			on_text_validate: root.acceleration_pct_text()
+			on_focus: if not self.focus: root.acceleration_pct_text()
 
 	BoxLayout:
 		height: '30dp'

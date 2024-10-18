@@ -88,9 +88,10 @@ except:
 
 PROTOCOL_DATA_DIR_NAME = "ProtocolData"
 
-if windows_machine:
-    print("Machine-Type - WINDOWS")
+lvp_installed = True if os.getenv("LVP_INSTALLED", "True") == "True" else False
 
+if windows_machine and (lvp_installed == True):
+    print("Machine-Type - WINDOWS")
     documents_folder = userpaths.get_my_documents()
     os.chdir(documents_folder)
     lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
@@ -115,6 +116,9 @@ if windows_machine:
     else:
         shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
 
+elif windows_machine and (lvp_installed == False):
+    print("Machine-Type - WINDOWS (not installed)")
+    source_path = script_path
 else:
     print("Machine-Type - NON-WINDOWS")
     source_path = script_path
@@ -215,6 +219,7 @@ from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
 from modules.stack_builder import StackBuilder
 from modules.zstack_config import ZStackConfig
 from modules.json_helper import CustomJSONizer
+from modules.timedelta_formatter import strfdelta
 import modules.imagej_helper as imagej_helper
 import modules.zprojector as zprojector
 from modules.video_writer import VideoWriter
@@ -1699,6 +1704,10 @@ class StitchControls(BoxLayout):
         global stitch_controls
         super().__init__(**kwargs)
         stitch_controls = self
+
+    
+    def set_button_enabled_state(self, state: bool):
+        self.ids['stitch_apply_btn'].disabled = not state
 
 
     @show_popup
@@ -3454,7 +3463,7 @@ class ProtocolSettings(CompositeCapture):
             filepath = settings['protocol']['filepath']
             lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
         except:
-            logger.exception('[LVP Main  ] Unable to load protocol at startup')
+            logger.warning('[LVP Main  ] Unable to load protocol at startup')
             # If protocol file is missing or incomplete, file name and path are cleared from memory. 
             filepath=''	
             settings['protocol']['filepath']=''
@@ -3975,6 +3984,10 @@ class ProtocolSettings(CompositeCapture):
         live_histo_off()
         stage.set_motion_capability(False)
 
+        if self.ids['run_autofocus_btn'].state == 'normal' or (sequenced_capture_executor.run_in_progress() and run_trigger_source == trigger_source):
+            self._cleanup_at_end_of_protocol(autofocus_scan=True)
+            return
+        
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
             run_not_started_func()
@@ -3987,9 +4000,7 @@ class ProtocolSettings(CompositeCapture):
             live_histo_reverse()
             return
         
-        if self.ids['run_autofocus_btn'].state == 'normal':
-            self._cleanup_at_end_of_protocol(autofocus_scan=True)
-            return
+        
         
         self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
 
@@ -4047,11 +4058,17 @@ class ProtocolSettings(CompositeCapture):
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
 
+        # Disable ability for user to move stage manually
         stage.set_motion_capability(False)
 
+        # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
+        if self.ids['run_scan_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
+            run_not_started_func()
+            logger.warning(f"Cannot start scan. Autofocus still in progress.")
+            return
+
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
-        if sequenced_capture_executor.run_in_progress() and \
-            (run_trigger_source != trigger_source):
+        if (sequenced_capture_executor.run_in_progress() and (run_trigger_source != trigger_source)):
             run_not_started_func()
             logger.warning(f"Cannot start scan. Run already in progress from {run_trigger_source}")
             return
@@ -4101,8 +4118,14 @@ class ProtocolSettings(CompositeCapture):
         stage.set_motion_capability(False)
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
-        if sequenced_capture_executor.run_in_progress() and \
-            (run_trigger_source != trigger_source):
+
+        # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
+        if self.ids['run_protocol_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
+            run_not_started_func()
+            logger.warning(f"Cannot start protocol run. Autofocus still in progress.")
+            return
+
+        if (sequenced_capture_executor.run_in_progress() and (run_trigger_source != trigger_source)):
             run_not_started_func()
             logger.warning(f"Cannot start protocol run. Run already in progress from {run_trigger_source}")
             return
@@ -4147,8 +4170,16 @@ class ProtocolSettings(CompositeCapture):
         **kwargs,
     ):
         remaining_scans = kwargs['remaining_scans']
+        scan_interval = kwargs['interval']
+        remaining_duration = remaining_scans * scan_interval
+        remaining_duration_str = strfdelta(
+            tdelta=remaining_duration,
+            fmt='{H}h {M}m',
+            inputtype='timedelta',
+        )
         scan_word = "scan" if remaining_scans == 1 else "scans"
-        self.ids['run_protocol_btn'].text = f"{remaining_scans} {scan_word} remaining. Press to ABORT"
+        
+        self.ids['run_protocol_btn'].text = f"{remaining_scans} {scan_word} ({remaining_duration_str}) remaining.\nPress to ABORT"
 
 
     def _run_scan_pre_callback(self):
@@ -4219,7 +4250,8 @@ class ProtocolSettings(CompositeCapture):
 
         if run_mode == SequencedCaptureRunMode.FULL_PROTOCOL:
             self._update_protocol_run_button_status(
-                remaining_scans=sequenced_capture_executor.remaining_scans()
+                remaining_scans=sequenced_capture_executor.remaining_scans(),
+                interval=sequenced_capture_executor.protocol_interval(),
             )
 
 
@@ -4574,6 +4606,43 @@ class MicroscopeSettings(BoxLayout):
     # def get_objective_info(self, objective_id: str) -> dict:
     #     return self.objectives[objective_id]
 
+    def acceleration_pct_slider(self):
+        scope_configs = self.scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+
+        if selected_scope_config['XYStage'] == False:
+            return
+        
+        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_slider()')
+        acc_val = self.ids['acceleration_pct_slider'].value
+        self.set_acceleration_limit(val_pct=acc_val)       
+
+
+    def acceleration_pct_text(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_text()')
+        acc_min = self.ids['acceleration_pct_slider'].min
+        acc_max = self.ids['acceleration_pct_slider'].max
+        try:
+            acc_val = int(self.ids['acceleration_pct_text'].text)
+        except:
+            return
+        
+        acc_val = int(np.clip(acc_val, acc_min, acc_max))
+
+        self.ids['acceleration_pct_slider'].value = acc_val
+        self.ids['acceleration_pct_text'].text = str(acc_val)
+        self.set_acceleration_limit(val_pct=acc_val)
+
+
+    def set_acceleration_limit(self, val_pct: int):
+        settings['motion']['acceleration_max_pct'] = val_pct
+        lumaview.scope.set_acceleration_limit(val_pct=val_pct)
+
+    
+    def set_acceleration_control_visibility(self, visible):
+        for acceleration_id in ('acceleration_control_box',):
+            self.ids[acceleration_id].visible = visible
+
 
     # load settings from JSON file
     def load_settings(self, filename="./data/current.json"):
@@ -4649,6 +4718,10 @@ class MicroscopeSettings(BoxLayout):
                     self.ids['video_recording_format_spinner'].text = 'Frames'
 
                 self.select_video_recording_format()
+
+                acceleration_limit = settings['motion']['acceleration_max_pct']
+                self.ids['acceleration_pct_slider'].value = acceleration_limit
+                self.acceleration_pct_slider()
 
                 # Set Frame Size
                 # Multiplying frame size by the binning size to account for the select_binning_size() call
@@ -4890,8 +4963,12 @@ class MicroscopeSettings(BoxLayout):
 
 
     def set_ui_features_for_scope(self) -> None:
-        scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
+        microscope_settings = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
+        scope_configs = microscope_settings.scopes
         selected_scope_config = scope_configs[settings['microscope']]
+
+        microscope_settings.set_acceleration_control_visibility(visible=selected_scope_config['XYStage'])
+        
         motion_settings =  lumaview.ids['motionsettings_id']
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
         motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
@@ -4900,6 +4977,8 @@ class MicroscopeSettings(BoxLayout):
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
         protocol_settings.set_show_protocol_step_locations_visibility(visible=selected_scope_config['XYStage'])
+
+        lumaview.ids['motionsettings_id'].ids['post_processing_id'].ids['stitch_controls_id'].set_button_enabled_state(state=selected_scope_config['XYStage'])
 
         if selected_scope_config['XYStage'] is False:
             stage.remove_parent()

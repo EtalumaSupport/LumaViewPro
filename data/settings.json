@@ -137,7 +137,10 @@
     "scale_bar": {
         "enabled": false
     },
-    
-    "video_as_frames": false
-    
+
+    "video_as_frames": false,
+    "motion": {
+        "acceleration_max_pct": 100
+    }
+  
 }

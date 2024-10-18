@@ -64,7 +64,9 @@ try:
 except:
     pass
 
-if windows_machine:
+lvp_installed = True if os.getenv("LVP_INSTALLED", "True") == "True" else False
+
+if windows_machine and (lvp_installed == True):
 
     documents_folder = userpaths.get_my_documents()
     lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
