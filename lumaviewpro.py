@@ -216,6 +216,7 @@ from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
 from modules.stack_builder import StackBuilder
 from modules.zstack_config import ZStackConfig
 from modules.json_helper import CustomJSONizer
+from modules.timedelta_formatter import strfdelta
 import modules.imagej_helper as imagej_helper
 import modules.zprojector as zprojector
 from modules.video_writer import VideoWriter
@@ -3831,8 +3832,16 @@ class ProtocolSettings(CompositeCapture):
         **kwargs,
     ):
         remaining_scans = kwargs['remaining_scans']
+        scan_interval = kwargs['interval']
+        remaining_duration = remaining_scans * scan_interval
+        remaining_duration_str = strfdelta(
+            tdelta=remaining_duration,
+            fmt='{H}h {M}m',
+            inputtype='timedelta',
+        )
         scan_word = "scan" if remaining_scans == 1 else "scans"
-        self.ids['run_protocol_btn'].text = f"{remaining_scans} {scan_word} remaining. Press to ABORT"
+        
+        self.ids['run_protocol_btn'].text = f"{remaining_scans} {scan_word} ({remaining_duration_str}) remaining.\nPress to ABORT"
 
 
     def _run_scan_pre_callback(self):
@@ -3903,7 +3912,8 @@ class ProtocolSettings(CompositeCapture):
 
         if run_mode == SequencedCaptureRunMode.FULL_PROTOCOL:
             self._update_protocol_run_button_status(
-                remaining_scans=sequenced_capture_executor.remaining_scans()
+                remaining_scans=sequenced_capture_executor.remaining_scans(),
+                interval=sequenced_capture_executor.protocol_interval(),
             )
 
 
