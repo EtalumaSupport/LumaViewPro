@@ -37,7 +37,12 @@ March 16, 2023
 
 import csv
 import os
-
+import time
+from datetime import datetime
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.dates import ConciseDateFormatter
+import pandas
 import image_utils
 
 from modules.cell_count import CellCount
@@ -100,7 +105,7 @@ class PostProcessing:
 
 
     def apply_cell_count_to_folder(self, path, settings):
-        fields = ['file', 'num_cells', 'total_object_area (um2)', 'total_object_intensity']
+        fields = ['file', 'time', 'num_cells', 'total_object_area (um2)', 'total_object_intensity']
         results = []
 
         for filename in os.listdir(path):
@@ -114,8 +119,13 @@ class PostProcessing:
                     image=image,
                     settings=settings
                 )
+
+                time_created_raw = os.path.getctime(file_path)
+                time_created = time.ctime(time_created_raw)
+
                 results.append({
                     'filename': os.path.basename(filename),
+                    'time': time_created,
                     'num_cells': region_info['summary']['num_regions'],
                     'total_object_area (um2)': region_info['summary']['total_object_area'],
                     'total_object_intensity': region_info['summary']['total_object_intensity'],
@@ -131,3 +141,10 @@ class PostProcessing:
             writer.writerow(fields)
             for record in results:
                 writer.writerow(record.values())
+
+        """df = pandas.read_csv(results_file_path)
+        fig, ax = plt.subplots()
+        ax.plot([datetime.strptime(datetime_obj, '%c') for datetime_obj in df['time']], df['num_cells'])
+        ax.xaxis.set_major_formatter(ConciseDateFormatter(ax.xaxis.get_major_locator()))
+        plt.show()"""
+        
