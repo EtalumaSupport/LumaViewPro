@@ -138,7 +138,6 @@
         "enabled": false
     },
     
-    "video_as_frames": false,
-    "max_accel_percent": 100
+    "video_as_frames": false
     
 }
