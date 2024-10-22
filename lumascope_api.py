@@ -42,7 +42,7 @@ from ledboard import LEDBoard
 from pyloncamera import PylonCamera
 
 # Import additional libraries
-from lvp_logger import logger
+from lvp_logger import logger, version
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
@@ -398,9 +398,15 @@ class Lumascope():
         )
         
         metadata = {
+            'camera_make': 'Etaluma',
+            'software': f'LumaViewPro {version}',
             'channel': color,
+            'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
+            'sub_sec_time': f"{datetime.datetime.now().microsecond // 1000:03d}",
             'focal_length': self._objective['focal_length'],
             'plate_pos_mm': {'x': px, 'y': py},
+            'x_pos': px,
+            'y_pos': py,
             'z_pos_um': z,
             'exposure_time_ms': round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
             'gain_db': round(self.get_gain(), common_utils.max_decimal_precision('gain')),
@@ -484,7 +490,12 @@ class Lumascope():
                     metadata=metadata,
                 )
             else:
-                cv2.imwrite(str(file_loc), image.astype(array.dtype))
+                image_utils.write_tiff(
+                    data=image,
+                    file_loc=file_loc,
+                    metadata=metadata
+                )
+                #cv2.imwrite(str(file_loc), image.astype(array.dtype))
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
         except:

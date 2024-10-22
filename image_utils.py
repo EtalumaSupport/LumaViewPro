@@ -192,6 +192,72 @@ def write_ome_tiff(
             **ome_tiff_support_data['options']
         )
 
+def write_tiff(
+        data,
+        file_loc: pathlib.Path,
+        metadata: dict
+):
+    # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
+    # them before writing out to OME tiff
+    use_color = image_utils.is_color_image(data)
+    if use_color:
+        data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+
+    tiff_support_data = generate_tiff_data(data=data, metadata=metadata)
+
+    with tf.TiffWriter(str(file_loc), bigTiff=False) as tif:
+        tif.write(
+            data,
+            resolution=tiff_support_data['resolution'],
+            metadata=tiff_support_data['metadata']
+        )
+    
+def generate_tiff_data(data, metadata: dict):
+    use_color = image_utils.is_color_image(data)
+
+    if use_color:
+        photometric = 'rgb'
+        
+    else:
+        photometric = 'minisblack'
+
+    """
+    To Add:
+    ImageNumber
+    LensModel
+
+    """
+
+    
+    tiff_metadata = {
+    "CameraMake": metadata['camera_make'],
+    "ExposureTime": metadata['exposure_time_ms'],           
+    "GainControl": metadata['gain_db'],
+    "DateTime": metadata['datetime'],
+    "Software": metadata['software'],
+    "XPosition": metadata['x_pos'],             
+    "YPosition": metadata['y_pos'],
+    "SubjectDistance": metadata['z_pos_um'],
+    "SubSecTime": metadata['sub_sec_time'],
+    "LightSource": metadata['channel'],
+    "BrightnessValue": metadata['illumination_ma']
+}
+
+    options=dict(
+        photometric=photometric,
+        tile=(128, 128),
+        compression='lzw',
+        resolutionunit='CENTIMETER',
+        maxworkers=2
+    )
+
+    resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
+
+    return {
+        'metadata': tiff_metadata,
+        'options': options,
+        'resolution': resolution,
+    }
 
 def add_scale_bar(
     image,
