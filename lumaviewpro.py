@@ -208,6 +208,7 @@ import modules.common_utils as common_utils
 import labware
 from modules.autofocus_executor import AutofocusExecutor
 from modules.stitcher import Stitcher
+import modules.binning as binning
 from modules.composite_generation import CompositeGeneration
 from modules.contrast_stretcher import ContrastStretcher
 import modules.coord_transformations as coord_transformations
@@ -4727,7 +4728,8 @@ class MicroscopeSettings(BoxLayout):
                 # Multiplying frame size by the binning size to account for the select_binning_size() call
                 # Effectively sets the frame size to the size it was prior to pixel binning, then bins
                 
-                binning_size = int(settings['binning']['size'])
+                binning_size_str = settings['binning']['size']
+                binning_size = binning.binning_size_str_to_int(text=binning_size_str)
 
                 self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
                 self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
@@ -4735,8 +4737,7 @@ class MicroscopeSettings(BoxLayout):
                                               settings['frame']['height'] * binning_size)
 
                 # Pixel Binning
-
-                self.ids['binning_spinner'].text = str(settings['binning']['size'])
+                self.ids['binning_spinner'].text = binning_size_str
                 self.select_binning_size()
                 lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
@@ -4874,13 +4875,6 @@ class MicroscopeSettings(BoxLayout):
         else:
             settings['video_as_frames'] = True
 
-    
-    def update_binning_size(self, size: int):
-        global settings
-        # size = int(self.ids['binning_spinner'].text)
-        lumaview.scope.set_binning_size(size=size)
-        settings['binning']['size'] = size
-
 
     def update_scale_bar_state(self):
         if self.ids['enable_scale_bar_btn'].state == 'down':
@@ -4923,8 +4917,7 @@ class MicroscopeSettings(BoxLayout):
     
     def load_binning_sizes(self):
         spinner = self.ids['binning_spinner']
-        sizes = (1,2,4)
-        spinner.values = list(map(str,sizes))
+        spinner.values = ['1x1','2x2','4x4']
 
 
     def select_binning_size(self):
@@ -4933,8 +4926,11 @@ class MicroscopeSettings(BoxLayout):
         orig_binning_size = lumaview.scope.get_binning_size()
         orig_frame_size = get_current_frame_dimensions()
 
-        new_binning_size = int(self.ids['binning_spinner'].text)
-        self.update_binning_size(size=new_binning_size)
+        new_binning_size_str = self.ids['binning_spinner'].text
+        
+        new_binning_size = binning.binning_size_str_to_int(new_binning_size_str)
+        lumaview.scope.set_binning_size(size=new_binning_size)
+        settings['binning']['size'] = new_binning_size_str
         ratio = new_binning_size / orig_binning_size
         new_frame_size = {
             'width': math.floor(orig_frame_size['width'] / ratio),
