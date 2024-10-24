@@ -745,9 +745,16 @@ class SequencedCaptureExecutor:
 
                         output_file_loc = save_folder / f"{frame_name}.tiff"
 
-                        if not cv2.imwrite(filename=str(output_file_loc), img=image):
+                        frame_metadata = image_utils.generate_video_frame_metadata(ts, frame_num)
+                        
+                        try:
+                            image_utils.write_tiff(image, str(output_file_loc), frame_metadata)
+                        except Exception as e:
+                            logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
+                            
+                        """if not cv2.imwrite(filename=str(output_file_loc), img=image):
                             logger.error(f"Protocol-Video] Failed to write frame {frame_num}")
-
+"""
                 else:
                     video_writer = VideoWriter(
                         output_file_loc=output_file_loc,

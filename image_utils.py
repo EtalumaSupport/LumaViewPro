@@ -6,6 +6,7 @@ import tifffile as tf
 
 import modules.common_utils as common_utils
 import image_utils
+import datetime
 
 from lvp_logger import logger
 
@@ -257,6 +258,17 @@ def generate_tiff_data(data, metadata: dict):
         'metadata': tiff_metadata,
         'options': options,
         'resolution': resolution,
+    }
+
+# Takes in datetime object and frame_num to generate metadata for videos saved as frames
+def generate_video_frame_metadata(time_taken, frame_num):
+    date_time_data = time_taken.strftime("%Y:%m:%d %H:%M:%S")
+    sub_sec_time = f"{time_taken.microsecond // 1000:03d}"
+
+    return {
+        "DateTime": date_time_data,
+        "SubSecTime": sub_sec_time,
+        "ImageNumber": frame_num    
     }
 
 def add_scale_bar(
