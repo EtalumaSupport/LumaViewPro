@@ -115,7 +115,29 @@ def convert_16bit_to_8bit(image):
     return (new_image/256).astype('uint8')
 
 
-def generate_ome_tiff_support_data(data, metadata: dict):
+def write_tiff(
+        data,
+        file_loc: pathlib.Path,
+        metadata: dict,
+        ome: bool,
+):
+    # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
+    # them before writing out to tiff
+    use_color = image_utils.is_color_image(data)
+    if use_color:
+        data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+
+    support_data = generate_tiff_data(data=data, metadata=metadata, ome=ome)
+
+    with tf.TiffWriter(str(file_loc), bigTiff=False) as tif:
+        tif.write(
+            data,
+            resolution=support_data['resolution'],
+            metadata=support_data['metadata'],
+            **support_data['options'],
+        )
+    
+def generate_tiff_data(data, metadata: dict, ome: bool):
     use_color = image_utils.is_color_image(data)
 
     if use_color:
@@ -125,124 +147,51 @@ def generate_ome_tiff_support_data(data, metadata: dict):
         photometric = 'minisblack'
         axes = 'YX'
 
-    ome_metadata={
-        'axes': axes,
-        'SignificantBits': data.itemsize*8,
-        'PhysicalSizeX': metadata['pixel_size_um'],
-        'PhysicalSizeXUnit': 'µm',
-        'PhysicalSizeY': metadata['pixel_size_um'],
-        'PhysicalSizeYUnit': 'µm',
-        'Channel': {'Name': [metadata['channel']]},
-        'Plane': {
-            'PositionX': metadata['plate_pos_mm']['x'],
-            'PositionY': metadata['plate_pos_mm']['y'],
-            'PositionZ': metadata['z_pos_um'],
-            'PositionXUnit': 'mm',
-            'PositionYUnit': 'mm',
-            'PositionZUnit': 'um',
-            'ExposureTime': metadata['exposure_time_ms'],
-            'ExposureTimeUnit': 'ms',
-            'Gain': metadata['gain_db'],
-            'GainUnit': 'dB',
-            'Illumination': metadata['illumination_ma'],
-            'IlluminationUnit': 'mA'
-        }
-    }
-
-    options=dict(
-        photometric=photometric,
-        tile=(128, 128),
-        compression='lzw',
-        resolutionunit='CENTIMETER',
-        maxworkers=2
-    )
-
-    resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
-
-    return {
-        'metadata': ome_metadata,
-        'options': options,
-        'resolution': resolution,
-    }
-
-
-def write_ome_tiff(
-    data,
-    file_loc: pathlib.Path,
-    metadata: dict,
-):
-    # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
-    # them before writing out to OME tiff
-    use_color = image_utils.is_color_image(data)
-    if use_color:
-        data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
-
-    # if use_color:
-    #     photometric = 'rgb'
-    #     axes = 'YXS'
-    # else:
-    #     photometric = 'minisblack'
-    #     axes = 'YX'
-    ome_tiff_support_data = generate_ome_tiff_support_data(data=data, metadata=metadata)
-
-    with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
-        tif.write(
-            data,
-            resolution=ome_tiff_support_data['resolution'],
-            metadata=ome_tiff_support_data['metadata'],
-            **ome_tiff_support_data['options']
-        )
-
-def write_tiff(
-        data,
-        file_loc: pathlib.Path,
-        metadata: dict
-):
-    # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
-    # them before writing out to OME tiff
-    use_color = image_utils.is_color_image(data)
-    if use_color:
-        data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
-
-    tiff_support_data = generate_tiff_data(data=data, metadata=metadata)
-
-    with tf.TiffWriter(str(file_loc), bigTiff=False) as tif:
-        tif.write(
-            data,
-            resolution=tiff_support_data['resolution'],
-            metadata=tiff_support_data['metadata']
-        )
-    
-def generate_tiff_data(data, metadata: dict):
-    use_color = image_utils.is_color_image(data)
-
-    if use_color:
-        photometric = 'rgb'
-        
-    else:
-        photometric = 'minisblack'
-
     """
     To Add:
     ImageNumber
     LensModel
 
     """
+    if True == ome:
+        tiff_metadata={
+            'axes': axes,
+            'SignificantBits': data.itemsize*8,
+            'PhysicalSizeX': metadata['pixel_size_um'],
+            'PhysicalSizeXUnit': 'µm',
+            'PhysicalSizeY': metadata['pixel_size_um'],
+            'PhysicalSizeYUnit': 'µm',
+            'Channel': {'Name': [metadata['channel']]},
+            'Plane': {
+                'PositionX': metadata['plate_pos_mm']['x'],
+                'PositionY': metadata['plate_pos_mm']['y'],
+                'PositionZ': metadata['z_pos_um'],
+                'PositionXUnit': 'mm',
+                'PositionYUnit': 'mm',
+                'PositionZUnit': 'um',
+                'ExposureTime': metadata['exposure_time_ms'],
+                'ExposureTimeUnit': 'ms',
+                'Gain': metadata['gain_db'],
+                'GainUnit': 'dB',
+                'Illumination': metadata['illumination_ma'],
+                'IlluminationUnit': 'mA'
+            }
+        }
 
-    
-    tiff_metadata = {
-    "CameraMake": metadata['camera_make'],
-    "ExposureTime": metadata['exposure_time_ms'],           
-    "GainControl": metadata['gain_db'],
-    "DateTime": metadata['datetime'],
-    "Software": metadata['software'],
-    "XPosition": metadata['x_pos'],             
-    "YPosition": metadata['y_pos'],
-    "SubjectDistance": metadata['z_pos_um'],
-    "SubSecTime": metadata['sub_sec_time'],
-    "LightSource": metadata['channel'],
-    "BrightnessValue": metadata['illumination_ma']
-}
+    else:
+        tiff_metadata={
+            "CameraMake": metadata['camera_make'],
+            "ExposureTime": metadata['exposure_time_ms'],           
+            "GainControl": metadata['gain_db'],
+            "DateTime": metadata['datetime'],
+            "Software": metadata['software'],
+            "XPosition": metadata['x_pos'],             
+            "YPosition": metadata['y_pos'],
+            "SubjectDistance": metadata['z_pos_um'],
+            "SubSecTime": metadata['sub_sec_time'],
+            "LightSource": metadata['channel'],
+            "BrightnessValue": metadata['illumination_ma']
+        }
 
     options=dict(
         photometric=photometric,

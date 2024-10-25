@@ -748,7 +748,12 @@ class SequencedCaptureExecutor:
                         frame_metadata = image_utils.generate_video_frame_metadata(ts, frame_num)
                         
                         try:
-                            image_utils.write_tiff(image, str(output_file_loc), frame_metadata)
+                            image_utils.write_tiff(
+                                data=image,
+                                file_loc=output_file_loc,
+                                metadata=frame_metadata,
+                                ome=False,
+                            )
                         except Exception as e:
                             logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
                             

@@ -482,20 +482,18 @@ class Lumascope():
         metadata = image_data['metadata']
         file_loc = metadata['file_loc']
 
+        if output_format == 'OME-TIFF':
+            ome=True
+        else:
+            ome=False
+
         try:
-            if output_format == 'OME-TIFF':
-                image_utils.write_ome_tiff(
-                    data=image,
-                    file_loc=file_loc,
-                    metadata=metadata,
-                )
-            else:
-                image_utils.write_tiff(
-                    data=image,
-                    file_loc=file_loc,
-                    metadata=metadata
-                )
-                #cv2.imwrite(str(file_loc), image.astype(array.dtype))
+            image_utils.write_tiff(
+                data=image,
+                file_loc=file_loc,
+                metadata=metadata,
+                ome=ome,
+            )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
         except:
