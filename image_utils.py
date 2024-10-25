@@ -129,7 +129,14 @@ def write_tiff(
 
     support_data = generate_tiff_data(data=data, metadata=metadata, ome=ome)
 
-    with tf.TiffWriter(str(file_loc), bigTiff=False) as tif:
+    if True == ome:
+        kwargs = {
+            'bigtiff': False
+        }
+    else:
+        kwargs = {}
+
+    with tf.TiffWriter(str(file_loc), **kwargs) as tif:
         tif.write(
             data,
             resolution=support_data['resolution'],
