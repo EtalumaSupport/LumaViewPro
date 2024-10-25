@@ -41,10 +41,12 @@ June 24, 2023
 import copy
 import logging
 import datetime
+from datetime import datetime as date_time
 import math
 import os
 import pathlib
 import matplotlib.pyplot as plt
+from matplotlib.dates import ConciseDateFormatter
 import numpy as np
 import pandas as pd
 import time
@@ -141,7 +143,7 @@ profiling_helper = None
 
 
 if getattr(sys, 'frozen', False):
-    import pyi_splash
+    import pyi_splash # type: ignore
     pyi_splash.update_text("")
 
 # Deactivate kivy logging
@@ -174,6 +176,7 @@ from kivy.clock import Clock
 from kivy.metrics import dp
 #from kivy.animation import Animation
 from kivy.graphics import Line, Color, Rectangle, Ellipse
+from kivy_garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
 
 # User Interface
 from kivy.uix.accordion import AccordionItem
@@ -205,6 +208,7 @@ import modules.common_utils as common_utils
 import labware
 from modules.autofocus_executor import AutofocusExecutor
 from modules.stitcher import Stitcher
+import modules.binning as binning
 from modules.composite_generation import CompositeGeneration
 from modules.contrast_stretcher import ContrastStretcher
 import modules.coord_transformations as coord_transformations
@@ -234,6 +238,7 @@ import image_utils_kivy
 global lumaview
 global settings
 global cell_count_content
+global graphing_controls
 
 global wellplate_loader
 wellplate_loader = None
@@ -448,7 +453,10 @@ def go_to_step(
 
 
 def get_binning_from_ui() -> int:
-    return int(lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['binning_spinner'].text)
+    try:
+        return int(lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['binning_spinner'].text)
+    except:
+        return 1
 
 
 def get_zstack_params() -> dict:
@@ -603,8 +611,16 @@ def get_protocol_time_params() -> dict:
 def get_selected_labware() -> tuple[str, labware.WellPlate]:
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
     labware_id = protocol_settings.ids['labware_spinner'].text
-    labware = wellplate_loader.get_plate(plate_key=labware_id)
-    return labware_id, labware
+    
+    if len(labware_id) < 1:
+        labware_id = settings['protocol']['labware']
+    try:
+        labware = wellplate_loader.get_plate(plate_key=labware_id)
+        return labware_id, labware
+    except Exception as e:
+        logger.error("LVP Main: Settings file issue. Replace file with a known working version")
+        logger.error(e)
+
 
 
 def get_image_capture_config_from_ui() -> dict:
@@ -1864,6 +1880,295 @@ class VideoCreationControls(BoxLayout):
     #     except Exception as e:
     #         logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
 
+class GraphingControls(BoxLayout):
+    x_axis_label = "X-Axis"
+    y_axis_label = "Y-Axis"
+    graph_title = ""
+    available_axes = ['No Data Loaded']
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        logger.info('LVP Main: GraphingControls.__init__()')
+        self._source_csv = None
+        self.fig = None
+        self._post = post_processing.PostProcessing()
+        self.graphing_area = self.ids.graphing_area
+        self.graph_widget = None
+        self.x_axis_data = []
+        self.y_axis_data = []
+        self.selected_x_axis = None
+        self.selected_y_axis = None
+        self.trendline_enabled = False
+        self.graph_df = None
+        self.initialize_graph()
+
+    def set_x_axis(self):
+        if self._source_csv:
+            self.selected_x_axis = self.ids['graphing_x_axis_spinner'].text
+            self.ids.x_axis_label_input.text = self.selected_x_axis
+
+            sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
+            self.x_axis_data = sorted_graph_df[self.selected_x_axis]
+            self.update_x_axis_label()
+            if self.selected_y_axis is None:
+                return
+            
+            self.initialize_graph()
+            self.update_x_axis_label()
+            if "TIME" in self.selected_x_axis.upper():
+                self.ax.xaxis.set_major_formatter(ConciseDateFormatter(self.ax.xaxis.get_major_locator()))
+                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
+            elif "TIME" not in self.selected_y_axis.upper():
+                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
+            self.ax.scatter(self.x_axis_data, self.y_axis_data)
+            if self.trendline_enabled:
+                self.update_trendline(axis=True)
+            self.update_graph()
+
+    def set_y_axis(self):
+        if self._source_csv:
+            self.selected_y_axis = self.ids['graphing_y_axis_spinner'].text
+            self.ids.y_axis_label_input.text = self.selected_y_axis
+            
+            if self.selected_x_axis is None:
+                self.y_axis_data = self.graph_df[self.selected_y_axis]
+                self.update_y_axis_label()
+                return
+            
+            sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
+            self.y_axis_data = sorted_graph_df[self.selected_y_axis]
+            self.update_y_axis_label()
+            
+            self.initialize_graph()
+            self.update_y_axis_label()
+            if "TIME" in self.selected_y_axis.upper():
+                self.ax.yaxis.set_major_formatter(ConciseDateFormatter(self.ax.yaxis.get_major_locator()))
+                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
+            elif "TIME" not in self.selected_x_axis.upper():
+                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
+            self.ax.scatter(self.x_axis_data, self.y_axis_data)
+            if self.trendline_enabled:
+                self.update_trendline(axis=True)
+            self.update_graph()
+
+    def update_x_axis_label(self):
+        self.ax.set_xlabel(self.ids.x_axis_label_input.text)
+        self.x_axis_label = self.ids.x_axis_label_input.text
+        self.update_graph()
+
+    def update_y_axis_label(self):
+        self.ax.set_ylabel(self.ids.y_axis_label_input.text)
+        self.y_axis_label = self.ids.y_axis_label_input.text
+        self.update_graph()
+
+    def update_available_axes(self):
+        self.available_x_axes = list(self.available_axes)
+        self.available_y_axes = list(self.available_axes)
+
+        # Remove time from y-axis because it cannot be properly formatted at the moment and causes trendline issues
+        if 'time' in self.available_y_axes:
+            self.available_y_axes.remove('time')
+
+        self.ids.graphing_x_axis_spinner.values = self.available_x_axes
+        self.ids.graphing_y_axis_spinner.values = self.available_y_axes
+
+
+    def update_graph_title(self):
+        self.ax.set_title(self.ids.graph_title_input.text)
+        self.graph_title = self.ids.graph_title_input.text
+        self.update_graph()
+
+    def update_trendline(self, axis: bool=False):
+        if self.selected_x_axis is None or self.selected_y_axis is None:
+            return
+        
+        trendline_type = self.ids.trendline_spinner.text
+        if trendline_type == "None":
+            self.trendline_enabled = False
+
+        
+        if not axis:
+            self.initialize_graph()
+            self.set_x_axis()
+            self.set_y_axis()
+
+        self.trendline_enabled = True
+
+        #self.y_axis_data = self.graph_df[self.selected_y_axis]
+
+        x_data = self.x_axis_data
+        y_data = self.y_axis_data
+
+        time_x = False
+        time_y = False
+
+        # If we are dealing with time, convert to an ordinal fomat for trendline creation
+        if 'time' in self.selected_x_axis:
+            x_time_data_original = x_data
+            x_ref_time = x_data.min()
+
+            # Normalize x-data for scaling purposes
+            x_data = (x_data - x_ref_time).dt.total_seconds()
+            x_data = x_data.to_numpy()
+            time_x = True
+        else:
+            x_data = x_data.to_numpy()
+            
+        if 'time' in self.selected_y_axis:
+            y_time_data_original = y_data
+            y_ref_time = y_data.min()
+
+            # Normalize y-data for scaling purposes
+            y_data = (y_data - y_ref_time).dt.total_seconds()
+            y_data = y_data.to_numpy()
+            time_y = True
+        else:
+            y_data = y_data.to_numpy()
+
+
+        if len(x_data) > 1 and len(y_data) > 1:
+
+            if trendline_type == "Linear":
+                try:
+                    z = np.polyfit(x_data, y_data, 1)  # 1st degree polynomial (linear fit)
+                    p = np.poly1d(z)
+
+                    if time_x:
+                        self.ax.plot(x_time_data_original, p(x_data), "r--")
+                    else:
+                        self.ax.plot(x_data, p(x_data), "r--")
+                except Exception as e:
+                    logger.error(f"[Graphing  ] Could not fit linear trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
+
+
+            elif trendline_type == "Quadratic":
+                try:
+                    z = np.polyfit(x_data, y_data, 2)
+                    p = np.poly1d(z)
+
+                    if time_x:
+                        self.ax.plot(x_time_data_original, p(x_data), "r--")
+                    else:
+                        self.ax.plot(x_data, p(x_data), "r--")
+                except Exception as e:
+                    logger.error(f"[Graphing  ] Could not fit quadratic trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
+
+            elif trendline_type == "Exponential":
+                try:
+                    log_y_data = np.log(y_data)
+
+                    # Calculate the exponential trendline
+                    z = np.polyfit(x_data, log_y_data, 1)
+                    p = np.poly1d(z)
+
+                    # Convert back to original scale
+                    exp_y_data = np.exp(p(x_data))
+
+                    if time_x:
+                        self.ax.plot(x_time_data_original, exp_y_data, "r--")
+                    else:
+                        self.ax.plot(x_data, exp_y_data, "r--")
+                except Exception as e:
+                    logger.error(f"[Graphing  ] Could not fit exponential trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
+
+            elif trendline_type == "Power":
+                try:
+                    # Transform data for power fit
+                    log_x_data = np.log(x_data)
+                    log_y_data = np.log(y_data)
+
+                    # Calculate the power trendline
+                    z = np.polyfit(log_x_data, log_y_data, 1)
+                    p = np.poly1d(z)
+
+                    # Convert back to original scale
+                    power_y_data = np.exp(p(np.log(x_data)))
+
+                    try:
+                        self.ax.plot(x_data, power_y_data, "r--")
+                    except Exception as e:
+                        logger.error(f"Graphing ] Power trendline error: {e}")
+                except Exception as e:
+                    logger.error(f"[Graphing  ] Could not fit power trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
+
+            elif trendline_type == "Logarithmic":
+                try:
+                    # Transform x_data for logarithmic fit
+                    log_x_data = np.log(x_data)
+
+                    # Calculate the logarithmic trendline
+                    z = np.polyfit(log_x_data, y_data, 1)
+                    p = np.poly1d(z)
+
+                    try:
+                        self.ax.plot(x_data, p(np.log(x_data)), "r--")
+                    except Exception as e:
+                        logger.error(f"Graphing ] Logarithmic trendline error: {e}")
+                except Exception as e:
+                    logger.error(f"[Graphing  ] Could not fit logarithmic trendline: {e}")
+                    self.ids.trendline_spinner.text = "None"
+                
+            self.update_graph()
+
+
+    def regenerate_graph(self):
+        self.initialize_graph()
+        self.set_x_axis()
+        self.set_y_axis()
+        if self.trendline_enabled:
+            self.update_trendline()
+
+    def initialize_graph(self):
+        if plt:
+            plt.clf()
+        graphing_area = self.graphing_area
+        self.fig, self.ax = plt.subplots()
+        self.ax.scatter([], [])
+        self.ax.set_xlabel(self.x_axis_label)
+        self.ax.set_ylabel(self.y_axis_label)
+        self.ax.set_title(self.graph_title)
+
+        if self.graph_widget:
+            graphing_area.remove_widget(self.graph_widget)
+
+        self.graph_widget = FigureCanvasKivyAgg(plt.gcf())
+        
+        graphing_area.add_widget(self.graph_widget)
+
+
+    def update_graph(self):
+        self.graph_widget.draw()
+
+    def save_graph(self, filepath):
+        plt.savefig(filepath)
+
+    def set_graphing_source(self, file):
+        self._source_csv = file
+        self.initialize_graph()
+        try:
+            self.graph_df = pd.read_csv(file)
+            self.available_axes = list(self.graph_df.keys())
+            if self.available_axes[0] == "file":
+                self.available_axes = self.available_axes[1:]
+            if "time" in self.available_axes:
+                self.graph_df['time'] = [date_time.strptime(datetime_obj, '%c') for datetime_obj in self.graph_df['time']]
+                    
+            self.update_available_axes()
+            self.set_x_axis()
+            self.set_y_axis()
+
+        except Exception as e:
+            logger.error(f"Graph Generation | Set graphing source | {e}")
+
+
+
+    def set_post_processing_module(self, postprocessingmodule):
+        self._post = postprocessingmodule
+
 
 class CellCountControls(BoxLayout):
 
@@ -2268,11 +2573,19 @@ class PostProcessingAccordion(BoxLayout):
         self.accordion_item_states = {
             'cell_count_accordion_id': None,
             'stitch_accordion_id': None,
+            'composite_gen_accordion_id': None,
+            'zprojection_accordion_id': None,
             'open_last_save_folder_accordion_id': None,
             'create_avi_accordion_id': None
         }
+        print("===============================================================")
+        print(self.ids)
+        print("===============================================================")
+        """for id in self.accordion_item_states.keys():
+            self.ids[id].background_color = [0.753, 0.816, 0.910, 1]"""
 
         self.init_cell_count()
+        self._graphing_popup = None
 
 
     @staticmethod
@@ -2286,6 +2599,8 @@ class PostProcessingAccordion(BoxLayout):
         return {
             'cell_count_accordion_id': self.accordion_item_state(self.ids['cell_count_accordion_id']),
             'stitch_accordion_id': self.accordion_item_state(self.ids['stitch_accordion_id']),
+            'composite_gen_accordion_id': self.accordion_item_state(self.ids['composite_gen_accordion_id']),
+            'zprojection_accordion_id': self.accordion_item_state(self.ids['zprojection_accordion_id']),
             'open_last_save_folder_accordion_id': self.accordion_item_state(self.ids['open_last_save_folder_accordion_id']),
             'create_avi_accordion_id': self.accordion_item_state(self.ids['create_avi_accordion_id']),
         }
@@ -2345,13 +2660,26 @@ class PostProcessingAccordion(BoxLayout):
         if self._cell_count_popup is None:
             cell_count_content.set_post_processing_module(self.post)
             self._cell_count_popup = Popup(
-                title="Post Processing - Cell Count",
+                title="Post Processing - Object Analysis",
                 content=cell_count_content,
                 size_hint=(0.85,0.85),
                 auto_dismiss=True
             )
 
         self._cell_count_popup.open()
+
+    def open_graphing(self):
+        global graphing_controls
+        if self._graphing_popup is None:
+            graphing_controls.set_post_processing_module(self.post)
+            self._graphing_popup = Popup(
+                title="Post Processing - Object Plotting",
+                content=graphing_controls,
+                size_hint=(0.85,0.85),
+                auto_dismiss=True
+            )
+        
+        self._graphing_popup.open()
 
 
 class CellCountDisplay(FloatLayout):
@@ -3614,16 +3942,19 @@ class ProtocolSettings(CompositeCapture):
     def _reset_run_autofocus_scan_button(self, **kwargs):
         self.ids['run_autofocus_btn'].state = 'normal'
         self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+        stage.set_motion_capability(True)
 
 
     def _reset_run_scan_button(self, **kwargs):
         self.ids['run_scan_btn'].state = 'normal'
         self.ids['run_scan_btn'].text = 'Run One Scan'
+        stage.set_motion_capability(True)
 
     
     def _reset_run_protocol_button(self, **kwargs):
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
+        stage.set_motion_capability(True)
         
 
     def _is_protocol_valid(self) -> bool:
@@ -3652,6 +3983,7 @@ class ProtocolSettings(CompositeCapture):
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
 
         live_histo_off()
+        stage.set_motion_capability(False)
 
         if self.ids['run_autofocus_btn'].state == 'normal' or (sequenced_capture_executor.run_in_progress() and run_trigger_source == trigger_source):
             self._cleanup_at_end_of_protocol(autofocus_scan=True)
@@ -3718,6 +4050,7 @@ class ProtocolSettings(CompositeCapture):
         create_hyperstacks_if_needed()
         live_histo_reverse()
         reset_acquire_ui()
+        stage.set_motion_capability(True)
 
 
     def run_scan_from_ui(self):
@@ -3725,6 +4058,9 @@ class ProtocolSettings(CompositeCapture):
         trigger_source = 'scan'
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
+
+        # Disable ability for user to move stage manually
+        stage.set_motion_capability(False)
 
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
         if self.ids['run_scan_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
@@ -3771,6 +4107,7 @@ class ProtocolSettings(CompositeCapture):
         live_histo_reverse()
         create_hyperstacks_if_needed()
         reset_acquire_ui()
+        stage.set_motion_capability(True)
 
 
     def run_protocol_from_ui(self):
@@ -3778,6 +4115,8 @@ class ProtocolSettings(CompositeCapture):
         trigger_source = 'protocol'
         run_complete_func = self._protocol_run_complete
         run_not_started_func = self._reset_run_protocol_button
+
+        stage.set_motion_capability(False)
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
 
@@ -3923,6 +4262,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
+        stage.set_motion_capability(True)
         
 
         if not autofocus_scan:
@@ -4372,6 +4712,7 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
                 self.select_sequenced_image_output_format()
 
+
                 if settings['video_as_frames'] == False:
                     self.ids['video_recording_format_spinner'].text = 'mp4'
                 else:
@@ -4387,7 +4728,8 @@ class MicroscopeSettings(BoxLayout):
                 # Multiplying frame size by the binning size to account for the select_binning_size() call
                 # Effectively sets the frame size to the size it was prior to pixel binning, then bins
                 
-                binning_size = int(settings['binning']['size'])
+                binning_size_str = settings['binning']['size']
+                binning_size = binning.binning_size_str_to_int(text=binning_size_str)
 
                 self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
                 self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
@@ -4395,8 +4737,7 @@ class MicroscopeSettings(BoxLayout):
                                               settings['frame']['height'] * binning_size)
 
                 # Pixel Binning
-
-                self.ids['binning_spinner'].text = str(settings['binning']['size'])
+                self.ids['binning_spinner'].text = binning_size_str
                 self.select_binning_size()
                 lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
@@ -4472,6 +4813,7 @@ class MicroscopeSettings(BoxLayout):
         self.set_ui_features_for_scope()
 
 
+
     def update_separate_folders_per_channel(self):
         global settings
 
@@ -4533,13 +4875,6 @@ class MicroscopeSettings(BoxLayout):
         else:
             settings['video_as_frames'] = True
 
-    
-    def update_binning_size(self, size: int):
-        global settings
-        # size = int(self.ids['binning_spinner'].text)
-        lumaview.scope.set_binning_size(size=size)
-        settings['binning']['size'] = size
-
 
     def update_scale_bar_state(self):
         if self.ids['enable_scale_bar_btn'].state == 'down':
@@ -4582,8 +4917,7 @@ class MicroscopeSettings(BoxLayout):
     
     def load_binning_sizes(self):
         spinner = self.ids['binning_spinner']
-        sizes = (1,2,4)
-        spinner.values = list(map(str,sizes))
+        spinner.values = ['1x1','2x2','4x4']
 
 
     def select_binning_size(self):
@@ -4592,8 +4926,11 @@ class MicroscopeSettings(BoxLayout):
         orig_binning_size = lumaview.scope.get_binning_size()
         orig_frame_size = get_current_frame_dimensions()
 
-        new_binning_size = int(self.ids['binning_spinner'].text)
-        self.update_binning_size(size=new_binning_size)
+        new_binning_size_str = self.ids['binning_spinner'].text
+        
+        new_binning_size = binning.binning_size_str_to_int(new_binning_size_str)
+        lumaview.scope.set_binning_size(size=new_binning_size)
+        settings['binning']['size'] = new_binning_size_str
         ratio = new_binning_size / orig_binning_size
         new_frame_size = {
             'width': math.floor(orig_frame_size['width'] / ratio),
@@ -5162,6 +5499,9 @@ class FileChooseBTN(Button):
         elif self.context == "load_cell_count_method":
             filetypes_tk = [('JSON', '.json')]
             filetypes=["*.json"]
+        elif self.context == "load_graphing_data":
+            filetypes_tk = [('CSV', '.csv')]
+            filetypes=["*.csv"]
         else:
             logger.exception(f"Unsupported handling for {self.context}")
             return
@@ -5206,7 +5546,10 @@ class FileChooseBTN(Button):
         logger.info('[LVP Main  ] FileChooseBTN.on_selection_function()')
         global lumaview
         
+        
         if self.selection:
+            print("Selection")
+            print(f"Self.context: {self.context}")
             if self.context == 'load_settings':
                 lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings(self.selection[0])
 
@@ -5215,6 +5558,10 @@ class FileChooseBTN(Button):
             
             elif self.context == 'load_cell_count_input_image':
                 cell_count_content.set_preview_source_file(file=self.selection[0])
+
+            elif self.context == 'load_graphing_data':
+                print("Set Graphing source")
+                graphing_controls.set_graphing_source(file=self.selection[0])
 
             elif self.context == 'load_cell_count_method':
                 cell_count_content.load_method_from_file(file=self.selection[0])
@@ -5337,6 +5684,8 @@ class FileSaveBTN(Button):
             filetypes = [('TSV', '.tsv')]
         elif self.context == 'saveas_cell_count_method':
             filetypes = [('JSON', '.json')]
+        elif self.context == 'save_graph':
+            filetypes = [('PNG', '.png')]
         else:
             logger.exception(f"Unsupported handling for {self.context}")
             return
@@ -5381,6 +5730,11 @@ class FileSaveBTN(Button):
             if self.selection:
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
                 logger.info('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
+
+        elif self.context == 'save_graph':
+            if self.selection:
+                graphing_controls.save_graph(filepath=self.selection[0])
+                logger.info('[LVP Main  ] Saving Graph PNG to File:' + self.selection[0])
         
         elif self.context == 'saveas_cell_count_method':
             if self.selection:
@@ -5458,6 +5812,7 @@ class LumaViewProApp(App):
         global Window
         global lumaview
         global cell_count_content
+        global graphing_controls
         global video_creation_controls
         global stitch_controls
         global zprojection_controls
@@ -5480,6 +5835,7 @@ class LumaViewProApp(App):
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
             cell_count_content = CellCountControls()
+            graphing_controls = GraphingControls()
             #Window.maximize()
         except:
             logger.exception('[LVP Main  ] Cannot open main display.')
