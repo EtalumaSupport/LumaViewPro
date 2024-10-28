@@ -7,6 +7,7 @@ import tifffile as tf
 import modules.common_utils as common_utils
 import image_utils
 import datetime
+from fractions import Fraction
 
 from lvp_logger import logger
 
@@ -120,6 +121,8 @@ def write_tiff(
         file_loc: pathlib.Path,
         metadata: dict,
         ome: bool,
+        video_frame: bool = False,
+        extratags: list = [],
 ):
     # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
     # them before writing out to tiff
@@ -127,7 +130,7 @@ def write_tiff(
     if use_color:
         data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
 
-    support_data = generate_tiff_data(data=data, metadata=metadata, ome=ome)
+    support_data = generate_tiff_data(data=data, metadata=metadata, ome=ome, video_frame=video_frame)
 
     if True == ome:
         kwargs = {
@@ -137,14 +140,22 @@ def write_tiff(
         kwargs = {}
 
     with tf.TiffWriter(str(file_loc), **kwargs) as tif:
-        tif.write(
-            data,
-            resolution=support_data['resolution'],
-            metadata=support_data['metadata'],
-            **support_data['options'],
-        )
+        if ome:
+            tif.write(
+                data,
+                resolution=support_data['resolution'],
+                metadata=support_data['metadata'],
+                **support_data['options'],
+            )
+        else:
+            tif.write(
+                data,
+                resolution=support_data['resolution'],
+                extratags=support_data['extratags'],
+                **support_data['options']
+            )
     
-def generate_tiff_data(data, metadata: dict, ome: bool):
+def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
     use_color = image_utils.is_color_image(data)
 
     if use_color:
@@ -184,21 +195,86 @@ def generate_tiff_data(data, metadata: dict, ome: bool):
                 'IlluminationUnit': 'mA'
             }
         }
+        tiff_extratags = []
+        # Metadata seems to be working properly for OME-TIFF's so let's leave it alone for now.
 
     else:
-        tiff_metadata={
-            "CameraMake": metadata['camera_make'],
-            "ExposureTime": metadata['exposure_time_ms'],           
-            "GainControl": metadata['gain_db'],
-            "DateTime": metadata['datetime'],
-            "Software": metadata['software'],
-            "XPosition": metadata['x_pos'],             
-            "YPosition": metadata['y_pos'],
-            "SubjectDistance": metadata['z_pos_um'],
-            "SubSecTime": metadata['sub_sec_time'],
-            "LightSource": metadata['channel'],
-            "BrightnessValue": metadata['illumination_ma']
-        }
+        if not video_frame:
+            tiff_metadata={
+                "CameraMake": metadata['camera_make'],
+                "ExposureTime": metadata['exposure_time_ms'],           
+                "ISOSpeed": metadata['gain_db'],
+                "DateTime": metadata['datetime'],
+                "Software": metadata['software'],
+                "XPosition": metadata['x_pos'],             
+                "YPosition": metadata['y_pos'],
+                "SubjectDistance": metadata['z_pos_um'],
+                "SubSecTime": metadata['sub_sec_time'],
+                #"LightSource": metadata['channel'],
+                "BrightnessValue": metadata['illumination_ma']
+            }
+
+            # Format: (tag_number, datatype, count, value, write_ifd)
+            # For rational number values: (numerator, denominator)
+
+            tiff_extratags = [
+            # CameraMake: Tag ID 271, 'ascii'
+            (271, 'ascii', len(metadata['camera_make']) + 1, metadata['camera_make'], False),
+
+            # ExposureTime: Tag ID 33434, 'RATIONAL'
+            (33434, 'RATIONAL', 1, ms_exposure_to_rational(metadata['exposure_time_ms']), False),
+
+            # ISOSpeed: Tag ID 34867, 'double'
+            # Using in place of GainControl (Improper use of GainControl)
+            (34867, 'double', 1, metadata['gain_db'], False),
+
+            # DateTime: Tag ID 306, 'ascii'
+            (306, 'ascii', len(metadata['datetime']) + 1, metadata['datetime'], False),
+
+            # Software: Tag ID 305, 'ascii'
+            (305, 'ascii', len(metadata['software']) + 1, metadata['software'], False),
+
+            # XPosition: Tag ID 65001, 'RATIONAL' 
+            # Need to double check units
+            (286, 'RATIONAL', 1, (metadata['x_pos'], 1), False),
+
+            # YPosition: Custom Tag ID 65002, 'RATIONAL'
+            # Need to double check units
+            (287, 'RATIONAL', 1, (metadata['y_pos'], 1), False),
+
+            # SubjectDistance: Tag ID 37386, 'RATIONAL'
+            (37386, 'RATIONAL', 1, subject_dist_to_rational(metadata['z_pos_um']), False),
+
+            # SubSecTime: Tag ID 37520, 'ascii'
+            (37520, 'ascii', len(metadata['sub_sec_time']) + 1, metadata['sub_sec_time'], False),
+
+            # Channel: Tag ID 65001, 'ascii'  **CUSTOM**
+            (65001, 'ascii', len(metadata['channel']) + 1, metadata['channel'], False),
+
+            # BrightnessValue: Tag ID 37393, 'SRATIONAL'
+            (37393, 'SRATIONAL', 1, (metadata['illumination_ma'], 1), False)
+
+            ]
+        else:
+            # Video Frame
+            # Add further parameters in the future if testing goes well
+
+            date_time_data = metadata['timestamp'].strftime("%Y:%m:%d %H:%M:%S")
+            sub_sec_time = f"{metadata['timestamp'].microsecond // 1000:03d}"
+
+            tiff_extratags = [
+            # Tag 306: DateTime (ASCII)
+            (306, 'ascii', len(date_time_data) + 1, date_time_data, False),
+
+            # Tag 37520: SubSecTime (ASCII)
+            (37520, 'ascii', len(sub_sec_time) + 1, sub_sec_time, False),
+
+            # Tag 37393: ImageNumber (long)
+            (37393, 'long', 1, metadata['frame_num'], False)
+
+            ]
+
+
 
     options=dict(
         photometric=photometric,
@@ -212,20 +288,22 @@ def generate_tiff_data(data, metadata: dict, ome: bool):
 
     return {
         'metadata': tiff_metadata,
+        'extratags': tiff_extratags,
         'options': options,
         'resolution': resolution,
     }
 
-# Takes in datetime object and frame_num to generate metadata for videos saved as frames
-def generate_video_frame_metadata(time_taken, frame_num):
-    date_time_data = time_taken.strftime("%Y:%m:%d %H:%M:%S")
-    sub_sec_time = f"{time_taken.microsecond // 1000:03d}"
+def ms_exposure_to_rational(ms_exposure):
+    exposure_seconds = ms_exposure / 1000
+    fraction = Fraction(exposure_seconds).limit_denominator(1_000_000)
+    # Metadata uses rational number of seconds
+    return fraction.numerator, fraction.denominator
 
-    return {
-        "DateTime": date_time_data,
-        "SubSecTime": sub_sec_time,
-        "ImageNumber": frame_num    
-    }
+def subject_dist_to_rational(distance):
+    distance_meters = distance / 1_000_000  # Convert um to m
+    fraction = Fraction(distance_meters).limit_denominator(1_000_000)
+    return fraction.numerator, fraction.denominator
+
 
 def add_scale_bar(
     image,

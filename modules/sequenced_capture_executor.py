@@ -745,13 +745,17 @@ class SequencedCaptureExecutor:
 
                         output_file_loc = save_folder / f"{frame_name}.tiff"
 
-                        frame_metadata = image_utils.generate_video_frame_metadata(ts, frame_num)
+                        metadata = {
+                            "timestamp": ts,
+                            "frame_num": frame_num
+                        }
                         
                         try:
                             image_utils.write_tiff(
                                 data=image,
+                                metadata=metadata,
                                 file_loc=output_file_loc,
-                                metadata=frame_metadata,
+                                video_frame=True,
                                 ome=False,
                             )
                         except Exception as e:
