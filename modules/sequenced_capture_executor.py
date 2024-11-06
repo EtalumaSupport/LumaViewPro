@@ -746,7 +746,8 @@ class SequencedCaptureExecutor:
                         output_file_loc = save_folder / f"{frame_name}.tiff"
 
                         metadata = {
-                            "timestamp": ts,
+                            "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
+                            "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
                             "frame_num": frame_num
                         }
                         

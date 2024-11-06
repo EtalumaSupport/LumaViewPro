@@ -9,8 +9,26 @@ import image_utils
 import datetime
 from fractions import Fraction
 
-from lvp_logger import logger
+from lvp_logger import logger, version
 
+# Conversion to tifffile's desired datatype references
+tifffile_dtypes = {
+    'BYTE': 1,
+    'ASCII': 2,
+    'SHORT': 3,
+    'LONG': 4,
+    'RATIONAL': 5,
+    'SBYTE': 6,
+    'UNDEFINED': 7,
+    'SSHORT': 8,
+    'SLONG': 9,
+    'SRATIONAL': 10,
+    'FLOAT': 11,
+    'DOUBLE': 12,
+    'SINGLE': 13,
+    'QWORD': 16,
+    'SQWORD': 17,
+}
 
 def is_color_image(image) -> bool:
     if len(image.shape) == 3 and image.shape[2] == 3:
@@ -124,6 +142,7 @@ def write_tiff(
         video_frame: bool = False,
         extratags: list = [],
 ):
+    
     # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
     # them before writing out to tiff
     use_color = image_utils.is_color_image(data)
@@ -140,22 +159,29 @@ def write_tiff(
         kwargs = {}
 
     with tf.TiffWriter(str(file_loc), **kwargs) as tif:
-        if ome:
+        if not video_frame:
             tif.write(
                 data,
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
+                datetime=metadata['datetime'],
+                software=f"LumaViewPro {version}",
                 **support_data['options'],
             )
         else:
             tif.write(
                 data,
-                resolution=support_data['resolution'],
-                extratags=support_data['extratags'],
-                **support_data['options']
+                metadata=support_data['metadata'],
+                datetime=metadata['datetime'],
+                software=f"LumaViewPro {version}",
+                **support_data['options'],
             )
+            
     
 def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
+    
+    dtype = tifffile_dtypes
+    
     use_color = image_utils.is_color_image(data)
 
     if use_color:
@@ -210,56 +236,83 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
                 "YPosition": metadata['y_pos'],
                 "SubjectDistance": metadata['z_pos_um'],
                 "SubSecTime": metadata['sub_sec_time'],
-                #"LightSource": metadata['channel'],
+                "Channel": metadata['channel'],
                 "BrightnessValue": metadata['illumination_ma']
             }
-
+            # extratags:
+            # Additional tags to write. A list of tuples with 5 items:
+            #
+            # 0. code (int): Tag Id.
+            #
+            # 1. dtype (:py:class:`DATATYPE`):
+            #    Data type of items in `value`.
+            #
+            # 2. count (int): Number of data values.
+            #    Not used for string or bytes values.
+            #
+            # 3. value (Sequence[Any]): `count` values compatible with
+            #   `dtype`. Bytes must contain count values of dtype packed
+            #    as binary data.
+            #
+            # 4. writeonce (bool): If *True*, write tag to first page
+            #    of a series only.
+            #
+            # Duplicate and select tags in TIFF.TAG_FILTERED are not written
+            # if the extratag is specified by integer code.
+            #
+            # Extratags cannot be used to write IFD type tags.
+            #
             # Format: (tag_number, datatype, count, value, write_ifd)
             # For rational number values: (numerator, denominator)
-
-            tiff_extratags = [
-            # CameraMake: Tag ID 271, 'ascii'
-            (271, 'ascii', len(metadata['camera_make']) + 1, metadata['camera_make'], False),
+            tiff_extratags = []
+            """tiff_extratags = [
+            # CameraMake: Tag ID 271, 'ASCII'
+            (271, dtype['ASCII'], len(metadata['camera_make']) + 1, metadata['camera_make'], False),
+            
 
             # ExposureTime: Tag ID 33434, 'RATIONAL'
-            (33434, 'RATIONAL', 1, ms_exposure_to_rational(metadata['exposure_time_ms']), False),
+            (33434, dtype['RATIONAL'], 1, ms_exposure_to_rational(metadata['exposure_time_ms']), False),
 
+        
             # ISOSpeed: Tag ID 34867, 'double'
             # Using in place of GainControl (Improper use of GainControl)
-            (34867, 'double', 1, metadata['gain_db'], False),
-
-            # DateTime: Tag ID 306, 'ascii'
-            (306, 'ascii', len(metadata['datetime']) + 1, metadata['datetime'], False),
-
-            # Software: Tag ID 305, 'ascii'
-            (305, 'ascii', len(metadata['software']) + 1, metadata['software'], False),
-
-            # XPosition: Tag ID 65001, 'RATIONAL' 
-            # Need to double check units
-            (286, 'RATIONAL', 1, (metadata['x_pos'], 1), False),
-
-            # YPosition: Custom Tag ID 65002, 'RATIONAL'
-            # Need to double check units
-            (287, 'RATIONAL', 1, (metadata['y_pos'], 1), False),
+            (34867, dtype['DOUBLE'], 1, metadata['gain_db'], False),
+            
+            # DateTime: Tag ID 306, 'ASCII'
+            (306, dtype['ASCII'], len(metadata['datetime']) + 1, metadata['datetime'], False),
 
             # SubjectDistance: Tag ID 37386, 'RATIONAL'
-            (37386, 'RATIONAL', 1, subject_dist_to_rational(metadata['z_pos_um']), False),
+            (37386, dtype['RATIONAL'], 1, subject_dist_to_rational(metadata['z_pos_um']), False),
 
-            # SubSecTime: Tag ID 37520, 'ascii'
-            (37520, 'ascii', len(metadata['sub_sec_time']) + 1, metadata['sub_sec_time'], False),
+            # SubSecTime: Tag ID 37520, 'ASCII'
+            (37520, dtype['ASCII'], len(metadata['sub_sec_time']) + 1, metadata['sub_sec_time'], False),
 
-            # Channel: Tag ID 65001, 'ascii'  **CUSTOM**
-            (65001, 'ascii', len(metadata['channel']) + 1, metadata['channel'], False),
+            # Channel: Tag ID 65001, 'ASCII'  **CUSTOM**
+            (65001, dtype['ASCII'], len(metadata['channel']) + 1, metadata['channel'], False),
 
             # BrightnessValue: Tag ID 37393, 'SRATIONAL'
-            (37393, 'SRATIONAL', 1, (metadata['illumination_ma'], 1), False)
+            (37393, dtype['SRATIONAL'], 1, (metadata['illumination_ma'], 1), False)]"""
 
-            ]
+            """
+            # XPosition: Tag ID 65001, 'RATIONAL' 
+            # Need to double check units
+            (286, dtype['RATIONAL'], 1, (metadata['x_pos'], 1), False),]
+
+            
+            # YPosition: Custom Tag ID 65002, 'RATIONAL'
+            # Need to double check units
+            (287, dtype['RATIONAL'], 1, (metadata['y_pos'], 1), False),
+
+            
+            """
+            
+
+
         else:
             # Video Frame
             # Add further parameters in the future if testing goes well
 
-            date_time_data = metadata['timestamp'].strftime("%Y:%m:%d %H:%M:%S")
+            """date_time_data = metadata['timestamp'].strftime("%Y:%m:%d %H:%M:%S")
             sub_sec_time = f"{metadata['timestamp'].microsecond // 1000:03d}"
 
             tiff_extratags = [
@@ -272,7 +325,9 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
             # Tag 37393: ImageNumber (long)
             (37393, 'long', 1, metadata['frame_num'], False)
 
-            ]
+            ]"""
+            tiff_extratags = []
+            tiff_metadata = metadata
 
 
 
@@ -284,14 +339,22 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
         maxworkers=2
     )
 
-    resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
+    if not video_frame:
+        resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
 
-    return {
-        'metadata': tiff_metadata,
-        'extratags': tiff_extratags,
-        'options': options,
-        'resolution': resolution,
-    }
+        return {
+            'metadata': tiff_metadata,
+            'extratags': tiff_extratags,
+            'options': options,
+            'resolution': resolution,
+        }
+    
+    else:
+        return {
+            'metadata': tiff_metadata,
+            'extratags': tiff_extratags,
+            'options': options,
+        }
 
 def ms_exposure_to_rational(ms_exposure):
     exposure_seconds = ms_exposure / 1000
