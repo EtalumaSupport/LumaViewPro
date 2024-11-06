@@ -6,9 +6,29 @@ import tifffile as tf
 
 import modules.common_utils as common_utils
 import image_utils
+import datetime
+from fractions import Fraction
 
-from lvp_logger import logger
+from lvp_logger import logger, version
 
+# Conversion to tifffile's desired datatype references
+tifffile_dtypes = {
+    'BYTE': 1,
+    'ASCII': 2,
+    'SHORT': 3,
+    'LONG': 4,
+    'RATIONAL': 5,
+    'SBYTE': 6,
+    'UNDEFINED': 7,
+    'SSHORT': 8,
+    'SLONG': 9,
+    'SRATIONAL': 10,
+    'FLOAT': 11,
+    'DOUBLE': 12,
+    'SINGLE': 13,
+    'QWORD': 16,
+    'SQWORD': 17,
+}
 
 def is_color_image(image) -> bool:
     if len(image.shape) == 3 and image.shape[2] == 3:
@@ -114,7 +134,54 @@ def convert_16bit_to_8bit(image):
     return (new_image/256).astype('uint8')
 
 
-def generate_ome_tiff_support_data(data, metadata: dict):
+def write_tiff(
+        data,
+        file_loc: pathlib.Path,
+        metadata: dict,
+        ome: bool,
+        video_frame: bool = False,
+        extratags: list = [],
+):
+    
+    # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
+    # them before writing out to tiff
+    use_color = image_utils.is_color_image(data)
+    if use_color:
+        data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
+
+    support_data = generate_tiff_data(data=data, metadata=metadata, ome=ome, video_frame=video_frame)
+
+    if True == ome:
+        kwargs = {
+            'bigtiff': False
+        }
+    else:
+        kwargs = {}
+
+    with tf.TiffWriter(str(file_loc), **kwargs) as tif:
+        if not video_frame:
+            tif.write(
+                data,
+                resolution=support_data['resolution'],
+                metadata=support_data['metadata'],
+                datetime=metadata['datetime'],
+                software=f"LumaViewPro {version}",
+                **support_data['options'],
+            )
+        else:
+            tif.write(
+                data,
+                metadata=support_data['metadata'],
+                datetime=metadata['datetime'],
+                software=f"LumaViewPro {version}",
+                **support_data['options'],
+            )
+            
+    
+def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
+    
+    dtype = tifffile_dtypes
+    
     use_color = image_utils.is_color_image(data)
 
     if use_color:
@@ -124,29 +191,145 @@ def generate_ome_tiff_support_data(data, metadata: dict):
         photometric = 'minisblack'
         axes = 'YX'
 
-    ome_metadata={
-        'axes': axes,
-        'SignificantBits': data.itemsize*8,
-        'PhysicalSizeX': metadata['pixel_size_um'],
-        'PhysicalSizeXUnit': 'µm',
-        'PhysicalSizeY': metadata['pixel_size_um'],
-        'PhysicalSizeYUnit': 'µm',
-        'Channel': {'Name': [metadata['channel']]},
-        'Plane': {
-            'PositionX': metadata['plate_pos_mm']['x'],
-            'PositionY': metadata['plate_pos_mm']['y'],
-            'PositionZ': metadata['z_pos_um'],
-            'PositionXUnit': 'mm',
-            'PositionYUnit': 'mm',
-            'PositionZUnit': 'um',
-            'ExposureTime': metadata['exposure_time_ms'],
-            'ExposureTimeUnit': 'ms',
-            'Gain': metadata['gain_db'],
-            'GainUnit': 'dB',
-            'Illumination': metadata['illumination_ma'],
-            'IlluminationUnit': 'mA'
+    """
+    To Add:
+    ImageNumber
+    LensModel
+
+    """
+    if True == ome:
+        tiff_metadata={
+            'axes': axes,
+            'SignificantBits': data.itemsize*8,
+            'PhysicalSizeX': metadata['pixel_size_um'],
+            'PhysicalSizeXUnit': 'µm',
+            'PhysicalSizeY': metadata['pixel_size_um'],
+            'PhysicalSizeYUnit': 'µm',
+            'Channel': {'Name': [metadata['channel']]},
+            'Plane': {
+                'PositionX': metadata['plate_pos_mm']['x'],
+                'PositionY': metadata['plate_pos_mm']['y'],
+                'PositionZ': metadata['z_pos_um'],
+                'PositionXUnit': 'mm',
+                'PositionYUnit': 'mm',
+                'PositionZUnit': 'um',
+                'ExposureTime': metadata['exposure_time_ms'],
+                'ExposureTimeUnit': 'ms',
+                'Gain': metadata['gain_db'],
+                'GainUnit': 'dB',
+                'Illumination': metadata['illumination_ma'],
+                'IlluminationUnit': 'mA'
+            }
         }
-    }
+        tiff_extratags = []
+        # Metadata seems to be working properly for OME-TIFF's so let's leave it alone for now.
+
+    else:
+        if not video_frame:
+            tiff_metadata={
+                "CameraMake": metadata['camera_make'],
+                "ExposureTime": metadata['exposure_time_ms'],           
+                "ISOSpeed": metadata['gain_db'],
+                "DateTime": metadata['datetime'],
+                "Software": metadata['software'],
+                "XPosition": metadata['x_pos'],             
+                "YPosition": metadata['y_pos'],
+                "SubjectDistance": metadata['z_pos_um'],
+                "SubSecTime": metadata['sub_sec_time'],
+                "Channel": metadata['channel'],
+                "BrightnessValue": metadata['illumination_ma']
+            }
+            # extratags:
+            # Additional tags to write. A list of tuples with 5 items:
+            #
+            # 0. code (int): Tag Id.
+            #
+            # 1. dtype (:py:class:`DATATYPE`):
+            #    Data type of items in `value`.
+            #
+            # 2. count (int): Number of data values.
+            #    Not used for string or bytes values.
+            #
+            # 3. value (Sequence[Any]): `count` values compatible with
+            #   `dtype`. Bytes must contain count values of dtype packed
+            #    as binary data.
+            #
+            # 4. writeonce (bool): If *True*, write tag to first page
+            #    of a series only.
+            #
+            # Duplicate and select tags in TIFF.TAG_FILTERED are not written
+            # if the extratag is specified by integer code.
+            #
+            # Extratags cannot be used to write IFD type tags.
+            #
+            # Format: (tag_number, datatype, count, value, write_ifd)
+            # For rational number values: (numerator, denominator)
+            tiff_extratags = []
+            """tiff_extratags = [
+            # CameraMake: Tag ID 271, 'ASCII'
+            (271, dtype['ASCII'], len(metadata['camera_make']) + 1, metadata['camera_make'], False),
+            
+
+            # ExposureTime: Tag ID 33434, 'RATIONAL'
+            (33434, dtype['RATIONAL'], 1, ms_exposure_to_rational(metadata['exposure_time_ms']), False),
+
+        
+            # ISOSpeed: Tag ID 34867, 'double'
+            # Using in place of GainControl (Improper use of GainControl)
+            (34867, dtype['DOUBLE'], 1, metadata['gain_db'], False),
+            
+            # DateTime: Tag ID 306, 'ASCII'
+            (306, dtype['ASCII'], len(metadata['datetime']) + 1, metadata['datetime'], False),
+
+            # SubjectDistance: Tag ID 37386, 'RATIONAL'
+            (37386, dtype['RATIONAL'], 1, subject_dist_to_rational(metadata['z_pos_um']), False),
+
+            # SubSecTime: Tag ID 37520, 'ASCII'
+            (37520, dtype['ASCII'], len(metadata['sub_sec_time']) + 1, metadata['sub_sec_time'], False),
+
+            # Channel: Tag ID 65001, 'ASCII'  **CUSTOM**
+            (65001, dtype['ASCII'], len(metadata['channel']) + 1, metadata['channel'], False),
+
+            # BrightnessValue: Tag ID 37393, 'SRATIONAL'
+            (37393, dtype['SRATIONAL'], 1, (metadata['illumination_ma'], 1), False)]"""
+
+            """
+            # XPosition: Tag ID 65001, 'RATIONAL' 
+            # Need to double check units
+            (286, dtype['RATIONAL'], 1, (metadata['x_pos'], 1), False),]
+
+            
+            # YPosition: Custom Tag ID 65002, 'RATIONAL'
+            # Need to double check units
+            (287, dtype['RATIONAL'], 1, (metadata['y_pos'], 1), False),
+
+            
+            """
+            
+
+
+        else:
+            # Video Frame
+            # Add further parameters in the future if testing goes well
+
+            """date_time_data = metadata['timestamp'].strftime("%Y:%m:%d %H:%M:%S")
+            sub_sec_time = f"{metadata['timestamp'].microsecond // 1000:03d}"
+
+            tiff_extratags = [
+            # Tag 306: DateTime (ASCII)
+            (306, 'ascii', len(date_time_data) + 1, date_time_data, False),
+
+            # Tag 37520: SubSecTime (ASCII)
+            (37520, 'ascii', len(sub_sec_time) + 1, sub_sec_time, False),
+
+            # Tag 37393: ImageNumber (long)
+            (37393, 'long', 1, metadata['frame_num'], False)
+
+            ]"""
+            tiff_extratags = []
+            tiff_metadata = metadata
+
+
 
     options=dict(
         photometric=photometric,
@@ -156,41 +339,33 @@ def generate_ome_tiff_support_data(data, metadata: dict):
         maxworkers=2
     )
 
-    resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
+    if not video_frame:
+        resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
 
-    return {
-        'metadata': ome_metadata,
-        'options': options,
-        'resolution': resolution,
-    }
+        return {
+            'metadata': tiff_metadata,
+            'extratags': tiff_extratags,
+            'options': options,
+            'resolution': resolution,
+        }
+    
+    else:
+        return {
+            'metadata': tiff_metadata,
+            'extratags': tiff_extratags,
+            'options': options,
+        }
 
+def ms_exposure_to_rational(ms_exposure):
+    exposure_seconds = ms_exposure / 1000
+    fraction = Fraction(exposure_seconds).limit_denominator(1_000_000)
+    # Metadata uses rational number of seconds
+    return fraction.numerator, fraction.denominator
 
-def write_ome_tiff(
-    data,
-    file_loc: pathlib.Path,
-    metadata: dict,
-):
-    # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
-    # them before writing out to OME tiff
-    use_color = image_utils.is_color_image(data)
-    if use_color:
-        data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
-
-    # if use_color:
-    #     photometric = 'rgb'
-    #     axes = 'YXS'
-    # else:
-    #     photometric = 'minisblack'
-    #     axes = 'YX'
-    ome_tiff_support_data = generate_ome_tiff_support_data(data=data, metadata=metadata)
-
-    with tf.TiffWriter(str(file_loc), bigtiff=False) as tif:
-        tif.write(
-            data,
-            resolution=ome_tiff_support_data['resolution'],
-            metadata=ome_tiff_support_data['metadata'],
-            **ome_tiff_support_data['options']
-        )
+def subject_dist_to_rational(distance):
+    distance_meters = distance / 1_000_000  # Convert um to m
+    fraction = Fraction(distance_meters).limit_denominator(1_000_000)
+    return fraction.numerator, fraction.denominator
 
 
 def add_scale_bar(
