@@ -88,7 +88,11 @@ except:
 
 PROTOCOL_DATA_DIR_NAME = "ProtocolData"
 
-lvp_installed = True if os.getenv("LVP_INSTALLED", "True") == "True" else False
+try:
+    with open("marker.lvpinstalled") as f:
+        lvp_installed = True
+except:
+    lvp_installed = False
 
 if windows_machine and (lvp_installed == True):
     print("Machine-Type - WINDOWS")
