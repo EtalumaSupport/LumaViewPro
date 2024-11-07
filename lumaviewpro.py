@@ -1328,8 +1328,22 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
                 output_file_loc = save_folder / f"{frame_name}.tiff"
 
-                if not cv2.imwrite(filename=str(output_file_loc), img=image):
-                    logger.error(f"Manual-Video] Failed to write frame {frame_num}")
+                metadata = {
+                            "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
+                            "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
+                            "frame_num": frame_num
+                        }
+                        
+                try:
+                    image_utils.write_tiff(
+                        data=image,
+                        metadata=metadata,
+                        file_loc=output_file_loc,
+                        video_frame=True,
+                        ome=False,
+                    )
+                except Exception as e:
+                    logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
 
         else:
             if not self.video_save_folder.exists():

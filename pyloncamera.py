@@ -36,6 +36,7 @@ March 20, 2023
 
 import contextlib
 import datetime
+import os
 
 import numpy as np
 from pypylon import pylon, genicam
@@ -49,6 +50,13 @@ class PylonCamera:
         self.error_report_count = 0
         self.array = np.array([])
         self.cam_image_handler = None
+
+        if os.getenv("PYLON_CAMEMU", None) != None:
+            logger.info('[CAM Class ] PylonCamera.connect() detected request to use camera emulation')
+            self._use_camera_emulation = True
+        else:
+            self._use_camera_emulation = False
+
         self.connect()
 
     def __delete__(self):
@@ -136,7 +144,8 @@ class PylonCamera:
             self.set_pixel_format(pixel_format='Mono8')
             self.auto_gain(state=False)
             camera.ReverseX.SetValue(True)
-            self.init_auto_gain_focus()
+            if not self._use_camera_emulation:
+                self.init_auto_gain_focus()
             self.exposure_t(t=10)
             self.set_frame_size(w=1900, h=1900)
 
