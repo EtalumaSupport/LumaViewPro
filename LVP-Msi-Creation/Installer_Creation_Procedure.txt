@@ -1,6 +1,6 @@
 Msi Install Creation Procedure
 ------------------------------
-0) Create the exe for LVP. Unzip the folder. In the LVP folder, paste the apache-maven-3.9.8 folder. (Should be in the same way a package folder is in the LVP folder)
+0) Create the exe for LVP (pyinstaller version 5.13.2). Unzip the folder. In the LVP folder, paste the apache-maven-3.9.8 folder. (Should be in the same way a package folder is in the LVP folder)
 
 1) Make sure that you have Visual Studio 2022 downloaded and installed along with the .NET framework and Visual C++
 
