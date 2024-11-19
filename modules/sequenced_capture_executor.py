@@ -64,6 +64,7 @@ class SequencedCaptureExecutor:
         self._scan_in_progress = False
         self._autofocus_count = 0
         self._autogain_countdown = 0
+        self._autogain_applied = False
 
 
     @staticmethod
@@ -251,6 +252,7 @@ class SequencedCaptureExecutor:
         self._enable_image_saving = enable_image_saving
         self._separate_folder_per_channel = separate_folder_per_channel
         self._autogain_settings = autogain_settings
+        self._autogain_applied = False
         self._callbacks = callbacks
         self._return_to_position = return_to_position
         self._disable_saving_artifacts = disable_saving_artifacts
@@ -318,7 +320,8 @@ class SequencedCaptureExecutor:
 
         self._go_to_step(step_idx=self._curr_step)
 
-        self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
+        self._autogain_countdown = self._autogain_settings['max_duration'].total_seconds()
+        self._autogain_applied = False
 
         Clock.schedule_interval(self._scan_iterate, 0.1)
     
@@ -338,20 +341,24 @@ class SequencedCaptureExecutor:
         
         step = self._protocol.step(idx=self._curr_step)
         
-        # Set camera settings
-        self._scope.set_auto_gain(
-            state=step['Auto_Gain'],
-            settings=self._autogain_settings,
-        )
         self._led_on(color=step['Color'], illumination=step['Illumination'])
+
+        # Set camera settings
+        if step['Auto_Gain'] and (False == self._autogain_applied):
+            self._scope.set_auto_gain(
+                state=step['Auto_Gain'],
+                settings=self._autogain_settings,
+            )
+            self._autogain_applied = True
+        
 
         if not step['Auto_Gain']:
             self._scope.set_gain(step['Gain'])
             # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
             self._scope.set_exposure_time(step['Exposure'])
 
-        if step['Auto_Gain'] and self._auto_gain_countdown > 0:
-            self._auto_gain_countdown -= 0.1
+        if step['Auto_Gain'] and self._autogain_countdown > 0:
+            self._autogain_countdown -= 0.1
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
         if step['Auto_Focus'] and not self._autofocus_executor.complete():
@@ -373,11 +380,12 @@ class SequencedCaptureExecutor:
             return
         
         # Check if autogain has time-finished after auto-focus so that they can run in parallel
-        if step['Auto_Gain'] and self._auto_gain_countdown > 0:
+        if step['Auto_Gain'] and self._autogain_countdown > 0:
             return
         
         # Reset the autogain countdown
-        self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
+        self._autogain_countdown = self._autogain_settings['max_duration'].total_seconds()
+        self._autogain_applied = False
         
         # Update the Z position with autofocus results
         if step['Auto_Focus'] and self._update_z_pos_from_autofocus:
