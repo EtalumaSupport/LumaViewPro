@@ -3,7 +3,7 @@
 '''
 MIT License
 
-Copyright (c) 2023 Etaluma, Inc.
+Copyright (c) 2024 Etaluma, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -31,10 +31,17 @@ AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
-
-MODIFIED:
-June 1, 2023
 '''
+
+import contextlib
+import datetime
+import os
+import pathlib
+import threading
+import time
+
+import cv2
+import numpy as np
 
 # Import Lumascope Hardware files
 from motorboard import MotorBoard
@@ -46,15 +53,6 @@ from lvp_logger import logger, version
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
-import datetime
-import pathlib
-import time
-import threading
-import os
-import contextlib
-import cv2
-import numpy as np
-
 import image_utils
 
 
