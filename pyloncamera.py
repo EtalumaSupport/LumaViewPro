@@ -1,7 +1,7 @@
 '''
 MIT License
 
-Copyright (c) 2023 Etaluma, Inc.
+Copyright (c) 2024 Etaluma, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -29,9 +29,6 @@ AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
-
-MODIFIED:
-March 20, 2023
 '''
 
 import contextlib
