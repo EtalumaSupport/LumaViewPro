@@ -1249,10 +1249,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         else:
             self.video_false_color = None
 
+        max_fps = 40
+        max_frames = 3000
+
         # Clamp the FPS to be no faster than the exposure rate
+        frame_size = self.scope.camera.get_frame_size()
         exposure = self.scope.camera.get_exposure_t()
         exposure_freq = 1.0 / (exposure / 1000)
-        self.video_fps = min(exposure_freq, 40)
+        self.video_fps = min(exposure_freq, max_fps)
         max_duration = 30   # in seconds
         
         start_time = datetime.datetime.now()
@@ -1268,8 +1272,21 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.start_ts = time.time()
         self.stop_ts = self.start_ts + max_duration
         seconds_per_frame = 1.0 / self.video_fps
-        self.current_video_frames = []
+
+
+        self.memmap_location = settings['live_folder'] + "/" + "recording_temp.dat"
+
+        if os.path.exists(self.memmap_location):
+            os.remove(self.memmap_location)
+
+
+        if color is not None:
+            self.current_video_frames = np.memmap(self.memmap_location, dtype="uint8", mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
+        else:
+            self.current_video_frames = np.memmap(self.memmap_location, dtype="uint8", mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
+
         self.current_captured_frames = 0
+        self.timestamps = []
 
         logger.info(f"Manual-Video] Capturing video...")
         
@@ -1284,6 +1301,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             Clock.unschedule(self.recording_event)
             self.video_duration = time.time() - self.start_ts
             self.recording_complete_event = Clock.schedule_once(self.recording_complete)
+            self.ids['record_btn'].state = 'normal'
             
         # Button not clicked yet, keep recording
         if self.ids['record_btn'].state == 'down':
@@ -1306,17 +1324,15 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         logger.info("Manual-Video] Writing video...")
 
         if self.video_as_frames:
-            frame_num = 0
             save_folder = self.video_save_folder
 
             if not save_folder.exists():
                 save_folder.mkdir(exist_ok=True, parents=True)
 
-            for image_ts_pair in self.current_video_frames:
-                frame_num += 1
+            for frame_num in range(self.current_captured_frames):
 
-                image = image_ts_pair[0]
-                ts = image_ts_pair[1]
+                image = self.current_video_frames[frame_num]
+                ts = self.timestamps[frame_num]
                 ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
                 image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
@@ -1341,6 +1357,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     )
                 except Exception as e:
                     logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
+                
+                frame_num += 1
 
         else:
             if not self.video_save_folder.exists():
@@ -1354,15 +1372,21 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 include_timestamp_overlay=True
             )
 
-            for image_ts_pair in self.current_video_frames:
+            for frame_num in range(self.current_captured_frames):
                 try:
-                    video_writer.add_frame(image=image_ts_pair[0], timestamp=image_ts_pair[1])
+                    video_writer.add_frame(image=self.current_video_frames[frame_num], timestamp=self.timestamps[frame_num])
                 except:
                     logger.error("Manual-Video] FAILED TO WRITE FRAME")
 
             video_writer.finish()
         
         logger.info("Manual-Video] Video writing finished.")
+        self.current_video_frames.flush()
+        self.current_video_frames = None
+
+        if os.path.exists(self.memmap_location):
+            os.remove(self.memmap_location)
+
         set_last_save_folder(self.video_save_folder)
         Clock.unschedule(self.recording_complete_event)
 
@@ -1384,7 +1408,10 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
             image = np.flip(image, 0)
 
-            self.current_video_frames.append((image, datetime.datetime.now()))
+            self.current_video_frames[self.current_captured_frames] = image
+            self.timestamps.append(datetime.datetime.now())
+
+            # self.current_video_frames.append((image, datetime.datetime.now()))
 
             self.current_captured_frames += 1
             
@@ -5806,6 +5833,7 @@ class LumaViewProApp(App):
         load_log_level()
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
+
         move_home(axis='XY')
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
