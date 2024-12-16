@@ -401,6 +401,7 @@ class Lumascope():
             'channel': color,
             'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
             'sub_sec_time': f"{datetime.datetime.now().microsecond // 1000:03d}",
+            'objective': self._objective,
             'focal_length': self._objective['focal_length'],
             'plate_pos_mm': {'x': px, 'y': py},
             'x_pos': px,
