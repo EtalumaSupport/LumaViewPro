@@ -1175,6 +1175,28 @@ class CompositeCapture(FloatLayout):
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
+        for layer in common_utils.get_transmitted_layers():
+            if settings[layer]["acquire"] == "image":
+                img_trans = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+
+                # Normalize PC to be within [0, 1]
+                trans_normalized = img_trans.astype(np.float32) / img_trans.max()
+
+                # Convert current color composite to float for mult.
+                rgb_composite_float = img.astype(np.float32)
+
+                img = rgb_composite_float * trans_normalized[:, :, None]
+
+                if (not use_full_pixel_depth):
+                    img = np.clip(img, 0, 255).astype(np.uint8)
+                else:
+                    img = np.clip(img, 0, 65535).astype(np.uint16)
+
+                # Only use one transmitted channel
+                break
+
+
+
         lumaview.ids['composite_btn'].state = 'normal'
 
         append = f'{self.get_well_label()}'
@@ -1256,7 +1278,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         frame_size = self.scope.camera.get_frame_size()
         exposure = self.scope.camera.get_exposure_t()
         exposure_freq = 1.0 / (exposure / 1000)
-        self.video_fps = min(exposure_freq, max_fps)
+        video_fps = min(exposure_freq, max_fps)
         max_duration = 30   # in seconds
         
         start_time = datetime.datetime.now()
@@ -1271,7 +1293,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         self.start_ts = time.time()
         self.stop_ts = self.start_ts + max_duration
-        seconds_per_frame = 1.0 / self.video_fps
+        seconds_per_frame = 1.0 / video_fps
 
 
         self.memmap_location = settings['live_folder'] + "/" + "recording_temp.dat"
@@ -5834,6 +5856,7 @@ class LumaViewProApp(App):
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
+        
         move_home(axis='XY')
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
