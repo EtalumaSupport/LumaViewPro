@@ -118,6 +118,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
     def _create_composite_image(path: pathlib.Path, df: pd.DataFrame):
 
         allowed_layers = common_utils.get_fluorescence_layers()
+        allowed_layers.append("PC")
         df = df[df['Color'].isin(allowed_layers)]
 
         # Load source images
@@ -136,6 +137,10 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
             dtype=source_image_sample.dtype
         )
 
+        img_dtype = source_image_sample.dtype
+
+        transmitted_present = False
+
         for _, row in df.iterrows():
             layer = row['Color']
             source_image = images[row['Filepath']]
@@ -150,9 +155,27 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
             layer_index = color_index_map[layer]
             if source_is_color:
                 img[:,:,layer_index] = source_image[:,:,layer_index]
+            elif layer == "PC":
+                img_trans = source_image
+                # Normalize PC to be within [0, 1]
+                trans_normalized = img_trans.astype(np.float32) / img_trans.max()
+                transmitted_present = True
             else:
                 img[:,:,layer_index] = source_image
 
+
+        if transmitted_present:
+                # Convert current color composite to float for mult.
+                rgb_composite_float = img.astype(np.float32)
+
+                img = rgb_composite_float * trans_normalized[:, :, None]
+
+                if (img_dtype == np.uint8):
+                    img = np.clip(img, 0, 255).astype(np.uint8)
+                else:
+                    img = np.clip(img, 0, 65535).astype(np.uint16)
+
+                    
         return {
             'status': True,
             'error': None,
