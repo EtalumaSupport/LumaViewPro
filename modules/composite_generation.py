@@ -171,11 +171,13 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                 # Convert current color composite to float for mult.
                 rgb_composite_float = img.astype(np.float32)
 
-                img = rgb_composite_float + (alpha * transmitted_channel[:, :, None])
-
                 if (img_dtype == np.uint8):
+                    inverted_transmitted = 255 - transmitted_channel
+                    img = rgb_composite_float - inverted_transmitted.astype(np.float32)
                     img = np.clip(img, 0, 255).astype(np.uint8)
                 else:
+                    inverted_transmitted = 65535 - transmitted_channel
+                    img = rgb_composite_float - inverted_transmitted.astype(np.float32)
                     img = np.clip(img, 0, 65535).astype(np.uint16)
 
                     

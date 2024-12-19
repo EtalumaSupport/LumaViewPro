@@ -1181,21 +1181,45 @@ class CompositeCapture(FloatLayout):
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
-        for layer in common_utils.get_transmitted_layers():
-            if settings[layer]["acquire"] == "image":
-                img_trans = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+        for trans_layer in common_utils.get_transmitted_layers():
+            if settings[trans_layer]["acquire"] == "image":
+                # Go to focus and wait for arrival
+                lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
 
-                # Normalize PC to be within [0, 1]
-                transmitted_channel = img_trans.astype(np.float32)
+                while not lumaview.scope.get_target_status('Z'):
+                    time.sleep(.001)
+
+                # set the gain and exposure
+                gain = settings[trans_layer]['gain']
+                lumaview.scope.set_gain(gain)
+                exposure = settings[trans_layer]['exp']
+                lumaview.scope.set_exposure_time(exposure)
+
+                # update illumination to currently selected settings
+                illumination = settings[trans_layer]['ill']
+
+                # Florescent capture
+                if lumaview.scope.led:
+                    lumaview.scope.led_on(lumaview.scope.color2ch(trans_layer), illumination)
+                    logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
+                else:
+                    logger.warning('LED controller not available.')
+
+                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
+                time.sleep(2*exposure/1000+0.2)
+            
+                transmitted_channel = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
 
                 # Convert current color composite to float for mult.
-                rgb_composite_float = img.astype(np.float32)
-
-                img = rgb_composite_float + (alpha * transmitted_channel[:, :, None])
+                rgb_composite = img
 
                 if (not use_full_pixel_depth):
+                    inverted_transmitted = 255 - transmitted_channel
+                    img = rgb_composite.astype(np.float32) - inverted_transmitted[:, :, None].astype(np.float32)
                     img = np.clip(img, 0, 255).astype(np.uint8)
                 else:
+                    inverted_transmitted = 65535 - transmitted_channel
+                    img = rgb_composite.astype(np.float32) - inverted_transmitted[:, :, None].astype(np.float32)
                     img = np.clip(img, 0, 65535).astype(np.uint16)
 
                 # Only use one transmitted channel
