@@ -117,6 +117,9 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
     @staticmethod
     def _create_composite_image(path: pathlib.Path, df: pd.DataFrame):
 
+        # Ratio for the amount that the transmitted channel is added to the composite ([0,1])
+        alpha = 1
+
         allowed_layers = common_utils.get_fluorescence_layers()
         allowed_layers.append("PC")
         df = df[df['Color'].isin(allowed_layers)]
@@ -158,7 +161,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
             elif layer == "PC":
                 img_trans = source_image
                 # Normalize PC to be within [0, 1]
-                trans_normalized = img_trans.astype(np.float32) / img_trans.max()
+                transmitted_channel = img_trans.astype(np.float32)
                 transmitted_present = True
             else:
                 img[:,:,layer_index] = source_image
@@ -168,7 +171,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                 # Convert current color composite to float for mult.
                 rgb_composite_float = img.astype(np.float32)
 
-                img = rgb_composite_float * trans_normalized[:, :, None]
+                img = rgb_composite_float + (alpha * transmitted_channel[:, :, None])
 
                 if (img_dtype == np.uint8):
                     img = np.clip(img, 0, 255).astype(np.uint8)

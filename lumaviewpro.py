@@ -54,6 +54,8 @@ import typing
 import shutil
 import userpaths
 
+disable_homing = False
+
 ############################################################################
 #---------------------Directory Initialization-----------------------------#
 ############################################################################
@@ -1118,6 +1120,10 @@ class CompositeCapture(FloatLayout):
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
         global lumaview
 
+        # Ratio for the amount that the transmitted channel is added to the composite ([0,1])
+        alpha = 1
+        
+
         live_histo_off()
 
         if lumaview.scope.camera.active == False:
@@ -1180,12 +1186,12 @@ class CompositeCapture(FloatLayout):
                 img_trans = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
 
                 # Normalize PC to be within [0, 1]
-                trans_normalized = img_trans.astype(np.float32) / img_trans.max()
+                transmitted_channel = img_trans.astype(np.float32)
 
                 # Convert current color composite to float for mult.
                 rgb_composite_float = img.astype(np.float32)
 
-                img = rgb_composite_float * trans_normalized[:, :, None]
+                img = rgb_composite_float + (alpha * transmitted_channel[:, :, None])
 
                 if (not use_full_pixel_depth):
                     img = np.clip(img, 0, 255).astype(np.uint8)
@@ -5856,8 +5862,8 @@ class LumaViewProApp(App):
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
-        
-        move_home(axis='XY')
+        if not disable_homing:
+            move_home(axis='XY')
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
         scope_leds_off()
