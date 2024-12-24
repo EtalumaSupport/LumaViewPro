@@ -54,7 +54,7 @@ import typing
 import shutil
 import userpaths
 
-disable_homing = False
+disable_homing = True
 
 ############################################################################
 #---------------------Directory Initialization-----------------------------#
@@ -1117,12 +1117,12 @@ class CompositeCapture(FloatLayout):
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
+
+        z_stage_present = False
+
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
         global lumaview
 
-        # Ratio for the amount that the transmitted channel is added to the composite ([0,1])
-        alpha = 1
-        
 
         live_histo_off()
 
@@ -1138,56 +1138,18 @@ class CompositeCapture(FloatLayout):
             dtype = np.uint8
 
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3), dtype=dtype)
-
-        for layer in common_utils.get_fluorescence_layers():
-            if settings[layer]['acquire'] == "image":
-
-                # Go to focus and wait for arrival
-                lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
-
-                while not lumaview.scope.get_target_status('Z'):
-                    time.sleep(.001)
-
-                # set the gain and exposure
-                gain = settings[layer]['gain']
-                lumaview.scope.set_gain(gain)
-                exposure = settings[layer]['exp']
-                lumaview.scope.set_exposure_time(exposure)
-
-                # update illumination to currently selected settings
-                illumination = settings[layer]['ill']
-
-                # Florescent capture
-                if lumaview.scope.led:
-                    lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
-                    logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
-                else:
-                    logger.warning('LED controller not available.')
-
-                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
-                time.sleep(2*exposure/1000+0.2)
-                img_gray = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
-
-                # buffer the images
-                if layer == 'Blue':
-                    img[:,:,0] = img_gray
-                elif layer == 'Green':
-                    img[:,:,1] = img_gray
-                elif layer == 'Red':
-                    img[:,:,2] = img_gray
-
-            scope_leds_off()
-
-            Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
-            logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
+        transmitted_present = False
 
         for trans_layer in common_utils.get_transmitted_layers():
             if settings[trans_layer]["acquire"] == "image":
-                # Go to focus and wait for arrival
-                lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
+                transmitted_present = True
 
-                while not lumaview.scope.get_target_status('Z'):
-                    time.sleep(.001)
+                if z_stage_present:
+                    # Go to focus and wait for arrival
+                    lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
+
+                    while not lumaview.scope.get_target_status('Z'):
+                        time.sleep(.001)
 
                 # set the gain and exposure
                 gain = settings[trans_layer]['gain']
@@ -1209,21 +1171,104 @@ class CompositeCapture(FloatLayout):
                 time.sleep(2*exposure/1000+0.2)
             
                 transmitted_channel = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+                
+                
+                img = np.array(transmitted_channel, dtype=dtype)
 
-                # Convert current color composite to float for mult.
-                rgb_composite = img
+                # Init mask to keep track of changed pixels
+                # Set all values in the mask for changed to False
+                mask_transmitted_changed = img == None
 
-                if (not use_full_pixel_depth):
-                    inverted_transmitted = 255 - transmitted_channel
-                    img = rgb_composite.astype(np.float32) - inverted_transmitted[:, :, None].astype(np.float32)
-                    img = np.clip(img, 0, 255).astype(np.uint8)
-                else:
-                    inverted_transmitted = 65535 - transmitted_channel
-                    img = rgb_composite.astype(np.float32) - inverted_transmitted[:, :, None].astype(np.float32)
-                    img = np.clip(img, 0, 65535).astype(np.uint16)
+                # Prep transmitted channel to have 3 channels for RGB value manipulation
+                img = np.repeat(transmitted_channel[:, :, None], 3, axis=2)
 
-                # Only use one transmitted channel
+                # Can only use one transmitted channel per composite
                 break
+
+        
+        layer_map = {
+            'Blue': 0,
+            'Green': 1,
+            'Red': 2
+        }
+
+        for layer in common_utils.get_fluorescence_layers():
+            if settings[layer]['acquire'] == "image":
+
+                if z_stage_present:
+                    # Go to focus and wait for arrival
+                    lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
+
+                    while not lumaview.scope.get_target_status('Z'):
+                        time.sleep(.001)
+
+                # set the gain and exposure
+                gain = settings[layer]['gain']
+                lumaview.scope.set_gain(gain)
+                exposure = settings[layer]['exp']
+                lumaview.scope.set_exposure_time(exposure)
+
+                # Set brightness threshold for composites dealing with transmitted channels
+                # TO DO:    brightness_threshold = settings[layer]['composite_threshold'] -> given in percentage?
+                # If given in percentage, convert to 8 or 16 bit value
+                brightness_threshold = 128
+
+                # update illumination to currently selected settings
+                illumination = settings[layer]['ill']
+
+                # Florescent capture
+                if lumaview.scope.led:
+                    lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
+                    logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
+                else:
+                    logger.warning('LED controller not available.')
+
+                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
+                time.sleep(2*exposure/1000+0.2)
+                img_gray = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+
+                img_gray = np.array(img_gray)
+
+                if transmitted_present:
+                    # Create mask of every pixel > brightness threshold in channel image
+                    channel_above_threshold_mask = img_gray > brightness_threshold
+
+                    # Create masks for pixels that correspond to changed/unchanged pixels in the transmitted image
+                    not_changed_mask = channel_above_threshold_mask & (~mask_transmitted_changed)
+                    changed_mask = channel_above_threshold_mask & mask_transmitted_changed
+
+                    # Find channel index value
+                    channel_index = layer_map[layer]
+
+                    # For not-yet changed pixels, set every other channel to 0, then the desired color channel value
+                    # Allows desired channel to show up fully
+                    img[not_changed_mask, 0] = 0
+                    img[not_changed_mask, 1] = 0
+                    img[not_changed_mask, 2] = 0
+
+                    img[not_changed_mask, channel_index] = img_gray[not_changed_mask]
+
+                    # Update changed pixels
+                    mask_transmitted_changed[not_changed_mask] = True
+
+                    # For already changed pixels, only update the current channel value (allows stacking of RGB values)
+                    img[changed_mask, channel_index] = img_gray[changed_mask]
+
+
+                else:
+                    # No transmitted channel present
+                    # buffer the images
+                    if layer == 'Blue':
+                        img[:,:,0] = img_gray
+                    elif layer == 'Green':
+                        img[:,:,1] = img_gray
+                    elif layer == 'Red':
+                        img[:,:,2] = img_gray
+
+            scope_leds_off()
+
+            Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
+            logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
 
 
