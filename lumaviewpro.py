@@ -54,7 +54,7 @@ import typing
 import shutil
 import userpaths
 
-disable_homing = True
+disable_homing = False
 
 ############################################################################
 #---------------------Directory Initialization-----------------------------#
