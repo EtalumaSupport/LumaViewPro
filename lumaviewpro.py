@@ -1118,7 +1118,7 @@ class CompositeCapture(FloatLayout):
     # capture and save a composite image using the current settings
     def composite_capture(self):
 
-        z_stage_present = False
+        z_stage_present = True
 
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
         global lumaview
