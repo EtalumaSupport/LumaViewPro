@@ -75,7 +75,8 @@
         "acquire": null,
         "video_config": {
             "duration": 5
-        }
+        },
+        "composite_brightness_threshold": 50
     },
     "Green": {
         "file_root": "G_",
@@ -89,7 +90,8 @@
         "acquire": null,
         "video_config": {
             "duration": 5
-        }
+        },
+        "composite_brightness_threshold": 50
     },
     "Red": {
         "file_root": "R_",
@@ -103,7 +105,8 @@
         "acquire": null,
         "video_config": {
             "duration": 5
-        }
+        },
+        "composite_brightness_threshold": 50
     },
     "zstack": {
         "step_size": 0,
