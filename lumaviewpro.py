@@ -1192,6 +1192,8 @@ class CompositeCapture(FloatLayout):
             'Red': 2
         }
 
+        scope_leds_off()
+
         for layer in common_utils.get_fluorescence_layers():
             if settings[layer]['acquire'] == "image":
 
