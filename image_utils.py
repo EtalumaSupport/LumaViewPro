@@ -213,6 +213,7 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
                 'PositionXUnit': 'mm',
                 'PositionYUnit': 'mm',
                 'PositionZUnit': 'um',
+                'Objective': metadata['objective'],
                 'ExposureTime': metadata['exposure_time_ms'],
                 'ExposureTimeUnit': 'ms',
                 'Gain': metadata['gain_db'],
@@ -226,7 +227,7 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
 
     else:
         if not video_frame:
-            tiff_metadata={
+            """tiff_metadata={
                 "CameraMake": metadata['camera_make'],
                 "ExposureTime": metadata['exposure_time_ms'],           
                 "ISOSpeed": metadata['gain_db'],
@@ -238,7 +239,32 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
                 "SubSecTime": metadata['sub_sec_time'],
                 "Channel": metadata['channel'],
                 "BrightnessValue": metadata['illumination_ma']
+            }"""
+
+            tiff_metadata={
+            'axes': axes,
+            'SignificantBits': data.itemsize*8,
+            'PhysicalSizeX': metadata['pixel_size_um'],
+            'PhysicalSizeXUnit': 'µm',
+            'PhysicalSizeY': metadata['pixel_size_um'],
+            'PhysicalSizeYUnit': 'µm',
+            'Channel': {'Name': [metadata['channel']]},
+            'Plane': {
+                'PositionX': metadata['plate_pos_mm']['x'],
+                'PositionY': metadata['plate_pos_mm']['y'],
+                'PositionZ': metadata['z_pos_um'],
+                'PositionXUnit': 'mm',
+                'PositionYUnit': 'mm',
+                'PositionZUnit': 'um',
+                'Objective': metadata['objective'],
+                'ExposureTime': metadata['exposure_time_ms'],
+                'ExposureTimeUnit': 'ms',
+                'Gain': metadata['gain_db'],
+                'GainUnit': 'dB',
+                'Illumination': metadata['illumination_ma'],
+                'IlluminationUnit': 'mA'
             }
+        }
             # extratags:
             # Additional tags to write. A list of tuples with 5 items:
             #

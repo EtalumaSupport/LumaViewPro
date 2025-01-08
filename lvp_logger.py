@@ -73,6 +73,9 @@ if windows_machine and (lvp_installed == True):
     lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
 
     os.chdir(lvp_appdata)
+    
+else:
+    lvp_appdata = script_path
 
 os.makedirs("logs/LVP_Log", exist_ok=True)
 

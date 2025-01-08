@@ -54,6 +54,8 @@ import typing
 import shutil
 import userpaths
 
+disable_homing = False
+
 ############################################################################
 #---------------------Directory Initialization-----------------------------#
 ############################################################################
@@ -1115,8 +1117,12 @@ class CompositeCapture(FloatLayout):
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
+
+        z_stage_present = True
+
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
         global lumaview
+
 
         live_histo_off()
 
@@ -1132,21 +1138,82 @@ class CompositeCapture(FloatLayout):
             dtype = np.uint8
 
         img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3), dtype=dtype)
+        transmitted_present = False
+
+        for trans_layer in common_utils.get_transmitted_layers():
+            if settings[trans_layer]["acquire"] == "image":
+                transmitted_present = True
+
+                if z_stage_present:
+                    # Go to focus and wait for arrival
+                    lumaview.ids['imagesettings_id'].ids[trans_layer].goto_focus()
+
+                    while not lumaview.scope.get_target_status('Z'):
+                        time.sleep(.001)
+
+                # set the gain and exposure
+                gain = settings[trans_layer]['gain']
+                lumaview.scope.set_gain(gain)
+                exposure = settings[trans_layer]['exp']
+                lumaview.scope.set_exposure_time(exposure)
+
+                # update illumination to currently selected settings
+                illumination = settings[trans_layer]['ill']
+
+                # Florescent capture
+                if lumaview.scope.led:
+                    lumaview.scope.led_on(lumaview.scope.color2ch(trans_layer), illumination)
+                    logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
+                else:
+                    logger.warning('LED controller not available.')
+
+                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
+                time.sleep(2*exposure/1000+0.2)
+            
+                transmitted_channel = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+                
+                
+                img = np.array(transmitted_channel, dtype=dtype)
+
+                # Init mask to keep track of changed pixels
+                # Set all values in the mask for changed to False
+                mask_transmitted_changed = img == None
+
+                # Prep transmitted channel to have 3 channels for RGB value manipulation
+                img = np.repeat(transmitted_channel[:, :, None], 3, axis=2)
+
+                # Can only use one transmitted channel per composite
+                break
+
+        
+        layer_map = {
+            'Blue': 0,
+            'Green': 1,
+            'Red': 2
+        }
+
+        scope_leds_off()
 
         for layer in common_utils.get_fluorescence_layers():
             if settings[layer]['acquire'] == "image":
 
-                # Go to focus and wait for arrival
-                lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
+                if z_stage_present:
+                    # Go to focus and wait for arrival
+                    lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
 
-                while not lumaview.scope.get_target_status('Z'):
-                    time.sleep(.001)
+                    while not lumaview.scope.get_target_status('Z'):
+                        time.sleep(.001)
 
                 # set the gain and exposure
                 gain = settings[layer]['gain']
                 lumaview.scope.set_gain(gain)
                 exposure = settings[layer]['exp']
                 lumaview.scope.set_exposure_time(exposure)
+
+                # Set brightness threshold for composites dealing with transmitted channels
+                # TO DO:    brightness_threshold = settings[layer]['composite_threshold'] -> given in percentage?
+                # If given in percentage, convert to 8 or 16 bit value
+                brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
 
                 # update illumination to currently selected settings
                 illumination = settings[layer]['ill']
@@ -1162,18 +1229,50 @@ class CompositeCapture(FloatLayout):
                 time.sleep(2*exposure/1000+0.2)
                 img_gray = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
 
-                # buffer the images
-                if layer == 'Blue':
-                    img[:,:,0] = img_gray
-                elif layer == 'Green':
-                    img[:,:,1] = img_gray
-                elif layer == 'Red':
-                    img[:,:,2] = img_gray
+                img_gray = np.array(img_gray)
+
+                if transmitted_present:
+                    # Create mask of every pixel > brightness threshold in channel image
+                    channel_above_threshold_mask = img_gray > brightness_threshold
+
+                    # Create masks for pixels that correspond to changed/unchanged pixels in the transmitted image
+                    not_changed_mask = channel_above_threshold_mask & (~mask_transmitted_changed)
+                    changed_mask = channel_above_threshold_mask & mask_transmitted_changed
+
+                    # Find channel index value
+                    channel_index = layer_map[layer]
+
+                    # For not-yet changed pixels, set every other channel to 0, then the desired color channel value
+                    # Allows desired channel to show up fully
+                    img[not_changed_mask, 0] = 0
+                    img[not_changed_mask, 1] = 0
+                    img[not_changed_mask, 2] = 0
+
+                    img[not_changed_mask, channel_index] = img_gray[not_changed_mask]
+
+                    # Update changed pixels
+                    mask_transmitted_changed[not_changed_mask] = True
+
+                    # For already changed pixels, only update the current channel value (allows stacking of RGB values)
+                    img[changed_mask, channel_index] = img_gray[changed_mask]
+
+
+                else:
+                    # No transmitted channel present
+                    # buffer the images
+                    if layer == 'Blue':
+                        img[:,:,0] = img_gray
+                    elif layer == 'Green':
+                        img[:,:,1] = img_gray
+                    elif layer == 'Red':
+                        img[:,:,2] = img_gray
 
             scope_leds_off()
 
             Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
+
+
 
         lumaview.ids['composite_btn'].state = 'normal'
 
@@ -1249,10 +1348,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         else:
             self.video_false_color = None
 
+        max_fps = 40
+        max_frames = 3000
+
         # Clamp the FPS to be no faster than the exposure rate
+        frame_size = self.scope.camera.get_frame_size()
         exposure = self.scope.camera.get_exposure_t()
         exposure_freq = 1.0 / (exposure / 1000)
-        self.video_fps = min(exposure_freq, 40)
+        video_fps = min(exposure_freq, max_fps)
         max_duration = 30   # in seconds
         
         start_time = datetime.datetime.now()
@@ -1267,9 +1370,22 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         self.start_ts = time.time()
         self.stop_ts = self.start_ts + max_duration
-        seconds_per_frame = 1.0 / self.video_fps
-        self.current_video_frames = []
+        seconds_per_frame = 1.0 / video_fps
+
+
+        self.memmap_location = settings['live_folder'] + "/" + "recording_temp.dat"
+
+        if os.path.exists(self.memmap_location):
+            os.remove(self.memmap_location)
+
+
+        if color is not None:
+            self.current_video_frames = np.memmap(self.memmap_location, dtype="uint8", mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
+        else:
+            self.current_video_frames = np.memmap(self.memmap_location, dtype="uint8", mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
+
         self.current_captured_frames = 0
+        self.timestamps = []
 
         logger.info(f"Manual-Video] Capturing video...")
         
@@ -1284,6 +1400,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             Clock.unschedule(self.recording_event)
             self.video_duration = time.time() - self.start_ts
             self.recording_complete_event = Clock.schedule_once(self.recording_complete)
+            self.ids['record_btn'].state = 'normal'
             
         # Button not clicked yet, keep recording
         if self.ids['record_btn'].state == 'down':
@@ -1306,17 +1423,15 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         logger.info("Manual-Video] Writing video...")
 
         if self.video_as_frames:
-            frame_num = 0
             save_folder = self.video_save_folder
 
             if not save_folder.exists():
                 save_folder.mkdir(exist_ok=True, parents=True)
 
-            for image_ts_pair in self.current_video_frames:
-                frame_num += 1
+            for frame_num in range(self.current_captured_frames):
 
-                image = image_ts_pair[0]
-                ts = image_ts_pair[1]
+                image = self.current_video_frames[frame_num]
+                ts = self.timestamps[frame_num]
                 ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
                 image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
@@ -1341,6 +1456,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     )
                 except Exception as e:
                     logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
+                
+                frame_num += 1
 
         else:
             if not self.video_save_folder.exists():
@@ -1354,15 +1471,21 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 include_timestamp_overlay=True
             )
 
-            for image_ts_pair in self.current_video_frames:
+            for frame_num in range(self.current_captured_frames):
                 try:
-                    video_writer.add_frame(image=image_ts_pair[0], timestamp=image_ts_pair[1])
+                    video_writer.add_frame(image=self.current_video_frames[frame_num], timestamp=self.timestamps[frame_num])
                 except:
                     logger.error("Manual-Video] FAILED TO WRITE FRAME")
 
             video_writer.finish()
         
         logger.info("Manual-Video] Video writing finished.")
+        self.current_video_frames.flush()
+        self.current_video_frames = None
+
+        if os.path.exists(self.memmap_location):
+            os.remove(self.memmap_location)
+
         set_last_save_folder(self.video_save_folder)
         Clock.unschedule(self.recording_complete_event)
 
@@ -1384,7 +1507,10 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
             image = np.flip(image, 0)
 
-            self.current_video_frames.append((image, datetime.datetime.now()))
+            self.current_video_frames[self.current_captured_frames] = image
+            self.timestamps.append(datetime.datetime.now())
+
+            # self.current_video_frames.append((image, datetime.datetime.now()))
 
             self.current_captured_frames += 1
             
@@ -4666,164 +4792,159 @@ class MicroscopeSettings(BoxLayout):
         global lumaview
         global settings
 
-        # load settings JSON file
+       
         try:
-            os.chdir(source_path)
-            read_file = open(filename, "r")
-        except:
-            logger.exception('[LVP Main  ] Unable to open file '+filename)
-            raise
+
+            from settings_init import settings as initialized_settings
+
+            settings = initialized_settings
+
+            if settings['profiling']['enabled']:
+                global profiling_helper
+                ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                profiling_save_path = f'./logs/profile/{ts}'
+                profiling_helper = profiling_utils.ProfilingHelper(save_path=profiling_save_path)
+                Clock.schedule_interval(profiling_helper.restart, 30)
+
+            if 'autogain' not in settings['protocol']:
+                settings['protocol']['autogain'] = {
+                    'max_duration_seconds': 1.0,
+                    'target_brightness': 0.3,
+                    'min_gain': 0.0,
+                    'max_gain': 20.0,
+                }
+
+            live_folder = pathlib.Path(settings['live_folder']).resolve()
+            live_folder.mkdir(exist_ok=True, parents=True)
+            settings['live_folder'] = str(live_folder)
             
-        else:
-            try:
-                settings = json.load(read_file)
+            # update GUI values from JSON data:
+            
+            # Scope auto-detection
+            detected_model = lumaview.scope.get_microscope_model()
+            if detected_model in self.scopes.keys():
+                logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
+                self.ids['scope_spinner'].text = detected_model
+            else:
+                logger.info(f'[LVP Main  ] Using scope selection from {filename}')
+                self.ids['scope_spinner'].text = settings['microscope']
 
-                if settings['profiling']['enabled']:
-                    global profiling_helper
-                    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    profiling_save_path = f'./logs/profile/{ts}'
-                    profiling_helper = profiling_utils.ProfilingHelper(save_path=profiling_save_path)
-                    Clock.schedule_interval(profiling_helper.restart, 30)
+            if settings['use_full_pixel_depth'] == True:
+                self.ids['enable_full_pixel_depth_btn'].state = 'down'
+            else:
+                self.ids['enable_full_pixel_depth_btn'].state = 'normal'
+            self.update_full_pixel_depth_state()
 
-                if 'autogain' not in settings['protocol']:
-                    settings['protocol']['autogain'] = {
-                        'max_duration_seconds': 1.0,
-                        'target_brightness': 0.3,
-                        'min_gain': 0.0,
-                        'max_gain': 20.0,
-                    }
-
-                live_folder = pathlib.Path(settings['live_folder']).resolve()
-                live_folder.mkdir(exist_ok=True, parents=True)
-                settings['live_folder'] = str(live_folder)
-                
-                # update GUI values from JSON data:
-               
-                # Scope auto-detection
-                detected_model = lumaview.scope.get_microscope_model()
-                if detected_model in self.scopes.keys():
-                    logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
-                    self.ids['scope_spinner'].text = detected_model
+            if 'separate_folder_per_channel' in settings:
+                if settings['separate_folder_per_channel'] == True:
+                    self.ids['separate_folder_per_channel_id'].state = 'down'
                 else:
-                    logger.info(f'[LVP Main  ] Using scope selection from {filename}')
-                    self.ids['scope_spinner'].text = settings['microscope']
+                    self.ids['separate_folder_per_channel_id'].state = 'normal'
+            self.update_separate_folders_per_channel()
 
-                if settings['use_full_pixel_depth'] == True:
-                    self.ids['enable_full_pixel_depth_btn'].state = 'down'
+            self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
+            self.select_live_image_output_format()
+
+            self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
+            self.select_sequenced_image_output_format()
+
+
+            if settings['video_as_frames'] == False:
+                self.ids['video_recording_format_spinner'].text = 'mp4'
+            else:
+                self.ids['video_recording_format_spinner'].text = 'Frames'
+
+            self.select_video_recording_format()
+
+            acceleration_limit = settings['motion']['acceleration_max_pct']
+            self.ids['acceleration_pct_slider'].value = acceleration_limit
+            self.acceleration_pct_slider()
+
+            # Set Frame Size
+            # Multiplying frame size by the binning size to account for the select_binning_size() call
+            # Effectively sets the frame size to the size it was prior to pixel binning, then bins
+            
+            binning_size_str = settings['binning']['size']
+            binning_size = binning.binning_size_str_to_int(text=binning_size_str)
+
+            self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
+            self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
+            lumaview.scope.set_frame_size(settings['frame']['width'] * binning_size,
+                                            settings['frame']['height'] * binning_size)
+
+            # Pixel Binning
+            self.ids['binning_spinner'].text = binning_size_str
+            self.select_binning_size()
+            lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
+
+            objective_id = settings['objective_id']
+            self.ids['objective_spinner'].text = objective_id
+            objective = objective_helper.get_objective_info(objective_id=objective_id)
+            self.ids['magnification_id'].text = f"{objective['magnification']}"
+            lumaview.scope.set_objective(objective_id=objective_id)
+
+            if settings['scale_bar']['enabled'] == True:
+                self.ids['enable_scale_bar_btn'].state = 'down'
+            else:
+                self.ids['enable_scale_bar_btn'].state = 'normal'
+            self.update_scale_bar_state()
+
+            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+            protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
+            protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
+            protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
+            protocol_settings.select_labware()
+
+            zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
+            zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
+            zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
+            zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
+
+            z_reference = common_utils.convert_zstack_reference_position_setting_to_config(text_label=settings['zstack']['position'])
+            
+            zstack_config = ZStackConfig(
+                range=settings['zstack']['range'],
+                step_size=settings['zstack']['step_size'],
+                current_z_reference=z_reference,
+                current_z_value=None
+            )
+
+            zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
+
+            for layer in common_utils.get_layers():
+                lumaview.ids['imagesettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
+                lumaview.ids['imagesettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
+                lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
+                # lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
+                lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
+
+                if settings[layer]['acquire'] == "image":
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_image'].active = True
+                elif settings[layer]['acquire'] == "video":
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_video'].active = True
                 else:
-                    self.ids['enable_full_pixel_depth_btn'].state = 'normal'
-                self.update_full_pixel_depth_state()
+                    settings[layer]['acquire'] = None
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_none'].active = True
 
-                if 'separate_folder_per_channel' in settings:
-                    if settings['separate_folder_per_channel'] == True:
-                        self.ids['separate_folder_per_channel_id'].state = 'down'
-                    else:
-                        self.ids['separate_folder_per_channel_id'].state = 'normal'
-                self.update_separate_folders_per_channel()
+                video_config = settings[layer]['video_config']
+                DEFAULT_VIDEO_DURATION_SEC = 5
 
-                self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
-                self.select_live_image_output_format()
-
-                self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
-                self.select_sequenced_image_output_format()
+                if video_config is None:
+                    video_config = {}
 
 
-                if settings['video_as_frames'] == False:
-                    self.ids['video_recording_format_spinner'].text = 'mp4'
-                else:
-                    self.ids['video_recording_format_spinner'].text = 'Frames'
+                if 'duration' not in video_config:
+                    video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
 
-                self.select_video_recording_format()
+                settings[layer]['video_config'] = video_config
 
-                acceleration_limit = settings['motion']['acceleration_max_pct']
-                self.ids['acceleration_pct_slider'].value = acceleration_limit
-                self.acceleration_pct_slider()
+                lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_text'].text = str(video_config['duration'])
+                lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_slider'].value = video_config['duration']
 
-                # Set Frame Size
-                # Multiplying frame size by the binning size to account for the select_binning_size() call
-                # Effectively sets the frame size to the size it was prior to pixel binning, then bins
-                
-                binning_size_str = settings['binning']['size']
-                binning_size = binning.binning_size_str_to_int(text=binning_size_str)
+                lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
 
-                self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
-                self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
-                lumaview.scope.set_frame_size(settings['frame']['width'] * binning_size,
-                                              settings['frame']['height'] * binning_size)
-
-                # Pixel Binning
-                self.ids['binning_spinner'].text = binning_size_str
-                self.select_binning_size()
-                lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
-
-                objective_id = settings['objective_id']
-                self.ids['objective_spinner'].text = objective_id
-                objective = objective_helper.get_objective_info(objective_id=objective_id)
-                self.ids['magnification_id'].text = f"{objective['magnification']}"
-                lumaview.scope.set_objective(objective_id=objective_id)
-
-                if settings['scale_bar']['enabled'] == True:
-                    self.ids['enable_scale_bar_btn'].state = 'down'
-                else:
-                    self.ids['enable_scale_bar_btn'].state = 'normal'
-                self.update_scale_bar_state()
-
-                protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
-                protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
-                protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
-                protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
-                protocol_settings.select_labware()
-
-                zstack_settings = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['zstack_id']
-                zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
-                zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
-                zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
-
-                z_reference = common_utils.convert_zstack_reference_position_setting_to_config(text_label=settings['zstack']['position'])
-                
-                zstack_config = ZStackConfig(
-                    range=settings['zstack']['range'],
-                    step_size=settings['zstack']['step_size'],
-                    current_z_reference=z_reference,
-                    current_z_value=None
-                )
-
-                zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
-
-                for layer in common_utils.get_layers():
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
-                    # lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
-
-                    if settings[layer]['acquire'] == "image":
-                        lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_image'].active = True
-                    elif settings[layer]['acquire'] == "video":
-                        lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_video'].active = True
-                    else:
-                        settings[layer]['acquire'] = None
-                        lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_none'].active = True
-
-                    video_config = settings[layer]['video_config']
-                    DEFAULT_VIDEO_DURATION_SEC = 5
-
-                    if video_config is None:
-                        video_config = {}
-
-
-                    if 'duration' not in video_config:
-                        video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
-
-                    settings[layer]['video_config'] = video_config
-
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_text'].text = str(video_config['duration'])
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_slider'].value = video_config['duration']
-
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
-
-            except:
-                logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
+        except:
+            logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
 
         self.set_ui_features_for_scope()
 
@@ -5806,7 +5927,9 @@ class LumaViewProApp(App):
         load_log_level()
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
-        move_home(axis='XY')
+
+        if not disable_homing:
+            move_home(axis='XY')
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
         scope_leds_off()
@@ -5865,15 +5988,9 @@ class LumaViewProApp(App):
         ij_helper = imagej_helper.ImageJHelper()
 
         # load settings file
-        if os.path.exists("./data/current.json"):
-            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
-        elif os.path.exists("./data/settings.json"):
-            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/settings.json")
-        else:
-            if not os.path.isdir('./data'):
-                raise FileNotFoundError("Cound't find 'data' directory.")
-            else:
-                raise FileNotFoundError('No settings files found.')
+        lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
+
+        
             
         autofocus_executor = AutofocusExecutor(
             scope=lumaview.scope,
