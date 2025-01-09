@@ -125,11 +125,10 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
 
         allowed_BF_layers = common_utils.get_transmitted_layers()
         allowed_layers = common_utils.get_fluorescence_layers()
+        img = None
 
         for layer in allowed_BF_layers:
             if (df['Color'] == layer).any():
-
-                print("Found BF layer")
                 # A BF layer is present. Use first found one as base for the composite.
                 BF_present = True
                 BF_channel = layer
@@ -153,13 +152,20 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
             }
         
         error = None
+        status = True
         
         # Transmitted channel present
         if BF_present:
             try:
                 logger.info("CompositeGeneration] Generating transmitted channel composite")
                 BF_row = df[df['Color'] == BF_channel]
-                BF_image_filename = BF_row['Filepath']
+                try:
+                    BF_image_filename = BF_row['Filepath'].iloc[0]
+                except Exception as e:
+                    BF_present = False
+                    logger.error(f"CompositeGeneration] Error details: {e}")
+                    raise e
+                
                 BF_image = images[BF_image_filename]
 
                 img = np.array(BF_image, dtype=BF_image.dtype)
@@ -221,6 +227,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                 # Issue with BF composite, so treat as normal flourescent composite generation.
                 logger.error(f"CompositeGeneration] Error generating transmitted channel composite: {e}")
                 error = "Error generating transmitted channel composite"
+                status = False
 
         # No transmitted channel present
         if not BF_present:
@@ -253,13 +260,20 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                         img[:,:,layer_index] = source_image[:,:,layer_index]
                     else:
                         img[:,:,layer_index] = source_image
+                status = True
+                error = None
+
             except Exception as e:
                 logger.error(f"CompositeGeneration] Error generating flourescent channel composite: {e}")
                 error = "Error generating flourescent channel composite"
+                status = False
 
-
+        if img is None:
+            status = False
+            error = "Composite Generation Error: No final image"
+            
         return {
-            'status': True,
+            'status': status,
             'error': error,
             'image': img,
             'metadata': {
