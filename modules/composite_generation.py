@@ -189,7 +189,10 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                     f_image = images[row['Filepath']]
                     f_is_color = image_utils.is_color_image(image=f_image)
 
-                    brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
+                    if img_dtype == "uint8":
+                        brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
+                    elif img_dtype == "uint16":
+                        brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 65536
 
                     channel_index = color_index_map[layer]
 

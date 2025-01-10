@@ -1213,7 +1213,10 @@ class CompositeCapture(FloatLayout):
                 # Set brightness threshold for composites dealing with transmitted channels
                 # TO DO:    brightness_threshold = settings[layer]['composite_threshold'] -> given in percentage?
                 # If given in percentage, convert to 8 or 16 bit value
-                brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
+                if not use_full_pixel_depth:
+                    brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
+                else:
+                    brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 65536
 
                 # update illumination to currently selected settings
                 illumination = settings[layer]['ill']
