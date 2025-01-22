@@ -2722,10 +2722,10 @@ class PostProcessingAccordion(BoxLayout):
             'open_last_save_folder_accordion_id': None,
             'create_avi_accordion_id': None
         }
-        print("===============================================================")
+        """print("===============================================================")
         print(self.ids)
         print("===============================================================")
-        """for id in self.accordion_item_states.keys():
+        for id in self.accordion_item_states.keys():
             self.ids[id].background_color = [0.753, 0.816, 0.910, 1]"""
 
         self.init_cell_count()
@@ -4098,6 +4098,7 @@ class ProtocolSettings(CompositeCapture):
     def _reset_run_protocol_button(self, **kwargs):
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
+        self.ids['run_protocol_btn'].background_down = 'atlas://data/images/defaulttheme/button_pressed'
         stage.set_motion_capability(True)
         
 
@@ -4325,6 +4326,7 @@ class ProtocolSettings(CompositeCapture):
         scan_word = "scan" if remaining_scans == 1 else "scans"
         
         self.ids['run_protocol_btn'].text = f"{remaining_scans} {scan_word} ({remaining_duration_str}) remaining.\nPress to ABORT"
+        self.ids['run_protocol_btn'].background_down = './data/icons/abort_protocol_background.png'
 
 
     def _run_scan_pre_callback(self):
