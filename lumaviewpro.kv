@@ -430,6 +430,33 @@
 			id: turret_pos_4_btn
 			text: '4'
             on_release: root.turret_select(4)
+
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Objective'
+            size_hint_x: None
+            width: '120dp'
+			font_size: '12sp'
+	    Spinner:
+			id: objective_spinner2
+			sync_height: True
+	        text: 'Select'
+			font_size:'12dp'
+			option_cls: "SpinnerOption0"
+			text_autoupdate: True
+	        on_release: root.load_objectives()
+	        on_text: root.select_objective()
+
+	Button:
+		id: set_turret_objective_btn
+		text: 'Set Turret Objective'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12dp'
+        on_release: root.set_turret_objective()
             
 	ZStack:
 		id: zstack_id

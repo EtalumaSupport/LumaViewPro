@@ -3175,6 +3175,48 @@ class VerticalControl(BoxLayout):
     def home(self):
         logger.info('[LVP Main  ] VerticalControl.home()')
         move_home(axis='Z')
+    
+    def load_objective_from_settings(self):
+        self.ids['objective_spinner2'] = settings['objective_id']
+
+    def load_objectives(self):
+        logger.info('[LVP Main  ] VerticalControl.load_objectives()')
+        spinner = self.ids['objective_spinner2']
+        spinner.values = objective_helper.get_objectives_list()
+
+
+    def select_objective(self):
+        logger.info('[LVP Main  ] VerticalControl.select_objective()')
+        global lumaview
+        global settings
+
+        # Update objective stored in settings
+        objective_id = self.ids['objective_spinner2'].text
+        objective = objective_helper.get_objective_info(objective_id=objective_id)
+        settings['objective_id'] = objective_id
+
+        # Update magnification UI info
+        microscope_settings_id = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
+        microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
+
+        # Update selected to be consistent with other selector
+        ms_objective_spinner = microscope_settings_id.ids['objective_spinner']
+        ms_objective_spinner.text = objective_id
+
+        # Set objective in lumascope
+        lumaview.scope.set_objective(objective_id=objective_id)
+
+        # Update UI FOV
+        fov_size = common_utils.get_field_of_view(
+            focal_length=objective['focal_length'],
+            frame_size=settings['frame'],
+            binning_size=get_binning_from_ui(),
+        )
+        microscope_settings_id.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
+        microscope_settings_id.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
+
+
+
 
 
     def _reset_run_autofocus_button(self, **kwargs):
@@ -3310,6 +3352,36 @@ class VerticalControl(BoxLayout):
         self.ids['turret_pos_3_btn'].state = 'normal'
         self.ids['turret_pos_4_btn'].state = 'normal'
 
+    def set_turret_objective(self):
+        global settings
+
+        selected_turret = None
+        for position in range(1,5):
+            if self.ids[f"turret_pos_{position}_btn"].state == 'down':
+                selected_turret = position
+
+        if selected_turret == None:
+            logger.error("VerticalControl] SetTurretObjective] No turret button selected")
+            return
+        
+        try:
+            selected_turret_id = self.ids[f"turret_pos_{selected_turret}_btn"]
+
+            # Find magnification of the selected objective
+            desired_objective = self.ids['objective_spinner2'].text
+            objective_text_list = desired_objective.split()
+            objective_magnification = objective_text_list[0]
+
+            # Change turret text
+            selected_turret_id.text = objective_magnification
+
+            # Update settings
+            settings["turret_objectives"][str(selected_turret)] = desired_objective
+
+        except Exception as e:
+            logger.error(f"SetTurretObjective] Error: {e}")
+            return
+        
 
     def turret_select(self, selected_position):
         #TODO check if turret has been HOMED turret first
@@ -3322,6 +3394,15 @@ class VerticalControl(BoxLayout):
         for available_position in range(1,5):
             if selected_position == available_position:
                 state = 'down'
+
+                # Check if an objective has been saved to that turret
+                if (len(settings["turret_objectives"][str(selected_position)]) > 0):
+                    if (not settings["turret_objectives"][str(selected_position)].isdigit()):
+
+                        # If an objective has been assigned to the turret position, change to that objective
+                        self.ids["objective_spinner2"].text = settings["turret_objectives"][str(selected_position)]
+                        self.select_objective()
+
             else:
                 state = 'normal'
             
@@ -4884,9 +4965,18 @@ class MicroscopeSettings(BoxLayout):
 
             objective_id = settings['objective_id']
             self.ids['objective_spinner'].text = objective_id
+
+            vertical_control_id = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
+            v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
+            v_control_objective_spinner.text = objective_id
+
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             self.ids['magnification_id'].text = f"{objective['magnification']}"
             lumaview.scope.set_objective(objective_id=objective_id)
+
+            # Load previous turret position objectives
+            for turret in settings["turret_objectives"]:
+                vertical_control_id.ids[f"turret_pos_{turret}_btn"].text = settings["turret_objectives"][turret].split()[0]
 
             if settings['scale_bar']['enabled'] == True:
                 self.ids['enable_scale_bar_btn'].state = 'down'
@@ -5140,6 +5230,10 @@ class MicroscopeSettings(BoxLayout):
         settings['objective_id'] = objective_id
         microscope_settings_id = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
         microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
+
+        # Update selected to be consistent with other selector
+        vc_objective_spinner = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['objective_spinner2']
+        vc_objective_spinner.text = objective_id
 
         lumaview.scope.set_objective(objective_id=objective_id)
 

@@ -11,6 +11,12 @@
         "y": 4000.0
     },
     "objective_id": "20x Oly",
+    "turret_objectives": {
+        "1": "1",
+        "2": "2",
+        "3": "3",
+        "4": "4"
+    },
     "frame": {
         "width": 1900,
         "height": 1900
