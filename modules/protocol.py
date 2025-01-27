@@ -26,8 +26,9 @@ class Protocol:
         1: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective'],
         2: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'],
         3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
+        4: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Turret Position', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config']
     }
-    CURRENT_VERSION = 3
+    CURRENT_VERSION = 4
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
     STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|EP|PC)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
     
@@ -143,6 +144,7 @@ class Protocol:
                 ("Auto_Gain", bool),
                 ("Exposure", float),
                 ("Objective", str),
+                ("Turret Position", int),
                 ("Well", str),
                 ("Tile", str),
                 ("Z-Slice", int),
@@ -219,6 +221,7 @@ class Protocol:
         layer_config: dict,
         plate_position: dict,
         objective_id: str,
+        turret_id: int
     ):
         def _validate_inputs():
             if step_idx < 0:
@@ -242,6 +245,7 @@ class Protocol:
         self._config['steps'].at[step_idx, "Auto_Gain"] = layer_config['auto_gain']
         self._config['steps'].at[step_idx, "Exposure"] = layer_config['exposure']
         self._config['steps'].at[step_idx, "Objective"] = objective_id
+        self._config['steps'].at[step_idx, "Turret Position"] = turret_id
         self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
         self._config['steps'].at[step_idx, "Video Config"] = layer_config['video_config']
 
@@ -253,6 +257,7 @@ class Protocol:
         layer_config: dict,
         plate_position: dict,
         objective_id: str,
+        turret_id: int,
         before_step: int | None = 0,
         after_step: int | None = None,
     ) -> str:
@@ -296,6 +301,7 @@ class Protocol:
             auto_gain=layer_config['auto_gain'],
             exp=layer_config['exposure'],
             objective=objective_id,
+            turret_id=turret_id,
             well=well,
             tile=tile,
             zslice=zslice,
@@ -393,6 +399,7 @@ class Protocol:
                     auto_gain=orig_step_df['Auto_Gain'],
                     exp=orig_step_df['Exposure'],
                     objective=orig_step_df['Objective'],
+                    turret_id=orig_step_df['Turret Position'],
                     well=orig_step_df['Well'],
                     tile=tile_label,
                     zslice=orig_step_df['Z-Slice'],
@@ -457,6 +464,7 @@ class Protocol:
                     auto_gain=orig_step_df['Auto_Gain'],
                     exp=orig_step_df['Exposure'],
                     objective=orig_step_df['Objective'],
+                    turret_id=orig_step_df['Turret Position'],
                     well=orig_step_df['Well'],
                     tile=orig_step_df['Tile'],
                     zslice=zstack_slice,
@@ -492,6 +500,7 @@ class Protocol:
 
         labware_id = input_config['labware_id']
         objective_id = input_config['objective_id']
+        turret_id = input_config['turret_id']
         zstack_params = input_config['zstack_params']
         use_zstacking = input_config['use_zstacking']
         tiling = input_config['tiling']
@@ -590,6 +599,7 @@ class Protocol:
                         auto_gain = common_utils.to_bool(layer_config['auto_gain'])
                         exposure = round(layer_config['exposure'], common_utils.max_decimal_precision('exposure'))
                         video_config = layer_config['video_config']
+                        
 
                         well_label = pos['name']
                         if position_source == 'from_labware':
@@ -625,6 +635,7 @@ class Protocol:
                             auto_gain=auto_gain,
                             exp=exposure,
                             objective=objective_id,
+                            turret_id=turret_id,
                             well=well_label,
                             tile=tile_label,
                             zslice=zstack_slice_label,
@@ -669,6 +680,7 @@ class Protocol:
         
         labware_id = config['labware_id']
         objective_id = config['objective_id']
+        turret_id = config['turret_id']
         zstack_params = {'range': 0, 'step_size': 0}
         use_zstacking = False
         tiling = tc.no_tiling_label()
@@ -680,6 +692,7 @@ class Protocol:
         input_config = {
             'labware_id': labware_id,
             'objective_id': objective_id,
+            'turret_id': turret_id,
             'zstack_params': zstack_params,
             'use_zstacking': use_zstacking,
             'tiling': tiling,
@@ -710,6 +723,7 @@ class Protocol:
         auto_gain,
         exp,
         objective,
+        turret_id,
         well,
         tile,
         zslice,
@@ -732,6 +746,7 @@ class Protocol:
             "Auto_Gain": auto_gain,
             "Exposure": exp,
             "Objective": objective,
+            "Turret Position": turret_id,
             "Well": well,
             "Tile": tile,
             "Z-Slice": zslice,
@@ -825,7 +840,7 @@ class Protocol:
             'duration': 5
         }
 
-        if (config['version'] == 2) and (cls.CURRENT_VERSION == 3):
+        if (config['version'] == 2) and (cls.CURRENT_VERSION >= 3):
             logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
             protocol_df['Acquire'] = "image"
             protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
@@ -838,7 +853,11 @@ class Protocol:
                 logger.error(f"Unable to parse video config, using default instead: {ex}")
                 protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
 
-        if config['version'] in (2, 3,):
+        # If protocol from before adding turret switching, set turret position to 0 to not change positions
+        if (config['version'] < 4 and (cls.CURRENT_VERSION >= 4)):
+            protocol_df['Turret Position'] = -1
+
+        if config['version'] in (2, 3, 4):
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names

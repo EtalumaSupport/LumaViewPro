@@ -331,9 +331,10 @@ class SequencedCaptureExecutor:
         x_status = self._scope.get_target_status('X')
         y_status = self._scope.get_target_status('Y')
         z_status = self._scope.get_target_status('Z')
+        t_status = self._scope.get_target_status('T')
 
         # Check if target location has not been reached yet
-        if (not x_status) or (not y_status) or (not z_status) or self._scope.get_overshoot():
+        if (not x_status) or (not y_status) or (not z_status) or (not t_status) or self._scope.get_overshoot():
             return
         
         step = self._protocol.step(idx=self._curr_step)
@@ -487,6 +488,7 @@ class SequencedCaptureExecutor:
         px: float | None = None,
         py: float | None = None,
         z: float | None = None,
+        t: int | None = None,
     ):
         labware = self._wellplate_loader.get_plate(plate_key=self._protocol.labware())
 
@@ -506,6 +508,10 @@ class SequencedCaptureExecutor:
         if z is not None:
             self._scope.move_absolute_position('Z', z)
             self._callbacks['move_position']('Z')
+        
+        if t is not None:
+            self._scope.go_turret_position(t)
+            self._callbacks['move_position']('T')
 
 
     def _go_to_step(
@@ -526,6 +532,7 @@ class SequencedCaptureExecutor:
                 px=step['X'],
                 py=step['Y'],
                 z=step['Z'],
+                t=step['Turret Position']
             )
 
 

@@ -99,6 +99,8 @@ class Lumascope():
         self._labware = None             # The labware currently installed
         self._objective = None           # The objective currently installed
         self._stage_offset = None        # The stage offset for the microscope
+        self.turret_id = 0               # Turret id is initially 0 due to homing
+
         if self.camera:
             self._binning_size = self.camera.get_binning_size()
         else:
@@ -725,6 +727,13 @@ class Lumascope():
             logger.info(f'[SCOPE API ] Moving T to {degrees}')
             self.move_absolute_position('T', degrees, wait_until_complete=True)
 
+    def go_turret_position(self, position):
+        """MOTION CONTROL FUNCTIONS
+        Move turret to specified position in [0, 3]"""
+        desired_turret_position = position*90
+        logger.info(f'[SCOPE API ] Moving turret to position {position}')
+        self.tmove(desired_turret_position)
+
 
     def get_target_position(self, axis=None):
         """MOTION CONTROL FUNCTIONS
@@ -759,6 +768,20 @@ class Lumascope():
         
         position = self.motion.current_pos(axis)
         return position
+    
+    def get_turret_position(self):
+        """MOTION CONTROL FUNCTIONS
+        Get the id value of the position of the turret in [0, 3]
+        """
+        turret_positions = [0, 90, 180, 270]
+
+        # Returns angle value (0 being homed, incrementing in 90 for each pos)
+        turret_pos = self.get_current_position('T')
+
+        # Clip value to the closest (account for possible error in angle)
+        fixed_angle = min(turret_positions, key=lambda x: abs(x - turret_pos))
+
+        return int(fixed_angle / 90)
 
 
     def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True):

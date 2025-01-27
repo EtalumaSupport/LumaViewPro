@@ -54,7 +54,7 @@ import typing
 import shutil
 import userpaths
 
-disable_homing = False
+vabalas_mode = False
 
 ############################################################################
 #---------------------Directory Initialization-----------------------------#
@@ -394,6 +394,7 @@ def go_to_step(
             move_absolute_position('X', sx)
             move_absolute_position('Y', sy)
             move_absolute_position('Z', step["Z"])
+            move_absolute_position('T', step["Turret Position"])
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
@@ -640,6 +641,7 @@ def get_image_capture_config_from_ui() -> dict:
 
 def get_sequenced_capture_config_from_ui() -> dict:
     objective_id, _ = get_current_objective_info()
+    turret_id = lumaview.scope.turret_id
     time_params = get_protocol_time_params()
     labware_id, _ = get_selected_labware()
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
@@ -653,6 +655,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
     config = {
         'labware_id': labware_id,
         'objective_id': objective_id,
+        'turret_id': turret_id,
         'zstack_params': zstack_params,
         'use_zstacking': use_zstacking,
         'tiling': tiling,
@@ -698,6 +701,8 @@ def _handle_ui_update_for_axis(axis: str):
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_gui()
     elif axis in ('X', 'Y', 'XY'):
         lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
+    elif axis == 'T':
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_turret_ui()
 
 
 # Wrapper function when moving to update UI position
@@ -707,12 +712,15 @@ def move_absolute_position(
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True
 ):
-    lumaview.scope.move_absolute_position(
-        axis=axis,
-        pos=pos,
-        wait_until_complete=wait_until_complete,
-        overshoot_enabled=overshoot_enabled
-    )
+    if axis == 'T':
+        lumaview.scope.go_turret_position(pos)
+    else:
+        lumaview.scope.move_absolute_position(
+            axis=axis,
+            pos=pos,
+            wait_until_complete=wait_until_complete,
+            overshoot_enabled=overshoot_enabled
+        )
 
     _handle_ui_update_for_axis(axis=axis)
 
@@ -3288,6 +3296,7 @@ class VerticalControl(BoxLayout):
             'labware_id': labware_id,
             'positions': positions,
             'objective_id': objective_id,
+            'turret_id': lumaview.scope.turret_id,
             'zstack_params': {'range': 0, 'step_size': 0},
             'use_zstacking': False,
             'tiling': tiling_config.no_tiling_label(),
@@ -3383,13 +3392,14 @@ class VerticalControl(BoxLayout):
             return
         
 
-    def turret_select(self, selected_position):
+    def turret_select(self, selected_position, ui_only=False):
         #TODO check if turret has been HOMED turret first
         lumaview.scope.turret_id = selected_position - 1
         angle = 90*lumaview.scope.turret_id
-        lumaview.scope.tmove(
-            degrees=angle
-        )
+        if not vabalas_mode or not ui_only:
+            lumaview.scope.tmove(
+                degrees=angle
+            )
         
         for available_position in range(1,5):
             if selected_position == available_position:
@@ -3407,6 +3417,11 @@ class VerticalControl(BoxLayout):
                 state = 'normal'
             
             self.ids[f'turret_pos_{available_position}_btn'].state = state
+
+    def update_turret_ui(self):
+        current_turret_pos = lumaview.scope.get_turret_position()
+        ui_turret_pos = current_turret_pos + 1
+        self.turret_select(ui_turret_pos)
 
 
 class XYStageControl(BoxLayout):
@@ -4086,6 +4101,7 @@ class ProtocolSettings(CompositeCapture):
             layer_config=active_layer_config,
             plate_position=plate_position,
             objective_id=objective_id,
+            turret_id=lumaview.scope.turret_id
         )
 
         stage.set_protocol_steps(df=self._protocol.steps())
@@ -4117,6 +4133,7 @@ class ProtocolSettings(CompositeCapture):
                 layer_config=layer_config,
                 plate_position=plate_position,
                 objective_id=objective_id,
+                turret_id=lumaview.scope.turret_id,
                 before_step=before_step,
                 after_step=after_step
             )
@@ -4482,6 +4499,14 @@ class ProtocolSettings(CompositeCapture):
                 interval=sequenced_capture_executor.protocol_interval(),
             )
 
+    def update_turret_ui(self):
+        current_turret_id = lumaview.scope.get_turret_position()
+        ui_id = current_turret_id + 1
+
+        vertical_control_id = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
+        vertical_control_id.turret_select(ui_id)
+
+
 
     def _cleanup_at_end_of_protocol(self, autofocus_scan: bool):
         sequenced_capture_executor.reset()
@@ -4489,6 +4514,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
+        self.update_turret_ui()
         stage.set_motion_capability(True)
         
 
@@ -4964,6 +4990,11 @@ class MicroscopeSettings(BoxLayout):
             lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
             objective_id = settings['objective_id']
+
+            if not settings["turret_objectives"][1].isdigit():
+                objective_id = settings["turret_objectives"][1]
+                settings["objective_id"] = objective_id
+
             self.ids['objective_spinner'].text = objective_id
 
             vertical_control_id = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
@@ -5658,6 +5689,7 @@ class ZStack(CompositeCapture):
             'labware_id': labware_id,
             'positions': positions,
             'objective_id': objective_id,
+            'turret_id': lumaview.scope.turret_id,
             'zstack_params': zstack_params,
             'use_zstacking': True,
             'tiling': tiling_config.no_tiling_label(),
@@ -6027,7 +6059,7 @@ class LumaViewProApp(App):
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
-        if not disable_homing:
+        if not vabalas_mode:
             move_home(axis='XY')
 
         lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
