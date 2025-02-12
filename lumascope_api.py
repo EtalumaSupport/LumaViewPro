@@ -211,7 +211,7 @@ class Lumascope():
          2 -> Red: Fluorescence
          3 -> BF: Brightfield
          4 -> PC: Phase Contrast
-         5 -> EP: Extended Phase Contrast
+         5 -> DF: Low Mag Darkfield
            """
         if not self.led: return
         return self.led.ch2color(color)
@@ -224,7 +224,7 @@ class Lumascope():
          Red: Fluorescence Channel 2    -> 2
          BF: Brightfield                -> 3
          PC: Phase Contrast             -> 4
-         EP: Extended Phase Contrast    -> 5
+         DF: Low Mag Darkfield          -> 5
            """
         if not self.led: return
         return self.led.color2ch(color)
@@ -239,50 +239,79 @@ class Lumascope():
         earliest_image_ts: datetime.datetime | None = None,
         timeout: datetime.timedelta = datetime.timedelta(seconds=0),
         all_ones_check: bool = False,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback = None,
     ):
         """ CAMERA FUNCTIONS
         Grab and return image from camera
         # If use_host_buffer set to true, it will return the results already stored in the
         # host array. It will not wait for the next capture.
         """
-        start_time = datetime.datetime.now()
-        stop_time = start_time + timeout
-        
-        while True:
-            all_ones_failed = False
-            grab_status, grab_image_ts = self.camera.grab()
-
-            if grab_status == True:
-                self.image_buffer = self.camera.array.copy()
-
-                if all_ones_check == True:
-
-                    if np.all(self.image_buffer == np.iinfo(self.image_buffer.dtype).max):
-                        all_ones_failed = True
-                        logger.warn(f"[SCOPE API ] get_image all_ones_check failed")
-
-                if all_ones_failed == False:
-                    if earliest_image_ts is None:
-                        break
-                    
-                    if grab_image_ts >= earliest_image_ts:
-                        break
-
-                    logger.warn(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
-
-            # In case of timeout, if we hit the timeout because of the all ones check, then just let it continue and return the all ones image
-            if datetime.datetime.now() > stop_time: 
-                if all_ones_failed == False:
-                    logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
-                    return False
-                else:
-                    logger.warn(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded with all_ones_failed")
-                    break
+    
+        tmp_buffer = []
+        for idx in range(sum_count):
+            start_time = datetime.datetime.now()
+            stop_time = start_time + timeout
             
-            if grab_status == False:
-                logger.error(f"[SCOPE API ] get_image grab failed, retrying")
+            while True:
+                all_ones_failed = False
+                grab_status, grab_image_ts = self.camera.grab()
 
-            time.sleep(0.05)
+                if grab_status == True:
+                    tmp = self.camera.array.copy()
+    
+                    if all_ones_check == True:
+
+                        if np.all(tmp == np.iinfo(tmp.dtype).max):
+                            all_ones_failed = True
+                            logger.warning(f"[SCOPE API ] get_image all_ones_check failed")
+
+                    if all_ones_failed == False:
+                        if earliest_image_ts is None:
+                            tmp_buffer.append(tmp)
+                            break
+                        
+                        if grab_image_ts > earliest_image_ts:
+                            tmp_buffer.append(tmp)
+                            break
+
+                        logger.warning(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
+
+
+                # In case of timeout, if we hit the timeout because of the all ones check, then just let it continue and return the all ones image
+                if datetime.datetime.now() > stop_time: 
+                    if all_ones_failed == False:
+                        logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
+                        return False
+                    else:
+                        logger.warning(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded with all_ones_failed")
+                        break
+                
+                if grab_status == False:
+                    logger.error(f"[SCOPE API ] get_image grab failed, retrying")
+
+                time.sleep(0.05)
+            
+            if sum_count > 1:
+                earliest_image_ts = grab_image_ts + datetime.timedelta(milliseconds=1)
+                if sum_iteration_callback is not None:
+                    sum_iteration_callback()
+                    
+                time.sleep(sum_delay_s)
+
+        # Add the images together
+        if sum_count == 1:
+            self.image_buffer = tmp_buffer[0]
+        else:
+            orig_dtype = tmp_buffer[0].dtype
+            max_value = np.iinfo(orig_dtype).max
+
+            combined = np.zeros_like(tmp_buffer[0], dtype=np.uint32)
+            for img in tmp_buffer:
+                combined += img
+
+            self.image_buffer = np.clip(combined, None, max_value).astype(orig_dtype)
 
         use_scale_bar = self._scale_bar['enabled']
         if self._objective is None:
@@ -514,6 +543,9 @@ class Lumascope():
             earliest_image_ts: datetime.datetime | None = None,
             timeout: datetime.timedelta = datetime.timedelta(seconds=0),
             all_ones_check: bool = False,
+            sum_count: int = 1,
+            sum_delay_s: float = 0,
+            sum_iteration_callback = None,
         ):
 
         """CAMERA FUNCTIONS
@@ -524,6 +556,9 @@ class Lumascope():
             earliest_image_ts=earliest_image_ts,
             timeout=timeout,
             all_ones_check=all_ones_check,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
         )
         if array is False:
             return 

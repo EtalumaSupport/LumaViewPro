@@ -66,10 +66,10 @@ class LEDBoard:
         self.led_ma = {
             'BF': -1,
             'PC': -1,
-            'EP': -1,
+            'DF': -1,
             'Red': -1,
             'Blue': -1,
-            'Green': -1
+            'Green': -1,
         }
 
         try:
@@ -147,7 +147,7 @@ class LEDBoard:
             return 3
         elif color == 'PC':
             return 4
-        elif color == 'EP':
+        elif color == 'DF':
             return 5
         else: # BF
             return 3
@@ -165,7 +165,7 @@ class LEDBoard:
         elif channel == 4:
             return 'PC'
         elif channel == 5:
-            return 'EP'
+            return 'DF'
         else:
             return 'BF'
 

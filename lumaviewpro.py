@@ -310,8 +310,9 @@ def focus_log(positions, values):
 
 def _handle_ui_for_leds_off():
     global lumaview
-    for layer in common_utils.get_layers():
-        lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
+    for layer in common_utils.get_layers_with_led():
+        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+        layer_obj.ids['enable_led_btn'].state = 'normal'
 
 
 def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
@@ -321,7 +322,8 @@ def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
     else:
         state = "normal"
 
-    lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = state
+    layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+    layer_obj.ids['enable_led_btn'].state = state
 
 
 def scope_leds_off():
@@ -398,61 +400,67 @@ def go_to_step(
             logger.warning('[LVP Main  ] Motion controller not available.')
 
     color = step['Color']
-    layer  = lumaview.ids['imagesettings_id'].ids[color]
+    layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=color)
 
     # open ImageSettings
     lumaview.ids['imagesettings_id'].ids['toggle_imagesettings'].state = 'down'
     lumaview.ids['imagesettings_id'].toggle_settings()
     
     # set accordion item to corresponding channel
-    id = f"{color}_accordion"
-    lumaview.ids['imagesettings_id'].ids[id].collapse = False
+    accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=color)
+    accordion_item_obj.collapse = False
 
     # set autofocus checkbox
     logger.info(f'[LVP Main  ] autofocus: {step["Auto_Focus"]}')
     settings[color]['autofocus'] = step['Auto_Focus']
-    layer.ids['autofocus'].active = step['Auto_Focus']
+    layer_obj.ids['autofocus'].active = step['Auto_Focus']
     
     # set false_color checkbox
     logger.info(f'[LVP Main  ] false_color: {step["False_Color"]}')
     settings[color]['false_color'] = step['False_Color']
-    layer.ids['false_color'].active = step['False_Color']
+    layer_obj.ids['false_color'].active = step['False_Color']
 
     # set illumination settings, text, and slider
     logger.info(f'[LVP Main  ] ill: {step["Illumination"]}')
     settings[color]['ill'] = step["Illumination"]
-    layer.ids['ill_text'].text = str(step["Illumination"])
-    layer.ids['ill_slider'].value = float(step["Illumination"])
+    layer_obj.ids['ill_text'].text = str(step["Illumination"])
+    layer_obj.ids['ill_slider'].value = float(step["Illumination"])
 
     # set gain settings, text, and slider
     logger.info(f'[LVP Main  ] gain: {step["Gain"]}')
     settings[color]['gain'] = step["Gain"]
-    layer.ids['gain_text'].text = str(step["Gain"])
-    layer.ids['gain_slider'].value = float(step["Gain"])
+    layer_obj.ids['gain_text'].text = str(step["Gain"])
+    layer_obj.ids['gain_slider'].value = float(step["Gain"])
 
     # set auto_gain checkbox
     logger.info(f'[LVP Main  ] auto_gain: {step["Auto_Gain"]}')
     settings[color]['auto_gain'] = step["Auto_Gain"]
-    layer.ids['auto_gain'].active = step["Auto_Gain"]
+    layer_obj.ids['auto_gain'].active = step["Auto_Gain"]
 
     # set exposure settings, text, and slider
     logger.info(f'[LVP Main  ] exp: {step["Exposure"]}')
     settings[color]['exp'] = step["Exposure"]
-    layer.ids['exp_text'].text = str(step["Exposure"])
-    layer.ids['exp_slider'].value = float(step["Exposure"])
+    layer_obj.ids['exp_text'].text = str(step["Exposure"])
+    layer_obj.ids['exp_slider'].value = float(step["Exposure"])
+
+    # set sum count settings, text, and slider
+    logger.info(f'[LVP Main  ] sum: {step["Sum"]}')
+    settings[color]['sum'] = step["Sum"]
+    layer_obj.ids['sum_text'].text = str(step["Sum"])
+    layer_obj.ids['sum_slider'].value = int(step["Sum"])
 
     # acquire type
     for acquire_sel in ('acquire_video', 'acquire_image', 'acquire_none'):  
-        layer.ids[acquire_sel].active = False
+        layer_obj.ids[acquire_sel].active = False
 
     if step['Acquire'] == 'video':
-        layer.ids['acquire_video'].active = True
+        layer_obj.ids['acquire_video'].active = True
     elif step['Acquire'] == 'image':
-        layer.ids['acquire_image'].active = True
+        layer_obj.ids['acquire_image'].active = True
     else:
-        layer.ids['acquire_none'].active = True
+        layer_obj.ids['acquire_none'].active = True
 
-    layer.apply_settings(ignore_auto_gain=ignore_auto_gain)
+    layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain)
 
 
 def get_binning_from_ui() -> int:
@@ -512,6 +520,7 @@ def get_layer_configs(
         autofocus = layer_settings['autofocus']
         false_color = layer_settings['false_color']
         illumination = round(layer_settings['ill'], common_utils.max_decimal_precision('illumination'))
+        sum = layer_settings['sum']
         gain = round(layer_settings['gain'], common_utils.max_decimal_precision('gain'))
         auto_gain = common_utils.to_bool(layer_settings['auto_gain'])
         exposure = round(layer_settings['exp'], common_utils.max_decimal_precision('exposure'))
@@ -526,6 +535,7 @@ def get_layer_configs(
             'gain': gain,
             'auto_gain': auto_gain,
             'exposure': exposure,
+            'sum': sum,
             'focus': focus
         }
 
@@ -535,8 +545,8 @@ def get_layer_configs(
 def get_active_layer_config() -> tuple[str, dict]:
     c_layer = None
     for layer in common_utils.get_layers():
-        accordion = layer + '_accordion'
-        if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+        accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
+        if accordion_item_obj.collapse == False:
             c_layer = layer
             break
 
@@ -939,15 +949,16 @@ class ScopeDisplay(Image):
 
                 open_layer = None
                 for layer in common_utils.get_layers():
-                    accordion = layer + '_accordion'
-                    if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+                    accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
+                    if accordion_item_obj.collapse == False:
                         open_layer = layer
                         break
                 
                 if open_layer is not None:
-                    lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_mean_id'].text = f"Mean: {mean}"
-                    lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
-                    lumaview.ids['imagesettings_id'].ids[open_layer].ids['image_af_score_id'].text = f"AF Score: {af_score}"
+                    open_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=open_layer)
+                    open_layer_obj.ids['image_stats_mean_id'].text = f"Mean: {mean}"
+                    open_layer_obj.ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
+                    open_layer_obj.ids['image_af_score_id'].text = f"AF Score: {af_score}"
 
             if debug_counter % 3 == 0:
                 if self.use_bullseye:
@@ -1019,12 +1030,11 @@ class CompositeCapture(FloatLayout):
         force_to_8bit_pixel_depth = not use_full_pixel_depth
 
         for layer in common_utils.get_layers():
-            accordion = layer + '_accordion'
-            if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
-
+            layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+            accordion_item_obj =  lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
+            if accordion_item_obj.collapse == False:
                 append = f'{well_label}_{layer}'
-
-                if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
+                if layer_obj.ids['false_color'].active:
                     color = layer
                     
                 break
@@ -1037,6 +1047,12 @@ class CompositeCapture(FloatLayout):
         save_folder.mkdir(parents=True, exist_ok=True)
         set_last_save_folder(dir=save_folder)
 
+        sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
+
+        layer_configs = get_layer_configs(specific_layers=layer)
+        sum_delay_s=layer_configs[layer]['exposure']/1000
+        sum_count=layer_configs[layer]['sum']
+
         if ENGINEERING_MODE is False:
             return lumaview.scope.save_live_image(
                 save_folder,
@@ -1044,7 +1060,10 @@ class CompositeCapture(FloatLayout):
                 append,
                 color,
                 force_to_8bit=force_to_8bit_pixel_depth,
-                output_format=settings['image_output_format']['live']
+                output_format=settings['image_output_format']['live'],
+                sum_count=sum_count,
+                sum_delay_s=sum_delay_s,
+                sum_iteration_callback=sum_iteration_callback,
             )
         
         else:
@@ -1058,7 +1077,10 @@ class CompositeCapture(FloatLayout):
                     append,
                     color,
                     force_to_8bit=force_to_8bit_pixel_depth,
-                    output_format=settings['image_output_format']
+                    output_format=settings['image_output_format'],
+                    sum_count=sum_count,
+                    sum_delay_s=sum_delay_s,
+                    sum_iteration_callback=sum_iteration_callback,
                 )
             
             image_orig = lumaview.scope.get_image(force_to_8bit=force_to_8bit_pixel_depth)
@@ -1141,12 +1163,13 @@ class CompositeCapture(FloatLayout):
         transmitted_present = False
 
         for trans_layer in common_utils.get_transmitted_layers():
+            trans_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=trans_layer)
             if settings[trans_layer]["acquire"] == "image":
                 transmitted_present = True
 
                 if z_stage_present:
                     # Go to focus and wait for arrival
-                    lumaview.ids['imagesettings_id'].ids[trans_layer].goto_focus()
+                    trans_layer_obj.goto_focus()
 
                     while not lumaview.scope.get_target_status('Z'):
                         time.sleep(.001)
@@ -1172,7 +1195,6 @@ class CompositeCapture(FloatLayout):
             
                 transmitted_channel = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
                 
-                
                 img = np.array(transmitted_channel, dtype=dtype)
 
                 # Init mask to keep track of changed pixels
@@ -1189,17 +1211,19 @@ class CompositeCapture(FloatLayout):
         layer_map = {
             'Blue': 0,
             'Green': 1,
-            'Red': 2
+            'Red': 2,
+            'Lumi': 0,
         }
 
         scope_leds_off()
 
-        for layer in common_utils.get_fluorescence_layers():
+        for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
+            layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
             if settings[layer]['acquire'] == "image":
 
                 if z_stage_present:
                     # Go to focus and wait for arrival
-                    lumaview.ids['imagesettings_id'].ids[layer].goto_focus()
+                    layer_obj.goto_focus()
 
                     while not lumaview.scope.get_target_status('Z'):
                         time.sleep(.001)
@@ -1209,6 +1233,8 @@ class CompositeCapture(FloatLayout):
                 lumaview.scope.set_gain(gain)
                 exposure = settings[layer]['exp']
                 lumaview.scope.set_exposure_time(exposure)
+                sum_count=settings[layer]['sum']
+                sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
 
                 # Set brightness threshold for composites dealing with transmitted channels
                 # TO DO:    brightness_threshold = settings[layer]['composite_threshold'] -> given in percentage?
@@ -1222,15 +1248,23 @@ class CompositeCapture(FloatLayout):
                 illumination = settings[layer]['ill']
 
                 # Florescent capture
-                if lumaview.scope.led:
-                    lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
-                    logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
-                else:
-                    logger.warning('LED controller not available.')
+                # Check to make sure we are not capturing from a luminescence layer which doesn't use an LED
+                if layer in common_utils.get_transmitted_layers():
+                    if lumaview.scope.led:
+                        lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
+                        logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
+                    else:
+                        logger.warning('LED controller not available.')
 
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
-                img_gray = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+                
+                img_gray = lumaview.scope.get_image(
+                    force_to_8bit=not use_full_pixel_depth,
+                    sum_count=sum_count,
+                    sum_delay_s=exposure/1000,
+                    sum_iteration_callback=sum_iteration_callback,
+                )
 
                 img_gray = np.array(img_gray)
 
@@ -1263,7 +1297,7 @@ class CompositeCapture(FloatLayout):
                 else:
                     # No transmitted channel present
                     # buffer the images
-                    if layer == 'Blue':
+                    if layer in ('Blue', 'Lumi'):
                         img[:,:,0] = img_gray
                     elif layer == 'Green':
                         img[:,:,1] = img_gray
@@ -1272,7 +1306,7 @@ class CompositeCapture(FloatLayout):
 
             scope_leds_off()
 
-            Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
+            Clock.unschedule(layer_obj.ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
 
@@ -1338,10 +1372,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         color = None
 
         for layer in common_utils.get_layers():
-            accordion = layer + '_accordion'
-            if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
+            layer_accordion_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
+            layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+            if layer_accordion_obj.collapse == False:
 
-                if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
+                if layer_obj.ids['false_color'].active:
                     color = layer
                     
                 break
@@ -1696,7 +1731,7 @@ void main (void) {
             c['white_point'] = (self.white, 0., 0., 1.)
         elif false_color == 'Green':
             c['white_point'] = (0., self.white, 0., 1.)
-        elif false_color == 'Blue':
+        elif false_color in ('Blue', 'Lumi'):
             c['white_point'] = (0., 0., self.white, 1.)
         else:
             c['white_point'] = (self.white, )*4
@@ -1718,6 +1753,39 @@ class AccordionItemXyStageControl(AccordionItem):
     
     def update_gui(self, full_redraw: bool = False):
         self.ids['xy_stagecontrol_id'].update_gui(full_redraw=full_redraw)
+
+
+class AccordionItemImageSettingsBase(AccordionItem):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def accordion_collapse(self):
+        lumaview.ids['imagesettings_id'].accordion_collapse()
+
+
+class AccordionItemImageSettingsLumiControl(AccordionItemImageSettingsBase):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+
+class AccordionItemImageSettingsRedControl(AccordionItemImageSettingsBase):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+
+class AccordionItemImageSettingsGreenControl(AccordionItemImageSettingsBase):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+
+class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
 
 class MotionSettings(BoxLayout):
@@ -2897,7 +2965,97 @@ class ImageSettings(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] ImageSettings.__init__()')
+        self._accordion_item_lumi_control_visible = False
+        self._accordion_item_lumi_control = AccordionItemImageSettingsLumiControl()
+        self._accordion_item_fluorescence_control_visible = False
+        self._accordion_item_red_control = AccordionItemImageSettingsRedControl()
+        self._accordion_item_green_control = AccordionItemImageSettingsGreenControl()
+        self._accordion_item_blue_control = AccordionItemImageSettingsBlueControl()
         Clock.schedule_once(self._init_ui, 0)
+
+
+    def layer_lookup(self, layer: str):
+        LAYER_MAP = {
+            'Lumi': self._accordion_item_lumi_control,
+            'Blue': self._accordion_item_blue_control,
+            'Red': self._accordion_item_red_control,
+            'Green': self._accordion_item_green_control,
+        }
+
+        if layer in LAYER_MAP:
+            return LAYER_MAP[layer].ids[layer]
+        else:
+            return self.ids[layer]
+        
+    
+    def accordion_item_lookup(self, layer: str):
+        LAYER_MAP = {
+            'Lumi': self._accordion_item_lumi_control,
+            'Blue': self._accordion_item_blue_control,
+            'Red': self._accordion_item_red_control,
+            'Green': self._accordion_item_green_control,
+        }
+
+        if layer in LAYER_MAP:
+            return LAYER_MAP[layer]
+        else:
+            return self.ids[f"{layer}_accordion"]
+        
+    
+    def set_expanded_layer(self, layer: str) -> None:
+        for a_layer in common_utils.get_layers():
+            accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
+            
+            if layer == a_layer:
+                accordion_item_obj.collapse = False
+            else:
+                accordion_item_obj.collapse = True
+
+    
+    def set_lumi_layer_control_visibility(self, visible: bool) -> None:
+        if visible:
+            self._show_lumi_layer_control()
+        else:
+            self._hide_lumi_layer_control()
+
+
+    def _show_lumi_layer_control(self):
+        if not self._accordion_item_lumi_control_visible:
+            self._accordion_item_lumi_control_visible = True
+            self.ids['accordion_id'].add_widget(self._accordion_item_lumi_control, 0)
+
+
+    def _hide_lumi_layer_control(self):
+        if self._accordion_item_lumi_control_visible:
+            self._accordion_item_lumi_control.collapse = True
+            self._accordion_item_lumi_control_visible = False
+            self.ids['accordion_id'].remove_widget(self._accordion_item_lumi_control)
+
+
+    def set_fluoresence_layer_controls_visibility(self, visible: bool) -> None:
+        if visible:
+            self._show_fluorescence_layer_controls()
+        else:
+            self._hide_fluorescence_layer_controls()
+
+
+    def _show_fluorescence_layer_controls(self):
+        if not self._accordion_item_fluorescence_control_visible:
+            self._accordion_item_fluorescence_control_visible = True
+            self.ids['accordion_id'].add_widget(self._accordion_item_blue_control, 0)
+            self.ids['accordion_id'].add_widget(self._accordion_item_green_control, 0)
+            self.ids['accordion_id'].add_widget(self._accordion_item_red_control, 0)
+            
+
+    def _hide_fluorescence_layer_controls(self):
+        if self._accordion_item_fluorescence_control_visible:
+            self._accordion_item_blue_control.collapse = True
+            self._accordion_item_green_control.collapse = True
+            self._accordion_item_red_control.collapse = True
+            self._accordion_item_fluorescence_control_visible = False
+            self.ids['accordion_id'].remove_widget(self._accordion_item_blue_control)
+            self.ids['accordion_id'].remove_widget(self._accordion_item_green_control)
+            self.ids['accordion_id'].remove_widget(self._accordion_item_red_control)
     
 
     def _init_ui(self, dt=0):
@@ -2911,17 +3069,24 @@ class ImageSettings(BoxLayout):
         global ENGINEERING_MODE
         if ENGINEERING_MODE == True:
             for layer in common_utils.get_layers():
-                lumaview.ids['imagesettings_id'].ids[layer].ids['image_stats_mean_id'].height = '30dp'
-                lumaview.ids['imagesettings_id'].ids[layer].ids['image_stats_stddev_id'].height = '30dp'
-                lumaview.ids['imagesettings_id'].ids[layer].ids['image_af_score_id'].height = '30dp'
+                layer_obj = self.layer_lookup(layer=layer)
+                layer_obj.ids['image_stats_mean_id'].height = '30dp'
+                layer_obj.ids['image_stats_stddev_id'].height = '30dp'
+                layer_obj.ids['image_af_score_id'].height = '30dp'
 
 
     def set_layer_exposure_range(self):
         for layer in common_utils.get_fluorescence_layers():
-            lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].max = 1000
+            layer_obj = self.layer_lookup(layer=layer)
+            layer_obj.ids['exp_slider'].max = 1000
 
         for layer in common_utils.get_transmitted_layers():
-            lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].max = 200
+            layer_obj = self.layer_lookup(layer=layer)
+            layer_obj.ids['exp_slider'].max = 200
+        
+        for layer in common_utils.get_luminescence_layers():
+            layer_obj = self.layer_lookup(layer=layer)
+            layer_obj.ids['exp_slider'].max = 1000
 
 
     def assign_led_button_down_images(self):
@@ -2929,11 +3094,13 @@ class ImageSettings(BoxLayout):
             'Red': './data/icons/ToggleRR.png',
             'Green': './data/icons/ToggleRG.png',
             'Blue': './data/icons/ToggleRB.png',
+            'Lumi': './data/icons/ToggleRB.png',
         }
 
-        for layer in common_utils.get_layers():
+        for layer in common_utils.get_layers_with_led():
             button_down_image = led_button_down_background_map.get(layer, './data/icons/ToggleRW.png')
-            self.ids[layer].ids['enable_led_btn'].background_down = button_down_image
+            layer_obj = self.layer_lookup(layer=layer)
+            layer_obj.ids['enable_led_btn'].background_down = button_down_image
 
 
     # Hide (and unhide) main settings
@@ -2949,7 +3116,8 @@ class ImageSettings(BoxLayout):
             self.pos = lumaview.width - 30, 0
 
             for layer in common_utils.get_layers():
-                Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                Clock.unschedule(layer_obj.ids['histo_id'].histogram)
                 logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
             self.pos = lumaview.width - self.settings_width, 0
@@ -2959,15 +3127,15 @@ class ImageSettings(BoxLayout):
 
     def update_transmitted(self):
         for layer in common_utils.get_transmitted_layers():
-            accordion = layer + '_accordion'
+            layer_obj = self.layer_lookup(layer=layer)
 
             # Remove 'Colorize' option in transmitted channels control
             # -----------------------------------------------------
-            self.ids[layer].ids['false_color_label'].text = ''
-            self.ids[layer].ids['false_color'].color = (0., )*4
+            layer_obj.ids['false_color_label'].text = ''
+            layer_obj.ids['false_color'].color = (0., )*4
 
             # Adjust 'Illumination' range
-            self.ids[layer].ids['ill_slider'].max = 50
+            layer_obj.ids['ill_slider'].max = 50
 
     def accordion_collapse(self):
         logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
@@ -2980,12 +3148,13 @@ class ImageSettings(BoxLayout):
 
         # turn off all LED toggle buttons and histograms
         for layer in common_utils.get_layers():
-            layer_obj = lumaview.ids['imagesettings_id'].ids[layer]
-            layer_is_collapsed = lumaview.ids['imagesettings_id'].ids[f"{layer}_accordion"].collapse
+            layer_accordion = self.accordion_item_lookup(layer=layer)
+            layer_is_collapsed = layer_accordion.collapse
 
             if layer_is_collapsed:
                 continue
 
+            layer_obj = self.layer_lookup(layer=layer)
             layer_obj.apply_settings()
 
         # Restart camera feed
@@ -3004,9 +3173,11 @@ class ImageSettings(BoxLayout):
 
 def set_histogram_layer(active_layer):   
     for layer in common_utils.get_layers():
-        Clock.unschedule(lumaview.ids['imagesettings_id'].ids[layer].ids['histo_id'].histogram)
+        layer_ref = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+        Clock.unschedule(layer_ref.ids['histo_id'].histogram)
+
         if layer == active_layer:
-            Clock.schedule_interval(lumaview.ids['imagesettings_id'].ids[active_layer].ids['histo_id'].histogram, 0.5)
+            Clock.schedule_interval(layer_ref.ids['histo_id'].histogram, 0.5)
             logger.info(f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)')
 
 
@@ -3073,7 +3244,8 @@ class Histogram(Widget):
                 #Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
                 Color(r, b, g, a/2)
                 #self.color = Color(rgba=self.color)
-                logHistogram = lumaview.ids['imagesettings_id'].ids[self.layer].ids['logHistogram_id'].active
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=self.layer)
+                logHistogram = layer_obj.ids['logHistogram_id'].active
                 if logHistogram:
                     maxheight = np.log(np.max(hist[0])+1)
                 else:
@@ -3162,10 +3334,11 @@ class VerticalControl(BoxLayout):
         settings['bookmark']['z'] = height
         settings['BF']['focus'] = height
         settings['PC']['focus'] = height
-        settings['EP']['focus'] = height
+        settings['DF']['focus'] = height
         settings['Blue']['focus'] = height
         settings['Green']['focus'] = height
         settings['Red']['focus'] = height
+        settings['Lumi']['focus'] = height
 
     def goto_bookmark(self):
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
@@ -5007,19 +5180,27 @@ class MicroscopeSettings(BoxLayout):
             zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
 
             for layer in common_utils.get_layers():
-                lumaview.ids['imagesettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
-                lumaview.ids['imagesettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
-                lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
-                # lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
-                lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
 
+                if 'ill' in settings[layer]:
+                    layer_obj.ids['ill_slider'].value = settings[layer]['ill']
+
+                layer_obj.ids['gain_slider'].value = settings[layer]['gain']
+                layer_obj.ids['exp_slider'].value = settings[layer]['exp']
+                layer_obj.ids['false_color'].active = settings[layer]['false_color']
+
+                if 'sum' in settings[layer]:
+                    layer_obj.ids['sum_slider'].value = settings[layer]['sum']
+                else:
+                    layer_obj.ids['sum_slider'].value = 1
+                
                 if settings[layer]['acquire'] == "image":
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_image'].active = True
+                    layer_obj.ids['acquire_image'].active = True
                 elif settings[layer]['acquire'] == "video":
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_video'].active = True
+                    layer_obj.ids['acquire_video'].active = True
                 else:
                     settings[layer]['acquire'] = None
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_none'].active = True
+                    layer_obj.ids['acquire_none'].active = True
 
                 video_config = settings[layer]['video_config']
                 DEFAULT_VIDEO_DURATION_SEC = 5
@@ -5033,10 +5214,10 @@ class MicroscopeSettings(BoxLayout):
 
                 settings[layer]['video_config'] = video_config
 
-                lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_text'].text = str(video_config['duration'])
-                lumaview.ids['imagesettings_id'].ids[layer].ids['video_duration_slider'].value = video_config['duration']
+                layer_obj.ids['video_duration_text'].text = str(video_config['duration'])
+                layer_obj.ids['video_duration_slider'].value = video_config['duration']
 
-                lumaview.ids['imagesettings_id'].ids[layer].ids['autofocus'].active = settings[layer]['autofocus']
+                layer_obj.ids['autofocus'].active = settings[layer]['autofocus']
 
         except:
             logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
@@ -5062,9 +5243,10 @@ class MicroscopeSettings(BoxLayout):
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = True
         else:
             for layer in common_utils.get_layers():
-                accordion = layer + '_accordion'
-                if lumaview.ids['imagesettings_id'].ids[accordion].collapse == False:
-                    if lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active:
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                accordion_item = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
+                if accordion_item.collapse == False:
+                    if layer_obj.ids['false_color'].active:
                         lumaview.ids['viewer_id'].update_shader(false_color=layer)
                         
                     break
@@ -5196,10 +5378,16 @@ class MicroscopeSettings(BoxLayout):
 
         microscope_settings.set_acceleration_control_visibility(visible=selected_scope_config['XYStage'])
         
-        motion_settings =  lumaview.ids['motionsettings_id']
+        motion_settings = lumaview.ids['motionsettings_id']
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
         motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
         motion_settings.set_tiling_control_visibility(visible=selected_scope_config['XYStage'])
+
+        image_settings = lumaview.ids['imagesettings_id']
+        is_lumi_scope = True if settings['microscope'] == 'Lumi' else False
+        image_settings.set_lumi_layer_control_visibility(visible=is_lumi_scope)
+        image_settings.set_fluoresence_layer_controls_visibility(visible=not is_lumi_scope)
+        image_settings.set_expanded_layer(layer='BF')
 
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
@@ -5319,6 +5507,10 @@ class ModSlider(Slider):
 class LayerControl(BoxLayout):
     layer = StringProperty(None)
     bg_color = ObjectProperty(None)
+    illumination_support = BooleanProperty(True)
+    autogain_support = BooleanProperty(True)
+    exposure_summing_support = BooleanProperty(False)
+
     global settings
 
     def __init__(self, **kwargs):
@@ -5330,7 +5522,11 @@ class LayerControl(BoxLayout):
     
     
     def _init_ui(self, dt=0):
-        self.update_auto_gain()
+        if True == self.autogain_support:
+            self.update_auto_gain()
+        else:
+            self.apply_settings()
+
         self.init_acquire()
         self.init_autofocus()
 
@@ -5356,6 +5552,32 @@ class LayerControl(BoxLayout):
         self.ids['ill_text'].text = str(illumination)
 
         self.apply_settings()
+
+
+    def sum_slider(self):
+        logger.info('[LVP Main  ] LayerControl.sum_slider()')
+        sum = int(self.ids['sum_slider'].value)
+        settings[self.layer]['sum'] = sum
+        self.apply_settings()
+
+
+    def sum_text(self):
+        logger.info('[LVP Main  ] LayerControl.sum_text()')
+        sum_min = self.ids['sum_slider'].min
+        sum_max = self.ids['sum_slider'].max
+        try:
+            sum_val = int(self.ids['sum_text'].text)
+        except:
+            return
+        
+        sum = int(np.clip(sum_val, sum_min, sum_max))
+
+        settings[self.layer]['sum'] = sum
+        self.ids['sum_slider'].value = sum
+        self.ids['sum_text'].text = str(sum)
+
+        self.apply_settings()
+
 
     def video_duration_slider(self):
         logger.info('[LVP Main  ] LayerControl.video_duration_slider()')
@@ -5518,7 +5740,7 @@ class LayerControl(BoxLayout):
         if self.ids['enable_led_btn'].state == 'down': # if the button is down
             for layer in common_utils.get_layers():
                 if layer != self.layer:
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['enable_led_btn'].state = 'normal'
+                    self.ids['enable_led_btn'].state = 'normal'
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
@@ -5551,12 +5773,13 @@ class LayerControl(BoxLayout):
 
 def reset_acquire_ui():
     for layer in common_utils.get_layers():
+        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
         if settings[layer]['acquire'] == "image":
-            lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_image'].active = True
+            layer_obj.ids['acquire_image'].active = True
         elif settings[layer]['acquire'] == "video":
-            lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_video'].active = True
+            layer_obj.ids['acquire_video'].active = True
         else:
-            lumaview.ids['imagesettings_id'].ids[layer].ids['acquire_none'].active = True
+            layer_obj.ids['acquire_none'].active = True
 
 # Z Stack functions class
 # ---------------------------------------------------------------------
@@ -6030,7 +6253,8 @@ class LumaViewProApp(App):
         if not disable_homing:
             move_home(axis='XY')
 
-        lumaview.ids['imagesettings_id'].ids['BF'].apply_settings()
+        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
+        layer_obj.apply_settings()
         scope_leds_off()
 
         if getattr(sys, 'frozen', False):
