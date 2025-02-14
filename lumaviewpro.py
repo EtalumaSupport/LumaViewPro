@@ -3138,6 +3138,7 @@ class ImageSettings(BoxLayout):
             layer_obj.ids['false_color'].color = (0., )*4
 
             # Adjust 'Illumination' range
+            layer_obj.ids['ill_slider'].step = 1
             layer_obj.ids['ill_slider'].max = 50
 
     def accordion_collapse(self):
