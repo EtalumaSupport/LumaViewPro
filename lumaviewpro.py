@@ -3085,7 +3085,11 @@ class ImageSettings(BoxLayout):
 
         for layer in common_utils.get_transmitted_layers():
             layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].max = 200
+
+            if layer == 'BF':
+                layer_obj.ids['exp_slider'].max = 100
+            else:
+                layer_obj.ids['exp_slider'].max = 200
         
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
