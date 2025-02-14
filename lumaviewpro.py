@@ -1859,6 +1859,9 @@ class MotionSettings(BoxLayout):
         vert_control = self.ids['verticalcontrol_id']
         for turret_id in ('turret_selection_label', 'turret_btn_box'):
             vert_control.ids[turret_id].visible = visible
+        
+        vert_control.ids['set_turret_objective_btn'].disabled = not visible
+        vert_control.ids['set_turret_objective_btn'].opacity = 1 if visible else 0
 
 
     def set_tiling_control_visibility(self, visible: bool) -> None:
@@ -5377,7 +5380,7 @@ class MicroscopeSettings(BoxLayout):
         selected_scope_config = scope_configs[settings['microscope']]
 
         microscope_settings.set_acceleration_control_visibility(visible=selected_scope_config['XYStage'])
-        
+
         motion_settings = lumaview.ids['motionsettings_id']
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
         motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
