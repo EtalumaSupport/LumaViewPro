@@ -1770,6 +1770,12 @@ class AccordionItemImageSettingsLumiControl(AccordionItemImageSettingsBase):
         super().__init__(**kwargs)
 
 
+class AccordionItemImageSettingsDfControl(AccordionItemImageSettingsBase):
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+
 class AccordionItemImageSettingsRedControl(AccordionItemImageSettingsBase):
     
     def __init__(self, **kwargs):
@@ -2968,6 +2974,8 @@ class ImageSettings(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.info('[LVP Main  ] ImageSettings.__init__()')
+        self._accordion_item_df_control_visible = False
+        self._accordion_item_df_control = AccordionItemImageSettingsDfControl()
         self._accordion_item_lumi_control_visible = False
         self._accordion_item_lumi_control = AccordionItemImageSettingsLumiControl()
         self._accordion_item_fluorescence_control_visible = False
@@ -2979,6 +2987,7 @@ class ImageSettings(BoxLayout):
 
     def layer_lookup(self, layer: str):
         LAYER_MAP = {
+            'DF': self._accordion_item_df_control,
             'Lumi': self._accordion_item_lumi_control,
             'Blue': self._accordion_item_blue_control,
             'Red': self._accordion_item_red_control,
@@ -2993,6 +3002,7 @@ class ImageSettings(BoxLayout):
     
     def accordion_item_lookup(self, layer: str):
         LAYER_MAP = {
+            'DF': self._accordion_item_df_control,
             'Lumi': self._accordion_item_lumi_control,
             'Blue': self._accordion_item_blue_control,
             'Red': self._accordion_item_red_control,
@@ -3033,6 +3043,26 @@ class ImageSettings(BoxLayout):
             self._accordion_item_lumi_control.collapse = True
             self._accordion_item_lumi_control_visible = False
             self.ids['accordion_id'].remove_widget(self._accordion_item_lumi_control)
+
+    
+    def set_df_layer_control_visibility(self, visible: bool) -> None:
+        if visible:
+            self._show_df_layer_control()
+        else:
+            self._hide_df_layer_control()
+
+
+    def _show_df_layer_control(self):
+        if not self._accordion_item_df_control_visible:
+            self._accordion_item_df_control_visible = True
+            self.ids['accordion_id'].add_widget(self._accordion_item_df_control, 0)
+
+
+    def _hide_df_layer_control(self):
+        if self._accordion_item_df_control_visible:
+            self._accordion_item_df_control.collapse = True
+            self._accordion_item_df_control_visible = False
+            self.ids['accordion_id'].remove_widget(self._accordion_item_df_control)
 
 
     def set_fluoresence_layer_controls_visibility(self, visible: bool) -> None:
@@ -5393,6 +5423,7 @@ class MicroscopeSettings(BoxLayout):
 
         image_settings = lumaview.ids['imagesettings_id']
         is_lumi_scope = True if settings['microscope'] == 'Lumi' else False
+        image_settings.set_df_layer_control_visibility(visible=not is_lumi_scope)
         image_settings.set_lumi_layer_control_visibility(visible=is_lumi_scope)
         image_settings.set_fluoresence_layer_controls_visibility(visible=not is_lumi_scope)
         image_settings.set_expanded_layer(layer='BF')

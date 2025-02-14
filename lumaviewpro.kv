@@ -1565,7 +1565,6 @@
 			rectangle: (self.x, self.y, self.width, self.height)
 
 
-# BLUE SETTINGS
 <AccordionItemImageSettingsBlueControl>:
 	id: Blue_accordion
 	title: 'Blue Channel Control'
@@ -1595,6 +1594,16 @@
 		id: Red
 		layer: 'Red'
 		bg_color: 1, 0.2, 0, 1
+
+
+<AccordionItemImageSettingsDfControl>:
+	id: DF_accordion
+	title: 'Low Mag Darkfield Control'
+	on_collapse: root.accordion_collapse()
+	LayerControl:
+		id: DF
+		layer: 'DF'
+		bg_color: 0.5, 0.5, 0.5,  1
 
 
 <AccordionItemImageSettingsLumiControl>:
@@ -1647,16 +1656,6 @@
             LayerControl:
                 id: PC
                 layer: 'PC'
-                bg_color: 0.5, 0.5, 0.5,  1
-
-       # LOW MAG DARKFIELD SETTINGS
-        AccordionItem:
-			id: DF_accordion
-            title: 'Low Mag Darkfield Control'
-			on_collapse: root.accordion_collapse()
-            LayerControl:
-                id: DF
-                layer: 'DF'
                 bg_color: 0.5, 0.5, 0.5,  1
 
 
