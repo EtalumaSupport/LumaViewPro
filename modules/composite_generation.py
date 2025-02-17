@@ -124,7 +124,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
         BF_channel = ""
 
         allowed_BF_layers = common_utils.get_transmitted_layers()
-        allowed_layers = common_utils.get_fluorescence_layers()
+        allowed_layers = [*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()]
         img = None
 
         for layer in allowed_BF_layers:
@@ -146,10 +146,11 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
             images[row['Filepath']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
 
         color_index_map = {
-                'Blue': 0,
-                'Green': 1,
-                'Red': 2
-            }
+            'Blue': 0,
+            'Green': 1,
+            'Red': 2,
+            'Lumi': 0,
+        }
         
         error = None
         status = True

@@ -414,6 +414,7 @@ class SequencedCaptureExecutor:
                 step=step,
                 scan_count=self._scan_count,
                 output_format=output_format,
+                sum_count=step["Sum"],
             )
 
 
@@ -617,6 +618,7 @@ class SequencedCaptureExecutor:
         step,
         output_format: str,
         scan_count = None,
+        sum_count: int = 1,
     ):
         
         is_video = True if step['Acquire'] == "video" else False
@@ -650,6 +652,9 @@ class SequencedCaptureExecutor:
         earliest_image_ts = datetime.datetime.now()
         if 'update_scope_display' in self._callbacks:
             self._callbacks['update_scope_display']()
+            sum_iteration_callback=self._callbacks['update_scope_display']
+        else:
+            sum_iteration_callback=None
 
         use_color = step['Color'] if step['False_Color'] else 'BF'
 
@@ -798,6 +803,9 @@ class SequencedCaptureExecutor:
                     earliest_image_ts=earliest_image_ts,
                     timeout=datetime.timedelta(seconds=1.0),
                     all_ones_check=True,
+                    sum_count=sum_count,
+                    sum_delay_s=step["Exposure"]/1000,
+                    sum_iteration_callback=sum_iteration_callback,
                 )
         else:
             result = None

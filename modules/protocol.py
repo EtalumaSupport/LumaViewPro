@@ -26,10 +26,11 @@ class Protocol:
         1: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Channel', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective'],
         2: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'],
         3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
+        4: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
     }
-    CURRENT_VERSION = 3
+    CURRENT_VERSION = 4
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
-    STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|EP|PC)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
+    STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
     
     def __init__(
         self,
@@ -142,6 +143,7 @@ class Protocol:
                 ("Gain", float),
                 ("Auto_Gain", bool),
                 ("Exposure", float),
+                ("Sum", int),
                 ("Objective", str),
                 ("Well", str),
                 ("Tile", str),
@@ -241,6 +243,7 @@ class Protocol:
         self._config['steps'].at[step_idx, "Gain"] = layer_config['gain']
         self._config['steps'].at[step_idx, "Auto_Gain"] = layer_config['auto_gain']
         self._config['steps'].at[step_idx, "Exposure"] = layer_config['exposure']
+        self._config['steps'].at[step_idx, "Sum"] = int(layer_config['sum'])
         self._config['steps'].at[step_idx, "Objective"] = objective_id
         self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
         self._config['steps'].at[step_idx, "Video Config"] = layer_config['video_config']
@@ -295,6 +298,7 @@ class Protocol:
             gain=layer_config['gain'],
             auto_gain=layer_config['auto_gain'],
             exp=layer_config['exposure'],
+            sum=layer_config['sum'],
             objective=objective_id,
             well=well,
             tile=tile,
@@ -392,6 +396,7 @@ class Protocol:
                     gain=orig_step_df['Gain'],
                     auto_gain=orig_step_df['Auto_Gain'],
                     exp=orig_step_df['Exposure'],
+                    sum=orig_step_df['Sum'],
                     objective=orig_step_df['Objective'],
                     well=orig_step_df['Well'],
                     tile=tile_label,
@@ -456,6 +461,7 @@ class Protocol:
                     gain=orig_step_df['Gain'],
                     auto_gain=orig_step_df['Auto_Gain'],
                     exp=orig_step_df['Exposure'],
+                    sum=orig_step_df['Sum'],
                     objective=orig_step_df['Objective'],
                     well=orig_step_df['Well'],
                     tile=orig_step_df['Tile'],
@@ -586,6 +592,7 @@ class Protocol:
                         autofocus = layer_config['autofocus']
                         false_color = layer_config['false_color']
                         illumination = round(layer_config['illumination'], common_utils.max_decimal_precision('illumination'))
+                        sum = int(layer_config['sum'])
                         gain = round(layer_config['gain'], common_utils.max_decimal_precision('gain'))
                         auto_gain = common_utils.to_bool(layer_config['auto_gain'])
                         exposure = round(layer_config['exposure'], common_utils.max_decimal_precision('exposure'))
@@ -624,6 +631,7 @@ class Protocol:
                             gain=gain,
                             auto_gain=auto_gain,
                             exp=exposure,
+                            sum=sum,
                             objective=objective_id,
                             well=well_label,
                             tile=tile_label,
@@ -709,6 +717,7 @@ class Protocol:
         gain,
         auto_gain,
         exp,
+        sum,
         objective,
         well,
         tile,
@@ -731,6 +740,7 @@ class Protocol:
             "Gain": gain,
             "Auto_Gain": auto_gain,
             "Exposure": exp,
+            "Sum": sum,
             "Objective": objective,
             "Well": well,
             "Tile": tile,
@@ -786,7 +796,7 @@ class Protocol:
         if config['version'] == cls.CURRENT_VERSION:
             allowed = True
 
-        elif (config['version'] == 2) and (cls.CURRENT_VERSION == 3):
+        elif (config['version'] in (2, 3,)) and (cls.CURRENT_VERSION == 4):
             allowed = True
                 
         if not allowed:
@@ -819,14 +829,19 @@ class Protocol:
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
         protocol_df['Name'] = protocol_df['Name'].astype(str)
 
-        # Converter for v2 to v3
+        # Added in v3
         DEFAULT_VIDEO_CONFIG = {
             'fps': 5,
             'duration': 5
         }
 
-        if (config['version'] == 2) and (cls.CURRENT_VERSION == 3):
+        # Added in v4
+        DEFAULT_SUM_CONFIG = 1
+
+        if (config['version'] < cls.CURRENT_VERSION):
             logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
+
+        if (config['version'] == 2) and (cls.CURRENT_VERSION == 4):
             protocol_df['Acquire'] = "image"
             protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
         else:
@@ -838,7 +853,12 @@ class Protocol:
                 logger.error(f"Unable to parse video config, using default instead: {ex}")
                 protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
 
-        if config['version'] in (2, 3,):
+
+        if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION == 4):
+            protocol_df['Sum'] = DEFAULT_SUM_CONFIG
+
+
+        if config['version'] in (2, 3, 4):
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names
