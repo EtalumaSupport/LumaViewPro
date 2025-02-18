@@ -1,1 +1,1 @@
-2.2.1-beta-jre
+Lumi-beta
