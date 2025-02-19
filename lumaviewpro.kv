@@ -2496,6 +2496,47 @@
 					valign: 'middle'
 					text_size: self.size
 
+		    # Composite Brightness Threshold
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				padding: '0dp'
+				spacing: '5dp'
+
+				Label:
+					id: composite_threshold_label
+					text: 'CBT (%)'
+					halign: 'left'
+					valign: 'middle'
+					font_size: '12sp'
+					size_hint_x: None
+					width: '50dp'
+					text_size: self.size
+				ModSlider:
+					id: composite_threshold_slider # 0 to 100
+					min: 0.
+					max: 100.
+					value: 0.
+					step: 1
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					value_track: True
+					value_track_color: root.bg_color
+					value_track_width: 5
+					on_release: root.composite_threshold_slider()
+				TextInput:
+					id: composite_threshold_text
+					size_hint_x: None
+					width: '45dp'
+					multiline: False
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: 'float'
+					text: format(composite_threshold_slider.value, '.3g')
+					on_text_validate: root.composite_threshold_text()
+					on_focus: if not self.focus: root.composite_threshold_text()
 				
 			FloatLayout:
 				padding: '0dp'

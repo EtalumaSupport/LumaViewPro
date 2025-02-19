@@ -1211,7 +1211,6 @@ class CompositeCapture(FloatLayout):
                 lumaview.scope.set_exposure_time(exposure)
 
                 # Set brightness threshold for composites dealing with transmitted channels
-                # TO DO:    brightness_threshold = settings[layer]['composite_threshold'] -> given in percentage?
                 # If given in percentage, convert to 8 or 16 bit value
                 if not use_full_pixel_depth:
                     brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
@@ -2965,6 +2964,16 @@ class ImageSettings(BoxLayout):
             # -----------------------------------------------------
             self.ids[layer].ids['false_color_label'].text = ''
             self.ids[layer].ids['false_color'].color = (0., )*4
+            label = self.ids[layer].ids['composite_threshold_label']
+            slider = self.ids[layer].ids['composite_threshold_slider']
+            text = self.ids[layer].ids['composite_threshold_text']
+            label.text = ""
+            slider.disabled = True
+            slider.cursor_size = '0dp','0dp'
+            slider.value_track_color = (0., )*4
+            text.disabled = True
+            text.width = '0dp'
+            text.text = ""
 
             # Adjust 'Illumination' range
             self.ids[layer].ids['ill_slider'].max = 50
@@ -5010,6 +5019,8 @@ class MicroscopeSettings(BoxLayout):
                 lumaview.ids['imagesettings_id'].ids[layer].ids['ill_slider'].value = settings[layer]['ill']
                 lumaview.ids['imagesettings_id'].ids[layer].ids['gain_slider'].value = settings[layer]['gain']
                 lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = settings[layer]['exp']
+                if (layer in common_utils.get_fluorescence_layers()):
+                    lumaview.ids['imagesettings_id'].ids[layer].ids['composite_threshold_slider'].value = settings[layer]['composite_brightness_threshold']\
                 # lumaview.ids['imagesettings_id'].ids[layer].ids['exp_slider'].value = float(np.log10(settings[layer]['exp']))
                 lumaview.ids['imagesettings_id'].ids[layer].ids['false_color'].active = settings[layer]['false_color']
 
@@ -5411,6 +5422,26 @@ class LayerControl(BoxLayout):
         self.ids['gain_text'].text = str(gain)
 
         self.apply_settings()
+
+    def composite_threshold_slider(self):
+        logger.info('[LVP Main  ] LayerControl.composite_threshold_slider()')
+        composite_threshold = self.ids['composite_threshold_slider'].value
+        settings[self.layer]['composite_brightness_threshold'] = composite_threshold
+
+    def composite_threshold_text(self):
+        logger.info('[LVP Main  ] LayerControl.composite_threshold_text()')
+        composite_threshold_min = self.ids['composite_threshold_slider'].min
+        composite_threshold_max = self.ids['composite_threshold_slider'].max
+        try:
+            composite_threshold_val = float(self.ids['composite_threshold_text'].text)
+        except:
+            return
+        
+        composite_threshold = float(np.clip(composite_threshold_val, composite_threshold_min, composite_threshold_max))
+
+        settings[self.layer]['composite_brightness_threshold'] = composite_threshold
+        self.ids['composite_threshold_slider'].value = composite_threshold
+        self.ids['composite_threshold_text'].text = str(composite_threshold)
 
     def exp_slider(self):
         logger.info('[LVP Main  ] LayerControl.exp_slider()')
