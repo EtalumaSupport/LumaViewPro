@@ -2968,12 +2968,18 @@ class ImageSettings(BoxLayout):
             slider = self.ids[layer].ids['composite_threshold_slider']
             text = self.ids[layer].ids['composite_threshold_text']
             label.text = ""
+            label.visible = False
+            label.opacity = 0
             slider.disabled = True
+            slider.visible = False
             slider.cursor_size = '0dp','0dp'
+            slider.opacity = 0
             slider.value_track_color = (0., )*4
             text.disabled = True
+            text.visible = False
             text.width = '0dp'
             text.text = ""
+            text.opacity = 0
 
             # Adjust 'Illumination' range
             self.ids[layer].ids['ill_slider'].max = 50
