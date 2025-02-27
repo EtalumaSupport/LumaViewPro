@@ -302,7 +302,10 @@ class Lumascope():
 
         # Add the images together
         if sum_count == 1:
-            self.image_buffer = tmp_buffer[0]
+            if len(tmp_buffer) < 1:
+                self.image_buffer = tmp
+            else:
+                self.image_buffer = tmp_buffer[0]
         else:
             orig_dtype = tmp_buffer[0].dtype
             max_value = np.iinfo(orig_dtype).max

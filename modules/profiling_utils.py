@@ -37,9 +37,10 @@ class ProfilingHelper:
 
         with open(self._profile_artifact_path / f'LumaViewProApp_{ts}.stats', 'w') as stream:
             stats = pstats.Stats(str(self._profile_artifact_path / f'LumaViewProApp_{ts}.profile'), stream=stream)
-            stats.sort_stats('tottime').dump_stats(str(self._profile_artifact_path / f'LumaViewProApp_{ts}_bin.stats'))
+            stats.sort_stats('tottime', 'cumtime').dump_stats(str(self._profile_artifact_path / f'LumaViewProApp_{ts}_bin.stats'))
             # stats.print_stats()
-            stats.sort_stats('tottime').print_stats(50)
+            # stats.sort_stats('tottime').print_stats()
+            stats.sort_stats('tottime', 'cumtime').print_stats(.5)
         
 
     def stop(self):

@@ -631,8 +631,8 @@ def get_selected_labware() -> tuple[str, labware.WellPlate]:
         labware = wellplate_loader.get_plate(plate_key=labware_id)
         return labware_id, labware
     except Exception as e:
-        logger.error("LVP Main: Settings file issue. Replace file with a known working version")
-        logger.error(e)
+        logger.exception("LVP Main: Settings file issue. Replace file with a known working version")
+        logger.exception(e)
 
 
 
@@ -1493,7 +1493,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                         ome=False,
                     )
                 except Exception as e:
-                    logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
+                    logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
                 
                 frame_num += 1
 
@@ -1513,7 +1513,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 try:
                     video_writer.add_frame(image=self.current_video_frames[frame_num], timestamp=self.timestamps[frame_num])
                 except:
-                    logger.error("Manual-Video] FAILED TO WRITE FRAME")
+                    logger.exception("Manual-Video] FAILED TO WRITE FRAME")
 
             video_writer.finish()
         
@@ -2259,7 +2259,7 @@ class GraphingControls(BoxLayout):
                     else:
                         self.ax.plot(x_data, p(x_data), "r--")
                 except Exception as e:
-                    logger.error(f"[Graphing  ] Could not fit linear trendline: {e}")
+                    logger.exception(f"[Graphing  ] Could not fit linear trendline: {e}")
                     self.ids.trendline_spinner.text = "None"
 
 
@@ -2273,7 +2273,7 @@ class GraphingControls(BoxLayout):
                     else:
                         self.ax.plot(x_data, p(x_data), "r--")
                 except Exception as e:
-                    logger.error(f"[Graphing  ] Could not fit quadratic trendline: {e}")
+                    logger.exception(f"[Graphing  ] Could not fit quadratic trendline: {e}")
                     self.ids.trendline_spinner.text = "None"
 
             elif trendline_type == "Exponential":
@@ -2292,7 +2292,7 @@ class GraphingControls(BoxLayout):
                     else:
                         self.ax.plot(x_data, exp_y_data, "r--")
                 except Exception as e:
-                    logger.error(f"[Graphing  ] Could not fit exponential trendline: {e}")
+                    logger.exception(f"[Graphing  ] Could not fit exponential trendline: {e}")
                     self.ids.trendline_spinner.text = "None"
 
             elif trendline_type == "Power":
@@ -2311,9 +2311,9 @@ class GraphingControls(BoxLayout):
                     try:
                         self.ax.plot(x_data, power_y_data, "r--")
                     except Exception as e:
-                        logger.error(f"Graphing ] Power trendline error: {e}")
+                        logger.exception(f"Graphing ] Power trendline error: {e}")
                 except Exception as e:
-                    logger.error(f"[Graphing  ] Could not fit power trendline: {e}")
+                    logger.exception(f"[Graphing  ] Could not fit power trendline: {e}")
                     self.ids.trendline_spinner.text = "None"
 
             elif trendline_type == "Logarithmic":
@@ -2328,9 +2328,9 @@ class GraphingControls(BoxLayout):
                     try:
                         self.ax.plot(x_data, p(np.log(x_data)), "r--")
                     except Exception as e:
-                        logger.error(f"Graphing ] Logarithmic trendline error: {e}")
+                        logger.exception(f"Graphing ] Logarithmic trendline error: {e}")
                 except Exception as e:
-                    logger.error(f"[Graphing  ] Could not fit logarithmic trendline: {e}")
+                    logger.exception(f"[Graphing  ] Could not fit logarithmic trendline: {e}")
                     self.ids.trendline_spinner.text = "None"
                 
             self.update_graph()
@@ -2383,7 +2383,7 @@ class GraphingControls(BoxLayout):
             self.set_y_axis()
 
         except Exception as e:
-            logger.error(f"Graph Generation | Set graphing source | {e}")
+            logger.exception(f"Graph Generation | Set graphing source | {e}")
 
 
 
@@ -3295,7 +3295,7 @@ class Histogram(Widget):
                             counts = scale*np.log(hist[0][i] + 1)
                         else:
                             counts = np.ceil(scale*hist[0][i])
-                        self.pos = self.pos
+                        #self.pos = self.pos
                         bin_size= self.width/bins
                         Rectangle(pos=(x+max(i*bin_size-1, 1), y), size=(bin_size, counts))
                         #self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
@@ -3590,7 +3590,7 @@ class VerticalControl(BoxLayout):
             settings["turret_objectives"][str(selected_turret)] = desired_objective
 
         except Exception as e:
-            logger.error(f"SetTurretObjective] Error: {e}")
+            logger.exception(f"SetTurretObjective] Error: {e}")
             return
         
 
@@ -5101,7 +5101,7 @@ class MicroscopeSettings(BoxLayout):
                 ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                 profiling_save_path = f'./logs/profile/{ts}'
                 profiling_helper = profiling_utils.ProfilingHelper(save_path=profiling_save_path)
-                Clock.schedule_interval(profiling_helper.restart, 30)
+                Clock.schedule_interval(profiling_helper.restart, 120)
 
             if 'autogain' not in settings['protocol']:
                 settings['protocol']['autogain'] = {
@@ -6387,5 +6387,28 @@ class LumaViewProApp(App):
 
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
+
+# Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
+# For some reason kivy was calling a Python 2 method on newer Python 3 List objects, causing exceptions that would accumulate
+# These exceptions were CONSTANT because they were happening on each Main Display refresh and Histogram refresh
+from kivy.properties import ObservableReferenceList
+
+original_setslicemethod = ObservableReferenceList.__setslice__
+set_item_method = ObservableReferenceList.__setitem__
+
+def patched_setslice(self, i, j, sequence, **kwargs):
+    try:
+        # Try the original assignment
+        return original_setslicemethod(self, i, j, sequence)
+    except AttributeError:
+        # Getting attribute error if kivy is calling a deprecated method on a new Python 3 object
+        # Call proper method
+        return set_item_method(self, slice(i, j), sequence)
+    except Exception as e:
+        # If for some reason we get another error again, bite the bullet 
+        return original_setslicemethod(self, i, j, sequence)
+
+# Replace the original method with our patched version
+ObservableReferenceList.__setslice__ = patched_setslice
 
 LumaViewProApp().run()
