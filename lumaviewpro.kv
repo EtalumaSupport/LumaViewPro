@@ -189,6 +189,7 @@
 		id: xy_stagecontrol_id
 
 
+
 # MotionSettings - view and control motion control Board
 # ------------------------------------------
 <MotionSettings>:
@@ -1563,6 +1564,62 @@
 			width: 1
 			rectangle: (self.x, self.y, self.width, self.height)
 
+
+<AccordionItemImageSettingsBlueControl>:
+	id: Blue_accordion
+	title: 'Blue Channel Control'
+	on_collapse: root.accordion_collapse()
+	LayerControl:
+		id: Blue
+		layer: 'Blue'
+		bg_color: 0, .5, 1, 1
+
+
+<AccordionItemImageSettingsGreenControl>:
+	id: Green_accordion
+	title: 'Green Channel Control'
+	on_collapse: root.accordion_collapse()
+	LayerControl:
+		id: Green
+		layer: 'Green'
+		bg_color: .2, 0.8, 0.2, 1
+
+
+<AccordionItemImageSettingsRedControl>:
+	id: Red_accordion
+	title: 'Red Channel Control'
+	on_collapse: root.accordion_collapse()
+	collapse: False
+	LayerControl:
+		id: Red
+		layer: 'Red'
+		bg_color: 1, 0.2, 0, 1
+
+
+<AccordionItemImageSettingsDfControl>:
+	id: DF_accordion
+	title: 'Low Mag Darkfield Control'
+	on_collapse: root.accordion_collapse()
+	LayerControl:
+		id: DF
+		layer: 'DF'
+		bg_color: 0.5, 0.5, 0.5,  1
+
+
+<AccordionItemImageSettingsLumiControl>:
+	id: Lumi_accordion
+	title: 'Luminescence Control'
+	on_collapse: root.accordion_collapse()
+	collapse: False
+	LayerControl:
+		id: Lumi
+		layer: 'Lumi'
+		illumination_support: False
+		autogain_support: False
+		exposure_summing_support: True
+		bg_color: 0, .5, 1, 1
+
+
 # ImageSettings - view and edit control accordion
 # ------------------------------------------
 <ImageSettings>:
@@ -1600,47 +1657,6 @@
                 id: PC
                 layer: 'PC'
                 bg_color: 0.5, 0.5, 0.5,  1
-
-       # EXTENDED PHASE CONTRAST SETTINGS
-        AccordionItem:
-			id: EP_accordion
-            title: 'Extended Phase Control'
-			on_collapse: root.accordion_collapse()
-            LayerControl:
-                id: EP
-                layer: 'EP'
-                bg_color: 0.5, 0.5, 0.5,  1
-
-        # BLUE SETTINGS
-        AccordionItem:
-            id: Blue_accordion
-            title: 'Blue Channel Control'
-            on_collapse: root.accordion_collapse()
-            LayerControl:
-                id: Blue
-                layer: 'Blue'
-                bg_color: 0, .5, 1, 1
-
-        # GREEN SETTINGS
-        AccordionItem:
-            id: Green_accordion
-            title: 'Green Channel Control'
-			on_collapse: root.accordion_collapse()
-            LayerControl:
-                id: Green
-                layer: 'Green'
-                bg_color: .2, 0.8, 0.2, 1
-
-        # RED SETTINGS
-        AccordionItem:
-            id: Red_accordion
-            title: 'Red Channel Control'
-			on_collapse: root.accordion_collapse()
-			collapse: False
-            LayerControl:
-                id: Red
-                layer: 'Red'
-                bg_color: 1, 0.2, 0, 1
 
 
 # MicroscopeSettings - Settings for  Microscope within ImageSettings
@@ -2108,17 +2124,23 @@
 
 				text:'Illumination'
 				font_size: '16sp'
-				size_hint_y: None
-				height: '30dp'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
+				disabled: False if self.visible else True
 				# spacing: '5dp'
 				color: root.bg_color
+				opacity: 1 if self.visible else 0
+				visible: True if root.illumination_support else False
 
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.illumination_support else False
 
 				Label:
 					id: LED_label
@@ -2139,10 +2161,13 @@
 
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.illumination_support else False
 
 				Label:
 					text: 'Illumination (mA)'
@@ -2183,7 +2208,7 @@
 					Color:
 						rgba: root.bg_color
 					Rectangle:
-						size: self.width, 1
+						size: self.width, 1 if root.illumination_support else 0
 						pos: self.x, self.y+self.height
 				text:'Camera'
 				font_size: '16sp'
@@ -2195,10 +2220,13 @@
 			# Auto Gain/Exp
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
+				disabled: False if self.visible else True
+				opacity: 1 if self.visible else 0
+				visible: True if root.autogain_support else False
 
 				CheckBox:
 					id: auto_gain
@@ -2305,6 +2333,51 @@
 					# text: format(10 ** exp_slider.value, '.3g')
 					on_text_validate: root.exp_text()
 					on_focus: if not self.focus: root.exp_text()
+				
+			# Exposure Summing
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
+				padding: '0dp'
+				spacing: '5dp'
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True if root.exposure_summing_support else False
+
+				Label:
+					text: 'Sum'
+					halign: 'left'
+					valign: 'middle'
+					font_size: '12sp'
+					size_hint_x: None
+					width: '80dp'
+					text_size: self.size
+				ModSlider:
+					id: sum_slider
+					min: 1
+					max: 100
+					value: 1
+					step: 1
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
+					value_track: True
+					value_track_color: root.bg_color
+					value_track_width: 5
+					on_release: root.sum_slider()
+				TextInput:
+					id: sum_text
+					size_hint_x: None
+					width: '45dp'
+					multiline: False
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: "int"
+					text: "{:d}".format(int(sum_slider.value))
+					on_text_validate: root.sum_text()
+					on_focus: if not self.focus: root.sum_text()
 
 
 			# Focus

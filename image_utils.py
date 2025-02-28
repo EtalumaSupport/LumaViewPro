@@ -39,16 +39,26 @@ def is_color_image(image) -> bool:
 
 def add_false_color(array, color):
     src_dtype = array.dtype
-    if (not image_utils.is_color_image(array)) and (color in common_utils.get_fluorescence_layers()):
+    if (not image_utils.is_color_image(array)) and (color in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers())):
         img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
-        if color == 'Blue':
+        if color in ('Blue', 'Lumi'):
             img[:,:,0] = array
         elif color == 'Green':
             img[:,:,1] = array
         elif color == 'Red':
             img[:,:,2] = array
+
+        # For HSL colorspace
+        # elif color == 'Lumi':
+        #     img[:,:,0] = 215 / 2 # Hue (OpenCV uses range of 0-180, so divide by 2)
+        #     img[:,:,1] = array # Luminance
+        #     img[:,:,2] = 255 # Saturation
     else:
         img = array
+
+    # For HSL colorspace
+    # if color == 'Lumi':
+    #     img = cv2.cvtColor(img, cv2.COLOR_HLS2BGR)
 
     return img
 

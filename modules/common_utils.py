@@ -164,15 +164,23 @@ def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
 
                     
 def get_layers() -> list[str]:
-    return ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
+    return ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
 
 
 def get_transmitted_layers() -> list[str]:
-    return ['BF', 'PC', 'EP']
+    return ['BF', 'PC', 'DF']
 
 
 def get_fluorescence_layers() -> list[str]:
     return ['Blue', 'Green', 'Red']
+
+
+def get_luminescence_layers() -> list[str]:
+    return ['Lumi']
+
+
+def get_layers_with_led() -> list[str]:
+    return get_transmitted_layers() + get_fluorescence_layers()
 
 
 def get_opened_layer(lumaview_imagesettings) -> str | None:

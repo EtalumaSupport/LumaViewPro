@@ -8,4 +8,4 @@ class ColorChannel(enum.Enum):
     Red = 2
     BF = 3
     PC = 4
-    EP = 5
+    DF = 5

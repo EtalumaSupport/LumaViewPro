@@ -133,3 +133,4 @@ file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 file_handler.setFormatter(CustomFormatter())
 logger.addHandler(file_handler)
 minimize_logger_window()
+logging.disable(logging.DEBUG)
