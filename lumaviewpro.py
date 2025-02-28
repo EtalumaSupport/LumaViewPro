@@ -5235,10 +5235,10 @@ class MicroscopeSettings(BoxLayout):
 
             for layer in common_utils.get_layers():
               
-                if (layer in common_utils.get_fluorescence_layers()):
-                    lumaview.ids['imagesettings_id'].ids[layer].ids['composite_threshold_slider'].value = settings[layer]['composite_brightness_threshold']
-    
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+
+                if (layer in common_utils.get_fluorescence_layers()):
+                    layer_obj.ids['composite_threshold_slider'].value = settings[layer]['composite_brightness_threshold']
   
                 if 'ill' in settings[layer]:
                     layer_obj.ids['ill_slider'].value = settings[layer]['ill']
@@ -5819,7 +5819,8 @@ class LayerControl(BoxLayout):
         if self.ids['enable_led_btn'].state == 'down': # if the button is down
             for layer in common_utils.get_layers():
                 if layer != self.layer:
-                    self.ids['enable_led_btn'].state = 'normal'
+                    layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                    layer_obj.ids['enable_led_btn'].state = 'normal'
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
