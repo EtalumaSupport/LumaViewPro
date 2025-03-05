@@ -3122,7 +3122,7 @@ class ImageSettings(BoxLayout):
         
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].max = 1000
+            layer_obj.ids['exp_slider'].max = 10000
 
 
     def assign_led_button_down_images(self):
