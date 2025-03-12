@@ -1140,11 +1140,15 @@ class CompositeCapture(FloatLayout):
     # capture and save a composite image using the current settings
     def composite_capture(self):
 
-        z_stage_present = True
+        z_stage_present = not disable_homing
 
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
         global lumaview
 
+        initial_layer = common_utils.get_opened_layer(lumaview.ids['imagesettings_id'])
+
+        acquired_channel_count = 0
+        most_recent_aq_channel = None
 
         live_histo_off()
 
@@ -1166,6 +1170,8 @@ class CompositeCapture(FloatLayout):
             trans_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=trans_layer)
             if settings[trans_layer]["acquire"] == "image":
                 transmitted_present = True
+                acquired_channel_count += 1
+                most_recent_aq_channel = trans_layer
 
                 if z_stage_present:
                     # Go to focus and wait for arrival
@@ -1220,6 +1226,8 @@ class CompositeCapture(FloatLayout):
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
             layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
             if settings[layer]['acquire'] == "image":
+                acquired_channel_count += 1
+                most_recent_aq_channel = layer
 
                 if z_stage_present:
                     # Go to focus and wait for arrival
@@ -1248,7 +1256,7 @@ class CompositeCapture(FloatLayout):
 
                 # Florescent capture
                 # Check to make sure we are not capturing from a luminescence layer which doesn't use an LED
-                if layer in common_utils.get_transmitted_layers():
+                if layer not in common_utils.get_transmitted_layers():
                     if lumaview.scope.led:
                         lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
                         logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
@@ -1318,17 +1326,39 @@ class CompositeCapture(FloatLayout):
         save_folder.mkdir(parents=True, exist_ok=True)
         set_last_save_folder(dir=save_folder)
         
-        lumaview.scope.save_image(
-            array=img,
-            save_folder=save_folder,
-            file_root='composite_',
-            append=append,
-            color=None,
-            tail_id_mode='increment',
-            output_format=settings['image_output_format']
-        )
+        if acquired_channel_count != 1 and acquired_channel_count != 0:
+            lumaview.scope.save_image(
+                array=img,
+                save_folder=save_folder,
+                file_root='composite_',
+                append=append,
+                color=None,
+                tail_id_mode='increment',
+                output_format=settings['image_output_format']
+            )
+        elif acquired_channel_count != 0:
+            lumaview.scope.save_image(
+                array=img,
+                save_folder=save_folder,
+                file_root=f"{most_recent_aq_channel}_Image_",
+                append=append,
+                color=None,
+                tail_id_mode='increment',
+                output_format=settings['image_output_format']
+            )
+        else:
+            logger.info("[Composite Capture  ] No image saved as no channels were selected")
 
         live_histo_reverse()
+
+        # Reverse to settings of the channel that were originally selected
+        if initial_layer is not None:
+            gain = settings[initial_layer]['gain']
+            lumaview.scope.set_gain(gain)
+            exposure = settings[initial_layer]['exp']
+            lumaview.scope.set_exposure_time(exposure)
+            sum_count=settings[initial_layer]['sum']
+            sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App

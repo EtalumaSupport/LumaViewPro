@@ -113,10 +113,12 @@ class LEDBoard:
 
         if self.driver != False:
             try:
-                self.driver.write(stream)
-                response = self.driver.readline()
                 self.driver.flushInput()
                 self.driver.flush()
+                time.sleep(0.05)
+                self.driver.write(stream)
+                time.sleep(0.05)
+                response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
 
                 logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)

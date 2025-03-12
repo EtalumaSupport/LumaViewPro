@@ -185,12 +185,14 @@ def get_layers_with_led() -> list[str]:
 
 def get_opened_layer(lumaview_imagesettings) -> str | None:
     for layer in get_layers():
-        layer_is_collapsed = lumaview_imagesettings.ids[f"{layer}_accordion"].collapse
-
-        if not layer_is_collapsed:
-            return layer
+        try:
+            layer_accordion_obj = lumaview_imagesettings.accordion_item_lookup(layer=layer)
+            if layer_accordion_obj.collapse == False:
+                return layer
+        except:
+            continue
         
-        return None
+    return None
 
 
 def to_bool(val) -> bool:
