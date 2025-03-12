@@ -24,6 +24,8 @@ from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
 from modules.video_writer import VideoWriter
 from lvp_logger import logger
 
+from settings_init import settings
+
 
 class SequencedCaptureExecutor:
 
@@ -213,6 +215,12 @@ class SequencedCaptureExecutor:
     def protocol_interval(self):
         return self._protocol.period()
     
+    def get_initial_autofocus_states(self):
+        states = {}
+        for layer in common_utils.get_layers():
+            states[layer] = settings[layer]["autofocus"]
+        return states
+
 
     def run(
         self,
@@ -242,6 +250,7 @@ class SequencedCaptureExecutor:
             raise ValueError(f"Unsupported value for leds_state_at_end: {leds_state_at_end}")
         
         self._original_led_states = self._scope.get_led_states()
+        self._original_autofocus_states = self.get_initial_autofocus_states()
 
         self._protocol = protocol
         self._run_mode = run_mode
@@ -594,6 +603,10 @@ class SequencedCaptureExecutor:
                     self._led_on(color=color, illumination=color_data['illumination'])
         else:
             raise NotImplementedError(f"Unsupported LEDs state at end value: {self._leds_state_at_end}")
+        
+        # Always return autofocus states to intial
+        for layer, layer_data in self._original_autofocus_states.items():
+            settings[layer] = layer_data
 
         if not self._disable_saving_artifacts:
             self._protocol_execution_record.complete()
