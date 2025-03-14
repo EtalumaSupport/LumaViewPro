@@ -275,6 +275,9 @@ ENGINEERING_MODE = False
 global debug_counter
 debug_counter = 0
 
+global display_update_counter
+display_update_counter = 0
+
 start_str = time.strftime("%Y %m %d %H_%M_%S")
 start_str = str(int(round(time.time() * 1000)))
 
@@ -925,6 +928,9 @@ class ScopeDisplay(Image):
     def update_scopedisplay(self, dt=0):
         global lumaview
         global debug_counter
+        global display_update_counter
+
+        display_update_counter += 1
 
         if lumaview.scope.camera.active == False:
             self.source = "./data/icons/camera to USB.png"
@@ -933,6 +939,18 @@ class ScopeDisplay(Image):
         image = lumaview.scope.get_image(force_to_8bit=True)
         if (image is False) or (image.size == 0):
             return
+        
+        if display_update_counter % 10 == 0:
+            display_update_counter = 0
+            
+            layer, layer_config = get_active_layer_config()
+            if True == layer_config['auto_gain']:
+                actual_gain = lumaview.scope.camera.get_gain()
+                actual_exp = lumaview.scope.camera.get_exposure_t()
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                layer_obj.ids['gain_slider'].value = actual_gain
+                layer_obj.ids['exp_slider'].value = actual_exp
+            
 
         if ENGINEERING_MODE == True:
             debug_counter += 1
@@ -1064,6 +1082,7 @@ class CompositeCapture(FloatLayout):
                 sum_count=sum_count,
                 sum_delay_s=sum_delay_s,
                 sum_iteration_callback=sum_iteration_callback,
+                turn_off_all_leds_after=False,
             )
         
         else:
@@ -1081,6 +1100,7 @@ class CompositeCapture(FloatLayout):
                     sum_count=sum_count,
                     sum_delay_s=sum_delay_s,
                     sum_iteration_callback=sum_iteration_callback,
+                    turn_off_all_leds_after=False,
                 )
             
             image_orig = lumaview.scope.get_image(force_to_8bit=force_to_8bit_pixel_depth)
@@ -1200,6 +1220,7 @@ class CompositeCapture(FloatLayout):
                 time.sleep(2*exposure/1000+0.2)
             
                 transmitted_channel = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+                scope_leds_off()
                 
                 img = np.array(transmitted_channel, dtype=dtype)
 
@@ -1272,6 +1293,7 @@ class CompositeCapture(FloatLayout):
                     sum_delay_s=exposure/1000,
                     sum_iteration_callback=sum_iteration_callback,
                 )
+                lumaview.scope.leds_off()
 
                 img_gray = np.array(img_gray)
 
@@ -4170,6 +4192,11 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['labware'] = labware
         self.ids['labware_spinner'].text = settings['protocol']['labware']
 
+        # Set all layers to acquire = None
+        for layer in common_utils.get_layers():
+            settings[layer]['acquire'] = None
+        reset_acquire_ui()
+
         # Make steps available for drawing locations
         stage.set_protocol_steps(df=self._protocol.steps())
 
@@ -5697,6 +5724,18 @@ class LayerControl(BoxLayout):
             state = True
         else:
             state = False
+
+        for item in ('gain_slider', 'gain_text', 'exp_slider', 'exp_text'):
+            self.ids[item].disabled = state
+
+        # When transitioning out of auto-gain, keep last auto-gain settings to apply
+        actual_gain = lumaview.scope.camera.get_gain()
+        actual_exp = lumaview.scope.camera.get_exposure_t()
+
+        if False == state:
+            settings[self.layer]['gain'] = actual_gain
+            settings[self.layer]['exp'] = actual_exp
+
         settings[self.layer]['auto_gain'] = state
         self.apply_settings()
 
