@@ -418,7 +418,6 @@ class PylonCamera:
 
         microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
         millisec = microsec/1000 # convert exposure time to millisec
-        logger.info('[CAM Class ] PylonCamera.get_exposure_t(): succeeded')
         return millisec
             
 
