@@ -453,6 +453,7 @@ def go_to_step(
     layer_obj.ids['sum_slider'].value = int(step["Sum"])
 
     # acquire type
+    settings[color]['acquire'] = step['Acquire']
     for acquire_sel in ('acquire_video', 'acquire_image', 'acquire_none'):  
         layer_obj.ids[acquire_sel].active = False
 
@@ -942,7 +943,7 @@ class ScopeDisplay(Image):
         
         if display_update_counter % 10 == 0:
             display_update_counter = 0
-            
+
             layer, layer_config = get_active_layer_config()
             if True == layer_config['auto_gain']:
                 actual_gain = lumaview.scope.camera.get_gain()
@@ -4393,7 +4394,6 @@ class ProtocolSettings(CompositeCapture):
         for layer, layer_config in layer_configs.items():
             if layer_config['acquire'] == None:
                 continue
-
 
             _ = self._protocol.insert_step(
                 step_name=None,
