@@ -819,6 +819,7 @@ class SequencedCaptureExecutor:
                     sum_count=sum_count,
                     sum_delay_s=step["Exposure"]/1000,
                     sum_iteration_callback=sum_iteration_callback,
+                    turn_off_all_leds_after=True,
                 )
         else:
             result = None

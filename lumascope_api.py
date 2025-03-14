@@ -549,6 +549,7 @@ class Lumascope():
             sum_count: int = 1,
             sum_delay_s: float = 0,
             sum_iteration_callback = None,
+            turn_off_all_leds_after: bool = False,
         ):
 
         """CAMERA FUNCTIONS
@@ -563,6 +564,10 @@ class Lumascope():
             sum_delay_s=sum_delay_s,
             sum_iteration_callback=sum_iteration_callback,
         )
+
+        if True == turn_off_all_leds_after:
+            self.leds_off()
+
         if array is False:
             return 
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
