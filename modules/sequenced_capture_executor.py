@@ -606,7 +606,7 @@ class SequencedCaptureExecutor:
         
         # Always return autofocus states to intial
         for layer, layer_data in self._original_autofocus_states.items():
-            settings[layer] = layer_data
+            settings[layer]["autofocus"] = layer_data
 
         if not self._disable_saving_artifacts:
             self._protocol_execution_record.complete()

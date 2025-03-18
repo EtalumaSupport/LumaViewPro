@@ -4560,6 +4560,7 @@ class ProtocolSettings(CompositeCapture):
         create_hyperstacks_if_needed()
         live_histo_reverse()
         reset_acquire_ui()
+        self.reset_autofocus_ui()
         stage.set_motion_capability(True)
 
 
@@ -4617,6 +4618,7 @@ class ProtocolSettings(CompositeCapture):
         live_histo_reverse()
         create_hyperstacks_if_needed()
         reset_acquire_ui()
+        self.reset_autofocus_ui()
         stage.set_motion_capability(True)
 
 
@@ -4675,6 +4677,10 @@ class ProtocolSettings(CompositeCapture):
             callbacks=callbacks,
         )
 
+    def reset_autofocus_ui(self, **kwargs):
+        for layer in common_utils.get_layers():
+            layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+            layer_obj.ids["autofocus"].state = "down" if settings[layer]["autofocus"] == True else "normal"
 
     def _update_protocol_run_button_status(
         self,
@@ -4773,6 +4779,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
+        self.reset_autofocus_ui()
         stage.set_motion_capability(True)
         
 
