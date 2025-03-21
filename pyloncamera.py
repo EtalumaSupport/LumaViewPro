@@ -142,7 +142,9 @@ class PylonCamera:
             self.auto_gain(state=False)
             camera.ReverseX.SetValue(True)
             if not self._use_camera_emulation:
-                self.init_auto_gain_focus()
+                self.init_auto_gain_focus(
+                    min_exposure_us=1000
+                )
             self.exposure_t(t=10)
             self.set_frame_size(w=1900, h=1900)
 
@@ -216,6 +218,8 @@ class PylonCamera:
         auto_target_brightness: float=0.5,
         min_gain: float | None = None,
         max_gain: float | None = None,
+        min_exposure_us: int | None = None,
+        max_exposure_us: int | None = None,
     ):
         self.active.AutoFunctionROIWidth.SetValue(self.active.Width.Max - 2*self.active.AutoFunctionROIOffsetX.GetValue())
         self.active.AutoFunctionROIHeight.SetValue(self.active.Height.Max - 2*self.active.AutoFunctionROIOffsetY.GetValue())
@@ -231,6 +235,17 @@ class PylonCamera:
 
         self.active.AutoGainLowerLimit.SetValue(min_gain)
         self.active.AutoGainUpperLimit.SetValue(max_gain)
+
+        if min_exposure_us is None:
+            min_exposure_us = self.active.AutoExposureTimeLowerLimit.Min
+
+        if max_exposure_us is None:
+            max_exposure_us = self.active.AutoExposureTimeUpperLimit.Max
+
+    
+        self.active.AutoExposureTimeLowerLimit.SetValue(min_exposure_us)
+        self.active.AutoExposureTimeUpperLimit.SetValue(max_exposure_us)
+
         self.active.AutoFunctionProfile.SetValue('MinimizeExposureTime')
 
 
