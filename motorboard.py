@@ -113,7 +113,9 @@ class MotorBoard:
             logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
             
             self.motorconfig.update(config=self._motorboard_actual_config())
-            self.has_turret = self.motorconfig.axis_present(axis='Z')
+            self.has_turret = self.motorconfig.axis_present(axis='T')
+
+            self.fullinfo()
 
         except:
             self.driver = False
@@ -175,6 +177,11 @@ class MotorBoard:
     #----------------------------------------------------------
     # Informational Functions
     #----------------------------------------------------------
+    def fullinfo(self):
+        info = self.exchange_command("FULLINFO")
+        logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info)
+
+
     def _motorboard_actual_config(self) -> dict:
         raw_config = self.exchange_command('CONFIG')
         raw_config = raw_config.replace("'","\"")
