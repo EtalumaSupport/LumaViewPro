@@ -692,11 +692,14 @@ def create_hyperstacks_if_needed():
     if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
         _, objective = get_current_objective_info()
         stack_builder = StackBuilder()
+        motorconfig = lumaview.scope.motion.motorconfig
         stack_builder.load_folder(
             path=sequenced_capture_executor.run_dir(),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
             binning_size=get_binning_from_ui(),
             focal_length=objective['focal_length'],
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
         )
 
 
@@ -835,9 +838,12 @@ class ScopeDisplay(Image):
                 y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
 
                 _, objective = get_current_objective_info()
+                motorconfig = lumaview.scope.motion.motorconfig
                 pixel_size_um = common_utils.get_pixel_size(
                     focal_length=objective['focal_length'],
                     binning_size=get_binning_from_ui(),
+                    scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+                    camera_pixel_width_um=motorconfig.pixel_size(),
                 )
 
                 x_dist_um = x_dist_pixel * pixel_size_um
@@ -3380,6 +3386,12 @@ class VerticalControl(BoxLayout):
         self.is_autofocus = False
         self.is_complete = False
         self.record_autofocus_to_file = False
+        Clock.schedule_once(self._init_ui, 0)
+
+
+    def _init_ui(self, dt=0):
+        motorconfig = lumaview.scope.motion.motorconfig
+        self.ids['obj_position'].max = motorconfig.axis_travel_limit_mm(axis='Z')*1000
 
 
     def update_gui(self):
@@ -3487,10 +3499,13 @@ class VerticalControl(BoxLayout):
         lumaview.scope.set_objective(objective_id=objective_id)
 
         # Update UI FOV
+        motorconfig=lumaview.scope.motion.motorconfig
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
             binning_size=get_binning_from_ui(),
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
         )
         microscope_settings_id.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         microscope_settings_id.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
@@ -3560,8 +3575,15 @@ class VerticalControl(BoxLayout):
             curr_position,
         ]
 
+        motorconfig=lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
+
         tiling_config = TilingConfig(
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            axis_limits_mm=axis_limits_mm,
         )
 
         config = {
@@ -3581,6 +3603,9 @@ class VerticalControl(BoxLayout):
         autofocus_sequence = Protocol.from_config(
             input_config=config,
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            axis_limits_mm=axis_limits_mm,
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
         )
 
         autogain_settings = get_auto_gain_settings()
@@ -3613,24 +3638,12 @@ class VerticalControl(BoxLayout):
             video_as_frames=settings['video_as_frames']
         )
 
-
-    def turret_left(self):
-        lumaview.scope.turret_bias -= 1
-        angle = 90*lumaview.scope.turret_id + lumaview.scope.turret_bias
-        lumaview.scope.tmove(angle)
-        
-    def turret_right(self):
-        lumaview.scope.turret_bias += 1
-        angle = 90*lumaview.scope.turret_id + lumaview.scope.turret_bias
-        lumaview.scope.tmove(angle)
     
     def turret_home(self):
-        lumaview.scope.turret_bias = 0
         lumaview.scope.thome()
-        self.ids['turret_pos_1_btn'].state = 'normal'
-        self.ids['turret_pos_2_btn'].state = 'normal'
-        self.ids['turret_pos_3_btn'].state = 'normal'
-        self.ids['turret_pos_4_btn'].state = 'normal'
+        for pos in range(1,5):
+            self.ids[f'turret_pos_{pos}_btn'].state = 'normal'
+
 
     def set_turret_objective(self):
         global settings
@@ -3663,24 +3676,22 @@ class VerticalControl(BoxLayout):
             return
         
 
-    def turret_select(self, selected_position):
+    def turret_select(self, position_index):
         #TODO check if turret has been HOMED turret first
-        lumaview.scope.turret_id = selected_position - 1
-        angle = 90*lumaview.scope.turret_id
         lumaview.scope.tmove(
-            degrees=angle
+            position_index=position_index
         )
         
         for available_position in range(1,5):
-            if selected_position == available_position:
+            if position_index == available_position:
                 state = 'down'
 
                 # Check if an objective has been saved to that turret
-                if (len(settings["turret_objectives"][str(selected_position)]) > 0):
-                    if (not settings["turret_objectives"][str(selected_position)].isdigit()):
+                if (len(settings["turret_objectives"][str(position_index)]) > 0):
+                    if (not settings["turret_objectives"][str(position_index)].isdigit()):
 
                         # If an objective has been assigned to the turret position, change to that objective
-                        self.ids["objective_spinner2"].text = settings["turret_objectives"][str(selected_position)]
+                        self.ids["objective_spinner2"].text = settings["turret_objectives"][str(position_index)]
                         self.select_objective()
 
             else:
@@ -3695,10 +3706,13 @@ class XYStageControl(BoxLayout):
         # logger.info('[LVP Main  ] XYStageControl.update_gui()')
         global lumaview
         try:
+            motorconfig = lumaview.scope.motion.motorconfig
+            x_limit = motorconfig.axis_travel_limit_mm(axis='X') * 1000
+            y_limit = motorconfig.axis_travel_limit_mm(axis='Y') * 1000
             x_target = lumaview.scope.get_target_position('X')  # Get target value in um
-            x_target = np.clip(x_target, 0, 120000) # prevents crosshairs from leaving the stage area
+            x_target = np.clip(x_target, 0, x_limit) # prevents crosshairs from leaving the stage area
             y_target = lumaview.scope.get_target_position('Y')  # Get target value in um
-            y_target = np.clip(y_target, 0, 80000) # prevents crosshairs from leaving the stage area
+            y_target = np.clip(y_target, 0, y_limit) # prevents crosshairs from leaving the stage area
         except:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
         else:
@@ -3936,31 +3950,23 @@ class ProtocolSettings(CompositeCapture):
             read_file.close()
 
         self.curr_step = -1
-
-        
-        self.tiling_config = TilingConfig(
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
-        )
-
-        self.tiling_min = {
-            "x": 120000,
-            "y": 80000
-        }
-        self.tiling_max = {
-            "x": 0,
-            "y": 0
-        }
-
-        self.tiling_count = self.tiling_config.get_mxn_size(self.tiling_config.default_config())
-
         self._protocol = None
-
         self.exposures = 1  # 1 indexed
         Clock.schedule_once(self._init_ui, 0)
 
 
     def _init_ui(self, dt=0):
         global settings
+
+        motorconfig=lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
+        self.tiling_config = TilingConfig(
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            axis_limits_mm=axis_limits_mm,
+        )
 
         self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
         self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
@@ -3978,6 +3984,9 @@ class ProtocolSettings(CompositeCapture):
             self._protocol = Protocol.create_empty(
                 config=protocol_config,
                 tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+                axis_limits_mm=axis_limits_mm,
+                scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+                camera_pixel_width_um=motorconfig.pixel_size(),
             )
 
         self.select_labware()
@@ -4116,9 +4125,18 @@ class ProtocolSettings(CompositeCapture):
 
         config = get_sequenced_capture_config_from_ui()
 
+        motorconfig=lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
+
         self._protocol = Protocol.from_config(
             input_config=config,
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            axis_limits_mm=axis_limits_mm,
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
         )
 
         stage.set_protocol_steps(df=self._protocol.steps())
@@ -4160,9 +4178,16 @@ class ProtocolSettings(CompositeCapture):
         if not pathlib.Path(filepath).exists():
             raise FileNotFoundError(f"Protocol not found at {filepath}")
         
+        motorconfig=lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
+        
         self._protocol = Protocol.from_file(
             file_path=filepath,
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            axis_limits_mm=axis_limits_mm,
         )
 
         settings['protocol']['filepath'] = filepath
@@ -5076,10 +5101,14 @@ class Stage(Widget):
             #  Red Crosshairs
             # ------------------
             if self._motion_enabled:
+                motorconfig = lumaview.scope.motion.motorconfig
+                x_limit = motorconfig.axis_travel_limit_mm(axis='X')*1000
+                y_limit = motorconfig.axis_travel_limit_mm(axis='Y')*1000
+
                 x_current = lumaview.scope.get_current_position('X')
-                x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+                x_current = np.clip(x_current, 0, x_limit) # prevents crosshairs from leaving the stage area
                 y_current = lumaview.scope.get_current_position('Y')
-                y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+                y_current = np.clip(y_current, 0, y_limit) # prevents crosshairs from leaving the stage area
 
                 # Convert stage coordinates to relative pixel coordinates
                 pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
@@ -5547,11 +5576,13 @@ class MicroscopeSettings(BoxLayout):
         vc_objective_spinner.text = objective_id
 
         lumaview.scope.set_objective(objective_id=objective_id)
-
+        motorconfig = lumaview.scope.motion.motorconfig
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
             binning_size=get_binning_from_ui(),
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
@@ -5594,11 +5625,13 @@ class MicroscopeSettings(BoxLayout):
 
         objective_id = settings['objective_id']
         objective = objective_helper.get_objective_info(objective_id=objective_id)
-
+        motorconfig = lumaview.scope.motion.motorconfig
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
             binning_size=get_binning_from_ui(),
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
@@ -6028,9 +6061,16 @@ class ZStack(CompositeCapture):
         positions = [
             curr_position,
         ]
+
+        motorconfig=lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
         
         tiling_config = TilingConfig(
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            axis_limits_mm=axis_limits_mm,
         )
         
         config = {
@@ -6049,7 +6089,10 @@ class ZStack(CompositeCapture):
         
         zstack_sequence = Protocol.from_config(
             input_config=config,
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            axis_limits_mm=axis_limits_mm,
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
         )
 
         autogain_settings = get_auto_gain_settings()

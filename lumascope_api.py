@@ -72,7 +72,9 @@ class Lumascope():
         
         # Motion Control Board
         try:
-            self.motion = MotorBoard()
+            self.motion = MotorBoard(
+                motorconfig_defaults_file_loc=pathlib.Path("data/motorconfig_defaults.json")
+            )
         except:
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
 
@@ -321,10 +323,13 @@ class Lumascope():
             use_scale_bar = False
 
         if use_scale_bar:
+            motorconfig = self.motion.motorconfig
             self.image_buffer = image_utils.add_scale_bar(
                 image=self.image_buffer,
                 objective=self._objective,
                 binning_size=self._binning_size,
+                scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+                camera_pixel_width_um=motorconfig.pixel_size(),
             )
 
         if force_to_8bit and self.image_buffer.dtype != np.uint8:
@@ -419,10 +424,13 @@ class Lumascope():
         py = round(py, common_utils.max_decimal_precision('y'))
         z  = round(z,  common_utils.max_decimal_precision('z'))
 
+        motorconfig = self.motion.motorconfig
         pixel_size_um = round(
             common_utils.get_pixel_size(
                 focal_length=self._objective['focal_length'],
                 binning_size=self._binning_size,
+                scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+                camera_pixel_width_um=motorconfig.pixel_size(),
             ),
             common_utils.max_decimal_precision('pixel_size'),
         )
@@ -757,16 +765,17 @@ class Lumascope():
                 self.motion.thome()
 
 
-    def tmove(self, degrees):
+    def tmove(self, position_index: int):
         """MOTION CONTROL FUNCTIONS
-        Move turret to position in degrees"""
-        # MUST home move objective home first to prevent crash
-        #self.zhome()
-        #self.move_absolute_position('Z', self.z_min)
+        Move turret to position index (1 to 4)"""
+
+        if position_index not in range(1, 5):
+            logger.exception(f'[SCOPE API ] Invalid turret position provided: {position_index}')
+            return
 
         with self.safe_turret_mover():
-            logger.info(f'[SCOPE API ] Moving T to {degrees}')
-            self.move_absolute_position('T', degrees, wait_until_complete=True)
+            logger.info(f'[SCOPE API ] Moving T to position {position_index}')
+            self.move_absolute_position('T', position_index, wait_until_complete=True)
 
 
     def get_target_position(self, axis=None):
@@ -916,7 +925,7 @@ class Lumascope():
         if not self.motion.driver:
             return None
         
-        return self.motion.get_microscope_model()
+        return self.motion.motorconfig.model()
     
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS

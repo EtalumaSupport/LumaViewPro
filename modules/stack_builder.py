@@ -79,6 +79,8 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             output_file_loc=kwargs['output_file_loc'],
             focal_length=kwargs['focal_length'],
             binning_size=kwargs['binning_size'],
+            scope_lens_focal_length_mm=kwargs['scope_lens_focal_length_mm'],
+            camera_pixel_width_um=kwargs['camera_pixel_width_um'],
         )
 
 
@@ -117,8 +119,10 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         path: pathlib.Path,
         output_file_loc: pathlib.Path,
         plane_metadata: dict,
-        binning_size: int,
         focal_length: float,
+        binning_size: int,
+        scope_lens_focal_length_mm: float,
+        camera_pixel_width_um: float,
     ):
 
         axes = "TZCYX"
@@ -138,6 +142,8 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             common_utils.get_pixel_size(
                 focal_length=focal_length,
                 binning_size=binning_size,
+                scope_lens_focal_length_mm=scope_lens_focal_length_mm,
+                camera_pixel_width_um=camera_pixel_width_um,
             ),
             common_utils.max_decimal_precision('pixel_size'),
         )
@@ -320,6 +326,8 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         output_file_loc: pathlib.Path,
         focal_length: float,
         binning_size: int,
+        scope_lens_focal_length_mm: float,
+        camera_pixel_width_um: float,
     ):
         num_t = df['Scan Count'].nunique()
         num_z = df['Z-Slice'].nunique()
@@ -403,6 +411,8 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             plane_metadata=plane_metadata,
             focal_length=focal_length,
             binning_size=binning_size,
+            scope_lens_focal_length_mm=scope_lens_focal_length_mm,
+            camera_pixel_width_um=camera_pixel_width_um,
         )
 
         output_file_loc_abs = path / output_file_loc

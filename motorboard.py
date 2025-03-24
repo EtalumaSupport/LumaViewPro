@@ -33,18 +33,31 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 '''
 
+import json
+import pathlib
 import time
 from requests.structures import CaseInsensitiveDict
 import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
 
+from modules.motorconfig import MotorConfig
+
+
 class MotorBoard:
 
     #----------------------------------------------------------
     # Initialize connection through microcontroller
     #----------------------------------------------------------
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        motorconfig_defaults_file_loc: pathlib.Path | None = None,
+        **kwargs
+    ):
+        self.motorconfig = MotorConfig(
+            default_config_file_loc=motorconfig_defaults_file_loc
+        )
+
         logger.info('[XYZ Class ] MotorBoard.__init__()')
         ports = list_ports.comports(include_links = True)
         self.found = False
@@ -67,7 +80,7 @@ class MotorBoard:
         self.timeout=None # seconds
         self.write_timeout=None # seconds
         self.driver = False
-        self._fullinfo = None
+
         try:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
@@ -98,8 +111,10 @@ class MotorBoard:
             #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains
             self.driver.write(b'\x04\n')
             logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
-            # Fullinfo checks to see if it has a turret, so call that here
-            self._fullinfo = self.fullinfo()
+            
+            self.motorconfig.update(config=self._motorboard_actual_config())
+            self.has_turret = self.motorconfig.axis_present(axis='Z')
+
         except:
             self.driver = False
             logger.exception('[XYZ Class ] MotorBoard.connect() failed')
@@ -160,28 +175,21 @@ class MotorBoard:
     #----------------------------------------------------------
     # Informational Functions
     #----------------------------------------------------------
+    def _motorboard_actual_config(self) -> dict:
+        raw_config = self.exchange_command('CONFIG')
+        raw_config = raw_config.replace("'","\"")
+        try:
+            config = json.loads(s=raw_config)
+        except json.decoder.JSONDecodeError as ex:
+            logger.exception(f'[XYZ Class ] Unable to parse JSON from config response: {ex}')
+            return {}
+
+        return config
+    
+
     def infomation(self):
         self.exchange_command('INFO')
 
-    def fullinfo(self):
-        info = self.exchange_command("FULLINFO")
-        logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info)
-        info = info.split()
-        model = info[info.index("Model:")+1]
-        if model[-1] == "T":
-            self.has_turret = True
-
-        serial_number = info[info.index("Serial:")+1]
-
-        return {
-            "model": model,
-            "serial_number": serial_number
-        }
-        
-            
-    def get_microscope_model(self):
-        info = self._fullinfo
-        return info['model']
     
     #----------------------------------------------------------
     # Acceleration control functions
@@ -315,13 +323,13 @@ class MotorBoard:
     # Stock actuator = 0.30 mm pitch.  (1 rev/0.30 mm) x (200 steps/rev) x (256 usteps/step) = 170667 ustep/mm  
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
-        # logger.info('[XYZ Class ] MotorBoard.z_ustep2um('+str(ustep)+')')
-        um = (ustep * 1000 / 170667)
+        usteps_per_mm = self.motorconfig.axis_usteps_per_mm_per_obj(axis='Z')
+        um = (ustep * 1000 / usteps_per_mm)
         return um
 
     def z_um2ustep(self, um):
-        # logger.info('[XYZ Class ] MotorBoard.z_um2ustep('+str(um)+')')
-        ustep = int( (170667 * um) / 1000) 
+        usteps_per_mm = self.motorconfig.axis_usteps_per_mm_per_obj(axis='Z')
+        ustep = int( (usteps_per_mm * um) / 1000) 
         return ustep
 
     def zhome(self):
@@ -335,13 +343,13 @@ class MotorBoard:
     #----------------------------------------------------------
 
     def xy_ustep2um(self, ustep):
-        # logger.info('[XYZ Class ] MotorBoard.xy_ustep2um('+str(ustep)+')')
-        um = (ustep * 1000 / 20157)
+        usteps_per_mm = self.motorconfig.axis_usteps_per_mm_per_obj(axis='X')
+        um = (ustep * 1000 / usteps_per_mm)
         return um
 
     def xy_um2ustep(self, um):
-        # logger.info('[XYZ Class ] MotorBoard.xy_um2ustep('+str(um)+')')
-        ustep = int( (20157 * um) / 1000) 
+        usteps_per_mm = self.motorconfig.axis_usteps_per_mm_per_obj(axis='X')
+        ustep = int( (usteps_per_mm * um) / 1000) 
         return ustep
 
     def xyhome(self):

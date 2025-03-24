@@ -407,7 +407,9 @@ def subject_dist_to_rational(distance):
 def add_scale_bar(
     image,
     objective: dict,
-    binning_size: int
+    binning_size: int,
+    scope_lens_focal_length_mm: float,
+    camera_pixel_width_um: float,
 ):
     height, width = image.shape[0], image.shape[1]
 
@@ -421,7 +423,9 @@ def add_scale_bar(
 
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
-        binning_size=binning_size
+        binning_size=binning_size,
+        scope_lens_focal_length_mm=scope_lens_focal_length_mm,
+        camera_pixel_width_um=camera_pixel_width_um,
     )
 
     # Scale bar should be 1/8 to 1/4 the image length

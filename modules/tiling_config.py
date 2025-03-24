@@ -11,7 +11,12 @@ class TilingConfig:
         'position': 1.0 # No overlap needed for position-based tiling
     }
 
-    def __init__(self, tiling_configs_file_loc: pathlib.Path):
+    def __init__(
+        self,
+        tiling_configs_file_loc: pathlib.Path,
+        axis_limits_mm: dict
+    ):
+        self._axis_limits_mm = axis_limits_mm
 
         with open(tiling_configs_file_loc, "r") as fp:
             self._available_configs = json.load(fp)
@@ -70,6 +75,8 @@ class TilingConfig:
         frame_size: dict[int],
         fill_factor: int,
         binning_size: int,
+        scope_lens_focal_length_mm: float,
+        camera_pixel_width_um: float,
     ) -> dict[dict]:
         
         tiling_mxn = self.get_mxn_size(config_label)
@@ -78,17 +85,17 @@ class TilingConfig:
             focal_length=focal_length,
             frame_size=frame_size,
             binning_size=binning_size,
+            scope_lens_focal_length_mm=scope_lens_focal_length_mm,
+            camera_pixel_width_um=camera_pixel_width_um,
         )  
         
         x_fov = fill_factor * fov_size['width']
         y_fov = fill_factor * fov_size['height']
 
-        #x_current = lumaview.scope.get_current_position('X')
-        #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-        x_center = 60000 # TODO make center of a well
-        #y_current = lumaview.scope.get_current_position('Y')
-        #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
-        y_center = 40000 # TODO make center of a well
+        x_limit = self._axis_limits_mm['X']*1000
+        x_center = x_limit / 2 # TODO make center of a well
+        y_limit = self._axis_limits_mm['Y']*1000
+        y_center = y_limit / 2 # TODO make center of a well
         tiling_min = {
             "x": x_center - tiling_mxn["n"]*x_fov/2,
             "y": y_center - tiling_mxn["m"]*y_fov/2
@@ -113,6 +120,8 @@ class TilingConfig:
             frame_size: dict[int],
             fill_factor: int,
             binning_size: int,
+            scope_lens_focal_length_mm: float,
+            camera_pixel_width_um: float,
     ) -> dict:
         ranges = self._calc_range(
             config_label=config_label,
@@ -120,6 +129,8 @@ class TilingConfig:
             frame_size=frame_size,
             fill_factor=fill_factor,
             binning_size=binning_size,
+            scope_lens_focal_length_mm=scope_lens_focal_length_mm,
+            camera_pixel_width_um=camera_pixel_width_um,
         )
 
         tiling_mxn = ranges['mxn']

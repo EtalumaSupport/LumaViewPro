@@ -35,13 +35,15 @@ class Protocol:
     def __init__(
         self,
         tiling_configs_file_loc: pathlib.Path,
+        axis_limits_mm: dict,
         config: dict = None
     ):
 
         self._objective_loader = ObjectiveLoader()
 
         self._tiling_config = TilingConfig(
-            tiling_configs_file_loc=tiling_configs_file_loc
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            axis_limits_mm=axis_limits_mm,
         )
 
         if config is None:
@@ -484,11 +486,15 @@ class Protocol:
     def from_config(
         cls,
         input_config: dict,
-        tiling_configs_file_loc : pathlib.Path
+        tiling_configs_file_loc : pathlib.Path,
+        axis_limits_mm: dict,
+        scope_lens_focal_length_mm: float,
+        camera_pixel_width_um: float,
     ):
         
         tiling_config = TilingConfig(
-            tiling_configs_file_loc=tiling_configs_file_loc
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            axis_limits_mm=axis_limits_mm,
         )
 
         if 'positions' in input_config:
@@ -516,6 +522,8 @@ class Protocol:
             frame_size=frame_dimensions,
             fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
             binning_size=binning_size,
+            scope_lens_focal_length_mm=scope_lens_focal_length_mm,
+            camera_pixel_width_um=camera_pixel_width_um,
         )
 
         config = {
@@ -660,7 +668,8 @@ class Protocol:
 
         return cls(
             tiling_configs_file_loc=tiling_configs_file_loc,
-            config=config
+            config=config,
+            axis_limits_mm=axis_limits_mm,
         )
     
 
@@ -668,11 +677,15 @@ class Protocol:
     def create_empty(
         cls,
         config: dict,
-        tiling_configs_file_loc : pathlib.Path,
+        tiling_configs_file_loc: pathlib.Path,
+        axis_limits_mm: dict,
+        scope_lens_focal_length_mm: float,
+        camera_pixel_width_um: float,
     ):
         
         tc = TilingConfig(
-            tiling_configs_file_loc=tiling_configs_file_loc
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            axis_limits_mm=axis_limits_mm,
         )
         
         labware_id = config['labware_id']
@@ -700,7 +713,10 @@ class Protocol:
 
         return cls.from_config(
             input_config=input_config,
-            tiling_configs_file_loc=tiling_configs_file_loc
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            axis_limits_mm=axis_limits_mm,
+            scope_lens_focal_length_mm=scope_lens_focal_length_mm,
+            camera_pixel_width_um=camera_pixel_width_um,
         )
 
 
@@ -767,7 +783,8 @@ class Protocol:
     def from_file(
         cls,
         file_path: pathlib.Path,
-        tiling_configs_file_loc : pathlib.Path | None
+        tiling_configs_file_loc : pathlib.Path | None,
+        axis_limits_mm: dict,
     ):
         
         config = {}
@@ -863,7 +880,8 @@ class Protocol:
 
             # Extract tiling config from step names
             tc = TilingConfig(
-                tiling_configs_file_loc=tiling_configs_file_loc
+                tiling_configs_file_loc=tiling_configs_file_loc,
+                axis_limits_mm=axis_limits_mm,
             )
             config['tiling'] = tc.determine_tiling_label_from_names(
                 names=protocol_df['Name'].to_list()
@@ -874,7 +892,8 @@ class Protocol:
 
         return cls(
             tiling_configs_file_loc=tiling_configs_file_loc,
-            config=config
+            config=config,
+            axis_limits_mm=axis_limits_mm,
         )
     
 
