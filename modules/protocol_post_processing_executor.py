@@ -71,6 +71,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         results = self._post_processing_helper.load_folder(
             path=selected_path,
             tiling_configs_file_loc=tiling_configs_file_loc,
+            axis_limits_mm=kwargs['axis_limits_mm'],
         )
 
         if results['status'] is False:

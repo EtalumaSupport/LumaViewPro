@@ -226,6 +226,8 @@ class ProtocolPostProcessingHelper:
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
+        axis_limits_mm: dict,
+        **kwargs
     ) -> dict:
         selected_path = pathlib.Path(path)
         logger.info(f'{self._name}: Loading folder {selected_path}')
@@ -254,7 +256,8 @@ class ProtocolPostProcessingHelper:
 
         protocol = Protocol.from_file(
             file_path=protocol_tsvs['protocol'],
-            tiling_configs_file_loc=tiling_configs_file_loc
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            axis_limits_mm=axis_limits_mm,
         )
 
         if protocol is None:

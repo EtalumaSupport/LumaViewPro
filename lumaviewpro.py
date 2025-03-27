@@ -693,6 +693,10 @@ def create_hyperstacks_if_needed():
         _, objective = get_current_objective_info()
         stack_builder = StackBuilder()
         motorconfig = lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
         stack_builder.load_folder(
             path=sequenced_capture_executor.run_dir(),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
@@ -700,6 +704,7 @@ def create_hyperstacks_if_needed():
             focal_length=objective['focal_length'],
             scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
             camera_pixel_width_um=motorconfig.pixel_size(),
+            axis_limits_mm=axis_limits_mm,
         )
 
 
@@ -1999,9 +2004,17 @@ class StitchControls(BoxLayout):
         popup.title = "Stitcher"
         popup.text = "Generating stitched images..."
         stitcher = Stitcher()
+        motorconfig = lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
         result = stitcher.load_folder(
             path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
+            axis_limits_mm=axis_limits_mm,
         )
         final_text = f"Generating stitched images - {status_map[result['status']]}"
         if result['status'] is False:
@@ -2041,10 +2054,18 @@ class ZProjectionControls(BoxLayout):
         popup.title = "Z-Projection"
         popup.text = "Generating Z-Projection images..."
         zproj = zprojector.ZProjector(ij_helper=ij_helper)
+        motorconfig = lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
         result = zproj.load_folder(
             path=pathlib.Path(path),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            method=self.ids['zprojection_method_spinner'].text
+            method=self.ids['zprojection_method_spinner'].text,
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
+            axis_limits_mm=axis_limits_mm,
         )
         final_text = f"Generating Z-Projection images - {status_map[result['status']]}"
         if result['status'] is False:
@@ -2077,9 +2098,17 @@ class CompositeGenControls(BoxLayout):
         popup.title = "Composite Image Generation"
         popup.text = "Generating composite images..."
         composite_gen = CompositeGeneration()
+        motorconfig = lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
         result = composite_gen.load_folder(
             path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
+            axis_limits_mm=axis_limits_mm,
         )
         final_text = f"Generating composite images - {status_map[result['status']]}"
         if result['status'] is False:
@@ -2133,11 +2162,19 @@ class VideoCreationControls(BoxLayout):
             self.done = True
 
         video_builder = VideoBuilder()
+        motorconfig = lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
         result = video_builder.load_folder(
             path=pathlib.Path(path),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
             frames_per_sec=fps,
-            enable_timestamp_overlay=enable_timestamp_overlay
+            enable_timestamp_overlay=enable_timestamp_overlay,
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
+            axis_limits_mm=axis_limits_mm,
         )
         final_text = f"Generating video(s) - {status_map[result['status']]}"
         if result['status'] is False:
