@@ -250,13 +250,13 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                 img_dtype = source_image_sample.dtype
 
                 for _, row in df.iterrows():
+                    layer = row['Color']
                     try:
                         layer_index = color_index_map[layer]
                     except:
                         # If color not flourescent, skip this image
                         continue
 
-                    layer = row['Color']
                     source_image = images[row['Filepath']]
                     source_is_color = image_utils.is_color_image(image=source_image)
                     
