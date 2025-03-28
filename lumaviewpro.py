@@ -5646,7 +5646,7 @@ class LayerControl(BoxLayout):
     
     def _init_ui(self, dt=0):
         if True == self.autogain_support:
-            self.update_auto_gain()
+            self.update_auto_gain(init=True)
         else:
             self.apply_settings()
 
@@ -5725,7 +5725,7 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
-    def update_auto_gain(self):
+    def update_auto_gain(self, init: bool = False):
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':
             state = True
@@ -5739,7 +5739,9 @@ class LayerControl(BoxLayout):
         actual_gain = lumaview.scope.camera.get_gain()
         actual_exp = lumaview.scope.camera.get_exposure_t()
 
-        if False == state:
+        # If being called on program initialization, we don't want to
+        # inadvertantly load the settings from the scope hardware into the software maintained settings
+        if (False == init) and (False == state):
             settings[self.layer]['gain'] = actual_gain
             settings[self.layer]['exp'] = actual_exp
 
