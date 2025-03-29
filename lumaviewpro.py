@@ -39,6 +39,7 @@ import copy
 import logging
 import datetime
 from datetime import datetime as date_time
+import functools
 import math
 import os
 import pathlib
@@ -3067,7 +3068,7 @@ class ImageSettings(BoxLayout):
             return self.ids[f"{layer}_accordion"]
         
     
-    def set_expanded_layer(self, layer: str) -> None:
+    def set_expanded_layer(self, layer: str, *largs) -> None:
         for a_layer in common_utils.get_layers():
             accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
             
@@ -5510,7 +5511,6 @@ class MicroscopeSettings(BoxLayout):
         image_settings.set_df_layer_control_visibility(visible=not is_lumi_scope)
         image_settings.set_lumi_layer_control_visibility(visible=is_lumi_scope)
         image_settings.set_fluoresence_layer_controls_visibility(visible=not is_lumi_scope)
-        image_settings.set_expanded_layer(layer='BF')
 
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
@@ -6487,6 +6487,11 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
+        Clock.schedule_once(
+            functools.partial(
+                lumaview.ids['imagesettings_id'].set_expanded_layer, 'BF'
+            ),
+        0.2)
 
         return lumaview
 
