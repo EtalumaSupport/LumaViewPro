@@ -761,14 +761,22 @@ def move_home(axis: str):
     global version
     axis = axis.upper()
 
-    Window.set_title(f"Lumaview Pro {version}   |   Homing, please wait...")
+    try:
+        motorconfig = lumaview.scope.motion.motorconfig
+        model = motorconfig.model()
+        sn = motorconfig.serial_number()
+        base_app_title = f"Lumaview Pro {version} - {model} {sn}"
+    except:
+        base_app_title = f"Lumaview Pro {version}"
+
+    Window.set_title(f"{base_app_title}   |   Homing, please wait...")
     if axis == 'Z':
         lumaview.scope.zhome()
     elif axis == 'XY':
         lumaview.scope.xyhome()
 
     _handle_ui_update_for_axis(axis=axis)
-    Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}"), 1)
+    Clock.schedule_once(lambda dt: Window.set_title(f"{base_app_title}"), 1)
 
 def live_histo_off():
     if live_histo_setting == True and lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization == True:
@@ -3958,7 +3966,7 @@ class XYStageControl(BoxLayout):
 
             # Firmware seems to move the turret back to position 1 when performing XY homing
             # Use this command to make sure the UI is in-sync
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=1)
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(position_index=1)
             
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
