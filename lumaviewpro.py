@@ -39,6 +39,7 @@ import copy
 import logging
 import datetime
 from datetime import datetime as date_time
+import functools
 import math
 import os
 import pathlib
@@ -3110,7 +3111,7 @@ class ImageSettings(BoxLayout):
             return self.ids[f"{layer}_accordion"]
         
     
-    def set_expanded_layer(self, layer: str) -> None:
+    def set_expanded_layer(self, layer: str, *largs) -> None:
         for a_layer in common_utils.get_layers():
             accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
             
@@ -5576,7 +5577,6 @@ class MicroscopeSettings(BoxLayout):
         image_settings.set_df_layer_control_visibility(visible=not is_lumi_scope)
         image_settings.set_lumi_layer_control_visibility(visible=is_lumi_scope)
         image_settings.set_fluoresence_layer_controls_visibility(visible=not is_lumi_scope)
-        image_settings.set_expanded_layer(layer='BF')
 
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
@@ -5716,7 +5716,7 @@ class LayerControl(BoxLayout):
     
     def _init_ui(self, dt=0):
         if True == self.autogain_support:
-            self.update_auto_gain()
+            self.update_auto_gain(init=True)
         else:
             self.apply_settings()
 
@@ -5795,7 +5795,7 @@ class LayerControl(BoxLayout):
 
         self.apply_settings()
 
-    def update_auto_gain(self):
+    def update_auto_gain(self, init: bool = False):
         logger.info('[LVP Main  ] LayerControl.update_auto_gain()')
         if self.ids['auto_gain'].state == 'down':
             state = True
@@ -5809,7 +5809,9 @@ class LayerControl(BoxLayout):
         actual_gain = lumaview.scope.camera.get_gain()
         actual_exp = lumaview.scope.camera.get_exposure_t()
 
-        if False == state:
+        # If being called on program initialization, we don't want to
+        # inadvertantly load the settings from the scope hardware into the software maintained settings
+        if (False == init) and (False == state):
             settings[self.layer]['gain'] = actual_gain
             settings[self.layer]['exp'] = actual_exp
 
@@ -6565,6 +6567,11 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
+        Clock.schedule_once(
+            functools.partial(
+                lumaview.ids['imagesettings_id'].set_expanded_layer, 'BF'
+            ),
+        0.2)
 
         return lumaview
 
