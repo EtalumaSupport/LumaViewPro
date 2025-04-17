@@ -115,9 +115,9 @@ class LEDBoard:
             try:
                 self.driver.flushInput()
                 self.driver.flush()
-                time.sleep(0.05)
+                time.sleep(0.001)
                 self.driver.write(stream)
-                time.sleep(0.05)
+                time.sleep(0.01)
                 response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
 

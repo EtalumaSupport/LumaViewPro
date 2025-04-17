@@ -193,7 +193,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                     if img_dtype == "uint8":
                         brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
                     elif img_dtype == "uint16":
-                        brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 65536
+                        brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 4095
 
                     channel_index = color_index_map[layer]
 

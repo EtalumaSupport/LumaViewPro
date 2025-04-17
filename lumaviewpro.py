@@ -1272,7 +1272,7 @@ class CompositeCapture(FloatLayout):
                 if not use_full_pixel_depth:
                     brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
                 else:
-                    brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 65536
+                    brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 4095
 
                 # update illumination to currently selected settings
                 illumination = settings[layer]['ill']
