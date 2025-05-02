@@ -244,6 +244,8 @@ global settings
 global cell_count_content
 global graphing_controls
 
+global max_exposure
+
 global wellplate_loader
 wellplate_loader = None
 
@@ -3164,7 +3166,7 @@ class ImageSettings(BoxLayout):
     def set_layer_exposure_range(self):
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].max = 1000
+            layer_obj.ids['exp_slider'].max = max_exposure
 
         for layer in common_utils.get_transmitted_layers():
             layer_obj = self.layer_lookup(layer=layer)
@@ -3176,7 +3178,7 @@ class ImageSettings(BoxLayout):
         
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].max = 1000
+            layer_obj.ids['exp_slider'].max = max_exposure
 
 
     def assign_led_button_down_images(self):
@@ -5169,8 +5171,8 @@ class MicroscopeSettings(BoxLayout):
         logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
         global lumaview
         global settings
+        global max_exposure
 
-       
         try:
 
             from settings_init import settings as initialized_settings
@@ -5226,6 +5228,9 @@ class MicroscopeSettings(BoxLayout):
             self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
             self.select_sequenced_image_output_format()
 
+            lumaview.scope.camera.find_model_name()
+            lumaview.scope.camera.set_max_exposure_time()
+            max_exposure = lumaview.scope.camera.get_max_exposure()
 
             if settings['video_as_frames'] == False:
                 self.ids['video_recording_format_spinner'].text = 'mp4'
@@ -5309,7 +5314,15 @@ class MicroscopeSettings(BoxLayout):
                     layer_obj.ids['ill_slider'].value = settings[layer]['ill']
 
                 layer_obj.ids['gain_slider'].value = settings[layer]['gain']
-                layer_obj.ids['exp_slider'].value = settings[layer]['exp']
+
+                layer_obj.ids['exp_slider'].max = max_exposure
+
+                if settings[layer]['exp'] <= max_exposure:
+                    layer_obj.ids['exp_slider'].value = settings[layer]['exp']
+                else:
+                    layer_obj.ids['exp_slider'].value = max_exposure
+                    settings[layer]['exp'] = max_exposure
+
                 layer_obj.ids['false_color'].active = settings[layer]['false_color']
 
                 if 'sum' in settings[layer]:

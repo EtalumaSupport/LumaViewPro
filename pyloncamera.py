@@ -39,6 +39,8 @@ import numpy as np
 from pypylon import pylon, genicam
 from lvp_logger import logger
 
+default_max_exposure = 1_000 # in ms
+
 class PylonCamera:
 
     def __init__(self, **kwargs):
@@ -47,6 +49,13 @@ class PylonCamera:
         self.error_report_count = 0
         self.array = np.array([])
         self.cam_image_handler = None
+        self.model_name = None
+        self.max_exposure = 100 # in ms
+
+        self.max_exposure_dict = {
+            "daA3840-45um": 1_000,
+            "a2A3536-31um": 10_000
+        }
 
         if os.getenv("PYLON_CAMEMU", None) != None:
             logger.info('[CAM Class ] PylonCamera.connect() detected request to use camera emulation')
@@ -128,7 +137,31 @@ class PylonCamera:
             logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.active = False
             self.error_report_count += 1
+
+    def find_model_name(self):
+        dev_info = self.active.GetDeviceInfo()
+        self.model_name = dev_info.GetModelName()
+        logger.info(f'[CAM Class ] Connected camera model detected as "{self.model_name}"')
+        return
+
+    def get_model_name(self):
+        return self.model_name
     
+    def set_max_exposure_time(self):
+        found_key = None
+        for key in self.max_exposure_dict.keys():
+            if self.model_name in key:
+                found_key = key
+                break
+        
+        if found_key is None:
+            self.max_exposure = default_max_exposure
+            return
+        
+        self.max_exposure = self.max_exposure_dict[found_key]
+
+    def get_max_exposure(self):
+        return self.max_exposure
     
     def init_camera_config(self):
         camera = self.active
@@ -403,13 +436,20 @@ class PylonCamera:
             logger.warning('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': inactive camera')
             return
         
-        # (t*1000) in microseconds; therefore t  in milliseconds
-        self.active.ExposureTime.SetValue(max(float(t)*1000, self.active.ExposureTime.Min))
-        logger.info('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
+        if t > self.max_exposure:
+            logger.warning(f'[CAM Class ] PylonCamera.exposure_t(Exposure of {t}ms > camera maximum ({self.max_exposure}ms))')
+            return
+        
+        # Pylon takes time in microseconds, so pass t*1000 to convert to us
+        try:
+            self.active.ExposureTime.SetValue(max(float(t)*1000, self.active.ExposureTime.Min))
+            logger.info('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
+        except Exception as e:
+            logger.error('[CAM class ] PylonCamera.exposure_t(FAILED; Exposure likely out of bounds) {e}')
 
 
     def get_exposure_t(self):
-        """ Set exposure time in the camera hardware
+        """ Get exposure time in the camera hardware
          Returns t (msec), or -1 if the camera is inactive"""
 
         if self.active == False:
