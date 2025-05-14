@@ -54,7 +54,7 @@ class PylonCamera:
 
         self.max_exposure_dict = {
             "daA3840-45um": 1_000,
-            "a2A3536-31um": 10_000
+            "a2A3536-31umBAS": 10_000
         }
 
         if os.getenv("PYLON_CAMEMU", None) != None:
@@ -159,6 +159,7 @@ class PylonCamera:
             return
         
         self.max_exposure = self.max_exposure_dict[found_key]
+        logger.info(f"[CAM Class ] Max exposure set to {self.max_exposure} ms")
 
     def get_max_exposure(self):
         return self.max_exposure

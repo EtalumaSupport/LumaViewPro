@@ -5228,9 +5228,15 @@ class MicroscopeSettings(BoxLayout):
             self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
             self.select_sequenced_image_output_format()
 
-            lumaview.scope.camera.find_model_name()
-            lumaview.scope.camera.set_max_exposure_time()
-            max_exposure = lumaview.scope.camera.get_max_exposure()
+            try:
+
+                lumaview.scope.camera.find_model_name()
+                lumaview.scope.camera.set_max_exposure_time()
+                max_exposure = lumaview.scope.camera.get_max_exposure()
+            except Exception as e:
+                logger.error(f"Error getting camera information (Camera may not be connected): {e}")
+                logger.warning(f"Maximum Exposure defaulted to 1000 ms")
+                max_exposure = 1000
 
             if settings['video_as_frames'] == False:
                 self.ids['video_recording_format_spinner'].text = 'mp4'
