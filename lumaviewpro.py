@@ -201,6 +201,7 @@ from kivy.graphics.texture import Texture
 # User Interface Custom Widgets
 from custom_widgets.range_slider import RangeSlider
 from custom_widgets.progress_popup import show_popup
+from custom_widgets.notification_popup import show_notification_popup
 
 #post processing
 from image_stitcher import image_stitcher
@@ -378,12 +379,19 @@ def go_to_step(
     
     step = protocol.step(idx=step_idx)
     protocol_settings.ids['step_name_input'].text = step["Name"]
+
+    if lumaview.scope.has_turret():
+        objective_short_name = objective_helper.get_objective_info(objective_id=step["Objective"])['short_name']
+    else:
+        objective_short_name = None
+
     if step['Name'] == '':
         step_name = common_utils.generate_default_step_name(
             well_label=step["Well"],
             color=step['Color'],
             z_height_idx=step['Z-Slice'],
-            tile_label=step['Tile']
+            tile_label=step['Tile'],
+            objective_short_name=objective_short_name,
         )
         protocol_settings.ids['step_name_input'].hint_text = step_name
 
@@ -397,8 +405,20 @@ def go_to_step(
             py=step["Y"]
         )
 
+        turret_pos = None
+        if lumaview.scope.has_turret():
+            step_objective_id = step["Objective"]
+            turret_pos = lumaview.scope.get_turret_position_for_objective_id(
+                objective_id=step_objective_id,
+            )
+
+            if turret_pos is None:
+                logger.error(f"Cannot move turret for step {step_idx}. No position found with objective {step_objective_id}")                
+      
         # Move into position
         if lumaview.scope.motion.driver:
+            if turret_pos is not None:
+                move_absolute_position(axis='T', pos=turret_pos)
             move_absolute_position('X', sx)
             move_absolute_position('Y', sy)
             move_absolute_position('Z', step["Z"])
@@ -694,7 +714,9 @@ def create_hyperstacks_if_needed():
     image_capture_config = get_image_capture_config_from_ui()
     if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
         _, objective = get_current_objective_info()
-        stack_builder = StackBuilder()
+        stack_builder = StackBuilder(
+            has_turret=lumaview.scope.has_turret(),
+        )
         stack_builder.load_folder(
             path=sequenced_capture_executor.run_dir(),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
@@ -724,12 +746,15 @@ def move_absolute_position(
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True
 ):
-    lumaview.scope.move_absolute_position(
-        axis=axis,
-        pos=pos,
-        wait_until_complete=wait_until_complete,
-        overshoot_enabled=overshoot_enabled
-    )
+    if axis == 'T':
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=pos)
+    else:
+        lumaview.scope.move_absolute_position(
+            axis=axis,
+            pos=pos,
+            wait_until_complete=wait_until_complete,
+            overshoot_enabled=overshoot_enabled
+        )
 
     _handle_ui_update_for_axis(axis=axis)
 
@@ -760,6 +785,8 @@ def move_home(axis: str):
         lumaview.scope.zhome()
     elif axis == 'XY':
         lumaview.scope.xyhome()
+    elif axis == 'T':
+        lumaview.scope.thome()
 
     _handle_ui_update_for_axis(axis=axis)
     Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}"), 1)
@@ -1995,7 +2022,9 @@ class StitchControls(BoxLayout):
         }
         popup.title = "Stitcher"
         popup.text = "Generating stitched images..."
-        stitcher = Stitcher()
+        stitcher = Stitcher(
+            has_turret=lumaview.scope.has_turret(),
+        )
         result = stitcher.load_folder(
             path=pathlib.Path(path),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
@@ -2037,7 +2066,10 @@ class ZProjectionControls(BoxLayout):
         }
         popup.title = "Z-Projection"
         popup.text = "Generating Z-Projection images..."
-        zproj = zprojector.ZProjector(ij_helper=ij_helper)
+        zproj = zprojector.ZProjector(
+            has_turret=lumaview.scope.has_turret(),
+            ij_helper=ij_helper
+        )
         result = zproj.load_folder(
             path=pathlib.Path(path),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
@@ -2073,7 +2105,9 @@ class CompositeGenControls(BoxLayout):
         }
         popup.title = "Composite Image Generation"
         popup.text = "Generating composite images..."
-        composite_gen = CompositeGeneration()
+        composite_gen = CompositeGeneration(
+            has_turret=lumaview.scope.has_turret(),
+        )
         result = composite_gen.load_folder(
             path=pathlib.Path(path),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
@@ -2129,7 +2163,9 @@ class VideoCreationControls(BoxLayout):
             time.sleep(5)
             self.done = True
 
-        video_builder = VideoBuilder()
+        video_builder = VideoBuilder(
+            has_turret=lumaview.scope.has_turret(),
+        )
         result = video_builder.load_folder(
             path=pathlib.Path(path),
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
@@ -3487,6 +3523,9 @@ class VerticalControl(BoxLayout):
         ms_objective_spinner.text = objective_id
 
         # Set objective in lumascope
+        if lumaview.scope.has_turret():
+            lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
+
         lumaview.scope.set_objective(objective_id=objective_id)
 
         # Update UI FOV
@@ -3497,9 +3536,6 @@ class VerticalControl(BoxLayout):
         )
         microscope_settings_id.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         microscope_settings_id.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
-
-
-
 
 
     def _reset_run_autofocus_button(self, **kwargs):
@@ -3616,24 +3652,14 @@ class VerticalControl(BoxLayout):
             video_as_frames=settings['video_as_frames']
         )
 
-
-    def turret_left(self):
-        lumaview.scope.turret_bias -= 1
-        angle = 90*lumaview.scope.turret_id + lumaview.scope.turret_bias
-        lumaview.scope.tmove(angle)
-        
-    def turret_right(self):
-        lumaview.scope.turret_bias += 1
-        angle = 90*lumaview.scope.turret_id + lumaview.scope.turret_bias
-        lumaview.scope.tmove(angle)
     
     def turret_home(self):
-        lumaview.scope.turret_bias = 0
         lumaview.scope.thome()
         self.ids['turret_pos_1_btn'].state = 'normal'
         self.ids['turret_pos_2_btn'].state = 'normal'
         self.ids['turret_pos_3_btn'].state = 'normal'
         self.ids['turret_pos_4_btn'].state = 'normal'
+
 
     def set_turret_objective(self):
         global settings
@@ -3651,15 +3677,14 @@ class VerticalControl(BoxLayout):
             selected_turret_id = self.ids[f"turret_pos_{selected_turret}_btn"]
 
             # Find magnification of the selected objective
-            desired_objective = self.ids['objective_spinner2'].text
-            objective_text_list = desired_objective.split()
-            objective_magnification = objective_text_list[0]
+            desired_objective_id = self.ids['objective_spinner2'].text
+            magnification = objective_helper.get_objective_info(objective_id=desired_objective_id)['magnification']
 
             # Change turret text
-            selected_turret_id.text = objective_magnification
+            selected_turret_id.text = f"{magnification}x"
 
             # Update settings
-            settings["turret_objectives"][str(selected_turret)] = desired_objective
+            settings["turret_objectives"][selected_turret] = desired_objective_id
 
         except Exception as e:
             logger.exception(f"SetTurretObjective] Error: {e}")
@@ -3667,24 +3692,21 @@ class VerticalControl(BoxLayout):
         
 
     def turret_select(self, selected_position):
-        #TODO check if turret has been HOMED turret first
-        lumaview.scope.turret_id = selected_position - 1
-        angle = 90*lumaview.scope.turret_id
-        lumaview.scope.tmove(
-            degrees=angle
-        )
+        if False == lumaview.scope.has_thomed():
+            lumaview.scope.thome()
+
+        lumaview.scope.tmove(position=selected_position)
         
         for available_position in range(1,5):
             if selected_position == available_position:
                 state = 'down'
 
                 # Check if an objective has been saved to that turret
-                if (len(settings["turret_objectives"][str(selected_position)]) > 0):
-                    if (not settings["turret_objectives"][str(selected_position)].isdigit()):
-
-                        # If an objective has been assigned to the turret position, change to that objective
-                        self.ids["objective_spinner2"].text = settings["turret_objectives"][str(selected_position)]
-                        self.select_objective()
+                turret_position_objective = settings["turret_objectives"][selected_position]
+                if turret_position_objective is not None:
+                    # If an objective has been assigned to the turret position, change to that objective
+                    self.ids["objective_spinner2"].text = settings["turret_objectives"][selected_position]
+                    self.select_objective()                       
 
             else:
                 state = 'normal'
@@ -4118,11 +4140,29 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
         config = get_sequenced_capture_config_from_ui()
-
-        self._protocol = Protocol.from_config(
+        protocol = Protocol.from_config(
             input_config=config,
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
         )
+
+        if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
+            error_msg = f"Cannot create new protocol. Please set objective for current turret position."
+            logger.error(error_msg)
+            show_notification_popup(title="Protocol Creation Error", message=error_msg)            
+            return
+
+        if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
+            error_msg = f"Cannot create new protocol. Not all objectives are in turret config."
+            logger.error(error_msg)
+            Popup(
+                title="Protocol Creation Error",
+                content=Label(text=error_msg),
+                size_hint=(0.85,0.85),
+            )
+            
+            return
+
+        self._protocol = protocol
 
         stage.set_protocol_steps(df=self._protocol.steps())
 
@@ -4156,6 +4196,19 @@ class ProtocolSettings(CompositeCapture):
         self.done = True
 
 
+    def _validate_objectives_in_protocol(self, protocol_df: pd.DataFrame) -> bool:
+        # Validation for objectives with multi-objective protocol
+        protocol_objective_ids = set(protocol_df['Objective'].to_list())
+
+        # For single objective protocols, don't perform any objective validation (legacy)
+        if len(protocol_objective_ids) == 1:
+            return True
+        
+        # Otherwise, check all the objectives used in the protocol and confirm
+        # they are all part of the current turret config
+        turret_objective_ids = set(lumaview.scope.get_turret_config().values())
+        return protocol_objective_ids.issubset(turret_objective_ids)
+
     # Load Protocol from File
     def load_protocol(self, filepath="./data/new_default_protocol.tsv"):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
@@ -4163,10 +4216,18 @@ class ProtocolSettings(CompositeCapture):
         if not pathlib.Path(filepath).exists():
             raise FileNotFoundError(f"Protocol not found at {filepath}")
         
-        self._protocol = Protocol.from_file(
+        protocol = Protocol.from_file(
             file_path=filepath,
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
         )
+
+        if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
+            error_msg = f"Cannot load protocol. Not all objectives are in turret config."
+            logger.error(error_msg)
+            show_notification_popup(title="Protocol Loading Error", message=error_msg)
+            return
+        
+        self._protocol = protocol
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
@@ -4211,10 +4272,18 @@ class ProtocolSettings(CompositeCapture):
 
     def get_default_name_for_curr_step(self):
         step = self.get_curr_step()
+
+        if lumaview.scope.has_turret():
+            objective_id = step['Objective']
+            objective_short_name = objective_helper.get_objective_info(objective_id=objective_id)['short_name']
+        else:
+            objective_short_name = None
+
         return common_utils.generate_default_step_name(
             well_label=step["Well"],
             color=step['Color'],
             z_height_idx=step['Z-Slice'],
+            objective_short_name=objective_short_name,
             tile_label=step['Tile']
         )
 
@@ -4365,6 +4434,12 @@ class ProtocolSettings(CompositeCapture):
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
+        if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
+            error_msg = f"Cannot modify protocol step. Please set objective for current turret position."
+            logger.error(error_msg)
+            show_notification_popup(title="Protocol Step Modification Error", message=error_msg)            
+            return
+
         step_name = self.ids['step_name_input'].text
 
         self._protocol.modify_step(
@@ -4376,6 +4451,8 @@ class ProtocolSettings(CompositeCapture):
             objective_id=objective_id,
         )
 
+        self.update_step_ui()
+
         stage.set_protocol_steps(df=self._protocol.steps())
 
 
@@ -4385,6 +4462,12 @@ class ProtocolSettings(CompositeCapture):
 
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
+
+        if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
+            error_msg = f"Cannot add step to protocol. Please set objective for current turret position."
+            logger.error(error_msg)
+            show_notification_popup(title="Protocol Add Step Error", message=error_msg)            
+            return
 
         if after_current_step:
             after_step = self.curr_step
@@ -5229,7 +5312,6 @@ class MicroscopeSettings(BoxLayout):
             self.select_sequenced_image_output_format()
 
             try:
-
                 lumaview.scope.camera.find_model_name()
                 lumaview.scope.camera.set_max_exposure_time()
                 max_exposure = lumaview.scope.camera.get_max_exposure()
@@ -5252,7 +5334,6 @@ class MicroscopeSettings(BoxLayout):
             # Set Frame Size
             # Multiplying frame size by the binning size to account for the select_binning_size() call
             # Effectively sets the frame size to the size it was prior to pixel binning, then bins
-            
             binning_size_str = settings['binning']['size']
             binning_size = binning.binning_size_str_to_int(text=binning_size_str)
 
@@ -5267,6 +5348,17 @@ class MicroscopeSettings(BoxLayout):
             lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
             objective_id = settings['objective_id']
+
+            # Mutate turret config keys from str to int for cleaner handling
+            settings['turret_objectives'] = {int(k):v for k,v in settings['turret_objectives'].items()}
+
+            if lumaview.scope.has_turret():
+                turret_objectives = list(settings["turret_objectives"].values())
+                if objective_id not in turret_objectives:
+                    raise Exception(f"Startup objective {objective_id} not found in turret objectives ({turret_objectives}).")
+
+                lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])                
+
             self.ids['objective_spinner'].text = objective_id
 
             vertical_control_id = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
@@ -5275,11 +5367,18 @@ class MicroscopeSettings(BoxLayout):
 
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             self.ids['magnification_id'].text = f"{objective['magnification']}"
+
             lumaview.scope.set_objective(objective_id=objective_id)
 
             # Load previous turret position objectives
-            for turret in settings["turret_objectives"]:
-                vertical_control_id.ids[f"turret_pos_{turret}_btn"].text = settings["turret_objectives"][turret].split()[0]
+            for turret_pos, objective_id in settings["turret_objectives"].items():
+                if objective_id is None:
+                    button_text = f"{turret_pos}"
+                else:
+                    magnification = objective_helper.get_objective_info(objective_id=objective_id)['magnification']
+                    button_text = f"{magnification}x"
+
+                vertical_control_id.ids[f"turret_pos_{turret_pos}_btn"].text = button_text
 
             if settings['scale_bar']['enabled'] == True:
                 self.ids['enable_scale_bar_btn'].state = 'down'
@@ -5564,6 +5663,9 @@ class MicroscopeSettings(BoxLayout):
         # Update selected to be consistent with other selector
         vc_objective_spinner = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['objective_spinner2']
         vc_objective_spinner.text = objective_id
+
+        if lumaview.scope.has_turret():
+            lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
 
         lumaview.scope.set_objective(objective_id=objective_id)
 
@@ -6428,7 +6530,19 @@ class LumaViewProApp(App):
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
         if not disable_homing:
+            # Note: If the scope has a turret, this also performs a T homing
             move_home(axis='XY')
+
+        if lumaview.scope.has_turret():
+            objective_id = settings['objective_id']
+            turret_position = lumaview.scope.get_turret_position_for_objective_id(objective_id=objective_id)
+            
+            if turret_position is None:
+                DEFAULT_POSITION = 1
+                logger.error(f"Turret position for objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
+                turret_position = DEFAULT_POSITION
+
+            move_absolute_position(axis='T', pos=turret_position, wait_until_complete=True)
 
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
         layer_obj.apply_settings()

@@ -640,13 +640,19 @@ class SequencedCaptureExecutor:
         if not step['Auto_Gain']:
             self._scope.set_gain(step['Gain'])
             self._scope.set_exposure_time(step['Exposure'])
-    
+
+        if self._scope.has_turret():
+            objective_short_name = self._scope.get_objective_info(objective_id=step["Objective"])['short_name']
+        else:
+            objective_short_name = None
+        
         name = common_utils.generate_default_step_name(
             well_label=step['Well'],
             color=step['Color'],
             z_height_idx=step['Z-Slice'],
             scan_count=scan_count,
             custom_name_prefix=step['Name'],
+            objective_short_name=objective_short_name,
             tile_label=step['Tile'],
             video=is_video,
         )
