@@ -34,25 +34,25 @@ class TilingConfig:
     
 
     def determine_tiling_label_from_names(self, names: list):
-            label_letters = set()
-            label_numbers = set()
-            for name in names:
-                label = common_utils.get_tile_label_from_name(name=name)
-                if label is None:
-                    continue
+        label_letters = set()
+        label_numbers = set()
+        for name in names:
+            label = common_utils.get_tile_label_from_name(name=name)
+            if label is None:
+                continue
 
-                label_letter = label[0]
-                label_number = int(label[1:])
+            label_letter = label[0]
+            label_number = int(label[1:])
 
-                label_letters.add(label_letter)
-                label_numbers.add(label_number)
+            label_letters.add(label_letter)
+            label_numbers.add(label_number)
 
-            m = len(label_letters)
-            n = len(label_numbers)
-            if m != n:
-                raise Exception(f"Tiling configuration requires equal dimensions, but found {m}x{n}")
-            
-            return self.get_label_from_mxn_size(m=m, n=n)
+        m = len(label_letters)
+        n = len(label_numbers)
+        if m != n:
+            raise Exception(f"Tiling configuration requires equal dimensions, but found {m}x{n}")
+        
+        return self.get_label_from_mxn_size(m=m, n=n)
 
 
     def default_config(self) -> str:

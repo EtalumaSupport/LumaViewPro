@@ -50,8 +50,9 @@ class MotorBoard:
         self.found = False
         self.overshoot = False
         self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
-        self.has_turret = False
+        self._has_turret = False
         self.initial_homing_complete = False
+        self.initial_t_homing_complete = False
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
@@ -169,7 +170,7 @@ class MotorBoard:
         info = info.split()
         model = info[info.index("Model:")+1]
         if model[-1] == "T":
-            self.has_turret = True
+            self._has_turret = True
 
         serial_number = info[info.index("Serial:")+1]
 
@@ -366,17 +367,33 @@ class MotorBoard:
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
         degrees = 90./80000. * ustep # needs correct value
         return degrees
+    
+    def t_ustep2pos(self, ustep):
+        return int(self.t_ustep2deg(ustep=ustep)/90)+1
 
     def t_deg2ustep(self, degrees):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
         ustep = int( degrees * 80000./90.) # needs correct value
         print("ustep: ",ustep)
         return ustep
+    
+    def t_pos2ustep(self, position):
+        return self.t_deg2ustep(degrees=90*(position-1))
 
     def thome(self):
         """ Home the turret, need to test if functional in hardware"""
         resp = self.exchange_command('THOME')
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}')
+        if (resp is not None) and ('T home successful' in resp):
+            self.initial_t_homing_complete = True
+    
+    def has_turret(self) -> bool:
+        return self._has_turret
+    
+    def has_thomed(self):
+        # Note: When the motorboard firmware performs an XYZ homing, it also
+        # does a T homing if a turret is present
+        return self.initial_homing_complete or self.initial_t_homing_complete
 
     #----------------------------------------------------------
     # Motion Functions
@@ -410,12 +427,11 @@ class MotorBoard:
             um = self.xy_ustep2um(position)
             return um
         elif axis == 'T':
-            degrees = self.t_ustep2deg(position)
-            return degrees
+            return self.t_ustep2pos(position)
         else:
             return 0
         
-    # Get current position (in um or degrees for Turret)
+    # Get current position (in um or position for Turret)
     def current_pos(self, axis):
         """Get current position (in um) of axis"""
         
@@ -432,8 +448,7 @@ class MotorBoard:
             um = self.xy_ustep2um(position)
             return um
         elif axis == 'T':
-            degrees = self.t_ustep2deg(position)
-            return degrees
+            return self.t_ustep2pos(position)
         else:
             return 0
  
@@ -465,7 +480,7 @@ class MotorBoard:
                 'move_func': self.xy_um2ustep
             },
             'T': {
-                'move_func': self.t_deg2ustep
+                'move_func': self.t_pos2ustep
             }
         }
 
@@ -504,7 +519,7 @@ class MotorBoard:
 
     # Move by relative distance (in um or degrees for Turret)
     def move_rel_pos(self, axis, um, overshoot_enabled: bool = False):
-        """ Move by relative distance (in um for X, Y, Z or degrees for T) of axis """
+        """ Move by relative distance (in um for X, Y, Z or position for T) of axis """
 
         # Read target position in um
         pos = self.target_pos(axis)

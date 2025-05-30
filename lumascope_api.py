@@ -96,9 +96,11 @@ class Lumascope():
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
-        self._labware = None             # The labware currently installed
-        self._objective = None           # The objective currently installed
-        self._stage_offset = None        # The stage offset for the microscope
+        self._labware = None              # The labware currently installed
+        self._objective = None            # The objective currently selected/installed
+        self._turret_config = {}          # The objectives loaded into the turret (if present)
+        self._stage_offset = None         # The stage offset for the microscope
+        self._last_turret_position = None # Stores the last known turret position
         if self.camera:
             self._binning_size = self.camera.get_binning_size()
         else:
@@ -115,8 +117,31 @@ class Lumascope():
     def set_labware(self, labware):
         self._labware = labware
 
-    def set_objective(self, objective_id):
+    def set_objective(self, objective_id: str):
         self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
+
+    def get_objective_info(self, objective_id: str):
+        return self._objectives_loader.get_objective_info(objective_id=objective_id)
+
+    def set_turret_config(self, turret_config: dict[int,str]) -> None:
+        self._turret_config = turret_config
+
+    def get_turret_config(self):
+        return self._turret_config
+    
+    def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
+        for turret_position, turret_objective_id in self._turret_config.items():
+            if objective_id == turret_objective_id:
+                return turret_position
+        
+        return None
+    
+    def is_current_turret_position_objective_set(self) -> bool:
+        position = self.get_current_position(axis='T')
+        if self._turret_config[position] is None:
+            return False
+        
+        return True
 
     def set_scale_bar(self, enabled: bool):
         self._scale_bar['enabled'] = enabled
@@ -756,17 +781,28 @@ class Lumascope():
             with self.safe_turret_mover():
                 self.motion.thome()
 
-
-    def tmove(self, degrees):
+    def has_thomed(self):
         """MOTION CONTROL FUNCTIONS
-        Move turret to position in degrees"""
-        # MUST home move objective home first to prevent crash
-        #self.zhome()
-        #self.move_absolute_position('Z', self.z_min)
+        Indicate if the t-axes has been homed since startup"""
+        return self.motion.has_thomed()
 
+    def tmove(self, position):
+        """MOTION CONTROL FUNCTIONS
+        Move turret to position 1-4"""
+        # Commanding a move of the T axis is slow, even if the move is to the current position.
+        # Use caching to determine if T is requested to move to it's current position, and bypass the
+        # move altogether if it is.
+        if self._last_turret_position == position:
+            return
+        
         with self.safe_turret_mover():
-            logger.info(f'[SCOPE API ] Moving T to {degrees}')
-            self.move_absolute_position('T', degrees, wait_until_complete=True)
+            logger.info(f'[SCOPE API ] Moving T to position {position}')
+            self.move_absolute_position('T', position, wait_until_complete=True)
+            self._last_turret_position = position
+
+    
+    def has_turret(self) -> bool:
+        return self.motion.has_turret()
 
 
     def get_target_position(self, axis=None):
@@ -782,6 +818,9 @@ class Lumascope():
             for ax in ('X', 'Y', 'Z', 'T'):
                 positions[ax] = self.motion.target_pos(axis=ax)
             return positions
+        
+        if (False == self.motion.has_turret()) and (axis == 'T'):
+            return None
         
         position = self.motion.target_pos(axis)
         return position

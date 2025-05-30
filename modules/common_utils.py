@@ -10,6 +10,7 @@ def generate_default_step_name(
     z_height_idx = None,
     scan_count = None,
     tile_label = None,
+    objective_short_name = None,
     custom_name_prefix = None,
     stitched: bool = False,
     video: bool = False,
@@ -27,6 +28,9 @@ def generate_default_step_name(
     
     if tile_label not in (None, "", -1):
         name = f"{name}_T{tile_label}"
+
+    if objective_short_name not in (None, "", -1):
+        name = f"{name}_{objective_short_name}"
 
     if z_height_idx not in (None, "", -1):
         name = f"{name}_Z{z_height_idx}"

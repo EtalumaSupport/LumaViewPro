@@ -21,10 +21,14 @@ class ZProjector(ProtocolPostProcessingExecutor):
 
     def __init__(
         self,
-        ij_helper: imagej_helper.ImageJHelper = None
+        ij_helper: imagej_helper.ImageJHelper = None,
+        *args,
+        **kwargs,
     ):
         super().__init__(
-            post_function=PostFunction.ZPROJECT
+            post_function=PostFunction.ZPROJECT,
+            *args,
+            **kwargs,
         )
         self._name = self.__class__.__name__
         
@@ -53,9 +57,9 @@ class ZProjector(ProtocolPostProcessingExecutor):
         )
     
 
-    @staticmethod
-    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
+        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
 
         name = common_utils.generate_default_step_name(
             custom_name_prefix=row0['Name'],
@@ -64,6 +68,7 @@ class ZProjector(ProtocolPostProcessingExecutor):
             z_height_idx=None,
             scan_count=row0['Scan Count'],
             tile_label=row0['Tile'],
+            objective_short_name=objective_short_name,
             stitched=row0['Stitched'],
             zprojection=kwargs['method'].lower(),
         )

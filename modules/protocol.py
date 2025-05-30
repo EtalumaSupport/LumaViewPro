@@ -117,11 +117,11 @@ class Protocol:
 
         # First group by X/Y location
         grouped_df = steps.groupby(by=['X','Y'], sort=False)
-
+        
         # For each X/Y location, sort by Z-height
         grouped_list = []
         for _, group_df in grouped_df:
-            group_df = group_df.sort_values(by=['Z'], ascending=True)
+            group_df = group_df.sort_values(by=['Objective', 'Z'], ascending=[True,True])
             grouped_list.append(group_df)
 
         # Re-combine into single dataframe
