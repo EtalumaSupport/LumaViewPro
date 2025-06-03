@@ -4091,12 +4091,10 @@ class ProtocolSettings(CompositeCapture):
 
     def apply_tiling(self):
         logger.info('[LVP Main  ] Apply tiling to protocol')
-        objective_id, _ = get_current_objective_info()
 
         self._protocol.apply_tiling(
             tiling=self.ids['tiling_size_spinner'].text,
             frame_dimensions=get_current_frame_dimensions(),
-            objective_id=objective_id,
             binning_size=get_binning_from_ui(),
         )
         

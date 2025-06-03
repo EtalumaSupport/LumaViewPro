@@ -345,30 +345,43 @@ class Protocol:
         self,
         tiling: str,
         frame_dimensions: dict,
-        objective_id: str,
         binning_size: int,
-    ):       
-        objective = self._objective_loader.get_objective_info(objective_id=objective_id)
-        tiles = self._tiling_config.get_tile_centers(
-            config_label=tiling,
-            focal_length=objective['focal_length'],
-            frame_size=frame_dimensions,
-            fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
-            binning_size=binning_size,
+    ):
+        if tiling == '1x1':
+            return
+        
+        orig_steps_df = self.steps().copy()
+
+        # Add objective focal length to steps dataframe
+        objectives_df = self._objective_loader.get_objectives_dataframe()[['focal_length']]
+        orig_steps_df = pd.merge(
+            orig_steps_df,
+            objectives_df,
+            how='left',
+            left_on='Objective',
+            right_index=True
         )
 
-        if len(tiles) == 1: # No tiling
-            return
-
-        steps = self.steps()
-        existing_max_tile_group_id = steps['Tile Group ID'].max()
-
+        existing_max_tile_group_id = orig_steps_df['Tile Group ID'].max()
         tile_group_id = existing_max_tile_group_id + 1
 
-        new_steps = list()
-        for row_idx in range(self.num_steps()):
-            orig_step_df = self.step(idx=row_idx)
+        new_steps = []
+        for idx, row in orig_steps_df.iterrows():
+
+            tiles = self._tiling_config.get_tile_centers(
+                config_label=tiling,
+                focal_length=row['focal_length'],
+                frame_size=frame_dimensions,
+                fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
+                binning_size=binning_size,
+            )
+
+            orig_step_df = orig_steps_df.iloc[idx]
             orig_step_dict = orig_step_df.to_dict()
+
+            if len(tiles) == 1: # No tiles generated
+                new_steps.append(orig_step_dict)
+                continue
 
             # If already a tile, copy it over to the new protocol
             if orig_step_df['Tile'] not in (None, ""):
@@ -378,7 +391,6 @@ class Protocol:
             x = orig_step_df["X"]
             y = orig_step_df["Y"]
 
-            # If not a tile, tile it.  
             for tile_label, tile_position in tiles.items():   
                 
                 x_tile = round(x + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates

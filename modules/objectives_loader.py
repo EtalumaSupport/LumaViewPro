@@ -29,6 +29,8 @@ This open source software was developed for use with Etaluma microscopes.
 
 import json
 
+import pandas as pd
+
 from lvp_logger import logger
 
 class ObjectiveLoader:
@@ -39,6 +41,7 @@ class ObjectiveLoader:
             self._objectives = json.load(read_file)
 
         self._generate_short_names()
+        self._objectives_df = pd.DataFrame.from_dict(self._objectives, orient='index')
         
 
     def _create_short_name_from_objective_id(self, objective_id: str) -> str:
@@ -107,3 +110,8 @@ class ObjectiveLoader:
 
     def get_objectives_list(self) -> list:
         return list(self._objectives.keys())
+    
+
+    def get_objectives_dataframe(self) -> pd.DataFrame:
+        return self._objectives_df
+    
