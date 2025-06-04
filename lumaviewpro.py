@@ -378,22 +378,7 @@ def go_to_step(
         return
     
     step = protocol.step(idx=step_idx)
-    protocol_settings.ids['step_name_input'].text = step["Name"]
-
-    if lumaview.scope.has_turret():
-        objective_short_name = objective_helper.get_objective_info(objective_id=step["Objective"])['short_name']
-    else:
-        objective_short_name = None
-
-    if step['Name'] == '':
-        step_name = common_utils.generate_default_step_name(
-            well_label=step["Well"],
-            color=step['Color'],
-            z_height_idx=step['Z-Slice'],
-            tile_label=step['Tile'],
-            objective_short_name=objective_short_name,
-        )
-        protocol_settings.ids['step_name_input'].hint_text = step_name
+    protocol_settings.generate_step_name_input()
 
     # Convert plate coordinates to stage coordinates
     if include_move:
@@ -4118,20 +4103,32 @@ class ProtocolSettings(CompositeCapture):
         self.go_to_step()
 
 
+    def generate_step_name_input(self):
+        num_steps = self._protocol.num_steps()
+        if num_steps > 0:
+            step = self.get_curr_step()
+            if step['Name'] == '':
+                self.ids['step_name_input'].text = step["Name"]
+                self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
+            elif (step['Custom Step'] == True) and (step["Name"].startswith("custom")):
+                # For custom added steps where the user did not change the default name (i.e. custom####)
+                self.ids['step_name_input'].text = ""
+                self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
+            else:
+                self.ids['step_name_input'].text = step["Name"]
+
+        else:
+            self.ids['step_name_input'].text = ''
+            self.ids['step_name_input'].hint_text = 'Step Name'
+
+
     def update_step_ui(self):
         num_steps = self._protocol.num_steps()
 
         self.ids['step_number_input'].text = str(self.curr_step+1)
         self.ids['step_total_input'].text = str(num_steps)
 
-        if num_steps > 0:
-            step = self.get_curr_step()
-            self.ids['step_name_input'].text = step["Name"]
-            if step['Name'] == '':
-                self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
-        else:
-            self.ids['step_name_input'].text = ''
-            self.ids['step_name_input'].hint_text = 'Step Name'
+        self.generate_step_name_input()
 
 
     def new_protocol(self):
@@ -4277,12 +4274,18 @@ class ProtocolSettings(CompositeCapture):
         else:
             objective_short_name = None
 
+        if step['Well'] == "":
+            custom_name_prefix = step['Name']
+        else:
+            custom_name_prefix = None
+
         return common_utils.generate_default_step_name(
             well_label=step["Well"],
             color=step['Color'],
             z_height_idx=step['Z-Slice'],
             objective_short_name=objective_short_name,
-            tile_label=step['Tile']
+            tile_label=step['Tile'],
+            custom_name_prefix=custom_name_prefix,
         )
 
 
@@ -4486,7 +4489,8 @@ class ProtocolSettings(CompositeCapture):
                 plate_position=plate_position,
                 objective_id=objective_id,
                 before_step=before_step,
-                after_step=after_step
+                after_step=after_step,
+                include_objective_in_step_name=lumaview.scope.has_turret(),
             )
 
             if after_current_step or (self.curr_step < 0):

@@ -258,6 +258,7 @@ class Protocol:
         objective_id: str,
         before_step: int | None = 0,
         after_step: int | None = None,
+        include_objective_in_step_name: bool = False,
     ) -> str:
         
         def _validate_inputs():
@@ -275,8 +276,21 @@ class Protocol:
             
         _validate_inputs()
         
+        if include_objective_in_step_name == True:
+            objective_short_name = self._objective_loader.get_objective_info(objective_id=objective_id)['short_name']
+        else:
+            objective_short_name = None
+
         if step_name is None:
-            step_name = f"custom{self._config['custom_step_count']}"
+            step_name = common_utils.generate_default_step_name(
+                well_label="",
+                custom_name_prefix=f"custom{self._config['custom_step_count']}",
+                color=layer,
+                objective_short_name=objective_short_name
+
+            )
+            CUSTOM_INDEX_WIDTH = 4
+            step_name = f"custom{self._config['custom_step_count']:0{CUSTOM_INDEX_WIDTH}d}"
             self._config['custom_step_count'] += 1
 
         well = ""
