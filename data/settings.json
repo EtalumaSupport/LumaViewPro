@@ -12,10 +12,10 @@
     },
     "objective_id": "20x Oly",
     "turret_objectives": {
-        "1": "1",
-        "2": "2",
-        "3": "3",
-        "4": "4"
+        "1": "20x Oly",
+        "2": null,
+        "3": null,
+        "4": null
     },
     "frame": {
         "width": 1900,

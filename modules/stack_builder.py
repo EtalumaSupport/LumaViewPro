@@ -16,9 +16,11 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 class StackBuilder(ProtocolPostProcessingExecutor):
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.HYPERSTACK
+            post_function=PostFunction.HYPERSTACK,
+            *args,
+            **kwargs,
         )
         self._name = self.__class__.__name__
         
@@ -41,9 +43,10 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         )
     
 
-    @staticmethod
-    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
+
+        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
 
         name = common_utils.generate_default_step_name(
             custom_name_prefix=row0['Name'],
@@ -52,6 +55,7 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             z_height_idx=None,
             scan_count=None,
             tile_label=None,
+            objective_short_name=objective_short_name,
             hyperstack=True,
         )
         
@@ -445,7 +449,7 @@ class StackBuilder(ProtocolPostProcessingExecutor):
 
 
 if __name__ == "__main__":
-    stack_builder = StackBuilder()
+    stack_builder = StackBuilder(has_turret=False)
     tiling_configs_file_loc=pathlib.Path(os.getenv('SOURCE_ROOT')) / "data" / "tiling.json"
     stack_builder.load_folder(
         path=os.getenv('SAMPLE_IMAGE_FOLDER'),

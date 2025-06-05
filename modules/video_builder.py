@@ -22,9 +22,11 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         'mjpg'
     ]
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.VIDEO
+            post_function=PostFunction.VIDEO,
+            *args,
+            **kwargs,
         )
         self._name = self.__class__.__name__
 
@@ -48,9 +50,9 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         )
 
 
-    @staticmethod
-    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
+        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
 
         name = common_utils.generate_default_step_name(
             custom_name_prefix=row0['Name'],
@@ -58,6 +60,7 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
             color=row0['Color'],
             z_height_idx=row0['Z-Slice'],
             scan_count=None,
+            objective_short_name=objective_short_name,
             tile_label=row0['Tile'],
             stitched=row0['Stitched'],
             video=True,
