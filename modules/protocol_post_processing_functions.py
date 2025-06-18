@@ -9,6 +9,7 @@ class PostFunction(enum.Enum):
     ZPROJECT = "ZProject"
     VIDEO = "Video"
     HYPERSTACK = "Hyperstack"
+    DECONVOLUTION = "Deconvolution"
 
     @classmethod
     def list_values(cls):

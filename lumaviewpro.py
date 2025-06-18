@@ -228,6 +228,7 @@ from modules.json_helper import CustomJSONizer
 from modules.timedelta_formatter import strfdelta
 import modules.imagej_helper as imagej_helper
 import modules.zprojector as zprojector
+import modules.deconvolutor as deconvolutor
 from modules.video_writer import VideoWriter
 
 import cv2
@@ -2061,6 +2062,51 @@ class ZProjectionControls(BoxLayout):
             method=self.ids['zprojection_method_spinner'].text
         )
         final_text = f"Generating Z-Projection images - {status_map[result['status']]}"
+        if result['status'] is False:
+            final_text += f"\n{result['message']}"
+            popup.text = final_text
+            time.sleep(5)
+            self.done = True
+            return
+
+        popup.text = final_text
+        time.sleep(2)
+        self.done = True
+
+class DeconvolutionControls(BoxLayout):
+
+    done = BooleanProperty(False)
+
+    def __init__(self, **kwargs):
+        global deconvolution_controls
+        super().__init__(**kwargs)
+        deconvolution_controls = self
+        #Clock.schedule_once(self._init_ui, 0)
+    
+
+    # def _init_ui(self, dt=0):
+    #     self.ids['zprojection_method_spinner'].values = zprojector.ZProjector.methods()
+    #     self.ids['zprojection_method_spinner'].text = zprojector.ZProjector.methods()[1]
+
+
+    @show_popup
+    def run_deconvolution(self, popup, path):
+        status_map = {
+            True: "Success",
+            False: "FAILED"
+        }
+        popup.title = "Deconvolution"
+        popup.text = "Generating Deconvoluted images..."
+        deconv = deconvolutor.Deconvolutor(
+            has_turret=lumaview.scope.has_turret(),
+            ij_helper=ij_helper
+        )
+        result = deconv.load_folder(
+            path=pathlib.Path(path),
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+        )
+
+        final_text = f"Generating Deconvoluted images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
             popup.text = final_text
@@ -6330,8 +6376,9 @@ class FolderChooseBTN(Button):
             selected_path = str(selected_path)
         elif self.context in (
             "apply_zprojection_to_folder",
+            "apply_deconvolution_to_folder"
         ):
-            # Special handling for Z-Projections since they can either be from protocols or
+            # Special handling for Z-Projections/Deconvolution since they can either be from protocols or
             # from manually-acquired Z-Stacks
             if last_save_folder is not None:
                 selected_path = pathlib.Path(last_save_folder)
@@ -6405,6 +6452,8 @@ class FolderChooseBTN(Button):
             video_creation_controls.run_video_gen(path=pathlib.Path(path))
         elif self.context == 'apply_zprojection_to_folder':
             zprojection_controls.run_zprojection(path=pathlib.Path(path))
+        elif self.context == "apply_deconvolution_to_folder":
+            deconvolution_controls.run_deconvolution(path=pathlib.Path(path))
         else:
             raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 
@@ -6570,6 +6619,7 @@ class LumaViewProApp(App):
         global video_creation_controls
         global stitch_controls
         global zprojection_controls
+        global deconvolution_controls
         global composite_gen_controls
         global stage
         global wellplate_loader

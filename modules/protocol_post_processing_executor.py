@@ -164,6 +164,10 @@ class ProtocolPostProcessingExecutor(abc.ABC):
                     logger.error(f"[{self._name} ] Unable to write image {output_file_loc}")
                     continue
 
+            if 'd_images' in alg_results:
+                # Handle logic for writing each of the deconvolved images
+                pass
+
             
             self._add_record(
                 protocol_post_record=protocol_post_record,
