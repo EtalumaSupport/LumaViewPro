@@ -109,6 +109,17 @@ def minimize_logger_window():
         except Exception as e:
             logger.error(f"[Logger  ] Failed to minimize console window: {e}")
 
+#TODO Separate crash logs into a separate file that contains any other info we might need to debug (settings.json maybe) besides stacktrace
+
+# Log traceback if we have a crash to tell us more info on what happened
+def custom_except_hook(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        logger.critical("Logger ] Keyboard interrupt quit.")
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    
+    logger.critical("Logger ] CRASH - Uncaught Exception: ", exc_info=(exc_type, exc_value, exc_traceback))
+
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
 
@@ -132,5 +143,6 @@ file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 # file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setFormatter(CustomFormatter())
 logger.addHandler(file_handler)
+sys.excepthook = custom_except_hook
 minimize_logger_window()
 logging.disable(logging.DEBUG)
