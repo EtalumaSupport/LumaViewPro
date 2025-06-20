@@ -54,6 +54,7 @@ import sys
 import typing
 import shutil
 import userpaths
+import queue
 
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 
@@ -137,9 +138,12 @@ num_cores = os.cpu_count()
 print(f"Num cores identified as {num_cores}")
 
 global thread_pool
+global io_pool
 global cpu_pool
 
-thread_pool = ThreadPoolExecutor()
+
+thread_pool = ThreadPoolExecutor() # Thread pool can be used for any IO that can be concurrent
+io_pool = ThreadPoolExecutor(max_workers=1) # io_pool should be used for IO that needs to happen in a certain order
 cpu_pool = ProcessPoolExecutor()
 
 ############################################################################
@@ -6538,6 +6542,18 @@ def load_mode():
                 pass
 
         ENGINEERING_MODE = False
+
+
+def block_wait_for_threads(futures: list, log_loc="LVP") -> None:
+    for future in futures:
+            try:
+                result = future.result()
+                continue
+            except Exception as e:
+                logger.error(f"{log_loc} ] Thread Error: {e}")
+
+    # All threads finished
+    return
              
 
 
@@ -6573,8 +6589,7 @@ class LumaViewProApp(App):
 
         if not disable_homing:
             # Note: If the scope has a turret, this also performs a T homing
-            #move_home(axis='XY')
-            thread_pool.submit(safe_worker, 'XY')
+            thread_pool.submit(move_home, axis="XY")
 
 
         if lumaview.scope.has_turret():
