@@ -55,6 +55,8 @@ import typing
 import shutil
 import userpaths
 
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+
 disable_homing = False
 
 ############################################################################
@@ -72,6 +74,10 @@ os.chdir(script_path)
 
 global version
 global windows_machine 
+
+global num_cores
+
+
 
 windows_machine = False
 
@@ -126,6 +132,15 @@ elif windows_machine and (lvp_installed == False):
 else:
     print("Machine-Type - NON-WINDOWS")
     source_path = script_path
+
+num_cores = os.cpu_count()
+print(f"Num cores identified as {num_cores}")
+
+global thread_pool
+global cpu_pool
+
+thread_pool = ThreadPoolExecutor()
+cpu_pool = ProcessPoolExecutor()
 
 ############################################################################
 #--------------------------------------------------------------------------#
@@ -232,6 +247,7 @@ from modules.video_writer import VideoWriter
 
 import cv2
 import skimage
+
 
 # Hardware
 import lumascope_api
@@ -765,7 +781,9 @@ def move_home(axis: str):
     global version
     axis = axis.upper()
 
-    Window.set_title(f"Lumaview Pro {version}   |   Homing, please wait...")
+
+
+    #Window.set_title(f"Lumaview Pro {version}   |   Homing, please wait...")
     if axis == 'Z':
         lumaview.scope.zhome()
     elif axis == 'XY':
@@ -773,7 +791,8 @@ def move_home(axis: str):
     elif axis == 'T':
         lumaview.scope.thome()
 
-    _handle_ui_update_for_axis(axis=axis)
+
+    Clock.schedule_once(lambda dt: _handle_ui_update_for_axis(axis=axis))
     Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}"), 1)
 
 def live_histo_off():
@@ -6521,19 +6540,42 @@ def load_mode():
         ENGINEERING_MODE = False
              
 
+
+
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
 # -------------------------------------------------------------------------
 class LumaViewProApp(App):
+
+    
+
     def on_start(self):
+        global thread_pool, cpu_pool
+
+        self.active_threads = []
+        self.active_cpus = []
+
+        # Continuously update image of stage and protocol
+        Clock.schedule_interval(stage.draw_labware, 0.1)
+        Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
+        Clock.schedule_once(
+            functools.partial(
+                lumaview.ids['imagesettings_id'].set_expanded_layer, 'BF'
+            ),
+        0.2)
+
         os.chdir(source_path)
+
+
         load_log_level()
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
         if not disable_homing:
             # Note: If the scope has a turret, this also performs a T homing
-            move_home(axis='XY')
+            #move_home(axis='XY')
+            thread_pool.submit(safe_worker, 'XY')
+
 
         if lumaview.scope.has_turret():
             objective_id = settings['objective_id']
@@ -6544,14 +6586,30 @@ class LumaViewProApp(App):
                 logger.error(f"Turret position for objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
                 turret_position = DEFAULT_POSITION
 
-            move_absolute_position(axis='T', pos=turret_position, wait_until_complete=True)
+            thread_pool.submit(move_absolute_position, axis='T', pos=turret_position, wait_until_complete=True)
+            #move_absolute_position(axis='T', pos=turret_position, wait_until_complete=True)
 
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
         layer_obj.apply_settings()
-        scope_leds_off()
+
+        thread_pool.submit(scope_leds_off)
+        #scope_leds_off()
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
+
+    def _wait_for_all(self):
+        for future in self.active_threads:
+            try:
+                result = future.result()
+                continue
+            except Exception as e:
+                print(f"IO Error: {e}")
+        
+        Clock.schedule_once(lambda dt: self._startup_io_done)
+
+    def _startup_io_done(self):
+        pass
 
 
     def build(self):
@@ -6601,7 +6659,7 @@ class LumaViewProApp(App):
 
         objective_helper = objectives_loader.ObjectiveLoader()
         
-        ij_helper = imagej_helper.ImageJHelper()
+        #ij_helper = imagej_helper.ImageJHelper()
 
         # load settings file
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
@@ -6619,14 +6677,7 @@ class LumaViewProApp(App):
             autofocus_executor=autofocus_executor,
         )
         
-        # Continuously update image of stage and protocol
-        Clock.schedule_interval(stage.draw_labware, 0.1)
-        Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
-        Clock.schedule_once(
-            functools.partial(
-                lumaview.ids['imagesettings_id'].set_expanded_layer, 'BF'
-            ),
-        0.2)
+        
 
         return lumaview
 
@@ -6666,6 +6717,23 @@ def patched_setslice(self, i, j, sequence, **kwargs):
     except Exception as e:
         # If for some reason we get another error again, bite the bullet 
         return original_setslicemethod(self, i, j, sequence)
+    
+# 1) Wrap your worker so it logs entry
+def safe_worker(arg):
+    global thread_pool
+    logging.debug(f"entering safe_worker({arg})")
+    try:
+        move_home(arg)
+        logging.debug("safe_worker done")
+    except Exception:
+        logging.exception("error")
+
+# 2) Submit and wait with timeout
+fut = thread_pool.submit(safe_worker, "test")
+try:
+    fut.result(timeout=10)   # wait up to 10s
+except TimeoutError:
+    logging.error("safe_worker hung longer than 10s")
 
 # Replace the original method with our patched version
 ObservableReferenceList.__setslice__ = patched_setslice
