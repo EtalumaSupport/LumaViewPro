@@ -2,14 +2,49 @@
 from kivy.clock import Clock
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 import queue
+from collections.abc import Sequence
 
+
+"""
+IOTask
+- Encapsulates a single unit of work:
+    • action:         callable performing the I/O
+    • args, kwargs:   parameters for action
+    • callback:       optional function to call when done
+    • cb_args, cb_kwargs: arguments for callback
+    • pass_result:    if True, injects (result, exception) into cb_kwargs
+- Usage:
+    task = IOTask(
+        action=grab_image,
+        args=(well_id,),
+        kwargs={'exposure_ms':100},
+        callback=display_result,
+        pass_result=True
+    )
+    executor.enqueue(task)
+"""
 class IOTask:
-        def __init__(self, action, args=(), kwargs={}, callback=None, cb_args=(), cb_kwargs={}, pass_result=False):
+        def __init__(self, action, args=None, kwargs={}, callback=None, cb_args=None, cb_kwargs={}, pass_result=False):
             self.action = action
-            self.args = args
+            if args is None:
+                self.args = ()
+            # if it’s a sequence (list, tuple, etc) but not a string
+            elif isinstance(args, Sequence) and not isinstance(args, (str, bytes)):
+                self.args = tuple(args)
+            else:
+                self.args = (args,)
+
             self.kwargs = kwargs
             self.callback = callback
-            self.cb_args = cb_args
+            
+            if cb_args is None:
+                self.cb_args = ()
+            # if it’s a sequence (list, tuple, etc) but not a string
+            elif isinstance(cb_args, Sequence) and not isinstance(cb_args, (str, bytes)):
+                self.cb_args = tuple(cb_args)
+            else:
+                self.cb_args = (cb_args,)
+
             self.cb_kwargs = cb_kwargs.copy()
             self.pass_result = pass_result
 
@@ -41,7 +76,21 @@ class IOTask:
             return f"<IOTask: Action: {str(self.action)} Callback: {str(self.callback)}>"
 
 
-
+"""
+SequentialIOExecutor
+- Manages a FIFO queue of IOTask instances.
+- Uses a ThreadPoolExecutor (configurable max_workers) to run tasks in the background.
+- Dispatches tasks one by one (or up to max_workers in parallel) and:
+    1. Calls task.run() on a worker thread.
+    2. Captures (result, exception).
+    3. Schedules task.on_complete(result, exception) on the main/UI thread.
+- Usage:
+    executor = SequentialIOExecutor(max_workers=2)
+    executor.start()
+    executor.enqueue(task)
+    # ... later ...
+    executor.shutdown(wait=True)
+"""
 class SequentialIOExecutor:
     def __init__(self, max_workers: int=1):
         self.queue = queue.Queue()
@@ -49,13 +98,14 @@ class SequentialIOExecutor:
         self.dispatcher = ThreadPoolExecutor(max_workers=1)
         self.running_task = None
         self.global_callback = None
+        self.pending_shutdown = False
 
 
     def start(self):
         # Start internal dispatcher
         self.dispatcher.submit(self._dispatch_loop)
 
-    def enqueue(self, task: IOTask):
+    def put(self, task: IOTask):
         # Push IO work item into queue
         self.queue.put(task)
 
@@ -67,6 +117,8 @@ class SequentialIOExecutor:
             future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
             self.running_task = task
             self.queue.task_done()
+            if self.pending_shutdown:
+                return
 
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
@@ -84,6 +136,7 @@ class SequentialIOExecutor:
     def shutdown(self, wait=True):
         # Stops dispatcher and running tasks
         # If wait, wait until task running finishes
+        self.pending_shutdown = True
         self.dispatcher.shutdown(wait)
         self.executor.shutdown(wait)
 

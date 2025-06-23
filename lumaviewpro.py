@@ -34,6 +34,10 @@ Bryan Tiedemann, The Earthineering Company
 Gerard Decker, The Earthineering Company
 '''
 
+#TODO:
+# Separate IO to separate executors to allow for different components to communicate concurrently
+# IE control camera while stage is moving, etc
+
 # General
 import copy
 import logging
@@ -137,14 +141,6 @@ else:
 num_cores = os.cpu_count()
 print(f"Num cores identified as {num_cores}")
 
-global thread_pool
-global io_pool
-global cpu_pool
-
-
-thread_pool = ThreadPoolExecutor() # Thread pool can be used for any IO that can be concurrent
-io_pool = ThreadPoolExecutor(max_workers=1) # io_pool should be used for IO that needs to happen in a certain order
-cpu_pool = ProcessPoolExecutor()
 
 ############################################################################
 #--------------------------------------------------------------------------#
@@ -248,6 +244,7 @@ from modules.timedelta_formatter import strfdelta
 import modules.imagej_helper as imagej_helper
 import modules.zprojector as zprojector
 from modules.video_writer import VideoWriter
+from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 
 import cv2
 import skimage
@@ -307,6 +304,16 @@ start_str = str(int(round(time.time() * 1000)))
 
 global focus_round
 focus_round = 0
+
+
+global thread_pool
+global io_executor
+global cpu_pool
+
+
+#thread_pool = ThreadPoolExecutor() # Thread pool can be used for any IO that can be concurrent
+io_executor = SequentialIOExecutor()
+#cpu_pool = ProcessPoolExecutor()
 
 
 def set_last_save_folder(dir: pathlib.Path | None):
@@ -3430,6 +3437,11 @@ class VerticalControl(BoxLayout):
 
 
     def update_gui(self):
+        io_executor.put(IOTask(
+            action=self.execute_update_gui
+        ))
+
+    def execute_update_gui(self):
         try:
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
@@ -3726,7 +3738,13 @@ class XYStageControl(BoxLayout):
 
     def update_gui(self, dt=0, full_redraw: bool = False):
         # logger.info('[LVP Main  ] XYStageControl.update_gui()')
-        global lumaview
+        io_executor.put(IOTask(
+            action=self.get_xy_targets,
+            callback=self.get_targets_ui_callback,
+            pass_result=True
+        ))
+        
+    def get_xy_targets(self):
         try:
             x_target = lumaview.scope.get_target_position('X')  # Get target value in um
             x_target = np.clip(x_target, 0, 120000) # prevents crosshairs from leaving the stage area
@@ -3734,7 +3752,15 @@ class XYStageControl(BoxLayout):
             y_target = np.clip(y_target, 0, 80000) # prevents crosshairs from leaving the stage area
         except:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
-        else:
+            return None
+        
+        return (x_target, y_target)
+
+    def get_targets_ui_callback(self, result=None, exception=None):
+        if result is not None:
+            x_target = result[0]
+            y_target = result[1]
+
             # Convert from plate position to stage position
             _, labware = get_selected_labware()
             stage_x, stage_y = coordinate_transformer.stage_to_plate(
@@ -3749,7 +3775,6 @@ class XYStageControl(BoxLayout):
 
             if not self.ids['y_pos_id'].focus:  
                 self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
-
 
     def fine_left(self):
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
@@ -5153,13 +5178,37 @@ class Stage(Widget):
                         Line(points=(x_center-half_size, y_center, x_center+half_size, y_center), width = 1, group='steps') # horizontal line
                         Line(points=(x_center, y_center-half_size, x_center, y_center+half_size), width = 1, group='steps') # vertical line
 
-            try:
-                target_stage_x = lumaview.scope.get_target_position('X')
-                target_stage_y = lumaview.scope.get_target_position('Y')
-            except:
-                logger.exception('[LVP Main  ] Error talking to Motor board.')
-                raise
+            io_executor.put(IOTask(
+                action=self.get_target_xy,
+                callback=self.get_target_callback,
+                cb_args=(
+                    scale_x,
+                    scale_y,
+                    well_radius_pixel_x,
+                    x,
+                    y
+                ),
+                pass_result=True
+            ))
                 
+            
+
+    def get_target_xy(self):
+        try:
+            target_stage_x = lumaview.scope.get_target_position('X')
+            target_stage_y = lumaview.scope.get_target_position('Y')
+        except:
+            logger.exception('[LVP Main  ] Error talking to Motor board.')
+            return None
+        
+        return (target_stage_x, target_stage_y)
+    
+    def get_target_callback(self, scale_x, scale_y, well_radius_pixel_x, x, y, result=None, exception=None):
+
+        if not result is None:
+            target_stage_x = result[0]
+            target_stage_y = result[1]
+
             _, labware = get_selected_labware()
             target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
                 labware=labware,
@@ -5179,7 +5228,7 @@ class Stage(Widget):
             )
             target_well_center_x = int(x+target_well_pixel_x) # on screen center
             target_well_center_y = int(y+target_well_pixel_y) # on screen center
-    
+
             # Green selection circle
             Color(0., 1., 0., 1., group='selected_well')
             Line(circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x), group='selected_well')
@@ -5187,28 +5236,54 @@ class Stage(Widget):
             #  Red Crosshairs
             # ------------------
             if self._motion_enabled:
-                x_current = lumaview.scope.get_current_position('X')
-                x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-                y_current = lumaview.scope.get_current_position('Y')
-                y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+                io_executor.put(IOTask(
+                    action=self.motion_enabled_io,
+                    callback=self.motion_enabled_callback,
+                    cb_args=(
+                        scale_x,
+                        scale_y,
+                        x,
+                        y
+                    ),
+                    pass_result=True
+                ))
 
-                # Convert stage coordinates to relative pixel coordinates
-                pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
-                    labware=labware,
-                    stage_offset=settings['stage_offset'],
-                    sx=x_current,
-                    sy=y_current,
-                    scale_x=scale_x,
-                    scale_y=scale_y
-                )
                 
-                x_center = x+pixel_x
-                y_center = y+pixel_y
 
-                Color(1., 0., 0., 1., group='crosshairs')
-                Line(points=(x_center-10, y_center, x_center+10, y_center), width = 1, group='crosshairs') # horizontal line
-                Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1, group='crosshairs') # vertical line
+    def motion_enabled_io(self):
+        try:
+            x_current = lumaview.scope.get_current_position('X')
+            x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+            y_current = lumaview.scope.get_current_position('Y')
+            y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+        except:
+            logger.exception('[LVP Main  ] Error talking to Motor board.')
+            return None
+        
+        return (x_current, y_current)
+    
+    def motion_enabled_callback(self, scale_x, scale_y, x, y, result=None, exception=None):
 
+        if result is not None:
+            x_current = result[0]
+            y_current = result[1]
+
+            # Convert stage coordinates to relative pixel coordinates
+            pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                sx=x_current,
+                sy=y_current,
+                scale_x=scale_x,
+                scale_y=scale_y
+            )
+            
+            x_center = x+pixel_x
+            y_center = y+pixel_y
+
+            Color(1., 0., 0., 1., group='crosshairs')
+            Line(points=(x_center-10, y_center, x_center+10, y_center), width = 1, group='crosshairs') # horizontal line
+            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1, group='crosshairs') # vertical line
 
 class MicroscopeSettings(BoxLayout):
 
@@ -5882,17 +5957,57 @@ class LayerControl(BoxLayout):
             self.ids[item].disabled = state
 
         # When transitioning out of auto-gain, keep last auto-gain settings to apply
+        io_executor.put(IOTask(
+            action = LayerControl.get_gain_exposure,
+            args=(self, init, state),
+            callback=LayerControl.update_auto_gain_cb,
+            cb_args=(self),
+            pass_result=True
+        ))
+
+        # actual_gain = lumaview.scope.camera.get_gain()
+        # actual_exp = lumaview.scope.camera.get_exposure_t()
+
+        
+
+    def get_gain_exposure(self, init, state):
         actual_gain = lumaview.scope.camera.get_gain()
         actual_exp = lumaview.scope.camera.get_exposure_t()
 
-        # If being called on program initialization, we don't want to
-        # inadvertantly load the settings from the scope hardware into the software maintained settings
-        if (False == init) and (False == state):
-            settings[self.layer]['gain'] = actual_gain
-            settings[self.layer]['exp'] = actual_exp
+        return (init, state, actual_gain, actual_exp)
 
-        settings[self.layer]['auto_gain'] = state
-        self.apply_settings()
+    def update_auto_gain_cb(self, result=None, exception=None):
+        try:
+
+            if exception is not None:
+                logger.error(f"LVP Main] Update_auto_gain error: {exception}")
+                return
+
+            init = result[0]
+            state = result[1]
+            gain = result[2]
+            exp = result[3]
+
+            if self.ids['auto_gain'].state == 'down':
+                state = True
+            else:
+                state = False
+
+            # If being called on program initialization, we don't want to
+            # inadvertantly load the settings from the scope hardware into the software maintained settings
+            if (False == init) and (False == state):
+                settings[self.layer]['gain'] = gain
+                settings[self.layer]['exp'] = exp
+
+            settings[self.layer]['auto_gain'] = state
+            self.apply_settings()
+
+        except Exception as e:
+            logger.error(f"LVP Main] Update_auto_gain error: {e}")
+            return
+        
+
+
 
     def gain_slider(self):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
@@ -5998,22 +6113,38 @@ class LayerControl(BoxLayout):
 
     def save_focus(self):
         logger.info('[LVP Main  ] LayerControl.save_focus()')
-        global lumaview
+        io_executor.put(IOTask(
+            action=self.execute_save_focus,
+            args=(self)
+        ))
+
+    def execute_save_focus(self):
         pos = lumaview.scope.get_current_position('Z')
         settings[self.layer]['focus'] = pos
 
     def goto_focus(self):
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
-        global lumaview
+        io_executor.put(IOTask(
+            action=self.execute_goto_focus,
+            args=(self)
+        ))
+
+    def execute_goto_focus(self):
         pos = settings[self.layer]['focus']
         move_absolute_position('Z', pos)  # set current z height in usteps
-
 
     def update_led_state(self):
         enabled = True if self.ids['enable_led_btn'].state == 'down' else False
         illumination = settings[self.layer]['ill']
 
-        self.set_led_state(enabled=enabled, illumination=illumination)
+        io_executor.put(IOTask(
+            action=self.set_led_state,
+            kwargs= {
+                "enabled": enabled,
+                "illumination": illumination
+            }
+        ))
+        #self.set_led_state(enabled=enabled, illumination=illumination)
         
         # self.apply_settings()
 
@@ -6039,20 +6170,26 @@ class LayerControl(BoxLayout):
         # update illumination to currently selected settings
         # -----------------------------------------------------
         set_histogram_layer(active_layer=self.layer)
+
+        # Queue IO task and update UI after completing IO
         self.update_led_state()
+
         if self.ids['enable_led_btn'].state == 'down': # if the button is down
             for layer in common_utils.get_layers():
                 if layer != self.layer:
                     layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
                     layer_obj.ids['enable_led_btn'].state = 'normal'
 
+
         # update exposure to currently selected settings
         # -----------------------------------------------------
         exposure = settings[self.layer]['exp']
         gain = settings[self.layer]['gain']
 
-        lumaview.scope.set_gain(gain)
-        lumaview.scope.set_exposure_time(exposure)
+        io_executor.put(IOTask(action=lumaview.scope.set_gain, args=(gain)))
+        io_executor.put(IOTask(action=lumaview.scope.set_exposure_time, args=(exposure)))
+        #lumaview.scope.set_gain(gain)
+        #lumaview.scope.set_exposure_time(exposure)
 
         # update gain to currently selected settings
         # -----------------------------------------------------
@@ -6060,7 +6197,15 @@ class LayerControl(BoxLayout):
 
         if not ignore_auto_gain:
             autogain_settings = get_auto_gain_settings()
-            lumaview.scope.set_auto_gain(auto_gain_enabled, settings=autogain_settings)
+            io_executor.put(IOTask(
+                action=lumaview.scope.set_auto_gain,
+                args=(auto_gain_enabled),
+                kwargs={
+                    "settings": autogain_settings
+                }
+            )
+            )
+            #lumaview.scope.set_auto_gain(auto_gain_enabled, settings=autogain_settings)
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
@@ -6574,11 +6719,7 @@ class LumaViewProApp(App):
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
-        Clock.schedule_once(
-            functools.partial(
-                lumaview.ids['imagesettings_id'].set_expanded_layer, 'BF'
-            ),
-        0.2)
+        Clock.schedule_once(functools.partial(lumaview.ids['imagesettings_id'].set_expanded_layer, 'BF'), 0.2)
 
         os.chdir(source_path)
 
@@ -6589,7 +6730,11 @@ class LumaViewProApp(App):
 
         if not disable_homing:
             # Note: If the scope has a turret, this also performs a T homing
-            thread_pool.submit(move_home, axis="XY")
+            task = IOTask(
+                move_home,
+                args=('XY')
+            )
+            io_executor.put(task)
 
 
         if lumaview.scope.has_turret():
@@ -6601,30 +6746,25 @@ class LumaViewProApp(App):
                 logger.error(f"Turret position for objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
                 turret_position = DEFAULT_POSITION
 
-            thread_pool.submit(move_absolute_position, axis='T', pos=turret_position, wait_until_complete=True)
+            io_executor.put(IOTask(
+                move_absolute_position,
+                kwargs= {
+                    "axis": 'T',
+                    "pos": 'turret_position',
+                    "wait_until_complete": True
+                }
+            ))
+            #thread_pool.submit(move_absolute_position, axis='T', pos=turret_position, wait_until_complete=True)
             #move_absolute_position(axis='T', pos=turret_position, wait_until_complete=True)
 
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
         layer_obj.apply_settings()
 
-        thread_pool.submit(scope_leds_off)
+        io_executor.put(IOTask(scope_leds_off))
         #scope_leds_off()
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
-
-    def _wait_for_all(self):
-        for future in self.active_threads:
-            try:
-                result = future.result()
-                continue
-            except Exception as e:
-                print(f"IO Error: {e}")
-        
-        Clock.schedule_once(lambda dt: self._startup_io_done)
-
-    def _startup_io_done(self):
-        pass
 
 
     def build(self):
@@ -6673,6 +6813,8 @@ class LumaViewProApp(App):
         coordinate_transformer = coord_transformations.CoordinateTransformer()
 
         objective_helper = objectives_loader.ObjectiveLoader()
+
+        io_executor.start()
         
         #ij_helper = imagej_helper.ImageJHelper()
 
@@ -6706,6 +6848,9 @@ class LumaViewProApp(App):
         if profiling_helper is not None:
             profiling_helper.stop()
 
+        if io_executor is not None:
+            io_executor.shutdown()
+
         global lumaview
 
         scope_leds_off()
@@ -6732,23 +6877,6 @@ def patched_setslice(self, i, j, sequence, **kwargs):
     except Exception as e:
         # If for some reason we get another error again, bite the bullet 
         return original_setslicemethod(self, i, j, sequence)
-    
-# 1) Wrap your worker so it logs entry
-def safe_worker(arg):
-    global thread_pool
-    logging.debug(f"entering safe_worker({arg})")
-    try:
-        move_home(arg)
-        logging.debug("safe_worker done")
-    except Exception:
-        logging.exception("error")
-
-# 2) Submit and wait with timeout
-fut = thread_pool.submit(safe_worker, "test")
-try:
-    fut.result(timeout=10)   # wait up to 10s
-except TimeoutError:
-    logging.error("safe_worker hung longer than 10s")
 
 # Replace the original method with our patched version
 ObservableReferenceList.__setslice__ = patched_setslice
