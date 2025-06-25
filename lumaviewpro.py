@@ -60,7 +60,7 @@ import shutil
 import userpaths
 import queue
 
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
 disable_homing = False
 
@@ -312,8 +312,10 @@ global cpu_pool
 
 
 #thread_pool = ThreadPoolExecutor() # Thread pool can be used for any IO that can be concurrent
-io_executor = SequentialIOExecutor()
-#cpu_pool = ProcessPoolExecutor()
+io_executor = SequentialIOExecutor()    # Use for serial IO (Ie need something to complete before moving to the next) (mainly used for movement)
+camera_executor = SequentialIOExecutor()    # Can use to queue camera instructions immediately (may want to include LED instructions in here as well)
+temp_ij_executor = SequentialIOExecutor()   # Temporary fix for imageJ loading (should probably be on another process, but that is later down the line)
+#cpu_pool = ProcessPoolExecutor() 
 
 
 def set_last_save_folder(dir: pathlib.Path | None):
@@ -5957,7 +5959,7 @@ class LayerControl(BoxLayout):
             self.ids[item].disabled = state
 
         # When transitioning out of auto-gain, keep last auto-gain settings to apply
-        io_executor.put(IOTask(
+        camera_executor.put(IOTask(
             action = LayerControl.get_gain_exposure,
             args=(self, init, state),
             callback=LayerControl.update_auto_gain_cb,
@@ -5968,8 +5970,7 @@ class LayerControl(BoxLayout):
         # actual_gain = lumaview.scope.camera.get_gain()
         # actual_exp = lumaview.scope.camera.get_exposure_t()
 
-        
-
+    
     def get_gain_exposure(self, init, state):
         actual_gain = lumaview.scope.camera.get_gain()
         actual_exp = lumaview.scope.camera.get_exposure_t()
@@ -5995,6 +5996,10 @@ class LayerControl(BoxLayout):
 
             # If being called on program initialization, we don't want to
             # inadvertantly load the settings from the scope hardware into the software maintained settings
+            # print("AUTOGAIN")
+            # print(f"init: {init}    state: {state}")
+            # print(f"Gain: {gain}    Exp: {exp}")
+
             if (False == init) and (False == state):
                 settings[self.layer]['gain'] = gain
                 settings[self.layer]['exp'] = exp
@@ -6006,9 +6011,6 @@ class LayerControl(BoxLayout):
             logger.error(f"LVP Main] Update_auto_gain error: {e}")
             return
         
-
-
-
     def gain_slider(self):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = self.ids['gain_slider'].value
@@ -6137,7 +6139,7 @@ class LayerControl(BoxLayout):
         enabled = True if self.ids['enable_led_btn'].state == 'down' else False
         illumination = settings[self.layer]['ill']
 
-        io_executor.put(IOTask(
+        camera_executor.put(IOTask(
             action=self.set_led_state,
             kwargs= {
                 "enabled": enabled,
@@ -6183,11 +6185,12 @@ class LayerControl(BoxLayout):
 
         # update exposure to currently selected settings
         # -----------------------------------------------------
+        
         exposure = settings[self.layer]['exp']
         gain = settings[self.layer]['gain']
 
-        io_executor.put(IOTask(action=lumaview.scope.set_gain, args=(gain)))
-        io_executor.put(IOTask(action=lumaview.scope.set_exposure_time, args=(exposure)))
+        camera_executor.put(IOTask(action=lumaview.scope.set_gain, args=(gain)))
+        camera_executor.put(IOTask(action=lumaview.scope.set_exposure_time, args=(exposure)))
         #lumaview.scope.set_gain(gain)
         #lumaview.scope.set_exposure_time(exposure)
 
@@ -6197,7 +6200,7 @@ class LayerControl(BoxLayout):
 
         if not ignore_auto_gain:
             autogain_settings = get_auto_gain_settings()
-            io_executor.put(IOTask(
+            camera_executor.put(IOTask(
                 action=lumaview.scope.set_auto_gain,
                 args=(auto_gain_enabled),
                 kwargs={
@@ -6760,7 +6763,7 @@ class LumaViewProApp(App):
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
         layer_obj.apply_settings()
 
-        io_executor.put(IOTask(scope_leds_off))
+        camera_executor.put(IOTask(scope_leds_off))
         #scope_leds_off()
 
         if getattr(sys, 'frozen', False):
@@ -6815,8 +6818,16 @@ class LumaViewProApp(App):
         objective_helper = objectives_loader.ObjectiveLoader()
 
         io_executor.start()
+        camera_executor.start()
+        temp_ij_executor.start()
         
         #ij_helper = imagej_helper.ImageJHelper()
+
+        # temp_ij_executor.put(IOTask(
+        #     action=imagej_helper.ImageJHelper,
+        #     callback=ij_creation,
+        #     pass_result=True
+        # ))
 
         # load settings file
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
@@ -6825,6 +6836,8 @@ class LumaViewProApp(App):
             
         autofocus_executor = AutofocusExecutor(
             scope=lumaview.scope,
+            camera_thread=camera_executor,
+            io_thread=io_executor,
             use_kivy_clock=True,
         )
 
@@ -6833,7 +6846,6 @@ class LumaViewProApp(App):
             stage_offset=settings['stage_offset'],
             autofocus_executor=autofocus_executor,
         )
-        
         
 
         return lumaview
@@ -6851,12 +6863,35 @@ class LumaViewProApp(App):
         if io_executor is not None:
             io_executor.shutdown()
 
+        if camera_executor is not None:
+            camera_executor.shutdown()
+
+        if temp_ij_executor is not None:
+            temp_ij_executor.shutdown()
+
         global lumaview
 
         scope_leds_off()
 
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
+def ij_creation(result=None, exception=None):
+    if exception is not None:
+        logger.error(f"ImageJ initialization unsuccessful: {exception}")
+        return
+    
+    if result is not None:
+        global ij_helper
+        ij_helper = result
+        return
+    
+
+def inti_ij():
+    with ProcessPoolExecutor() as executor:
+        futures = [executor.submit(imagej_helper.ImageJHelper())]
+        for future in as_completed(futures):
+            global ij_helper
+            ij_helper = future.result()
 
 # Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
 # For some reason kivy was calling a Python 2 method on newer Python 3 List objects, causing exceptions that would accumulate

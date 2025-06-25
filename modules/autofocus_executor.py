@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from sequential_io_executor import SequentialIOExecutor, IOTask
+
 import lumascope_api
 import modules.common_utils as common_utils
 from modules.objectives_loader import ObjectiveLoader
@@ -18,10 +20,13 @@ class AutofocusExecutor:
     def __init__(
         self,
         scope: lumascope_api.Lumascope,
+        camera_thread: SequentialIOExecutor,
+        io_thread: SequentialIOExecutor,
         use_kivy_clock: bool = False,
     ):
         self._scope = scope
         self._use_kivy_clock = use_kivy_clock
+        self._thread = thread
 
         if not self._scope.camera.active:
             return

@@ -112,13 +112,16 @@ class SequentialIOExecutor:
     def _dispatch_loop(self):
         # Pulls from queue, submits to worker pool, wires up callbacks
         while True:
-            task = self.queue.get(block=True)
+            try:
+                task = self.queue.get(block=True, timeout=0.2)
+            except queue.Empty:
+                if self.pending_shutdown:
+                    return
+                continue
             future = self.executor.submit(task.run)
             future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
             self.running_task = task
             self.queue.task_done()
-            if self.pending_shutdown:
-                return
 
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
