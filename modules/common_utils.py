@@ -198,6 +198,9 @@ def get_opened_layer(lumaview_imagesettings) -> str | None:
         
     return None
 
+def get_opened_layer_obj(lumaview_imagesettings):
+    return lumaview_imagesettings.accordion_item_lookup(get_opened_layer(lumaview_imagesettings))
+
 
 def to_bool(val) -> bool:
     if 'str' in str(type(val)):

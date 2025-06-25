@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from sequential_io_executor import SequentialIOExecutor, IOTask
+from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
 import lumascope_api
 import modules.common_utils as common_utils
@@ -26,7 +26,8 @@ class AutofocusExecutor:
     ):
         self._scope = scope
         self._use_kivy_clock = use_kivy_clock
-        self._thread = thread
+        self._camera_thread = camera_thread
+        self._io_thread = io_thread
 
         if not self._scope.camera.active:
             return
@@ -183,6 +184,9 @@ class AutofocusExecutor:
 
             self._is_focusing = False
             self._is_complete = True
+            if 'complete' in self._callbacks:
+                self._callbacks['complete']()
+                
             self._best_focus_position = best_focus_position
             return
 

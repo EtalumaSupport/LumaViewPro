@@ -315,6 +315,8 @@ global cpu_pool
 io_executor = SequentialIOExecutor()    # Use for serial IO (Ie need something to complete before moving to the next) (mainly used for movement)
 camera_executor = SequentialIOExecutor()    # Can use to queue camera instructions immediately (may want to include LED instructions in here as well)
 temp_ij_executor = SequentialIOExecutor()   # Temporary fix for imageJ loading (should probably be on another process, but that is later down the line)
+protocol_executor = SequentialIOExecutor()
+file_io_executor = SequentialIOExecutor()
 #cpu_pool = ProcessPoolExecutor() 
 
 
@@ -761,16 +763,39 @@ def move_absolute_position(
     overshoot_enabled: bool = True
 ):
     if axis == 'T':
-        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=pos)
+        io_executor.put(IOTask(
+            action=lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select,
+            kwargs={
+                "selected_position":pos
+            },
+            callback=_handle_ui_update_for_axis,
+            cb_kwargs={
+                "axis":axis
+            }
+        ))
+        #lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=pos)
     else:
-        lumaview.scope.move_absolute_position(
-            axis=axis,
-            pos=pos,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled
-        )
+        io_executor.put(IOTask(
+            action=lumaview.scope.move_absolute_position,
+            kwargs={
+                "axis":axis,
+                "pos":pos,
+                "wait_until_complete":wait_until_complete,
+                "overshoot_enabled":overshoot_enabled
+            },
+            callback=_handle_ui_update_for_axis,
+            cb_kwargs={
+                "axis":axis
+            }
+        ))
+        # lumaview.scope.move_absolute_position(
+        #     axis=axis,
+        #     pos=pos,
+        #     wait_until_complete=wait_until_complete,
+        #     overshoot_enabled=overshoot_enabled
+        # )
 
-    _handle_ui_update_for_axis(axis=axis)
+    #_handle_ui_update_for_axis(axis=axis)
 
 
 # Wrapper function when moving to update UI position
@@ -780,14 +805,27 @@ def move_relative_position(
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True
 ):
-    lumaview.scope.move_relative_position(
-        axis=axis,
-        um=um,
-        wait_until_complete=wait_until_complete,
-        overshoot_enabled=overshoot_enabled
-    )
+    io_executor.put(IOTask(
+        action=lumaview.scope.move_relative_position,
+        kwargs={
+            "axis":axis,
+            "um":um,
+            "wait_until_complete":wait_until_complete,
+            "overshoot_enabled":overshoot_enabled
+        },
+        callback=_handle_ui_update_for_axis,
+        cb_kwargs={
+            "axis":axis
+        }
+    ))
+    # lumaview.scope.move_relative_position(
+    #     axis=axis,
+    #     um=um,
+    #     wait_until_complete=wait_until_complete,
+    #     overshoot_enabled=overshoot_enabled
+    # )
 
-    _handle_ui_update_for_axis(axis=axis)
+   # _handle_ui_update_for_axis(axis=axis)
 
 
 def move_home(axis: str):
@@ -798,15 +836,18 @@ def move_home(axis: str):
 
     #Window.set_title(f"Lumaview Pro {version}   |   Homing, please wait...")
     if axis == 'Z':
-        lumaview.scope.zhome()
+        io_executor.put(IOTask(action=lumaview.scope.zhome, callback=move_home_cb, cb_args=(axis)))
     elif axis == 'XY':
-        lumaview.scope.xyhome()
+        io_executor.put(IOTask(action=lumaview.scope.xyhome, callback=move_home_cb, cb_args=(axis)))
     elif axis == 'T':
-        lumaview.scope.thome()
+        io_executor.put(IOTask(action=lumaview.scope.thome, callback=move_home_cb, cb_args=(axis)))
 
 
-    Clock.schedule_once(lambda dt: _handle_ui_update_for_axis(axis=axis))
-    Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}"), 1)
+
+
+def move_home_cb(axis):
+    _handle_ui_update_for_axis(axis=axis)
+    Window.set_title(f"Lumaview Pro {version}")
 
 def live_histo_off():
     if live_histo_setting == True and lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization == True:
@@ -3440,14 +3481,21 @@ class VerticalControl(BoxLayout):
 
     def update_gui(self):
         io_executor.put(IOTask(
-            action=self.execute_update_gui
+            action=lumaview.scope.get_target_position,
+            args=('Z'),
+            callback=self.execute_kivy_gui,
+            pass_result=True
         ))
 
-    def execute_update_gui(self):
-        try:
-            set_pos = lumaview.scope.get_target_position('Z')  # Get target value
-        except:
+    def execute_kivy_gui(self, result=None, exception=None):
+
+        if exception is not None:
+            raise exception
+        
+        if result is None:
             return
+        
+        set_pos = result
 
         self.ids['obj_position'].value = max(0, set_pos)
         self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
@@ -3457,28 +3505,56 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
         _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
-        move_relative_position('Z', coarse, overshoot_enabled=overshoot_enabled)
+        io_executor.put(IOTask(
+            action=move_relative_position,
+            args=('Z', coarse),
+            kwargs={
+                "overshoot_enabled": overshoot_enabled
+            }
+        ))
+        #move_relative_position('Z', coarse, overshoot_enabled=overshoot_enabled)
 
 
     def fine_up(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
         _, objective = get_current_objective_info()
         fine = objective['z_fine']
-        move_relative_position('Z', fine, overshoot_enabled=overshoot_enabled)
+        io_executor.put(IOTask(
+            action=move_relative_position,
+            args=('Z', fine),
+            kwargs={
+                "overshoot_enabled": overshoot_enabled
+            }
+        ))
+        #move_relative_position('Z', fine, overshoot_enabled=overshoot_enabled)
 
 
     def fine_down(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
         _, objective = get_current_objective_info()
         fine = objective['z_fine']
-        move_relative_position('Z', -fine, overshoot_enabled=overshoot_enabled)
+        io_executor.put(IOTask(
+            action=move_relative_position,
+            args=('Z', -fine),
+            kwargs={
+                "overshoot_enabled": overshoot_enabled
+            }
+        ))
+        #move_relative_position('Z', -fine, overshoot_enabled=overshoot_enabled)
 
 
     def coarse_down(self, overshoot_enabled: bool = True):
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
         _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
-        move_relative_position('Z', -coarse, overshoot_enabled=overshoot_enabled)
+        io_executor.put(IOTask(
+            action=move_relative_position,
+            args=('Z', -coarse),
+            kwargs={
+                "overshoot_enabled": overshoot_enabled
+            }
+        ))
+        #move_relative_position('Z', -coarse, overshoot_enabled=overshoot_enabled)
 
 
     def set_position(self, pos):
@@ -3487,17 +3563,26 @@ class VerticalControl(BoxLayout):
             pos = float(pos)
         except:
             return
-        
-        move_absolute_position('Z', pos)
+        io_executor.put(IOTask(
+            action=move_absolute_position,
+            args=('Z', pos)
+        ))
+        #move_absolute_position('Z', pos)
 
 
     def set_bookmark(self):
         logger.info('[LVP Main  ] VerticalControl.set_bookmark()')
+        io_executor.put(IOTask(action=self.ex_set_bookmark))
+
+    def ex_set_bookmark(self):
         height = lumaview.scope.get_current_position('Z')  # Get current z height in um
         settings['bookmark']['z'] = height
 
     def set_all_bookmarks(self):
         logger.info('[LVP Main  ] VerticalControl.set_all_bookmarks()')
+        io_executor.put(IOTask(action=self.ex_set_all_bookmarks))
+
+    def ex_set_all_bookmarks(self):
         height = lumaview.scope.get_current_position('Z')  # Get current z height in um
         settings['bookmark']['z'] = height
         settings['BF']['focus'] = height
@@ -3511,11 +3596,13 @@ class VerticalControl(BoxLayout):
     def goto_bookmark(self):
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         pos = settings['bookmark']['z']
-        move_absolute_position('Z', pos)
+        io_executor.put(IOTask(action=move_absolute_position, args=('Z', pos)))
+        #move_absolute_position('Z', pos)
 
     def home(self):
         logger.info('[LVP Main  ] VerticalControl.home()')
-        move_home(axis='Z')
+        io_executor.put(IOTask(action=move_home, kwargs={"axis":'Z'}))
+        #move_home(axis='Z')
     
     def load_objective_from_settings(self):
         self.ids['objective_spinner2'] = settings['objective_id']
@@ -3571,8 +3658,12 @@ class VerticalControl(BoxLayout):
 
 
     def _cleanup_at_end_of_autofocus(self):
-        sequenced_capture_executor.reset()
-        self._reset_run_autofocus_button()
+        io_executor.put(IOTask(
+            action=sequenced_capture_executor.reset,
+            callback=self._reset_run_autofocus_button
+        ))
+        # sequenced_capture_executor.reset()
+        # self._reset_run_autofocus_button()
 
 
     def _autofocus_run_complete(self, **kwargs):
@@ -3614,7 +3705,43 @@ class VerticalControl(BoxLayout):
         active_layer, active_layer_config = get_active_layer_config()
         active_layer_config['autofocus'] = True
         active_layer_config['acquire'] = "image"
-        curr_position = get_current_plate_position()
+        #curr_position = get_current_plate_position()
+        io_executor.put(IOTask(
+            action=get_current_plate_position,
+            callback=self.curr_position_autofocus,
+            cb_args=(
+                labware_id,
+                objective_id,
+                active_layer,
+                active_layer_config,
+                run_complete_func,
+                trigger_source,
+                parent_dir,
+                save_autofocus_data
+            ),
+            pass_result=True
+        ))
+
+
+    def curr_position_autofocus(self, 
+                                labware_id, 
+                                objective_id, 
+                                active_layer, 
+                                active_layer_config, 
+                                run_complete_func, 
+                                trigger_source, 
+                                parent_dir, 
+                                save_autofocus_data, 
+                                result=None, exception=None):
+        
+        if exception is not None:
+            raise exception
+        
+        if result is None:
+            return
+        
+        curr_position = result
+
         curr_position.update({'name': 'AF'})
 
         positions = [
@@ -6116,8 +6243,7 @@ class LayerControl(BoxLayout):
     def save_focus(self):
         logger.info('[LVP Main  ] LayerControl.save_focus()')
         io_executor.put(IOTask(
-            action=self.execute_save_focus,
-            args=(self)
+            action=self.execute_save_focus
         ))
 
     def execute_save_focus(self):
@@ -6128,16 +6254,18 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
         io_executor.put(IOTask(
             action=self.execute_goto_focus,
-            args=(self)
         ))
 
     def execute_goto_focus(self):
         pos = settings[self.layer]['focus']
         move_absolute_position('Z', pos)  # set current z height in usteps
 
-    def update_led_state(self):
+    def update_led_state(self, apply_settings=True):
         enabled = True if self.ids['enable_led_btn'].state == 'down' else False
         illumination = settings[self.layer]['ill']
+
+        if apply_settings:
+            self.apply_settings(update_led=False)
 
         camera_executor.put(IOTask(
             action=self.set_led_state,
@@ -6164,7 +6292,7 @@ class LayerControl(BoxLayout):
             lumaview.scope.led_on(channel=channel, mA=illumination)          
 
 
-    def apply_settings(self, ignore_auto_gain=False):
+    def apply_settings(self, ignore_auto_gain=False, update_led=True):
         logger.info('[LVP Main  ] LayerControl.apply_settings()')
         global lumaview
         # global gain_vals
@@ -6174,7 +6302,8 @@ class LayerControl(BoxLayout):
         set_histogram_layer(active_layer=self.layer)
 
         # Queue IO task and update UI after completing IO
-        self.update_led_state()
+        if update_led:
+            self.update_led_state(apply_settings=False)
 
         if self.ids['enable_led_btn'].state == 'down': # if the button is down
             for layer in common_utils.get_layers():
@@ -6714,10 +6843,6 @@ class LumaViewProApp(App):
     
 
     def on_start(self):
-        global thread_pool, cpu_pool
-
-        self.active_threads = []
-        self.active_cpus = []
 
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
@@ -6762,6 +6887,7 @@ class LumaViewProApp(App):
 
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
         layer_obj.apply_settings()
+        Clock.schedule_once(layer_obj.apply_settings, 5)
 
         camera_executor.put(IOTask(scope_leds_off))
         #scope_leds_off()
@@ -6820,6 +6946,8 @@ class LumaViewProApp(App):
         io_executor.start()
         camera_executor.start()
         temp_ij_executor.start()
+        protocol_executor.start()
+        file_io_executor.start()
         
         #ij_helper = imagej_helper.ImageJHelper()
 
@@ -6845,6 +6973,9 @@ class LumaViewProApp(App):
             scope=lumaview.scope,
             stage_offset=settings['stage_offset'],
             autofocus_executor=autofocus_executor,
+            io_executor=io_executor,
+            protocol_executor=protocol_executor,
+            file_io_executor=file_io_executor
         )
         
 
@@ -6868,6 +6999,12 @@ class LumaViewProApp(App):
 
         if temp_ij_executor is not None:
             temp_ij_executor.shutdown()
+
+        if protocol_executor is not None:
+            protocol_executor.shutdown()
+
+        if file_io_executor is not None:
+            file_io_executor.shutdown()
 
         global lumaview
 

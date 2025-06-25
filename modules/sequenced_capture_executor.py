@@ -22,6 +22,7 @@ from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
 from modules.video_writer import VideoWriter
+from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from lvp_logger import logger
 
 from settings_init import settings
@@ -35,11 +36,17 @@ class SequencedCaptureExecutor:
         self,
         scope: Lumascope,
         stage_offset: dict,
+        io_executor: SequentialIOExecutor,
+        protocol_executor: SequentialIOExecutor,
+        file_io_executor: SequentialIOExecutor,
         autofocus_executor: AutofocusExecutor | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
         self._stage_offset = stage_offset
+        self._io_executor = io_executor
+        self.protocol_executor = protocol_executor
+        self.file_io_executor = file_io_executor
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -52,6 +59,7 @@ class SequencedCaptureExecutor:
         self._scope = scope
         self._run_trigger_source = None
         self._reset_vars()
+        self._grease_redistribution_done = True
 
 
     def _reset_vars(
@@ -66,6 +74,7 @@ class SequencedCaptureExecutor:
         self._scan_in_progress = False
         self._autofocus_count = 0
         self._autogain_countdown = 0
+        self._grease_redistribution_done = True
 
 
     @staticmethod
@@ -249,6 +258,7 @@ class SequencedCaptureExecutor:
         if leds_state_at_end not in ("off", "return_to_original",):
             raise ValueError(f"Unsupported value for leds_state_at_end: {leds_state_at_end}")
         
+        # Not IO
         self._original_led_states = self._scope.get_led_states()
         self._original_autofocus_states = self.get_initial_autofocus_states()
 
@@ -281,10 +291,11 @@ class SequencedCaptureExecutor:
         
         self._run_trigger_source = run_trigger_source
         self._run_in_progress = True
+        # Not IO
         self._scope.camera.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
         self._run_scan()
-        Clock.schedule_interval(self._protocol_iterate, 1)
+        Clock.schedule_interval(self.protocol_executor.put(IOTask(action=self._protocol_iterate)), 1)
 
     
     def _protocol_iterate(self, dt):
@@ -329,7 +340,7 @@ class SequencedCaptureExecutor:
 
         self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
 
-        Clock.schedule_interval(self._scan_iterate, 0.1)
+        Clock.schedule_interval(self.protocol_executor.put(IOTask(action=self._scan_iterate)), 0.1)
     
 
     def _scan_iterate(self, dt):
@@ -337,33 +348,65 @@ class SequencedCaptureExecutor:
             return
 
         # Check if at desired position
+        self._io_executor.protocol_put(IOTask(
+            action=self._get_target_status,
+            callback=self._scan_iterate_with_targets,
+            pass_result=True
+        ))
+
+    def _get_target_status(self):
         x_status = self._scope.get_target_status('X')
         y_status = self._scope.get_target_status('Y')
         z_status = self._scope.get_target_status('Z')
+
+        return (x_status, y_status, z_status)
+
+    def _scan_iterate_with_targets(self, result=None, exception=None):
+        if exception is not None:
+            raise exception
+        if result is None:
+            return
+        
+        x_status = result[0]
+        y_status = result[1]
+        z_status = result[2]
 
         # Check if target location has not been reached yet
         if (not x_status) or (not y_status) or (not z_status) or self._scope.get_overshoot():
             return
         
+        if not self._grease_redistribution_done:
+            return
+        
         step = self._protocol.step(idx=self._curr_step)
         
         # Set camera settings
-        self._scope.set_auto_gain(
-            state=step['Auto_Gain'],
-            settings=self._autogain_settings,
-        )
+        self._io_executor.protocol_put(IOTask(
+            action=self._scope.set_auto_gain,
+            kwargs={
+                "state": step['Auto_Gain'],
+                "settings": self._autogain_settings,
+            }
+        ))
+    # self._scope.set_auto_gain(
+    #     state=step['Auto_Gain'],
+    #     settings=self._autogain_settings,
+    # )
+        # Internally uses io_executor
         self._led_on(color=step['Color'], illumination=step['Illumination'])
 
         if not step['Auto_Gain']:
-            self._scope.set_gain(step['Gain'])
+            self._io_executor.protocol_put(IOTask(action=self._scope.set_gain, args=(step['Gain'])))
+            #self._scope.set_gain(step['Gain'])
             # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
-            self._scope.set_exposure_time(step['Exposure'])
+            self._io_executor.protocol_put(IOTask(action=self._scope.set_exposure_time, args=(step['Exposure'])))
+            #self._scope.set_exposure_time(step['Exposure'])
 
         if step['Auto_Gain'] and self._auto_gain_countdown > 0:
             self._auto_gain_countdown -= 0.1
         
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
-        if step['Auto_Focus'] and not self._autofocus_executor.complete():
+        if step['Auto_Focus'] and not self._autofocus_executor.complete() and not self._autofocus_executor.in_progress():
 
             if 'autofocus_in_progress' in self._callbacks:
                 self._callbacks['autofocus_in_progress']()
@@ -372,6 +415,7 @@ class SequencedCaptureExecutor:
             if 'move_position' in self._callbacks:
                 af_executor_callbacks['move_position'] = self._callbacks['move_position']
 
+            #TODO: Make sure all of this IO is handled outside of Kivy main thread
             self._autofocus_executor.run(
                 objective_id=step['Objective'],
                 save_results_to_file=self._save_autofocus_data,
@@ -379,6 +423,10 @@ class SequencedCaptureExecutor:
                 callbacks=af_executor_callbacks,
             )
             
+            return
+        
+        # Still executing autofocus (not complete)
+        if step['Auto_Focus'] and self._autofocus_executor.in_progress():
             return
         
         # Check if autogain has time-finished after auto-focus so that they can run in parallel
@@ -457,7 +505,14 @@ class SequencedCaptureExecutor:
         self._autofocus_executor.reset()
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
-            self._scope.set_auto_gain(state=False, settings=self._autogain_settings,)
+            self._io_executor.protocol_put(IOTask(
+                action=self._scope.set_auto_gain,
+                kwargs={
+                    "state":False,
+                    "settings":self._autogain_settings
+                }
+            ))
+            #self._scope.set_auto_gain(state=False, settings=self._autogain_settings,)
 
         num_steps = self._protocol.num_steps()
         if self._curr_step < num_steps-1:
@@ -508,13 +563,22 @@ class SequencedCaptureExecutor:
                 py=py
             )
 
-            self._scope.move_absolute_position('X', sx)
-            self._scope.move_absolute_position('Y', sy)
-            self._callbacks['move_position']('X')
-            self._callbacks['move_position']('Y')
+            self._io_executor.protocol_put(IOTask(action=self._default_move_ex, args=(sx, sy, z), callback=self._default_move_callbacks_ex, cb_args=(z)))
+        
+        
 
+    def _default_move_ex(self, sx, sy, z):
+        self._scope.move_absolute_position('X', sx)
+        self._scope.move_absolute_position('Y', sy)
         if z is not None:
             self._scope.move_absolute_position('Z', z)
+
+    def _default_move_callbacks_ex(self, z):
+        
+        self._callbacks['move_position']('X')
+        self._callbacks['move_position']('Y')
+
+        if z is not None:
             self._callbacks['move_position']('Z')
 
 
@@ -540,9 +604,12 @@ class SequencedCaptureExecutor:
 
 
     def _perform_grease_redistribution(self):
+        self._grease_redistribution_done = False
+        self._io_executor.protocol_put(IOTask(action=self._grease_redist_w_pos))
+
+    def _grease_redist_w_pos(self):
         axis='Z'
         z_orig = self._scope.get_current_position(axis=axis)
-
         self._scope.move_absolute_position(
             axis=axis,
             pos=0,
@@ -563,26 +630,56 @@ class SequencedCaptureExecutor:
         if 'move_position' in self._callbacks:
             self._callbacks['move_position'](axis)
 
+        self._grease_redistribution_done = True
+
 
     def _cancel_all_scheduled_events(self):
         Clock.unschedule(self._protocol_iterate)
         Clock.unschedule(self._scan_iterate)
+        self._io_executor.clear_protocol_pending()
 
 
     def _leds_off(self):
-        self._scope.leds_off()
+        #self._scope.leds_off()
         if 'leds_off' in self._callbacks:
-            self._callbacks['leds_off']()
+            self._io_executor.protocol_put(IOTask(
+                action=self._scope.leds_off,
+                callback=self._callbacks['leds_off']
+            ))
+            #self._callbacks['leds_off']()
+        else:
+            self._io_executor.protocol_put(action=self._scope.leds_off)
 
     
     def _led_on(self, color: str, illumination: float):
-        self._scope.led_on(
-            channel=self._scope.color2ch(color),
-            mA=illumination,
-        )
+        # self._scope.led_on(
+        #     channel=self._scope.color2ch(color),
+        #     mA=illumination,
+        # )
 
         if 'led_state' in self._callbacks:
-            self._callbacks['led_state'](layer=color, enabled=True)
+            self._io_executor.protocol_put(IOTask(
+                action=self._scope.led_on,
+                kwargs={
+                    "channel":self._scope.color2ch(color),
+                    "mA":illumination
+                },
+                callback=self._callbacks['led_state'],
+                cb_kwargs={
+                    "layer":color,
+                    "enabled":True
+                }
+            ))
+            #self._callbacks['led_state'](layer=color, enabled=True)
+
+        else:
+            self._io_executor.protocol_put(IOTask(
+                action=self._scope.led_on,
+                kwargs={
+                    "channel":self._scope.color2ch(color),
+                    "mA":illumination
+                },
+            ))
 
 
     def _cleanup(self):
@@ -619,6 +716,8 @@ class SequencedCaptureExecutor:
             )
 
         self._run_in_progress = False
+
+        self._io_executor.protocol_end()
 
 
         if 'run_complete' in self._callbacks:

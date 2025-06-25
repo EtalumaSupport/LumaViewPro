@@ -94,6 +94,8 @@ SequentialIOExecutor
 class SequentialIOExecutor:
     def __init__(self, max_workers: int=1):
         self.queue = queue.Queue()
+        self.protocol_queue = queue.Queue()
+        self.protocol_running = False
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.dispatcher = ThreadPoolExecutor(max_workers=1)
         self.running_task = None
@@ -109,11 +111,23 @@ class SequentialIOExecutor:
         # Push IO work item into queue
         self.queue.put(task)
 
+    def protocol_put(self, task: IOTask):
+        self.protocol_queue.put(task)
+
+    def protocol_start(self):
+        self.protocol_running = True
+
+    def protocol_end(self):
+        self.protocol_running = False
+
     def _dispatch_loop(self):
         # Pulls from queue, submits to worker pool, wires up callbacks
         while True:
             try:
-                task = self.queue.get(block=True, timeout=0.2)
+                if self.protocol_running or not self.protocol_queue.empty():
+                    task = self.protocol_queue.get(block=True, timeout=0.2)
+                else:
+                    task = self.queue.get(block=True, timeout=0.2)
             except queue.Empty:
                 if self.pending_shutdown:
                     return
@@ -150,6 +164,9 @@ class SequentialIOExecutor:
     def clear_pending(self):
         # Remove all tasks still in queue
         self.queue.queue.clear()
+
+    def clear_protocol_pending(self):
+        self.protocol_queue.queue.clear()
     
     def is_busy(self):
         # Returns true if tasks queued or running
