@@ -20,14 +20,16 @@ class AutofocusExecutor:
     def __init__(
         self,
         scope: lumascope_api.Lumascope,
-        camera_thread: SequentialIOExecutor,
-        io_thread: SequentialIOExecutor,
+        camera_executor: SequentialIOExecutor,
+        io_executor: SequentialIOExecutor,
+        file_io_executor: SequentialIOExecutor,
         use_kivy_clock: bool = False,
     ):
         self._scope = scope
         self._use_kivy_clock = use_kivy_clock
-        self._camera_thread = camera_thread
-        self._io_thread = io_thread
+        self._camera_executor = camera_executor
+        self._io_executor = io_executor
+        self._file_io_executor = file_io_executor
 
         if not self._scope.camera.active:
             return
@@ -186,7 +188,7 @@ class AutofocusExecutor:
             self._is_complete = True
             if 'complete' in self._callbacks:
                 self._callbacks['complete']()
-                
+
             self._best_focus_position = best_focus_position
             return
 

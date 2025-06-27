@@ -312,11 +312,11 @@ global cpu_pool
 
 
 #thread_pool = ThreadPoolExecutor() # Thread pool can be used for any IO that can be concurrent
-io_executor = SequentialIOExecutor()    # Use for serial IO (Ie need something to complete before moving to the next) (mainly used for movement)
-camera_executor = SequentialIOExecutor()    # Can use to queue camera instructions immediately (may want to include LED instructions in here as well)
-temp_ij_executor = SequentialIOExecutor()   # Temporary fix for imageJ loading (should probably be on another process, but that is later down the line)
-protocol_executor = SequentialIOExecutor()
-file_io_executor = SequentialIOExecutor()
+io_executor = SequentialIOExecutor(name="IO")    # Use for serial IO (Ie need something to complete before moving to the next) (mainly used for movement)
+camera_executor = SequentialIOExecutor(name="CAMERA")    # Can use to queue camera instructions immediately (may want to include LED instructions in here as well)
+temp_ij_executor = SequentialIOExecutor(name="IJ")   # Temporary fix for imageJ loading (should probably be on another process, but that is later down the line)
+protocol_executor = SequentialIOExecutor(name="PROTOCOL")
+file_io_executor = SequentialIOExecutor(name="FILE")
 #cpu_pool = ProcessPoolExecutor() 
 
 
@@ -434,10 +434,10 @@ def go_to_step(
         # Move into position
         if lumaview.scope.motion.driver:
             if turret_pos is not None:
-                move_absolute_position(axis='T', pos=turret_pos)
-            move_absolute_position('X', sx)
-            move_absolute_position('Y', sy)
-            move_absolute_position('Z', step["Z"])
+                move_absolute_position(axis='T', pos=turret_pos, protocol=True)
+            move_absolute_position('X', sx, protocol=True)
+            move_absolute_position('Y', sy, protocol=True)
+            move_absolute_position('Z', step["Z"], protocol=True)
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
@@ -760,10 +760,16 @@ def move_absolute_position(
     axis: str,
     pos: float,
     wait_until_complete: bool = False,
-    overshoot_enabled: bool = True
+    overshoot_enabled: bool = True,
+    protocol: bool = False
 ):
+    if protocol:
+        put_func = io_executor.protocol_put
+    else:
+        put_func = io_executor.put
+
     if axis == 'T':
-        io_executor.put(IOTask(
+        put_func(IOTask(
             action=lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select,
             kwargs={
                 "selected_position":pos
@@ -775,7 +781,7 @@ def move_absolute_position(
         ))
         #lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=pos)
     else:
-        io_executor.put(IOTask(
+        put_func(IOTask(
             action=lumaview.scope.move_absolute_position,
             kwargs={
                 "axis":axis,
@@ -4608,6 +4614,14 @@ class ProtocolSettings(CompositeCapture):
         if self._protocol.num_steps() < 1:
             return
         
+        io_executor.put(IOTask(
+            action=self.modify_step_ex,
+            callback=self.update_step_ui
+        ))
+        
+
+    def modify_step_ex(self):
+        
         active_layer, active_layer_config = get_active_layer_config()
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
@@ -4629,7 +4643,7 @@ class ProtocolSettings(CompositeCapture):
             objective_id=objective_id,
         )
 
-        self.update_step_ui()
+        #self.update_step_ui()
 
         stage.set_protocol_steps(df=self._protocol.steps())
 
@@ -4637,6 +4651,14 @@ class ProtocolSettings(CompositeCapture):
     def insert_step(self, after_current_step: bool = True):
         
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
+        io_executor.put(IOTask(
+            action=self.insert_step_ex,
+            args=(after_current_step),
+            callback=self.update_step_ui
+        ))
+
+
+    def insert_step_ex(self, after_current_step: bool = True):
 
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
@@ -4673,7 +4695,6 @@ class ProtocolSettings(CompositeCapture):
             if after_current_step or (self.curr_step < 0):
                 self.curr_step += 1
 
-        self.update_step_ui()
         stage.set_protocol_steps(df=self._protocol.steps())
         self.go_to_step()
 
@@ -4794,6 +4815,7 @@ class ProtocolSettings(CompositeCapture):
             'led_state': _handle_ui_for_led,
         }
 
+        #TODO THREAD
         initial_position = get_current_plate_position()
 
         autogain_settings = get_auto_gain_settings()
@@ -6964,8 +6986,9 @@ class LumaViewProApp(App):
             
         autofocus_executor = AutofocusExecutor(
             scope=lumaview.scope,
-            camera_thread=camera_executor,
-            io_thread=io_executor,
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+            file_io_executor=file_io_executor,
             use_kivy_clock=True,
         )
 

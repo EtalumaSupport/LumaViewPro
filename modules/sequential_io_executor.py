@@ -36,6 +36,7 @@ class IOTask:
 
             self.kwargs = kwargs
             self.callback = callback
+            self.protocol = None
             
             if cb_args is None:
                 self.cb_args = ()
@@ -92,21 +93,32 @@ SequentialIOExecutor
     executor.shutdown(wait=True)
 """
 class SequentialIOExecutor:
-    def __init__(self, max_workers: int=1):
+    def __init__(self, max_workers: int=1, name: str=None):
         self.queue = queue.Queue()
         self.protocol_queue = queue.Queue()
         self.protocol_running = False
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.dispatcher = ThreadPoolExecutor(max_workers=1)
+        self.name = name
+        if name is not None:
+            executor_name = name + "_" + "WORKER"
+            dispatcher_name = name + "_" + "DISPATCHER"
+            self.executor = ThreadPoolExecutor(thread_name_prefix=executor_name, max_workers=max_workers)
+            self.dispatcher = ThreadPoolExecutor(thread_name_prefix=dispatcher_name, max_workers=1)
+        else:
+            self.executor = ThreadPoolExecutor(max_workers=max_workers)
+            self.dispatcher = ThreadPoolExecutor(max_workers=1)
         self.running_task = None
         self.global_callback = None
         self.pending_shutdown = False
+
+        self.executed_protocol_tasks = []
+        self.executed_tasks = []
 
 
     def start(self):
         # Start internal dispatcher
         self.dispatcher.submit(self._dispatch_loop)
 
+    # TODO: Have it return a future to be able to block until that thread has finished its task
     def put(self, task: IOTask):
         # Push IO work item into queue
         self.queue.put(task)
@@ -126,20 +138,33 @@ class SequentialIOExecutor:
             try:
                 if self.protocol_running or not self.protocol_queue.empty():
                     task = self.protocol_queue.get(block=True, timeout=0.2)
+                    task.protocol = True
                 else:
                     task = self.queue.get(block=True, timeout=0.2)
+                    task.protocol = False
             except queue.Empty:
                 if self.pending_shutdown:
                     return
                 continue
-            future = self.executor.submit(task.run)
-            future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
-            self.running_task = task
-            self.queue.task_done()
+            if self.protocol_running or not self.protocol_queue.empty():
+                future = self.executor.submit(task.run)
+                future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
+                self.running_task = task
+                self.executed_protocol_tasks.append(task)
+            else:
+                future = self.executor.submit(task.run)
+                future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
+                self.running_task = task
+                self.executed_tasks.append(task)
 
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
         task.on_complete(result, exception)
+        if task.protocol:
+            self.protocol_queue.task_done()
+        else:
+            self.queue.task_done()
+
         self.running_task = None
         if self.global_callback is not None:
             Clock.schedule_once(lambda dt: self.global_callback(*self.global_cb_args, **self.global_cb_kwargs), 0)

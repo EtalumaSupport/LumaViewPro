@@ -279,6 +279,8 @@ class SequencedCaptureExecutor:
         self._video_as_frames = video_as_frames
         self._autofocus_executor.reset()
 
+        self._scan_iterate_running = False
+
         if self._parent_dir is None:
             self._disable_saving_artifacts = True
 
@@ -291,11 +293,14 @@ class SequencedCaptureExecutor:
         
         self._run_trigger_source = run_trigger_source
         self._run_in_progress = True
+        self.protocol_executor.protocol_start()
+        self._io_executor.protocol_start()
+        self.file_io_executor.protocol_start()
         # Not IO
         self._scope.camera.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
         self._run_scan()
-        Clock.schedule_interval(self.protocol_executor.put(IOTask(action=self._protocol_iterate)), 1)
+        Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._protocol_iterate)), 1)
 
     
     def _protocol_iterate(self, dt):
@@ -340,37 +345,17 @@ class SequencedCaptureExecutor:
 
         self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
 
-        Clock.schedule_interval(self.protocol_executor.put(IOTask(action=self._scan_iterate)), 0.1)
+        Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._scan_iterate)), 0.1)
     
 
-    def _scan_iterate(self, dt):
+    def _scan_iterate(self, dt=None):
         if self._autofocus_executor.in_progress():
             return
-
-        # Check if at desired position
-        self._io_executor.protocol_put(IOTask(
-            action=self._get_target_status,
-            callback=self._scan_iterate_with_targets,
-            pass_result=True
-        ))
-
-    def _get_target_status(self):
+        
         x_status = self._scope.get_target_status('X')
         y_status = self._scope.get_target_status('Y')
         z_status = self._scope.get_target_status('Z')
-
-        return (x_status, y_status, z_status)
-
-    def _scan_iterate_with_targets(self, result=None, exception=None):
-        if exception is not None:
-            raise exception
-        if result is None:
-            return
-        
-        x_status = result[0]
-        y_status = result[1]
-        z_status = result[2]
-
+    
         # Check if target location has not been reached yet
         if (not x_status) or (not y_status) or (not z_status) or self._scope.get_overshoot():
             return
@@ -466,6 +451,7 @@ class SequencedCaptureExecutor:
             if output_format == 'ImageJ Hyperstack':
                 output_format = 'TIFF'
 
+            # TODO THREAD
             capture_result = self._capture(
                 save_folder=save_folder,
                 step=step,
