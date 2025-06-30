@@ -808,7 +808,6 @@ class SequencedCaptureExecutor:
                     force_to_8bit = True
                     image = self._scope.get_image(force_to_8bit=force_to_8bit)
 
-
                     if type(image) == np.ndarray:
                         
                         # Should never be used since forcing images to 8-bit

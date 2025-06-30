@@ -1,8 +1,9 @@
 
 from kivy.clock import Clock
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future
 import queue
 from collections.abc import Sequence
+from lvp_logger import logger
 
 
 """
@@ -109,6 +110,7 @@ class SequentialIOExecutor:
         self.running_task = None
         self.global_callback = None
         self.pending_shutdown = False
+        self.caller_futures = {}
 
         self.executed_protocol_tasks = []
         self.executed_tasks = []
@@ -121,16 +123,33 @@ class SequentialIOExecutor:
     # TODO: Have it return a future to be able to block until that thread has finished its task
     def put(self, task: IOTask):
         # Push IO work item into queue
+        fut = Future()
+        self.caller_futures[task] = fut
         self.queue.put(task)
+        return fut
 
     def protocol_put(self, task: IOTask):
+        fut = Future()
+        self.caller_futures[task] = fut
         self.protocol_queue.put(task)
+        return fut
 
     def protocol_start(self):
         self.protocol_running = True
 
     def protocol_end(self):
         self.protocol_running = False
+
+    def wait_for_task(self, task: IOTask, timeout: float):
+        if task not in self.caller_futures:
+            return
+        
+        try:
+            fut: Future = self.caller_futures[task]
+            result = fut.result(timeout=timeout)
+        except Exception as e:
+            logger.error(f"{self.name} Worker Error: {e}")
+            
 
     def _dispatch_loop(self):
         # Pulls from queue, submits to worker pool, wires up callbacks
@@ -159,6 +178,13 @@ class SequentialIOExecutor:
 
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
+        caller_fut = self.caller_futures.pop(task, None)
+        if caller_fut:
+            if exception:
+                caller_fut.set_exception(exception)
+            else:
+                caller_fut.set_result(result)
+
         task.on_complete(result, exception)
         if task.protocol:
             self.protocol_queue.task_done()

@@ -4323,20 +4323,30 @@ class ProtocolSettings(CompositeCapture):
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
         )
 
+        protocol_executor.put(IOTask(
+            action=self.new_protocol_ex,
+            args=(protocol),
+            callback=self.update_step_ui,
+
+        ))
+    
+    def new_protocol_ex(self, protocol):
         if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
             error_msg = f"Cannot create new protocol. Please set objective for current turret position."
             logger.error(error_msg)
-            show_notification_popup(title="Protocol Creation Error", message=error_msg)            
+            
+            Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Creation Error", message=error_msg), 0)     
             return
 
         if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
             error_msg = f"Cannot create new protocol. Not all objectives are in turret config."
             logger.error(error_msg)
-            Popup(
-                title="Protocol Creation Error",
-                content=Label(text=error_msg),
-                size_hint=(0.85,0.85),
-            )
+            Clock.schedule_once(lambda dt: 
+                Popup(
+                    title="Protocol Creation Error",
+                    content=Label(text=error_msg),
+                    size_hint=(0.85,0.85),
+                ), 0)
             
             return
 
@@ -4347,7 +4357,6 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['filepath'] = ''        
         self.ids['protocol_filename'].text = ''
         self.curr_step = 0
-        self.update_step_ui()
         self.go_to_step()
 
 
@@ -5394,7 +5403,8 @@ class Stage(Widget):
                         scale_x,
                         scale_y,
                         x,
-                        y
+                        y,
+                        labware
                     ),
                     pass_result=True
                 ))
@@ -5413,7 +5423,7 @@ class Stage(Widget):
         
         return (x_current, y_current)
     
-    def motion_enabled_callback(self, scale_x, scale_y, x, y, result=None, exception=None):
+    def motion_enabled_callback(self, scale_x, scale_y, x, y, labware, result=None, exception=None):
 
         if result is not None:
             x_current = result[0]
@@ -7015,19 +7025,19 @@ class LumaViewProApp(App):
             profiling_helper.stop()
 
         if io_executor is not None:
-            io_executor.shutdown()
+            io_executor.shutdown(wait=False)
 
         if camera_executor is not None:
-            camera_executor.shutdown()
+            camera_executor.shutdown(wait=False)
 
         if temp_ij_executor is not None:
-            temp_ij_executor.shutdown()
+            temp_ij_executor.shutdown(wait=False)
 
         if protocol_executor is not None:
-            protocol_executor.shutdown()
+            protocol_executor.shutdown(wait=False)
 
         if file_io_executor is not None:
-            file_io_executor.shutdown()
+            file_io_executor.shutdown(wait=False)
 
         global lumaview
 
