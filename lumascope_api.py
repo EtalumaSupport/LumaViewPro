@@ -54,6 +54,7 @@ import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
 import image_utils
+from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
 
 class Lumascope():
@@ -93,6 +94,10 @@ class Lumascope():
         self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
         self.last_focus_score = None
 
+        self._file_io_executor = None
+        self._io_executor = None
+        self._camera_executor = None
+
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
@@ -116,6 +121,15 @@ class Lumascope():
     ########################################################################
     def set_labware(self, labware):
         self._labware = labware
+
+    def set_camera_executor(self, camera_executor: SequentialIOExecutor):
+        self._camera_executor = camera_executor
+
+    def set_file_io_executor(self, file_io_executor: SequentialIOExecutor):
+        self._file_io_executor = file_io_executor
+
+    def set_io_executor(self, io_executor: SequentialIOExecutor):
+        self._io_executor = io_executor
 
     def set_objective(self, objective_id: str):
         self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
@@ -416,7 +430,7 @@ class Lumascope():
         return path
 
 
-    def generate_image_metadata(self, color) -> dict:
+    def generate_image_metadata(self, color, x, y, z) -> dict:
         def _validate():
             if self._objective is None:
                 raise Exception(f"[SCOPE API ] Objective not set")
@@ -432,13 +446,19 @@ class Lumascope():
             
         _validate()
 
+        if x is None:
+            x = 0
+        if y is None:
+            y = 0
+        if z is None:
+            z = 0
+
         px, py = self._coordinate_transformer.stage_to_plate(
             labware=self._labware,
             stage_offset=self._stage_offset,
-            sx=self.get_current_position(axis='X'),
-            sy=self.get_current_position(axis='Y')
+            sx=x,
+            sy=y
         )
-        z = self.get_current_position(axis='Z')
 
         px = round(px, common_utils.max_decimal_precision('x'))
         py = round(py, common_utils.max_decimal_precision('y'))
@@ -483,8 +503,11 @@ class Lumascope():
         tail_id_mode: str,
         output_format: str,
         true_color: str,
+        x,
+        y,
+        z
     ):
-        metadata = self.generate_image_metadata(color=true_color)
+        metadata = self.generate_image_metadata(color=true_color, x=x, y=y, z=z)
 
         if array.dtype == np.uint16:
             array = image_utils.convert_12bit_to_16bit(array)
@@ -518,6 +541,9 @@ class Lumascope():
         tail_id_mode = "increment",
         output_format: str = "TIFF",
         true_color: str = 'BF',
+        x=None,
+        y=None,
+        z=None
     ):
         """CAMERA FUNCTIONS
         save image (as array) to file
@@ -532,6 +558,9 @@ class Lumascope():
             tail_id_mode=tail_id_mode,
             output_format=output_format,
             true_color=true_color,
+            x=x,
+            y=y,
+            z=z
         )
 
         image = image_data['image']
@@ -575,6 +604,7 @@ class Lumascope():
             sum_delay_s: float = 0,
             sum_iteration_callback = None,
             turn_off_all_leds_after: bool = False,
+            use_executor = False
         ):
 
         """CAMERA FUNCTIONS
@@ -595,6 +625,7 @@ class Lumascope():
 
         if array is False:
             return 
+        
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
  
 
@@ -885,6 +916,12 @@ class Lumascope():
         
         status = self.motion.target_status(axis)
         return status
+    
+    def get_target_pos(self, axis):
+        if (axis == 'T') and (self.motion.has_turret == False):
+            return -1
+        
+        return self.motion.target_pos(axis)
         
     # Get all reference status register bits as 32 character string (32-> 0)
     def get_reference_status(self, axis):

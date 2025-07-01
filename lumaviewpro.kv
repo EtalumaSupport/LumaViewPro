@@ -2272,7 +2272,8 @@
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
-					on_release: root.gain_slider()
+					#on_release: root.gain_slider()
+					on_value: root.gain_slider()
 				TextInput:
 					id: gain_text
 					size_hint_x: None
@@ -2319,7 +2320,8 @@
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
-					on_release: root.exp_slider()
+					#on_release: root.exp_slider()
+					on_value: root.exp_slider()
 				TextInput:
 					id: exp_text
 					size_hint_x: None

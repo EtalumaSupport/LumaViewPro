@@ -387,14 +387,15 @@ def is_image_saving_enabled() -> bool:
 def _update_step_number_callback(step_num: int):
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
     protocol_settings.curr_step = step_num-1
-    protocol_settings.update_step_ui()
+    Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
 
 
 def go_to_step(
     protocol: Protocol,
     step_idx: int,
     ignore_auto_gain: bool = False,
-    include_move: bool = True
+    include_move: bool = True,
+    called_from_protocol=True
 ):
     num_steps = protocol.num_steps()
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
@@ -409,7 +410,7 @@ def go_to_step(
         return
     
     step = protocol.step(idx=step_idx)
-    protocol_settings.generate_step_name_input()
+    Clock.schedule_once(lambda dt: protocol_settings.generate_step_name_input(), 0)
 
     # Convert plate coordinates to stage coordinates
     if include_move:
@@ -433,13 +434,54 @@ def go_to_step(
       
         # Move into position
         if lumaview.scope.motion.driver:
-            if turret_pos is not None:
-                move_absolute_position(axis='T', pos=turret_pos, protocol=True)
-            move_absolute_position('X', sx, protocol=True)
-            move_absolute_position('Y', sy, protocol=True)
-            move_absolute_position('Z', step["Z"], protocol=True)
+            if not called_from_protocol:
+                if turret_pos is not None:
+                    io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'T',"pos": turret_pos,"protocol": False}))
+                io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'X',"pos": sx,"protocol": False}))
+                io_executor.put(IOTask(
+                        action=move_absolute_position,
+                        kwargs={
+                            "axis":'Y',
+                            "pos": sy,
+                            "protocol": False
+                        }
+                    ))
+                io_executor.put(IOTask(
+                        action=move_absolute_position,
+                        kwargs={
+                            "axis":'Z',
+                            "pos": step['Z'],
+                            "protocol": False
+                        }
+                    ))
+            else:
+                if turret_pos is not None:
+                    move_absolute_position(axis='T', pos=turret_pos, protocol=True)
+                move_absolute_position('X', sx, protocol=True)
+                move_absolute_position('Y', sy, protocol=True)
+                move_absolute_position('Z', step["Z"], protocol=True)
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
+
+        # Update settings to correspond with step
+        color = step['Color']
+        settings[color]['autofocus'] = step['Auto_Focus']
+        settings[color]['false_color'] = step['False_Color']
+        settings[color]['ill'] = step["Illumination"]
+        settings[color]['gain'] = step["Gain"]
+        settings[color]['auto_gain'] = step["Auto_Gain"]
+        settings[color]['exp'] = step["Exposure"]
+        settings[color]['sum'] = step["Sum"]
+        settings[color]['acquire'] = step['Acquire']
+
+        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=color)
+        layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+        Clock.schedule_once(lambda dt: go_to_step_update_ui(step), 0)
+
+
+
+def go_to_step_update_ui(step):
+
 
     color = step['Color']
     layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=color)
@@ -454,45 +496,45 @@ def go_to_step(
 
     # set autofocus checkbox
     logger.info(f'[LVP Main  ] autofocus: {step["Auto_Focus"]}')
-    settings[color]['autofocus'] = step['Auto_Focus']
+    
     layer_obj.ids['autofocus'].active = step['Auto_Focus']
     
     # set false_color checkbox
     logger.info(f'[LVP Main  ] false_color: {step["False_Color"]}')
-    settings[color]['false_color'] = step['False_Color']
+    
     layer_obj.ids['false_color'].active = step['False_Color']
 
     # set illumination settings, text, and slider
     logger.info(f'[LVP Main  ] ill: {step["Illumination"]}')
-    settings[color]['ill'] = step["Illumination"]
+    
     layer_obj.ids['ill_text'].text = str(step["Illumination"])
     layer_obj.ids['ill_slider'].value = float(step["Illumination"])
 
     # set gain settings, text, and slider
     logger.info(f'[LVP Main  ] gain: {step["Gain"]}')
-    settings[color]['gain'] = step["Gain"]
+    
     layer_obj.ids['gain_text'].text = str(step["Gain"])
     layer_obj.ids['gain_slider'].value = float(step["Gain"])
 
     # set auto_gain checkbox
     logger.info(f'[LVP Main  ] auto_gain: {step["Auto_Gain"]}')
-    settings[color]['auto_gain'] = step["Auto_Gain"]
+    
     layer_obj.ids['auto_gain'].active = step["Auto_Gain"]
 
     # set exposure settings, text, and slider
     logger.info(f'[LVP Main  ] exp: {step["Exposure"]}')
-    settings[color]['exp'] = step["Exposure"]
+    
     layer_obj.ids['exp_text'].text = str(step["Exposure"])
     layer_obj.ids['exp_slider'].value = float(step["Exposure"])
 
     # set sum count settings, text, and slider
     logger.info(f'[LVP Main  ] sum: {step["Sum"]}')
-    settings[color]['sum'] = step["Sum"]
+    
     layer_obj.ids['sum_text'].text = str(step["Sum"])
     layer_obj.ids['sum_slider'].value = int(step["Sum"])
 
     # acquire type
-    settings[color]['acquire'] = step['Acquire']
+    
     for acquire_sel in ('acquire_video', 'acquire_image', 'acquire_none'):  
         layer_obj.ids[acquire_sel].active = False
 
@@ -503,7 +545,6 @@ def go_to_step(
     else:
         layer_obj.ids['acquire_none'].active = True
 
-    layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain)
 
 
 def get_binning_from_ui() -> int:
@@ -769,39 +810,43 @@ def move_absolute_position(
         put_func = io_executor.put
 
     if axis == 'T':
-        put_func(IOTask(
-            action=lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select,
-            kwargs={
-                "selected_position":pos
-            },
-            callback=_handle_ui_update_for_axis,
-            cb_kwargs={
-                "axis":axis
-            }
-        ))
-        #lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=pos)
+        if not protocol:
+            io_executor.put(IOTask(
+                action=lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select,
+                kwargs={
+                    "selected_position":pos
+                },
+                callback=_handle_ui_update_for_axis,
+                cb_kwargs={
+                    "axis":axis
+                }
+            ))
+        else:
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=pos)
     else:
-        put_func(IOTask(
-            action=lumaview.scope.move_absolute_position,
-            kwargs={
-                "axis":axis,
-                "pos":pos,
-                "wait_until_complete":wait_until_complete,
-                "overshoot_enabled":overshoot_enabled
-            },
-            callback=_handle_ui_update_for_axis,
-            cb_kwargs={
-                "axis":axis
-            }
-        ))
-        # lumaview.scope.move_absolute_position(
-        #     axis=axis,
-        #     pos=pos,
-        #     wait_until_complete=wait_until_complete,
-        #     overshoot_enabled=overshoot_enabled
-        # )
+        if not protocol:
+            io_executor.put(IOTask(
+                action=lumaview.scope.move_absolute_position,
+                kwargs={
+                    "axis":axis,
+                    "pos":pos,
+                    "wait_until_complete":wait_until_complete,
+                    "overshoot_enabled":overshoot_enabled
+                },
+                callback=_handle_ui_update_for_axis,
+                cb_kwargs={
+                    "axis":axis
+                }
+            ))
+        else:
+            lumaview.scope.move_absolute_position(
+                axis=axis,
+                pos=pos,
+                wait_until_complete=wait_until_complete,
+                overshoot_enabled=overshoot_enabled
+            )
 
-    #_handle_ui_update_for_axis(axis=axis)
+        Clock.schedule_once(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
 
 # Wrapper function when moving to update UI position
@@ -4269,7 +4314,7 @@ class ProtocolSettings(CompositeCapture):
         self._protocol.optimize_step_ordering()
         stage.set_protocol_steps(df=self._protocol.steps())
         self.update_step_ui()
-        self.go_to_step()
+        self.go_to_step(protocol=False)
 
 
     def apply_zstacking(self):
@@ -4283,7 +4328,7 @@ class ProtocolSettings(CompositeCapture):
         self._protocol.optimize_step_ordering()
         stage.set_protocol_steps(df=self._protocol.steps())
         self.update_step_ui()
-        self.go_to_step()
+        self.go_to_step(protocol=False)
 
 
     def generate_step_name_input(self):
@@ -4357,7 +4402,7 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['filepath'] = ''        
         self.ids['protocol_filename'].text = ''
         self.curr_step = 0
-        self.go_to_step()
+        self.go_to_step(protocol=False)
 
 
     def _validate_labware(self, labware: str):
@@ -4454,7 +4499,7 @@ class ProtocolSettings(CompositeCapture):
 
         self.update_step_ui()
         if lumaview.scope.has_xyhomed():
-            self.go_to_step()
+            self.go_to_step(protocol=False)
     
 
     def get_default_name_for_curr_step(self):
@@ -4557,17 +4602,19 @@ class ProtocolSettings(CompositeCapture):
             obj.text = f"{val}"
 
         self.curr_step = val-1
-        self.go_to_step()
+        self.go_to_step(protocol=False)
 
 
     def go_to_step(
         self,
+        protocol=True
     ):
         go_to_step(
             protocol=self._protocol,
             step_idx=self.curr_step,
             ignore_auto_gain=False,
-            include_move=True
+            include_move=True,
+            called_from_protocol=protocol
         )
 
     # Goto to Previous Step
@@ -4581,7 +4628,7 @@ class ProtocolSettings(CompositeCapture):
         
         self.curr_step = max(self.curr_step-1, 0)
         self.update_step_ui()
-        self.go_to_step()
+        self.go_to_step(protocol=False)
  
     # Go to Next Step
     def next_step(self):
@@ -4592,7 +4639,7 @@ class ProtocolSettings(CompositeCapture):
         
         self.curr_step = min(self.curr_step+1, num_steps-1)
         self.update_step_ui()
-        self.go_to_step()
+        self.go_to_step(protocol=False)
 
 
     # Delete Current Step of Protocol
@@ -4614,7 +4661,7 @@ class ProtocolSettings(CompositeCapture):
             self.curr_step = max(self.curr_step-1, 0)
  
         self.update_step_ui()
-        self.go_to_step()
+        self.go_to_step(protocol=False)
 
 
     def modify_step(self):
@@ -4705,7 +4752,7 @@ class ProtocolSettings(CompositeCapture):
                 self.curr_step += 1
 
         stage.set_protocol_steps(df=self._protocol.steps())
-        self.go_to_step()
+        self.go_to_step(protocol=False)
 
 
     def update_acquire_zstack(self):
@@ -5995,6 +6042,7 @@ class ModSlider(Slider):
         self.register_event_type('on_release')
         super(ModSlider, self).__init__(**kwargs)
         logger.info('[LVP Main  ] ModSlider.__init__()')
+        self.step = 5
 
     def on_release(self):
         pass
@@ -6005,6 +6053,20 @@ class ModSlider(Slider):
         if touch.grab_current == self:
             self.dispatch('on_release')
             return True
+        
+    # def keyboard_on_key_down(self, window, keycode, text, modifiers):
+    #     # keycode is a tuple (keycode_int, keycode_str)
+    #     name = keycode[1]
+    #     delta = self.step
+    #     if "shift" in modifiers:
+    #         delta /= 50
+    #     if name in ('left', 'down'):
+    #         self.value = max(self.min, self.value - delta)
+    #         return True
+    #     elif name in ('right', 'up'):
+    #         self.value = min(self.max, self.value + delta)
+    #         return True
+    #     return super().keyboard_on_key_down(window, keycode, text, modifiers)
 
 
 # LayerControl Layout class
@@ -6018,11 +6080,16 @@ class LayerControl(BoxLayout):
 
     global settings
 
+    
+
     def __init__(self, **kwargs):
         super(LayerControl, self).__init__(**kwargs)
         logger.info('[LVP Main  ] LayerControl.__init__()')
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
+
+        self.apply_gain_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
+        self.apply_exp_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
         Clock.schedule_once(self._init_ui, 0)
     
     
@@ -6174,7 +6241,8 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = self.ids['gain_slider'].value
         settings[self.layer]['gain'] = gain
-        self.apply_settings()
+        self.apply_gain_slider()
+        ####
 
     def gain_text(self):
         logger.info('[LVP Main  ] LayerControl.gain_text()')
@@ -6191,7 +6259,7 @@ class LayerControl(BoxLayout):
         self.ids['gain_slider'].value = gain
         self.ids['gain_text'].text = str(gain)
 
-        self.apply_settings()
+        self.apply_gain_slider()
 
     def composite_threshold_slider(self):
         logger.info('[LVP Main  ] LayerControl.composite_threshold_slider()')
@@ -6218,7 +6286,7 @@ class LayerControl(BoxLayout):
         exposure = self.ids['exp_slider'].value
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         settings[self.layer]['exp'] = exposure        # exposure in ms
-        self.apply_settings()
+        self.apply_exp_slider()
 
     def exp_text(self):
         logger.info('[LVP Main  ] LayerControl.exp_text()')
@@ -6237,7 +6305,7 @@ class LayerControl(BoxLayout):
         # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
         self.ids['exp_text'].text = str(exposure)
 
-        self.apply_settings()
+        self.apply_exp_slider()
 
     def false_color(self):
         logger.info('[LVP Main  ] LayerControl.false_color()')
@@ -6324,14 +6392,15 @@ class LayerControl(BoxLayout):
             lumaview.scope.led_on(channel=channel, mA=illumination)          
 
 
-    def apply_settings(self, ignore_auto_gain=False, update_led=True):
+    def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
         logger.info('[LVP Main  ] LayerControl.apply_settings()')
         global lumaview
         # global gain_vals
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
-        set_histogram_layer(active_layer=self.layer)
+        if not protocol:
+            set_histogram_layer(active_layer=self.layer)
 
         # Queue IO task and update UI after completing IO
         if update_led:

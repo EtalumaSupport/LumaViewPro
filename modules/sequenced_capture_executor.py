@@ -28,6 +28,32 @@ from lvp_logger import logger
 from settings_init import settings
 
 
+"""
+step_dict = {
+   "Name": name,
+    "X": x,
+    "Y": y,
+    "Z": z,
+    "Auto_Focus": af,
+    "Color": color,
+    "False_Color": fc,
+    "Illumination": ill,
+    "Gain": gain,
+    "Auto_Gain": auto_gain,
+    "Exposure": exp,
+    "Sum": sum: int,
+    "Objective": objective,
+    "Well": well,
+    "Tile": tile,
+    "Z-Slice": zslice,
+    "Custom Step": custom_step: bool,
+    "Tile Group ID": tile_group_id,
+    "Z-Stack Group ID": zstack_group_id,
+    "Acquire": acquire,
+    "Video Config": video_config,
+}
+"""
+
 class SequencedCaptureExecutor:
 
     LOGGER_NAME = "SeqCapExec"
@@ -75,6 +101,10 @@ class SequencedCaptureExecutor:
         self._autofocus_count = 0
         self._autogain_countdown = 0
         self._grease_redistribution_done = True
+        self._captures_taken = 0
+        self._target_x_pos = -1
+        self._target_y_pos = -1
+        self._target_z_pos = -1
 
 
     @staticmethod
@@ -280,6 +310,8 @@ class SequencedCaptureExecutor:
         self._autofocus_executor.reset()
 
         self._scan_iterate_running = False
+        self._protocol_iterator = None
+        self._scan_iterator = None
 
         if self._parent_dir is None:
             self._disable_saving_artifacts = True
@@ -300,10 +332,10 @@ class SequencedCaptureExecutor:
         self._scope.camera.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
         self._run_scan()
-        Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._protocol_iterate)), 1)
+        self._protocol_iterator = Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._protocol_iterate)), 1)
 
     
-    def _protocol_iterate(self, dt):
+    def _protocol_iterate(self, dt=None):
         if self._scan_in_progress:
             return
         
@@ -341,20 +373,45 @@ class SequencedCaptureExecutor:
         if 'run_scan_pre' in self._callbacks:
             self._callbacks['run_scan_pre']()
 
-        self._go_to_step(step_idx=self._curr_step)
+        self.protocol_executor.protocol_put(IOTask(action=self._go_to_step, kwargs={"step_idx":self._curr_step}))
+        #self._go_to_step(step_idx=self._curr_step)
 
         self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
-
-        Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._scan_iterate)), 0.1)
+        self._scan_iterator = Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._scan_iterate)), 0.1)
     
 
     def _scan_iterate(self, dt=None):
+        if not self._scan_in_progress:
+            return
+        
         if self._autofocus_executor.in_progress():
             return
         
+        remaining_scans=self.remaining_scans()
+        if remaining_scans <= 0:
+            return
+        
+        
+        step = self._protocol.step(idx=self._curr_step)
+
         x_status = self._scope.get_target_status('X')
         y_status = self._scope.get_target_status('Y')
         z_status = self._scope.get_target_status('Z')
+
+        x_target = self._scope.get_target_pos('X')
+        y_target = self._scope.get_target_pos('Y')
+        z_target = self._scope.get_target_pos('Z')
+
+        x_pos = self._scope.get_current_position('X')
+        y_pos = self._scope.get_current_position('Y')
+        z_pos = self._scope.get_current_position('Z')
+
+        step_x = step['X']
+        step_y = step['Y']
+        step_z = step['Z']
+
+        if (x_target != x_pos) or (y_target != y_pos) or (z_target != z_pos):
+            return
     
         # Check if target location has not been reached yet
         if (not x_status) or (not y_status) or (not z_status) or self._scope.get_overshoot():
@@ -363,29 +420,29 @@ class SequencedCaptureExecutor:
         if not self._grease_redistribution_done:
             return
         
-        step = self._protocol.step(idx=self._curr_step)
         
         # Set camera settings
-        self._io_executor.protocol_put(IOTask(
-            action=self._scope.set_auto_gain,
-            kwargs={
-                "state": step['Auto_Gain'],
-                "settings": self._autogain_settings,
-            }
-        ))
-    # self._scope.set_auto_gain(
-    #     state=step['Auto_Gain'],
-    #     settings=self._autogain_settings,
-    # )
+        # self._io_executor.protocol_put(IOTask(
+        #     action=self._scope.set_auto_gain,
+        #     kwargs={
+        #         "state": step['Auto_Gain'],
+        #         "settings": self._autogain_settings,
+        #     }
+        # ))
+        self._scope.set_auto_gain(
+            state=step['Auto_Gain'],
+            settings=self._autogain_settings,
+        )
         # Internally uses io_executor
+        #TODO Undo threading
         self._led_on(color=step['Color'], illumination=step['Illumination'])
 
         if not step['Auto_Gain']:
-            self._io_executor.protocol_put(IOTask(action=self._scope.set_gain, args=(step['Gain'])))
-            #self._scope.set_gain(step['Gain'])
+            #self._io_executor.protocol_put(IOTask(action=self._scope.set_gain, args=(step['Gain'])))
+            self._scope.set_gain(step['Gain'])
             # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
-            self._io_executor.protocol_put(IOTask(action=self._scope.set_exposure_time, args=(step['Exposure'])))
-            #self._scope.set_exposure_time(step['Exposure'])
+            #self._io_executor.protocol_put(IOTask(action=self._scope.set_exposure_time, args=(step['Exposure'])))
+            self._scope.set_exposure_time(step['Exposure'])
 
         if step['Auto_Gain'] and self._auto_gain_countdown > 0:
             self._auto_gain_countdown -= 0.1
@@ -435,70 +492,51 @@ class SequencedCaptureExecutor:
 
         if step["Auto_Focus"]:
             self._autofocus_count += 1
+        if remaining_scans > 0:
+            if not self._disable_saving_artifacts:
 
-        if not self._disable_saving_artifacts:
-
-            if self._separate_folder_per_channel:
-                save_folder = self._run_dir / step["Color"]
-                save_folder.mkdir(parents=True, exist_ok=True)
-            else:
-                save_folder = self._run_dir
-
-
-            output_format=self._image_capture_config['output_format']['sequenced']
-
-            # Handle hyperstack creation as a post-processing function for now. Capture images in TIFF.
-            if output_format == 'ImageJ Hyperstack':
-                output_format = 'TIFF'
-
-            # TODO THREAD
-            capture_result = self._capture(
-                save_folder=save_folder,
-                step=step,
-                scan_count=self._scan_count,
-                output_format=output_format,
-                sum_count=step["Sum"],
-            )
-
-
-            if self._enable_image_saving:
-                if capture_result is None:
-                    capture_result_filepath_name = "unsaved"
-
-                elif type(capture_result) == dict:
-                    capture_result_filepath_name = capture_result['metadata']['file_loc']
-
-                elif self._separate_folder_per_channel:
-                    capture_result_filepath_name = pathlib.Path(step["Color"]) / capture_result.name
-
+                if self._separate_folder_per_channel:
+                    save_folder = self._run_dir / step["Color"]
+                    save_folder.mkdir(parents=True, exist_ok=True)
                 else:
-                    capture_result_filepath_name = capture_result.name
-            else:
-                capture_result_filepath_name = "unsaved"
+                    save_folder = self._run_dir
 
-            self._protocol_execution_record.add_step(
-                capture_result_file_name=capture_result_filepath_name,
-                step_name=step['Name'],
-                step_index=self._curr_step,
-                scan_count=self._scan_count,
-                timestamp=datetime.datetime.now()
-            )
-        else:
-            # Normally LEDs are turned off at the end of a capture. However, when not capturing, need to manually turn
-            # off LEDs (such as in autofocus scan)
-            self._leds_off()
+
+                output_format=self._image_capture_config['output_format']['sequenced']
+
+                # Handle hyperstack creation as a post-processing function for now. Capture images in TIFF.
+                if output_format == 'ImageJ Hyperstack':
+                    output_format = 'TIFF'
+
+                # TODO THREAD
+                capture_result = self._capture(
+                    save_folder=save_folder,
+                    step=step,
+                    scan_count=self._scan_count,
+                    output_format=output_format,
+                    sum_count=step["Sum"],
+                )
+
+
+                # Protocol record creation and adding is handled in capture method
+
+
+            else:
+                # Normally LEDs are turned off at the end of a capture. However, when not capturing, need to manually turn
+                # off LEDs (such as in autofocus scan)
+                self._leds_off()
 
         self._autofocus_executor.reset()
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
-            self._io_executor.protocol_put(IOTask(
-                action=self._scope.set_auto_gain,
-                kwargs={
-                    "state":False,
-                    "settings":self._autogain_settings
-                }
-            ))
-            #self._scope.set_auto_gain(state=False, settings=self._autogain_settings,)
+            # self._io_executor.protocol_put(IOTask(
+            #     action=self._scope.set_auto_gain,
+            #     kwargs={
+            #         "state":False,
+            #         "settings":self._autogain_settings
+            #     }
+            # ))
+            self._scope.set_auto_gain(state=False, settings=self._autogain_settings,)
 
         num_steps = self._protocol.num_steps()
         if self._curr_step < num_steps-1:
@@ -521,8 +559,9 @@ class SequencedCaptureExecutor:
         if 'scan_iterate_post' in self._callbacks is not None:
             self._callbacks['scan_iterate_post']()
 
-        Clock.unschedule(self._scan_iterate)
+        Clock.unschedule(self._scan_iterator)
         self._scan_in_progress = False
+        #self._protocol_iterate()
 
 
     def run_in_progress(self) -> bool:
@@ -549,7 +588,19 @@ class SequencedCaptureExecutor:
                 py=py
             )
 
-            self._io_executor.protocol_put(IOTask(action=self._default_move_ex, args=(sx, sy, z), callback=self._default_move_callbacks_ex, cb_args=(z)))
+            self._scope.move_absolute_position('X', sx)
+            self._target_x_pos = sx
+            self._callbacks['move_position']('X')
+
+            self._scope.move_absolute_position('Y', sy)
+            self._target_y_pos = sy
+            self._callbacks['move_position']('Y')
+
+            if z is not None:
+                self._scope.move_absolute_position('Z', z)
+                self._target_z_pos = z
+                self._callbacks['move_position']('Z')
+            #self._io_executor.protocol_put(IOTask(action=self._default_move_ex, args=(sx, sy, z), callback=self._default_move_callbacks_ex, cb_args=(z)))
         
         
 
@@ -572,6 +623,7 @@ class SequencedCaptureExecutor:
         self,
         step_idx: int,
     ):
+        #if False:
         if 'go_to_step' in self._callbacks:
             self._callbacks['go_to_step'](
                 protocol=self._protocol,
@@ -620,52 +672,55 @@ class SequencedCaptureExecutor:
 
 
     def _cancel_all_scheduled_events(self):
-        Clock.unschedule(self._protocol_iterate)
-        Clock.unschedule(self._scan_iterate)
-        self._io_executor.clear_protocol_pending()
+        Clock.unschedule(self._protocol_iterator)
+        Clock.unschedule(self._scan_iterator)
+        #self._io_executor.clear_protocol_pending()
+        #self.protocol_executor.clear_protocol_pending()
 
 
     def _leds_off(self):
         #self._scope.leds_off()
         if 'leds_off' in self._callbacks:
-            self._io_executor.protocol_put(IOTask(
-                action=self._scope.leds_off,
-                callback=self._callbacks['leds_off']
-            ))
-            #self._callbacks['leds_off']()
+            # self._io_executor.protocol_put(IOTask(
+            #     action=self._scope.leds_off,
+            #     callback=self._callbacks['leds_off']
+            # ))
+            self._callbacks['leds_off']()
         else:
-            self._io_executor.protocol_put(action=self._scope.leds_off)
+            #self._io_executor.protocol_put(action=self._scope.leds_off)
+            self._scope.leds_off()
 
     
     def _led_on(self, color: str, illumination: float):
-        # self._scope.led_on(
-        #     channel=self._scope.color2ch(color),
-        #     mA=illumination,
-        # )
+        self._scope.led_on(
+            channel=self._scope.color2ch(color),
+            mA=illumination,
+        )
 
         if 'led_state' in self._callbacks:
-            self._io_executor.protocol_put(IOTask(
-                action=self._scope.led_on,
-                kwargs={
-                    "channel":self._scope.color2ch(color),
-                    "mA":illumination
-                },
-                callback=self._callbacks['led_state'],
-                cb_kwargs={
-                    "layer":color,
-                    "enabled":True
-                }
-            ))
-            #self._callbacks['led_state'](layer=color, enabled=True)
+            # self._io_executor.protocol_put(IOTask(
+            #     action=self._scope.led_on,
+            #     kwargs={
+            #         "channel":self._scope.color2ch(color),
+            #         "mA":illumination
+            #     },
+            #     callback=self._callbacks['led_state'],
+            #     cb_kwargs={
+            #         "layer":color,
+            #         "enabled":True
+            #     }
+            # ))
+            
+            self._callbacks['led_state'](layer=color, enabled=True)
 
-        else:
-            self._io_executor.protocol_put(IOTask(
-                action=self._scope.led_on,
-                kwargs={
-                    "channel":self._scope.color2ch(color),
-                    "mA":illumination
-                },
-            ))
+        # else:
+        #     self._io_executor.protocol_put(IOTask(
+        #         action=self._scope.led_on,
+        #         kwargs={
+        #             "channel":self._scope.color2ch(color),
+        #             "mA":illumination
+        #         },
+        #     ))
 
 
     def _cleanup(self):
@@ -692,7 +747,11 @@ class SequencedCaptureExecutor:
             settings[layer]["autofocus"] = layer_data
 
         if not self._disable_saving_artifacts:
-            self._protocol_execution_record.complete()
+            # Queue to close protocol execution record (should execute after last file/protocol record written)
+            self.file_io_executor.protocol_put(IOTask(
+                action=self._protocol_execution_record.complete
+            ))
+            #self._protocol_execution_record.complete()
 
         if self._return_to_position is not None:
             self._default_move(
@@ -704,6 +763,11 @@ class SequencedCaptureExecutor:
         self._run_in_progress = False
 
         self._io_executor.protocol_end()
+        self.file_io_executor.protocol_end()
+        self.protocol_executor.protocol_end()
+
+        self._io_executor.clear_protocol_pending()
+        self.protocol_executor.clear_protocol_pending()
 
 
         if 'run_complete' in self._callbacks:
@@ -718,7 +782,7 @@ class SequencedCaptureExecutor:
         scan_count = None,
         sum_count: int = 1,
     ):
-        
+        #if sum_count > step['']
         is_video = True if step['Acquire'] == "video" else False
         video_as_frames = self._video_as_frames
 
@@ -834,9 +898,91 @@ class SequencedCaptureExecutor:
                 logger.info(f"Protocol-Video] Video FPS: {calculated_fps}")
                 logger.info("Protocol-Video] Writing video...")
 
+                self._scope.leds_off()
+
+                self.file_io_executor.protocol_put(IOTask(
+                    action=self._write_capture,
+                    kwargs={
+                        "is_video": is_video,
+                        "video_as_frames": video_as_frames,
+                        "video_images": video_images,
+                        "save_folder": save_folder,
+                        "use_color": use_color,
+                        "name": name,
+                        "calculated_fps": None,
+                        "output_format": output_format,
+                        "step": step,
+                        "captured_image": None
+                    }
+                ))
+
+            else:
+                captured_image = self._scope.get_image(
+                    force_to_8bit=not use_full_pixel_depth,
+                    earliest_image_ts=earliest_image_ts,
+                    timeout=datetime.timedelta(seconds=1.0),
+                    all_ones_check=True,
+                    sum_count=sum_count,
+                    sum_delay_s=step["Exposure"]/1000,
+                    sum_iteration_callback=sum_iteration_callback
+                )
+
+                logger.info(f"Protocol Image Captured: {name}")
+
+                self._scope.leds_off()
+
+                self.file_io_executor.protocol_put(IOTask(
+                    action=self._write_capture,
+                    kwargs={
+                        "is_video": is_video,
+                        "video_as_frames": video_as_frames,
+                        "video_images": None,
+                        "save_folder": save_folder,
+                        "use_color": use_color,
+                        "name": name,
+                        "calculated_fps": None,
+                        "output_format": output_format,
+                        "step": step,
+                        "captured_image": captured_image,
+                        "step_index": self._curr_step,
+                        "scan_count": self._scan_count,
+                        "capture_time": datetime.datetime.now()
+                    }
+                ))
+        
+        else:
+            self.file_io_executor.protocol_put(IOTask(
+                action=self._write_capture,
+                kwargs={
+                    "step": step
+                }
+            ))
+
+            
+
+                
+    
+    def _write_capture(self,
+                       is_video=False, 
+                       video_as_frames=False, 
+                       video_images=None, 
+                       save_folder=None,
+                       use_color=None,
+                       name=None,
+                       calculated_fps=None,
+                       output_format=None,
+                       step=None,
+                       captured_image=None,
+                       step_index=None,
+                       scan_count=None,
+                       capture_time=None
+                       ):
+        
+        if self._enable_image_saving == True:
+            if is_video:
                 if video_as_frames:
                     frame_num = 0
-                    result = save_folder
+                    capture_result = save_folder
                     if not save_folder.exists():
                         save_folder.mkdir(exist_ok=True, parents=True)
 
@@ -887,33 +1033,69 @@ class SequencedCaptureExecutor:
                             logger.error("Protocol-Video] FAILED TO WRITE FRAME")
 
                     video_writer.finish()
-                    result = output_file_loc
+                    capture_result = output_file_loc
                 
                 logger.info("Protocol-Video] Video writing finished.")
-                logger.info(f"Protocol-Video] Video saved at {result}")
+                logger.info(f"Protocol-Video] Video saved at {capture_result}")
             
             else:
-
-                result = self._scope.save_live_image(
+                if captured_image is False:
+                    return
+                
+                capture_result = self._scope.save_image(
+                    array=captured_image,
                     save_folder=save_folder,
                     file_root=None,
                     append=name,
                     color=use_color,
                     tail_id_mode=None,
-                    force_to_8bit=not use_full_pixel_depth,
                     output_format=output_format,
                     true_color=step['Color'],
-                    earliest_image_ts=earliest_image_ts,
-                    timeout=datetime.timedelta(seconds=1.0),
-                    all_ones_check=True,
-                    sum_count=sum_count,
-                    sum_delay_s=step["Exposure"]/1000,
-                    sum_iteration_callback=sum_iteration_callback,
-                    turn_off_all_leds_after=True,
+                    x=step['X'],
+                    y=step['Y'],
+                    z=step['Z']
                 )
+
+                
+                
+                # result = self._scope.save_live_image(
+                #     save_folder=save_folder,
+                #     file_root=None,
+                #     append=name,
+                #     color=use_color,
+                #     tail_id_mode=None,
+                #     force_to_8bit=not use_full_pixel_depth,
+                #     output_format=output_format,
+                #     true_color=step['Color'],
+                #     earliest_image_ts=earliest_image_ts,
+                #     timeout=datetime.timedelta(seconds=1.0),
+                #     all_ones_check=True,
+                #     sum_count=sum_count,
+                #     sum_delay_s=step["Exposure"]/1000,
+                #     sum_iteration_callback=sum_iteration_callback,
+                #     turn_off_all_leds_after=True,
+                # )
+            if capture_result is None:
+                capture_result_filepath_name = "unsaved"
+
+            elif type(capture_result) == dict:
+                capture_result_filepath_name = capture_result['metadata']['file_loc']
+
+            elif self._separate_folder_per_channel:
+                capture_result_filepath_name = pathlib.Path(step["Color"]) / capture_result.name
+
+            else:
+                capture_result_filepath_name = capture_result.name
+
         else:
-            result = None
+            capture_result_filepath_name = "unsaved"
 
-        self._leds_off()
+        self._protocol_execution_record.add_step(
+            capture_result_file_name=capture_result_filepath_name,
+            step_name=step['Name'],
+            step_index=step_index,
+            scan_count=scan_count,
+            timestamp=capture_time
+        )
 
-        return result
+        return

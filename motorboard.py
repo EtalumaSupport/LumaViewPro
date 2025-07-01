@@ -125,10 +125,11 @@ class MotorBoard:
             #if (command)=='HOME': # ESW to increase homing reliability
             #    CRLF = command.encode('utf-8')+b"\r\n"
             #    self.driver.write(CRLF)
-
             resp_lines = [self.driver.readline() for _ in range(response_numlines)]
             response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
             if response_numlines == 1:
+                if '\r' in response[0].strip():
+                    response[0] = response[0].rsplit('\r')[-1]
                 response = response[0]
             logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
 
@@ -410,6 +411,14 @@ class MotorBoard:
         print(f"Axis: {axis} steps: {steps}")
         self.exchange_command('TARGET_W' + axis + str(steps))
 
+        # target_pos = int(self.exchange_command('TARGET_R' + axis))
+        # desired_target = steps
+
+        # while int(target_pos) != desired_target:
+        #     self.exchange_command('TARGET_W' + axis + str(steps))
+        #     time.sleep(0.005)
+        #     target_pos = int(self.exchange_command('TARGET_R' + axis))
+
     # Get target position
     def target_pos(self, axis):
         """ Get the target position of an axis"""
@@ -553,7 +562,12 @@ class MotorBoard:
 
         # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
         try:
-            response = self.exchange_command('STATUS_R' + axis)
+            #logger.warning(f"AXIS PARAM: ====={axis}=====")
+            payload = 'STATUS_R' + axis
+            #logger.warning(f"Sending payload to motorboard: {payload}=====")
+            response = self.exchange_command(payload)
+            #logger.warning(f"Response: {response}")
+
             data = int( response )
             bits = format(data, 'b').zfill(32)
 

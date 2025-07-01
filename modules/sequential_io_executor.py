@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future
 import queue
 from collections.abc import Sequence
 from lvp_logger import logger
+import traceback
 
 
 """
@@ -38,6 +39,8 @@ class IOTask:
             self.kwargs = kwargs
             self.callback = callback
             self.protocol = None
+            self.name = ""
+            
             
             if cb_args is None:
                 self.cb_args = ()
@@ -55,6 +58,8 @@ class IOTask:
                 res = self.action(*self.args, **self.kwargs)
                 return res, None
             except Exception as e:
+                logger.error(f"Uncaught Thread Exception in {self.name} Worker: {e}")
+                traceback.print_exc()
                 return None, e
 
         def set_callback(self, callback, cb_args, cb_kwargs):
@@ -70,6 +75,9 @@ class IOTask:
 
             if self.callback is not None:
                 Clock.schedule_once(lambda dt: self.callback(*self.cb_args, **final_kwargs), 0)
+
+        def set_name(self, name):
+            self.name = name
 
         def __call__(self):
             return self.run()
@@ -126,12 +134,14 @@ class SequentialIOExecutor:
         fut = Future()
         self.caller_futures[task] = fut
         self.queue.put(task)
+        task.set_name(self.name)
         return fut
 
     def protocol_put(self, task: IOTask):
         fut = Future()
         self.caller_futures[task] = fut
         self.protocol_queue.put(task)
+        task.set_name(self.name)
         return fut
 
     def protocol_start(self):
