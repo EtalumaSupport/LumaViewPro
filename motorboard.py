@@ -567,7 +567,8 @@ class MotorBoard:
             #logger.warning(f"Sending payload to motorboard: {payload}=====")
             response = self.exchange_command(payload)
             #logger.warning(f"Response: {response}")
-
+            if response is None:
+                raise
             data = int( response )
             bits = format(data, 'b').zfill(32)
 

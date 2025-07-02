@@ -335,7 +335,7 @@
 		        value_track_color: 51/255, 181/255, 229/255, 1
 		        value_track_width: '5dp'
 		        disabled: False
-				on_release: root.set_position(self.value)
+				on_value: root.set_position(self.value)
 			Label:
 				size_hint_y: None
 				height: '15dp'
@@ -1443,7 +1443,7 @@
 
 		id: stitch_apply_btn
 		text: 'Apply Stitching to Protocol Folder'
-    tooltip_text: 'Assemble tiles into stitched montage image of abutted tiles'
+        tooltip_text: 'Assemble tiles into stitched montage image of abutted tiles'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
@@ -2143,22 +2143,22 @@
 			on_release: root.update_show_tooltips()
 			state: 'normal'
       
-BoxLayout:
+	BoxLayout:
 		id: acceleration_control_box
 		size_hint_y: None if self.visible else 0
 		height: '30dp' if self.visible else 0
 		opacity: 1 if self.visible else 0
 		disabled: not self.visible
 		visible: True
-        orientation: 'horizontal'
-        Label:
-			      id: acceleration_pct_label
-            text: 'Acceleration Max (%)'
+		orientation: 'horizontal'
+		Label:
+			id: acceleration_pct_label
+			text: 'Acceleration Max (%)'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
 			font_size: '12sp'
-	    ModSlider:
+		ModSlider:
 			id: acceleration_pct_slider
 			min: 1
 			max: 100
@@ -2310,7 +2310,7 @@ BoxLayout:
 					min: 0.
 					max: 500.
 					value: 100.
-					step: 5.
+					step: 1.
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
 					value_track: True

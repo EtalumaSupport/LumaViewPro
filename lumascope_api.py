@@ -281,6 +281,8 @@ class Lumascope():
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback = None,
+        force_new_capture = False,
+        new_capture_timeout = 1000,
     ):
         """ CAMERA FUNCTIONS
         Grab and return image from camera
@@ -295,7 +297,10 @@ class Lumascope():
             
             while True:
                 all_ones_failed = False
-                grab_status, grab_image_ts = self.camera.grab()
+                if force_new_capture:
+                    grab_status, grab_image_ts = self.camera.grab_new_capture(new_capture_timeout)
+                else:
+                    grab_status, grab_image_ts = self.camera.grab()
 
                 if grab_status == True:
                     tmp = self.camera.array.copy()

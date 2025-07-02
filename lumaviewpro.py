@@ -320,6 +320,7 @@ camera_executor = SequentialIOExecutor(name="CAMERA")    # Can use to queue came
 temp_ij_executor = SequentialIOExecutor(name="IJ")   # Temporary fix for imageJ loading (should probably be on another process, but that is later down the line)
 protocol_executor = SequentialIOExecutor(name="PROTOCOL")
 file_io_executor = SequentialIOExecutor(name="FILE")
+autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
 #cpu_pool = ProcessPoolExecutor() 
 
 
@@ -791,12 +792,15 @@ def get_current_objective_info() -> tuple[str, dict]:
     return objective_id, objective
 
 
-def _handle_ui_update_for_axis(axis: str):
+def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
     axis = axis.upper()
     if axis == 'Z':
-        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_gui()
+        lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_gui(vertical_control=vertical_control)
     elif axis in ('X', 'Y', 'XY'):
         lumaview.ids['motionsettings_id'].update_xy_stage_control_gui()
+
+def _handle_autofocus_ui(pos: float):
+    lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_autofocus_gui(pos=pos)
 
 
 # Wrapper function when moving to update UI position
@@ -805,7 +809,8 @@ def move_absolute_position(
     pos: float,
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True,
-    protocol: bool = False
+    protocol: bool = False,
+    vertical_control: bool = False
 ):
     if protocol:
         put_func = io_executor.protocol_put
@@ -821,7 +826,8 @@ def move_absolute_position(
                 },
                 callback=_handle_ui_update_for_axis,
                 cb_kwargs={
-                    "axis":axis
+                    "axis":axis,
+                    "vertical_control":vertical_control
                 }
             ))
         else:
@@ -3531,17 +3537,29 @@ class VerticalControl(BoxLayout):
         self.is_autofocus = False
         self.is_complete = False
         self.record_autofocus_to_file = False
+        self._next_pos = None
+
+        self.queue_slider_position_trigger = Clock.create_trigger(lambda dt: self.queue_slider_position(), 0.1)
 
 
-    def update_gui(self):
+    def update_gui(self, vertical_control=False):
         io_executor.put(IOTask(
             action=lumaview.scope.get_target_position,
             args=('Z'),
             callback=self.execute_kivy_gui,
+            cb_kwargs={"vertical_control":vertical_control},
             pass_result=True
         ))
 
-    def execute_kivy_gui(self, result=None, exception=None):
+    def update_autofocus_gui(self, pos=None):
+        if pos is None:
+            return
+
+        self.ids['obj_position'].value = max(0, pos)
+        self.ids['z_position_id'].text = format(max(0, pos), '.2f')
+        
+
+    def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
 
         if exception is not None:
             raise exception
@@ -3551,8 +3569,12 @@ class VerticalControl(BoxLayout):
         
         set_pos = result
 
-        self.ids['obj_position'].value = max(0, set_pos)
-        self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
+        if not False:
+            self.ids['obj_position'].value = max(0, set_pos)
+            self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
+        
+        # else:
+        #     self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
 
     def coarse_up(self, overshoot_enabled: bool = True):
@@ -3614,15 +3636,18 @@ class VerticalControl(BoxLayout):
     def set_position(self, pos):
         logger.info('[LVP Main  ] VerticalControl.set_position()')
         try:
-            pos = float(pos)
+            self._next_pos = float(pos)
         except:
             return
-        io_executor.put(IOTask(
-            action=move_absolute_position,
-            args=('Z', pos)
-        ))
+        self.queue_slider_position_trigger()
         #move_absolute_position('Z', pos)
 
+    def queue_slider_position(self):
+        io_executor.put(IOTask(
+            action=move_absolute_position,
+            args=('Z', self._next_pos)
+        ))
+        self._next_pos = None
 
     def set_bookmark(self):
         logger.info('[LVP Main  ] VerticalControl.set_bookmark()')
@@ -3836,24 +3861,45 @@ class VerticalControl(BoxLayout):
             'led_state': _handle_ui_for_led,
         }
 
-        sequenced_capture_executor.run(
-            protocol=autofocus_sequence,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-            run_trigger_source=trigger_source,
-            max_scans=1,
-            sequence_name='af',
-            parent_dir=parent_dir,
-            image_capture_config=get_image_capture_config_from_ui(),
-            enable_image_saving=False,
-            disable_saving_artifacts=True,
-            separate_folder_per_channel=False,
-            autogain_settings=autogain_settings,
-            callbacks=callbacks,
-            return_to_position=None,
-            save_autofocus_data=save_autofocus_data,
-            leds_state_at_end="return_to_original",
-            video_as_frames=settings['video_as_frames']
-        )
+        protocol_executor.protocol_put(IOTask(
+            action=sequenced_capture_executor.run,
+            kwargs={
+                "protocol":autofocus_sequence,
+                "run_mode":SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+                "run_trigger_source":trigger_source,
+                "max_scans":1,
+                "sequence_name":'af',
+                "parent_dir":parent_dir,
+                "image_capture_config":get_image_capture_config_from_ui(),
+                "enable_image_saving":False,
+                "disable_saving_artifacts":True,
+                "separate_folder_per_channel":False,
+                "autogain_settings":autogain_settings,
+                "callbacks":callbacks,
+                "return_to_position":None,
+                "save_autofocus_data":save_autofocus_data,
+                "leds_state_at_end":"return_to_original",
+                "video_as_frames":settings['video_as_frames']
+            }
+        ))
+        # sequenced_capture_executor.run(
+        #     protocol=autofocus_sequence,
+        #     run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+        #     run_trigger_source=trigger_source,
+        #     max_scans=1,
+        #     sequence_name='af',
+        #     parent_dir=parent_dir,
+        #     image_capture_config=get_image_capture_config_from_ui(),
+        #     enable_image_saving=False,
+        #     disable_saving_artifacts=True,
+        #     separate_folder_per_channel=False,
+        #     autogain_settings=autogain_settings,
+        #     callbacks=callbacks,
+        #     return_to_position=None,
+        #     save_autofocus_data=save_autofocus_data,
+        #     leds_state_at_end="return_to_original",
+        #     video_as_frames=settings['video_as_frames']
+        # )
 
     
     def turret_home(self):
@@ -6101,6 +6147,7 @@ class LayerControl(BoxLayout):
 
         self.apply_gain_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
         self.apply_exp_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
+        self.apply_ill_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
         Clock.schedule_once(self._init_ui, 0)
     
     
@@ -6117,7 +6164,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = self.ids['ill_slider'].value
         settings[self.layer]['ill'] = illumination
-        self.apply_settings()
+        self.apply_ill_slider()
 
     def ill_text(self):
         logger.info('[LVP Main  ] LayerControl.ill_text()')
@@ -7057,6 +7104,7 @@ class LumaViewProApp(App):
         temp_ij_executor.start()
         protocol_executor.start()
         file_io_executor.start()
+        autofocus_thread_executor.start()
         
         #ij_helper = imagej_helper.ImageJHelper()
 
@@ -7076,7 +7124,9 @@ class LumaViewProApp(App):
             camera_executor=camera_executor,
             io_executor=io_executor,
             file_io_executor=file_io_executor,
+            autofocus_executor=autofocus_thread_executor,
             use_kivy_clock=True,
+            ui_update_func=_handle_autofocus_ui
         )
 
         sequenced_capture_executor = SequencedCaptureExecutor(
@@ -7125,6 +7175,9 @@ class LumaViewProApp(App):
 
         if file_io_executor is not None:
             file_io_executor.shutdown(wait=False)
+
+        if autofocus_thread_executor is not None:
+            autofocus_thread_executor.shutdown(wait=False)
 
         global lumaview
 
@@ -7417,8 +7470,7 @@ def inti_ij():
 # These exceptions were CONSTANT because they were happening on each Main Display refresh and Histogram refresh
 from kivy.properties import ObservableReferenceList
 
-original_setslicemethod = ObservableReferenceList.__setslice__
-set_item_method = ObservableReferenceList.__setitem__
+
 
 def patched_setslice(self, i, j, sequence, **kwargs):
     try:
@@ -7432,8 +7484,12 @@ def patched_setslice(self, i, j, sequence, **kwargs):
         # If for some reason we get another error again, bite the bullet 
         return original_setslicemethod(self, i, j, sequence)
 
-# Replace the original method with our patched version
-ObservableReferenceList.__setslice__ = patched_setslice
 
 
-LumaViewProApp().run()
+if __name__ == "__main__":
+    original_setslicemethod = ObservableReferenceList.__setslice__
+    set_item_method = ObservableReferenceList.__setitem__
+    # Replace the original method with our patched version
+    ObservableReferenceList.__setslice__ = patched_setslice
+
+    LumaViewProApp().run()

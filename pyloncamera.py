@@ -39,6 +39,8 @@ import numpy as np
 from pypylon import pylon, genicam
 from lvp_logger import logger
 
+import queue
+
 default_max_exposure = 1_000 # in ms
 
 class PylonCamera:
@@ -307,7 +309,27 @@ class PylonCamera:
         except Exception as ex:
             logger.exception(f"Failed to grab image: {ex}")
             return False, None
-  
+    
+    def grab_new_capture(self, timeout: float):
+        """
+        Blocks for timeout waiting for new frame. Saves from to self.array when received
+        returns bool, ts
+        """
+        if not self.cam_image_handler:
+            return False, None
+        
+        try:
+            result, image, image_ts = self.cam_image_handler._frame_queue.get(block=True, timeout=timeout)
+            if result is False:
+                return False, None
+            
+            self.array = image
+            return True, image_ts
+        
+        except Exception as ex:
+            logger.exception(f"Failed to grab image: {ex}")
+            return False, None
+        
 
     def set_frame_size(self, w, h):
         """ Set camera frame size to w by h and keep centered """
@@ -497,14 +519,21 @@ class ImageHandler(pylon.ImageEventHandler):
         self.last_img = None
         self._failed_grabs = 0
         self._last_img_ts = None
+        self._frame_queue = queue.Queue(maxsize=1)
         
 
     def OnImageGrabbed(self, camera, grabResult):
         try:
+            if not self._frame_queue.empty():
+                try:
+                    self._frame_queue.get_nowait()
+                except queue.Empty:
+                    pass
             self.last_result = grabResult.GrabSucceeded()
             if self.last_result:
                 self.last_img = grabResult.GetArray()
                 self._last_img_ts = datetime.datetime.now()
+                self._frame_queue.put((self.last_result, self.last_img, self._last_img_ts))
             else:
                 self._failed_grabs += 1
                 logger.exception(f"Grab Failed -> result: {self.last_result}, {self._failed_grabs} failed grabs")
@@ -516,6 +545,7 @@ class ImageHandler(pylon.ImageEventHandler):
             return False, None, None
         
         return self.last_result, self.last_img.copy(), self._last_img_ts
+    
     
 
 # class ConfigurationEventPrinter(pylon.ConfigurationEventHandler):

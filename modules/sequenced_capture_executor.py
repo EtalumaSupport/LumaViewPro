@@ -86,6 +86,8 @@ class SequencedCaptureExecutor:
         self._run_trigger_source = None
         self._reset_vars()
         self._grease_redistribution_done = True
+        
+        self.sleep_time = 0.02
 
 
     def _reset_vars(
@@ -406,10 +408,6 @@ class SequencedCaptureExecutor:
         y_pos = self._scope.get_current_position('Y')
         z_pos = self._scope.get_current_position('Z')
 
-        step_x = step['X']
-        step_y = step['Y']
-        step_z = step['Z']
-
         if (x_target != x_pos) or (y_target != y_pos) or (z_target != z_pos):
             return
     
@@ -696,6 +694,8 @@ class SequencedCaptureExecutor:
             channel=self._scope.color2ch(color),
             mA=illumination,
         )
+        # Sleep for 5 ms to ensure that LED properly turns on before next action
+        time.sleep(0.005)
 
         if 'led_state' in self._callbacks:
             # self._io_executor.protocol_put(IOTask(
@@ -782,6 +782,7 @@ class SequencedCaptureExecutor:
         scan_count = None,
         sum_count: int = 1,
     ):
+        
         #if sum_count > step['']
         is_video = True if step['Acquire'] == "video" else False
         video_as_frames = self._video_as_frames
@@ -917,6 +918,7 @@ class SequencedCaptureExecutor:
                 ))
 
             else:
+                time.sleep(self.sleep_time)
                 captured_image = self._scope.get_image(
                     force_to_8bit=not use_full_pixel_depth,
                     earliest_image_ts=earliest_image_ts,
@@ -924,12 +926,15 @@ class SequencedCaptureExecutor:
                     all_ones_check=True,
                     sum_count=sum_count,
                     sum_delay_s=step["Exposure"]/1000,
-                    sum_iteration_callback=sum_iteration_callback
+                    sum_iteration_callback=sum_iteration_callback,
+                    force_new_capture=True,
+                    new_capture_timeout=1
                 )
 
-                logger.info(f"Protocol Image Captured: {name}")
 
-                self._scope.leds_off()
+
+                logger.info(f"Protocol Image Captured: {name}")
+                #time.sleep(0.005)
 
                 self.file_io_executor.protocol_put(IOTask(
                     action=self._write_capture,
@@ -957,6 +962,9 @@ class SequencedCaptureExecutor:
                     "step": step
                 }
             ))
+
+        
+        self._scope.leds_off()
 
             
 
