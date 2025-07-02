@@ -62,9 +62,6 @@ pyinstaller --log-level INFO .\lumaviewpro.spec
 $orig_output_dir = ".\dist\lumaviewpro"
 $new_output_dir = ".\dist\$lvp_base_w_version"
 
-# Remove unneeded files for the camera library to reduce release size
-Remove-Item "$orig_output_dir\pypylon\pylonCXP" -Recurse -Force
-
 # Note: Encountered access denied issue when trying to use Rename-Item. For now
 # make a new directory and copy the contents instead.
 echo "Rename output directory"

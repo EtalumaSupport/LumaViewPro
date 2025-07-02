@@ -4,7 +4,7 @@
       "magnification": 1.25,
       "focal_length": 144.0,
       "aperture": 0.04,
-      "DOF": 1,
+      "DOF": 250,
       "working_distance": 5,
       "AF_min": 300,
       "AF_max": 1000,
@@ -13,6 +13,21 @@
       "z_coarse": 1000,
       "xy_fine": 300,
       "xy_coarse": 3000
+    },
+    "2x Oly": {
+      "description": "2x Plan Apochromat Olympus",
+      "magnification": 2,
+      "focal_length": 90.0,
+      "aperture": 0.08,
+      "DOF": 80,
+      "working_distance": 6.2,
+      "AF_min": 50,
+      "AF_max": 350,
+      "AF_range": 1000,
+      "z_fine": 35,
+      "z_coarse": 350,
+      "xy_fine": 200,
+      "xy_coarse": 2000
     },
     "2.5x Meiji": {
       "description": "2.5x Plan Semi Apochromat Meiji",

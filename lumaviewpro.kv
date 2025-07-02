@@ -4,7 +4,7 @@
 #-------------------------------------------------------------------------------
 # MIT License
 #
-# Copyright (c) 2023 Etaluma, Inc.
+# Copyright (c) 2024 Etaluma, Inc.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -32,9 +32,6 @@
 # Kevin Peter Hickerson, The Earthineering Company
 # Anna Iwaniec Hickerson, Keck Graduate Institute
 # Gerard Decker, The Earthineering Company
-#
-# MODIFIED:
-# April 15, 2023
 #-------------------------------------------------------------------------------
 
 # -----------------------
@@ -123,7 +120,7 @@
             background_down: './data/icons/stop.png' # Press to Stop Recording
             size_hint: None, None
             size: '40dp', '40dp'
-            on_press: root.record()
+            on_press: root.record_button()
 
         Button:
             id: fit_btn
@@ -196,6 +193,7 @@
 	title: 'XY Stage Control'
 	XYStageControl:
 		id: xy_stagecontrol_id
+
 
 
 # MotionSettings - view and control motion control Board
@@ -452,6 +450,33 @@
 			text: '4'
 			tooltip_text: 'Select turret position 4'
             on_release: root.turret_select(4)
+
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+        Label:
+            text: 'Objective'
+            size_hint_x: None
+            width: '120dp'
+			font_size: '12sp'
+	    Spinner:
+			id: objective_spinner2
+			sync_height: True
+	        text: 'Select'
+			font_size:'12dp'
+			option_cls: "SpinnerOption0"
+			text_autoupdate: True
+	        on_release: root.load_objectives()
+	        on_text: root.select_objective()
+
+	Button:
+		id: set_turret_objective_btn
+		text: 'Set Turret Objective'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12dp'
+        on_release: root.set_turret_objective()
             
 	ZStack:
 		id: zstack_id
@@ -771,17 +796,6 @@
 					background_down: './data/icons/UU_down.png'
 					on_release: root.coarse_fwd()
 
-	# # Select Labware
-	# Spinner:
-	# 	id: labware_spinner
-	# 	sync_height: True
-	# 	text: 'New'
-	# 	font_size: '12dp'
-	# 	size_hint_y: None
-	# 	height: '30dp'
-	# 	text_autoupdate: True
-	# 	# on_text: root.select_labware()
-
 	# Stage Display
 	FloatLayout:
 		padding: '5dp'
@@ -896,6 +910,7 @@
 				visible: True
 				text: 'New'
 				font_size: '12dp'
+				option_cls: "SpinnerOption0"
 				size_hint_y: None
 				height: '30dp'
 				text_autoupdate: True
@@ -1299,9 +1314,11 @@
 				text: 'Run Full Protocol'
 				tooltip_text: 'Initiate complete Protocol for the full Duration'
 				size_hint_y: None
-				height: '30dp'
+				height: '60dp'
+				halign: 'center'
 				font_size: '12sp'
 				on_release: root.run_protocol_from_ui()
+				background_down: 'atlas://data/images/defaulttheme/button_pressed'
 
 			# Engineering mode option
 			BoxLayout:
@@ -1351,6 +1368,11 @@
 		height: '30dp'
 		font_size: '12sp'
 		on_release: self.choose('apply_video_gen_to_folder')
+
+	# Pad
+	Widget:
+		size_hint_y: None
+		height: '5dp'
 	
 	# FPS
 	BoxLayout:
@@ -1418,12 +1440,15 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Stitch tiles in Protocol data folder'
-		tooltip_text: 'Assemble tiles into stitched montage image of abutted tiles'
+
+		id: stitch_apply_btn
+		text: 'Apply Stitching to Protocol Folder'
+    tooltip_text: 'Assemble tiles into stitched montage image of abutted tiles'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
 		on_release: self.choose('apply_stitching_to_folder')
+		disabled: False
 	
 	# Empty widget to consume space at bottom of controls panel
 	Widget:
@@ -1470,6 +1495,7 @@
 			sync_height: True
 	        text: 'Select'
 			font_size:'12dp'
+			option_cls: "SpinnerOption0"
 			text_autoupdate: True
 			values: '',
 			text: ''
@@ -1518,6 +1544,7 @@
 			id: create_avi_accordion_id
 			title: 'Create Video'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 			collapse: False
 
 			VideoCreationControls:
@@ -1527,6 +1554,7 @@
 			id: stitch_accordion_id
 			title: 'Stitch'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			StitchControls:
 				id: stitch_controls_id
@@ -1535,6 +1563,7 @@
 			id: composite_gen_accordion_id
 			title: 'Composite Generation'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			CompositeGenControls:
 				id: composite_gen_controls_id
@@ -1543,6 +1572,7 @@
 			id: zprojection_accordion_id
 			title: 'Z-Projection'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			ZProjectionControls:
 				id: zprojection_controls_id
@@ -1551,6 +1581,7 @@
 			id: open_last_save_folder_accordion_id
 			title: 'Open Last Save Folder'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			BoxLayout:
 				orientation: 'vertical'
@@ -1573,6 +1604,7 @@
 			id: cell_count_accordion_id
 			title: 'Object Analysis'
 			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
 
 			BoxLayout:
 				orientation: 'vertical'
@@ -1583,12 +1615,24 @@
 					height: '30dp'
 
 				Button:
-					text:'Open Cell Count'
+					text:'Analyze'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					tooltip_text: 'Count and measure objects in images'
 					on_release: root.open_cell_count()
+
+				# Pad
+				Widget:
+					size_hint_y: None
+					height: '5dp'
+
+				Button:
+					text: 'Plot'
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					on_release: root.open_graphing()
 			
 				Widget:
 
@@ -1598,6 +1642,62 @@
 		Line:
 			width: 1
 			rectangle: (self.x, self.y, self.width, self.height)
+
+
+<AccordionItemImageSettingsBlueControl>:
+	id: Blue_accordion
+	title: 'Blue Channel Control'
+	on_collapse: root.accordion_collapse()
+	LayerControl:
+		id: Blue
+		layer: 'Blue'
+		bg_color: 0, .5, 1, 1
+
+
+<AccordionItemImageSettingsGreenControl>:
+	id: Green_accordion
+	title: 'Green Channel Control'
+	on_collapse: root.accordion_collapse()
+	LayerControl:
+		id: Green
+		layer: 'Green'
+		bg_color: .2, 0.8, 0.2, 1
+
+
+<AccordionItemImageSettingsRedControl>:
+	id: Red_accordion
+	title: 'Red Channel Control'
+	on_collapse: root.accordion_collapse()
+	collapse: False
+	LayerControl:
+		id: Red
+		layer: 'Red'
+		bg_color: 1, 0.2, 0, 1
+
+
+<AccordionItemImageSettingsDfControl>:
+	id: DF_accordion
+	title: 'Low Mag Darkfield Control'
+	on_collapse: root.accordion_collapse()
+	LayerControl:
+		id: DF
+		layer: 'DF'
+		bg_color: 0.5, 0.5, 0.5,  1
+
+
+<AccordionItemImageSettingsLumiControl>:
+	id: Lumi_accordion
+	title: 'Luminescence Control'
+	on_collapse: root.accordion_collapse()
+	collapse: False
+	LayerControl:
+		id: Lumi
+		layer: 'Lumi'
+		illumination_support: False
+		autogain_support: False
+		exposure_summing_support: True
+		bg_color: 0, .5, 1, 1
+
 
 # ImageSettings - view and edit control accordion
 # ------------------------------------------
@@ -1637,52 +1737,11 @@
                 layer: 'PC'
                 bg_color: 0.5, 0.5, 0.5,  1
 
-       # EXTENDED PHASE CONTRAST SETTINGS
-        AccordionItem:
-			id: EP_accordion
-            title: 'Extended Phase Control'
-			on_collapse: root.accordion_collapse()
-            LayerControl:
-                id: EP
-                layer: 'EP'
-                bg_color: 0.5, 0.5, 0.5,  1
-
-        # BLUE SETTINGS
-        AccordionItem:
-            id: Blue_accordion
-            title: 'Blue Channel Control'
-            on_collapse: root.accordion_collapse()
-            LayerControl:
-                id: Blue
-                layer: 'Blue'
-                bg_color: 0, .5, 1, 1
-
-        # GREEN SETTINGS
-        AccordionItem:
-            id: Green_accordion
-            title: 'Green Channel Control'
-			on_collapse: root.accordion_collapse()
-            LayerControl:
-                id: Green
-                layer: 'Green'
-                bg_color: .2, 0.8, 0.2, 1
-
-        # RED SETTINGS
-        AccordionItem:
-            id: Red_accordion
-            title: 'Red Channel Control'
-			on_collapse: root.accordion_collapse()
-			collapse: False
-            LayerControl:
-                id: Red
-                layer: 'Red'
-                bg_color: 1, 0.2, 0, 1
-
 
 # MicroscopeSettings - Settings for  Microscope within ImageSettings
 # ------------------------------------------
 <SpinnerOption0@SpinnerOption>:
-    font_size: 12
+    font_size: '12dp'
 
 <MicroscopeSettings>:
     padding: '5dp'
@@ -1927,6 +1986,26 @@
         orientation: 'horizontal'
         size_hint_y: None
         height: '30dp'
+        Label:
+            text: 'Video Recording\nFormat'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+	    Spinner:
+			id: video_recording_format_spinner
+			sync_height: True
+	        text: 'Select'
+			font_size:'12dp'
+			option_cls: "SpinnerOption0"
+			text_autoupdate: True
+	        on_text: root.select_video_recording_format()
+			values: ('mp4', 'Frames')
+
+	BoxLayout:
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
 		Label:
 			font_size: '12sp'
 			text: 'Enable Scale Bar'
@@ -2041,6 +2120,7 @@
 	        on_text: root.select_binning_size()
 
 	BoxLayout:
+
         orientation: 'horizontal'
         size_hint_y: None
         height: '30dp'
@@ -2062,6 +2142,47 @@
 			background_down: './data/icons/ToggleRW.png'
 			on_release: root.update_show_tooltips()
 			state: 'normal'
+      
+BoxLayout:
+		id: acceleration_control_box
+		size_hint_y: None if self.visible else 0
+		height: '30dp' if self.visible else 0
+		opacity: 1 if self.visible else 0
+		disabled: not self.visible
+		visible: True
+        orientation: 'horizontal'
+        Label:
+			      id: acceleration_pct_label
+            text: 'Acceleration Max (%)'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+			font_size: '12sp'
+	    ModSlider:
+			id: acceleration_pct_slider
+			min: 1
+			max: 100
+			value: 100
+			step: 1
+			cursor_size: '20dp','20dp'
+			cursor_image: './data/icons/slider_cursor.png'
+			value_track: True
+			#value_track_color: root.bg_color
+			value_track_width: 5
+			on_release: root.acceleration_pct_slider() # on_touch_move # on_release
+		TextInput:
+			id: acceleration_pct_text
+			size_hint_x: None
+			width: '45dp'
+			multiline: False
+			font_size: '12sp'
+			padding: ['4dp', (self.height-self.line_height)/2]
+			halign: 'right'
+			input_filter: 'int'
+			text: format(acceleration_pct_slider.value)
+			on_text_validate: root.acceleration_pct_text()
+			on_focus: if not self.focus: root.acceleration_pct_text()
+
 
 	BoxLayout:
 		height: '30dp'
@@ -2128,17 +2249,23 @@
 
 				text:'Illumination'
 				font_size: '16sp'
-				size_hint_y: None
-				height: '30dp'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
+				disabled: False if self.visible else True
 				# spacing: '5dp'
 				color: root.bg_color
+				opacity: 1 if self.visible else 0
+				visible: True if root.illumination_support else False
 
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.illumination_support else False
 
 				Label:
 					id: LED_label
@@ -2161,10 +2288,13 @@
 
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.illumination_support else False
 
 				Label:
 					text: 'Illumination (mA)'
@@ -2206,7 +2336,7 @@
 					Color:
 						rgba: root.bg_color
 					Rectangle:
-						size: self.width, 1
+						size: self.width, 1 if root.illumination_support else 0
 						pos: self.x, self.y+self.height
 				text:'Camera'
 				font_size: '16sp'
@@ -2218,10 +2348,13 @@
 			# Auto Gain/Exp
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
+				disabled: False if self.visible else True
+				opacity: 1 if self.visible else 0
+				visible: True if root.autogain_support else False
 
 				CheckBox:
 					id: auto_gain
@@ -2332,6 +2465,51 @@
 					# text: format(10 ** exp_slider.value, '.3g')
 					on_text_validate: root.exp_text()
 					on_focus: if not self.focus: root.exp_text()
+				
+			# Exposure Summing
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
+				padding: '0dp'
+				spacing: '5dp'
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True if root.exposure_summing_support else False
+
+				Label:
+					text: 'Sum'
+					halign: 'left'
+					valign: 'middle'
+					font_size: '12sp'
+					size_hint_x: None
+					width: '80dp'
+					text_size: self.size
+				ModSlider:
+					id: sum_slider
+					min: 1
+					max: 100
+					value: 1
+					step: 1
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
+					value_track: True
+					value_track_color: root.bg_color
+					value_track_width: 5
+					on_release: root.sum_slider()
+				TextInput:
+					id: sum_text
+					size_hint_x: None
+					width: '45dp'
+					multiline: False
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: "int"
+					text: "{:d}".format(int(sum_slider.value))
+					on_text_validate: root.sum_text()
+					on_focus: if not self.focus: root.sum_text()
 
 
 			# Focus
@@ -2536,6 +2714,47 @@
 					valign: 'middle'
 					text_size: self.size
 
+		    # Composite Brightness Threshold
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				padding: '0dp'
+				spacing: '5dp'
+
+				Label:
+					id: composite_threshold_label
+					text: 'CBT (%)'
+					halign: 'left'
+					valign: 'middle'
+					font_size: '12sp'
+					size_hint_x: None
+					width: '50dp'
+					text_size: self.size
+				ModSlider:
+					id: composite_threshold_slider # 0 to 100
+					min: 0.
+					max: 100.
+					value: 0.
+					step: 1
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					value_track: True
+					value_track_color: root.bg_color
+					value_track_width: 5
+					on_release: root.composite_threshold_slider()
+				TextInput:
+					id: composite_threshold_text
+					size_hint_x: None
+					width: '45dp'
+					multiline: False
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: 'float'
+					text: format(composite_threshold_slider.value, '.3g')
+					on_text_validate: root.composite_threshold_text()
+					on_focus: if not self.focus: root.composite_threshold_text()
 				
 			FloatLayout:
 				padding: '0dp'
@@ -2637,6 +2856,245 @@
 		Line:
 			width: 1
 			rectangle: (self.x, self.y, self.width, self.height)
+
+<GraphingControls>:
+	orientation: 'horizontal'
+
+	# Controls
+	BoxLayout:
+		orientation: 'vertical'
+		size_hint_x: 0.35
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '10dp'
+		
+		# Select TSV to graph
+		FileChooseBTN:
+			markup: True
+			text: '[b]Load Object-Analysis Data[/b]'
+			background_normal: ""
+			background_color: [0.306, 0.341, 0.380, 1]
+			size_hint_x: 0.97
+			size_hint_y: None
+			height: '40dp'
+			font_size: '16sp'
+			on_release: self.choose('load_graphing_data')
+		
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '20dp'
+
+		# Graph Title
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 0.97
+
+			Label:
+				markup: True
+				text: '[b]Graph Title[/b] '
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: graph_title_input
+				valign: 'center'
+				text: root.graph_title
+				width: '80dp'
+				font_size: '12sp'
+				multiline: False
+				padding: ['7dp', (self.height-self.line_height)/2]
+				on_text: root.update_graph_title()
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '25dp'
+
+		# X-Axis Labeling
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 0.97
+
+			Label:
+				markup: True
+				text: '[b]X-Axis Label[/b] '
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: x_axis_label_input
+				valign: 'center'
+				text: root.x_axis_label
+				width: '80dp'
+				font_size: '12sp'
+				multiline: False
+				padding: ['7dp', (self.height-self.line_height)/2]
+				on_text: root.update_x_axis_label()
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '0dp'
+
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 0.97
+
+			Label:
+				markup: True
+				text: '[b]X-Axis Data[/b]'
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			Spinner:
+				id: graphing_x_axis_spinner
+				text_autoupdate: True
+				sync_height: True
+				size_hint_y: None
+				font_size: '12sp'
+				height: '30dp'
+				text: 'X-Axis'
+				on_text: root.set_x_axis()
+				values: root.available_axes
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '25dp'
+
+		# Y-Axis Labeling
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 0.97
+
+			Label:
+				markup: True
+				text: '[b]Y-Axis Label[/b] '
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			TextInput:
+				id: y_axis_label_input
+				valign: 'center'
+				text: root.y_axis_label
+				width: '80dp'
+				font_size: '12sp'
+				multiline: False
+				padding: ['7dp', (self.height-self.line_height)/2]
+				on_text: root.update_y_axis_label()
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '0dp'
+
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 0.97
+
+			Label:
+				markup: True
+				text: '[b]Y-Axis Data[/b]'
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+
+			Spinner:
+				id: graphing_y_axis_spinner
+				text_autoupdate: True
+				sync_height: True
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				text: 'Y-Axis'
+				on_text: root.set_y_axis()
+				values: root.available_axes
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '10dp'
+
+		# Trendline
+		BoxLayout:
+			orientation: 'horizontal'
+			size_hint_y: None
+			height: '40dp'
+			size_hint_x: 0.97
+
+			Label:
+				markup: True
+				text: '[b]Trendline[/b]'
+				size_hint_x: None
+				width: '70dp'
+				font_size: '12sp'
+				halign: 'left'
+			
+			Spinner:
+				id: trendline_spinner
+				text_autoupdate: True
+				sync_height: True
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				text: ''
+				on_text: root.update_trendline()
+				values: ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
+
+		# Pad
+		Widget:
+			size_hint_y: None
+			height: '25dp'
+
+		# Save graph as png
+		FileSaveBTN:
+			markup: True
+			text: '[b]Save Graph as PNG[/b]'
+			background_normal: ""
+			background_color: [0.306, 0.341, 0.380, 1]
+			size_hint_y: None
+			height: '40dp'
+			font_size: '16sp'
+			size_hint_x: 0.97
+			on_release: self.choose('save_graph')
+
+
+		# Empty Widget to consume space at bottom of controls panel
+		Widget:
+
+	# Graphing Area
+	BoxLayout:
+		id: graphing_area
+		orientation: 'vertical'
+		size_hint_x: 0.65
+		size_hint_y: 0.99
+		canvas:
+			Color:
+				rgba: 0,0,0,0
+
+		
 
 <CellCountControls>:
 	orientation: 'horizontal'

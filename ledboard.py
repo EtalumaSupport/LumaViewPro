@@ -3,7 +3,7 @@
 '''
 MIT License
 
-Copyright (c) 2023 Etaluma, Inc.
+Copyright (c) 2024 Etaluma, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -31,9 +31,6 @@ AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
-
-MODIFIED:
-March 20 2023
 '''
 
 from numpy import False_
@@ -69,10 +66,10 @@ class LEDBoard:
         self.led_ma = {
             'BF': -1,
             'PC': -1,
-            'EP': -1,
+            'DF': -1,
             'Red': -1,
             'Blue': -1,
-            'Green': -1
+            'Green': -1,
         }
 
         try:
@@ -116,10 +113,12 @@ class LEDBoard:
 
         if self.driver != False:
             try:
-                self.driver.write(stream)
-                response = self.driver.readline()
                 self.driver.flushInput()
                 self.driver.flush()
+                time.sleep(0.001)
+                self.driver.write(stream)
+                time.sleep(0.01)
+                response = self.driver.readline()
                 response = response.decode("utf-8","ignore")
 
                 logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
@@ -150,7 +149,7 @@ class LEDBoard:
             return 3
         elif color == 'PC':
             return 4
-        elif color == 'EP':
+        elif color == 'DF':
             return 5
         else: # BF
             return 3
@@ -168,7 +167,7 @@ class LEDBoard:
         elif channel == 4:
             return 'PC'
         elif channel == 5:
-            return 'EP'
+            return 'DF'
         else:
             return 'BF'
 

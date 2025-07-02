@@ -1,7 +1,7 @@
 '''
 MIT License
 
-Copyright (c) 2023 Etaluma, Inc.
+Copyright (c) 2024 Etaluma, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -29,17 +29,17 @@ AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
-
-MODIFIED:
-March 20, 2023
 '''
 
 import contextlib
 import datetime
+import os
 
 import numpy as np
 from pypylon import pylon, genicam
 from lvp_logger import logger
+
+default_max_exposure = 1_000 # in ms
 
 class PylonCamera:
 
@@ -49,6 +49,20 @@ class PylonCamera:
         self.error_report_count = 0
         self.array = np.array([])
         self.cam_image_handler = None
+        self.model_name = None
+        self.max_exposure = 100 # in ms
+
+        self.max_exposure_dict = {
+            "daA3840-45um": 1_000,
+            "a2A3536-31umBAS": 10_000
+        }
+
+        if os.getenv("PYLON_CAMEMU", None) != None:
+            logger.info('[CAM Class ] PylonCamera.connect() detected request to use camera emulation')
+            self._use_camera_emulation = True
+        else:
+            self._use_camera_emulation = False
+
         self.connect()
 
     def __delete__(self):
@@ -123,7 +137,32 @@ class PylonCamera:
             logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.active = False
             self.error_report_count += 1
+
+    def find_model_name(self):
+        dev_info = self.active.GetDeviceInfo()
+        self.model_name = dev_info.GetModelName()
+        logger.info(f'[CAM Class ] Connected camera model detected as "{self.model_name}"')
+        return
+
+    def get_model_name(self):
+        return self.model_name
     
+    def set_max_exposure_time(self):
+        found_key = None
+        for key in self.max_exposure_dict.keys():
+            if self.model_name in key:
+                found_key = key
+                break
+        
+        if found_key is None:
+            self.max_exposure = default_max_exposure
+            return
+        
+        self.max_exposure = self.max_exposure_dict[found_key]
+        logger.info(f"[CAM Class ] Max exposure set to {self.max_exposure} ms")
+
+    def get_max_exposure(self):
+        return self.max_exposure
     
     def init_camera_config(self):
         camera = self.active
@@ -136,7 +175,8 @@ class PylonCamera:
             self.set_pixel_format(pixel_format='Mono8')
             self.auto_gain(state=False)
             camera.ReverseX.SetValue(True)
-            self.init_auto_gain_focus()
+            if not self._use_camera_emulation:
+                self.init_auto_gain_focus()
             self.exposure_t(t=10)
             self.set_frame_size(w=1900, h=1900)
 
@@ -365,6 +405,30 @@ class PylonCamera:
             self.active.GainAuto.SetValue('Off')
             self.active.ExposureAuto.SetValue('Off')
         logger.info('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': succeeded')
+
+    def auto_gain_once(
+        self,
+        state = True,
+        target_brightness: float = 0.5,
+        min_gain: float | None = None,
+        max_gain: float | None = None
+    ):
+        """ Enable / Disable camera auto_gain with the value of 'state'
+        Auto Gain/Exposure executed one time """
+
+        if self.active == False:
+            logger.warning('[CAM Class ] PylonCamera.auto_gain_once('+str(state)+')'+': inactive camera')
+            return
+
+        if state == True:
+            self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
+            self.update_auto_gain_min_max(min_gain=min_gain, max_gain=max_gain)
+            self.active.GainAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+            self.active.ExposureAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
+        else:
+            self.active.GainAuto.SetValue('Off')
+            self.active.ExposureAuto.SetValue('Off')
+        logger.info('[CAM Class ] PylonCamera.auto_gain_once('+str(state)+')'+': succeeded')
             
             
     def exposure_t(self, t):
@@ -373,13 +437,20 @@ class PylonCamera:
             logger.warning('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': inactive camera')
             return
         
-        # (t*1000) in microseconds; therefore t  in milliseconds
-        self.active.ExposureTime.SetValue(max(float(t)*1000, self.active.ExposureTime.Min))
-        logger.info('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
+        if t > self.max_exposure:
+            logger.warning(f'[CAM Class ] PylonCamera.exposure_t(Exposure of {t}ms > camera maximum ({self.max_exposure}ms))')
+            return
+        
+        # Pylon takes time in microseconds, so pass t*1000 to convert to us
+        try:
+            self.active.ExposureTime.SetValue(max(float(t)*1000, self.active.ExposureTime.Min))
+            logger.info('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': succeeded')
+        except Exception as e:
+            logger.error('[CAM class ] PylonCamera.exposure_t(FAILED; Exposure likely out of bounds) {e}')
 
 
     def get_exposure_t(self):
-        """ Set exposure time in the camera hardware
+        """ Get exposure time in the camera hardware
          Returns t (msec), or -1 if the camera is inactive"""
 
         if self.active == False:
@@ -388,7 +459,6 @@ class PylonCamera:
 
         microsec = self.active.ExposureTime.GetValue() # get current exposure time in microsec
         millisec = microsec/1000 # convert exposure time to millisec
-        logger.info('[CAM Class ] PylonCamera.get_exposure_t(): succeeded')
         return millisec
             
 

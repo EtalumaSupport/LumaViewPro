@@ -2,7 +2,7 @@
 '''
 MIT License
 
-Copyright (c) 2023 Etaluma, Inc.
+Copyright (c) 2024 Etaluma, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -28,9 +28,6 @@ This open source software was developed for use with Etaluma microscopes.
 
 AUTHORS:
 Gerard Decker, The Earthineering Company
-
-MODIFIED:
-June 24, 2023
 '''
 
 '''
@@ -64,12 +61,21 @@ try:
 except:
     pass
 
-if windows_machine:
+try:
+    with open("marker.lvpinstalled") as f:
+        lvp_installed = True
+except:
+    lvp_installed = False
+
+if windows_machine and (lvp_installed == True):
 
     documents_folder = userpaths.get_my_documents()
     lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
 
     os.chdir(lvp_appdata)
+    
+else:
+    lvp_appdata = script_path
 
 os.makedirs("logs/LVP_Log", exist_ok=True)
 
@@ -103,6 +109,17 @@ def minimize_logger_window():
         except Exception as e:
             logger.error(f"[Logger  ] Failed to minimize console window: {e}")
 
+#TODO Separate crash logs into a separate file that contains any other info we might need to debug (settings.json maybe) besides stacktrace
+
+# Log traceback if we have a crash to tell us more info on what happened
+def custom_except_hook(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        logger.critical("Logger ] Keyboard interrupt quit.")
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    
+    logger.critical("Logger ] CRASH - Uncaught Exception: ", exc_info=(exc_type, exc_value, exc_traceback))
+
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
 
@@ -126,4 +143,6 @@ file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 # file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setFormatter(CustomFormatter())
 logger.addHandler(file_handler)
+sys.excepthook = custom_except_hook
 minimize_logger_window()
+logging.disable(logging.DEBUG)

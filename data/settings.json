@@ -11,6 +11,12 @@
         "y": 4000.0
     },
     "objective_id": "20x Oly",
+    "turret_objectives": {
+        "1": "20x Oly",
+        "2": null,
+        "3": null,
+        "4": null
+    },
     "frame": {
         "width": 1900,
         "height": 1900
@@ -27,12 +33,12 @@
         "autofocus": false,
         "false_color": false,
         "ill": 5.0,
+        "sum": 1,
         "gain": 1.0,
         "auto_gain": false,
         "exp": 2.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
         }
     },
@@ -42,27 +48,27 @@
         "autofocus": false,
         "false_color": false,
         "ill": 50.0,
+        "sum": 1,
         "gain": 1.0,
         "auto_gain": false,
         "exp": 5.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
         }
     },
-    "EP": {
-        "file_root": "EP_",
+    "DF": {
+        "file_root": "DF_",
         "focus": 4950.0,
         "autofocus": false,
         "false_color": false,
         "ill": 100.0,
+        "sum": 1,
         "gain": 1.0,
         "auto_gain": false,
         "exp": 30.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
         }
     },
@@ -72,14 +78,15 @@
         "autofocus": false,
         "false_color": true,
         "ill": 250.0,
+        "sum": 1,
         "gain": 10.0,
         "auto_gain": false,
         "exp": 100.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
-        }
+        },
+        "composite_brightness_threshold": 50
     },
     "Green": {
         "file_root": "G_",
@@ -87,14 +94,15 @@
         "autofocus": false,
         "false_color": true,
         "ill": 250.0,
+        "sum": 1,
         "gain": 20.0,
         "auto_gain": false,
         "exp": 100.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
-        }
+        },
+        "composite_brightness_threshold": 50
     },
     "Red": {
         "file_root": "R_",
@@ -102,14 +110,31 @@
         "autofocus": false,
         "false_color": true,
         "ill": 350.0,
+        "sum": 1,
         "gain": 30.0,
         "auto_gain": false,
         "exp": 100.0,
         "acquire": null,
         "video_config": {
-            "fps": 5,
             "duration": 5
-        }
+        },
+        "composite_brightness_threshold": 50
+    },
+    "Lumi": {
+        "file_root": "LM_",
+        "focus": 4950.0,
+        "autofocus": false,
+        "false_color": true,
+        "ill": 0.0,
+        "sum": 1,
+        "gain": 48.0,
+        "auto_gain": false,
+        "exp": 100.0,
+        "acquire": null,
+        "video_config": {
+            "duration": 5
+        },
+        "composite_brightness_threshold": 50
     },
     "zstack": {
         "step_size": 0,
@@ -129,7 +154,7 @@
         }
     },
     "binning": {
-        "size": 1
+        "size": "1x1"
     },
     "logging": {
         "default": {
@@ -142,5 +167,11 @@
     },
     "scale_bar": {
         "enabled": false
+    },
+
+    "video_as_frames": false,
+    "motion": {
+        "acceleration_max_pct": 100
     }
+  
 }

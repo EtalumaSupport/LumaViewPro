@@ -10,6 +10,7 @@ def generate_default_step_name(
     z_height_idx = None,
     scan_count = None,
     tile_label = None,
+    objective_short_name = None,
     custom_name_prefix = None,
     stitched: bool = False,
     video: bool = False,
@@ -27,6 +28,9 @@ def generate_default_step_name(
     
     if tile_label not in (None, "", -1):
         name = f"{name}_T{tile_label}"
+
+    if objective_short_name not in (None, "", -1):
+        name = f"{name}_{objective_short_name}"
 
     if z_height_idx not in (None, "", -1):
         name = f"{name}_Z{z_height_idx}"
@@ -164,25 +168,38 @@ def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
 
                     
 def get_layers() -> list[str]:
-    return ['BF', 'PC', 'EP', 'Blue', 'Green', 'Red']
+    return ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
 
 
 def get_transmitted_layers() -> list[str]:
-    return ['BF', 'PC', 'EP']
+    return ['BF', 'PC', 'DF']
 
 
 def get_fluorescence_layers() -> list[str]:
     return ['Blue', 'Green', 'Red']
 
 
+def get_luminescence_layers() -> list[str]:
+    return ['Lumi']
+
+
+def get_layers_with_led() -> list[str]:
+    return get_transmitted_layers() + get_fluorescence_layers()
+
+
 def get_opened_layer(lumaview_imagesettings) -> str | None:
     for layer in get_layers():
-        layer_is_collapsed = lumaview_imagesettings.ids[f"{layer}_accordion"].collapse
-
-        if not layer_is_collapsed:
-            return layer
+        try:
+            layer_accordion_obj = lumaview_imagesettings.accordion_item_lookup(layer=layer)
+            if layer_accordion_obj.collapse == False:
+                return layer
+        except:
+            continue
         
-        return None
+    return None
+
+def get_opened_layer_obj(lumaview_imagesettings):
+    return lumaview_imagesettings.accordion_item_lookup(get_opened_layer(lumaview_imagesettings))
 
 
 def to_bool(val) -> bool:

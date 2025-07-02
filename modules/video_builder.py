@@ -22,9 +22,11 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         'mjpg'
     ]
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.VIDEO
+            post_function=PostFunction.VIDEO,
+            *args,
+            **kwargs,
         )
         self._name = self.__class__.__name__
 
@@ -48,9 +50,9 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         )
 
 
-    @staticmethod
-    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
+        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
 
         name = common_utils.generate_default_step_name(
             custom_name_prefix=row0['Name'],
@@ -58,6 +60,7 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
             color=row0['Color'],
             z_height_idx=row0['Z-Slice'],
             scan_count=None,
+            objective_short_name=objective_short_name,
             tile_label=row0['Tile'],
             stitched=row0['Stitched'],
             video=True,
@@ -140,7 +143,33 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         enable_timestamp_overlay: bool,
         output_file_loc: pathlib.Path
     ) -> bool:
-        df = df.sort_values(by=['Scan Count'], ascending=True)
+        
+
+        def strip_filetype(filename: str):
+            filename_og = filename
+            filename_flipped = filename[::-1]
+            if "." in filename_flipped:
+                while filename_flipped[0] != ".":
+                    filename_flipped = filename_flipped[1:]
+                filename_flipped = filename_flipped[1:]
+                return filename_flipped[::-1]
+            else:
+                logger.error(f"Invalid filename {filename}")
+                return
+            
+        def get_frame_num(filename):
+            filename = str(filename)
+            stripped_filename = strip_filetype(filename)
+            return stripped_filename[-4:]
+
+    
+        if "video_Frame" in str(df['Filepath'].values[0]):
+            df['Frame Num'] = df['Filepath'].apply(get_frame_num)
+            df = df.sort_values(by=['Frame Num'], ascending=True)
+            enable_timestamp_overlay = False
+
+        else:
+            df = df.sort_values(by=['Scan Count'], ascending=True)
 
         # codec = self.CODECS[0] # Set to AVI
         codec = self.CODECS[1] # Set to mp4v

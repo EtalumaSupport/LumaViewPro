@@ -3,7 +3,7 @@
 '''
 MIT License
 
-Copyright (c) 2023 Etaluma, Inc.
+Copyright (c) 2024 Etaluma, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -31,10 +31,17 @@ AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
-
-MODIFIED:
-June 1, 2023
 '''
+
+import contextlib
+import datetime
+import os
+import pathlib
+import threading
+import time
+
+import cv2
+import numpy as np
 
 # Import Lumascope Hardware files
 from motorboard import MotorBoard
@@ -42,20 +49,12 @@ from ledboard import LEDBoard
 from pyloncamera import PylonCamera
 
 # Import additional libraries
-from lvp_logger import logger
+from lvp_logger import logger, version
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
-import datetime
-import pathlib
-import time
-import threading
-import os
-import contextlib
-import cv2
-import numpy as np
-
 import image_utils
+from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
 
 class Lumascope():
@@ -95,12 +94,18 @@ class Lumascope():
         self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
         self.last_focus_score = None
 
+        self._file_io_executor = None
+        self._io_executor = None
+        self._camera_executor = None
+
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
-        self._labware = None             # The labware currently installed
-        self._objective = None           # The objective currently installed
-        self._stage_offset = None        # The stage offset for the microscope
+        self._labware = None              # The labware currently installed
+        self._objective = None            # The objective currently selected/installed
+        self._turret_config = {}          # The objectives loaded into the turret (if present)
+        self._stage_offset = None         # The stage offset for the microscope
+        self._last_turret_position = None # Stores the last known turret position
         if self.camera:
             self._binning_size = self.camera.get_binning_size()
         else:
@@ -117,8 +122,40 @@ class Lumascope():
     def set_labware(self, labware):
         self._labware = labware
 
-    def set_objective(self, objective_id):
+    def set_camera_executor(self, camera_executor: SequentialIOExecutor):
+        self._camera_executor = camera_executor
+
+    def set_file_io_executor(self, file_io_executor: SequentialIOExecutor):
+        self._file_io_executor = file_io_executor
+
+    def set_io_executor(self, io_executor: SequentialIOExecutor):
+        self._io_executor = io_executor
+
+    def set_objective(self, objective_id: str):
         self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
+
+    def get_objective_info(self, objective_id: str):
+        return self._objectives_loader.get_objective_info(objective_id=objective_id)
+
+    def set_turret_config(self, turret_config: dict[int,str]) -> None:
+        self._turret_config = turret_config
+
+    def get_turret_config(self):
+        return self._turret_config
+    
+    def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
+        for turret_position, turret_objective_id in self._turret_config.items():
+            if objective_id == turret_objective_id:
+                return turret_position
+        
+        return None
+    
+    def is_current_turret_position_objective_set(self) -> bool:
+        position = self.get_current_position(axis='T')
+        if self._turret_config[position] is None:
+            return False
+        
+        return True
 
     def set_scale_bar(self, enabled: bool):
         self._scale_bar['enabled'] = enabled
@@ -213,7 +250,7 @@ class Lumascope():
          2 -> Red: Fluorescence
          3 -> BF: Brightfield
          4 -> PC: Phase Contrast
-         5 -> EP: Extended Phase Contrast
+         5 -> DF: Low Mag Darkfield
            """
         if not self.led: return
         return self.led.ch2color(color)
@@ -226,7 +263,7 @@ class Lumascope():
          Red: Fluorescence Channel 2    -> 2
          BF: Brightfield                -> 3
          PC: Phase Contrast             -> 4
-         EP: Extended Phase Contrast    -> 5
+         DF: Low Mag Darkfield          -> 5
            """
         if not self.led: return
         return self.led.color2ch(color)
@@ -241,50 +278,82 @@ class Lumascope():
         earliest_image_ts: datetime.datetime | None = None,
         timeout: datetime.timedelta = datetime.timedelta(seconds=0),
         all_ones_check: bool = False,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback = None,
     ):
         """ CAMERA FUNCTIONS
         Grab and return image from camera
         # If use_host_buffer set to true, it will return the results already stored in the
         # host array. It will not wait for the next capture.
         """
-        start_time = datetime.datetime.now()
-        stop_time = start_time + timeout
-        
-        while True:
-            all_ones_failed = False
-            grab_status, grab_image_ts = self.camera.grab()
-
-            if grab_status == True:
-                self.image_buffer = self.camera.array.copy()
-
-                if all_ones_check == True:
-
-                    if np.all(self.image_buffer == np.iinfo(self.image_buffer.dtype).max):
-                        all_ones_failed = True
-                        logger.warn(f"[SCOPE API ] get_image all_ones_check failed")
-
-                if all_ones_failed == False:
-                    if earliest_image_ts is None:
-                        break
-                    
-                    if grab_image_ts >= earliest_image_ts:
-                        break
-
-                    logger.warn(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
-
-            # In case of timeout, if we hit the timeout because of the all ones check, then just let it continue and return the all ones image
-            if datetime.datetime.now() > stop_time: 
-                if all_ones_failed == False:
-                    logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
-                    return False
-                else:
-                    logger.warn(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded with all_ones_failed")
-                    break
+    
+        tmp_buffer = []
+        for idx in range(sum_count):
+            start_time = datetime.datetime.now()
+            stop_time = start_time + timeout
             
-            if grab_status == False:
-                logger.error(f"[SCOPE API ] get_image grab failed, retrying")
+            while True:
+                all_ones_failed = False
+                grab_status, grab_image_ts = self.camera.grab()
 
-            time.sleep(0.05)
+                if grab_status == True:
+                    tmp = self.camera.array.copy()
+    
+                    if all_ones_check == True:
+
+                        if np.all(tmp == np.iinfo(tmp.dtype).max):
+                            all_ones_failed = True
+                            logger.warning(f"[SCOPE API ] get_image all_ones_check failed")
+
+                    if all_ones_failed == False:
+                        if earliest_image_ts is None:
+                            tmp_buffer.append(tmp)
+                            break
+                        
+                        if grab_image_ts > earliest_image_ts:
+                            tmp_buffer.append(tmp)
+                            break
+
+                        logger.warning(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
+
+
+                # In case of timeout, if we hit the timeout because of the all ones check, then just let it continue and return the all ones image
+                if datetime.datetime.now() > stop_time: 
+                    if all_ones_failed == False:
+                        logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
+                        return False
+                    else:
+                        logger.warning(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded with all_ones_failed")
+                        break
+                
+                if grab_status == False:
+                    logger.error(f"[SCOPE API ] get_image grab failed, retrying")
+
+                time.sleep(0.05)
+            
+            if sum_count > 1:
+                earliest_image_ts = grab_image_ts + datetime.timedelta(milliseconds=1)
+                if sum_iteration_callback is not None:
+                    sum_iteration_callback()
+                    
+                time.sleep(sum_delay_s)
+
+        # Add the images together
+        if sum_count == 1:
+            if len(tmp_buffer) < 1:
+                self.image_buffer = tmp
+            else:
+                self.image_buffer = tmp_buffer[0]
+        else:
+            orig_dtype = tmp_buffer[0].dtype
+            max_value = np.iinfo(orig_dtype).max
+
+            combined = np.zeros_like(tmp_buffer[0], dtype=np.uint32)
+            for img in tmp_buffer:
+                combined += img
+
+            self.image_buffer = np.clip(combined, None, max_value).astype(orig_dtype)
 
         use_scale_bar = self._scale_bar['enabled']
         if self._objective is None:
@@ -361,7 +430,7 @@ class Lumascope():
         return path
 
 
-    def generate_image_metadata(self, color) -> dict:
+    def generate_image_metadata(self, color, x, y, z) -> dict:
         def _validate():
             if self._objective is None:
                 raise Exception(f"[SCOPE API ] Objective not set")
@@ -377,13 +446,19 @@ class Lumascope():
             
         _validate()
 
+        if x is None:
+            x = 0
+        if y is None:
+            y = 0
+        if z is None:
+            z = 0
+
         px, py = self._coordinate_transformer.stage_to_plate(
             labware=self._labware,
             stage_offset=self._stage_offset,
-            sx=self.get_current_position(axis='X'),
-            sy=self.get_current_position(axis='Y')
+            sx=x,
+            sy=y
         )
-        z = self.get_current_position(axis='Z')
 
         px = round(px, common_utils.max_decimal_precision('x'))
         py = round(py, common_utils.max_decimal_precision('y'))
@@ -398,9 +473,16 @@ class Lumascope():
         )
         
         metadata = {
+            'camera_make': 'Etaluma',
+            'software': f'LumaViewPro {version}',
             'channel': color,
+            'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
+            'sub_sec_time': f"{datetime.datetime.now().microsecond // 1000:03d}",
+            'objective': self._objective,
             'focal_length': self._objective['focal_length'],
             'plate_pos_mm': {'x': px, 'y': py},
+            'x_pos': px,
+            'y_pos': py,
             'z_pos_um': z,
             'exposure_time_ms': round(self.get_exposure_time(), common_utils.max_decimal_precision('exposure')),
             'gain_db': round(self.get_gain(), common_utils.max_decimal_precision('gain')),
@@ -421,8 +503,11 @@ class Lumascope():
         tail_id_mode: str,
         output_format: str,
         true_color: str,
+        x,
+        y,
+        z
     ):
-        metadata = self.generate_image_metadata(color=true_color)
+        metadata = self.generate_image_metadata(color=true_color, x=x, y=y, z=z)
 
         if array.dtype == np.uint16:
             array = image_utils.convert_12bit_to_16bit(array)
@@ -456,6 +541,9 @@ class Lumascope():
         tail_id_mode = "increment",
         output_format: str = "TIFF",
         true_color: str = 'BF',
+        x=None,
+        y=None,
+        z=None
     ):
         """CAMERA FUNCTIONS
         save image (as array) to file
@@ -470,21 +558,27 @@ class Lumascope():
             tail_id_mode=tail_id_mode,
             output_format=output_format,
             true_color=true_color,
+            x=x,
+            y=y,
+            z=z
         )
 
         image = image_data['image']
         metadata = image_data['metadata']
         file_loc = metadata['file_loc']
 
+        if output_format == 'OME-TIFF':
+            ome=True
+        else:
+            ome=False
+
         try:
-            if output_format == 'OME-TIFF':
-                image_utils.write_ome_tiff(
-                    data=image,
-                    file_loc=file_loc,
-                    metadata=metadata,
-                )
-            else:
-                cv2.imwrite(str(file_loc), image.astype(array.dtype))
+            image_utils.write_tiff(
+                data=image,
+                file_loc=file_loc,
+                metadata=metadata,
+                ome=ome,
+            )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
         except:
@@ -506,6 +600,11 @@ class Lumascope():
             earliest_image_ts: datetime.datetime | None = None,
             timeout: datetime.timedelta = datetime.timedelta(seconds=0),
             all_ones_check: bool = False,
+            sum_count: int = 1,
+            sum_delay_s: float = 0,
+            sum_iteration_callback = None,
+            turn_off_all_leds_after: bool = False,
+            use_executor = False
         ):
 
         """CAMERA FUNCTIONS
@@ -516,9 +615,17 @@ class Lumascope():
             earliest_image_ts=earliest_image_ts,
             timeout=timeout,
             all_ones_check=all_ones_check,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
         )
+
+        if True == turn_off_all_leds_after:
+            self.leds_off()
+
         if array is False:
             return 
+        
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
  
 
@@ -705,17 +812,28 @@ class Lumascope():
             with self.safe_turret_mover():
                 self.motion.thome()
 
-
-    def tmove(self, degrees):
+    def has_thomed(self):
         """MOTION CONTROL FUNCTIONS
-        Move turret to position in degrees"""
-        # MUST home move objective home first to prevent crash
-        #self.zhome()
-        #self.move_absolute_position('Z', self.z_min)
+        Indicate if the t-axes has been homed since startup"""
+        return self.motion.has_thomed()
 
+    def tmove(self, position):
+        """MOTION CONTROL FUNCTIONS
+        Move turret to position 1-4"""
+        # Commanding a move of the T axis is slow, even if the move is to the current position.
+        # Use caching to determine if T is requested to move to it's current position, and bypass the
+        # move altogether if it is.
+        if self._last_turret_position == position:
+            return
+        
         with self.safe_turret_mover():
-            logger.info(f'[SCOPE API ] Moving T to {degrees}')
-            self.move_absolute_position('T', degrees, wait_until_complete=True)
+            logger.info(f'[SCOPE API ] Moving T to position {position}')
+            self.move_absolute_position('T', position, wait_until_complete=True)
+            self._last_turret_position = position
+
+    
+    def has_turret(self) -> bool:
+        return self.motion.has_turret()
 
 
     def get_target_position(self, axis=None):
@@ -731,6 +849,9 @@ class Lumascope():
             for ax in ('X', 'Y', 'Z', 'T'):
                 positions[ax] = self.motion.target_pos(axis=ax)
             return positions
+        
+        if (False == self.motion.has_turret()) and (axis == 'T'):
+            return None
         
         position = self.motion.target_pos(axis)
         return position
@@ -795,6 +916,12 @@ class Lumascope():
         
         status = self.motion.target_status(axis)
         return status
+    
+    def get_target_pos(self, axis):
+        if (axis == 'T') and (self.motion.has_turret == False):
+            return -1
+        
+        return self.motion.target_pos(axis)
         
     # Get all reference status register bits as 32 character string (32-> 0)
     def get_reference_status(self, axis):
@@ -855,6 +982,10 @@ class Lumascope():
             time.sleep(0.05)
         
         return
+    
+
+    def set_acceleration_limit(self, val_pct: int):
+        self.motion.set_acceleration_limits(val_pct=val_pct)
     
 
     def get_microscope_model(self):

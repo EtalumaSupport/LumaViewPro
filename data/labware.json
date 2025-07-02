@@ -8,6 +8,26 @@
 },
 
 "Wellplate": {
+  "Blank": {
+    "standard" : "",
+    "diameter" : 0.001,
+    "columns" : 0,
+    "rows" : 0,
+    "dimensions" : {
+      "x" : 127.76,
+      "y" : 85.48,
+      "z" : -1
+    },
+    "spacing" : {
+      "x" : 0.001,
+      "y" : 0.001
+    },
+    "offset" : {
+      "x" : 0.001,
+      "y" : 0.001
+    }
+  },
+  
   "Center Plate": {
     "standard" : "",
     "diameter" : -1,
@@ -27,6 +47,27 @@
       "y" : 42.74
     }
   },
+  
+  "Four-Slide Holder": {
+    "standard" : "",
+    "diameter" : -1,
+    "columns" : 4,
+    "rows" : 1,
+    "dimensions" : {
+      "x" : 127.5,
+      "y" : 85.5,
+      "z" : -1
+    },
+    "spacing" : {
+      "x" : 30.2,
+      "y" : 76.2
+    },
+    "offset" : {
+      "x" : 18.45,
+      "y" : 42.75
+    }
+  },
+
   "6 well microplate": {
     "standard" : "",
     "diameter" : -1,

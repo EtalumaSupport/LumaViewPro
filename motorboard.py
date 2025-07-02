@@ -3,7 +3,7 @@
 '''
 MIT License
 
-Copyright (c) 2023 Etaluma, Inc.
+Copyright (c) 2024 Etaluma, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -31,16 +31,9 @@ AUTHORS:
 Kevin Peter Hickerson, The Earthineering Company
 Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
-
-MODIFIED:
-June 1, 2023
 '''
 
-#import threading
-#import queue
 import time
-# import requests
-# import ampy
 from requests.structures import CaseInsensitiveDict
 import serial
 import serial.tools.list_ports as list_ports
@@ -57,8 +50,9 @@ class MotorBoard:
         self.found = False
         self.overshoot = False
         self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
-        self.has_turret = False
+        self._has_turret = False
         self.initial_homing_complete = False
+        self.initial_t_homing_complete = False
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
@@ -131,10 +125,11 @@ class MotorBoard:
             #if (command)=='HOME': # ESW to increase homing reliability
             #    CRLF = command.encode('utf-8')+b"\r\n"
             #    self.driver.write(CRLF)
-
             resp_lines = [self.driver.readline() for _ in range(response_numlines)]
             response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
             if response_numlines == 1:
+                if '\r' in response[0].strip():
+                    response[0] = response[0].rsplit('\r')[-1]
                 response = response[0]
             logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
 
@@ -176,7 +171,7 @@ class MotorBoard:
         info = info.split()
         model = info[info.index("Model:")+1]
         if model[-1] == "T":
-            self.has_turret = True
+            self._has_turret = True
 
         serial_number = info[info.index("Serial:")+1]
 
@@ -189,6 +184,132 @@ class MotorBoard:
     def get_microscope_model(self):
         info = self._fullinfo
         return info['model']
+    
+    #----------------------------------------------------------
+    # Acceleration control functions
+    #----------------------------------------------------------
+
+    # Get single acceleration limit for a specific axis and parameter
+    def acceleration_limit(self, axis: str, parameter: str) -> int:
+        if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
+            return 0
+        
+        parameter_map = {
+            'acceleration': 'A',
+            'deceleration': 'D'
+        }
+
+        parameter_char = parameter_map[parameter]
+        command = f"{parameter_char}MAX{axis}"
+        DEFAULT_ACCELERATION_LIMIT = 30000
+        using_default = False
+        try:
+            resp = self.exchange_command(command)
+
+            # In case firmware doesn't support retrieving the acceleration limits
+            if resp.startswith("ERROR"):
+                raise
+
+            # Extra protection for now in case motorboard responds with a different string that doesnt start with ERROR
+            if not resp.isdigit():
+                raise
+
+        except:
+            resp = DEFAULT_ACCELERATION_LIMIT
+            using_default = True
+
+        using_default_str = "-> default" if using_default else ""
+        logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp} {using_default_str}')
+        
+        # TODO parse response value out of response string once implemented
+        return resp
+
+    
+    def _acceleration_validate_inputs(self, axis: str, parameter: str):
+        config = self._acceleration_supported_info()
+        if axis not in config['axes']:
+            raise NotImplementedError(f"Support for acceleration limit on axis {axis} not implemented")
+        
+        if parameter not in config['parameters']:
+            raise NotImplementedError(f"Support for acceleration limit parameter {parameter} not implemented.")
+        
+        return True
+    
+
+    def _acceleration_supported_info(self):
+        return {
+            'axes': ('X','Y'),
+            'parameters': ('acceleration', 'deceleration')
+        }
+    
+    # Get all acceleration limits for all axes and parameters
+    def acceleration_limits(self) -> dict[str, dict[str, int]]:
+        limits = {}
+        config = self._acceleration_supported_info()
+        for axis in config['axes']:
+            limits[axis] = {}
+            for parameter in config['parameters']:
+                limits[axis][parameter] = self.acceleration_limit(axis=axis, parameter=parameter)
+
+        return limits
+
+
+    # Sets the percentage acceleration/deceleration limit (of max) for a single axis/parameter
+    def set_acceleration_limit(self, axis: str, parameter: str, val_pct: int):
+        if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
+            return
+        
+        if (val_pct < 1) or (val_pct > 100):
+            raise ValueError(f"Acceleration limit of {val_pct}% is out of bounds. Must be between 1 and 100.")
+        
+        limit = self.acceleration_limit(axis=axis, parameter=parameter)
+        setpoint = round(limit*(val_pct/100))
+
+        SPI_ADDRS = {
+            'X': {
+                'acceleration': 0x26,
+                'deceleration': 0x28,
+            },
+            'Y': {
+                'acceleration': 0x46,
+                'deceleration': 0x48,
+            },
+        }
+
+        self.spi_write(
+            axis=axis,
+            addr=SPI_ADDRS[axis][parameter],
+            payload=setpoint
+        )
+        logger.info(f"[XYZ Class ] MotorBoard.set_acceleration_limit({axis}, {parameter}, {val_pct}%)")
+
+    
+    # Sets the percentage acceleration/deceleration (of max) for all supported axes/parameters
+    def set_acceleration_limits(self, val_pct):
+        config = self._acceleration_supported_info()
+        for axis in config['axes']:
+            for parameter in config['parameters']:
+                self.set_acceleration_limit(axis=axis, parameter=parameter, val_pct=val_pct)
+
+    #----------------------------------------------------------
+    # SPI-direct related functions
+    #----------------------------------------------------------
+    def spi_read(self, axis: str, addr: int) -> str:
+        # Add a dummy payload of "00" to the end in order for the firmware to not error out on a read.
+        # It is expecting a payload.
+        command = f"SPI{axis}0x{addr:02x}00"
+        resp = self.exchange_command(command)
+        logger.debug(f"[XYZ Class ] MotorBoard.spi_read({axis}, 0x{addr:02x}): {command} -> {resp}")
+        return resp
+
+    
+    def spi_write(self, axis: str, addr: int, payload: str) -> str:
+        WRITE_OFFSET = 0x80
+        write_addr = addr + WRITE_OFFSET
+        command = f"SPI{axis}0x{write_addr:02x}{payload}"
+        resp = self.exchange_command(command)
+        logger.debug(f"[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}): {command} -> {resp}")
+        return resp
 
 
     #----------------------------------------------------------
@@ -247,17 +368,33 @@ class MotorBoard:
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
         degrees = 90./80000. * ustep # needs correct value
         return degrees
+    
+    def t_ustep2pos(self, ustep):
+        return int(self.t_ustep2deg(ustep=ustep)/90)+1
 
     def t_deg2ustep(self, degrees):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
         ustep = int( degrees * 80000./90.) # needs correct value
         print("ustep: ",ustep)
         return ustep
+    
+    def t_pos2ustep(self, position):
+        return self.t_deg2ustep(degrees=90*(position-1))
 
     def thome(self):
         """ Home the turret, need to test if functional in hardware"""
         resp = self.exchange_command('THOME')
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}')
+        if (resp is not None) and ('T home successful' in resp):
+            self.initial_t_homing_complete = True
+    
+    def has_turret(self) -> bool:
+        return self._has_turret
+    
+    def has_thomed(self):
+        # Note: When the motorboard firmware performs an XYZ homing, it also
+        # does a T homing if a turret is present
+        return self.initial_homing_complete or self.initial_t_homing_complete
 
     #----------------------------------------------------------
     # Motion Functions
@@ -273,6 +410,14 @@ class MotorBoard:
             steps += 0x100000000 # twos compliment
         print(f"Axis: {axis} steps: {steps}")
         self.exchange_command('TARGET_W' + axis + str(steps))
+
+        # target_pos = int(self.exchange_command('TARGET_R' + axis))
+        # desired_target = steps
+
+        # while int(target_pos) != desired_target:
+        #     self.exchange_command('TARGET_W' + axis + str(steps))
+        #     time.sleep(0.005)
+        #     target_pos = int(self.exchange_command('TARGET_R' + axis))
 
     # Get target position
     def target_pos(self, axis):
@@ -291,12 +436,11 @@ class MotorBoard:
             um = self.xy_ustep2um(position)
             return um
         elif axis == 'T':
-            degrees = self.t_ustep2deg(position)
-            return degrees
+            return self.t_ustep2pos(position)
         else:
             return 0
         
-    # Get current position (in um or degrees for Turret)
+    # Get current position (in um or position for Turret)
     def current_pos(self, axis):
         """Get current position (in um) of axis"""
         
@@ -313,8 +457,7 @@ class MotorBoard:
             um = self.xy_ustep2um(position)
             return um
         elif axis == 'T':
-            degrees = self.t_ustep2deg(position)
-            return degrees
+            return self.t_ustep2pos(position)
         else:
             return 0
  
@@ -346,7 +489,7 @@ class MotorBoard:
                 'move_func': self.xy_um2ustep
             },
             'T': {
-                'move_func': self.t_deg2ustep
+                'move_func': self.t_pos2ustep
             }
         }
 
@@ -385,7 +528,7 @@ class MotorBoard:
 
     # Move by relative distance (in um or degrees for Turret)
     def move_rel_pos(self, axis, um, overshoot_enabled: bool = False):
-        """ Move by relative distance (in um for X, Y, Z or degrees for T) of axis """
+        """ Move by relative distance (in um for X, Y, Z or position for T) of axis """
 
         # Read target position in um
         pos = self.target_pos(axis)
@@ -419,7 +562,12 @@ class MotorBoard:
 
         # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
         try:
-            response = self.exchange_command('STATUS_R' + axis)
+            #logger.warning(f"AXIS PARAM: ====={axis}=====")
+            payload = 'STATUS_R' + axis
+            #logger.warning(f"Sending payload to motorboard: {payload}=====")
+            response = self.exchange_command(payload)
+            #logger.warning(f"Response: {response}")
+
             data = int( response )
             bits = format(data, 'b').zfill(32)
 
