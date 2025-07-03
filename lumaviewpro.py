@@ -59,6 +59,7 @@ import typing
 import shutil
 import userpaths
 import queue
+import threading
 
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
@@ -309,9 +310,8 @@ global focus_round
 focus_round = 0
 
 
-global thread_pool
-global io_executor
-global cpu_pool
+global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor
+global motorboard_lock, ledboard_lock, camera_lock
 
 
 #thread_pool = ThreadPoolExecutor() # Thread pool can be used for any IO that can be concurrent
@@ -1561,6 +1561,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         if self.recording:
             return
         self.record_init()
+
+    def open_save_folder_button(self):
+        open_last_save_folder()
 
     def record_init(self):
         logger.info('[LVP Main  ] MainDisplay.record()')
@@ -3005,7 +3008,6 @@ class PostProcessingAccordion(BoxLayout):
             'stitch_accordion_id': None,
             'composite_gen_accordion_id': None,
             'zprojection_accordion_id': None,
-            'open_last_save_folder_accordion_id': None,
             'create_avi_accordion_id': None
         }
         """print("===============================================================")
@@ -3024,6 +3026,25 @@ class PostProcessingAccordion(BoxLayout):
             return 'closed'
         return 'open'
      
+    def hide_stitch(self):
+        #self.ids['stitch_accordion_id'].visible = False
+        # sc = self.ids['stitch_controls_id']
+        # sa = self.ids['stitch_accordion_id']
+        # self.ids['stitch_controls_id'].visible = False
+        # self.remove_widget(self.ids['stitch_accordion_id'])
+        # self.remove_widget(self.ids['stitch_controls_id'])
+        #self.ids['post_processing_accordion_id'].remove_widget(stitch_controls)
+        stitch_accordion = None
+
+        post_accordion = self.children[0]
+        for child in post_accordion.children:
+            if child.title == 'Stitch':
+                stitch_accordion = child
+                break
+
+        if stitch_accordion:
+            stitch_accordion.parent.remove_widget(stitch_accordion)
+
 
     def get_accordion_item_states(self):
         return {
@@ -3031,7 +3052,6 @@ class PostProcessingAccordion(BoxLayout):
             'stitch_accordion_id': self.accordion_item_state(self.ids['stitch_accordion_id']),
             'composite_gen_accordion_id': self.accordion_item_state(self.ids['composite_gen_accordion_id']),
             'zprojection_accordion_id': self.accordion_item_state(self.ids['zprojection_accordion_id']),
-            'open_last_save_folder_accordion_id': self.accordion_item_state(self.ids['open_last_save_folder_accordion_id']),
             'create_avi_accordion_id': self.accordion_item_state(self.ids['create_avi_accordion_id']),
         }
 
@@ -3065,26 +3085,7 @@ class PostProcessingAccordion(BoxLayout):
     def convert_to_avi(self):
         logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
      
-        
-    def open_folder(self):
-
-        OS_FOLDER_MAP = {
-            'win32': 'explorer',
-            'darwin': 'open',
-            'linux': 'xdg-open'
-        }
-
-        if sys.platform not in OS_FOLDER_MAP:
-            logger.info(f'[LVP Main  ] PostProcessing.open_folder() not yet implemented for {sys.platform} platform')
-            return
-        
-        command = OS_FOLDER_MAP[sys.platform]
-        if last_save_folder is None:
-            subprocess.Popen([command, str(pathlib.Path(settings['live_folder']).resolve())])
-        else:
-            subprocess.Popen([command, str(last_save_folder)])
-
-
+    
     def open_cell_count(self):
         global cell_count_content
         if self._cell_count_popup is None:
@@ -3111,6 +3112,24 @@ class PostProcessingAccordion(BoxLayout):
         
         self._graphing_popup.open()
 
+
+def open_last_save_folder():
+
+    OS_FOLDER_MAP = {
+        'win32': 'explorer',
+        'darwin': 'open',
+        'linux': 'xdg-open'
+    }
+
+    if sys.platform not in OS_FOLDER_MAP:
+        logger.info(f'[LVP Main  ] PostProcessing.open_folder() not yet implemented for {sys.platform} platform')
+        return
+    
+    command = OS_FOLDER_MAP[sys.platform]
+    if last_save_folder is None:
+        subprocess.Popen([command, str(pathlib.Path(settings['live_folder']).resolve())])
+    else:
+        subprocess.Popen([command, str(last_save_folder)])
 
 class CellCountDisplay(FloatLayout):
 
@@ -3326,7 +3345,7 @@ class ImageSettings(BoxLayout):
             layer_obj = self.layer_lookup(layer=layer)
 
             if layer == 'BF':
-                layer_obj.ids['exp_slider'].max = 100
+                layer_obj.ids['exp_slider'].max = 50
             else:
                 layer_obj.ids['exp_slider'].max = 200
         
@@ -3543,13 +3562,16 @@ class VerticalControl(BoxLayout):
 
 
     def update_gui(self, vertical_control=False):
-        io_executor.put(IOTask(
-            action=lumaview.scope.get_target_position,
-            args=('Z'),
-            callback=self.execute_kivy_gui,
-            cb_kwargs={"vertical_control":vertical_control},
-            pass_result=True
-        ))
+        if not vertical_control:
+            io_executor.put(IOTask(
+                action=lumaview.scope.get_target_position,
+                args=('Z'),
+                callback=self.execute_kivy_gui,
+                cb_kwargs={"vertical_control":vertical_control},
+                pass_result=True
+            ))
+        else:
+            Clock.schedule_once(lambda dt: self.update_text_only)
 
     def update_autofocus_gui(self, pos=None):
         if pos is None:
@@ -3557,6 +3579,9 @@ class VerticalControl(BoxLayout):
 
         self.ids['obj_position'].value = max(0, pos)
         self.ids['z_position_id'].text = format(max(0, pos), '.2f')
+
+    def update_text_only(self):
+        self.ids['z_position_id'].text = format(max(0, self.ids['obj_position'].value), '.2f')
         
 
     def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
@@ -6004,6 +6029,7 @@ class MicroscopeSettings(BoxLayout):
         if selected_scope_config['XYStage'] is False:
             stage.remove_parent()
             protocol_settings.select_labware(labware="Center Plate")
+            lumaview.ids['motionsettings_id'].ids['post_processing_id'].hide_stitch()
 
         stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
 

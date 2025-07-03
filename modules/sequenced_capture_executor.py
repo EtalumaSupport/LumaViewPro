@@ -910,7 +910,7 @@ class SequencedCaptureExecutor:
                         "save_folder": save_folder,
                         "use_color": use_color,
                         "name": name,
-                        "calculated_fps": None,
+                        "calculated_fps": calculated_fps,
                         "output_format": output_format,
                         "step": step,
                         "captured_image": None
@@ -1028,6 +1028,7 @@ class SequencedCaptureExecutor:
                             logger.error(f"Protocol-Video] Failed to write frame {frame_num}")
 """
                 else:
+                    output_file_loc = save_folder / f"{name}.mp4v"
                     video_writer = VideoWriter(
                         output_file_loc=output_file_loc,
                         fps=calculated_fps,

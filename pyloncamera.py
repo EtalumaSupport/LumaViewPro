@@ -319,6 +319,10 @@ class PylonCamera:
             return False, None
         
         try:
+            try:
+                self.cam_image_handler._frame_queue.get_nowait()
+            except queue.Empty:
+                pass
             result, image, image_ts = self.cam_image_handler._frame_queue.get(block=True, timeout=timeout)
             if result is False:
                 return False, None

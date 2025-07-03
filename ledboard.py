@@ -38,6 +38,7 @@ import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
 import time
+import threading
 
 class LEDBoard:    
 
@@ -48,6 +49,7 @@ class LEDBoard:
         logger.info('[LED Class ] LEDBoard.__init__()')
         ports = list_ports.comports(include_links = True)
         self.found = False
+        self.thread_lock = threading.RLock()
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
@@ -82,60 +84,61 @@ class LEDBoard:
 
     def connect(self):
         """ Try to connect to the LED controller based on the known VID/PID"""
-        try:
-            logger.info('[LED Class ] Found LED controller and about to create driver.')
-            self.driver = serial.Serial(port=self.port,
-                                        baudrate=self.baudrate,
-                                        bytesize=self.bytesize,
-                                        parity=self.parity,
-                                        stopbits=self.stopbits,
-                                        timeout=self.timeout,
-                                        write_timeout=self.write_timeout)
+        with self.thread_lock:
+            try:
+                logger.info('[LED Class ] Found LED controller and about to create driver.')
+                self.driver = serial.Serial(port=self.port,
+                                            baudrate=self.baudrate,
+                                            bytesize=self.bytesize,
+                                            parity=self.parity,
+                                            stopbits=self.stopbits,
+                                            timeout=self.timeout,
+                                            write_timeout=self.write_timeout)
 
-            #self.driver.close()
-            #self.driver.open()
+                #self.driver.close()
+                #self.driver.open()
 
-            # self.exchange_command('import main.py')
-            # self.exchange_command('import main.py')
-            logger.info('[LED Class ] LEDBoard.connect() succeeded')
-            #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains 
-            self.driver.write(b'\x04\n')
-            logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
-        except:
-            self.driver = False
-            logger.exception('[LED Class ] LEDBoard.connect() failed')
+                # self.exchange_command('import main.py')
+                # self.exchange_command('import main.py')
+                logger.info('[LED Class ] LEDBoard.connect() succeeded')
+                #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains 
+                self.driver.write(b'\x04\n')
+                logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
+            except:
+                self.driver = False
+                logger.exception('[LED Class ] LEDBoard.connect() failed')
             
     def exchange_command(self, command):
         """ Exchange command through serial to LED board
         This should NOT be used in a script. It is intended for other functions to access"""
+        with self.thread_lock:
+            stream = command.encode('utf-8')+b"\n"
 
-        stream = command.encode('utf-8')+b"\n"
+            if self.driver != False:
+                try:
+                    self.driver.flushInput()
+                    self.driver.flush()
+                    time.sleep(0.001)
+                    self.driver.write(stream)
+                    time.sleep(0.01)
+                    response = self.driver.readline()
+                    response = response.decode("utf-8","ignore")
 
-        if self.driver != False:
-            try:
-                self.driver.flushInput()
-                self.driver.flush()
-                time.sleep(0.001)
-                self.driver.write(stream)
-                time.sleep(0.01)
-                response = self.driver.readline()
-                response = response.decode("utf-8","ignore")
+                    logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
+                    return response[:-2]
+                
+                except serial.SerialTimeoutException:
+                    self.driver = False
+                    logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
 
-                logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
-                return response[:-2]
-            
-            except serial.SerialTimeoutException:
-                self.driver = False
-                logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+                except:
+                    self.driver = False
 
-            except:
-                self.driver = False
-
-        else:
-            try:
-                self.connect()
-            except:
-                return
+            else:
+                try:
+                    self.connect()
+                except:
+                    return
       
     def color2ch(self, color):
         """ Convert color name to numerical channel """

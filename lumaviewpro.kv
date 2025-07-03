@@ -71,6 +71,16 @@
         spacing: '5dp'
         pos: (root.width-9*40)/2, 0
 
+		Button:
+			id: open_last_save_folder
+			tooltip_text: 'Open Last Save Folder'
+            border: 0, 0, 0, 0
+            background_normal: './data/icons/photos.png'
+            background_down: './data/icons/photos_down.png'
+            size_hint: None, None
+            size: '40dp', '40dp'
+            on_release: root.open_save_folder_button()
+
         FolderChooseBTN:
             id: live_folder_btn
 			tooltip_text: 'Set destination folder for image & video files'
@@ -1577,28 +1587,28 @@
 			ZProjectionControls:
 				id: zprojection_controls_id
 
-		AccordionItem:
-			id: open_last_save_folder_accordion_id
-			title: 'Open Last Save Folder'
-			on_collapse: root.accordion_collapse()
-			background_normal: './data/icons/post_processing_background.png'
+		# AccordionItem:
+		# 	id: open_last_save_folder_accordion_id
+		# 	title: 'Open Last Save Folder'
+		# 	on_collapse: root.accordion_collapse()
+		# 	background_normal: './data/icons/post_processing_background.png'
 
-			BoxLayout:
-				orientation: 'vertical'
+		# 	BoxLayout:
+		# 		orientation: 'vertical'
 
-				# Pad
-				Widget:
-					size_hint_y: None
-					height: '30dp'
+		# 		# Pad
+		# 		Widget:
+		# 			size_hint_y: None
+		# 			height: '30dp'
 
-				Button:
-					text:'Open Folder'
-					size_hint_y: None
-					height: '30dp'
-					font_size: '12sp'
-					on_release:root.open_folder()
+		# 		Button:
+		# 			text:'Open Folder'
+		# 			size_hint_y: None
+		# 			height: '30dp'
+		# 			font_size: '12sp'
+		# 			on_release:root.open_folder()
 
-				Widget:
+		# 		Widget:
 
 		AccordionItem:
 			id: cell_count_accordion_id
