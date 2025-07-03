@@ -6,6 +6,8 @@ import typing
 
 import numpy as np
 import cv2
+import gc
+import queue
 
 from kivy.clock import Clock
 
@@ -24,6 +26,7 @@ from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
 from modules.video_writer import VideoWriter
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from lvp_logger import logger
+from concurrent.futures import ProcessPoolExecutor
 
 from settings_init import settings
 
@@ -73,6 +76,7 @@ class SequencedCaptureExecutor:
         self._io_executor = io_executor
         self.protocol_executor = protocol_executor
         self.file_io_executor = file_io_executor
+        self.file_io_process_pool = ProcessPoolExecutor(max_workers=1)
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -784,6 +788,10 @@ class SequencedCaptureExecutor:
     ):
         
         #if sum_count > step['']
+
+        if not self._run_in_progress:
+            return
+        
         is_video = True if step['Acquire'] == "video" else False
         video_as_frames = self._video_as_frames
 
@@ -858,7 +866,7 @@ class SequencedCaptureExecutor:
                 expected_frames = fps * duration_sec
                 captured_frames = 0
                 seconds_per_frame = 1.0 / fps
-                video_images = []
+                video_images = queue.Queue()
 
                 logger.info(f"Protocol-Video] Capturing video...")
 
@@ -885,7 +893,8 @@ class SequencedCaptureExecutor:
 
                         image = np.flip(image, 0)
 
-                        video_images.append((image, datetime.datetime.now()))
+                        video_images.put_nowait((image, datetime.datetime.now()))
+                        #video_images.append((image, datetime.datetime.now()))
 
                         captured_frames += 1
                     
@@ -894,28 +903,42 @@ class SequencedCaptureExecutor:
 
                 calculated_fps = captured_frames//duration_sec
 
-                logger.info(f"Protocol-Video] Images present in video array: {len(video_images) > 0}")
+                logger.info(f"Protocol-Video] Images present in video array: {not video_images.empty()}")
                 logger.info(f"Protocol-Video] Captured Frames: {captured_frames}")
                 logger.info(f"Protocol-Video] Video FPS: {calculated_fps}")
                 logger.info("Protocol-Video] Writing video...")
 
                 self._scope.leds_off()
 
-                self.file_io_executor.protocol_put(IOTask(
-                    action=self._write_capture,
-                    kwargs={
-                        "is_video": is_video,
-                        "video_as_frames": video_as_frames,
-                        "video_images": video_images,
-                        "save_folder": save_folder,
-                        "use_color": use_color,
-                        "name": name,
-                        "calculated_fps": calculated_fps,
-                        "output_format": output_format,
-                        "step": step,
-                        "captured_image": None
-                    }
-                ))
+                future = self.file_io_process_pool.submit(self._write_capture, 
+                        is_video=is_video,
+                        video_as_frames=video_as_frames,
+                        video_images=video_images,
+                        save_folder=save_folder,
+                        use_color=use_color,
+                        name=name,
+                        calculated_fps=calculated_fps,
+                        output_format=output_format,
+                        step=step,
+                        captured_image=None)
+                
+                future.add_done_callback(logger.info("Protocol] Video writing complete"))
+
+                # self.file_io_executor.protocol_put(IOTask(
+                #     action=self._write_capture,
+                #     kwargs={
+                #         "is_video": is_video,
+                #         "video_as_frames": video_as_frames,
+                #         "video_images": video_images,
+                #         "save_folder": save_folder,
+                #         "use_color": use_color,
+                #         "name": name,
+                #         "calculated_fps": calculated_fps,
+                #         "output_format": output_format,
+                #         "step": step,
+                #         "captured_image": None
+                #     }
+                # ))
 
             else:
                 time.sleep(self.sleep_time)
@@ -973,7 +996,7 @@ class SequencedCaptureExecutor:
     def _write_capture(self,
                        is_video=False, 
                        video_as_frames=False, 
-                       video_images=None, 
+                       video_images: queue.Queue=None, 
                        save_folder=None,
                        use_color=None,
                        name=None,
@@ -994,14 +1017,22 @@ class SequencedCaptureExecutor:
                     if not save_folder.exists():
                         save_folder.mkdir(exist_ok=True, parents=True)
 
-                    for image_ts_pair in video_images:
+                    while not video_images.empty():
+
+                        image_pair = video_images.get_nowait()
                         frame_num += 1
 
-                        image = image_ts_pair[0]
-                        ts = image_ts_pair[1]
+                        image = image_pair[0]
+                        ts = image_pair[1]
+
+                        del image_pair
+
                         ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
-                        image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
+                        image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
+
+                        del image
+                        video_images.task_done()
 
                         frame_name = f"{name}_Frame_{frame_num:04}"
 
@@ -1015,7 +1046,7 @@ class SequencedCaptureExecutor:
                         
                         try:
                             image_utils.write_tiff(
-                                data=image,
+                                data=image_w_timestamp,
                                 metadata=metadata,
                                 file_loc=output_file_loc,
                                 video_frame=True,
@@ -1023,10 +1054,13 @@ class SequencedCaptureExecutor:
                             )
                         except Exception as e:
                             logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
-                            
-                        """if not cv2.imwrite(filename=str(output_file_loc), img=image):
-                            logger.error(f"Protocol-Video] Failed to write frame {frame_num}")
-"""
+
+                    # Queue is not empty, delete it and force garbage collection
+                    del video_images
+                    gc.collect()
+
+                        
+
                 else:
                     output_file_loc = save_folder / f"{name}.mp4v"
                     video_writer = VideoWriter(
@@ -1034,14 +1068,22 @@ class SequencedCaptureExecutor:
                         fps=calculated_fps,
                         include_timestamp_overlay=True
                     )
-
-                    for image_ts_pair in video_images:
+                    while not video_images.empty():
                         try:
-                            video_writer.add_frame(image=image_ts_pair[0], timestamp=image_ts_pair[1])
+                            image_pair = video_images.get_nowait()
+                            video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
+                            del image_pair
+                            video_images.task_done()
                         except:
                             logger.error("Protocol-Video] FAILED TO WRITE FRAME")
 
+                    # Video images queue empty. Delete it and force garbage collection
+                    del video_images
+
                     video_writer.finish()
+                    del video_writer
+                    gc.collect()
+                    
                     capture_result = output_file_loc
                 
                 logger.info("Protocol-Video] Video writing finished.")
@@ -1064,6 +1106,9 @@ class SequencedCaptureExecutor:
                     y=step['Y'],
                     z=step['Z']
                 )
+
+                del captured_image
+                gc.collect()
 
                 
                 
@@ -1099,6 +1144,8 @@ class SequencedCaptureExecutor:
         else:
             capture_result_filepath_name = "unsaved"
 
+        gc.collect()
+        
         self._protocol_execution_record.add_step(
             capture_result_file_name=capture_result_filepath_name,
             step_name=step['Name'],

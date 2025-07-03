@@ -34,11 +34,8 @@ Bryan Tiedemann, The Earthineering Company
 Gerard Decker, The Earthineering Company
 '''
 
-#TODO:
-# Separate IO to separate executors to allow for different components to communicate concurrently
-# IE control camera while stage is moving, etc
-
 # General
+
 import copy
 import logging
 import datetime
@@ -60,93 +57,6 @@ import shutil
 import userpaths
 import queue
 import threading
-
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-
-disable_homing = False
-
-############################################################################
-#---------------------Directory Initialization-----------------------------#
-############################################################################
-
-abspath = os.path.abspath(__file__)
-basename = os.path.basename(__file__)
-script_path = abspath[:-len(basename)]
-
-print(f"Script Location: {script_path}")
-
-os.chdir(script_path)
-# The version.txt file is in the same directory as the actual script, so making sure it can find the version file.
-
-global version
-global windows_machine 
-
-global num_cores
-
-
-
-windows_machine = False
-
-if os.name == "nt":
-    windows_machine = True
-    
-
-version = ""
-try:
-    with open("version.txt") as f:
-        version = f.readlines()[0].strip()
-except:
-    pass
-
-PROTOCOL_DATA_DIR_NAME = "ProtocolData"
-
-try:
-    with open("marker.lvpinstalled") as f:
-        lvp_installed = True
-except:
-    lvp_installed = False
-
-if windows_machine and (lvp_installed == True):
-    print("Machine-Type - WINDOWS")
-    documents_folder = userpaths.get_my_documents()
-    os.chdir(documents_folder)
-    lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
-
-    if os.path.exists(lvp_appdata):
-        pass
-    else:
-        os.mkdir(lvp_appdata)
-
-    source_path = lvp_appdata
-    print(f"Data Location: {source_path}")
-
-    os.chdir(source_path)
-
-    if os.path.exists(os.path.join(lvp_appdata, "data")):
-        pass
-    else:
-        shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
-
-    if os.path.exists(os.path.join(lvp_appdata, "logs")):
-        pass
-    else:
-        shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
-
-elif windows_machine and (lvp_installed == False):
-    print("Machine-Type - WINDOWS (not installed)")
-    source_path = script_path
-else:
-    print("Machine-Type - NON-WINDOWS")
-    source_path = script_path
-
-num_cores = os.cpu_count()
-print(f"Num cores identified as {num_cores}")
-
-
-############################################################################
-#--------------------------------------------------------------------------#
-############################################################################
-
 from lvp_logger import logger
 import tkinter
 from tkinter import filedialog, Tk
@@ -154,70 +64,13 @@ from plyer import filechooser
 
 import imagej.doctor
 import imagej
-imagej.doctor.checkup()
+
+
 import scyjava
 
 import modules.profiling_utils as profiling_utils
-global profiling_helper
-profiling_helper = None
 
-
-if getattr(sys, 'frozen', False):
-    import pyi_splash # type: ignore
-    pyi_splash.update_text("")
-
-# Deactivate kivy logging
-#os.environ["KIVY_NO_CONSOLELOG"] = "1"
-
-# Kivy configurations
-# Configurations must be set befor Kivy is imported
-from kivy.config import Config
-Config.set('input', 'mouse', 'mouse, disable_multitouch')
-Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
-Config.set('kivy', 'exit_on_escape', '0')
-
-# if fixed size at launch
-#Config.set('graphics', 'width', '1920')
-#Config.set('graphics', 'height', '1080')
-
-# if maximized at launch
-Config.set('graphics', 'window_state', 'maximized')
-
-import kivy
-kivy.require("2.1.0")
-
-from kivy.app import App
-from kivy.factory import Factory
-from kivy.graphics import RenderContext
-from kivy.input.motionevent import MotionEvent
-from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
-#from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
-from kivy.clock import Clock
-from kivy.metrics import dp
-#from kivy.animation import Animation
-from kivy.graphics import Line, Color, Rectangle, Ellipse
-from kivy_garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
-
-# User Interface
-from kivy.uix.accordion import AccordionItem
-from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.scatter import Scatter
-from kivy.uix.widget import Widget
-from kivy.uix.slider import Slider
-from kivy.uix.image import Image
-from kivy.uix.button import Button
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.popup import Popup
-from kivy.uix.label import Label
-
-# Video Related
-from kivy.graphics.texture import Texture
-
-# User Interface Custom Widgets
-from custom_widgets.range_slider import RangeSlider
-from custom_widgets.progress_popup import show_popup
-from custom_widgets.notification_popup import show_notification_popup
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
 #post processing
 from image_stitcher import image_stitcher
@@ -256,72 +109,225 @@ import lumascope_api
 import post_processing
 
 import image_utils
-import image_utils_kivy
 
-global lumaview
-global settings
-global cell_count_content
-global graphing_controls
+if __name__ == "__main__":
+    
 
-global max_exposure
+    disable_homing = False
 
-global wellplate_loader
-wellplate_loader = None
+    ############################################################################
+    #---------------------Directory Initialization-----------------------------#
+    ############################################################################
 
-global objective_helper
-objective_helper = None
+    abspath = os.path.abspath(__file__)
+    basename = os.path.basename(__file__)
+    script_path = abspath[:-len(basename)]
 
-global coordinate_transformer
-coordinate_transformer = None
+    print(f"Script Location: {script_path}")
 
-global ij_helper
-ij_helper = None
+    os.chdir(script_path)
+    # The version.txt file is in the same directory as the actual script, so making sure it can find the version file.
 
-global sequenced_capture_executor
-sequenced_capture_executor = None
+    global version
+    global windows_machine 
 
-global show_tooltips
-show_tooltips = False
-
-# global autofocus_executor
-# autofocus_executor = None
-
-global live_histo_setting
-live_histo_setting = False
-
-global last_save_folder
-last_save_folder = None
-global stage
-stage = None
-
-global ENGINEERING_MODE
-ENGINEERING_MODE = False
-
-global debug_counter
-debug_counter = 0
-
-global display_update_counter
-display_update_counter = 0
-
-start_str = time.strftime("%Y %m %d %H_%M_%S")
-start_str = str(int(round(time.time() * 1000)))
-
-global focus_round
-focus_round = 0
+    global num_cores
 
 
-global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor
-global motorboard_lock, ledboard_lock, camera_lock
+
+    windows_machine = False
+
+    if os.name == "nt":
+        windows_machine = True
+        
+
+    version = ""
+    try:
+        with open("version.txt") as f:
+            version = f.readlines()[0].strip()
+    except:
+        pass
+
+    PROTOCOL_DATA_DIR_NAME = "ProtocolData"
+
+    try:
+        with open("marker.lvpinstalled") as f:
+            lvp_installed = True
+    except:
+        lvp_installed = False
+
+    if windows_machine and (lvp_installed == True):
+        print("Machine-Type - WINDOWS")
+        documents_folder = userpaths.get_my_documents()
+        os.chdir(documents_folder)
+        lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
+
+        if os.path.exists(lvp_appdata):
+            pass
+        else:
+            os.mkdir(lvp_appdata)
+
+        source_path = lvp_appdata
+        print(f"Data Location: {source_path}")
+
+        os.chdir(source_path)
+
+        if os.path.exists(os.path.join(lvp_appdata, "data")):
+            pass
+        else:
+            shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
+
+        if os.path.exists(os.path.join(lvp_appdata, "logs")):
+            pass
+        else:
+            shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
+
+    elif windows_machine and (lvp_installed == False):
+        print("Machine-Type - WINDOWS (not installed)")
+        source_path = script_path
+    else:
+        print("Machine-Type - NON-WINDOWS")
+        source_path = script_path
+
+    num_cores = os.cpu_count()
+    print(f"Num cores identified as {num_cores}")
 
 
-#thread_pool = ThreadPoolExecutor() # Thread pool can be used for any IO that can be concurrent
-io_executor = SequentialIOExecutor(name="IO")    # Use for serial IO (Ie need something to complete before moving to the next) (mainly used for movement)
-camera_executor = SequentialIOExecutor(name="CAMERA")    # Can use to queue camera instructions immediately (may want to include LED instructions in here as well)
-temp_ij_executor = SequentialIOExecutor(name="IJ")   # Temporary fix for imageJ loading (should probably be on another process, but that is later down the line)
-protocol_executor = SequentialIOExecutor(name="PROTOCOL")
-file_io_executor = SequentialIOExecutor(name="FILE")
-autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
-#cpu_pool = ProcessPoolExecutor() 
+    ############################################################################
+    #--------------------------------------------------------------------------#
+    ############################################################################
+
+ 
+    imagej.doctor.checkup()
+
+    global profiling_helper
+    profiling_helper = None
+
+
+    if getattr(sys, 'frozen', False):
+        import pyi_splash # type: ignore
+        pyi_splash.update_text("")
+
+    # Deactivate kivy logging
+    #os.environ["KIVY_NO_CONSOLELOG"] = "1"
+
+    # Kivy configurations
+    # Configurations must be set befor Kivy is imported
+    from kivy.config import Config
+    Config.set('input', 'mouse', 'mouse, disable_multitouch')
+    Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
+    Config.set('kivy', 'exit_on_escape', '0')
+
+    # if fixed size at launch
+    #Config.set('graphics', 'width', '1920')
+    #Config.set('graphics', 'height', '1080')
+
+    # if maximized at launch
+    Config.set('graphics', 'window_state', 'maximized')
+
+    import kivy
+    kivy.require("2.1.0")
+
+    from kivy.app import App
+    from kivy.factory import Factory
+    from kivy.graphics import RenderContext
+    from kivy.input.motionevent import MotionEvent
+    from kivy.properties import StringProperty, ObjectProperty, BooleanProperty, ListProperty
+    #from kivy.properties import BoundedNumericProperty, ColorProperty, OptionProperty, NumericProperty
+    from kivy.clock import Clock
+    from kivy.metrics import dp
+    #from kivy.animation import Animation
+    from kivy.graphics import Line, Color, Rectangle, Ellipse
+    from kivy_garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
+
+    # User Interface
+    from kivy.uix.accordion import AccordionItem
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.floatlayout import FloatLayout
+    from kivy.uix.scatter import Scatter
+    from kivy.uix.widget import Widget
+    from kivy.uix.slider import Slider
+    from kivy.uix.image import Image
+    from kivy.uix.button import Button
+    from kivy.uix.scrollview import ScrollView
+    from kivy.uix.popup import Popup
+    from kivy.uix.label import Label
+
+    # Video Related
+    from kivy.graphics.texture import Texture
+
+    # User Interface Custom Widgets
+    from custom_widgets.range_slider import RangeSlider
+    from custom_widgets.progress_popup import show_popup
+    from custom_widgets.notification_popup import show_notification_popup
+
+
+    import image_utils_kivy
+
+    global lumaview
+    global settings
+    global cell_count_content
+    global graphing_controls
+
+    global max_exposure
+
+    global wellplate_loader
+    wellplate_loader = None
+
+    global objective_helper
+    objective_helper = None
+
+    global coordinate_transformer
+    coordinate_transformer = None
+
+    global ij_helper
+    ij_helper = None
+
+    global sequenced_capture_executor
+    sequenced_capture_executor = None
+
+    global show_tooltips
+    show_tooltips = False
+
+    # global autofocus_executor
+    # autofocus_executor = None
+
+    global live_histo_setting
+    live_histo_setting = False
+
+    global last_save_folder
+    last_save_folder = None
+    global stage
+    stage = None
+
+    global ENGINEERING_MODE
+    ENGINEERING_MODE = False
+
+    global debug_counter
+    debug_counter = 0
+
+    global display_update_counter
+    display_update_counter = 0
+
+    start_str = time.strftime("%Y %m %d %H_%M_%S")
+    start_str = str(int(round(time.time() * 1000)))
+
+    global focus_round
+    focus_round = 0
+
+
+    global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor
+    global motorboard_lock, ledboard_lock, camera_lock
+
+
+    #thread_pool = ThreadPoolExecutor() # Thread pool can be used for any IO that can be concurrent
+    io_executor = SequentialIOExecutor(name="IO")    # Use for serial IO (Ie need something to complete before moving to the next) (mainly used for movement)
+    camera_executor = SequentialIOExecutor(name="CAMERA")    # Can use to queue camera instructions immediately (may want to include LED instructions in here as well)
+    temp_ij_executor = SequentialIOExecutor(name="IJ")   # Temporary fix for imageJ loading (should probably be on another process, but that is later down the line)
+    protocol_executor = SequentialIOExecutor(name="PROTOCOL")
+    file_io_executor = SequentialIOExecutor(name="FILE")
+    autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
+    #cpu_pool = ProcessPoolExecutor() 
 
 
 def set_last_save_folder(dir: pathlib.Path | None):
@@ -1775,53 +1781,54 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.ids['viewer_id'].scale = scale
         self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))
 
-# -----------------------------------------------------------------------------
-# Shader code
-# Based on code from the kivy example Live Shader Editor found at:
-# kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
-# -----------------------------------------------------------------------------
-fs_header = '''
-#ifdef GL_ES
-precision highp float;
-#endif
+if __name__ == "__main__":
+    # -----------------------------------------------------------------------------
+    # Shader code
+    # Based on code from the kivy example Live Shader Editor found at:
+    # kivy.org/doc/stable/examples/gen__demo__shadereditor__main__py.html
+    # -----------------------------------------------------------------------------
+    fs_header = '''
+    #ifdef GL_ES
+    precision highp float;
+    #endif
 
-/* Outputs from the vertex shader */
-varying vec4 frag_color;
-varying vec2 tex_coord0;
+    /* Outputs from the vertex shader */
+    varying vec4 frag_color;
+    varying vec2 tex_coord0;
 
-/* uniform texture samplers */
-uniform sampler2D texture0;
+    /* uniform texture samplers */
+    uniform sampler2D texture0;
 
-/* fragment attributes
-attribute float red_gain;
-attribute float green_gain;
-attribute float blue_gain; */
+    /* fragment attributes
+    attribute float red_gain;
+    attribute float green_gain;
+    attribute float blue_gain; */
 
-/* custom one */
-uniform vec2 resolution;
-uniform float time;
-uniform vec4 black_point;
-uniform vec4 white_point;
-'''
+    /* custom one */
+    uniform vec2 resolution;
+    uniform float time;
+    uniform vec4 black_point;
+    uniform vec4 white_point;
+    '''
 
-vs_header = '''
-#ifdef GL_ES
-precision highp float;
-#endif
+    vs_header = '''
+    #ifdef GL_ES
+    precision highp float;
+    #endif
 
-/* Outputs to the fragment shader */
-varying vec4 frag_color;
-varying vec2 tex_coord0;
+    /* Outputs to the fragment shader */
+    varying vec4 frag_color;
+    varying vec2 tex_coord0;
 
-/* vertex attributes */
-attribute vec2     vPosition;
-attribute vec2     vTexCoords0;
+    /* vertex attributes */
+    attribute vec2     vPosition;
+    attribute vec2     vTexCoords0;
 
-/* uniform variables */
-uniform mat4       modelview_mat;
-uniform mat4       projection_mat;
-uniform vec4       color;
-'''
+    /* uniform variables */
+    uniform mat4       modelview_mat;
+    uniform mat4       projection_mat;
+    uniform vec4       color;
+    '''
 
 class ShaderViewer(Scatter):
     black = ObjectProperty(0.)
@@ -1945,7 +1952,9 @@ void main (void) {
     def on_vs(self, instance, value):
         self.canvas.shader.vs = value
 
-Factory.register('ShaderViewer', cls=ShaderViewer)
+
+if __name__ == "__main__":
+    Factory.register('ShaderViewer', cls=ShaderViewer)
 
 
 class AccordionItemXyStageControl(AccordionItem):
@@ -7491,10 +7500,11 @@ def inti_ij():
             global ij_helper
             ij_helper = future.result()
 
-# Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
-# For some reason kivy was calling a Python 2 method on newer Python 3 List objects, causing exceptions that would accumulate
-# These exceptions were CONSTANT because they were happening on each Main Display refresh and Histogram refresh
-from kivy.properties import ObservableReferenceList
+if __name__ == "__main__":
+    # Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
+    # For some reason kivy was calling a Python 2 method on newer Python 3 List objects, causing exceptions that would accumulate
+    # These exceptions were CONSTANT because they were happening on each Main Display refresh and Histogram refresh
+    from kivy.properties import ObservableReferenceList
 
 
 
@@ -7510,9 +7520,13 @@ def patched_setslice(self, i, j, sequence, **kwargs):
         # If for some reason we get another error again, bite the bullet 
         return original_setslicemethod(self, i, j, sequence)
 
-
+#endregion
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
+
+
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
     # Replace the original method with our patched version
