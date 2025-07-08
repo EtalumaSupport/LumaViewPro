@@ -289,6 +289,9 @@ if __name__ == "__main__":
     global show_tooltips
     show_tooltips = False
 
+    global protocol_running_global
+    protocol_running_global = False
+
     # global autofocus_executor
     # autofocus_executor = None
 
@@ -377,13 +380,17 @@ def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
 def scope_leds_off():
     global lumaview
 
+    if protocol_running_global:
+        return
+
     if not lumaview.scope.led:
         logger.warning('[LVP Main  ] LED controller not available.')
         return
     
-    lumaview.scope.leds_off()
+    camera_executor.put(IOTask(action=lumaview.scope.leds_off, callback=_handle_ui_for_leds_off))
+    #lumaview.scope.leds_off()
     logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-    _handle_ui_for_leds_off()
+    #_handle_ui_for_leds_off()
 
 
 def is_image_saving_enabled() -> bool:
@@ -3383,7 +3390,8 @@ class ImageSettings(BoxLayout):
         logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        scope_display.stop()
+        if not scope_display.play:
+            scope_display.stop()
 
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_imagesettings'].state == 'normal':
@@ -3396,8 +3404,8 @@ class ImageSettings(BoxLayout):
         else:
             self.pos = lumaview.width - self.settings_width, 0
  
-        if scope_display.play == True:
-            scope_display.start()
+        # if scope_display.play == True:
+        #     scope_display.start()
 
     def update_transmitted(self):
         for layer in common_utils.get_transmitted_layers():
@@ -3668,6 +3676,9 @@ class VerticalControl(BoxLayout):
 
 
     def set_position(self, pos):
+        if protocol_running_global:
+            return
+        
         logger.info('[LVP Main  ] VerticalControl.set_position()')
         try:
             self._next_pos = float(pos)
@@ -4874,18 +4885,25 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _reset_run_autofocus_scan_button(self, **kwargs):
+        global protocol_running_global
+        protocol_running_global = True
+
         self.ids['run_autofocus_btn'].state = 'normal'
         self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
         stage.set_motion_capability(True)
 
 
     def _reset_run_scan_button(self, **kwargs):
+        global protocol_running_global
+        protocol_running_global = False
         self.ids['run_scan_btn'].state = 'normal'
         self.ids['run_scan_btn'].text = 'Run One Scan'
         stage.set_motion_capability(True)
 
     
     def _reset_run_protocol_button(self, **kwargs):
+        global protocol_running_global
+        protocol_running_global = False
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
         self.ids['run_protocol_btn'].background_down = 'atlas://data/images/defaulttheme/button_pressed'
@@ -4909,6 +4927,8 @@ class ProtocolSettings(CompositeCapture):
         focused_protocol = kwargs['protocol']
         self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
 
+    def debug_func(self):
+        logger.error(f"DEBUG VAL: {lumaview.scope.get_led_status()}")
 
     def run_autofocus_scan_from_ui(self):
         logger.info('[LVP Main  ] ProtocolSettings.run_autofocus_scan_from_ui()')
@@ -4982,6 +5002,8 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _scan_run_complete(self, **kwargs):
+        global protocol_running_global
+        protocol_running_global = False
         self._reset_run_scan_button()
         create_hyperstacks_if_needed()
         live_histo_reverse()
@@ -4995,6 +5017,9 @@ class ProtocolSettings(CompositeCapture):
         trigger_source = 'scan'
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
+
+        global protocol_running_global
+        protocol_running_global = True
 
         # Disable ability for user to move stage manually
         stage.set_motion_capability(False)
@@ -5040,6 +5065,8 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _protocol_run_complete(self, **kwargs):
+        global protocol_running_global
+        protocol_running_global = False
         self._reset_run_protocol_button()
         live_histo_reverse()
         create_hyperstacks_if_needed()
@@ -5053,6 +5080,9 @@ class ProtocolSettings(CompositeCapture):
         trigger_source = 'protocol'
         run_complete_func = self._protocol_run_complete
         run_not_started_func = self._reset_run_protocol_button
+
+        global protocol_running_global
+        protocol_running_global = True
 
         stage.set_motion_capability(False)
 
@@ -6486,6 +6516,7 @@ class LayerControl(BoxLayout):
 
 
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
+        
         logger.info('[LVP Main  ] LayerControl.apply_settings()')
         global lumaview
         # global gain_vals
@@ -6497,7 +6528,8 @@ class LayerControl(BoxLayout):
 
         # Queue IO task and update UI after completing IO
         if update_led:
-            self.update_led_state(apply_settings=False)
+            if not protocol_running_global:
+                self.update_led_state(apply_settings=False)
 
         if self.ids['enable_led_btn'].state == 'down': # if the button is down
             for layer in common_utils.get_layers():
@@ -6512,8 +6544,9 @@ class LayerControl(BoxLayout):
         exposure = settings[self.layer]['exp']
         gain = settings[self.layer]['gain']
 
-        camera_executor.put(IOTask(action=lumaview.scope.set_gain, args=(gain)))
-        camera_executor.put(IOTask(action=lumaview.scope.set_exposure_time, args=(exposure)))
+        if not protocol_running_global:
+            camera_executor.put(IOTask(action=lumaview.scope.set_gain, args=(gain)))
+            camera_executor.put(IOTask(action=lumaview.scope.set_exposure_time, args=(exposure)))
         #lumaview.scope.set_gain(gain)
         #lumaview.scope.set_exposure_time(exposure)
 
@@ -6522,16 +6555,17 @@ class LayerControl(BoxLayout):
         auto_gain_enabled = settings[self.layer]['auto_gain']
 
         if not ignore_auto_gain:
-            autogain_settings = get_auto_gain_settings()
-            camera_executor.put(IOTask(
-                action=lumaview.scope.set_auto_gain,
-                args=(auto_gain_enabled),
-                kwargs={
-                    "settings": autogain_settings
-                }
-            )
-            )
-            #lumaview.scope.set_auto_gain(auto_gain_enabled, settings=autogain_settings)
+            if not protocol_running_global:
+                autogain_settings = get_auto_gain_settings()
+                camera_executor.put(IOTask(
+                    action=lumaview.scope.set_auto_gain,
+                    args=(auto_gain_enabled),
+                    kwargs={
+                        "settings": autogain_settings
+                    }
+                )
+                )
+                #lumaview.scope.set_auto_gain(auto_gain_enabled, settings=autogain_settings)
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
@@ -7170,7 +7204,8 @@ class LumaViewProApp(App):
             autofocus_executor=autofocus_executor,
             io_executor=io_executor,
             protocol_executor=protocol_executor,
-            file_io_executor=file_io_executor
+            file_io_executor=file_io_executor,
+            camera_executor=camera_executor
         )
         
 

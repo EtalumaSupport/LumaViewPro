@@ -216,7 +216,7 @@ class Lumascope():
         return self.led.get_led_states()
     
 
-    def led_on(self, channel, mA):
+    def led_on(self, channel, mA, block=False):
         """ LED BOARD FUNCTIONS
         Turn on LED at channel number at mA power """
         if not self.led: return
@@ -224,7 +224,7 @@ class Lumascope():
         if type(channel) == str:
             channel = self.color2ch(color=channel)
 
-        self.led.led_on(channel, mA)
+        self.led.led_on(channel, mA, block=block)
 
     def led_off(self, channel):
         """ LED BOARD FUNCTIONS
@@ -241,6 +241,14 @@ class Lumascope():
         Turn off all LEDs """
         if not self.led: return
         self.led.leds_off()
+
+    def get_led_status(self):
+        if not self.led: return
+        return self.led.get_status()
+    
+    def wait_until_led_on(self):
+        if not self.led: return
+        self.led.wait_until_on()
 
     def ch2color(self, color):
         """ LED BOARD FUNCTIONS

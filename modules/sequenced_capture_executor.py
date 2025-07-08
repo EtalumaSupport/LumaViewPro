@@ -68,6 +68,7 @@ class SequencedCaptureExecutor:
         io_executor: SequentialIOExecutor,
         protocol_executor: SequentialIOExecutor,
         file_io_executor: SequentialIOExecutor,
+        camera_executor: SequentialIOExecutor,
         autofocus_executor: AutofocusExecutor | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
@@ -77,6 +78,7 @@ class SequencedCaptureExecutor:
         self.protocol_executor = protocol_executor
         self.file_io_executor = file_io_executor
         self.file_io_process_pool = ProcessPoolExecutor(max_workers=1)
+        self.camera_executor = camera_executor
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -91,7 +93,7 @@ class SequencedCaptureExecutor:
         self._reset_vars()
         self._grease_redistribution_done = True
         
-        self.sleep_time = 0.02
+        #self.sleep_time = 0.02
 
 
     def _reset_vars(
@@ -111,6 +113,7 @@ class SequencedCaptureExecutor:
         self._target_x_pos = -1
         self._target_y_pos = -1
         self._target_z_pos = -1
+        
 
 
     @staticmethod
@@ -294,6 +297,8 @@ class SequencedCaptureExecutor:
         if leds_state_at_end not in ("off", "return_to_original",):
             raise ValueError(f"Unsupported value for leds_state_at_end: {leds_state_at_end}")
         
+        
+        
         # Not IO
         self._original_led_states = self._scope.get_led_states()
         self._original_autofocus_states = self.get_initial_autofocus_states()
@@ -331,6 +336,7 @@ class SequencedCaptureExecutor:
         
         self._run_trigger_source = run_trigger_source
         self._run_in_progress = True
+        self.camera_executor.disable()
         self.protocol_executor.protocol_start()
         self._io_executor.protocol_start()
         self.file_io_executor.protocol_start()
@@ -437,7 +443,7 @@ class SequencedCaptureExecutor:
         )
         # Internally uses io_executor
         #TODO Undo threading
-        self._led_on(color=step['Color'], illumination=step['Illumination'])
+        self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
 
         if not step['Auto_Gain']:
             #self._io_executor.protocol_put(IOTask(action=self._scope.set_gain, args=(step['Gain'])))
@@ -693,10 +699,11 @@ class SequencedCaptureExecutor:
             self._scope.leds_off()
 
     
-    def _led_on(self, color: str, illumination: float):
+    def _led_on(self, color: str, illumination: float, block: bool=True):
         self._scope.led_on(
             channel=self._scope.color2ch(color),
             mA=illumination,
+            block=block
         )
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
@@ -742,7 +749,7 @@ class SequencedCaptureExecutor:
             self._leds_off()
             for color, color_data in self._original_led_states.items():
                 if color_data['enabled']:
-                    self._led_on(color=color, illumination=color_data['illumination'])
+                    self._led_on(color=color, illumination=color_data['illumination'], block=True)
         else:
             raise NotImplementedError(f"Unsupported LEDs state at end value: {self._leds_state_at_end}")
         
@@ -769,6 +776,7 @@ class SequencedCaptureExecutor:
         self._io_executor.protocol_end()
         self.file_io_executor.protocol_end()
         self.protocol_executor.protocol_end()
+        self.camera_executor.enable()
 
         self._io_executor.clear_protocol_pending()
         self.protocol_executor.clear_protocol_pending()
@@ -817,7 +825,7 @@ class SequencedCaptureExecutor:
 
         # Illuminate
         if self._scope.led:
-            self._led_on(color=step['Color'], illumination=step['Illumination'])
+            self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
             logger.info(f"[{self.LOGGER_NAME} ] scope.led_on({step['Color']}, {step['Illumination']})")
         else:
             logger.warning('LED controller not available.')
@@ -825,7 +833,7 @@ class SequencedCaptureExecutor:
         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
 
-        time.sleep(2*step['Exposure']/1000+0.2)
+        #time.sleep(2*step['Exposure']/1000+0.2)
         earliest_image_ts = datetime.datetime.now()
         if 'update_scope_display' in self._callbacks:
             self._callbacks['update_scope_display']()
@@ -941,7 +949,7 @@ class SequencedCaptureExecutor:
                 # ))
 
             else:
-                time.sleep(self.sleep_time)
+                #time.sleep(self.sleep_time)
                 captured_image = self._scope.get_image(
                     force_to_8bit=not use_full_pixel_depth,
                     earliest_image_ts=earliest_image_ts,

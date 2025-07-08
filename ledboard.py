@@ -194,6 +194,17 @@ class LEDBoard:
         command = 'LEDS_ENF'
         self.exchange_command(command)
 
+    def get_status(self):
+        command = 'STATUS'
+        return self.exchange_command(command)
+    
+    def wait_until_on(self):
+        # Waits in loop until ledboard confirms that an LED is on (not turned off)
+
+        status = self.get_status()
+        while "STATUS" not in status:
+            status = self.get_status()
+
     def get_led_ma(self, color):
         return self.led_ma.get(color, -1)
     
@@ -224,13 +235,27 @@ class LEDBoard:
         return states
         
     
-    def led_on(self, channel, mA):
-        """ Turn on LED at channel number at mA power """
+    def led_on(self, channel, mA, block=False):
+        """ 
+        Turn on LED at channel number at mA power 
+        If block=True, verify correct callback before returning
+        """
         color = self.ch2color(channel=channel)
         self.led_ma[color] = mA
 
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
-        self.exchange_command(command)
+        response = self.exchange_command(command)
+
+        def check_each_substr(list, result):
+            for sub_str in list:
+                if sub_str not in result:
+                    return False
+            return True
+        
+        if block:
+            while command not in response and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response):
+                response = self.exchange_command(command)
+
 
     def led_off(self, channel):
         """ Turn off LED at channel number """
