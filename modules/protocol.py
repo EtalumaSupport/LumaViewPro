@@ -599,7 +599,7 @@ class Protocol:
 
                 for zstack_slice, zstack_position_offset in zstack_position_offsets.items():
                     for layer_name, layer_config in layer_configs.items():
-                        if layer_config['acquire'] == None:
+                        if layer_config['acquire'] not in ['image', 'video']:
                             continue
                         
                         x = round(pos['x'] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates

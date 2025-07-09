@@ -3283,6 +3283,8 @@ class ImageSettings(BoxLayout):
 
 
     def _hide_lumi_layer_control(self):
+        if settings:
+            settings['Lumi']['acquire'] = None
         if self._accordion_item_lumi_control_visible:
             self._accordion_item_lumi_control.collapse = True
             self._accordion_item_lumi_control_visible = False
@@ -3303,6 +3305,8 @@ class ImageSettings(BoxLayout):
 
 
     def _hide_df_layer_control(self):
+        if settings:
+            settings['DF']['acquire'] = None
         if self._accordion_item_df_control_visible:
             self._accordion_item_df_control.collapse = True
             self._accordion_item_df_control_visible = False
@@ -3325,10 +3329,15 @@ class ImageSettings(BoxLayout):
             
 
     def _hide_fluorescence_layer_controls(self):
+        if settings:
+            settings['Red']['acquire'] = None
+            settings['Green']['acquire'] = None
+            settings['Blue']['acquire'] = None
         if self._accordion_item_fluorescence_control_visible:
             self._accordion_item_blue_control.collapse = True
             self._accordion_item_green_control.collapse = True
             self._accordion_item_red_control.collapse = True
+
             self._accordion_item_fluorescence_control_visible = False
             self.ids['accordion_id'].remove_widget(self._accordion_item_blue_control)
             self.ids['accordion_id'].remove_widget(self._accordion_item_green_control)
@@ -3390,8 +3399,8 @@ class ImageSettings(BoxLayout):
         logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        if not scope_display.play:
-            scope_display.stop()
+        
+        scope_display.stop()
 
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_imagesettings'].state == 'normal':
@@ -3404,8 +3413,8 @@ class ImageSettings(BoxLayout):
         else:
             self.pos = lumaview.width - self.settings_width, 0
  
-        # if scope_display.play == True:
-        #     scope_display.start()
+        if scope_display.play == True:
+            scope_display.start()
 
     def update_transmitted(self):
         for layer in common_utils.get_transmitted_layers():
