@@ -69,6 +69,7 @@ class SequencedCaptureExecutor:
         protocol_executor: SequentialIOExecutor,
         file_io_executor: SequentialIOExecutor,
         camera_executor: SequentialIOExecutor,
+        autofocus_io_executor: SequentialIOExecutor,
         autofocus_executor: AutofocusExecutor | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
@@ -79,6 +80,7 @@ class SequencedCaptureExecutor:
         self.file_io_executor = file_io_executor
         self.file_io_process_pool = ProcessPoolExecutor(max_workers=1)
         self.camera_executor = camera_executor
+        self.autofocus_io_executor = autofocus_io_executor
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -441,8 +443,7 @@ class SequencedCaptureExecutor:
             state=step['Auto_Gain'],
             settings=self._autogain_settings,
         )
-        # Internally uses io_executor
-        #TODO Undo threading
+
         self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
 
         if not step['Auto_Gain']:
@@ -479,6 +480,9 @@ class SequencedCaptureExecutor:
         if step['Auto_Focus'] and self._autofocus_executor.in_progress():
             return
         
+        # if step['Auto_Focus'] and not self._autofocus_executor.in_progress():
+        #     self._leds_off()
+        
         # Check if autogain has time-finished after auto-focus so that they can run in parallel
         if step['Auto_Gain'] and self._auto_gain_countdown > 0:
             return
@@ -500,6 +504,7 @@ class SequencedCaptureExecutor:
 
         if step["Auto_Focus"]:
             self._autofocus_count += 1
+
         if remaining_scans > 0:
             if not self._disable_saving_artifacts:
 
@@ -687,16 +692,13 @@ class SequencedCaptureExecutor:
 
 
     def _leds_off(self):
-        #self._scope.leds_off()
+        self._scope.leds_off()
         if 'leds_off' in self._callbacks:
             # self._io_executor.protocol_put(IOTask(
             #     action=self._scope.leds_off,
             #     callback=self._callbacks['leds_off']
             # ))
             self._callbacks['leds_off']()
-        else:
-            #self._io_executor.protocol_put(action=self._scope.leds_off)
-            self._scope.leds_off()
 
     
     def _led_on(self, color: str, illumination: float, block: bool=True):
@@ -756,6 +758,9 @@ class SequencedCaptureExecutor:
         # Always return autofocus states to intial
         for layer, layer_data in self._original_autofocus_states.items():
             settings[layer]["autofocus"] = layer_data
+            if self._callbacks['reset_autofocus_btns']:
+                # Updates autofocus buttons to their prior states
+                self._callbacks['reset_autofocus_btns']()
 
         if not self._disable_saving_artifacts:
             # Queue to close protocol execution record (should execute after last file/protocol record written)
@@ -776,6 +781,7 @@ class SequencedCaptureExecutor:
         self._io_executor.protocol_end()
         self.file_io_executor.protocol_end()
         self.protocol_executor.protocol_end()
+        self.autofocus_io_executor.protocol_end()
         self.camera_executor.enable()
 
         self._io_executor.clear_protocol_pending()

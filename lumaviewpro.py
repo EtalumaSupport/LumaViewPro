@@ -330,6 +330,7 @@ if __name__ == "__main__":
     protocol_executor = SequentialIOExecutor(name="PROTOCOL")
     file_io_executor = SequentialIOExecutor(name="FILE")
     autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
+    scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
     #cpu_pool = ProcessPoolExecutor() 
 
 
@@ -358,6 +359,10 @@ def focus_log(positions, values):
         file.close()
         focus_round += 1
 
+def update_autofocus_selection_after_protocol():
+    for layer in common_utils.get_layers():
+        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+        layer_obj.init_autofocus()
 
 def _handle_ui_for_leds_off():
     global lumaview
@@ -1098,21 +1103,20 @@ class ScopeDisplay(Image):
             self.source = "./data/icons/camera to USB.png"
             return
 
-        image = lumaview.scope.get_image(force_to_8bit=True)
+        # Likely not an IO call as image will be stored in buffer
+        #image = lumaview.scope.get_image(force_to_8bit=True)
+        image = lumaview.scope.get_image_from_buffer(force_to_8bit=True)
         if (image is False) or (image.size == 0):
             return
-        
+
         if display_update_counter % 10 == 0:
             display_update_counter = 0
 
             layer, layer_config = get_active_layer_config()
+
             if True == layer_config['auto_gain']:
-                actual_gain = lumaview.scope.camera.get_gain()
-                actual_exp = lumaview.scope.camera.get_exposure_t()
-                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-                layer_obj.ids['gain_slider'].value = actual_gain
-                layer_obj.ids['exp_slider'].value = actual_exp
-            
+                camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(layer)))
+                
 
         if ENGINEERING_MODE == True:
             debug_counter += 1
@@ -1167,7 +1171,16 @@ class ScopeDisplay(Image):
         if self.record == True:
             lumaview.live_capture()
 
+    def get_true_gain_exp(self, layer):
+        actual_gain = lumaview.scope.camera.get_gain()
+        actual_exp = lumaview.scope.camera.get_exposure_t()
+        Clock.schedule_once(lambda dt: self.update_auto_gain_ui(layer, actual_gain, actual_exp), 0)
 
+    def update_auto_gain_ui(self, layer, actual_gain, actual_exp):
+        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+        layer_obj.ids['gain_slider'].value = actual_gain
+        layer_obj.ids['exp_slider'].value = actual_exp
+    
 # -------------------------------------------------------------------------
 # COMPOSITE CAPTURE FloatLayout with shared capture capabilities
 # -------------------------------------------------------------------------
@@ -3913,9 +3926,10 @@ class VerticalControl(BoxLayout):
             'run_complete': run_complete_func,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
+            'reset_autofocus_btns': update_autofocus_selection_after_protocol,
         }
 
-        protocol_executor.protocol_put(IOTask(
+        protocol_executor.put(IOTask(
             action=sequenced_capture_executor.run,
             kwargs={
                 "protocol":autofocus_sequence,
@@ -4501,9 +4515,11 @@ class ProtocolSettings(CompositeCapture):
         self._protocol = protocol
 
         stage.set_protocol_steps(df=self._protocol.steps())
+        def temp(): 
+            self.ids['protocol_filename'].text = ''
 
-        settings['protocol']['filepath'] = ''        
-        self.ids['protocol_filename'].text = ''
+        settings['protocol']['filepath'] = ''
+        Clock.schedule_once(lambda dt: temp(), 0)
         self.curr_step = 0
         self.go_to_step(protocol=False)
 
@@ -4592,7 +4608,7 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['labware'] = labware
         self.ids['labware_spinner'].text = settings['protocol']['labware']
 
-        # Set all layers to acquire = None
+        # Set all layers to acquire as set in loaded protocol
         for layer in common_utils.get_layers():
             settings[layer]['acquire'] = None
         reset_acquire_ui()
@@ -4601,8 +4617,8 @@ class ProtocolSettings(CompositeCapture):
         stage.set_protocol_steps(df=self._protocol.steps())
 
         self.update_step_ui()
-        if lumaview.scope.has_xyhomed():
-            self.go_to_step(protocol=False)
+        #if lumaview.scope.has_xyhomed():
+        self.go_to_step(protocol=False)
     
 
     def get_default_name_for_curr_step(self):
@@ -4895,7 +4911,7 @@ class ProtocolSettings(CompositeCapture):
 
     def _reset_run_autofocus_scan_button(self, **kwargs):
         global protocol_running_global
-        protocol_running_global = True
+        protocol_running_global = False
 
         self.ids['run_autofocus_btn'].state = 'normal'
         self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
@@ -4981,6 +4997,7 @@ class ProtocolSettings(CompositeCapture):
             'run_complete': self._autofocus_run_complete_callback,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
+            'reset_autofocus_btns': update_autofocus_selection_after_protocol,
         }
 
         #TODO THREAD
@@ -5151,6 +5168,9 @@ class ProtocolSettings(CompositeCapture):
         self,
         **kwargs,
     ):
+        if not protocol_running_global:
+            return
+        
         remaining_scans = kwargs['remaining_scans']
         scan_interval = kwargs['interval']
         remaining_duration = remaining_scans * scan_interval
@@ -5201,6 +5221,7 @@ class ProtocolSettings(CompositeCapture):
                 'update_step_number': _update_step_number_callback,
                 'go_to_step': go_to_step,
                 'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
             }
         )
 
@@ -6235,6 +6256,8 @@ class LayerControl(BoxLayout):
         self.init_autofocus()
 
     def ill_slider(self):
+        if protocol_running_global:
+            return
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = self.ids['ill_slider'].value
         settings[self.layer]['ill'] = illumination
@@ -6370,6 +6393,8 @@ class LayerControl(BoxLayout):
             return
         
     def gain_slider(self):
+        if protocol_running_global:
+            return
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = self.ids['gain_slider'].value
         settings[self.layer]['gain'] = gain
@@ -6414,6 +6439,8 @@ class LayerControl(BoxLayout):
         self.ids['composite_threshold_text'].text = str(composite_threshold)
 
     def exp_slider(self):
+        if protocol_running_global:
+            return
         logger.info('[LVP Main  ] LayerControl.exp_slider()')
         exposure = self.ids['exp_slider'].value
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
@@ -6722,6 +6749,7 @@ class ZStack(CompositeCapture):
             'run_complete': run_complete_func,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
+            'reset_autofocus_btns': update_autofocus_selection_after_protocol,
         }
 
         parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
@@ -7183,6 +7211,7 @@ class LumaViewProApp(App):
         protocol_executor.start()
         file_io_executor.start()
         autofocus_thread_executor.start()
+        scope_display_thread_executor.start()
         
         #ij_helper = imagej_helper.ImageJHelper()
 
@@ -7214,7 +7243,8 @@ class LumaViewProApp(App):
             io_executor=io_executor,
             protocol_executor=protocol_executor,
             file_io_executor=file_io_executor,
-            camera_executor=camera_executor
+            camera_executor=camera_executor,
+            autofocus_io_executor=autofocus_thread_executor
         )
         
 
@@ -7257,6 +7287,9 @@ class LumaViewProApp(App):
 
         if autofocus_thread_executor is not None:
             autofocus_thread_executor.shutdown(wait=False)
+
+        if scope_display_thread_executor is not None:
+            scope_display_thread_executor.shutdown(wait=False)
 
         global lumaview
 

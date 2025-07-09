@@ -294,8 +294,8 @@ class Lumascope():
     ):
         """ CAMERA FUNCTIONS
         Grab and return image from camera
-        # If use_host_buffer set to true, it will return the results already stored in the
-        # host array. It will not wait for the next capture.
+        # Will only force new capture if force_new_capture set to True
+        # Else, will return last captured image from buffer array
         """
     
         tmp_buffer = []
@@ -383,7 +383,32 @@ class Lumascope():
             self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
 
         return self.image_buffer
+    
+    def get_image_from_buffer(
+        self,
+        force_to_8bit: bool = True
+        ):
+        grab_status, grab_image_ts = self.camera.grab()
+        if grab_status == True:
+            tmp = self.camera.array.copy()
+        else:
+            return False
 
+        use_scale_bar = self._scale_bar['enabled']
+        if self._objective is None:
+            use_scale_bar = False
+
+        if use_scale_bar:
+            tmp = image_utils.add_scale_bar(
+                image=tmp,
+                objective=self._objective,
+                binning_size=self._binning_size,
+            )
+
+        if force_to_8bit and tmp.dtype != np.uint8:
+            tmp = image_utils.convert_12bit_to_8bit(tmp)
+
+        return tmp
         
     def get_next_save_path(self, path):
         """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH

@@ -345,7 +345,7 @@
 		        value_track_color: 51/255, 181/255, 229/255, 1
 		        value_track_width: '5dp'
 		        disabled: False
-				on_value: root.set_position(self.value)
+				on_release: root.set_position(self.value)
 			Label:
 				size_hint_y: None
 				height: '15dp'
@@ -1293,7 +1293,7 @@
 					
 			ToggleButton:
 				id: run_autofocus_btn
-				text: 'Scan and Autofocus All Steps'
+				text: 'Autofocus All Steps'
 				tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
 				size_hint_y: None
 				height: '30dp'

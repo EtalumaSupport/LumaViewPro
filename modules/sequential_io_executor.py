@@ -106,7 +106,8 @@ class SequentialIOExecutor:
     def __init__(self, max_workers: int=1, name: str=None):
         self.queue = queue.Queue()
         self.protocol_queue = queue.Queue()
-        self.protocol_running = False
+        self.protocol_running = threading.Event()
+        self.protocol_finish = threading.Event()
         self.name = name
         if name is not None:
             executor_name = name + "_" + "WORKER"
@@ -157,12 +158,16 @@ class SequentialIOExecutor:
         return fut
 
     def protocol_put(self, task: IOTask):
+        """
+        Adds an IOTask to the Protocol Execution Queue
+        NOTE: Protocol Execution Queue only executes when protocol is in session:
+        ie protocol_start has been called.
+        """
         if self._disable:
             return None
         
-        with self.protocol_running_lock:
-            if not self.protocol_running:
-                return None
+        if not self.protocol_running.is_set():
+            return None
         
         fut = Future()
         self.caller_futures[task] = fut
@@ -171,14 +176,21 @@ class SequentialIOExecutor:
         return fut
 
     def protocol_start(self):
-        with self.protocol_running_lock:
-            self.protocol_running = True
+
+        self.protocol_running.set()
         logger.info(f"{self.name} Protocol Started")
 
     def protocol_end(self):
-        with self.protocol_running_lock:
-            self.protocol_running = False
+
+        self.protocol_running.clear()
         logger.info(f"{self.name} Protocol Ended")
+
+    def protocol_finish_then_end(self):
+        self.protocol_finish.set()
+        logger.info(f"{self.name} set to complete protocol then end")
+
+    def is_protocol_running(self):
+        return self.protocol_running.is_set()
 
     def wait_for_task(self, task: IOTask, timeout: float):
         if task not in self.caller_futures:
@@ -198,35 +210,35 @@ class SequentialIOExecutor:
                 self.blocker.wait()
             try:
                 try:
-                    with self.protocol_running_lock:
-                        if self.protocol_running:
-                            task = self.protocol_queue.get(block=True, timeout=0.2)
-                            task.protocol = True
-                        elif not self.protocol_queue.empty():
-                            # Protocol is not running and there are still items in the protocol queue
-                            # Clear the queue
-                            self.clear_protocol_pending()
-                            continue
-                        else:
-                            task = self.queue.get(block=True, timeout=0.2)
-                            task.protocol = False
+                    if self.protocol_running.is_set() or self.protocol_finish.is_set():
+                        task = self.protocol_queue.get(block=True, timeout=0.2)
+                        task.protocol = True
+                    elif not self.protocol_queue.empty():
+                        # Protocol is not running and there are still items in the protocol queue
+                        # Clear the queue
+                        self.clear_protocol_pending()
+                        continue
+                    else:
+                        task = self.queue.get(block=True, timeout=0.2)
+                        task.protocol = False
                 except queue.Empty:
                     if self.pending_shutdown:
                         return
+                    if self.protocol_finish.is_set():
+                        self.protocol_finish.clear()
                     continue
-                with self.protocol_running_lock:
-                    if self.protocol_running:
-                        future = self.executor.submit(task.run)
-                        future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
-                        self.running_task = task
-                        self.executed_protocol_tasks.append(task)
-                    else:
-                        if self.protocol_queue.not_empty:
-                            self.protocol_queue.queue.clear()
-                        future = self.executor.submit(task.run)
-                        future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
-                        self.running_task = task
-                        self.executed_tasks.append(task)
+                if self.protocol_running.is_set() or self.protocol_finish.is_set():
+                    future = self.executor.submit(task.run)
+                    future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
+                    self.running_task = task
+                    self.executed_protocol_tasks.append(task)
+                else:
+                    if self.protocol_queue.not_empty:
+                        self.protocol_queue.queue.clear()
+                    future = self.executor.submit(task.run)
+                    future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
+                    self.running_task = task
+                    self.executed_tasks.append(task)
             except Exception as e:
                 logger.error(f"Uncaught Thread Exception in {self.name} Dispatcher: {e}")
 

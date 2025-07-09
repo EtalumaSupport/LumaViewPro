@@ -134,6 +134,10 @@ class AutofocusExecutor:
         if self._scope.get_overshoot():
             return
         
+        if not self._autofocus_executor.is_protocol_running():
+            self._is_focusing = False
+            return
+        
         
         exposure_delay = 2*self._params['exposure']/1000+0.2
         time.sleep(exposure_delay)
@@ -154,6 +158,10 @@ class AutofocusExecutor:
             
         height, width = image.shape
 
+        if not self._autofocus_executor.is_protocol_running():
+            self._is_focusing = False
+            return
+        
         # Use center quarter of image for focusing
         image = image[int(height/4):int(3*height/4),int(width/4):int(3*width/4)]
 
@@ -169,9 +177,16 @@ class AutofocusExecutor:
             }
         )
 
+        if not self._autofocus_executor.is_protocol_running():
+            self._is_focusing = False
+            return
+        
         resolution = self._params['resolution']
         next_target = self._scope.get_target_position('Z') + resolution
 
+        if not self._autofocus_executor.is_protocol_running():
+            self._is_focusing = False
+            return
 
         # Measure next step?
         if next_target <= self._params['z_max']:
