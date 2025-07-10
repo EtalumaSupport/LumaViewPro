@@ -843,12 +843,12 @@ class Lumascope():
         return position
 
 
-    def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True):
+    def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True, ignore_limits: bool = False):
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
 
         #if not self.motion: return
-        self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled)
+        self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
         
         if wait_until_complete is True:
             self.wait_until_finished_moving()

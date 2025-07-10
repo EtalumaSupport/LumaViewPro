@@ -453,7 +453,7 @@ class MotorBoard:
             return 0
  
     # Move to absolute position (in um or degrees for Turret)
-    def move_abs_pos(self, axis, pos, overshoot_enabled: bool=True):
+    def move_abs_pos(self, axis, pos, overshoot_enabled: bool=True, ignore_limits: bool=False):
         """ Move to absolute position (in um) of axis"""
         # logger.info('move_abs_pos', axis, pos)
 
@@ -489,7 +489,7 @@ class MotorBoard:
         
         axis_config = AXES_CONFIG[axis]
 
-        if 'limits' in axis_config:
+        if ('limits' in axis_config) and (ignore_limits == False):
             axis_limits = axis_config['limits']
             pos = max(pos, axis_limits['min'])
             pos = min(pos, axis_limits['max'])
