@@ -78,7 +78,7 @@ class SequencedCaptureExecutor:
         self._io_executor = io_executor
         self.protocol_executor = protocol_executor
         self.file_io_executor = file_io_executor
-        self.file_io_process_pool = ProcessPoolExecutor(max_workers=1)
+        #self.file_io_process_pool = ProcessPoolExecutor(max_workers=1)
         self.camera_executor = camera_executor
         self.autofocus_io_executor = autofocus_io_executor
 
@@ -924,35 +924,35 @@ class SequencedCaptureExecutor:
 
                 self._scope.leds_off()
 
-                future = self.file_io_process_pool.submit(self._write_capture, 
-                        is_video=is_video,
-                        video_as_frames=video_as_frames,
-                        video_images=video_images,
-                        save_folder=save_folder,
-                        use_color=use_color,
-                        name=name,
-                        calculated_fps=calculated_fps,
-                        output_format=output_format,
-                        step=step,
-                        captured_image=None)
+                # future = self.file_io_process_pool.submit(self._write_capture, 
+                #         is_video=is_video,
+                #         video_as_frames=video_as_frames,
+                #         video_images=video_images,
+                #         save_folder=save_folder,
+                #         use_color=use_color,
+                #         name=name,
+                #         calculated_fps=calculated_fps,
+                #         output_format=output_format,
+                #         step=step,
+                #         captured_image=None)
                 
-                future.add_done_callback(logger.info("Protocol] Video writing complete"))
+                # future.add_done_callback(logger.info("Protocol] Video writing complete"))
 
-                # self.file_io_executor.protocol_put(IOTask(
-                #     action=self._write_capture,
-                #     kwargs={
-                #         "is_video": is_video,
-                #         "video_as_frames": video_as_frames,
-                #         "video_images": video_images,
-                #         "save_folder": save_folder,
-                #         "use_color": use_color,
-                #         "name": name,
-                #         "calculated_fps": calculated_fps,
-                #         "output_format": output_format,
-                #         "step": step,
-                #         "captured_image": None
-                #     }
-                # ))
+                self.file_io_executor.protocol_put(IOTask(
+                    action=self._write_capture,
+                    kwargs={
+                        "is_video": is_video,
+                        "video_as_frames": video_as_frames,
+                        "video_images": video_images,
+                        "save_folder": save_folder,
+                        "use_color": use_color,
+                        "name": name,
+                        "calculated_fps": calculated_fps,
+                        "output_format": output_format,
+                        "step": step,
+                        "captured_image": None
+                    }
+                ))
 
             else:
                 #time.sleep(self.sleep_time)
