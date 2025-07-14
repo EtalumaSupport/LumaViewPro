@@ -1454,14 +1454,13 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             self.video_false_color = None
 
         max_fps = 40
-        max_frames = 3000
-
         # Clamp the FPS to be no faster than the exposure rate
         frame_size = self.scope.camera.get_frame_size()
         exposure = self.scope.camera.get_exposure_t()
         exposure_freq = 1.0 / (exposure / 1000)
         video_fps = min(exposure_freq, max_fps)
-        max_duration = 30   # in seconds
+        max_duration_s = 5*60   # in seconds
+        max_frames = math.ceil(video_fps * max_duration_s)
         
         start_time = datetime.datetime.now()
         self.start_time_str = start_time.strftime("%Y-%m-%d_%H.%M.%S")
@@ -1474,7 +1473,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.video_save_folder = save_folder
 
         self.start_ts = time.time()
-        self.stop_ts = self.start_ts + max_duration
+        self.stop_ts = self.start_ts + max_duration_s
         seconds_per_frame = 1.0 / video_fps
 
 
@@ -1483,11 +1482,16 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         if os.path.exists(self.memmap_location):
             os.remove(self.memmap_location)
 
-
-        if color is not None:
-            self.current_video_frames = np.memmap(self.memmap_location, dtype="uint8", mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
+        if settings['use_full_pixel_depth'] == False:
+            dtype = 'uint8'
         else:
-            self.current_video_frames = np.memmap(self.memmap_location, dtype="uint8", mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
+            dtype = 'uint16'
+
+        # Currently 16-bit captures don't use false coloring, so it is equivalent to single channel
+        if (color is None) or (dtype == 'uint16'):
+            self.current_video_frames = np.memmap(self.memmap_location, dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
+        else:
+            self.current_video_frames = np.memmap(self.memmap_location, dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
 
         self.current_captured_frames = 0
         self.timestamps = []
@@ -1527,7 +1531,20 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         logger.info(f"Manual-Video] Video FPS: {calculated_fps}")
         logger.info("Manual-Video] Writing video...")
 
+        include_hyperstack_generation = False
         if self.video_as_frames:
+
+            image_capture_config = get_image_capture_config_from_ui()
+            if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+                include_hyperstack_generation = True
+                _, objective = get_current_objective_info()
+                stack_builder = StackBuilder(
+                    has_turret=lumaview.scope.has_turret(),
+                )
+                frame_metadata = []
+
+                active_layer_config = get_active_layer_config()
+
             save_folder = self.video_save_folder
 
             if not save_folder.exists():
@@ -1542,15 +1559,28 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
 
                 frame_name = f"ManualVideo_Frame_{frame_num:04}"
-
                 output_file_loc = save_folder / f"{frame_name}.tiff"
 
                 metadata = {
-                            "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
-                            "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
-                            "frame_num": frame_num
+                    "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
+                    "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
+                    "frame_num": frame_num
+                }
+
+                if include_hyperstack_generation == True:
+                    current_position = lumaview.scope.get_current_position()   
+                    frame_metadata.append(
+                        {
+                            'Filepath': output_file_loc.name,
+                            'Scan Count': frame_num,
+                            'Color': active_layer_config[0],
+                            'Z-Slice': 0,
+                            'X': current_position['X'],
+                            'Y': current_position['Y'],
+                            'Z': current_position['Z'],
                         }
-                        
+                    )
+
                 try:
                     image_utils.write_tiff(
                         data=image,
@@ -1563,6 +1593,17 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
                 
                 frame_num += 1
+
+            if include_hyperstack_generation == True:
+                _, objective = get_current_objective_info()
+                frame_metadata_df = pd.DataFrame(frame_metadata)
+                stack_builder.create_single_recording_stack(
+                    df=frame_metadata_df,
+                    path=save_folder,
+                    output_file_loc=save_folder / f"ManualVideo_Frame_Stack.ome.tiff",
+                    focal_length=objective['focal_length'],
+                    binning_size=get_binning_from_ui(),
+                )
 
         else:
             if not self.video_save_folder.exists():
@@ -1596,13 +1637,15 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def record_helper(self, dt):
 
-        # Currently only support 8-bit images for video
-        force_to_8bit = True
+        if settings['use_full_pixel_depth'] == False:
+            force_to_8bit = True
+        else:
+            force_to_8bit = False
+
         image = self.scope.get_image(force_to_8bit=force_to_8bit)
 
         if type(image) == np.ndarray:
-            
-            # Should never be used since forcing images to 8-bit
+
             if image.dtype == np.uint16:
                 image = image_utils.convert_12bit_to_16bit(image)
 
