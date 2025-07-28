@@ -103,6 +103,9 @@ from modules.sequential_io_executor import IOTask, SequentialIOExecutor
 import cv2
 import skimage
 
+global debug_mode
+debug_mode = True
+
 
 # Hardware
 import lumascope_api
@@ -218,6 +221,9 @@ if __name__ == "__main__":
     Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
     Config.set('kivy', 'exit_on_escape', '0')
 
+    if debug_mode:
+        Config.set('modules', 'monitor', '')
+
     # if fixed size at launch
     #Config.set('graphics', 'width', '1920')
     #Config.set('graphics', 'height', '1080')
@@ -268,6 +274,8 @@ if __name__ == "__main__":
     global settings
     global cell_count_content
     global graphing_controls
+    
+    global kivy_events
 
     global max_exposure
 
@@ -5377,6 +5385,8 @@ class Stage(Widget):
     ): # View the labware from front and above
         global lumaview
         global settings
+        global kivy_events
+        kivy_events = Clock.get_events()
 
         if self.parent is None:
             return

@@ -228,6 +228,8 @@ class SequentialIOExecutor:
                         self.protocol_finish.clear()
                     continue
                 if self.protocol_running.is_set() or self.protocol_finish.is_set():
+                    if self.pending_shutdown:
+                        return
                     future = self.executor.submit(task.run)
                     future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
                     self.running_task = task
@@ -235,6 +237,8 @@ class SequentialIOExecutor:
                 else:
                     if self.protocol_queue.not_empty:
                         self.protocol_queue.queue.clear()
+                    if self.pending_shutdown:
+                        return
                     future = self.executor.submit(task.run)
                     future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
                     self.running_task = task
