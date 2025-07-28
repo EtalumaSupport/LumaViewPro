@@ -94,6 +94,8 @@ class SequencedCaptureExecutor:
         self._run_trigger_source = None
         self._reset_vars()
         self._grease_redistribution_done = True
+
+        self.debug_counter = 0
         
         #self.sleep_time = 0.02
 
@@ -115,6 +117,7 @@ class SequencedCaptureExecutor:
         self._target_x_pos = -1
         self._target_y_pos = -1
         self._target_z_pos = -1
+        self.debug_counter = 0
         
 
 
@@ -412,16 +415,16 @@ class SequencedCaptureExecutor:
         y_status = self._scope.get_target_status('Y')
         z_status = self._scope.get_target_status('Z')
 
-        x_target = self._scope.get_target_pos('X')
-        y_target = self._scope.get_target_pos('Y')
-        z_target = self._scope.get_target_pos('Z')
+        # x_target = self._scope.get_target_pos('X')
+        # y_target = self._scope.get_target_pos('Y')
+        # z_target = self._scope.get_target_pos('Z')
 
-        x_pos = self._scope.get_current_position('X')
-        y_pos = self._scope.get_current_position('Y')
-        z_pos = self._scope.get_current_position('Z')
+        # x_pos = self._scope.get_current_position('X')
+        # y_pos = self._scope.get_current_position('Y')
+        # z_pos = self._scope.get_current_position('Z')
 
-        if (x_target != x_pos) or (y_target != y_pos) or (z_target != z_pos):
-            return
+        # if (x_target != x_pos) or (y_target != y_pos) or (z_target != z_pos):
+        #     return
     
         # Check if target location has not been reached yet
         if (not x_status) or (not y_status) or (not z_status) or self._scope.get_overshoot():
@@ -779,7 +782,7 @@ class SequencedCaptureExecutor:
         self._run_in_progress = False
 
         self._io_executor.protocol_end()
-        self.file_io_executor.protocol_end()
+        self.file_io_executor.protocol_finish_then_end()
         self.protocol_executor.protocol_end()
         self.autofocus_io_executor.protocol_end()
         self.camera_executor.enable()
@@ -805,6 +808,12 @@ class SequencedCaptureExecutor:
 
         if not self._run_in_progress:
             return
+        
+        if not self.protocol_executor.is_protocol_running():
+            return
+        
+        print(f"DEBUG COUNTER: {self.debug_counter}")
+        self.debug_counter += 1
         
         is_video = True if step['Acquire'] == "video" else False
         video_as_frames = self._video_as_frames
@@ -839,7 +848,6 @@ class SequencedCaptureExecutor:
         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
 
-        #time.sleep(2*step['Exposure']/1000+0.2)
         earliest_image_ts = datetime.datetime.now()
         if 'update_scope_display' in self._callbacks:
             self._callbacks['update_scope_display']()
@@ -851,6 +859,21 @@ class SequencedCaptureExecutor:
 
         if self._enable_image_saving == True:
             use_full_pixel_depth = self._image_capture_config['use_full_pixel_depth']
+
+            accepted_gain_range = 0.001
+            accepted_exp_range = 0.001
+
+            # Verify that we have the correct settings in the camera
+            real_gain = self._scope.get_gain()
+            if abs(real_gain - step['Gain']) > accepted_gain_range:
+                self._scope.set_gain(step['Gain'])
+
+            real_exp = self._scope.get_exposure_time()
+            if abs(real_exp - step['Exposure']) > accepted_exp_range:
+                self._scope.set_exposure_time(step['Exposure'])
+
+            
+            time.sleep(2*step['Exposure']/1000+0.2)
 
             if is_video:
                 # Disable autogain and then reenable it only for the first frame
@@ -890,7 +913,11 @@ class SequencedCaptureExecutor:
                     if 'update_scope_display' in self._callbacks:
                         self._callbacks['update_scope_display']()
                     """
-                        
+
+                    if not self.protocol_executor.is_protocol_running():
+                        self._scope.leds_off()
+                        return
+                    
                     # Currently only support 8-bit images for video
                     force_to_8bit = True
                     image = self._scope.get_image(force_to_8bit=force_to_8bit)
@@ -1088,13 +1115,14 @@ class SequencedCaptureExecutor:
                             video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
                             del image_pair
                             video_images.task_done()
-                        except:
-                            logger.error("Protocol-Video] FAILED TO WRITE FRAME")
+                        except Exception as e:
+                            logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
 
                     # Video images queue empty. Delete it and force garbage collection
                     del video_images
 
                     video_writer.finish()
+                    #video_writer.test_video(str(output_file_loc))
                     del video_writer
                     gc.collect()
                     
