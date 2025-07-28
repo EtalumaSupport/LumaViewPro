@@ -112,6 +112,7 @@ import lumascope_api
 import post_processing
 
 import image_utils
+import yappi
 
 if __name__ == "__main__":
     
@@ -220,6 +221,7 @@ if __name__ == "__main__":
     Config.set('input', 'mouse', 'mouse, disable_multitouch')
     Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
     Config.set('kivy', 'exit_on_escape', '0')
+    Config.set('modules', 'monitor', '')
 
     if debug_mode:
         Config.set('modules', 'monitor', '')
@@ -425,7 +427,7 @@ def go_to_step(
     step_idx: int,
     ignore_auto_gain: bool = False,
     include_move: bool = True,
-    called_from_protocol=True
+    called_from_protocol: bool = True
 ):
     num_steps = protocol.num_steps()
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
@@ -877,7 +879,7 @@ def move_absolute_position(
             lumaview.scope.move_absolute_position(
                 axis=axis,
                 pos=pos,
-                wait_until_complete=wait_until_complete,
+                wait_until_complete=protocol,
                 overshoot_enabled=overshoot_enabled
             )
 
@@ -1112,9 +1114,9 @@ class ScopeDisplay(Image):
             return
 
         # Likely not an IO call as image will be stored in buffer
-        #image = lumaview.scope.get_image(force_to_8bit=True)
         image = lumaview.scope.get_image_from_buffer(force_to_8bit=True)
-        if (image is False) or (image.size == 0):
+        #image = lumaview.scope.image_buffer
+        if (image is False) or (image.size == 0) :
             return
 
         if display_update_counter % 10 == 0:
@@ -3862,7 +3864,7 @@ class VerticalControl(BoxLayout):
         #curr_position = get_current_plate_position()
         io_executor.put(IOTask(
             action=get_current_plate_position,
-            callback=self.curr_position_autofocus,
+            callback=self.intermediary_autofocus,
             cb_args=(
                 labware_id,
                 objective_id,
@@ -3876,8 +3878,43 @@ class VerticalControl(BoxLayout):
             pass_result=True
         ))
 
+    def intermediary_autofocus(self, labware_id,
+                objective_id,
+                active_layer,
+                active_layer_config,
+                run_complete_func,
+                trigger_source,
+                parent_dir,
+                save_autofocus_data,
+                result=None,
+                exception=None):
+
+        if exception is not None:
+            raise exception
+        
+        if result is None:
+            return
+         
+        curr_position = result
+
+        io_executor.put(IOTask(
+            action=self.curr_position_autofocus,
+            args= (
+                curr_position,
+                labware_id,
+                objective_id,
+                active_layer,
+                active_layer_config,
+                run_complete_func,
+                trigger_source,
+                parent_dir,
+                save_autofocus_data
+            )
+        ))
+
 
     def curr_position_autofocus(self, 
+                                curr_position,
                                 labware_id, 
                                 objective_id, 
                                 active_layer, 
@@ -3888,13 +3925,7 @@ class VerticalControl(BoxLayout):
                                 save_autofocus_data, 
                                 result=None, exception=None):
         
-        if exception is not None:
-            raise exception
         
-        if result is None:
-            return
-        
-        curr_position = result
 
         curr_position.update({'name': 'AF'})
 
@@ -4922,7 +4953,7 @@ class ProtocolSettings(CompositeCapture):
         protocol_running_global = False
 
         self.ids['run_autofocus_btn'].state = 'normal'
-        self.ids['run_autofocus_btn'].text = 'Scan and Autofocus All Steps'
+        self.ids['run_autofocus_btn'].text = 'Autofocus All Steps'
         stage.set_motion_capability(True)
 
 
@@ -5196,7 +5227,7 @@ class ProtocolSettings(CompositeCapture):
     def _run_scan_pre_callback(self):
         global lumaview
         lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].is_complete = False
-        self.update_step_ui()
+        Clock.schedule_once(lambda dt: self.update_step_ui(), 0)
 
 
     def _autofocus_in_progress_callback(self):
@@ -7115,6 +7146,9 @@ class LumaViewProApp(App):
     
 
     def on_start(self):
+        
+        yappi.set_clock_type("wall")
+        yappi.start()
 
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
@@ -7303,9 +7337,28 @@ class LumaViewProApp(App):
 
         global lumaview
 
-        scope_leds_off()
+        logger.info("[LVP Main  ] lumaview.scope.leds_off()")
+        lumaview.scope.leds_off()
 
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
+
+        yappi.stop()
+
+        stats = yappi.get_func_stats()
+        my_stats = [s for s in stats if s.module.startswith('LumaViewPro')]
+
+        my_stats.sort(key=lambda s: s.ttot, reverse=True)
+        print(f"{'Function':30} {'Calls':>6} {'Total(s)':>10} {'Self(s)':>10} {'Location'}")
+        for s in my_stats[:20]:
+            self_time = s.ttot - s.tsub
+            print(f"{s.name:30} {s.ncall:6} {s.ttot:10.4f} {self_time:10.4f} {s.module}:{s.lineno}")
+
+        print("\n\n=====================================\n\n")
+        thread_stats = yappi.get_thread_stats()
+        thread_stats.sort("ttot", "desc")
+        thread_stats.print_all()
+
+        
 
 
     # Returns a list of widgets with tooltip_text attribute

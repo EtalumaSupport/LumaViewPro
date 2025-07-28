@@ -56,6 +56,7 @@ class IOTask:
 
         def run(self):
             try:
+                threading.current_thread().name = self.name
                 res = self.action(*self.args, **self.kwargs)
                 return res, None
             except Exception as e:
@@ -110,10 +111,10 @@ class SequentialIOExecutor:
         self.protocol_finish = threading.Event()
         self.name = name
         if name is not None:
-            executor_name = name + "_" + "WORKER"
-            dispatcher_name = name + "_" + "DISPATCHER"
-            self.executor = ThreadPoolExecutor(thread_name_prefix=executor_name, max_workers=max_workers)
-            self.dispatcher = ThreadPoolExecutor(thread_name_prefix=dispatcher_name, max_workers=1)
+            self.executor_name = name + "_" + "WORKER"
+            self.dispatcher_name = name + "_" + "DISPATCHER"
+            self.executor = ThreadPoolExecutor(thread_name_prefix=self.executor_name, max_workers=max_workers)
+            self.dispatcher = ThreadPoolExecutor(thread_name_prefix=self.dispatcher_name, max_workers=1)
         else:
             self.executor = ThreadPoolExecutor(max_workers=max_workers)
             self.dispatcher = ThreadPoolExecutor(max_workers=1)
@@ -154,7 +155,7 @@ class SequentialIOExecutor:
         fut = Future()
         self.caller_futures[task] = fut
         self.queue.put(task)
-        task.set_name(self.name)
+        task.set_name(self.executor_name)
         return fut
 
     def protocol_put(self, task: IOTask):
@@ -172,7 +173,7 @@ class SequentialIOExecutor:
         fut = Future()
         self.caller_futures[task] = fut
         self.protocol_queue.put(task)
-        task.set_name(self.name)
+        task.set_name(self.executor_name)
         return fut
 
     def protocol_start(self):
@@ -205,6 +206,7 @@ class SequentialIOExecutor:
 
     def _dispatch_loop(self):
         # Pulls from queue, submits to worker pool, wires up callbacks
+        threading.current_thread().name = self.dispatcher_name
         while True:
             if self._disable:
                 self.blocker.wait()
