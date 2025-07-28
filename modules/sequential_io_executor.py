@@ -237,7 +237,7 @@ class SequentialIOExecutor:
                     self.running_task = task
                     self.executed_protocol_tasks.append(task)
                 else:
-                    if self.protocol_queue.not_empty:
+                    if not self.protocol_queue.empty():
                         self.protocol_queue.queue.clear()
                     if self.pending_shutdown:
                         return

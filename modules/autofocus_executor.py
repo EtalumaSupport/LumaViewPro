@@ -47,6 +47,9 @@ class AutofocusExecutor:
 
 
     def reset(self):
+        if hasattr(self, '_iterator_scheduled') and self._iterator_scheduled is not None:
+            self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+            self._iterator_scheduled = None
         self._reset_state()
 
 

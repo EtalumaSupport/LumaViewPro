@@ -645,8 +645,17 @@ class Protocol:
                         else:
                             zstack_group_id_label = zstack_group_id
                         
+                        step_name = common_utils.generate_default_step_name(
+                            well_label=well_label,
+                            color=layer_name,
+                            z_height_idx=zstack_slice_label,
+                            tile_label=tile_label,
+                            objective_short_name=None,  # Can add this if needed
+                            custom_name_prefix=None if not custom_step else well_label,
+                        )
+
                         step_dict = cls._create_step_dict(
-                            name="",
+                            name=step_name,
                             x=x,
                             y=y,
                             z=z,

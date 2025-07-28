@@ -290,8 +290,7 @@ if __name__ == "__main__":
     global coordinate_transformer
     coordinate_transformer = None
 
-    global ij_helper
-    ij_helper = None
+
 
     global sequenced_capture_executor
     sequenced_capture_executor = None
@@ -343,6 +342,8 @@ if __name__ == "__main__":
     scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
     #cpu_pool = ProcessPoolExecutor() 
 
+global ij_helper
+ij_helper = None
 
 def set_last_save_folder(dir: pathlib.Path | None):
     if dir is None:
@@ -2265,6 +2266,7 @@ class CompositeGenControls(BoxLayout):
         }
         popup.title = "Composite Image Generation"
         popup.text = "Generating composite images..."
+        popup.progress = 50
         composite_gen = CompositeGeneration(
             has_turret=lumaview.scope.has_turret(),
         )
@@ -7149,7 +7151,6 @@ class LumaViewProApp(App):
         
         yappi.set_clock_type("wall")
         yappi.start()
-
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
@@ -7648,19 +7649,18 @@ if __name__ == "__main__":
 
 
 
-def patched_setslice(self, i, j, sequence, **kwargs):
-    try:
-        # Try the original assignment
-        return original_setslicemethod(self, i, j, sequence)
-    except AttributeError:
-        # Getting attribute error if kivy is calling a deprecated method on a new Python 3 object
-        # Call proper method
-        return set_item_method(self, slice(i, j), sequence)
-    except Exception as e:
-        # If for some reason we get another error again, bite the bullet 
-        return original_setslicemethod(self, i, j, sequence)
+    def patched_setslice(self, i, j, sequence, **kwargs):
+        try:
+            # Try the original assignment
+            return original_setslicemethod(self, i, j, sequence)
+        except AttributeError:
+            # Getting attribute error if kivy is calling a deprecated method on a new Python 3 object
+            # Call proper method
+            return set_item_method(self, slice(i, j), sequence)
+        except Exception as e:
+            # If for some reason we get another error again, bite the bullet 
+            return original_setslicemethod(self, i, j, sequence)
 
-#endregion
 
 if __name__ == "__main__":
     import multiprocessing
@@ -7671,5 +7671,6 @@ if __name__ == "__main__":
     set_item_method = ObservableReferenceList.__setitem__
     # Replace the original method with our patched version
     ObservableReferenceList.__setslice__ = patched_setslice
-
     LumaViewProApp().run()
+
+#endregion

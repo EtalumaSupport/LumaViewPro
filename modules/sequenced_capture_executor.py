@@ -362,7 +362,7 @@ class SequencedCaptureExecutor:
             return 
 
         if 'protocol_iterate_pre' in self._callbacks:
-            self._callbacks['protocol_iterate_pre'](remaining_scans=remaining_scans, interval=self._protocol.period())
+            Clock.schedule_once(lambda dt: self._callbacks['protocol_iterate_pre'](remaining_scans=remaining_scans, interval=self._protocol.period()), 0)
 
         current_time = datetime.datetime.now()
         elapsed_time = current_time - self._start_t
@@ -388,7 +388,7 @@ class SequencedCaptureExecutor:
 
         # reset the is_complete flag on autofocus
         if 'run_scan_pre' in self._callbacks:
-            self._callbacks['run_scan_pre']()
+            Clock.schedule_once(lambda dt: self._callbacks['run_scan_pre'](), 0)
 
         self.protocol_executor.protocol_put(IOTask(action=self._go_to_step, kwargs={"step_idx":self._curr_step}))
         #self._go_to_step(step_idx=self._curr_step)
@@ -463,7 +463,7 @@ class SequencedCaptureExecutor:
         if step['Auto_Focus'] and not self._autofocus_executor.complete() and not self._autofocus_executor.in_progress():
 
             if 'autofocus_in_progress' in self._callbacks:
-                self._callbacks['autofocus_in_progress']()
+                Clock.schedule_once(lambda dt: self._callbacks['autofocus_in_progress'](), 0)
 
             af_executor_callbacks = {}
             if 'move_position' in self._callbacks:
@@ -503,7 +503,7 @@ class SequencedCaptureExecutor:
 
         # reset the is_complete flag on autofocus
         if 'autofocus_complete' in self._callbacks:
-            self._callbacks['autofocus_complete']()
+            Clock.schedule_once(lambda dt: self._callbacks['autofocus_complete'](), 0)
 
         if step["Auto_Focus"]:
             self._autofocus_count += 1
@@ -561,7 +561,7 @@ class SequencedCaptureExecutor:
             self._curr_step = min(self._curr_step+1, num_steps-1)
 
             if 'update_step_number' in self._callbacks:
-                self._callbacks['update_step_number'](self._curr_step+1)
+                Clock.schedule_once(lambda dt: self._callbacks['update_step_number'](self._curr_step+1), 0)
             self._go_to_step(step_idx=self._curr_step)
             return
 
@@ -572,8 +572,8 @@ class SequencedCaptureExecutor:
 
         self._scan_count += 1
         
-        if 'scan_iterate_post' in self._callbacks is not None:
-            self._callbacks['scan_iterate_post']()
+        if 'scan_iterate_post' in self._callbacks and self._callbacks['scan_iterate_post'] is not None:
+            Clock.schedule_once(lambda dt: self._callbacks['scan_iterate_post'](), 0)
 
         Clock.unschedule(self._scan_iterator)
         self._scan_in_progress = False
@@ -606,16 +606,16 @@ class SequencedCaptureExecutor:
 
             self._scope.move_absolute_position('X', sx)
             self._target_x_pos = sx
-            self._callbacks['move_position']('X')
+            Clock.schedule_once(lambda dt: self._callbacks['move_position']('X'), 0)
 
             self._scope.move_absolute_position('Y', sy)
             self._target_y_pos = sy
-            self._callbacks['move_position']('Y')
+            Clock.schedule_once(lambda dt: self._callbacks['move_position']('Y'), 0)
 
             if z is not None:
                 self._scope.move_absolute_position('Z', z)
                 self._target_z_pos = z
-                self._callbacks['move_position']('Z')
+                Clock.schedule_once(lambda dt: self._callbacks['move_position']('Z'), 0)
             #self._io_executor.protocol_put(IOTask(action=self._default_move_ex, args=(sx, sy, z), callback=self._default_move_callbacks_ex, cb_args=(z)))
         
         
@@ -628,11 +628,11 @@ class SequencedCaptureExecutor:
 
     def _default_move_callbacks_ex(self, z):
         
-        self._callbacks['move_position']('X')
-        self._callbacks['move_position']('Y')
+        Clock.schedule_once(lambda dt: self._callbacks['move_position']('X'), 0)
+        Clock.schedule_once(lambda dt: self._callbacks['move_position']('Y'), 0)
 
         if z is not None:
-            self._callbacks['move_position']('Z')
+            Clock.schedule_once(lambda dt: self._callbacks['move_position']('Z'), 0)
 
 
     def _go_to_step(
@@ -641,12 +641,12 @@ class SequencedCaptureExecutor:
     ):
         #if False:
         if 'go_to_step' in self._callbacks:
-            self._callbacks['go_to_step'](
+            Clock.schedule_once(lambda dt: self._callbacks['go_to_step'](
                 protocol=self._protocol,
                 step_idx=step_idx,
                 include_move=True,
                 ignore_auto_gain=True
-            )
+            ), 0)
 
         else:
             step = self._protocol.step(idx=step_idx)
@@ -672,7 +672,7 @@ class SequencedCaptureExecutor:
         )
 
         if 'move_position' in self._callbacks:
-            self._callbacks['move_position'](axis)
+            Clock.schedule_once(lambda dt: self._callbacks['move_position'](axis), 0)
 
         self._scope.move_absolute_position(
             axis=axis,
@@ -682,7 +682,7 @@ class SequencedCaptureExecutor:
         )
 
         if 'move_position' in self._callbacks:
-            self._callbacks['move_position'](axis)
+            Clock.schedule_once(lambda dt: self._callbacks['move_position'](axis), 0)
 
         self._grease_redistribution_done = True
 
@@ -697,11 +697,7 @@ class SequencedCaptureExecutor:
     def _leds_off(self):
         self._scope.leds_off()
         if 'leds_off' in self._callbacks:
-            # self._io_executor.protocol_put(IOTask(
-            #     action=self._scope.leds_off,
-            #     callback=self._callbacks['leds_off']
-            # ))
-            self._callbacks['leds_off']()
+            Clock.schedule_once(lambda dt: self._callbacks['leds_off'](), 0)
 
     
     def _led_on(self, color: str, illumination: float, block: bool=True):
@@ -714,20 +710,7 @@ class SequencedCaptureExecutor:
         time.sleep(0.005)
 
         if 'led_state' in self._callbacks:
-            # self._io_executor.protocol_put(IOTask(
-            #     action=self._scope.led_on,
-            #     kwargs={
-            #         "channel":self._scope.color2ch(color),
-            #         "mA":illumination
-            #     },
-            #     callback=self._callbacks['led_state'],
-            #     cb_kwargs={
-            #         "layer":color,
-            #         "enabled":True
-            #     }
-            # ))
-            
-            self._callbacks['led_state'](layer=color, enabled=True)
+            Clock.schedule_once(lambda dt: self._callbacks['led_state'](layer=color, enabled=True), 0)
 
         # else:
         #     self._io_executor.protocol_put(IOTask(
@@ -763,7 +746,7 @@ class SequencedCaptureExecutor:
             settings[layer]["autofocus"] = layer_data
             if self._callbacks['reset_autofocus_btns']:
                 # Updates autofocus buttons to their prior states
-                self._callbacks['reset_autofocus_btns']()
+                Clock.schedule_once(lambda dt: self._callbacks['reset_autofocus_btns'](), 0)
 
         if not self._disable_saving_artifacts:
             # Queue to close protocol execution record (should execute after last file/protocol record written)
@@ -792,7 +775,7 @@ class SequencedCaptureExecutor:
 
 
         if 'run_complete' in self._callbacks:
-            self._callbacks['run_complete'](protocol=self._protocol)
+            Clock.schedule_once(lambda dt: self._callbacks['run_complete'](protocol=self._protocol), 0)
 
 
     def _capture(
@@ -850,8 +833,8 @@ class SequencedCaptureExecutor:
 
         earliest_image_ts = datetime.datetime.now()
         if 'update_scope_display' in self._callbacks:
-            self._callbacks['update_scope_display']()
-            sum_iteration_callback=self._callbacks['update_scope_display']
+            Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
+            sum_iteration_callback=lambda: Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
         else:
             sum_iteration_callback=None
 
@@ -977,7 +960,12 @@ class SequencedCaptureExecutor:
                         "calculated_fps": calculated_fps,
                         "output_format": output_format,
                         "step": step,
-                        "captured_image": None
+                        "captured_image": None,
+                        "step_index": self._curr_step,
+                        "scan_count": self._scan_count,
+                        "capture_time": datetime.datetime.now(),
+                        "duration_sec": duration_sec,
+                        "captured_frames": captured_frames
                     }
                 ))
 
@@ -1015,7 +1003,9 @@ class SequencedCaptureExecutor:
                         "captured_image": captured_image,
                         "step_index": self._curr_step,
                         "scan_count": self._scan_count,
-                        "capture_time": datetime.datetime.now()
+                        "capture_time": datetime.datetime.now(),
+                        "duration_sec": 0.0,
+                        "captured_frames": 1
                     }
                 ))
         
@@ -1047,7 +1037,9 @@ class SequencedCaptureExecutor:
                        captured_image=None,
                        step_index=None,
                        scan_count=None,
-                       capture_time=None
+                       capture_time=None,
+                       duration_sec=0.0,
+                       captured_frames=1
                        ):
         
         if self._enable_image_saving == True:
@@ -1193,7 +1185,9 @@ class SequencedCaptureExecutor:
             step_name=step['Name'],
             step_index=step_index,
             scan_count=scan_count,
-            timestamp=capture_time
+            timestamp=capture_time,
+            frame_count=captured_frames if is_video else 1,
+            duration_sec=duration_sec if is_video else 0.0
         )
 
         return
