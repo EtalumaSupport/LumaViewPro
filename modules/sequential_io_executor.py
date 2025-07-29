@@ -227,6 +227,7 @@ class SequentialIOExecutor:
                     if self.pending_shutdown:
                         return
                     if self.protocol_finish.is_set():
+                        self.protocol_end()
                         self.protocol_finish.clear()
                     continue
                 if self.protocol_running.is_set() or self.protocol_finish.is_set():

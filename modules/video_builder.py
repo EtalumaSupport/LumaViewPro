@@ -93,6 +93,7 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
             frames_per_sec=kwargs['frames_per_sec'],
             enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
             output_file_loc=kwargs['output_file_loc'],
+            popup=kwargs['popup']
         )
     
 
@@ -141,7 +142,8 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         df: pd.DataFrame,
         frames_per_sec: int,
         enable_timestamp_overlay: bool,
-        output_file_loc: pathlib.Path
+        output_file_loc: pathlib.Path,
+        popup=None
     ) -> bool:
         
 
@@ -205,7 +207,9 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         )
 
         logger.info(f"[{self._name}] Writing video to {output_file_loc}")
-        
+
+        total_frames = len(df)
+        i = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
             image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
@@ -215,6 +219,11 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
                 image = image_utils.add_timestamp(image=image, timestamp_str=frame_ts)
                 
             video.write(image)
+
+            if popup is not None:
+                popup.progress = (i / total_frames) * 100
+            
+            i += 1
 
         cv2.destroyAllWindows()
         video.release()

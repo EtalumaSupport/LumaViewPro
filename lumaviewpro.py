@@ -2306,6 +2306,8 @@ class VideoCreationControls(BoxLayout):
 
         popup.title = "Video Builder"
         popup.text = "Generating video(s)..."
+        popup.progress = 0
+        popup.auto_dismiss = False
 
         try:
             fps = int(self.ids['video_gen_fps_id'].text)
@@ -2322,29 +2324,52 @@ class VideoCreationControls(BoxLayout):
             final_text += f"\n{msg}"
             popup.text = final_text
             logger.error(f"{msg}")
-            time.sleep(5)
-            self.done = True
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+            #self.done = True
 
         video_builder = VideoBuilder(
             has_turret=lumaview.scope.has_turret(),
         )
-        result = video_builder.load_folder(
-            path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            frames_per_sec=fps,
-            enable_timestamp_overlay=enable_timestamp_overlay
-        )
+
+        file_io_executor.put(IOTask(action=video_builder.load_folder,
+                             args=(pathlib.Path(path), 
+                                    pathlib.Path(source_path) / "data" / "tiling.json",
+                                    popup
+                                    ),
+                             kwargs={
+                                "frames_per_sec": fps,
+                                "enable_timestamp_overlay": enable_timestamp_overlay,
+                             },
+                             callback=self.video_builder_callback,
+                             cb_args=(popup, status_map),
+                             pass_result=True))
+        
+        # result = video_builder.load_folder(
+        #     path=pathlib.Path(path),
+        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+        #     frames_per_sec=fps,
+        #     enable_timestamp_overlay=enable_timestamp_overlay,
+        #     popup=popup
+        # )
+
+    def video_builder_callback(self, popup, status_map, result=None, exception=None):
+        if result is None:
+            popup.text = "Generating video(s) - FAILED"
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+        
         final_text = f"Generating video(s) - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
             popup.text = final_text
-            time.sleep(5)
-            self.done = True
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
         
+        final_text = f"Generating video(s) - {status_map[result['status']]}"
         popup.text = final_text
-        time.sleep(2)
-        self.done = True
+        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
+        return
         # self._launch_video()       
 
     
