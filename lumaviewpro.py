@@ -2196,6 +2196,7 @@ class StitchControls(BoxLayout):
         file_io_executor.put(IOTask(action=stitcher.load_folder,
                              args=(pathlib.Path(path), 
                                     pathlib.Path(source_path) / "data" / "tiling.json",
+                                    popup
                                     ),
                              callback=self.stitcher_callback,
                              cb_args=(popup, status_map),
@@ -2316,6 +2317,7 @@ class ZProjectionControls(BoxLayout):
         file_io_executor.put(IOTask(action=zproj.load_folder,
                              args=(pathlib.Path(path), 
                                     pathlib.Path(source_path) / "data" / "tiling.json",
+                                    popup
                                     ),
                              kwargs={
                                 "method": self.ids['zprojection_method_spinner'].text
@@ -2325,6 +2327,7 @@ class ZProjectionControls(BoxLayout):
                              pass_result=True))
 
     def zprojection_callback(self, popup, status_map, result=None, exception=None):
+        popup.progress = 100
         if result is None:
             popup.text = "Generating Z-Projection images - FAILED"
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
@@ -3992,7 +3995,7 @@ class VerticalControl(BoxLayout):
 
     def _autofocus_run_complete(self, **kwargs):
         live_histo_reverse()
-        self._reset_run_autofocus_button()
+        Clock.schedule_once(lambda dt: self._reset_run_autofocus_button(), 0)
 
 
     def run_autofocus_from_ui(self):
@@ -7581,11 +7584,11 @@ class LumaViewProApp(App):
             
             # Hide tooltip on mouse movement if not colliding anymore (Put here to check asap after a change)
             if self.widget_being_described is not None:
-                    if not self.tt_collision(self.widget_being_described, mouse_pos[0], mouse_pos[1]):
-                        self.hide_tooltip()
-                    if self.tt_clock_event is not None:
-                        Clock.unschedule(self.tt_clock_event)
-                        self.tt_clock_event = None
+                if not self.tt_collision(self.widget_being_described, mouse_pos[0], mouse_pos[1]):
+                    self.hide_tooltip()
+                if self.tt_clock_event is not None:
+                    Clock.unschedule(self.tt_clock_event)
+                    self.tt_clock_event = None
 
             # Checks collision and if tooltip is visible. If it isn't on any tooltip, hide the tooltip
             for widget in self.tooltip_attr_widgets:
