@@ -2212,6 +2212,10 @@ class ZProjectionControls(BoxLayout):
         super().__init__(**kwargs)
         zprojection_controls = self
         Clock.schedule_once(self._init_ui, 0)
+        self.ij_initialized = False
+        self.ij_buffer_event = None
+        self.ij_buffer_count = 0
+        self.ij_buffer_interval = 0.5
     
 
     def _init_ui(self, dt=0):
@@ -2221,32 +2225,105 @@ class ZProjectionControls(BoxLayout):
 
     @show_popup
     def run_zprojection(self, popup, path):
+        popup.title = "Z-Projection"
+        popup.progress = 0
+        popup.auto_dismiss = False
+        
+        if ij_helper is None:
+            popup.text = "     ImageJ is not initialized.\n" + \
+                         "Please wait for ImageJ to initialize.\n" + \
+                         "   Note: This may take some time.\n" + \
+                         "                  \n" + \
+                         "               "
+            self.ij_initialized = False
+            # Run imagej initialization in a separate thread
+            # Callback to finish zprojection when imagej is initialized
+            file_io_executor.put(IOTask(action=init_ij, callback=self.zprojection_with_imagej, cb_args=(popup, path)))
+            self.ij_buffer_event = Clock.schedule_interval(lambda dt: self.waiting_for_imagej(popup), self.ij_buffer_interval)
+            return
+
+        self.ij_initialized = True
+        # Imagej already initialized, run zprojection
+        self.zprojection_with_imagej(popup, path)
+
+    def waiting_for_imagej(self, popup):
+        if self.ij_initialized:
+            Clock.unschedule(self.ij_buffer_event)
+            self.ij_buffer_event = None
+            self.ij_buffer_count = 0
+            return
+
+        popup.text =     "ImageJ is not initialized. Please wait for ImageJ to initialize.\n" + \
+                         "                Note: This may take some time.\n" + \
+                         "                  \n" + \
+                         "                      " + "o   "*self.ij_buffer_count
+        self.ij_buffer_count += 1
+        if self.ij_buffer_count > 3:
+            self.ij_buffer_count = 0
+
+        return
+
+    def zprojection_with_imagej(self, popup, path):
         status_map = {
             True: "Success",
             False: "FAILED"
         }
-        popup.title = "Z-Projection"
+
+        if ij_helper is not None:
+            self.ij_initialized = True
+            Clock.unschedule(self.ij_buffer_event)
+            self.ij_buffer_event = None
+            self.ij_buffer_count = 0
+
+        if self.ij_buffer_event is not None:
+            Clock.unschedule(self.ij_buffer_event)
+            self.ij_buffer_event = None
+            self.ij_buffer_count = 0
+
+        if ij_helper is None:
+            popup.text = "Failed to initialize ImageJ. Please try again."
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+        
         popup.text = "Generating Z-Projection images..."
+
         zproj = zprojector.ZProjector(
             has_turret=lumaview.scope.has_turret(),
             ij_helper=ij_helper
         )
-        result = zproj.load_folder(
-            path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            method=self.ids['zprojection_method_spinner'].text
-        )
+        # result = zproj.load_folder(
+        #     path=pathlib.Path(path),
+        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+        #     method=self.ids['zprojection_method_spinner'].text
+        # )
+
+        file_io_executor.put(IOTask(action=zproj.load_folder,
+                             args=(pathlib.Path(path), 
+                                    pathlib.Path(source_path) / "data" / "tiling.json",
+                                    ),
+                             kwargs={
+                                "method": self.ids['zprojection_method_spinner'].text
+                             },
+                             callback=self.zprojection_callback,
+                             cb_args=(popup, status_map),
+                             pass_result=True))
+
+    def zprojection_callback(self, popup, status_map, result=None, exception=None):
+        if result is None:
+            popup.text = "Generating Z-Projection images - FAILED"
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+        
         final_text = f"Generating Z-Projection images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
             popup.text = final_text
-            time.sleep(5)
-            self.done = True
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
-
+        
         popup.text = final_text
-        time.sleep(2)
-        self.done = True
+        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
+        return
 
 class CompositeGenControls(BoxLayout):
 
@@ -2266,25 +2343,56 @@ class CompositeGenControls(BoxLayout):
         }
         popup.title = "Composite Image Generation"
         popup.text = "Generating composite images..."
-        popup.progress = 50
+        popup.progress = 0
+        popup.auto_dismiss = False
+
         composite_gen = CompositeGeneration(
             has_turret=lumaview.scope.has_turret(),
         )
-        result = composite_gen.load_folder(
-            path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
-        )
+
+        # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
+        # May want to update this in the future
+        file_io_executor.put(IOTask(action=composite_gen.load_folder,
+                             args=(pathlib.Path(path), 
+                                    pathlib.Path(source_path) / "data" / "tiling.json",
+                                    popup
+                                    ),
+                             callback=self.composite_gen_callback,
+                             cb_args=(popup, status_map),
+                             pass_result=True))
+
+        # result = composite_gen.load_folder(
+        #     path=pathlib.Path(path),
+        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+        # )
+        # final_text = f"Generating composite images - {status_map[result['status']]}"
+        # if result['status'] is False:
+        #     final_text += f"\n{result['message']}"
+        #     popup.text = final_text
+        #     time.sleep(5)
+        #     self.done = True
+        #     return
+        
+        # popup.text = final_text
+        # time.sleep(2)
+        # self.done = True
+
+    def composite_gen_callback(self, popup, status_map, result=None, exception=None):
+        if result is None:
+            popup.text = "Generating composite images - FAILED"
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+        
         final_text = f"Generating composite images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
             popup.text = final_text
-            time.sleep(5)
-            self.done = True
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
         
         popup.text = final_text
-        time.sleep(2)
-        self.done = True
+        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
+        return
 
 
 class VideoCreationControls(BoxLayout):
@@ -7164,6 +7272,11 @@ def block_wait_for_threads(futures: list, log_loc="LVP") -> None:
 
     # All threads finished
     return
+
+def init_ij():
+    global ij_helper
+    ij_helper = imagej_helper.ImageJHelper()
+    return
              
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
@@ -7174,8 +7287,8 @@ class LumaViewProApp(App):
 
     def on_start(self):
         
-        yappi.set_clock_type("wall")
-        yappi.start()
+        # yappi.set_clock_type("wall")
+        # yappi.start()
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
@@ -7250,6 +7363,7 @@ class LumaViewProApp(App):
         global coordinate_transformer
         global objective_helper
         global ij_helper
+        ij_helper = None
         global sequenced_capture_executor
         
         # global autofocus_executor
@@ -7368,21 +7482,21 @@ class LumaViewProApp(App):
 
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
 
-        yappi.stop()
+        # yappi.stop()
 
-        stats = yappi.get_func_stats()
-        my_stats = [s for s in stats if s.module.startswith('LumaViewPro')]
+        # stats = yappi.get_func_stats()
+        # my_stats = [s for s in stats if s.module.startswith('LumaViewPro')]
 
-        my_stats.sort(key=lambda s: s.ttot, reverse=True)
-        print(f"{'Function':30} {'Calls':>6} {'Total(s)':>10} {'Self(s)':>10} {'Location'}")
-        for s in my_stats[:20]:
-            self_time = s.ttot - s.tsub
-            print(f"{s.name:30} {s.ncall:6} {s.ttot:10.4f} {self_time:10.4f} {s.module}:{s.lineno}")
+        # my_stats.sort(key=lambda s: s.ttot, reverse=True)
+        # print(f"{'Function':30} {'Calls':>6} {'Total(s)':>10} {'Self(s)':>10} {'Location'}")
+        # for s in my_stats[:20]:
+        #     self_time = s.ttot - s.tsub
+        #     print(f"{s.name:30} {s.ncall:6} {s.ttot:10.4f} {self_time:10.4f} {s.module}:{s.lineno}")
 
-        print("\n\n=====================================\n\n")
-        thread_stats = yappi.get_thread_stats()
-        thread_stats.sort("ttot", "desc")
-        thread_stats.print_all()
+        # print("\n\n=====================================\n\n")
+        # thread_stats = yappi.get_thread_stats()
+        # thread_stats.sort("ttot", "desc")
+        # thread_stats.print_all()
 
         
 
