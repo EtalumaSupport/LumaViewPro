@@ -71,6 +71,7 @@ class SequencedCaptureExecutor:
         camera_executor: SequentialIOExecutor,
         autofocus_io_executor: SequentialIOExecutor,
         autofocus_executor: AutofocusExecutor | None = None,
+        z_ui_update_func: typing.Callable | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
@@ -81,6 +82,7 @@ class SequencedCaptureExecutor:
         #self.file_io_process_pool = ProcessPoolExecutor(max_workers=1)
         self.camera_executor = camera_executor
         self.autofocus_io_executor = autofocus_io_executor
+        self._z_ui_update_func = z_ui_update_func
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -433,7 +435,9 @@ class SequencedCaptureExecutor:
         if not self._grease_redistribution_done:
             return
         
-        
+        if self._z_ui_update_func is not None:
+            Clock.schedule_once(lambda dt: self._z_ui_update_func(float(step['Z'])), 0)
+
         # Set camera settings
         # self._io_executor.protocol_put(IOTask(
         #     action=self._scope.set_auto_gain,

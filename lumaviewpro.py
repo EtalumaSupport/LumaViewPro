@@ -2183,24 +2183,40 @@ class StitchControls(BoxLayout):
         }
         popup.title = "Stitcher"
         popup.text = "Generating stitched images..."
+        popup.progress = 0
+        popup.auto_dismiss = False
+
         stitcher = Stitcher(
             has_turret=lumaview.scope.has_turret(),
         )
-        result = stitcher.load_folder(
-            path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
-        )
-        final_text = f"Generating stitched images - {status_map[result['status']]}"
+        # result = stitcher.load_folder(
+        #     path=pathlib.Path(path),
+        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+        # )
+        file_io_executor.put(IOTask(action=stitcher.load_folder,
+                             args=(pathlib.Path(path), 
+                                    pathlib.Path(source_path) / "data" / "tiling.json",
+                                    ),
+                             callback=self.stitcher_callback,
+                             cb_args=(popup, status_map),
+                             pass_result=True))
+       
+
+    def stitcher_callback(self, popup, status_map, result=None, exception=None):
+        if result is None:
+            popup.text = "Stitching images - FAILED"
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+        
+        final_text = f"Stitching images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
             popup.text = final_text
-            time.sleep(5)
-            self.done = True
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
-
+        
         popup.text = final_text
-        time.sleep(2)
-        self.done = True
+        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
 
 
 class ZProjectionControls(BoxLayout):
@@ -2847,18 +2863,35 @@ class CellCountControls(BoxLayout):
         popup.text = pre_text
         
         popup.progress = 0
+        popup.auto_dismiss = False
+
+        file_io_executor.put(IOTask(action=self.execute_apply_method_to_folder,
+                             args=(popup, path),
+                             callback=self.apply_method_to_folder_callback,
+                             cb_args=(popup, path),
+                             pass_result=True))
+
+    def execute_apply_method_to_folder(self, popup, path):
+        pre_text = f'Applying method to folder: {path}'
         total_images = self._post.get_num_images_in_folder(path=path)
         image_count = 0
+
         for image_process in self._post.apply_cell_count_to_folder(path=path, settings=self._settings):
             filename = image_process['filename']
             image_count += 1
             popup.progress = int(100 * image_count / total_images)
             popup.text = f"{pre_text}\n- {image_count}/{total_images}: {filename}"
 
+    def apply_method_to_folder_callback(self, popup, path, result=None, exception=None):
+        if result is None:
+            popup.text = "Applying method to folder - FAILED"
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+
         popup.progress = 100
-        popup.text = 'Done'
-        time.sleep(1)
-        self.done = True
+        popup.text = "Applying method to folder - Done"
+        Clock.schedule_once(lambda dt: popup.dismiss(), 2)
+        return
 
     def set_post_processing_module(self, post_processing_module):
         self._post = post_processing_module
@@ -7428,7 +7461,8 @@ class LumaViewProApp(App):
             protocol_executor=protocol_executor,
             file_io_executor=file_io_executor,
             camera_executor=camera_executor,
-            autofocus_io_executor=autofocus_thread_executor
+            autofocus_io_executor=autofocus_thread_executor,
+            z_ui_update_func=_handle_autofocus_ui
         )
         
 
@@ -7762,23 +7796,7 @@ class Tooltip(Label):
     def _update_rect(self, *args):
         self.rect.size = (self.texture_size[0] + self.horiz_padding, self.texture_size[1] + self.vert_padding)
 
-def ij_creation(result=None, exception=None):
-    if exception is not None:
-        logger.error(f"ImageJ initialization unsuccessful: {exception}")
-        return
-    
-    if result is not None:
-        global ij_helper
-        ij_helper = result
-        return
-    
 
-def inti_ij():
-    with ProcessPoolExecutor() as executor:
-        futures = [executor.submit(imagej_helper.ImageJHelper())]
-        for future in as_completed(futures):
-            global ij_helper
-            ij_helper = future.result()
 
 if __name__ == "__main__":
     # Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
