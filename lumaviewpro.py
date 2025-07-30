@@ -5277,6 +5277,7 @@ class ProtocolSettings(CompositeCapture):
             return
         
         if self.ids['run_scan_btn'].state == 'normal':
+            logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui() - User ending scan early')
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
         

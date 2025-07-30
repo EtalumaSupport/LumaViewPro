@@ -27,6 +27,7 @@ from modules.video_writer import VideoWriter
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from lvp_logger import logger
 from concurrent.futures import ProcessPoolExecutor
+import threading
 
 from settings_init import settings
 
@@ -83,6 +84,8 @@ class SequencedCaptureExecutor:
         self.camera_executor = camera_executor
         self.autofocus_io_executor = autofocus_io_executor
         self._z_ui_update_func = z_ui_update_func
+        self._scan_in_progress = threading.Event()
+        self._protocol_ended = threading.Event()
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -111,7 +114,7 @@ class SequencedCaptureExecutor:
         self._curr_step = 0
         self._n_scans = 0
         self._scan_count = 0
-        self._scan_in_progress = False
+        self._scan_in_progress.clear()
         self._autofocus_count = 0
         self._autogain_countdown = 0
         self._grease_redistribution_done = True
@@ -120,6 +123,7 @@ class SequencedCaptureExecutor:
         self._target_y_pos = -1
         self._target_z_pos = -1
         self.debug_counter = 0
+        self._protocol_ended.clear()
         
 
 
@@ -355,7 +359,10 @@ class SequencedCaptureExecutor:
 
     
     def _protocol_iterate(self, dt=None):
-        if self._scan_in_progress:
+        if self._scan_in_progress.is_set():
+            return
+
+        if self._protocol_ended.is_set():
             return
         
         remaining_scans=self.remaining_scans()
@@ -382,10 +389,13 @@ class SequencedCaptureExecutor:
     def _run_scan(
         self
     ):
-        if self._scan_in_progress == True:
+        if self._protocol_ended.is_set():
+            return
+        
+        if self._scan_in_progress.is_set():
             self._scan_count += 1
 
-        self._scan_in_progress = True 
+        self._scan_in_progress.set()
         self._curr_step = 0
 
         # reset the is_complete flag on autofocus
@@ -400,7 +410,13 @@ class SequencedCaptureExecutor:
     
 
     def _scan_iterate(self, dt=None):
-        if not self._scan_in_progress:
+        if self._protocol_ended.is_set():
+            return
+        
+        if not self._scan_in_progress.is_set():
+            return
+
+        if not self._run_in_progress:
             return
         
         if self._autofocus_executor.in_progress():
@@ -580,7 +596,7 @@ class SequencedCaptureExecutor:
             Clock.schedule_once(lambda dt: self._callbacks['scan_iterate_post'](), 0)
 
         Clock.unschedule(self._scan_iterator)
-        self._scan_in_progress = False
+        self._scan_in_progress.clear()
         #self._protocol_iterate()
 
 
@@ -643,6 +659,9 @@ class SequencedCaptureExecutor:
         self,
         step_idx: int,
     ):
+        if self._protocol_ended.is_set():
+            return
+        
         #if False:
         if 'go_to_step' in self._callbacks:
             self._callbacks['go_to_step'](
@@ -705,6 +724,9 @@ class SequencedCaptureExecutor:
 
     
     def _led_on(self, color: str, illumination: float, block: bool=True):
+        if self._protocol_ended.is_set():
+            return
+        
         self._scope.led_on(
             channel=self._scope.color2ch(color),
             mA=illumination,
@@ -767,6 +789,8 @@ class SequencedCaptureExecutor:
             )
 
         self._run_in_progress = False
+        self._scan_in_progress.clear()
+        self._protocol_ended.set()
 
         self._io_executor.protocol_end()
         self.file_io_executor.protocol_finish_then_end()
@@ -790,6 +814,8 @@ class SequencedCaptureExecutor:
         scan_count = None,
         sum_count: int = 1,
     ):
+        if self._protocol_ended.is_set():
+            return
         
         #if sum_count > step['']
 
