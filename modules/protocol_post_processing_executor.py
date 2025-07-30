@@ -115,6 +115,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
 
         new_count = 0
         existing_count = 0
+        current_group = 1
 
         for _, group in groups:
             if len(group) == 0:
@@ -148,6 +149,8 @@ class ProtocolPostProcessingExecutor(abc.ABC):
                 path=root_path,
                 df=group,
                 popup=popup,
+                total_groups=group_count,
+                current_group=current_group,
                 **kwargs,
             )
 
@@ -179,6 +182,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
             )
       
             new_count += 1
+            current_group += 1
 
             if popup is not None:
                 popup.progress = (new_count / group_count) * 100
