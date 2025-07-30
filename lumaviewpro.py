@@ -3814,15 +3814,15 @@ class VerticalControl(BoxLayout):
         
         set_pos = result
 
-        if not False:
+        if not vertical_control:
             self.ids['obj_position'].value = max(0, set_pos)
             self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
         
-        # else:
-        #     self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
+        else:
+            self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
 
-    def coarse_up(self, overshoot_enabled: bool = True):
+    def coarse_up(self, overshoot_enabled: bool = False):
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
         _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
@@ -3864,7 +3864,7 @@ class VerticalControl(BoxLayout):
         #move_relative_position('Z', -fine, overshoot_enabled=overshoot_enabled)
 
 
-    def coarse_down(self, overshoot_enabled: bool = True):
+    def coarse_down(self, overshoot_enabled: bool = False):
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
         _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
