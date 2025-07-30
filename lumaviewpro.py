@@ -134,6 +134,7 @@ if __name__ == "__main__":
     global last_save_folder, stage, ENGINEERING_MODE, debug_counter
     global display_update_counter, start_str, focus_round
     global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor
+    global cpu_pool
     global motorboard_lock, ledboard_lock, camera_lock
     global ij_helper
 
@@ -334,9 +335,15 @@ if __name__ == "__main__":
     file_io_executor = SequentialIOExecutor(name="FILE")
     autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
     scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
-    #cpu_pool = ProcessPoolExecutor() 
+
+    import multiprocessing
+    multiprocessing.freeze_support()
+    multiprocessing.set_start_method('spawn', force=True) 
+
+    cpu_pool = ProcessPoolExecutor(max_workers=num_cores-1) 
+
 else:
-        # Core base classes
+    # Minimal dummy class definitions for subprocess compatibility
     class App:
         def __init__(self, **kwargs): pass
         def build(self): pass
@@ -7394,6 +7401,9 @@ def init_ij():
     global ij_helper
     ij_helper = imagej_helper.ImageJHelper()
     return
+
+def process_ij_helper():
+    return imagej_helper.ImageJHelper()
              
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
@@ -7546,7 +7556,8 @@ class LumaViewProApp(App):
             file_io_executor=file_io_executor,
             camera_executor=camera_executor,
             autofocus_io_executor=autofocus_thread_executor,
-            z_ui_update_func=_handle_autofocus_ui
+            z_ui_update_func=_handle_autofocus_ui,
+            cpu_pool=cpu_pool
         )
         
 
@@ -7592,6 +7603,9 @@ class LumaViewProApp(App):
 
         if scope_display_thread_executor is not None:
             scope_display_thread_executor.shutdown(wait=False)
+
+        if cpu_pool is not None:
+            cpu_pool.shutdown(wait=True)
 
         global lumaview
 
@@ -7902,18 +7916,12 @@ if __name__ == "__main__":
             # If for some reason we get another error again, bite the bullet 
             return original_setslicemethod(self, i, j, sequence)
 
-def dummy_function():
+def dummy_function(PID: int):
     for _ in range(100):
-        print("DUMMY FUNCTION")
+        print(f"DUMMY FUNCTION {PID}")
     return
 
 if __name__ == "__main__":
-    import multiprocessing
-    multiprocessing.freeze_support()
-    multiprocessing.set_start_method('spawn', force=True) 
-
-    process = multiprocessing.Process(target=dummy_function)
-    process.start()
 
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
