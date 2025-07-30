@@ -22,6 +22,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
 ```
 
 ```
@@ -116,13 +118,28 @@ import yappi
 
 if __name__ == "__main__":
     
-
     disable_homing = False
 
     ############################################################################
     #---------------------Directory Initialization-----------------------------#
     ############################################################################
+    
+    """Main application entry point"""
+    # All the initialization code goes here
+    global version, windows_machine, num_cores
+    global lumaview, settings, cell_count_content, graphing_controls
+    global kivy_events, max_exposure, wellplate_loader, objective_helper
+    global coordinate_transformer, sequenced_capture_executor
+    global show_tooltips, protocol_running_global, live_histo_setting
+    global last_save_folder, stage, ENGINEERING_MODE, debug_counter
+    global display_update_counter, start_str, focus_round
+    global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor
+    global motorboard_lock, ledboard_lock, camera_lock
+    global ij_helper
 
+    ij_helper = None
+    
+    # Directory initialization
     abspath = os.path.abspath(__file__)
     basename = os.path.basename(__file__)
     script_path = abspath[:-len(basename)]
@@ -131,12 +148,6 @@ if __name__ == "__main__":
 
     os.chdir(script_path)
     # The version.txt file is in the same directory as the actual script, so making sure it can find the version file.
-
-    global version
-    global windows_machine 
-
-    global num_cores
-
 
 
     windows_machine = False
@@ -272,64 +283,47 @@ if __name__ == "__main__":
 
     import image_utils_kivy
 
-    global lumaview
-    global settings
-    global cell_count_content
-    global graphing_controls
+
+
     
-    global kivy_events
-
-    global max_exposure
-
-    global wellplate_loader
     wellplate_loader = None
 
-    global objective_helper
+    
     objective_helper = None
 
-    global coordinate_transformer
+    
     coordinate_transformer = None
 
 
 
-    global sequenced_capture_executor
+    
     sequenced_capture_executor = None
 
-    global show_tooltips
+    
     show_tooltips = False
 
-    global protocol_running_global
+    
     protocol_running_global = False
 
     # global autofocus_executor
     # autofocus_executor = None
 
-    global live_histo_setting
     live_histo_setting = False
 
-    global last_save_folder
     last_save_folder = None
-    global stage
     stage = None
 
-    global ENGINEERING_MODE
     ENGINEERING_MODE = False
 
-    global debug_counter
     debug_counter = 0
 
-    global display_update_counter
     display_update_counter = 0
 
     start_str = time.strftime("%Y %m %d %H_%M_%S")
     start_str = str(int(round(time.time() * 1000)))
 
-    global focus_round
     focus_round = 0
 
-
-    global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor
-    global motorboard_lock, ledboard_lock, camera_lock
 
 
     #thread_pool = ThreadPoolExecutor() # Thread pool can be used for any IO that can be concurrent
@@ -341,9 +335,95 @@ if __name__ == "__main__":
     autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
     scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
     #cpu_pool = ProcessPoolExecutor() 
+else:
+        # Core base classes
+    class App:
+        def __init__(self, **kwargs): pass
+        def build(self): pass
+        def run(self): pass
+        def on_start(self): pass
+        def on_stop(self): pass
+    
+    class Widget:
+        def __init__(self, **kwargs): 
+            self.ids = {}
+            self.parent = None
+        def add_widget(self, widget): pass
+        def remove_widget(self, widget): pass
+    
+    class BoxLayout(Widget): pass
+    class FloatLayout(Widget): pass
+    class Scatter(Widget): pass
+    class Image(Widget): pass
+    class Button(Widget): pass
+    class Label(Widget): pass
+    class Slider(Widget): pass
+    class ScrollView(Widget): pass
+    class Popup(Widget): pass
+    class AccordionItem(Widget): pass
+    
+    # Graphics classes
+    class RenderContext: pass
+    class Line: pass
+    class Color: pass
+    class Rectangle: pass
+    class Ellipse: pass
+    class Texture: pass
+    
+    # Properties - FIXED to accept arguments
+    class StringProperty:
+        def __init__(self, default_value="", **kwargs): 
+            self.default_value = default_value
+        def __get__(self, obj, objtype): return self.default_value
+        def __set__(self, obj, value): pass
+    
+    class ObjectProperty:
+        def __init__(self, default_value=None, **kwargs): 
+            self.default_value = default_value
+        def __get__(self, obj, objtype): return self.default_value
+        def __set__(self, obj, value): pass
+    
+    class BooleanProperty:
+        def __init__(self, default_value=False, **kwargs): 
+            self.default_value = default_value
+        def __get__(self, obj, objtype): return self.default_value
+        def __set__(self, obj, value): pass
+    
+    class ListProperty:
+        def __init__(self, default_value=None, **kwargs): 
+            self.default_value = default_value or []
+        def __get__(self, obj, objtype): return self.default_value
+        def __set__(self, obj, value): pass
+    
+    # Other classes
+    class MotionEvent: pass
+    class Factory: pass
+    
+    # Clock dummy
+    class Clock:
+        @staticmethod
+        def schedule_once(func, timeout): pass
+        @staticmethod
+        def schedule_interval(func, interval): pass
+        @staticmethod
+        def unschedule(func): pass
+    
+    # Metrics
+    def dp(value): return value
+    
+    # Custom widgets dummies
+    class RangeSlider(Widget): pass
+    class FigureCanvasKivyAgg(Widget): pass
+    
+    # Custom widget functions
+    def show_popup(*args, **kwargs): pass
+    def show_notification_popup(*args, **kwargs): pass
+    
+    # Module dummy
+    class image_utils_kivy:
+        @staticmethod
+        def any_method(*args, **kwargs): pass
 
-global ij_helper
-ij_helper = None
 
 def set_last_save_folder(dir: pathlib.Path | None):
     if dir is None:
@@ -7822,11 +7902,18 @@ if __name__ == "__main__":
             # If for some reason we get another error again, bite the bullet 
             return original_setslicemethod(self, i, j, sequence)
 
+def dummy_function():
+    for _ in range(100):
+        print("DUMMY FUNCTION")
+    return
 
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
+    multiprocessing.set_start_method('spawn', force=True) 
 
+    process = multiprocessing.Process(target=dummy_function)
+    process.start()
 
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
