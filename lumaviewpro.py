@@ -133,7 +133,7 @@ if __name__ == "__main__":
     global show_tooltips, protocol_running_global, live_histo_setting
     global last_save_folder, stage, ENGINEERING_MODE, debug_counter
     global display_update_counter, start_str, focus_round
-    global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor
+    global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor, stage_executor, turret_executor
     global motorboard_lock, ledboard_lock, camera_lock
     global ij_helper
 
@@ -334,6 +334,8 @@ if __name__ == "__main__":
     file_io_executor = SequentialIOExecutor(name="FILE")
     autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
     scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
+    stage_executor = SequentialIOExecutor(name="STAGE")
+    turret_executor = SequentialIOExecutor(name="TURRET")
     #cpu_pool = ProcessPoolExecutor() 
 else:
         # Core base classes
@@ -550,6 +552,7 @@ def go_to_step(
             if not called_from_protocol:
                 if turret_pos is not None:
                     io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'T',"pos": turret_pos,"protocol": False}))
+                    Clock.schedule_once(lambda dt: lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_turret_gui(turret_pos), 0)
                 io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'X',"pos": sx,"protocol": False}))
                 io_executor.put(IOTask(
                         action=move_absolute_position,
@@ -570,6 +573,7 @@ def go_to_step(
             else:
                 if turret_pos is not None:
                     move_absolute_position(axis='T', pos=turret_pos, protocol=True)
+                    Clock.schedule_once(lambda dt: lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_turret_gui(turret_pos), 0)
                 move_absolute_position('X', sx, protocol=True)
                 move_absolute_position('Y', sy, protocol=True)
                 move_absolute_position('Z', step["Z"], protocol=True)
@@ -1100,8 +1104,8 @@ class ScopeDisplay(Image):
                 x_dist_um = x_dist_pixel * pixel_size_um
                 y_dist_um = y_dist_pixel * pixel_size_um
 
-                move_relative_position(axis='X', um=x_dist_um)
-                move_relative_position(axis='Y', um=y_dist_um)
+                stage_executor.put(IOTask(move_relative_position, kwargs={'axis':'X', 'um':x_dist_um}))
+                stage_executor.put(IOTask(move_relative_position, kwargs={'axis':'Y', 'um':y_dist_um}))
 
 
     @staticmethod
@@ -1184,6 +1188,15 @@ class ScopeDisplay(Image):
     
 
     def update_scopedisplay(self, dt=0):
+        scope_display_thread_executor.put(IOTask(self.update_scopedisplay_thread))
+
+    def set_engineering_ui(self, mean, stddev, af_score, open_layer):
+        open_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=open_layer)
+        open_layer_obj.ids['image_stats_mean_id'].text = f"Mean: {mean}"
+        open_layer_obj.ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
+        open_layer_obj.ids['image_af_score_id'].text = f"AF Score: {af_score}"
+
+    def update_scopedisplay_thread(self):
         global lumaview
         global debug_counter
         global display_update_counter
@@ -1229,11 +1242,9 @@ class ScopeDisplay(Image):
                         open_layer = layer
                         break
                 
+                
                 if open_layer is not None:
-                    open_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=open_layer)
-                    open_layer_obj.ids['image_stats_mean_id'].text = f"Mean: {mean}"
-                    open_layer_obj.ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
-                    open_layer_obj.ids['image_af_score_id'].text = f"AF Score: {af_score}"
+                    Clock.schedule_once(lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0)
 
             if debug_counter % 3 == 0:
                 if self.use_bullseye:
@@ -1242,9 +1253,7 @@ class ScopeDisplay(Image):
                     if self.use_crosshairs:
                         image_bullseye = self.add_crosshairs(image=image_bullseye)
 
-                    texture = Texture.create(size=(image_bullseye.shape[1],image_bullseye.shape[0]), colorfmt='rgb')
-                    texture.blit_buffer(image_bullseye.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
-                    self.texture = texture
+                    Clock.schedule_once(lambda dt: self.create_and_set_bullseye_texture(image_bullseye), 0)
             
         if not self.use_bullseye:
             if self.use_live_image_histogram_equalization:
@@ -1255,12 +1264,22 @@ class ScopeDisplay(Image):
                 image = self.add_crosshairs(image=image)
 
             # Convert to texture for display (using OpenGL)
-            texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
-            texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
-            self.texture = texture
+            Clock.schedule_once(lambda dt: self.create_and_set_texture(image), 0)
 
         if self.record == True:
             lumaview.live_capture()
+
+    def create_and_set_bullseye_texture(self, image):
+        texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='rgb')
+        texture.blit_buffer(image.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+        self.texture = texture
+
+    def create_and_set_texture(self, image):
+        texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
+        texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+        self.texture = texture
+
+   
 
     def get_true_gain_exp(self, layer):
         actual_gain = lumaview.scope.camera.get_gain()
@@ -3872,7 +3891,7 @@ class VerticalControl(BoxLayout):
             ))
         else:
             Clock.schedule_once(lambda dt: self.update_text_only)
-
+            
     def update_autofocus_gui(self, pos=None):
         if pos is None:
             return
@@ -4023,7 +4042,7 @@ class VerticalControl(BoxLayout):
     def select_objective(self):
         logger.info('[LVP Main  ] VerticalControl.select_objective()')
         global lumaview
-        global settings
+        global settings 
 
         # Update objective stored in settings
         objective_id = self.ids['objective_spinner2'].text
@@ -4300,9 +4319,15 @@ class VerticalControl(BoxLayout):
 
     def turret_select(self, selected_position):
         if False == lumaview.scope.has_thomed():
-            lumaview.scope.thome()
+            io_executor.put(IOTask(lumaview.scope.thome))
 
-        lumaview.scope.tmove(position=selected_position)
+        if not isinstance(selected_position, int) and not isinstance(selected_position, float):
+            if not selected_position.isdigit():
+                selected_position = 1
+        else:
+            selected_position = int(selected_position)
+
+        io_executor.put(IOTask(lumaview.scope.tmove, kwargs={'position':selected_position}))
         
         for available_position in range(1,5):
             if selected_position == available_position:
@@ -4313,6 +4338,23 @@ class VerticalControl(BoxLayout):
                 if turret_position_objective is not None:
                     # If an objective has been assigned to the turret position, change to that objective
                     self.ids["objective_spinner2"].text = settings["turret_objectives"][selected_position]
+                    self.select_objective()                       
+
+            else:
+                state = 'normal'
+            
+            self.ids[f'turret_pos_{available_position}_btn'].state = state
+
+    def update_turret_gui(self, turret_position):
+        for available_position in range(1,5):
+            if turret_position == available_position:
+                state = 'down'
+
+                # Check if an objective has been saved to that turret
+                turret_position_objective = settings["turret_objectives"][turret_position]
+                if turret_position_objective is not None:
+                    # If an objective has been assigned to the turret position, change to that objective
+                    self.ids["objective_spinner2"].text = settings["turret_objectives"][turret_position]
                     self.select_objective()                       
 
             else:
@@ -4509,7 +4551,7 @@ class XYStageControl(BoxLayout):
             px=x_pos,
             py=0
         )
-        move_absolute_position('X', stage_x)  # set current x position in um
+        stage_executor.put(IOTask(move_absolute_position, kwargs={'axis':'X', 'position':stage_x}))
 
     def goto_ybookmark(self):
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
@@ -4526,7 +4568,7 @@ class XYStageControl(BoxLayout):
             px=0,
             py=y_pos
         )
-        move_absolute_position('Y', stage_y)  # set current y position in um
+        stage_executor.put(IOTask(move_absolute_position, kwargs={'axis':'Y', 'position':stage_y})) # set current y position in um
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')
@@ -4547,7 +4589,7 @@ class XYStageControl(BoxLayout):
         global lumaview
 
         if lumaview.scope.motion.driver: # motor controller is actively connected
-            move_home(axis='XY')
+            stage_executor.put(IOTask(move_home, kwargs={'axis':'XY'}))
 
             # Firmware seems to move the turret back to position 1 when performing XY homing
             # Use this command to make sure the UI is in-sync
@@ -5597,6 +5639,11 @@ class Stage(Widget):
         self._protocol_step_redraw = False
         self._protocol_step_locations_show = False
 
+        self._prev_x_target = None
+        self._prev_y_target = None
+        self._prev_x_current = None
+        self._prev_y_current = None
+
 
     def show_protocol_steps(self, enable: bool):
         self._protocol_step_locations_show = enable
@@ -5656,158 +5703,149 @@ class Stage(Widget):
                 px=plate_x,
                 py=plate_y
             )
+            io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
+            io_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y))) 
+            # move_absolute_position('X', stage_x)
+            # move_absolute_position('Y', stage_y)
 
-            move_absolute_position('X', stage_x)
-            move_absolute_position('Y', stage_y)
-
-
-    def draw_labware(
-        self,
-        *args,
-        full_redraw: bool = False
-    ): # View the labware from front and above
-        global lumaview
-        global settings
-        global kivy_events
-        kivy_events = Clock.get_events()
-
+    def draw_labware(self, *args, full_redraw: bool = False):
+        
         if self.parent is None:
+            return
+        
+        if 'lumaview' not in globals():
             return
         
         if 'settings' not in globals():
             return
-        
+
+        # Get all IO out of the way immediately as well as calculating drawing parameters
+        stage_executor.put(IOTask(action=self.draw_labware_io_calculations, args=(full_redraw,)))
+
+
+    def draw_labware_io_calculations(self, full_redraw: bool = False):
+        global lumaview
+        global settings
+
+        x_target = lumaview.scope.get_target_position('X')
+        y_target = lumaview.scope.get_target_position('Y')
+        x_current = np.clip(lumaview.scope.get_current_position('X'), 0, 120000) # prevents crosshairs from leaving the stage area
+        y_current = np.clip(lumaview.scope.get_current_position('Y'), 0, 80000) # prevents crosshairs from leaving the stage area
+
+        if not full_redraw:
+            if x_target == self._prev_x_target and y_target == self._prev_y_target and x_current == self._prev_x_current and y_current == self._prev_y_current:
+                return
         # Create current labware instance
         _, labware = get_selected_labware()
 
         if full_redraw:
-            self.canvas.clear()
+            Clock.schedule_once(lambda dt: self.canvas.clear(), 0)
         else:
-            self.canvas.remove_group('crosshairs')
-            self.canvas.remove_group('selected_well')
+            Clock.schedule_once(lambda dt: self.canvas.remove_group('crosshairs'), 0)
+            Clock.schedule_once(lambda dt: self.canvas.remove_group('selected_well'), 0)
 
         if self._protocol_step_redraw:
-            self.canvas.remove_group('steps')
+            Clock.schedule_once(lambda dt: self.canvas.remove_group('steps'), 0)
 
-        with self.canvas:
-            w = self.width
-            h = self.height
-            x = self.x
-            y = self.y
+        w = self.width
+        h = self.height
+        x = self.x
+        y = self.y
 
-            # Get labware dimensions
-            dim_max = labware.get_dimensions()
+        # Get labware dimensions
+        dim_max = labware.get_dimensions()
 
-            # mm to pixels scale
-            scale_x = w/dim_max['x']
-            scale_y = h/dim_max['y']
+        # mm to pixels scale
+        scale_x = w/dim_max['x']
+        scale_y = h/dim_max['y']
 
-            # Stage Coordinates (120x80 mm)
-            stage_w = 120
-            stage_h = 80
+        # Stage Coordinates (120x80 mm)
+        stage_w = 120
+        stage_h = 80
 
-            stage_x = settings['stage_offset']['x']/1000
-            stage_y = settings['stage_offset']['y']/1000
+        stage_x = settings['stage_offset']['x']/1000
+        stage_y = settings['stage_offset']['y']/1000
 
-            # Get target position
-            # Outline of Stage Area from Above
+        cols = labware.config['columns']
+        rows = labware.config['rows']
+
+        well_spacing_x = labware.config['spacing']['x']
+        well_spacing_y = labware.config['spacing']['y']
+
+        well_spacing_pixel_x = well_spacing_x
+        well_spacing_pixel_y = well_spacing_y
+
+        well_diameter = labware.config['diameter']
+        if well_diameter == -1:
+            well_radius_pixel_x = well_spacing_pixel_x
+            well_radius_pixel_y = well_spacing_pixel_y
+        else:
+            well_radius = well_diameter / 2
+            well_radius_pixel_x = well_radius * scale_x
+            well_radius_pixel_y = well_radius * scale_y
+
+        if full_redraw:
+            self.schedule_to_draw(self.draw_rectangle, pos=(x+(dim_max['x']-stage_w-stage_x)*scale_x, y+stage_y*scale_y), size=(stage_w*scale_x, stage_h*scale_y), color=(.2, .2, .2 , 0.5), group='outline')
+
+            # Outline of Plate from Above
             # ------------------
-            if full_redraw:
-                Color(.2, .2, .2 , 0.5)                # dark grey
-                Rectangle(pos=(x+(dim_max['x']-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
-                            size=(stage_w*scale_x, stage_h*scale_y), group='outline')
+            self.schedule_to_draw(self.draw_line, points=(x, y, x, y+h-15), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')          # Left
+            self.schedule_to_draw(self.draw_line, points=(x+w, y, x+w, y+h), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')         # Right
+            self.schedule_to_draw(self.draw_line, points=(x, y, x+w, y), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')             # Bottom
+            self.schedule_to_draw(self.draw_line, points=(x+15, y+h, x+w, y+h), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')      # Top
+            self.schedule_to_draw(self.draw_line, points=(x, y+h-15, x+15, y+h), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')     # Diagonal
 
-                # Outline of Plate from Above
-                # ------------------
-                Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
-                Line(points=(x, y, x, y+h-15), width = 1, group='outline')          # Left
-                Line(points=(x+w, y, x+w, y+h), width = 1, group='outline')         # Right
-                Line(points=(x, y, x+w, y), width = 1, group='outline')             # Bottom
-                Line(points=(x+15, y+h, x+w, y+h), width = 1, group='outline')      # Top
-                Line(points=(x, y+h-15, x+15, y+h), width = 1, group='outline')     # Diagonal
-
-                # ROI rectangle
-                # ------------------
-                if self.ROI_max[0] > self.ROI_min[0]:
-                    roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(
-                        labware=labware,
-                        stage_offset=settings['stage_offset'],
-                        sx=self.ROI_min[0],
-                        sy=self.ROI_min[1],
-                        scale_x=scale_x,
-                        scale_y=scale_y
-                    )
-                
-                    roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(
-                        labware=labware,
-                        stage_offset=settings['stage_offset'],
-                        sx=self.ROI_max[0],
-                        sy=self.ROI_max[1],
-                        scale_x=scale_x,
-                        scale_y=scale_y
-                    )
-
-                    Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
-                    Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y), group='outline')
-            
-            # Draw all ROI rectangles
+            # ROI rectangle
             # ------------------
-            # TODO (for each step)
-            '''
-            for ROI in self.ROIs:
-                if self.ROI_max[0] > self.ROI_min[0]:
-                    roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
-                    roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
-                    Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
-                    Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
-            '''
+            if self.ROI_max[0] > self.ROI_min[0]:
+                roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(
+                    labware=labware,
+                    stage_offset=settings['stage_offset'],
+                    sx=self.ROI_min[0],
+                    sy=self.ROI_min[1],
+                    scale_x=scale_x,
+                    scale_y=scale_y
+                )
             
+                roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(
+                    labware=labware,
+                    stage_offset=settings['stage_offset'],
+                    sx=self.ROI_max[0],
+                    sy=self.ROI_max[1],
+                    scale_x=scale_x,
+                    scale_y=scale_y
+                )
+
+                self.schedule_to_draw(self.draw_line, rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')
+
             # Draw all wells
             # ------------------
-            cols = labware.config['columns']
-            rows = labware.config['rows']
-            
-            well_spacing_x = labware.config['spacing']['x']
-            well_spacing_y = labware.config['spacing']['y']
-            well_spacing_pixel_x = well_spacing_x
-            well_spacing_pixel_y = well_spacing_y
+            for i in range(cols):
+                for j in range(rows):                   
+                    well_plate_x, well_plate_y = labware.get_well_position(i, j)
+                    well_pixel_x, well_pixel_y = coordinate_transformer.plate_to_pixel(
+                        labware=labware,
+                        px=well_plate_x,
+                        py=well_plate_y,
+                        scale_x=scale_x,
+                        scale_y=scale_y
+                    )
+                    x_center = int(x+well_pixel_x) # on screen center
+                    y_center = int(y+well_pixel_y) # on screen center
 
-            well_diameter = labware.config['diameter']
-            if well_diameter == -1:
-                well_radius_pixel_x = well_spacing_pixel_x
-                well_radius_pixel_y = well_spacing_pixel_y
-            else:
-                well_radius = well_diameter / 2
-                well_radius_pixel_x = well_radius * scale_x
-                well_radius_pixel_y = well_radius * scale_y
+                    self.schedule_to_draw(self.draw_ellipse, pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), radius=(well_radius_pixel_x*2, well_radius_pixel_y*2), color=(0.4, 0.4, 0.4, 0.5), group='wells')
 
-            if full_redraw:
-                Color(0.4, 0.4, 0.4, 0.5)
-            
-                for i in range(cols):
-                    for j in range(rows):                   
-                        well_plate_x, well_plate_y = labware.get_well_position(i, j)
-                        well_pixel_x, well_pixel_y = coordinate_transformer.plate_to_pixel(
-                            labware=labware,
-                            px=well_plate_x,
-                            py=well_plate_y,
-                            scale_x=scale_x,
-                            scale_y=scale_y
-                        )
-                        x_center = int(x+well_pixel_x) # on screen center
-                        y_center = int(y+well_pixel_y) # on screen center
-                        Ellipse(pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), size=(well_radius_pixel_x*2, well_radius_pixel_y*2), group='wells')
-
-            if full_redraw or self._protocol_step_redraw:
+        if full_redraw or self._protocol_step_redraw:
                 self._protocol_step_redraw = False
 
                 if  (self._protocol_step_locations_show == True) and \
                     (self._protocol_step_locations_df is not None):
 
-                    Color(1., 1., 0., 1.)
                     half_size = 2
-                    for _, step in self._protocol_step_locations_df.iterrows():
-                        pixel_x, pixel_y = coordinate_transformer.plate_to_pixel(
+                    with self.canvas:
+                        
+                        for _, step in self._protocol_step_locations_df.iterrows():
+                            pixel_x, pixel_y = coordinate_transformer.plate_to_pixel(
                             labware=labware,
                             px=step['X'],
                             py=step['Y'],
@@ -5818,24 +5856,282 @@ class Stage(Widget):
                         x_center = x+pixel_x
                         y_center = y+pixel_y
 
-                        Line(points=(x_center-half_size, y_center, x_center+half_size, y_center), width = 1, group='steps') # horizontal line
-                        Line(points=(x_center, y_center-half_size, x_center, y_center+half_size), width = 1, group='steps') # vertical line
+                        self.schedule_to_draw(self.draw_line, points=(x_center-half_size, y_center, x_center+half_size, y_center), color=(1., 1., 0., 1.), width = 1, group='steps') # horizontal line
+                        self.schedule_to_draw(self.draw_line, points=(x_center, y_center-half_size, x_center, y_center+half_size), color=(1., 1., 0., 1.), width = 1, group='steps') # vertical line
 
-            io_executor.put(IOTask(
-                action=self.get_target_xy,
-                callback=self.get_target_callback,
-                cb_args=(
-                    scale_x,
-                    scale_y,
-                    well_radius_pixel_x,
-                    x,
-                    y
-                ),
-                pass_result=True
-            ))
-                
+        target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                sx=x_target,
+                sy=y_target
+            )
+
+        target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
+        target_well_plate_x, target_well_plate_y = labware.get_well_position(target_i, target_j)
+        target_well_pixel_x, target_well_pixel_y = coordinate_transformer.plate_to_pixel(
+            labware=labware,
+            px=target_well_plate_x,
+            py=target_well_plate_y,
+            scale_x=scale_x,
+            scale_y=scale_y
+        )
+        target_well_center_x = int(x+target_well_pixel_x) # on screen center
+        target_well_center_y = int(y+target_well_pixel_y) # on screen center
+
+        # Draw selected well
+        self.schedule_to_draw(self.draw_line, ellipse=(target_well_center_x - (well_radius_pixel_x), target_well_center_y - (well_radius_pixel_y), well_radius_pixel_x*2, well_radius_pixel_y*2), color=(0., 1., 0., 1.), group='selected_well')
+
+        pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
+                labware=labware,
+                stage_offset=settings['stage_offset'],
+                sx=x_current,
+                sy=y_current,
+                scale_x=scale_x,
+                scale_y=scale_y
+            )
             
+        x_center = x+pixel_x
+        y_center = y+pixel_y
+        
+        # Draw crosshairs
+        self.schedule_to_draw(self.draw_line, points=(x_center-10, y_center, x_center+10, y_center), color=(1., 0., 0., 1.), width = 1, group='crosshairs') # horizontal line
+        self.schedule_to_draw(self.draw_line, points=(x_center, y_center-10, x_center, y_center+10), color=(1., 0., 0., 1.), width = 1, group='crosshairs') # vertical line
 
+        self._prev_x_target = x_target
+        self._prev_y_target = y_target
+        self._prev_x_current = x_current
+        self._prev_y_current = y_current
+
+
+    def schedule_to_draw(self, draw_function, *args, **kwargs):
+        """
+        Schedule a drawing operation to be executed on the main UI thread.
+        
+        Args:
+            draw_function: A callable that performs the drawing operation
+            *args, **kwargs: Arguments to pass to the draw_function
+        
+        Example usage:
+            # From a background thread:
+            self.schedule_to_draw(self.draw_line, points=[0, 0, 100, 100], color=(1, 0, 0, 1))
+            self.schedule_to_draw(self.draw_circle, pos=(50, 50), radius=20)
+        """
+        def execute_draw(_):
+            try:
+                draw_function(*args, **kwargs)
+            except Exception as e:
+                print(f"Error in scheduled draw operation: {e}")
+        
+        Clock.schedule_once(execute_draw, 0)
+    
+    def draw_line(self, points=None, color=(1, 1, 1, 1), width=1, group=None, circle=None, ellipse=None, rectangle=None):
+        """Draw a line on the canvas - safe to call from schedule_to_draw_on_canvas"""
+        with self.canvas:
+            Color(*color)
+            if points:
+                Line(points=points, width=width, group=group)
+            elif circle:
+                # circle = (center_x, center_y, radius)
+                Line(circle=circle, group=group)
+            elif ellipse:
+                # ellipse = (bottom_left_x, bottom_left_y, width, height)
+                Line(ellipse=ellipse, group=group)
+            elif rectangle:
+                # rectangle = (bottom_left_x, bottom_left_y, width, height)
+                Line(rectangle=rectangle, group=group)
+    
+    def draw_rectangle(self, pos, size, color=(1, 1, 1, 1), group=None):
+        """Draw a rectangle on the canvas - safe to call from schedule_to_draw_on_canvas"""
+        with self.canvas:
+            Color(*color)
+            Rectangle(pos=pos, size=size, group=group)
+    
+    def draw_ellipse(self, pos, radius, color=(1, 1, 1, 1), group=None):
+        """Draw an ellipse on the canvas - safe to call from schedule_to_draw_on_canvas"""
+        with self.canvas:
+            Color(*color)
+            Ellipse(pos=pos, size=radius, group=group)
+
+
+    # def draw_labware(
+    #     self,
+    #     *args,
+    #     full_redraw: bool = False
+    # ): # View the labware from front and above
+    #     global lumaview
+    #     global settings
+    #     global kivy_events
+    #     kivy_events = Clock.get_events()
+
+    #     if self.parent is None:
+    #         return
+        
+    #     if 'settings' not in globals():
+    #         return
+        
+    #     # Create current labware instance
+    #     _, labware = get_selected_labware()
+
+    #     if full_redraw:
+    #         # logger.error("===============FULL REDRAW================")
+    #         self.canvas.clear()
+    #     else:
+    #         # self.canvas.remove_group('crosshairs')
+    #         # self.canvas.remove_group('selected_well')
+    #         pass
+
+    #     if self._protocol_step_redraw:
+    #         self.canvas.remove_group('steps')
+
+    #     with self.canvas:
+    #         w = self.width
+    #         h = self.height
+    #         x = self.x
+    #         y = self.y
+
+    #         # Get labware dimensions
+    #         dim_max = labware.get_dimensions()
+
+    #         # mm to pixels scale
+    #         scale_x = w/dim_max['x']
+    #         scale_y = h/dim_max['y']
+
+    #         # Stage Coordinates (120x80 mm)
+    #         stage_w = 120
+    #         stage_h = 80
+
+    #         stage_x = settings['stage_offset']['x']/1000
+    #         stage_y = settings['stage_offset']['y']/1000
+
+    #         # Get target position
+    #         # Outline of Stage Area from Above
+    #         # ------------------
+    #         if full_redraw:
+    #             with self.canvas:
+    #                 Color(.2, .2, .2 , 0.5)                # dark grey
+    #                 Rectangle(pos=(x+(dim_max['x']-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
+    #                             size=(stage_w*scale_x, stage_h*scale_y), group='outline')
+
+    #                 # Outline of Plate from Above
+    #                 # ------------------
+    #                 Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
+    #                 Line(points=(x, y, x, y+h-15), width = 1, group='outline')          # Left
+    #                 Line(points=(x+w, y, x+w, y+h), width = 1, group='outline')         # Right
+    #                 Line(points=(x, y, x+w, y), width = 1, group='outline')             # Bottom
+    #                 Line(points=(x+15, y+h, x+w, y+h), width = 1, group='outline')      # Top
+    #                 Line(points=(x, y+h-15, x+15, y+h), width = 1, group='outline')     # Diagonal
+
+    #             # ROI rectangle
+    #             # ------------------
+    #             if self.ROI_max[0] > self.ROI_min[0]:
+    #                 roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(
+    #                     labware=labware,
+    #                     stage_offset=settings['stage_offset'],
+    #                     sx=self.ROI_min[0],
+    #                     sy=self.ROI_min[1],
+    #                     scale_x=scale_x,
+    #                     scale_y=scale_y
+    #                 )
+                
+    #                 roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(
+    #                     labware=labware,
+    #                     stage_offset=settings['stage_offset'],
+    #                     sx=self.ROI_max[0],
+    #                     sy=self.ROI_max[1],
+    #                     scale_x=scale_x,
+    #                     scale_y=scale_y
+    #                 )
+
+    #                 with self.canvas:
+    #                     Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
+    #                     Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y), group='outline')
+            
+    #         # Draw all ROI rectangles
+    #         # ------------------
+    #         # TODO (for each step)
+    #         '''
+    #         for ROI in self.ROIs:
+    #             if self.ROI_max[0] > self.ROI_min[0]:
+    #                 roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
+    #                 roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
+    #                 Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
+    #                 Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
+    #         '''
+            
+    #         # Draw all wells
+    #         # ------------------
+    #         cols = labware.config['columns']
+    #         rows = labware.config['rows']
+            
+    #         well_spacing_x = labware.config['spacing']['x']
+    #         well_spacing_y = labware.config['spacing']['y']
+    #         well_spacing_pixel_x = well_spacing_x
+    #         well_spacing_pixel_y = well_spacing_y
+
+    #         well_diameter = labware.config['diameter']
+    #         if well_diameter == -1:
+    #             well_radius_pixel_x = well_spacing_pixel_x
+    #             well_radius_pixel_y = well_spacing_pixel_y
+    #         else:
+    #             well_radius = well_diameter / 2
+    #             well_radius_pixel_x = well_radius * scale_x
+    #             well_radius_pixel_y = well_radius * scale_y
+
+    #         if full_redraw:
+    #             with self.canvas:
+    #                 Color(0.4, 0.4, 0.4, 0.5)
+
+    #                 for i in range(cols):
+    #                     for j in range(rows):                   
+    #                         well_plate_x, well_plate_y = labware.get_well_position(i, j)
+    #                         well_pixel_x, well_pixel_y = coordinate_transformer.plate_to_pixel(
+    #                             labware=labware,
+    #                             px=well_plate_x,
+    #                             py=well_plate_y,
+    #                             scale_x=scale_x,
+    #                             scale_y=scale_y
+    #                         )
+    #                         x_center = int(x+well_pixel_x) # on screen center
+    #                         y_center = int(y+well_pixel_y) # on screen center
+    #                         Ellipse(pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), size=(well_radius_pixel_x*2, well_radius_pixel_y*2), group='wells')
+
+    #         if full_redraw or self._protocol_step_redraw:
+    #             self._protocol_step_redraw = False
+
+    #             if  (self._protocol_step_locations_show == True) and \
+    #                 (self._protocol_step_locations_df is not None):
+
+    #                 half_size = 2
+    #                 with self.canvas:
+    #                     Color(1., 1., 0., 1.)
+    #                     for _, step in self._protocol_step_locations_df.iterrows():
+    #                         pixel_x, pixel_y = coordinate_transformer.plate_to_pixel(
+    #                         labware=labware,
+    #                         px=step['X'],
+    #                         py=step['Y'],
+    #                         scale_x=scale_x,
+    #                         scale_y=scale_y
+    #                     )
+                        
+    #                     x_center = x+pixel_x
+    #                     y_center = y+pixel_y
+
+    #                     Line(points=(x_center-half_size, y_center, x_center+half_size, y_center), width = 1, group='steps') # horizontal line
+    #                     Line(points=(x_center, y_center-half_size, x_center, y_center+half_size), width = 1, group='steps') # vertical line
+
+    #         io_executor.put(IOTask(
+    #             action=self.get_target_xy,
+    #             callback=self.get_target_callback,
+    #             cb_args=(
+    #                 scale_x,
+    #                 scale_y,
+    #                 well_radius_pixel_x,
+    #                 x,
+    #                 y
+    #             ),
+    #             pass_result=True
+    #         ))
+                
     def get_target_xy(self):
         try:
             target_stage_x = lumaview.scope.get_target_position('X')
@@ -5873,8 +6169,9 @@ class Stage(Widget):
             target_well_center_y = int(y+target_well_pixel_y) # on screen center
 
             # Green selection circle
-            Color(0., 1., 0., 1., group='selected_well')
-            Line(circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x), group='selected_well')
+            with self.canvas:
+                Color(0., 1., 0., 1., group='selected_well')
+                Line(circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x), group='selected_well')
 
             #  Red Crosshairs
             # ------------------
@@ -5924,10 +6221,12 @@ class Stage(Widget):
             
             x_center = x+pixel_x
             y_center = y+pixel_y
-
-            Color(1., 0., 0., 1., group='crosshairs')
-            Line(points=(x_center-10, y_center, x_center+10, y_center), width = 1, group='crosshairs') # horizontal line
-            Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1, group='crosshairs') # vertical line
+            with self.canvas:
+                Color(1., 0., 0., 1., group='crosshairs')
+                Line(points=(x_center-10, y_center, x_center+10, y_center), width = 1, group='crosshairs') # horizontal line
+                Line(points=(x_center, y_center-10, x_center, y_center+10), width = 1, group='crosshairs') # vertical line
+            x = 1
+            y = 1
 
 class MicroscopeSettings(BoxLayout):
 
@@ -7424,7 +7723,7 @@ class LumaViewProApp(App):
                 move_home,
                 args=('XY')
             )
-            io_executor.put(task)
+            stage_executor.put(task)
 
 
         if lumaview.scope.has_turret():
@@ -7436,11 +7735,11 @@ class LumaViewProApp(App):
                 logger.error(f"Turret position for objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
                 turret_position = DEFAULT_POSITION
 
-            io_executor.put(IOTask(
+            turret_executor.put(IOTask(
                 move_absolute_position,
                 kwargs= {
                     "axis": 'T',
-                    "pos": 'turret_position',
+                    "pos": turret_position,
                     "wait_until_complete": True
                 }
             ))
@@ -7513,7 +7812,8 @@ class LumaViewProApp(App):
         file_io_executor.start()
         autofocus_thread_executor.start()
         scope_display_thread_executor.start()
-        
+        stage_executor.start()
+        turret_executor.start()
         #ij_helper = imagej_helper.ImageJHelper()
 
         # temp_ij_executor.put(IOTask(
@@ -7592,6 +7892,12 @@ class LumaViewProApp(App):
 
         if scope_display_thread_executor is not None:
             scope_display_thread_executor.shutdown(wait=False)
+
+        if stage_executor is not None:
+            stage_executor.shutdown(wait=False)
+
+        if turret_executor is not None: 
+            turret_executor.shutdown(wait=False)
 
         global lumaview
 
@@ -7908,12 +8214,12 @@ def dummy_function():
     return
 
 if __name__ == "__main__":
-    import multiprocessing
-    multiprocessing.freeze_support()
-    multiprocessing.set_start_method('spawn', force=True) 
+    # import multiprocessing
+    # multiprocessing.freeze_support()
+    # multiprocessing.set_start_method('spawn', force=True) 
 
-    process = multiprocessing.Process(target=dummy_function)
-    process.start()
+    # process = multiprocessing.Process(target=dummy_function)
+    # process.start()
 
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
