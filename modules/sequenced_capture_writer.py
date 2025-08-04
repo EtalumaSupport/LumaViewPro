@@ -3,17 +3,92 @@ import image_utils
 from modules.video_writer import VideoWriter
 import gc
 import pathlib
-from lvp_logger import logger
+# from lvp_logger import logger
+import os
+import logging
 
+# Prevent any potential Kivy imports in worker processes
+os.environ['KIVY_NO_CONSOLELOG'] = '1'
+
+def _noop(i: int):
+    print(f"noop task received: {i!r}")
+    return None
+
+
+class FlushFileHandler(logging.FileHandler):
+    """FileHandler that flushes after each emit."""
+    def emit(self, record):
+        super().emit(record)
+        self.flush()
+
+def setup_worker_logger(log_dir: str = ".") -> logging.Logger:
+    """
+    Create and return a logger that writes to
+    ./worker_<PID>.log, flushing after every record.
+    """
+    pid = os.getpid()   
+    name = f"worker_{pid}"
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    # Only add the handler once:
+    if not any(isinstance(h, FlushFileHandler) for h in logger.handlers):
+        log_path = os.path.join(log_dir, f"{name}.log")
+        fh = FlushFileHandler(log_path, mode="w")
+        fh.setLevel(logging.DEBUG)
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+    return logger
+
+def worker_initializer(lvp_appdata):
+    try:
+        """Initialize worker process - called once when process starts."""
+        import os
+        import sys
+        import builtins
+        from datetime import datetime
+    
+        pid = os.getpid()
+        # Open two files, line-buffered
+        sys.stdout = open(f"{lvp_appdata}/logs/subprocess_workers.log", "a", buffering=1)
+        sys.stderr = open(f"{lvp_appdata}/logs/subprocess_workers.error.log", "a", buffering=1)
+
+        orig_print = builtins.print
+        def prefixed_print(*args, **kwargs):
+            # Always print to our new sys.stdout
+            timestamp = datetime.now().isoformat(sep=" ", timespec="milliseconds")
+            prefix = f"{timestamp} [PID {pid}]"
+            orig_print(prefix, *args, **kwargs, file=sys.stdout, flush=True)
+
+        builtins.print = prefixed_print
+
+        # Set environment variables to prevent Kivy initialization
+        os.environ['KIVY_NO_CONSOLELOG'] = '1'
+        os.environ['KIVY_NO_ARGS'] = '1'
+        os.environ['KIVY_NO_CONFIG'] = '1'
+        os.environ['KIVY_LOGGER_LEVEL'] = 'critical'
+        
+        # Prevent pygame sound initialization
+        os.environ['SDL_AUDIODRIVER'] = 'dummy'
+        print(f"Worker process {pid} initialized")
+        print("initializer complete")
+        # Set up any worker-specific configuration here
+        # This runs once per worker process at startup
+        pass
+    except Exception:
+        import traceback, sys
+        traceback.print_exc(file=sys.stderr)
+        raise
 
 def write_capture(
                     protocol_execution_record:object=None,
                     separate_folder_per_channel:bool=False,
-                    scope:object=None,
+                    save_image_func:callable=None,
+                    save_image_func_kwargs:dict=None,
                     enable_image_saving=True,
                     is_video=False, 
                     video_as_frames=False, 
-                    video_images: queue.Queue=None, 
+                    video_images: list=None, 
                     save_folder=None,
                     use_color=None,
                     name=None,
@@ -27,11 +102,11 @@ def write_capture(
                     duration_sec=0.0,
                     captured_frames=1
                     ):
-    
+
     print("===============WRITE CAPTURE ATTEMPT===============")
     print(f"is_video: {is_video}")
     print(f"video_as_frames: {video_as_frames}")
-    print(f"video_images: {video_images}")
+    print(f"video_images present: {len(video_images) > 0}")
     print(f"save_folder: {save_folder}")
     print(f"use_color: {use_color}")
     print(f"name: {name}")
@@ -55,9 +130,8 @@ def write_capture(
                 if not save_folder.exists():
                     save_folder.mkdir(exist_ok=True, parents=True)
 
-                while not video_images.empty():
+                for image_pair in video_images:
 
-                    image_pair = video_images.get_nowait()
                     frame_num += 1
 
                     image = image_pair[0]
@@ -69,8 +143,7 @@ def write_capture(
 
                     image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
 
-                    del image
-                    video_images.task_done()
+                    del image_pair
 
                     frame_name = f"{name}_Frame_{frame_num:04}"
 
@@ -91,7 +164,7 @@ def write_capture(
                             ome=False,
                         )
                     except Exception as e:
-                        logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
+                        print(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
 
                 # Queue is not empty, delete it and force garbage collection
                 del video_images
@@ -106,14 +179,12 @@ def write_capture(
                     fps=calculated_fps,
                     include_timestamp_overlay=True
                 )
-                while not video_images.empty():
+                for image_pair in video_images:
                     try:
-                        image_pair = video_images.get_nowait()
                         video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
                         del image_pair
-                        video_images.task_done()
                     except Exception as e:
-                        logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
+                        print(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
 
                 # Video images queue empty. Delete it and force garbage collection
                 del video_images
@@ -125,26 +196,25 @@ def write_capture(
                 
                 capture_result = output_file_loc
             
-            logger.info("Protocol-Video] Video writing finished.")
-            logger.info(f"Protocol-Video] Video saved at {capture_result}")
+            print("Protocol-Video] Video writing finished.")
+            print(f"Protocol-Video] Video saved at {capture_result}")
         
         else:
             if captured_image is False:
                 return
             
-            capture_result = scope.save_image(
-                array=captured_image,
-                save_folder=save_folder,
-                file_root=None,
-                append=name,
-                color=use_color,
-                tail_id_mode=None,
-                output_format=output_format,
-                true_color=step['Color'],
-                x=step['X'],
-                y=step['Y'],
-                z=step['Z']
-            )
+            # save_image_func is a static method on the Lumascope class
+            # save_image_func_kwargs is a dictionary of keyword arguments to pass to the save_image_func
+            # save_image_func should be Lumascope.save_image_static(kwargs)
+            try:
+                capture_result = save_image_func(
+                    **save_image_func_kwargs
+                )
+                print(f"Image saved to {capture_result}")
+
+            except Exception as e:
+                print(f"Error: Unable to save image: {e}")
+                raise Exception(f"Unable to save image: {e}")
 
             del captured_image
             gc.collect()
@@ -185,14 +255,14 @@ def write_capture(
 
     gc.collect()
     
-    protocol_execution_record.add_step(
-        capture_result_file_name=capture_result_filepath_name,
-        step_name=step['Name'],
-        step_index=step_index,
-        scan_count=scan_count,
-        timestamp=capture_time,
-        frame_count=captured_frames if is_video else 1,
-        duration_sec=duration_sec if is_video else 0.0
-    )
+    # protocol_execution_record.add_step(
+    #     capture_result_file_name=capture_result_filepath_name,
+    #     step_name=step['Name'],
+    #     step_index=step_index,
+    #     scan_count=scan_count,
+    #     timestamp=capture_time,
+    #     frame_count=captured_frames if is_video else 1,
+    #     duration_sec=duration_sec if is_video else 0.0
+    # )
 
-    return
+    return True

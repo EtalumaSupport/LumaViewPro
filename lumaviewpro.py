@@ -116,6 +116,7 @@ import post_processing
 import image_utils
 import yappi
 
+
 if __name__ == "__main__":
     
     disable_homing = False
@@ -340,7 +341,43 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()
     multiprocessing.set_start_method('spawn', force=True) 
 
-    cpu_pool = ProcessPoolExecutor(max_workers=num_cores-1) 
+    # Import existing writer for process pool
+    from modules.sequenced_capture_writer import write_capture, worker_initializer, _noop
+    
+    # def worker_initializer():
+    #     """Initialize worker process to prevent Kivy initialization."""
+    #     import os
+    #     import sys
+        
+    #     # Set environment variables to prevent Kivy initialization
+    #     os.environ['KIVY_NO_CONSOLELOG'] = '1'
+    #     os.environ['KIVY_NO_ARGS'] = '1'
+    #     os.environ['KIVY_NO_CONFIG'] = '1'
+    #     os.environ['KIVY_LOGGER_LEVEL'] = 'critical'
+        
+    #     # Prevent pygame sound initialization
+    #     os.environ['SDL_AUDIODRIVER'] = 'dummy'
+        
+    #     print(f"Worker process {os.getpid()} initialized with Kivy isolation")
+
+    from lvp_logger import lvp_appdata as lvp_appdata_logger
+    
+    # Create ProcessPoolExecutor with worker initializer
+    cpu_pool = ProcessPoolExecutor(
+        max_workers=num_cores-1, 
+        initializer=worker_initializer,
+        initargs=(lvp_appdata_logger,)
+    )
+
+    # Warm up the pool
+    futures = [cpu_pool.submit(_noop, i) for i in range(num_cores-1)]
+
+    for f in futures:
+        f.result()
+
+    print("All warmup complete")
+    
+
 
 else:
     # Minimal dummy class definitions for subprocess compatibility
@@ -431,6 +468,35 @@ else:
         @staticmethod
         def any_method(*args, **kwargs): pass
 
+
+    
+def test_worker_isolation():
+    """Test function to verify worker process isolation."""
+    import sys
+    import os
+    
+    print(f"[Worker {os.getpid()}] Testing worker isolation...")
+    
+    # Check if Kivy modules are imported
+    kivy_modules = [name for name in sys.modules.keys() if name.startswith('kivy')]
+    if kivy_modules:
+        print(f"[Worker {os.getpid()}] WARNING: Kivy modules detected: {kivy_modules}")
+        return False
+    else:
+        print(f"[Worker {os.getpid()}] SUCCESS: No Kivy modules detected")
+        return True
+
+# Test worker process isolation
+def test_process_isolation():
+    """Test that worker processes are properly isolated from Kivy."""
+    logger.info("Testing process isolation...")
+    future = cpu_pool.submit(test_worker_isolation)
+    result = future.result(timeout=10)
+    if result:
+        logger.info("SUCCESS: Worker processes are isolated from Kivy")
+    else:
+        logger.warning("WARNING: Worker processes may have Kivy dependencies")
+    return result 
 
 def set_last_save_folder(dir: pathlib.Path | None):
     if dir is None:
