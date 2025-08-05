@@ -103,166 +103,151 @@ def write_capture(
                     captured_frames=1
                     ):
 
-    print("===============WRITE CAPTURE ATTEMPT===============")
-    print(f"is_video: {is_video}")
-    print(f"video_as_frames: {video_as_frames}")
-    print(f"video_images present: {len(video_images) > 0}")
-    print(f"save_folder: {save_folder}")
-    print(f"use_color: {use_color}")
-    print(f"name: {name}")
-    print(f"calculated_fps: {calculated_fps}")
-    print(f"output_format: {output_format}")
+    print(f"Begin write_capture for {name} ", end="")
+    if not is_video:
+        print(f"image")
+    else:
+        print(f"video {'mp4' if not video_as_frames else 'frames'}")
 
-    print(f"step: {step}")
-    print(f"captured_image: {captured_image}")
-    print(f"step_index: {step_index}")
-    print(f"scan_count: {scan_count}")
-    print(f"capture_time: {capture_time}")
-    print(f"duration_sec: {duration_sec}")
-    print(f"captured_frames: {captured_frames}")
-    print("===============WRITE CAPTURE ATTEMPT===============")
+    try:
+        if enable_image_saving == True:
+            if is_video:
+                if video_as_frames:
+                    frame_num = 0
+                    capture_result = save_folder
+                    if not save_folder.exists():
+                        save_folder.mkdir(exist_ok=True, parents=True)
 
-    if enable_image_saving == True:
-        if is_video:
-            if video_as_frames:
-                frame_num = 0
-                capture_result = save_folder
-                if not save_folder.exists():
-                    save_folder.mkdir(exist_ok=True, parents=True)
+                    for image_pair in video_images:
 
-                for image_pair in video_images:
+                        frame_num += 1
 
-                    frame_num += 1
+                        image = image_pair[0]
+                        ts = image_pair[1]
 
-                    image = image_pair[0]
-                    ts = image_pair[1]
+                        del image_pair
 
-                    del image_pair
+                        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
-                    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                        image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
 
-                    image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
+                        frame_name = f"{name}_Frame_{frame_num:04}"
 
-                    del image_pair
+                        output_file_loc = save_folder / f"{frame_name}.tiff"
 
-                    frame_name = f"{name}_Frame_{frame_num:04}"
+                        metadata = {
+                            "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
+                            "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
+                            "frame_num": frame_num
+                        }
+                        
+                        try:
+                            image_utils.write_tiff(
+                                data=image_w_timestamp,
+                                metadata=metadata,
+                                file_loc=output_file_loc,
+                                video_frame=True,
+                                ome=False,
+                            )
+                        except Exception as e:
+                            print(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
 
-                    output_file_loc = save_folder / f"{frame_name}.tiff"
+                        del image_w_timestamp
+                        del image
+                        del ts
 
-                    metadata = {
-                        "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
-                        "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
-                        "frame_num": frame_num
-                    }
+                    # Queue is not empty, delete it and force garbage collection
+                    del video_images
+                    gc.collect()
+
+                        
+
+                else:
+                    output_file_loc = save_folder / f"{name}.mp4v"
+                    video_writer = VideoWriter(
+                        output_file_loc=output_file_loc,
+                        fps=calculated_fps,
+                        include_timestamp_overlay=True
+                    )
+                    for image_pair in video_images:
+                        try:
+                            video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
+                            del image_pair
+                        except Exception as e:
+                            print(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
+
+                    # Video images queue empty. Delete it and force garbage collection
+                    del video_images
+
+                    video_writer.finish()
+                    #video_writer.test_video(str(output_file_loc))
+                    del video_writer
+                    gc.collect()
                     
-                    try:
-                        image_utils.write_tiff(
-                            data=image_w_timestamp,
-                            metadata=metadata,
-                            file_loc=output_file_loc,
-                            video_frame=True,
-                            ome=False,
-                        )
-                    except Exception as e:
-                        print(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
+                    capture_result = output_file_loc
+                
+                print("Protocol-Video] Video writing finished.")
+                print(f"Protocol-Video] Video saved at {capture_result}")
+            
+            else:
+                if captured_image is False:
+                    return
+                
+                # save_image_func is a static method on the Lumascope class
+                # save_image_func_kwargs is a dictionary of keyword arguments to pass to the save_image_func
+                # save_image_func should be Lumascope.save_image_static(kwargs)
+                try:
+                    capture_result = save_image_func(
+                        **save_image_func_kwargs
+                    )
+                    print(f"Image saved to {capture_result}")
 
-                # Queue is not empty, delete it and force garbage collection
-                del video_images
+                except Exception as e:
+                    print(f"Error: Unable to save image: {e}")
+                    raise Exception(f"Unable to save image: {e}")
+
+                del captured_image
                 gc.collect()
 
-                    
+                
+                
+                # result = self._scope.save_live_image(
+                #     save_folder=save_folder,
+                #     file_root=None,
+                #     append=name,
+                #     color=use_color,
+                #     tail_id_mode=None,
+                #     force_to_8bit=not use_full_pixel_depth,
+                #     output_format=output_format,
+                #     true_color=step['Color'],
+                #     earliest_image_ts=earliest_image_ts,
+                #     timeout=datetime.timedelta(seconds=1.0),
+                #     all_ones_check=True,
+                #     sum_count=sum_count,
+                #     sum_delay_s=step["Exposure"]/1000,
+                #     sum_iteration_callback=sum_iteration_callback,
+                #     turn_off_all_leds_after=True,
+                # )
+            if capture_result is None:
+                capture_result_filepath_name = "unsaved"
+
+            elif type(capture_result) == dict:
+                capture_result_filepath_name = capture_result['metadata']['file_loc']
+
+            elif separate_folder_per_channel:
+                capture_result_filepath_name = pathlib.Path(step["Color"]) / capture_result.name
 
             else:
-                output_file_loc = save_folder / f"{name}.mp4v"
-                video_writer = VideoWriter(
-                    output_file_loc=output_file_loc,
-                    fps=calculated_fps,
-                    include_timestamp_overlay=True
-                )
-                for image_pair in video_images:
-                    try:
-                        video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
-                        del image_pair
-                    except Exception as e:
-                        print(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
+                capture_result_filepath_name = capture_result.name
 
-                # Video images queue empty. Delete it and force garbage collection
-                del video_images
-
-                video_writer.finish()
-                #video_writer.test_video(str(output_file_loc))
-                del video_writer
-                gc.collect()
-                
-                capture_result = output_file_loc
-            
-            print("Protocol-Video] Video writing finished.")
-            print(f"Protocol-Video] Video saved at {capture_result}")
-        
         else:
-            if captured_image is False:
-                return
-            
-            # save_image_func is a static method on the Lumascope class
-            # save_image_func_kwargs is a dictionary of keyword arguments to pass to the save_image_func
-            # save_image_func should be Lumascope.save_image_static(kwargs)
-            try:
-                capture_result = save_image_func(
-                    **save_image_func_kwargs
-                )
-                print(f"Image saved to {capture_result}")
-
-            except Exception as e:
-                print(f"Error: Unable to save image: {e}")
-                raise Exception(f"Unable to save image: {e}")
-
-            del captured_image
-            gc.collect()
-
-            
-            
-            # result = self._scope.save_live_image(
-            #     save_folder=save_folder,
-            #     file_root=None,
-            #     append=name,
-            #     color=use_color,
-            #     tail_id_mode=None,
-            #     force_to_8bit=not use_full_pixel_depth,
-            #     output_format=output_format,
-            #     true_color=step['Color'],
-            #     earliest_image_ts=earliest_image_ts,
-            #     timeout=datetime.timedelta(seconds=1.0),
-            #     all_ones_check=True,
-            #     sum_count=sum_count,
-            #     sum_delay_s=step["Exposure"]/1000,
-            #     sum_iteration_callback=sum_iteration_callback,
-            #     turn_off_all_leds_after=True,
-            # )
-        if capture_result is None:
             capture_result_filepath_name = "unsaved"
 
-        elif type(capture_result) == dict:
-            capture_result_filepath_name = capture_result['metadata']['file_loc']
-
-        elif separate_folder_per_channel:
-            capture_result_filepath_name = pathlib.Path(step["Color"]) / capture_result.name
-
-        else:
-            capture_result_filepath_name = capture_result.name
-
-    else:
-        capture_result_filepath_name = "unsaved"
+    except Exception as e:
+        print(f"Error: Unable to save image: {e}")
+        raise Exception(f"Unable to save image: {e}")
 
     gc.collect()
     
-    # protocol_execution_record.add_step(
-    #     capture_result_file_name=capture_result_filepath_name,
-    #     step_name=step['Name'],
-    #     step_index=step_index,
-    #     scan_count=scan_count,
-    #     timestamp=capture_time,
-    #     frame_count=captured_frames if is_video else 1,
-    #     duration_sec=duration_sec if is_video else 0.0
-    # )
-
-    return True
+    print(f"Successful return of {capture_result_filepath_name}")
+    return capture_result_filepath_name

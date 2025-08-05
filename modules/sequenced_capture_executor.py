@@ -36,7 +36,7 @@ from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
 from modules.video_writer import VideoWriter
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from lvp_logger import logger
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, Future
 import threading
 
 from settings_init import settings
@@ -1005,15 +1005,19 @@ class SequencedCaptureExecutor:
                         captured_frames=captured_frames
                     )
 
-                    # try:
-                    #     res = fut.result(timeout=5)   # blocks until done or error
-                    #     print("=========================================")
-                    #     print("Success:", res)
-                    #     print("=========================================")
-                    # except Exception as e:
-                    #     print("=========================================")
-                    #     print("Worker error:", repr(e))
-                    #     print("=========================================")
+                    fut.add_done_callback(lambda dt: self.file_io_executor.protocol_put(IOTask(
+                        action=write_finished_callback,
+                        kwargs={
+                            "fut": fut,
+                            "protocol_execution_record": self._protocol_execution_record,
+                            "step_name": step['Name'],
+                            "step_index": self._curr_step,
+                            "scan_count": self._scan_count,
+                            "timestamp": datetime.datetime.now(),
+                            "frame_count": captured_frames,
+                            "duration_sec": duration_sec
+                        },
+                    )))
 
                 else:
                     self.file_io_executor.protocol_put(IOTask(
@@ -1038,79 +1042,20 @@ class SequencedCaptureExecutor:
                             "capture_time": datetime.datetime.now(),
                             "duration_sec": duration_sec,
                             "captured_frames": captured_frames
-                        }
+                        },
+                        callback=write_finished_callback,
+                        cb_kwargs={
+                            "protocol_execution_record": self._protocol_execution_record,
+                            "step_name": step['Name'],
+                            "step_index": self._curr_step,
+                            "scan_count": self._scan_count,
+                            "timestamp": datetime.datetime.now(),
+                            "frame_count": captured_frames,
+                            "duration_sec": duration_sec
+                        },
+                        pass_result=True
                     ))
-                    """
-                    write_capture(
-                        #protocol_execution_record=self._protocol_execution_record,
-                        separate_folder_per_channel=self._separate_folder_per_channel,
-                        save_image_func=self._scope.save_image_static,
-                        save_image_func_kwargs=save_image_func_kwargs,
-                        enable_image_saving=self._enable_image_saving,
-                        is_video=is_video,
-                        video_as_frames=video_as_frames,
-                        video_images=video_images,
-                        save_folder=save_folder,
-                        use_color=use_color,
-                        name=name,
-                        calculated_fps=calculated_fps,
-                        output_format=output_format,
-                        step=step,
-                        captured_image=None,
-                        step_index=self._curr_step,
-                        scan_count=self._scan_count,
-                        capture_time=datetime.datetime.now(),
-                        duration_sec=duration_sec,
-                        captured_frames=captured_frames
-                    )
-                    # self.file_io_executor.protocol_put(IOTask(
-                    #     action=write_capture,
-                    #     kwargs={
-                    #         "protocol_execution_record": self._protocol_execution_record,
-                    #         "separate_folder_per_channel": self._separate_folder_per_channel,
-                    #         "scope": self._scope,
-                    #         "enable_image_saving": self._enable_image_saving,
-                    #         "is_video": is_video,
-                    #         "video_as_frames": video_as_frames,
-                    #         "video_images": None,
-                    #         "save_folder": save_folder, 
-                    #         "use_color": use_color,
-                    #         "name": name,
-                    #         "calculated_fps": calculated_fps,
-                    #         "output_format": output_format,
-                    #         "step": step,
-                    #         "captured_image": None, 
-                    #         "step_index": self._curr_step,
-                    #         "scan_count": self._scan_count,
-                    #         "capture_time": datetime.datetime.now(),
-                    #         "duration_sec": duration_sec,
-                    #         "captured_frames": captured_frames
-                    #     }   
-                    # ))
-                    """
-                # self.file_io_executor.protocol_put(IOTask(
-                #     action=self._write_capture,
-                #     kwargs={
-                #         "is_video": is_video,
-                #         "video_as_frames": video_as_frames,
-                #         "video_images": video_images,
-                #         "save_folder": save_folder,
-                #         "use_color": use_color,
-                #         "name": name,
-                #         "calculated_fps": calculated_fps,
-                #         "output_format": output_format,
-                #         "step": step,
-                #         "captured_image": None,
-                #         "step_index": self._curr_step,
-                #         "scan_count": self._scan_count,
-                #         "capture_time": datetime.datetime.now(),
-                #         "duration_sec": duration_sec,
-                #         "captured_frames": captured_frames
-                #     }
-                # ))
-
             else:
-                #time.sleep(self.sleep_time)
                 captured_image = self._scope.get_image(
                     force_to_8bit=not use_full_pixel_depth,
                     earliest_image_ts=earliest_image_ts,
@@ -1175,39 +1120,80 @@ class SequencedCaptureExecutor:
                         captured_frames=1
                     )
 
-                    try:
-                        res = fut.result(timeout=5)   # blocks until done or error
-                        print("=========================================")
-                        print("Success:", res)
-                        print("=========================================")
-                    except Exception as e:
-                        print("=========================================")
-                        print("Worker error:", repr(e))
-                        print("=========================================")
+
+                    fut.add_done_callback(lambda dt: self.file_io_executor.protocol_put(IOTask(
+                        action=write_finished_callback,
+                        kwargs={
+                            "fut": fut,
+                            "protocol_execution_record": self._protocol_execution_record,
+                            "step_name": step['Name'],
+                            "step_index": self._curr_step,
+                            "scan_count": self._scan_count,
+                            "timestamp": datetime.datetime.now(),
+                            "frame_count": 1,
+                            "duration_sec": 0.0
+                        },
+                    )))
 
 
                 else:
-                    write_capture(
-                        protocol_execution_record=self._protocol_execution_record,
-                        separate_folder_per_channel=self._separate_folder_per_channel,
-                        scope=self._scope,
-                        enable_image_saving=self._enable_image_saving,
-                        is_video=is_video,
-                        video_as_frames=video_as_frames,
-                        video_images=None,
-                        save_folder=save_folder,
-                        use_color=use_color,
-                        name=name,
-                        calculated_fps=None,
-                        output_format=output_format,
-                        step=step,
-                        captured_image=captured_image,
-                        step_index=self._curr_step,
-                        scan_count=self._scan_count,
-                        capture_time=datetime.datetime.now(),
-                        duration_sec=0.0,
-                        captured_frames=1
-                    )
+                    self.file_io_executor.protocol_put(IOTask(
+                        action=write_capture,
+                        kwargs={
+                            "protocol_execution_record": self._protocol_execution_record,
+                            "separate_folder_per_channel": self._separate_folder_per_channel,
+                            "scope": self._scope,
+                            "enable_image_saving": self._enable_image_saving,
+                            "is_video": is_video,
+                            "video_as_frames": video_as_frames,
+                            "video_images": None,
+                            "save_folder": save_folder,
+                            "use_color": use_color,
+                            "name": name,
+                            "calculated_fps": None,
+                            "output_format": output_format,
+                            "step": step,
+                            "captured_image": captured_image,
+                            "step_index": self._curr_step,
+                            "scan_count": self._scan_count,
+                            "capture_time": datetime.datetime.now(),
+                            "duration_sec": 0.0,
+                            "captured_frames": 1
+                        },
+                        callback=write_finished_callback,
+                        cb_kwargs={
+                            "protocol_execution_record": self._protocol_execution_record,
+                            "step_name": step['Name'],
+                            "step_index": self._curr_step,
+                            "scan_count": self._scan_count,
+                            "timestamp": datetime.datetime.now(),
+                            "frame_count": 1,
+                            "duration_sec": 0.0
+                        },
+                        pass_result=True
+                    ))
+                    
+                    # write_capture(
+                    #     protocol_execution_record=self._protocol_execution_record,
+                    #     separate_folder_per_channel=self._separate_folder_per_channel,
+                    #     scope=self._scope,
+                    #     enable_image_saving=self._enable_image_saving,
+                    #     is_video=is_video,
+                    #     video_as_frames=video_as_frames,
+                    #     video_images=None,
+                    #     save_folder=save_folder,
+                    #     use_color=use_color,
+                    #     name=name,
+                    #     calculated_fps=None,
+                    #     output_format=output_format,
+                    #     step=step,
+                    #     captured_image=captured_image,
+                    #     step_index=self._curr_step,
+                    #     scan_count=self._scan_count,
+                    #     capture_time=datetime.datetime.now(),
+                    #     duration_sec=0.0,
+                    #     captured_frames=1
+                    # )
 
                     # self.file_io_executor.protocol_put(IOTask(
                     #     action=write_capture,
@@ -1236,8 +1222,7 @@ class SequencedCaptureExecutor:
         
         else:
             if self.cpu_pool is not None:
-                self.cpu_pool.submit(write_capture, 
-                    #protocol_execution_record=self._protocol_execution_record,
+                fut = self.cpu_pool.submit(write_capture, 
                     separate_folder_per_channel=self._separate_folder_per_channel,
                     save_image_func=self._scope.save_image_static,
                     save_image_func_kwargs=save_image_func_kwargs,
@@ -1245,216 +1230,87 @@ class SequencedCaptureExecutor:
                     step=step
                 )
 
-            else:
-                write_capture(
-                    protocol_execution_record=self._protocol_execution_record,
-                    separate_folder_per_channel=self._separate_folder_per_channel,
-                    scope=self._scope,
-                    enable_image_saving=self._enable_image_saving,
-                    step=step
-                )
-                # self.file_io_executor.protocol_put(IOTask(
-                #     action=write_capture,
-                #     kwargs={
-                #         "protocol_execution_record": self._protocol_execution_record,
-                #         "separate_folder_per_channel": self._separate_folder_per_channel,
-                #         "scope": self._scope,
-                #         "enable_image_saving": self._enable_image_saving,
-                #         "step": step
-                #     }
-                # ))
+                fut.add_done_callback(lambda dt: self.file_io_executor.protocol_put(IOTask(
+                        action=write_finished_callback,
+                        kwargs={
+                            "fut": fut,
+                            "protocol_execution_record": self._protocol_execution_record,
+                            "step_name": step['Name'],
+                            "step_index": self._curr_step,
+                            "scan_count": self._scan_count,
+                            "timestamp": datetime.datetime.now(),
+                            "frame_count": 1,
+                            "duration_sec": 0.0
+                        },
+                    )))
 
+            else:
+                self.file_io_executor.protocol_put(IOTask(
+                    action=write_capture,
+                    kwargs={
+                        "protocol_execution_record": self._protocol_execution_record,
+                        "separate_folder_per_channel": self._separate_folder_per_channel,
+                        "scope": self._scope,
+                        "enable_image_saving": self._enable_image_saving,
+                        "step": step
+                    },
+                    callback=write_finished_callback,
+                    cb_kwargs={
+                        "protocol_execution_record": self._protocol_execution_record,
+                        "step_name": step['Name'],
+                        "step_index": self._curr_step,
+                        "scan_count": self._scan_count,
+                        "timestamp": datetime.datetime.now(),
+                        "frame_count": 1,
+                        "duration_sec": 0.0
+                    },
+                    pass_result=True
+                ))
         
         self._scope.leds_off()
 
-            
 
-                
-""" 
-def _write_capture(sequenced_capture_executor:SequencedCaptureExecutor,
-                    is_video=False, 
-                    video_as_frames=False, 
-                    video_images: queue.Queue=None, 
-                    save_folder=None,
-                    use_color=None,
-                    name=None,
-                    calculated_fps=None,
-                    output_format=None,
-                    step=None,
-                    captured_image=None,
-                    step_index=None,
-                    scan_count=None,
-                    capture_time=None,
-                    duration_sec=0.0,
-                    captured_frames=1
-                    ):
-    
-    print("===============WRITE CAPTURE ATTEMPT===============")
-    print(f"is_video: {is_video}")
-    print(f"video_as_frames: {video_as_frames}")
-    print(f"video_images: {video_images}")
-    print(f"save_folder: {save_folder}")
-    print(f"use_color: {use_color}")
-    print(f"name: {name}")
-    print(f"calculated_fps: {calculated_fps}")
-    print(f"output_format: {output_format}")
+# Run this on file_io_executor thread to prevent blocking of protocol thread
+def write_finished_callback(
+    fut:Future, 
+    protocol_execution_record:ProtocolExecutionRecord,
+    step_name:str,
+    step_index:int,
+    scan_count:int,
+    timestamp:datetime.datetime,
+    frame_count:int,
+    duration_sec:float,
+    result=None,
+    exception=None
+):
+    try:
+        capture_result_filepath_name = None
 
-    print(f"step: {step}")
-    print(f"captured_image: {captured_image}")
-    print(f"step_index: {step_index}")
-    print(f"scan_count: {scan_count}")
-    print(f"capture_time: {capture_time}")
-    print(f"duration_sec: {duration_sec}")
-    print(f"captured_frames: {captured_frames}")
-    print("===============WRITE CAPTURE ATTEMPT===============")
+        if exception is not None:
+            logger.error(f"Subprocess Capture_Write {step_name} error: {repr(exception)}")
+            return
 
-    if sequenced_capture_executor._enable_image_saving == True:
-        if is_video:
-            if video_as_frames:
-                frame_num = 0
-                capture_result = save_folder
-                if not save_folder.exists():
-                    save_folder.mkdir(exist_ok=True, parents=True)
-
-                while not video_images.empty():
-
-                    image_pair = video_images.get_nowait()
-                    frame_num += 1
-
-                    image = image_pair[0]
-                    ts = image_pair[1]
-
-                    del image_pair
-
-                    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-
-                    image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
-
-                    del image
-                    video_images.task_done()
-
-                    frame_name = f"{name}_Frame_{frame_num:04}"
-
-                    output_file_loc = save_folder / f"{frame_name}.tiff"
-
-                    metadata = {
-                        "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
-                        "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
-                        "frame_num": frame_num
-                    }
-                    
-                    try:
-                        image_utils.write_tiff(
-                            data=image_w_timestamp,
-                            metadata=metadata,
-                            file_loc=output_file_loc,
-                            video_frame=True,
-                            ome=False,
-                        )
-                    except Exception as e:
-                        logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
-
-                # Queue is not empty, delete it and force garbage collection
-                del video_images
-                gc.collect()
-
-                    
-
-            else:
-                output_file_loc = save_folder / f"{name}.mp4v"
-                video_writer = VideoWriter(
-                    output_file_loc=output_file_loc,
-                    fps=calculated_fps,
-                    include_timestamp_overlay=True
-                )
-                while not video_images.empty():
-                    try:
-                        image_pair = video_images.get_nowait()
-                        video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
-                        del image_pair
-                        video_images.task_done()
-                    except Exception as e:
-                        logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
-
-                # Video images queue empty. Delete it and force garbage collection
-                del video_images
-
-                video_writer.finish()
-                #video_writer.test_video(str(output_file_loc))
-                del video_writer
-                gc.collect()
-                
-                capture_result = output_file_loc
-            
-            logger.info("Protocol-Video] Video writing finished.")
-            logger.info(f"Protocol-Video] Video saved at {capture_result}")
-        
+        if result is not None:
+            capture_result_filepath_name = result
         else:
-            if captured_image is False:
-                return
-            
-            capture_result = sequenced_capture_executor._scope.save_image(
-                array=captured_image,
-                save_folder=save_folder,
-                file_root=None,
-                append=name,
-                color=use_color,
-                tail_id_mode=None,
-                output_format=output_format,
-                true_color=step['Color'],
-                x=step['X'],
-                y=step['Y'],
-                z=step['Z']
-            )
+            capture_result_filepath_name = fut.result(timeout=5)   # blocks until done or error
 
-            del captured_image
-            gc.collect()
-
-            
-            
-            # result = self._scope.save_live_image(
-            #     save_folder=save_folder,
-            #     file_root=None,
-            #     append=name,
-            #     color=use_color,
-            #     tail_id_mode=None,
-            #     force_to_8bit=not use_full_pixel_depth,
-            #     output_format=output_format,
-            #     true_color=step['Color'],
-            #     earliest_image_ts=earliest_image_ts,
-            #     timeout=datetime.timedelta(seconds=1.0),
-            #     all_ones_check=True,
-            #     sum_count=sum_count,
-            #     sum_delay_s=step["Exposure"]/1000,
-            #     sum_iteration_callback=sum_iteration_callback,
-            #     turn_off_all_leds_after=True,
-            # )
-        if capture_result is None:
+        if capture_result_filepath_name is None:
             capture_result_filepath_name = "unsaved"
-
-        elif type(capture_result) == dict:
-            capture_result_filepath_name = capture_result['metadata']['file_loc']
-
-        elif sequenced_capture_executor._separate_folder_per_channel:
-            capture_result_filepath_name = pathlib.Path(step["Color"]) / capture_result.name
+            logger.error(f"Protocol] {capture_result_filepath_name} write failed")
 
         else:
-            capture_result_filepath_name = capture_result.name
+            logger.info(f"Protocol] {capture_result_filepath_name} written successfully")
 
-    else:
-        capture_result_filepath_name = "unsaved"
+        protocol_execution_record.add_step(
+            capture_result_file_name=capture_result_filepath_name,
+            step_name=step_name,
+            step_index=step_index,
+            scan_count=scan_count,
+            timestamp=timestamp,
+            frame_count=frame_count,
+            duration_sec=duration_sec
+        )
 
-    gc.collect()
-    
-    sequenced_capture_executor._protocol_execution_record.add_step(
-        capture_result_file_name=capture_result_filepath_name,
-        step_name=step['Name'],
-        step_index=step_index,
-        scan_count=scan_count,
-        timestamp=capture_time,
-        frame_count=captured_frames if is_video else 1,
-        duration_sec=duration_sec if is_video else 0.0
-    )
-
-    return
-"""
+    except Exception as e:
+        logger.error(f"Subprocess Capture_Write {capture_result_filepath_name} error: {repr(e)}")
