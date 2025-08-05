@@ -1,5 +1,26 @@
 
-from kivy.clock import Clock
+try:
+    from kivy.clock import Clock
+except ImportError:
+    # Subprocess mode - dummy Clock
+    class Clock:
+        @staticmethod
+        def schedule_once(func, timeout): 
+            # In subprocess, call immediately without UI scheduling
+            if callable(func):
+                try:
+                    func(0)  # Call with dummy dt=0
+                except:
+                    pass
+        
+        @staticmethod
+        def schedule_interval(func, interval): 
+            return None
+        
+        @staticmethod
+        def unschedule(event): 
+            pass
+
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future
 import queue
 from collections.abc import Sequence

@@ -47,6 +47,7 @@ class ObjectiveLoader:
 
         tmp = objective_id.replace('w/', '')
         tmp = objective_id.replace('W/', '')
+        tmp = objective_id.replace('W/', '')
         tmp = objective_id.replace('w/o', 'No')
         tmp = objective_id.replace('W/o', 'No')
         tmp = objective_id.replace('W/O', 'No')

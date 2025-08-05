@@ -122,6 +122,9 @@ class Lumascope():
     def set_labware(self, labware):
         self._labware = labware
 
+    def get_labware(self):
+        return self._labware
+
     def set_camera_executor(self, camera_executor: SequentialIOExecutor):
         self._camera_executor = camera_executor
 
@@ -1258,5 +1261,250 @@ class Lumascope():
 
         else:
             return positions[0]
+
+
+# Static methods for save_image functionality
+    @staticmethod
+    def get_next_save_path_static(path):
+        """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
+
+            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'   
+            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'   
+
+        """
+        NUM_SEQ_DIGITS = 6
+        # Handle both .tiff and .ome.tiff by detecting multiple extensions if present
+        # pathlib doesn't seem to handle multiple extensions natively
+        path2 = pathlib.Path(path)
+        extension = ''.join(path2.suffixes)
+        stem = path2.name[:len(path2.name)-len(extension)]
+        seq_separator_idx = stem.rfind('_')
+        stem_base = stem[:seq_separator_idx]
+        seq_num_str = stem[seq_separator_idx+1:]
+        seq_num = int(seq_num_str)
+
+        next_seq_num = seq_num + 1
+        next_seq_num_str = f"{next_seq_num:0>{NUM_SEQ_DIGITS}}"
+        
+        new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
+        return str(new_path)
+
+    @staticmethod
+    def generate_image_save_path_static(save_folder, file_root, append, tail_id_mode, output_format):
+        if type(save_folder) == str:
+            save_folder = pathlib.Path(save_folder)
+
+        if file_root is None:
+            file_root = ""
+
+        if output_format == 'OME-TIFF':
+            file_extension = ".ome.tiff"
+        else:
+            file_extension = ".tiff"
+
+        # generate filename and save path string
+        if tail_id_mode == "increment":
+            initial_id = '_000001'
+            filename =  f"{file_root}{append}{initial_id}{file_extension}"
+            path = save_folder / filename
+
+            # Obtain next save path if current directory already exists
+            while os.path.exists(path):
+                path = Lumascope.get_next_save_path_static(path)
+
+        elif tail_id_mode == None:
+            filename =  f"{file_root}{append}{file_extension}"
+            path = save_folder / filename
+        
+        else:
+            raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
+        
+        return path
+
+    @staticmethod
+    def generate_image_metadata_static(
+        color, x, y, z, objective, labware, stage_offset, coordinate_transformer, 
+        binning_size, exposure_time_ms, gain_db, illumination_ma
+    ):
+        def _validate():
+            if objective is None:
+                raise Exception(f"[SCOPE API ] Objective not set")
+            
+            if 'focal_length' not in objective:
+                raise Exception(f"[SCOPE API ] Objective focal length not provided")
+
+            if labware is None:
+                raise Exception(f"[SCOPE API ] Labware not set")
+            
+            if stage_offset is None:
+                raise Exception(f"[SCOPE API ] Stage offset not set")
+            
+        _validate()
+
+        if x is None:
+            x = 0
+        if y is None:
+            y = 0
+        if z is None:
+            z = 0
+
+        px, py = coordinate_transformer.stage_to_plate(
+            labware=labware,
+            stage_offset=stage_offset,
+            sx=x,
+            sy=y
+        )
+
+        px = round(px, common_utils.max_decimal_precision('x'))
+        py = round(py, common_utils.max_decimal_precision('y'))
+        z  = round(z,  common_utils.max_decimal_precision('z'))
+
+        pixel_size_um = round(
+            common_utils.get_pixel_size(
+                focal_length=objective['focal_length'],
+                binning_size=binning_size,
+            ),
+            common_utils.max_decimal_precision('pixel_size'),
+        )
+        
+        metadata = {
+            'camera_make': 'Etaluma',
+            'software': f'LumaViewPro {version}',
+            'channel': color,
+            'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
+            'sub_sec_time': f"{datetime.datetime.now().microsecond // 1000:03d}",
+            'objective': objective,
+            'focal_length': objective['focal_length'],
+            'plate_pos_mm': {'x': px, 'y': py},
+            'x_pos': px,
+            'y_pos': py,
+            'z_pos_um': z,
+            'exposure_time_ms': round(exposure_time_ms, common_utils.max_decimal_precision('exposure')),
+            'gain_db': round(gain_db, common_utils.max_decimal_precision('gain')),
+            'illumination_ma': round(illumination_ma, common_utils.max_decimal_precision('illumination')),
+            'binning_size': binning_size,
+            'pixel_size_um': pixel_size_um,
+        }
+
+        return metadata
+
+    @staticmethod
+    def prepare_image_for_saving_static(
+        array: np.ndarray,
+        save_folder: str,
+        file_root: str,
+        append: str,
+        color: str,
+        tail_id_mode: str,
+        output_format: str,
+        true_color: str,
+        x, y, z,
+        objective, labware, stage_offset, coordinate_transformer, 
+        binning_size, exposure_time_ms, gain_db, illumination_ma
+    ):
+        metadata = Lumascope.generate_image_metadata_static(
+            color=true_color, x=x, y=y, z=z,
+            objective=objective, labware=labware, stage_offset=stage_offset,
+            coordinate_transformer=coordinate_transformer, binning_size=binning_size,
+            exposure_time_ms=exposure_time_ms, gain_db=gain_db, illumination_ma=illumination_ma
+        )
+
+        if array.dtype == np.uint16:
+            array = image_utils.convert_12bit_to_16bit(array)
+
+        img = image_utils.add_false_color(array=array, color=color)
+        img = np.flip(img, 0)
+
+        path = Lumascope.generate_image_save_path_static(
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format
+        )
+
+        metadata['file_loc'] = path
+
+        return {
+            'image': img,
+            'metadata': metadata,
+        }
+
+    @staticmethod
+    def save_image_static(
+        array,
+        save_folder='./capture',
+        file_root='img_',
+        append='ms',
+        color='BF',
+        tail_id_mode="increment",
+        output_format: str = "TIFF",
+        true_color: str = 'BF',
+        x=None, y=None, z=None,
+        objective=None, labware=None, stage_offset=None, coordinate_transformer=None,
+        binning_size=None, exposure_time_ms=None, gain_db=None, illumination_ma=None
+    ):
+        """CAMERA FUNCTIONS
+        save image (as array) to file - static version that doesn't require Lumascope instance
+        
+        :param array: image array to save
+        :param save_folder: folder to save image in
+        :param file_root: root filename 
+        :param append: string to append to filename
+        :param color: color channel identifier
+        :param tail_id_mode: how to handle filename incrementing
+        :param output_format: output format (TIFF or OME-TIFF)
+        :param true_color: true color for metadata
+        :param x: x position
+        :param y: y position  
+        :param z: z position
+        :param objective: objective dictionary with focal_length
+        :param labware: labware configuration
+        :param stage_offset: stage offset configuration
+        :param coordinate_transformer: coordinate transformer instance
+        :param binning_size: camera binning size
+        :param exposure_time_ms: exposure time in milliseconds
+        :param gain_db: camera gain in dB
+        :param illumination_ma: LED illumination in mA
+        """
+
+        image_data = Lumascope.prepare_image_for_saving_static(
+            array=array,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            color=color,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+            true_color=true_color,
+            x=x, y=y, z=z,
+            objective=objective, labware=labware, stage_offset=stage_offset,
+            coordinate_transformer=coordinate_transformer, binning_size=binning_size,
+            exposure_time_ms=exposure_time_ms, gain_db=gain_db, illumination_ma=illumination_ma
+        )
+
+        image = image_data['image']
+        metadata = image_data['metadata']
+        file_loc = metadata['file_loc']
+
+        if output_format == 'OME-TIFF':
+            ome=True
+        else:
+            ome=False
+
+        try:
+            image_utils.write_tiff(
+                data=image,
+                file_loc=file_loc,
+                metadata=metadata,
+                ome=ome,
+            )
+
+            print(f'[SCOPE API ] Saving Image to {file_loc}')
+        except:
+            print(f"[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist? {file_loc}")
+            raise Exception(f"Unable to save image to {file_loc}")
+
+        return file_loc
 
 
