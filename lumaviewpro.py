@@ -116,6 +116,7 @@ import post_processing
 import image_utils
 import yappi
 
+
 if __name__ == "__main__":
     
     disable_homing = False
@@ -134,6 +135,7 @@ if __name__ == "__main__":
     global last_save_folder, stage, ENGINEERING_MODE, debug_counter
     global display_update_counter, start_str, focus_round
     global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor
+    global cpu_pool
     global motorboard_lock, ledboard_lock, camera_lock
     global ij_helper
 
@@ -334,9 +336,51 @@ if __name__ == "__main__":
     file_io_executor = SequentialIOExecutor(name="FILE")
     autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
     scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
-    #cpu_pool = ProcessPoolExecutor() 
+
+    import multiprocessing
+    multiprocessing.freeze_support()
+    multiprocessing.set_start_method('spawn', force=True) 
+
+    # Import existing writer for process pool
+    from modules.sequenced_capture_writer import write_capture, worker_initializer, _noop
+    
+    # def worker_initializer():
+    #     """Initialize worker process to prevent Kivy initialization."""
+    #     import os
+    #     import sys
+        
+    #     # Set environment variables to prevent Kivy initialization
+    #     os.environ['KIVY_NO_CONSOLELOG'] = '1'
+    #     os.environ['KIVY_NO_ARGS'] = '1'
+    #     os.environ['KIVY_NO_CONFIG'] = '1'
+    #     os.environ['KIVY_LOGGER_LEVEL'] = 'critical'
+        
+    #     # Prevent pygame sound initialization
+    #     os.environ['SDL_AUDIODRIVER'] = 'dummy'
+        
+    #     print(f"Worker process {os.getpid()} initialized with Kivy isolation")
+
+    from lvp_logger import lvp_appdata as lvp_appdata_logger
+    
+    # Create ProcessPoolExecutor with worker initializer
+    cpu_pool = ProcessPoolExecutor(
+        max_workers=num_cores-1, 
+        initializer=worker_initializer,
+        initargs=(lvp_appdata_logger,)
+    )
+
+    # Warm up the pool
+    futures = [cpu_pool.submit(_noop, i) for i in range(num_cores-1)]
+
+    for f in futures:
+        f.result()
+
+    print("All warmup complete")
+    
+
+
 else:
-        # Core base classes
+    # Minimal dummy class definitions for subprocess compatibility
     class App:
         def __init__(self, **kwargs): pass
         def build(self): pass
@@ -424,6 +468,35 @@ else:
         @staticmethod
         def any_method(*args, **kwargs): pass
 
+
+    
+def test_worker_isolation():
+    """Test function to verify worker process isolation."""
+    import sys
+    import os
+    
+    print(f"[Worker {os.getpid()}] Testing worker isolation...")
+    
+    # Check if Kivy modules are imported
+    kivy_modules = [name for name in sys.modules.keys() if name.startswith('kivy')]
+    if kivy_modules:
+        print(f"[Worker {os.getpid()}] WARNING: Kivy modules detected: {kivy_modules}")
+        return False
+    else:
+        print(f"[Worker {os.getpid()}] SUCCESS: No Kivy modules detected")
+        return True
+
+# Test worker process isolation
+def test_process_isolation():
+    """Test that worker processes are properly isolated from Kivy."""
+    logger.info("Testing process isolation...")
+    future = cpu_pool.submit(test_worker_isolation)
+    result = future.result(timeout=10)
+    if result:
+        logger.info("SUCCESS: Worker processes are isolated from Kivy")
+    else:
+        logger.warning("WARNING: Worker processes may have Kivy dependencies")
+    return result 
 
 def set_last_save_folder(dir: pathlib.Path | None):
     if dir is None:
@@ -7394,6 +7467,9 @@ def init_ij():
     global ij_helper
     ij_helper = imagej_helper.ImageJHelper()
     return
+
+def process_ij_helper():
+    return imagej_helper.ImageJHelper()
              
 # -------------------------------------------------------------------------
 # RUN LUMAVIEWPRO APP
@@ -7546,7 +7622,8 @@ class LumaViewProApp(App):
             file_io_executor=file_io_executor,
             camera_executor=camera_executor,
             autofocus_io_executor=autofocus_thread_executor,
-            z_ui_update_func=_handle_autofocus_ui
+            z_ui_update_func=_handle_autofocus_ui,
+            cpu_pool=cpu_pool
         )
         
 
@@ -7592,6 +7669,9 @@ class LumaViewProApp(App):
 
         if scope_display_thread_executor is not None:
             scope_display_thread_executor.shutdown(wait=False)
+
+        if cpu_pool is not None:
+            cpu_pool.shutdown(wait=True)
 
         global lumaview
 
@@ -7902,18 +7982,12 @@ if __name__ == "__main__":
             # If for some reason we get another error again, bite the bullet 
             return original_setslicemethod(self, i, j, sequence)
 
-def dummy_function():
+def dummy_function(PID: int):
     for _ in range(100):
-        print("DUMMY FUNCTION")
+        print(f"DUMMY FUNCTION {PID}")
     return
 
 if __name__ == "__main__":
-    import multiprocessing
-    multiprocessing.freeze_support()
-    multiprocessing.set_start_method('spawn', force=True) 
-
-    process = multiprocessing.Process(target=dummy_function)
-    process.start()
 
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
