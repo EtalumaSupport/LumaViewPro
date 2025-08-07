@@ -114,7 +114,6 @@ import lumascope_api
 import post_processing
 
 import image_utils
-import yappi
 
 
 if __name__ == "__main__":
@@ -1782,7 +1781,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
     def record_button(self):
         if self.recording:
             return
-        self.record_init()
+        camera_executor.put(IOTask(self.record_init))
 
     def open_save_folder_button(self):
         open_last_save_folder()
@@ -1811,15 +1810,20 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         else:
             self.video_false_color = None
 
-        max_fps = 40
-        max_frames = 3000
+        if "manual_video" in settings:
+            max_fps = settings["manual_video"]["max_fps"]
+            max_duration = settings["manual_video"]["max_duration"]
+        else:
+            max_fps = 40
+            max_duration = 30
 
         # Clamp the FPS to be no faster than the exposure rate
         frame_size = self.scope.camera.get_frame_size()
         exposure = self.scope.camera.get_exposure_t()
         exposure_freq = 1.0 / (exposure / 1000)
         video_fps = min(exposure_freq, max_fps)
-        max_duration = 30   # in seconds
+
+        max_frames = math.ceil(video_fps * max_duration)
         
         start_time = datetime.datetime.now()
         self.start_time_str = start_time.strftime("%Y-%m-%d_%H.%M.%S")
@@ -1841,11 +1845,16 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         if os.path.exists(self.memmap_location):
             os.remove(self.memmap_location)
 
-
-        if color is not None:
-            self.current_video_frames = np.memmap(self.memmap_location, dtype="uint8", mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
+        if settings['use_full_pixel_depth'] == False or settings['video_as_frames'] == False:
+            dtype = 'uint8'
         else:
-            self.current_video_frames = np.memmap(self.memmap_location, dtype="uint8", mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
+            dtype = 'uint16'
+
+        # Currently 16-bit captures don't use false coloring, so it is equivalent to single channel
+        if (color is None) or (dtype == 'uint16'):
+            self.current_video_frames = np.memmap(self.memmap_location, dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
+        else:
+            self.current_video_frames = np.memmap(self.memmap_location, dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
 
         self.current_captured_frames = 0
         self.timestamps = []
@@ -1854,15 +1863,15 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         
         self.recording = True
         self.recording_check = Clock.schedule_interval(self.check_recording_state, seconds_per_frame)
-        self.recording_event = Clock.schedule_interval(self.record_helper, seconds_per_frame)
+        self.recording_event = Clock.schedule_interval(lambda dt: camera_executor.put(IOTask(self.record_helper)), seconds_per_frame)
 
-    def check_recording_state(self, dt):
+    def check_recording_state(self, dt=None):
         # Over the max duration, stop video
         if time.time() >= self.stop_ts:
             Clock.unschedule(self.recording_check)
             Clock.unschedule(self.recording_event)
             self.video_duration = time.time() - self.start_ts
-            self.recording_complete_event = Clock.schedule_once(self.recording_complete)
+            self.recording_complete_event = Clock.schedule_once(lambda dt: camera_executor.put(IOTask(self.recording_complete)))
             self.ids['record_btn'].state = 'normal'
             
         # Button not clicked yet, keep recording
@@ -1873,19 +1882,37 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         Clock.unschedule(self.recording_check)
         Clock.unschedule(self.recording_event)
         self.video_duration = time.time() - self.start_ts
-        self.recording_complete_event = Clock.schedule_once(self.recording_complete)
+        self.recording_complete_event = Clock.schedule_once(lambda dt: camera_executor.put(IOTask(self.recording_complete)))
 
-    def recording_complete(self, dt):
+    def recording_complete(self, dt=None):
+        if self.recording == False:
+            return
+
         self.recording = False
 
         calculated_fps = self.current_captured_frames//self.video_duration
 
-        logger.info(f"Manual-Video] Images present in video array: {len(self.current_video_frames) > 0}")
+        logger.info(f"Manual-Video] Images present in video array: {len(self.current_video_frames) > 0 if self.current_video_frames is not None else 0}")
         logger.info(f"Manual-Video] Captured Frames: {self.current_captured_frames}")
         logger.info(f"Manual-Video] Video FPS: {calculated_fps}")
         logger.info("Manual-Video] Writing video...")
 
+        include_hyperstack_generation = False
+
         if self.video_as_frames:
+
+            image_capture_config = get_image_capture_config_from_ui()
+
+            if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+                include_hyperstack_generation = True
+                _, objective = get_current_objective_info()
+                stack_builder = StackBuilder(
+                    has_turret=lumaview.scope.has_turret(),
+                )
+                frame_metadata = []
+
+                active_layer_config = get_active_layer_config()
+
             save_folder = self.video_save_folder
 
             if not save_folder.exists():
@@ -1909,6 +1936,20 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                             "frame_num": frame_num
                         }
                         
+                if include_hyperstack_generation == True:
+                    current_position = lumaview.scope.get_current_position()   
+                    frame_metadata.append(
+                        {
+                            'Filepath': output_file_loc.name,
+                            'Scan Count': frame_num,
+                            'Color': active_layer_config[0],
+                            'Z-Slice': 0,
+                            'X': current_position['X'],
+                            'Y': current_position['Y'],
+                            'Z': current_position['Z'],
+                        }
+                    )
+
                 try:
                     image_utils.write_tiff(
                         data=image,
@@ -1921,6 +1962,24 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
                 
                 frame_num += 1
+
+            logger.info("Manual-Video] Video frames written to disk.")
+
+
+            if include_hyperstack_generation == True:
+                logger.info("Manual-Video] Creating hyperstack...")
+
+                _, objective = get_current_objective_info()
+                frame_metadata_df = pd.DataFrame(frame_metadata)
+                stack_builder.create_single_recording_stack(
+                    df=frame_metadata_df,
+                    path=save_folder,
+                    output_file_loc=save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff",
+                    focal_length=objective['focal_length'],
+                    binning_size=get_binning_from_ui(),
+                )
+
+                logger.info(f"Manual-Video] Hyperstack created at {save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff'}")
 
         else:
             if not self.video_save_folder.exists():
@@ -1941,6 +2000,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     logger.exception("Manual-Video] FAILED TO WRITE FRAME")
 
             video_writer.finish()
+            logger.info(f"Manual-Video] Mp4 written to {output_file_loc}")
         
         logger.info("Manual-Video] Video writing finished.")
         self.current_video_frames.flush()
@@ -1952,15 +2012,17 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         set_last_save_folder(self.video_save_folder)
         Clock.unschedule(self.recording_complete_event)
 
-    def record_helper(self, dt):
+    def record_helper(self, dt=None):
 
-        # Currently only support 8-bit images for video
-        force_to_8bit = True
+        if settings['use_full_pixel_depth'] == False or settings['video_as_frames'] == False:
+            force_to_8bit = True
+        else:
+            force_to_8bit = False
+
         image = self.scope.get_image(force_to_8bit=force_to_8bit)
 
         if type(image) == np.ndarray:
             
-            # Should never be used since forcing images to 8-bit
             if image.dtype == np.uint16:
                 image = image_utils.convert_12bit_to_16bit(image)
 
@@ -6485,7 +6547,7 @@ class MicroscopeSettings(BoxLayout):
             if lumaview.scope.has_turret():
                 turret_objectives = list(settings["turret_objectives"].values())
                 if objective_id not in turret_objectives:
-                    raise Exception(f"Startup objective {objective_id} not found in turret objectives ({turret_objectives}).")
+                    logger.warning(f"Startup objective {objective_id} not found in turret objectives ({turret_objectives}).")
 
                 lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])                
 
@@ -6537,6 +6599,15 @@ class MicroscopeSettings(BoxLayout):
             )
 
             zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
+            global show_tooltips
+
+            if "show_tooltips" in settings:
+                if settings["show_tooltips"] == True:
+                    self.ids['show_tooltips_btn'].state = 'down'
+                    show_tooltips = True
+                else:
+                    self.ids['show_tooltips_btn'].state = 'normal'
+                    show_tooltips = False
 
             for layer in common_utils.get_layers():
               
@@ -6690,8 +6761,10 @@ class MicroscopeSettings(BoxLayout):
         global show_tooltips
         if self.ids['show_tooltips_btn'].state == 'down':
             show_tooltips = True
+            settings["show_tooltips"] = True
         else:
             show_tooltips = False
+            settings["show_tooltips"] = False
 
 
     # Save settings to JSON file
@@ -7794,8 +7867,6 @@ class LumaViewProApp(App):
 
     def on_start(self):
         
-        # yappi.set_clock_type("wall")
-        # yappi.start()
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
@@ -8001,25 +8072,7 @@ class LumaViewProApp(App):
         logger.info("[LVP Main  ] lumaview.scope.leds_off()")
         lumaview.scope.leds_off()
 
-        lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
-
-        # yappi.stop()
-
-        # stats = yappi.get_func_stats()
-        # my_stats = [s for s in stats if s.module.startswith('LumaViewPro')]
-
-        # my_stats.sort(key=lambda s: s.ttot, reverse=True)
-        # print(f"{'Function':30} {'Calls':>6} {'Total(s)':>10} {'Self(s)':>10} {'Location'}")
-        # for s in my_stats[:20]:
-        #     self_time = s.ttot - s.tsub
-        #     print(f"{s.name:30} {s.ncall:6} {s.ttot:10.4f} {self_time:10.4f} {s.module}:{s.lineno}")
-
-        # print("\n\n=====================================\n\n")
-        # thread_stats = yappi.get_thread_stats()
-        # thread_stats.sort("ttot", "desc")
-        # thread_stats.print_all()
-
-        
+        lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")        
 
 
     # Returns a list of widgets with tooltip_text attribute

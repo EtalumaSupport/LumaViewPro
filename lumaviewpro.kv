@@ -124,7 +124,7 @@
 
         ToggleButton:
             id: record_btn
-			tooltip_text: 'Record live image stream as an mp4 video or as individual frames\n30 seconds maximum record time'
+			tooltip_text: 'Record live image stream as an mp4 video or as individual frames\n(30 seconds maximum record time)'
             border: 0, 0, 0, 0
             background_normal: './data/icons/record.png' # Press to Record Live Stream
             background_down: './data/icons/stop.png' # Press to Stop Recording
@@ -2079,13 +2079,13 @@
 		Label:
 			font_size: '12sp'
 			text: 'Enable Crosshairs'
-			tooltip_text: 'Display a bullseye pattern over the live image \nbullseye will not be in saved images'
+			tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
 		ToggleButton:
 			id: enable_crosshairs_btn
-			tooltip_text: 'Display a bullseye pattern over the live image \nbullseye will not be in saved images'
+			tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
 			size_hint: None, None
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
@@ -2175,6 +2175,7 @@
 		Label:
 			id: acceleration_pct_label
 			text: 'Acceleration Max (%)'
+			tooltip_text: 'Maximum acceleration percentage for X-Y stage'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
@@ -2560,7 +2561,7 @@
 					height: '30dp'
 					font_size: '12sp'
 					text: 'Save Focus'
-					tooltip_text: 'Record current focus and to use in Protocol and manual Composite acquisition'
+					tooltip_text: 'Save current focus to use in Protocol and Manual Composite Acquisition'
 					on_release: root.save_focus()
 				Button:
 					size_hint_y: None
@@ -2690,12 +2691,12 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
-					tooltip_text: 'Channel not used in Protocol or manual Composite acquisition'
+					tooltip_text: 'Channel not used in Protocol or Manual Composite Acquisition'
 					on_release: root.update_acquire()
 					allow_no_selection: False
 				Label:
 					text: 'None'
-					tooltip_text: 'Channel not used in Protocol or manual Composite acquisition'
+					tooltip_text: 'Channel not used in Protocol or Manual Composite Acquisition'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -2752,6 +2753,7 @@
 					size_hint_x: None
 					width: '50dp'
 					text_size: self.size
+					tooltip_text: 'Minimum Composite Brightness Threshold for Composite acquisition'
 				ModSlider:
 					id: composite_threshold_slider # 0 to 100
 					min: 0.
@@ -2858,11 +2860,11 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
-					tooltip_text: 'Change x axis of histogram to log scale'
+					tooltip_text: 'Change X-axis of histogram to log scale'
 					state: 'normal'
 				Label:
 					text: 'Log'
-					tooltip_text: 'Change x axis of histogram to log scale'
+					tooltip_text: 'Change X-axis of histogram to log scale'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'

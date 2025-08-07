@@ -12,7 +12,7 @@
     },
     "objective_id": "20x Oly",
     "turret_objectives": {
-        "1": "20x Oly",
+        "1": null,
         "2": null,
         "3": null,
         "4": null
@@ -168,10 +168,14 @@
     "scale_bar": {
         "enabled": false
     },
-
     "video_as_frames": false,
     "motion": {
         "acceleration_max_pct": 100
-    }
-  
+    },
+    "manual_video": {
+        "max_fps": 40,
+        "max_duration": 30
+    },
+
+    "show_tooltips": false
 }
