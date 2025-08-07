@@ -23,7 +23,7 @@ def generate_default_step_name(
     else:
         name = f"{well_label}"
 
-    if color not in (None, ""):
+    if color not in (None, "") and color not in name:
         name = f"{name}_{color}"
     
     if tile_label not in (None, "", -1):
