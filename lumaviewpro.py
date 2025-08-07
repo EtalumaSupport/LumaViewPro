@@ -1275,7 +1275,7 @@ class ScopeDisplay(Image):
         open_layer_obj.ids['image_af_score_id'].text = f"AF Score: {af_score}"
 
     def set_camera_disconnected_display(self):
-        self.source = "./data/icons/camera_to_USB.png"
+        self.source = "./data/icons/camera to USB.png"
         return
 
     def update_scopedisplay_thread(self):
@@ -4485,13 +4485,19 @@ class VerticalControl(BoxLayout):
                 turret_position_objective = settings["turret_objectives"][selected_position]
                 if turret_position_objective is not None:
                     # If an objective has been assigned to the turret position, change to that objective
-                    self.ids["objective_spinner2"].text = settings["turret_objectives"][selected_position]
-                    self.select_objective()                       
+                    Clock.schedule_once(lambda dt: self.update_spinner_text(selected_position), 0)
+                    Clock.schedule_once(lambda dt: self.select_objective(), 0)                       
 
             else:
                 state = 'normal'
             
-            self.ids[f'turret_pos_{available_position}_btn'].state = state
+            Clock.schedule_once(lambda dt: self.update_turret_btn_state(available_position, state), 0)
+
+    def update_spinner_text(self, selected_position):
+        self.ids["objective_spinner2"].text = settings["turret_objectives"][selected_position]
+
+    def update_turret_btn_state(self, selected_position, state):
+        self.ids[f'turret_pos_{selected_position}_btn'].state = state
 
     def update_turret_gui(self, turret_position):
         for available_position in range(1,5):
@@ -6403,6 +6409,59 @@ class MicroscopeSettings(BoxLayout):
     # def get_objective_info(self, objective_id: str) -> dict:
     #     return self.objectives[objective_id]
 
+    def reconnect(self):
+        global lumaview
+
+        logger.info("[LVP Main  ] Reconnecting to microscope...")
+
+        lumaview.scope.disconnect()
+        lumaview.scope = None
+        # Reinitialize the scope object (connects motorboard, ledboard, camera)
+        lumaview.scope = lumascope_api.Lumascope()
+
+        # Restart display
+        Clock.unschedule(stage.draw_labware)
+        Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui)
+
+        lumaview.ids['viewer_id'].ids['scope_display_id'].stop()
+        lumaview.ids['viewer_id'].ids['scope_display_id'].start()
+
+        if not disable_homing:
+            # Note: If the scope has a turret, this also performs a T homing
+            task = IOTask(
+                move_home,
+                args=('XY')
+            )
+            stage_executor.put(task)
+
+
+        if lumaview.scope.has_turret():
+            objective_id = settings['objective_id']
+            turret_position = lumaview.scope.get_turret_position_for_objective_id(objective_id=objective_id)
+            
+            if turret_position is None:
+                DEFAULT_POSITION = 1
+                logger.error(f"Turret position for objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
+                turret_position = DEFAULT_POSITION
+
+            turret_executor.put(IOTask(
+                move_absolute_position,
+                kwargs= {
+                    "axis": 'T',
+                    "pos": turret_position,
+                    "wait_until_complete": True
+                }
+            ))
+        
+        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
+        layer_obj.apply_settings()
+        Clock.schedule_once(layer_obj.apply_settings, 5)
+
+        camera_executor.put(IOTask(scope_leds_off))
+
+        logger.info("[LVP Main  ] Reconnection complete.")
+
+
     def acceleration_pct_slider(self):
         scope_configs = self.scopes
         selected_scope_config = scope_configs[settings['microscope']]
@@ -7918,6 +7977,44 @@ class LumaViewProApp(App):
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
 
+    def shutdown_threads(self):
+        logger.info('[LVP Main  ] Shutting down threads...')
+
+        if profiling_helper is not None:
+            profiling_helper.stop()
+
+        if io_executor is not None:
+            io_executor.shutdown(wait=False)
+
+        if camera_executor is not None:
+            camera_executor.shutdown(wait=False)
+
+        if temp_ij_executor is not None:
+            temp_ij_executor.shutdown(wait=False)
+
+        if protocol_executor is not None:
+            protocol_executor.shutdown(wait=False)
+
+        if file_io_executor is not None:
+            file_io_executor.shutdown(wait=False)
+
+        if autofocus_thread_executor is not None:
+            autofocus_thread_executor.shutdown(wait=False)
+
+        if scope_display_thread_executor is not None:
+            scope_display_thread_executor.shutdown(wait=False)
+
+        if stage_executor is not None:
+            stage_executor.shutdown(wait=False)
+
+        if turret_executor is not None:
+            turret_executor.shutdown(wait=False)
+
+        if cpu_pool is not None:
+            cpu_pool.shutdown(wait=True)
+
+        logger.info('[LVP Main  ] Threads shut down.')
+
 
     def build(self):
         current_time = time.strftime("%m/%d/%Y", time.localtime())
@@ -8032,40 +8129,8 @@ class LumaViewProApp(App):
 
     def on_stop(self):
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
-        if profiling_helper is not None:
-            profiling_helper.stop()
-
-        if io_executor is not None:
-            io_executor.shutdown(wait=False)
-
-        if camera_executor is not None:
-            camera_executor.shutdown(wait=False)
-
-        if temp_ij_executor is not None:
-            temp_ij_executor.shutdown(wait=False)
-
-        if protocol_executor is not None:
-            protocol_executor.shutdown(wait=False)
-
-        if file_io_executor is not None:
-            file_io_executor.shutdown(wait=False)
-
-        if autofocus_thread_executor is not None:
-            autofocus_thread_executor.shutdown(wait=False)
-
-        if scope_display_thread_executor is not None:
-            scope_display_thread_executor.shutdown(wait=False)
-
-        if stage_executor is not None:
-            stage_executor.shutdown(wait=False)
-
-        if turret_executor is not None:
-            turret_executor.shutdown(wait=False)
-
-        if cpu_pool is not None:
-            cpu_pool.shutdown(wait=True)
-
-
+        
+        self.shutdown_threads()
 
         global lumaview
 

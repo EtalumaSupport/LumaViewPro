@@ -107,7 +107,20 @@ class LEDBoard:
             except:
                 self.driver = False
                 logger.exception('[LED Class ] LEDBoard.connect() failed')
-            
+
+    def disconnect(self):
+        logger.info('[LED Class ] Disconnecting from LED controller...')
+        try:
+            if self.driver is not None:
+                self.driver.close()
+                self.driver = None
+                logger.info('[LED Class ] LEDBoard.disconnect() succeeded')
+            else:
+                logger.info('[LED Class ] LEDBoard.disconnect() failed: LED controller not connected')
+
+        except Exception as e:
+            logger.exception(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
+
     def exchange_command(self, command):
         """ Exchange command through serial to LED board
         This should NOT be used in a script. It is intended for other functions to access"""

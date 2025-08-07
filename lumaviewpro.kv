@@ -1940,6 +1940,19 @@
 		on_release: self.choose('save_settings')
 
 	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		Button:
+			id: reconnect_btn
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			text: 'Reconnect'
+			tooltip_text: 'Restart connection to microscope'
+			on_release: root.reconnect()
+
+	BoxLayout:
         orientation: 'horizontal'
         size_hint_y: None
         height: '30dp'

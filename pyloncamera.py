@@ -67,6 +67,18 @@ class PylonCamera:
 
         self.connect()
 
+    def disconnect(self):
+        logger.info('[CAM Class ] Disconnecting from camera...')
+        try:
+            if self.active is not None:
+                self.active.Close()
+                self.active = None
+                logger.info('[CAM Class ] PylonCamera.disconnect() succeeded')
+            else:
+                logger.info('[CAM Class ] PylonCamera.disconnect() failed: Camera not connected')
+        except Exception as e:
+            logger.exception(f'[CAM Class ] PylonCamera.disconnect() failed: {e}')
+
     def __delete__(self):
         try:
             self.active.close()

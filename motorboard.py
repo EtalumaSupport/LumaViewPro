@@ -110,6 +110,18 @@ class MotorBoard:
                 self.driver = False
                 logger.exception('[XYZ Class ] MotorBoard.connect() failed')
 
+    def disconnect(self):
+        logger.info('[XYZ Class ] Disconnecting from motor controller...')
+        try:
+            if self.driver is not None:
+                self.driver.close()
+                self.driver = None
+                logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
+            else:
+                logger.info('[XYZ Class ] MotorBoard.disconnect() failed: Motor controller not connected')
+        except Exception as e:
+            logger.exception(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
+
     #----------------------------------------------------------
     # Define Communication
     #----------------------------------------------------------

@@ -115,6 +115,21 @@ class Lumascope():
             'enabled': False
         }
 
+    def disconnect(self):
+        logger.info('[SCOPE API ] Disconnecting from microscope...')
+        if self.led is not None:
+            self.led.disconnect()
+            self.led = None
+
+        if self.motion is not None:
+            self.motion.disconnect()
+            self.motion = None
+
+        if self.camera is not None:
+            self.camera.disconnect()
+            self.camera = None
+
+        logger.info('[SCOPE API ] Microscope disconnected')
 
     ########################################################################
     # SCOPE CONFIGURATION FUNCTIONS
