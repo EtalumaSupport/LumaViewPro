@@ -106,7 +106,7 @@ import cv2
 import skimage
 
 global debug_mode
-debug_mode = True
+debug_mode = False
 
 
 # Hardware
@@ -138,6 +138,11 @@ if __name__ == "__main__":
     global cpu_pool
     global motorboard_lock, ledboard_lock, camera_lock
     global ij_helper
+
+    global use_multiprocessing
+
+    cpu_pool = None
+    use_multiprocessing = False
 
     ij_helper = None
     
@@ -234,7 +239,6 @@ if __name__ == "__main__":
     Config.set('input', 'mouse', 'mouse, disable_multitouch')
     Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
     Config.set('kivy', 'exit_on_escape', '0')
-    Config.set('modules', 'monitor', '')
 
     if debug_mode:
         Config.set('modules', 'monitor', '')
@@ -339,45 +343,46 @@ if __name__ == "__main__":
     stage_executor = SequentialIOExecutor(name="STAGE")
     turret_executor = SequentialIOExecutor(name="TURRET")
 
-    import multiprocessing
-    multiprocessing.freeze_support()
-    multiprocessing.set_start_method('spawn', force=True) 
+    if use_multiprocessing:
+        import multiprocessing
+        multiprocessing.freeze_support()
+        multiprocessing.set_start_method('spawn', force=True) 
 
-    # Import existing writer for process pool
-    from modules.sequenced_capture_writer import write_capture, worker_initializer, _noop
-    
-    # def worker_initializer():
-    #     """Initialize worker process to prevent Kivy initialization."""
-    #     import os
-    #     import sys
+        # Import existing writer for process pool
+        from modules.sequenced_capture_writer import write_capture, worker_initializer, _noop
         
-    #     # Set environment variables to prevent Kivy initialization
-    #     os.environ['KIVY_NO_CONSOLELOG'] = '1'
-    #     os.environ['KIVY_NO_ARGS'] = '1'
-    #     os.environ['KIVY_NO_CONFIG'] = '1'
-    #     os.environ['KIVY_LOGGER_LEVEL'] = 'critical'
+        # def worker_initializer():
+        #     """Initialize worker process to prevent Kivy initialization."""
+        #     import os
+        #     import sys
+            
+        #     # Set environment variables to prevent Kivy initialization
+        #     os.environ['KIVY_NO_CONSOLELOG'] = '1'
+        #     os.environ['KIVY_NO_ARGS'] = '1'
+        #     os.environ['KIVY_NO_CONFIG'] = '1'
+        #     os.environ['KIVY_LOGGER_LEVEL'] = 'critical'
+            
+        #     # Prevent pygame sound initialization
+        #     os.environ['SDL_AUDIODRIVER'] = 'dummy'
+            
+        #     print(f"Worker process {os.getpid()} initialized with Kivy isolation")
+
+        from lvp_logger import lvp_appdata as lvp_appdata_logger
         
-    #     # Prevent pygame sound initialization
-    #     os.environ['SDL_AUDIODRIVER'] = 'dummy'
-        
-    #     print(f"Worker process {os.getpid()} initialized with Kivy isolation")
+        # Create ProcessPoolExecutor with worker initializer
+        cpu_pool = ProcessPoolExecutor(
+            max_workers=num_cores-1, 
+            initializer=worker_initializer,
+            initargs=(lvp_appdata_logger,)
+        )
 
-    from lvp_logger import lvp_appdata as lvp_appdata_logger
-    
-    # Create ProcessPoolExecutor with worker initializer
-    cpu_pool = ProcessPoolExecutor(
-        max_workers=num_cores-1, 
-        initializer=worker_initializer,
-        initargs=(lvp_appdata_logger,)
-    )
+        # Warm up the pool
+        futures = [cpu_pool.submit(_noop, i) for i in range(num_cores-1)]
 
-    # Warm up the pool
-    futures = [cpu_pool.submit(_noop, i) for i in range(num_cores-1)]
+        for f in futures:
+            f.result()
 
-    for f in futures:
-        f.result()
-
-    logger.info("LVP Main] All processes warmup complete")
+        logger.info("LVP Main] All processes warmup complete")
     
 
 
@@ -1120,6 +1125,7 @@ class ScopeDisplay(Image):
         self.use_bullseye = False
         self.use_crosshairs = False
         self.use_live_image_histogram_equalization = False
+        self.camera_disconnected_display_set = False
 
         self._contrast_stretcher = ContrastStretcher(
             window_len=3,
@@ -1269,6 +1275,10 @@ class ScopeDisplay(Image):
         open_layer_obj.ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
         open_layer_obj.ids['image_af_score_id'].text = f"AF Score: {af_score}"
 
+    def set_camera_disconnected_display(self):
+        self.source = "./data/icons/camera_to_USB.png"
+        return
+
     def update_scopedisplay_thread(self):
         global lumaview
         global debug_counter
@@ -1276,8 +1286,11 @@ class ScopeDisplay(Image):
 
         display_update_counter += 1
 
-        if lumaview.scope.camera.active == False:
-            self.source = "./data/icons/camera to USB.png"
+        if lumaview.scope.camera.active == False and not self.camera_disconnected_display_set:
+            self.camera_disconnected_display_set = True
+            Clock.schedule_once(lambda dt: self.set_camera_disconnected_display(), 0)
+            return
+        elif self.camera_disconnected_display_set:
             return
 
         # Likely not an IO call as image will be stored in buffer
@@ -4008,7 +4021,7 @@ class VerticalControl(BoxLayout):
         #move_relative_position('Z', coarse, overshoot_enabled=overshoot_enabled)
 
 
-    def fine_up(self, overshoot_enabled: bool = True):
+    def fine_up(self, overshoot_enabled: bool = False):
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
         _, objective = get_current_objective_info()
         fine = objective['z_fine']
@@ -4022,7 +4035,7 @@ class VerticalControl(BoxLayout):
         #move_relative_position('Z', fine, overshoot_enabled=overshoot_enabled)
 
 
-    def fine_down(self, overshoot_enabled: bool = True):
+    def fine_down(self, overshoot_enabled: bool = False):
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
         _, objective = get_current_objective_info()
         fine = objective['z_fine']
@@ -5206,6 +5219,8 @@ class ProtocolSettings(CompositeCapture):
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
+        #logger.error(f"CURRENT Z POSITION IN UM {plate_position['z']}")
+
         if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
             error_msg = f"Cannot modify protocol step. Please set objective for current turret position."
             logger.error(error_msg)
@@ -5406,7 +5421,7 @@ class ProtocolSettings(CompositeCapture):
         }
 
         #TODO THREAD
-        initial_position = get_current_plate_position()
+        #initial_position = get_current_plate_position()
 
         autogain_settings = get_auto_gain_settings()
 
@@ -5425,7 +5440,6 @@ class ProtocolSettings(CompositeCapture):
             separate_folder_per_channel=False,
             autogain_settings=autogain_settings,
             callbacks=callbacks,
-            return_to_position=initial_position,
             update_z_pos_from_autofocus=True,
             leds_state_at_end="off",
             video_as_frames=settings['video_as_frames']
@@ -7174,6 +7188,7 @@ class LayerControl(BoxLayout):
         pos = lumaview.scope.get_current_position('Z')
         settings[self.layer]['focus'] = pos
 
+
     def goto_focus(self):
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
         io_executor.put(IOTask(
@@ -7923,7 +7938,7 @@ class LumaViewProApp(App):
             camera_executor=camera_executor,
             autofocus_io_executor=autofocus_thread_executor,
             z_ui_update_func=_handle_autofocus_ui,
-            cpu_pool=cpu_pool
+            cpu_pool=cpu_pool if use_multiprocessing else None
         )
         
 

@@ -926,7 +926,7 @@ class Lumascope():
             self.wait_until_finished_moving()
 
 
-    def move_relative_position(self, axis, um, wait_until_complete=False, overshoot_enabled: bool = True):
+    def move_relative_position(self, axis, um, wait_until_complete=False, overshoot_enabled: bool = False):
         """MOTION CONTROL FUNCTIONS
          Move to relative distance (in um) of axis"""
 

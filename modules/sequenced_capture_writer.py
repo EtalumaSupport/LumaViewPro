@@ -100,14 +100,15 @@ def write_capture(
                     scan_count=None,
                     capture_time=None,
                     duration_sec=0.0,
-                    captured_frames=1
+                    captured_frames=1,
+                    thread=False
                     ):
 
-    print(f"Begin write_capture for {name} ", end="")
-    if not is_video:
-        print(f"image")
+    if thread:
+        from lvp_logger import logger
+        logger.info(f"Protocol-Writer] Begin write_capture for {name}")
     else:
-        print(f"video {'mp4' if not video_as_frames else 'frames'}")
+        print(f"Begin write_capture for {name}")
 
     try:
         if enable_image_saving == True:
@@ -244,10 +245,34 @@ def write_capture(
             capture_result_filepath_name = "unsaved"
 
     except Exception as e:
-        print(f"Error: Unable to save image: {e}")
+        if thread:
+            from lvp_logger import logger
+            logger.error(f"Protocol-Writer] Error: Unable to save image: {e}")
+        else:
+            print(f"Error: Unable to save image: {e}")
         raise Exception(f"Unable to save image: {e}")
 
     gc.collect()
-    
-    print(f"Successful return of {capture_result_filepath_name}")
+
+    if thread:
+        logger.info(f"Protocol-Writer] Successful return of {capture_result_filepath_name}")
+    else:
+        print(f"Successful return of {capture_result_filepath_name}")
+
+    if thread:
+        from modules.sequenced_capture_executor import write_finished_callback
+        write_finished_callback(
+            protocol_execution_record=protocol_execution_record,
+            step_name=name,
+            step_index=step_index,
+            scan_count=scan_count,
+            timestamp=capture_time,
+            frame_count=captured_frames,
+            duration_sec=duration_sec,
+            fut=None,
+            result=capture_result_filepath_name,
+            exception=None
+        )
+        return
+
     return capture_result_filepath_name
