@@ -1275,7 +1275,14 @@ class ScopeDisplay(Image):
         open_layer_obj.ids['image_af_score_id'].text = f"AF Score: {af_score}"
 
     def set_camera_disconnected_display(self):
+        self.texture = None
         self.source = "./data/icons/camera to USB.png"
+        self.camera_disconnected_display_set = True
+        return
+
+    def source_clear(self):
+        self.source = ''
+        self.camera_disconnected_display_set = False
         return
 
     def update_scopedisplay_thread(self):
@@ -1285,12 +1292,15 @@ class ScopeDisplay(Image):
 
         display_update_counter += 1
 
-        if lumaview.scope.camera.active == False and not self.camera_disconnected_display_set:
-            self.camera_disconnected_display_set = True
+        if lumaview.scope.camera.is_connected() == False:
+            if self.camera_disconnected_display_set:
+                return
+            
             Clock.schedule_once(lambda dt: self.set_camera_disconnected_display(), 0)
             return
-        elif self.camera_disconnected_display_set:
-            return
+
+        if self.camera_disconnected_display_set:
+            Clock.schedule_once(lambda dt: self.source_clear(), 0)
 
         # Likely not an IO call as image will be stored in buffer
         image = lumaview.scope.get_image_from_buffer(force_to_8bit=True)
@@ -6420,8 +6430,6 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope = lumascope_api.Lumascope()
 
         # Restart display
-        Clock.unschedule(stage.draw_labware)
-        Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui)
 
         lumaview.ids['viewer_id'].ids['scope_display_id'].stop()
         lumaview.ids['viewer_id'].ids['scope_display_id'].start()
