@@ -6428,6 +6428,9 @@ class MicroscopeSettings(BoxLayout):
         # Reinitialize the scope object (connects motorboard, ledboard, camera)
         lumaview.scope = lumascope_api.Lumascope()
 
+        sequenced_capture_executor.set_scope(lumaview.scope)
+        autofocus_executor.set_scope(lumaview.scope)
+
         # Restart display
 
         lumaview.ids['viewer_id'].ids['scope_display_id'].stop()
@@ -8048,7 +8051,8 @@ class LumaViewProApp(App):
         ij_helper = None
         global sequenced_capture_executor
         
-        # global autofocus_executor
+        global autofocus_executor
+        
         self.icon = './data/icons/icon.png'
 
         stage = Stage()

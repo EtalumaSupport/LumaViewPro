@@ -52,6 +52,9 @@ class AutofocusExecutor:
             self._iterator_scheduled = None
         self._reset_state()
 
+    def set_scope(self, scope: lumascope_api.Lumascope):
+        self._scope = scope
+
 
     def _schedule_interval_func(
         self,

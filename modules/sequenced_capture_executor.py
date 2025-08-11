@@ -116,6 +116,8 @@ class SequencedCaptureExecutor:
         
         #self.sleep_time = 0.02
 
+    def set_scope(self, scope: Lumascope):
+        self._scope = scope
 
     def _reset_vars(
         self
