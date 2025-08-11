@@ -71,8 +71,19 @@
         spacing: '5dp'
         pos: (root.width-9*40)/2, 0
 
+		Button:
+			id: open_last_save_folder
+			tooltip_text: 'Open Last Save Folder'
+            border: 0, 0, 0, 0
+            background_normal: './data/icons/photos.png'
+            background_down: './data/icons/photos_down.png'
+            size_hint: None, None
+            size: '40dp', '40dp'
+            on_release: root.open_save_folder_button()
+
         FolderChooseBTN:
             id: live_folder_btn
+			tooltip_text: 'Set destination folder for image & video files'
             border: 0, 0, 0, 0
             background_normal: './data/icons/folder.png' # Press to Select Folder
             background_down: './data/icons/folder_down.png'
@@ -82,6 +93,7 @@
 
         ToggleButton:
             id: live_btn
+			tooltip_text: 'Freeze live image'
             border: 0, 0, 0, 0
             background_normal: './data/icons/pause.png' # Press to Pause Live Stream
             background_down: './data/icons/play.png' # Press to Play Live Stream
@@ -92,6 +104,7 @@
 
         Button:
             id: capture_btn
+			tooltip_text: 'Snap live image'
             border: 0, 0, 0, 0
             background_normal: './data/icons/capture.png' # Press to Capture Image
             background_down: './data/icons/capture_down.png'
@@ -101,6 +114,7 @@
 
         ToggleButton:
             id: composite_btn
+			tooltip_text: 'Acquire composite fluorescence image for channels set to acquire\nincluding either bright field or phase contrast'
             border: 0, 0, 0, 0
             background_normal: './data/icons/composite.png' # Press to Capture Composite Image
             background_down: './data/icons/composite_down.png'
@@ -110,6 +124,7 @@
 
         ToggleButton:
             id: record_btn
+			tooltip_text: 'Record live image stream as an mp4 video or as individual frames\n(30 seconds maximum record time)'
             border: 0, 0, 0, 0
             background_normal: './data/icons/record.png' # Press to Record Live Stream
             background_down: './data/icons/stop.png' # Press to Stop Recording
@@ -119,6 +134,7 @@
 
         Button:
             id: fit_btn
+			tooltip_text: 'Fit live image to window'
             border: 0, 0, 0, 0
             background_normal: './data/icons/fit.png' # Press to Fit Image to Window
             background_down: './data/icons/fit_down.png'
@@ -128,6 +144,7 @@
 
         Button:
             id: one2one_btn
+			tooltip_text: 'Show live image as\n1 camera pixel to 1 screen pixel'
             border: 0, 0, 0, 0
             background_normal: './data/icons/one2one.png' # Press to Scale Image Pixels 1:1 with Screen
             background_down: './data/icons/one2one_down.png'
@@ -184,7 +201,6 @@
 
 <AccordionItemXyStageControl>:
 	title: 'XY Stage Control'
-	
 	XYStageControl:
 		id: xy_stagecontrol_id
 
@@ -272,6 +288,7 @@
 		    Label:
 		    Button:
 		        id: fast_up
+				tooltip_text: 'Coarse Up'
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '40dp'
@@ -280,6 +297,7 @@
 				on_release: root.coarse_up()
 		    Button:
 		        id: slow_up
+				tooltip_text: 'Fine Up'
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '30dp'
@@ -288,6 +306,7 @@
 				on_release: root.fine_up()
 		    Button:
 		        id: slow_down
+				tooltip_text: 'Fine Down'
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '30dp'
@@ -296,6 +315,7 @@
 				on_release: root.fine_down()
 		    Button:
 		        id: fast_down
+				tooltip_text: 'Coarse Down'
 				border: 0, 0, 0, 0
 		        size_hint: None, None
 		        size: '30dp', '40dp'
@@ -361,6 +381,7 @@
 
 				Button:
 					id: home_id
+					tooltip_text: 'Lower focus completely'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
@@ -368,18 +389,21 @@
 					on_release: root.home()
 				Button:
 					text: 'Set Z'
+					tooltip_text: 'Store Z-value\nfor current channel'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.set_bookmark()
 				Button:
 					text: 'Set All Z'
+					tooltip_text: 'Store Z-value\nfor all channels'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.set_all_bookmarks()
 			Button:
 				text: 'Go to Set Z'
+				tooltip_text: 'Go to stored Z-value'
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
@@ -387,6 +411,7 @@
 
     		ToggleButton:
     			id: autofocus_id
+				tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
     		    size_hint_y: None
     		    height: '30dp'
     			font_size: '12sp'
@@ -417,19 +442,23 @@
 		ToggleButton:
 			id: turret_pos_1_btn
 			text: '1'
+			tooltip_text: 'Select turret position 1'
 			state: 'down'
             on_release: root.turret_select(1)
 		ToggleButton:
 			id: turret_pos_2_btn
 			text: '2'
+			tooltip_text: 'Select turret position 2'
             on_release: root.turret_select(2)
 		ToggleButton:
 			id: turret_pos_3_btn
 			text: '3'
+			tooltip_text: 'Select turret position 3'
             on_release: root.turret_select(3)
 		ToggleButton:
 			id: turret_pos_4_btn
 			text: '4'
+			tooltip_text: 'Select turret position 4'
             on_release: root.turret_select(4)
 
 	BoxLayout:
@@ -473,6 +502,7 @@
 
 		Label:
 			text:'Acquire Z Stack'
+			tooltip_text: 'Acquire and save Z-stack images'
 			font_size: '16sp'
 	        size_hint_y: None
 	        height: '30dp'
@@ -500,6 +530,7 @@
 
 			TextInput:
 				id: zstack_stepsize_id
+				tooltip_text: 'Z-stack slice spacing'
 	        	multiline: False
 		        size_hint_y: None
 		        height: '30dp'
@@ -512,6 +543,7 @@
 
 			TextInput:
 				id: zstack_range_id
+				tooltip_text: 'Total stack depth'
 	        	multiline: False
 		        size_hint_y: None
 		        height: '30dp'
@@ -524,6 +556,7 @@
 
 			TextInput:
 				id: zstack_steps_id
+				tooltip_text: 'Resulting number of slices in the stack'
 	        	multiline: False
 		        size_hint_y: None
 		        height: '30dp'
@@ -535,6 +568,7 @@
 
 	    Spinner:
 			id: zstack_spinner
+			tooltip_text: 'Position to start Z-Stack'
 			sync_height: True
 			size_hint_y: None
 			height: '30dp'
@@ -551,6 +585,7 @@
 			size_hint_y: None
 			height: '30dp'
 			text: 'Acquire'
+			tooltip_text: 'Acquire Z-stack'
 			font_size: '12dp'
 			on_release: root.run_zstack_acquire_from_ui()
 
@@ -578,6 +613,7 @@
 		# HOME STAGE
 		Button: 
 			id: home_id
+			tooltip_text: 'Home microscope to upper left corner (A1)'
 			font_size: '12sp'
 			text: 'Home Stage'
 			on_release: root.home()
@@ -608,6 +644,7 @@
 				height: '30dp'
 				font_size: '12sp'
 				text: 'X: (mm)'
+				tooltip_text: 'Current X value'
 
 			# Set and Display X Position	
 			TextInput:
@@ -628,6 +665,7 @@
 				height: '30dp'
 				font_size: '12sp'
 				text: 'Set X'
+				tooltip_text: 'Save current X position'
 				on_release: root.set_xbookmark()
 
 			# Goto X Bookmark
@@ -636,6 +674,7 @@
 				height: '30dp'
 				font_size: '12sp'
 				text: 'Go to X'
+				tooltip_text: 'Return to saved X position'
 				on_release: root.goto_xbookmark()
 
 			# X-Dir Controls
@@ -648,6 +687,7 @@
 				Button: # COARSE LEFT
 					border: 0, 0, 0, 0
 					size_hint: None, None
+					tooltip_text: 'Coarse Left'
 					size: '30dp', '30dp'
 					background_normal: './data/icons/LL_normal.png'
 					background_down: './data/icons/LL_down.png'
@@ -655,6 +695,7 @@
 
 				Button: # FINE LEFT
 					id: slow_up
+					tooltip_text: 'Fine Left'
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '25dp', '30dp'
@@ -664,6 +705,7 @@
 
 				Button: # FINE RIGHT
 					id: slow_down
+					tooltip_text: 'Fine Right'
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '25dp', '30dp'
@@ -673,6 +715,7 @@
 			
 				Button: # COARSE RIGHT
 					id: fast_down
+					tooltip_text: 'Coarse Right'
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', '30dp'
@@ -710,6 +753,7 @@
 				height: '30dp'
 				font_size: '12sp'
 				text: 'Set Y'
+				tooltip_text: 'Save current Y position'
 				on_release: root.set_ybookmark()
 
 			# Goto Y Bookmark
@@ -718,6 +762,7 @@
 				height: '30dp'
 				font_size: '12sp'
 				text: 'Go to Y'
+				tooltip_text: 'Return to saved Y position'
 				on_release: root.goto_ybookmark()
 
 			# Y-Dir Controls
@@ -729,6 +774,7 @@
 
 				Button: # COARSE FORWARD
 					id: fast_down
+					tooltip_text: 'Coarse upward'
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', ' 30dp'
@@ -737,6 +783,7 @@
 					on_release: root.coarse_back()
 				Button: # FINE FORWARD
 					border: 0, 0, 0, 0
+					tooltip_text: 'Fine upward'
 					size_hint: None, None
 					size: '25dp', '30dp'
 					background_normal: './data/icons/D_normal.png'
@@ -744,6 +791,7 @@
 					on_release: root.fine_back()
 				Button: # FINE BACK
 					border: 0, 0, 0, 0
+					tooltip_text: 'Fine downward'
 					size_hint: None, None
 					size: '25dp', '30dp'
 					background_normal: './data/icons/U_normal.png'
@@ -751,6 +799,7 @@
 					on_release: root.fine_fwd()
 				Button: # COARSE BACK
 					border: 0, 0, 0, 0
+					tooltip_text: 'Coarse downward'
 					size_hint: None, None
 					size: '30dp', '30dp'
 					background_normal: './data/icons/UU_normal.png'
@@ -798,6 +847,7 @@
 			# Time Settings
 			Label:
 				text: 'Time Settings'
+				tooltip_text: 'Set Interval and Duration for time lapse'
 				font_size: '16sp'
 				size_hint_y: None
 				height: '30dp'
@@ -811,6 +861,7 @@
 				height: '30dp'
 				Label:
 					text: 'Interval'
+					tooltip_text: 'Interval between acquisitions'
 					size_hint_x: None
 					width: '95dp'
 					font_size: '12sp'
@@ -839,6 +890,7 @@
 				height: '30dp'
 				Label:
 					text: 'Duration'
+					tooltip_text: 'Total length of Protocol'
 					size_hint_x: None
 					width: '95dp'
 					font_size: '12sp'
@@ -863,6 +915,7 @@
 			# Select Labware
 			Spinner:
 				id: labware_spinner
+				tooltip_text: 'Select Labware to be used in the Protocol'
 				sync_height: True
 				visible: True
 				text: 'New'
@@ -883,6 +936,7 @@
 
 				Button:
 					text: 'New'
+					tooltip_text: 'Create a New Protocol with the existing current Labware, Objective, and Channels set to acquire'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
@@ -890,6 +944,7 @@
 		
 				FileChooseBTN:
 					text: 'Load'
+					tooltip_text: 'Load saved Protocol'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
@@ -897,6 +952,7 @@
 
 				Button:
 					text: 'Save'
+					tooltip_text: 'Save Protocol'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
@@ -905,6 +961,7 @@
 
 				FileSaveBTN:
 					text: 'Save As'
+					tooltip_text: 'Save Protocol with a new filename'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
@@ -927,6 +984,7 @@
 
 				Label:
 					text: 'Protocol'
+					tooltip_text: 'Current Protocol loaded'
 					size_hint_x: None
 					width: '75dp'
 					font_size: '12sp'
@@ -952,6 +1010,7 @@
 
 				Label:
 					text: 'Step Name'
+					tooltip_text: 'Label and Image filename for current Step'
 					size_hint_x: None
 					width: '75dp'
 					font_size: '12sp'
@@ -975,12 +1034,14 @@
 				spacing: '3dp'
 				Label:
 					text: 'Step'
+					tooltip_text: 'Step ID number in Protocol'
 					size_hint_x: None
 					width: '75dp'
 					font_size: '12sp'
 
 				Button:
 					id: prev_step_btn
+					tooltip_text: 'Move to previous Step'
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', '30dp'
@@ -991,6 +1052,7 @@
 				TextInput:
 					id: step_number_input
 					text: '0'
+					tooltip_text: 'Enter desired Step ID number'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
@@ -1011,6 +1073,7 @@
 				TextInput:
 					id: step_total_input
 					text: '1'
+					tooltip_text: 'Total number of Steps'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
@@ -1020,6 +1083,7 @@
 					valign: 'center'
 				Button:
 					id: next_step_btn
+					tooltip_text: 'Move to next Step'
 					border: 0, 0, 0, 0
 					size_hint: None, None
 					size: '30dp', '30dp'
@@ -1036,6 +1100,7 @@
 				spacing: '5dp'
 				Button:
 					id: delete_step_btn
+					tooltip_text: 'Delete current Step'
 					text: 'Delete'
 					size_hint_y: None
 					height: '30dp'
@@ -1043,6 +1108,7 @@
 					on_release: root.delete_step()
 				Button:
 					id: change_step_btn
+					tooltip_text: 'Update settings for current Step including XYZ location,AF,AG/AE,Channel,turret position, and Step label'
 					text: 'Change'
 					size_hint_y: None
 					height: '30dp'
@@ -1050,6 +1116,7 @@
 					on_release: root.modify_step()
 				Button:
 					id: add_step_btn
+					tooltip_text: 'Add Step after current Step'
 					text: 'Add'
 					size_hint_y: None
 					height: '30dp'
@@ -1069,6 +1136,7 @@
 				Label:
 					id: tiling_box_label_id
 					text: 'Tiling'
+					tooltip_text: 'Set tiling dimensions for New Protocols or untiled Steps application'
 					size_hint_y: None
 					height: '30dp'
 					size_hint_x: None
@@ -1080,6 +1148,7 @@
 					id: tiling_size_spinner
 					sync_height: True
 					text: ''
+					tooltip_text: 'Set tiling dimensions for New Protocols or untiled Steps application'
 					font_size: '12dp'
 					size_hint_y: None
 					height: '30dp'
@@ -1091,6 +1160,7 @@
 				Button:
 					id: tiling_size_apply_id
 					text: 'Apply'
+					tooltip_text: 'Create tiles around untiled Steps'
 					size_hint_y: None
 					size_hint_x: None
 					width: '50dp'
@@ -1110,6 +1180,7 @@
 				Label:
 					id: protocol_zstacking_box_label_id
 					text: 'Z-Stacking'
+					tooltip_text: 'Use Z-stack settings under Objective Settings'
 					size_hint_y: None
 					height: '30dp'
 					size_hint_x: None
@@ -1121,6 +1192,7 @@
 				Button:
 					id: protocol_zstacking_apply_id
 					text: 'Apply'
+					tooltip_text: 'Create Z-stack around unstacked Steps'
 					size_hint_y: None
 					size_hint_x: None
 					width: '50dp'
@@ -1138,12 +1210,14 @@
 				CheckBox:
 					id: acquire_zstack_id
 					size_hint_x: None
+					tooltip_text: 'Use Z-stack settings under Objective Settings\nfor New Protocol creation'
 					width: '30dp'
 					active: False
 					on_release: root.update_acquire_zstack()
 
 				Label:
 					text: 'Enable Z-Stack'
+					tooltip_text: 'Use Z-stack settings under Objective Settings\nfor New Protocol creation'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -1161,11 +1235,13 @@
 					size_hint_x: None
 					width: '30dp'
 					active: False
+					tooltip_text: 'Display yellow cross for each Step'
 					on_release: root.update_show_step_locations()
 
 				Label:
 					id: show_step_locations_label_id
 					text: 'Show step locations'
+					tooltip_text: 'Display yellow cross for each Step'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -1217,7 +1293,8 @@
 					
 			ToggleButton:
 				id: run_autofocus_btn
-				text: 'Scan and Autofocus All Steps'
+				text: 'Autofocus All Steps'
+				tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
@@ -1236,6 +1313,7 @@
 			ToggleButton:
 				id: run_scan_btn
 				text: 'Run One Scan'
+				tooltip_text: 'Acquire one Interval of data'
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
@@ -1244,6 +1322,7 @@
 			ToggleButton:
 				id: run_protocol_btn
 				text: 'Run Full Protocol'
+				tooltip_text: 'Initiate complete Protocol for the full Duration'
 				size_hint_y: None
 				height: '60dp'
 				halign: 'center'
@@ -1280,6 +1359,17 @@
 			Label:
 				height: '50dp'
 				size_hint_y: None
+
+			# Button:
+			# 	id: protocol_debug_btn
+			# 	text: 'DEBUG'
+			# 	tooltip_text: 'DEBUG'
+			# 	size_hint_y: None
+			# 	size_hint_x: None
+			# 	width: '50dp'
+			# 	height: '30dp'
+			# 	font_size: '12sp'
+			# 	on_release: root.debug_func()
 	
 	Widget:
 
@@ -1293,7 +1383,8 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Apply Video Gen to Protocol Folder'
+		text: 'Create video from Protocol data folder'
+		tooltip_text: 'Combines sequential images into a video file'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
@@ -1318,6 +1409,7 @@
 			font_size: '12sp'
             size_hint_x: None
             width: '120dp'
+			tooltip_text: 'Define FPS for video creation'
 			
         TextInput:
             id: video_gen_fps_id
@@ -1337,6 +1429,7 @@
 		spacing: '5dp'
 		Label:
 			text: 'Overlay Timestamp'
+			tooltip_text: 'Add real time values to lower left corner of video'
 			halign: 'left'
 			valign: 'middle'
 			font_size: '12sp'
@@ -1344,6 +1437,7 @@
 
 		ToggleButton:
 			id: enable_timestamp_overlay_btn
+			tooltip_text: 'Add real time values to lower left corner of video'
 			size_hint: None, None
 			size: '45dp', '30dp'
 			padding: ['2dp', (self.height-self.line_height)/2]
@@ -1367,8 +1461,10 @@
 		height: '30dp'
 
 	FolderChooseBTN:
+
 		id: stitch_apply_btn
 		text: 'Apply Stitching to Protocol Folder'
+        tooltip_text: 'Assemble tiles into stitched montage image of abutted tiles'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
@@ -1388,7 +1484,8 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Apply Z-Projection to Folder'
+		text: 'Apply Z-Projection to Z-stacks in folder'
+		tooltip_text: 'Creates single image from Z-stacks'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
@@ -1410,6 +1507,7 @@
 			halign: 'left'
 			valign: 'middle'
 			font_size: '12sp'
+			tooltip_text: 'Select projection type'
             size_hint_x: None
             width: '120dp'
 			
@@ -1436,7 +1534,8 @@
 		height: '30dp'
 
 	FolderChooseBTN:
-		text: 'Apply Composite Gen to Protocol Folder'
+		text: 'Create fluorescence composites'
+		tooltip_text: 'Combine fluorescence images and one transmitted image in Protocol data folder'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
@@ -1499,28 +1598,28 @@
 			ZProjectionControls:
 				id: zprojection_controls_id
 
-		AccordionItem:
-			id: open_last_save_folder_accordion_id
-			title: 'Open Last Save Folder'
-			on_collapse: root.accordion_collapse()
-			background_normal: './data/icons/post_processing_background.png'
+		# AccordionItem:
+		# 	id: open_last_save_folder_accordion_id
+		# 	title: 'Open Last Save Folder'
+		# 	on_collapse: root.accordion_collapse()
+		# 	background_normal: './data/icons/post_processing_background.png'
 
-			BoxLayout:
-				orientation: 'vertical'
+		# 	BoxLayout:
+		# 		orientation: 'vertical'
 
-				# Pad
-				Widget:
-					size_hint_y: None
-					height: '30dp'
+		# 		# Pad
+		# 		Widget:
+		# 			size_hint_y: None
+		# 			height: '30dp'
 
-				Button:
-					text:'Open Folder'
-					size_hint_y: None
-					height: '30dp'
-					font_size: '12sp'
-					on_release:root.open_folder()
+		# 		Button:
+		# 			text:'Open Folder'
+		# 			size_hint_y: None
+		# 			height: '30dp'
+		# 			font_size: '12sp'
+		# 			on_release:root.open_folder()
 
-				Widget:
+		# 		Widget:
 
 		AccordionItem:
 			id: cell_count_accordion_id
@@ -1541,6 +1640,7 @@
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
+					tooltip_text: 'Count and measure objects in images'
 					on_release: root.open_cell_count()
 
 				# Pad
@@ -1681,6 +1781,7 @@
         height: '30dp'
         Label:
             text: 'Lumascope Model'
+			tooltip_text: 'Lumi, LS820, LS850, and LS850T'
             size_hint_x: None
             width: '120dp'
 			font_size: '12sp'
@@ -1700,6 +1801,7 @@
         height: '30dp'
         Label:
             text: 'Objective'
+			tooltip_text: 'Current objective in the lightpath'
             size_hint_x: None
             width: '120dp'
 			font_size: '12sp'
@@ -1719,6 +1821,7 @@
         height: '30dp'
         Label:
             text: 'Magnification'
+			tooltip_text: 'Current objective magnification'
             size_hint_x: None
             width: '120dp'
 			font_size: '12sp'
@@ -1742,6 +1845,7 @@
 
 		Label:
 			text: 'Frame Size'
+			tooltip_text: 'Camera sensor frame size in pixels'
 			halign: 'left'
 			valign: 'middle'
 			font_size: '12sp'
@@ -1761,6 +1865,7 @@
 			font_size: '12sp'
 		Label:
 			text: 'x'
+			tooltip_text: 'Camera sensor X and Y dimension\nframe size in pixels\n from 4 to 3860 in X and 2178 in Y\nbut 1600-2100 recommended'
 			size_hint_x: None
 			width: '15dp'
 			font_size: '12sp'
@@ -1783,6 +1888,7 @@
         height: '30dp'
         Label:
             text: 'Field of View'
+			tooltip_text: 'FOV calculated from magnification and frame size'
             size_hint_x: None
             width: '120dp'
             font_size: '12sp'
@@ -1820,16 +1926,31 @@
 
 	FileChooseBTN:
 		text: 'Load'
+		tooltip_text: 'Load previously saved Settings file'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
 		on_release: self.choose('load_settings')
 	FileSaveBTN:
 		text: 'Save'
+		tooltip_text: 'Save Settings file'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
 		on_release: self.choose('save_settings')
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
+		height: '30dp'
+		Button:
+			id: reconnect_btn
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			text: 'Reconnect'
+			tooltip_text: 'Restart connection to microscope'
+			on_release: root.reconnect()
 
 	BoxLayout:
         orientation: 'horizontal'
@@ -1838,11 +1959,13 @@
 		Label:
 			font_size: '12sp'
 			text: 'Enable Full Pixel Depth'
+			tooltip_text: 'Choose between 8 and 12 bit depth images'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
 		ToggleButton:
 			id: enable_full_pixel_depth_btn
+			tooltip_text: 'Save all images as 12-bit tiff'
 			size_hint: None, None
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
@@ -1857,6 +1980,7 @@
         height: '30dp'
         Label:
             text: 'Live Image Format'
+			tooltip_text: 'Choose between TIFF and OME-TIFF\nfor live image capture'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
@@ -1877,6 +2001,7 @@
         height: '30dp'
         Label:
             text: 'Sequenced Image Format'
+			tooltip_text: 'Choose between TIFF, OME-TIFF or\nImageJ Hyperstack with TIFF\nfor Protocol image capture'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
@@ -1918,11 +2043,13 @@
 		Label:
 			font_size: '12sp'
 			text: 'Enable Scale Bar'
+			tooltip_text: 'Show scale bar in lower right corner of image'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
 		ToggleButton:
 			id: enable_scale_bar_btn
+			tooltip_text: 'Show scale bar in lower right corner of image'
 			size_hint: None, None
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
@@ -1940,6 +2067,7 @@
 					
 		Label:
 			text: 'Save channels in separate folders'
+			tooltip_text: "Save each channels' images in separate folders"
 			font_size: '12sp'
 			halign: 'left'
 			valign: 'middle'
@@ -1948,6 +2076,7 @@
 		ToggleButton:
 			id: separate_folder_per_channel_id
 			size_hint: None, None
+			tooltip_text: "Save each channels' images in separate folders"
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
 			valign: 'middle'
@@ -1963,11 +2092,13 @@
 		Label:
 			font_size: '12sp'
 			text: 'Enable Crosshairs'
+			tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
 		ToggleButton:
 			id: enable_crosshairs_btn
+			tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
 			size_hint: None, None
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
@@ -1984,11 +2115,13 @@
 		Label:
 			font_size: '12sp'
 			text: 'Live Image Contrast Stretching'
+			tooltip_text: 'Expand pixel brightness histogram to full dynamic range,\ndoes not effect saved image'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
 		ToggleButton:
 			id: enable_live_image_histogram_equalization_btn
+			tooltip_text: 'Show image with full dynamic range pixel brightness histogram\nsaved image may appear black but this shows what information is in the image\nif expanded post acquisition'
 			size_hint: None, None
 			size: '45dp', '30dp'
 			border: 0, 0, 0, 0
@@ -2005,6 +2138,7 @@
         height: '30dp'
         Label:
             text: 'Binning'
+			tooltip_text: 'Add adjacent pixels together for increased sensitivity\nsacrificing resolution'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
@@ -2020,21 +2154,46 @@
 	        on_text: root.select_binning_size()
 
 	BoxLayout:
+
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '30dp'
+		Label:
+			font_size: '12sp'
+			text: 'Show Tooltips'
+			tooltip_text: 'Display hint while hovering over controls'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		ToggleButton:
+			id: show_tooltips_btn
+			size_hint: None, None
+			tooltip_text: 'Display hint while hovering over controls'
+			size: '45dp', '30dp'
+			border: 0, 0, 0, 0
+			valign: 'middle'
+			background_normal: './data/icons/ToggleL.png'
+			background_down: './data/icons/ToggleRW.png'
+			on_release: root.update_show_tooltips()
+			state: 'normal'
+      
+	BoxLayout:
 		id: acceleration_control_box
 		size_hint_y: None if self.visible else 0
 		height: '30dp' if self.visible else 0
 		opacity: 1 if self.visible else 0
 		disabled: not self.visible
 		visible: True
-        orientation: 'horizontal'
-        Label:
+		orientation: 'horizontal'
+		Label:
 			id: acceleration_pct_label
-            text: 'Acceleration Max (%)'
+			text: 'Acceleration Max (%)'
+			tooltip_text: 'Maximum acceleration percentage for X-Y stage'
 			halign: 'left'
 			valign: 'middle'
 			text_size: self.size
 			font_size: '12sp'
-	    ModSlider:
+		ModSlider:
 			id: acceleration_pct_slider
 			min: 1
 			max: 100
@@ -2058,6 +2217,7 @@
 			text: format(acceleration_pct_slider.value)
 			on_text_validate: root.acceleration_pct_text()
 			on_focus: if not self.focus: root.acceleration_pct_text()
+
 
 	BoxLayout:
 		height: '30dp'
@@ -2146,12 +2306,14 @@
 					id: LED_label
 					font_size: '12sp'
 					text: 'Enable LED'
+					tooltip_text: 'Turn on channel LED'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
 				ToggleButton:
 					id: enable_led_btn
 					size_hint: None, None
+					tooltip_text: 'Turn on channel LED'
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
 					valign: 'middle'
@@ -2172,6 +2334,7 @@
 				Label:
 					text: 'Illumination (mA)'
 					halign: 'left'
+					tooltip_text: 'Adjust LED brightness'
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
@@ -2182,13 +2345,13 @@
 					min: 0.
 					max: 500.
 					value: 100.
-					step: 5.
+					step: 1.
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
-					on_release: root.ill_slider() # on_touch_move # on_release
+					on_value: root.ill_slider() # on_touch_move # on_release
 				TextInput:
 					id: ill_text
 					size_hint_x: None
@@ -2232,11 +2395,13 @@
 					id: auto_gain
 					size_hint_x: None
 					width: '25dp'
+					tooltip_text: 'Turn on autogain/exposure for this channel\nillumination should be between 10-30 for transmitted channels\nand 50-400 for fluorescence channels'
 					active: False
 					on_release: root.update_auto_gain()
 
 				Label:
 					text: 'Auto Gain/Exp'
+					tooltip_text: 'Turn on autogain/exposure for this channel\nillumination should be between 10-30 for transmitted channels\nand 50-400 for fluorescence channels\nexposure will be minimzed with gain compensation'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
@@ -2255,6 +2420,7 @@
 
 				Label:
 					text: 'Gain (dB)'
+					tooltip_text: 'Adjust camera gain setting'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
@@ -2272,7 +2438,7 @@
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
-					on_release: root.gain_slider()
+					on_value: root.gain_slider()
 				TextInput:
 					id: gain_text
 					size_hint_x: None
@@ -2296,6 +2462,7 @@
 
 				Label:
 					text: 'Exposure (ms)'
+					tooltip_text: 'Adjust camera exposure setting'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
@@ -2319,7 +2486,7 @@
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
-					on_release: root.exp_slider()
+					on_value: root.exp_slider()
 				TextInput:
 					id: exp_text
 					size_hint_x: None
@@ -2407,12 +2574,14 @@
 					height: '30dp'
 					font_size: '12sp'
 					text: 'Save Focus'
+					tooltip_text: 'Save current focus to use in Protocol and Manual Composite Acquisition'
 					on_release: root.save_focus()
 				Button:
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					text: 'Go to Focus'
+					tooltip_text: 'Go to the previously saved focus'
 					on_release: root.goto_focus()
 			
 			# Protocol Settings
@@ -2441,9 +2610,11 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Enable image contrast-based autofocus in Protocol for this channel and manual Composite acquisition'
 					on_release: root.update_autofocus()
 				Label:
 					text: 'Auto Focus'
+					tooltip_text: 'Enable image contrast-based autofocus in Protocol for this channel and manual Composite acquisition'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -2458,6 +2629,7 @@
 						size: self.width, 1
 						pos: self.x, self.y+self.height
 				text:'Video Settings'
+				tooltip_text: 'Define length of Protocol video at each Interval'
 				font_size: '16sp'
 				size_hint_y: None
 				height: '30dp'
@@ -2472,6 +2644,7 @@
 
 				Label:
 					text: 'Duration (s)'
+					tooltip_text: 'Recording time for Protocol videos\n30 seconds maximum'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'
@@ -2512,6 +2685,7 @@
 						size: self.width, 1
 						pos: self.x, self.y+self.height
 				text:'Acquire Settings'
+				tooltip_text: 'Choose channel activity for Protocol'
 				font_size: '16sp'
 				size_hint_y: None
 				height: '30dp'
@@ -2530,10 +2704,12 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Channel not used in Protocol or Manual Composite Acquisition'
 					on_release: root.update_acquire()
 					allow_no_selection: False
 				Label:
 					text: 'None'
+					tooltip_text: 'Channel not used in Protocol or Manual Composite Acquisition'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -2545,10 +2721,12 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Acquire image in Protocol'
 					on_release: root.update_acquire()
 					allow_no_selection: False
 				Label:
 					text: 'Image'
+					tooltip_text: 'Acquire image in Protocol'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -2560,10 +2738,12 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Acquire video in Protocol'
 					on_release: root.update_acquire()
 					allow_no_selection: False
 				Label:
 					text: 'Video'
+					tooltip_text: 'Acquire video in Protocol'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -2586,6 +2766,7 @@
 					size_hint_x: None
 					width: '50dp'
 					text_size: self.size
+					tooltip_text: 'Minimum Composite Brightness Threshold for Composite acquisition'
 				ModSlider:
 					id: composite_threshold_slider # 0 to 100
 					min: 0.
@@ -2659,6 +2840,7 @@
 						size: self.width, 1
 						pos: self.x, self.y+self.height
 				text:'Display Properties'
+				tooltip_text: 'Histogram log display and false color channel images'
 				font_size: '16sp'
 				size_hint_y: None
 				height: '30dp'
@@ -2676,11 +2858,13 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Apply false emission color to image'
 					on_release: root.false_color()
 				Label:		
 					id: false_color_label
 					font_size: '12sp'
 					text: 'False Color'
+					tooltip_text: 'Apply false emission color to image'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
@@ -2689,9 +2873,11 @@
 					size_hint_x: None
 					width: '30dp'
 					active: True
+					tooltip_text: 'Change X-axis of histogram to log scale'
 					state: 'normal'
 				Label:
 					text: 'Log'
+					tooltip_text: 'Change X-axis of histogram to log scale'
 					font_size: '12sp'
 					halign: 'left'
 					valign: 'middle'
@@ -2962,6 +3148,7 @@
 		# Select image to load
 		FileChooseBTN:
 			text: 'Load Image'
+			tooltip_text: 'Select example image to configure analysis settings'
 			size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'
@@ -2981,6 +3168,7 @@
 
 			Label:
 				text: 'Pixel Ratio'
+				tooltip_text: 'Select from objective magnification table in manual'
 				size_hint_x: None
 				width: '70dp'
 				font_size: '12sp'
@@ -2999,6 +3187,7 @@
 			
 			Label:
 				text: 'pixels/μm'
+				tooltip_text: 'Camera pixels per micron of sample'
 				size_hint_x: None
 				width: '100dp'
 				font_size: '12sp'
@@ -3019,6 +3208,7 @@
 
 			Label:
 				text: 'Fluorescent Image'
+				tooltip_text: 'Is the image fluorescence or transmitted\nbright objects or bright background'
 				size_hint_x: None
 				width: '100dp'
 				font_size: '12sp'
@@ -3035,6 +3225,7 @@
 
 				Label:
 					text: 'Threshold'
+					tooltip_text: 'Object threshold against background'
 					size_hint_x: None
 					width: '90dp'
 					font_size: '12sp'
@@ -3057,6 +3248,7 @@
 
 				Label:
 					text: 'Area'
+					tooltip_text: 'Area limits for objects'
 					size_hint_x: None
 					width: '90dp'
 					font_size: '12sp'
@@ -3082,6 +3274,7 @@
 
 				Label:
 					text: 'Perimeter'
+					tooltip_text: 'Perimeter limits for objects'
 					size_hint_x: None
 					width: '90dp'
 					font_size: '12sp'
@@ -3107,6 +3300,7 @@
 
 				Label:
 					text: 'Sphericity'
+					tooltip_text: 'Roundness limits for objects'
 					size_hint_x: None
 					width: '90dp'
 					font_size: '12sp'
@@ -3132,6 +3326,7 @@
 
 				Label:
 					text: 'Min Intensity'
+					tooltip_text: 'Minimum intensity for objects'
 					size_hint_x: None
 					width: '90dp'
 					font_size: '12sp'
@@ -3157,6 +3352,7 @@
 
 				Label:
 					text: 'Mean Intensity'
+					tooltip_text: 'Mean intensity for objects'
 					size_hint_x: None
 					width: '90dp'
 					font_size: '12sp'
@@ -3182,6 +3378,7 @@
 
 				Label:
 					text: 'Max Intensity'
+					tooltip_text: 'Maximum intensity for objects'
 					size_hint_x: None
 					width: '90dp'
 					font_size: '12sp'
@@ -3209,6 +3406,7 @@
 			
 		Button:
 			text: 'Apply Method to Preview'
+			tooltip_text: 'Re-analyze image with new settings'
 			size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'
@@ -3217,6 +3415,7 @@
 		# Save method
 		FileSaveBTN:
 			text: 'Save Method As...'
+			tooltip_text: 'Store analysis settings in a Method file'
 			size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'
@@ -3226,6 +3425,7 @@
 		# Select method to load
 		FileChooseBTN:
 			text: 'Load Method'
+			tooltip_text: 'Retrieve a saved analysis Method'
 			size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'
@@ -3234,6 +3434,7 @@
 		# Apply method
 		FolderChooseBTN:
 			text: 'Apply Method to Folder'
+			tooltip_text: 'Analyze all images in a folder according to the current Method'
 			size_hint_y: None
 			height: '30dp'
 			font_size: '12sp'

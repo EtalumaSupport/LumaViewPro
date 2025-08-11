@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from modules.sequential_io_executor import SequentialIOExecutor, IOTask
+
 import lumascope_api
 import modules.common_utils as common_utils
 from modules.objectives_loader import ObjectiveLoader
@@ -18,10 +20,21 @@ class AutofocusExecutor:
     def __init__(
         self,
         scope: lumascope_api.Lumascope,
+        camera_executor: SequentialIOExecutor,
+        io_executor: SequentialIOExecutor,
+        file_io_executor: SequentialIOExecutor,
+        autofocus_executor: SequentialIOExecutor,
         use_kivy_clock: bool = False,
+        ui_update_func = None
     ):
         self._scope = scope
         self._use_kivy_clock = use_kivy_clock
+        self._camera_executor = camera_executor
+        self._io_executor = io_executor
+        self._file_io_executor = file_io_executor
+        self._autofocus_executor = autofocus_executor
+        self._iterator_scheduled = None
+        self.ui_update_func = ui_update_func
 
         if not self._scope.camera.active:
             return
@@ -34,6 +47,9 @@ class AutofocusExecutor:
 
 
     def reset(self):
+        if hasattr(self, '_iterator_scheduled') and self._iterator_scheduled is not None:
+            self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+            self._iterator_scheduled = None
         self._reset_state()
 
 
@@ -43,7 +59,7 @@ class AutofocusExecutor:
         interval_sec: float
     ):
         if self._use_kivy_clock:
-            self._kivy_clock_module.Clock.schedule_interval(func, interval_sec)
+            return self._kivy_clock_module.Clock.schedule_interval(lambda dt: self._autofocus_executor.protocol_put(IOTask(action=func)), interval_sec)
         else:
             raise NotImplementedError(f"Not implemented for support outside Kivy")
         
@@ -87,6 +103,7 @@ class AutofocusExecutor:
     ):
         self._reset_state()
         self._callbacks = callbacks
+        self._autofocus_executor.protocol_start()
 
         if save_results_to_file and results_dir is None:
             raise Exception(f"Cannot save autofocus results to file if results_dir is None")
@@ -102,19 +119,28 @@ class AutofocusExecutor:
         self._calculate_params()
         self._move_absolute_position(pos=self._params['z_min'])
 
-        self._schedule_interval_func(
-            func=self._iterate,
-            interval_sec=0.01,
-        )
+        self._iterator_scheduled = self._kivy_clock_module.Clock.schedule_interval(lambda dt: self._autofocus_executor.protocol_put(IOTask(action=self._iterate)), 0.01)
+        # self._iterator_scheduled = self._schedule_interval_func(
+        #     func=self._iterate,
+        #     interval_sec=0.01,
+        # )
 
 
-    def _iterate(self, dt):
+    def _iterate(self, dt=None):
+
+        if not self._is_focusing:
+            return
 
         if not self._scope.get_target_status('Z'):
             return
         
         if self._scope.get_overshoot():
             return
+        
+        if not self._autofocus_executor.is_protocol_running():
+            self._is_focusing = False
+            return
+        
         
         exposure_delay = 2*self._params['exposure']/1000+0.2
         time.sleep(exposure_delay)
@@ -135,11 +161,17 @@ class AutofocusExecutor:
             
         height, width = image.shape
 
+        if not self._autofocus_executor.is_protocol_running():
+            self._is_focusing = False
+            return
+        
         # Use center quarter of image for focusing
         image = image[int(height/4):int(3*height/4),int(width/4):int(3*width/4)]
 
         focus = self.focus_function(image=image)
         current_pos = round(self._scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
+
+        self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=current_pos), 0)
 
         self._af_data_pass.append(
             {
@@ -148,8 +180,16 @@ class AutofocusExecutor:
             }
         )
 
+        if not self._autofocus_executor.is_protocol_running():
+            self._is_focusing = False
+            return
+        
         resolution = self._params['resolution']
         next_target = self._scope.get_target_position('Z') + resolution
+
+        if not self._autofocus_executor.is_protocol_running():
+            self._is_focusing = False
+            return
 
         # Measure next step?
         if next_target <= self._params['z_max']:
@@ -170,14 +210,21 @@ class AutofocusExecutor:
         best_focus_position = self._find_best(df=df)
 
         if self._last_pass == True:
-            self._unschedule_func(func=self._iterate)
+            #self._unschedule_func(func=self._iterator_scheduled)
+            self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+            self._autofocus_executor.protocol_end()
+            self._autofocus_executor.clear_protocol_pending()
             self._move_absolute_position(pos=best_focus_position)
+            self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
 
             if self._save_results_to_file:
                 self._save_autofocus_data()
 
             self._is_focusing = False
             self._is_complete = True
+            if 'complete' in self._callbacks:
+                self._callbacks['complete']()
+
             self._best_focus_position = best_focus_position
             return
 
@@ -301,6 +348,8 @@ class AutofocusExecutor:
         self._best_focus_position = None # Last / Previous focus score
         self._last_pass = False         # Are we on the last scan for autofocus?
         self._params = {}
+        self._autofocus_executor.clear_protocol_pending()
+
 
 
     def _init_results_dir_and_ts(self, results_dir: pathlib.Path) -> str:

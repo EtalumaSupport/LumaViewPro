@@ -86,7 +86,7 @@ LOG_FILE = 'logs/LVP_Log/lumaviewpro.log'
 class CustomFormatter(logging.Formatter):
     # if level is DEBUG/WARNING/ERROR/CRITICAL, log the level, message, time, and filename
     def __init__(self, 
-                 fmt = '[%(levelname)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s', 
+                 fmt = '[%(levelname)s] [%(threadName)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s', 
                  datefmt ='%m/%d/%Y %H:%M:%S'):
         logging.Formatter.__init__(self, fmt, datefmt)
 

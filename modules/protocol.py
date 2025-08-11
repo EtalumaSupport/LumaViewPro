@@ -599,7 +599,7 @@ class Protocol:
 
                 for zstack_slice, zstack_position_offset in zstack_position_offsets.items():
                     for layer_name, layer_config in layer_configs.items():
-                        if layer_config['acquire'] == None:
+                        if layer_config['acquire'] not in ['image', 'video']:
                             continue
                         
                         x = round(pos['x'] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
@@ -645,8 +645,17 @@ class Protocol:
                         else:
                             zstack_group_id_label = zstack_group_id
                         
+                        step_name = common_utils.generate_default_step_name(
+                            well_label=well_label,
+                            color=layer_name,
+                            z_height_idx=zstack_slice_label,
+                            tile_label=tile_label,
+                            objective_short_name=None,  # Can add this if needed
+                            custom_name_prefix=None if not custom_step else well_label,
+                        )
+
                         step_dict = cls._create_step_dict(
-                            name="",
+                            name=step_name,
                             x=x,
                             y=y,
                             z=z,

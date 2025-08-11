@@ -31,7 +31,6 @@ import json
 
 import pandas as pd
 
-#from lvp_logger import logger
 
 class ObjectiveLoader:
 
@@ -45,9 +44,11 @@ class ObjectiveLoader:
         
 
     def _create_short_name_from_objective_id(self, objective_id: str) -> str:
-        
+
+
         tmp = objective_id.replace('w/', '')
         tmp = objective_id.replace('W/', '')
+
         tmp = objective_id.replace('w/o', 'No')
         tmp = objective_id.replace('W/o', 'No')
         tmp = objective_id.replace('W/O', 'No')
@@ -55,7 +56,6 @@ class ObjectiveLoader:
         # Remove illegal path characters
         tmp = tmp.replace('/', '')
         tmp = tmp.replace('\\', '')
-
         tmp = tmp.replace('-', '')
         tmp = tmp.replace('_', '')
         

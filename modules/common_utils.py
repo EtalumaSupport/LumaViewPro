@@ -23,7 +23,7 @@ def generate_default_step_name(
     else:
         name = f"{well_label}"
 
-    if color not in (None, ""):
+    if color not in (None, "") and color not in name:
         name = f"{name}_{color}"
     
     if tile_label not in (None, "", -1):
@@ -197,6 +197,9 @@ def get_opened_layer(lumaview_imagesettings) -> str | None:
             continue
         
     return None
+
+def get_opened_layer_obj(lumaview_imagesettings):
+    return lumaview_imagesettings.accordion_item_lookup(get_opened_layer(lumaview_imagesettings))
 
 
 def to_bool(val) -> bool:

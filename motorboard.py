@@ -39,6 +39,8 @@ import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
 
+import threading
+
 class MotorBoard:
 
     #----------------------------------------------------------
@@ -53,6 +55,7 @@ class MotorBoard:
         self._has_turret = False
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
+        self.thread_lock = threading.RLock()
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
@@ -78,32 +81,46 @@ class MotorBoard:
 
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
+        # Lock to ensure mutex
+        with self.thread_lock:
+            try:
+                logger.info('[XYZ Class ] Found motor controller and about to create driver.')
+                self.driver = serial.Serial(port=self.port,
+                                            baudrate=self.baudrate,
+                                            bytesize=self.bytesize,
+                                            parity=self.parity,
+                                            stopbits=self.stopbits,
+                                            timeout=self.timeout,
+                                            write_timeout=self.write_timeout)
+                self.driver.close()
+                #print([comport.device for comport in serial.tools.list_ports.comports()])
+                self.driver.open()
+
+                logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
+
+                # After powering on the scope, the first command seems to be ignored.
+                # This is to ensure the following commands are followed
+                # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
+                #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains
+                self.driver.write(b'\x04\n')
+                logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
+                # Fullinfo checks to see if it has a turret, so call that here
+                self._fullinfo = self.fullinfo()
+            except:
+                self.driver = False
+                logger.exception('[XYZ Class ] MotorBoard.connect() failed')
+
+    def disconnect(self):
+        logger.info('[XYZ Class ] Disconnecting from motor controller...')
         try:
-            logger.info('[XYZ Class ] Found motor controller and about to create driver.')
-            self.driver = serial.Serial(port=self.port,
-                                        baudrate=self.baudrate,
-                                        bytesize=self.bytesize,
-                                        parity=self.parity,
-                                        stopbits=self.stopbits,
-                                        timeout=self.timeout,
-                                        write_timeout=self.write_timeout)
-            self.driver.close()
-            #print([comport.device for comport in serial.tools.list_ports.comports()])
-            self.driver.open()
-
-            logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
-
-            # After powering on the scope, the first command seems to be ignored.
-            # This is to ensure the following commands are followed
-            # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
-            #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains
-            self.driver.write(b'\x04\n')
-            logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
-            # Fullinfo checks to see if it has a turret, so call that here
-            self._fullinfo = self.fullinfo()
-        except:
-            self.driver = False
-            logger.exception('[XYZ Class ] MotorBoard.connect() failed')
+            if self.driver is not None:
+                self.driver.close()
+                self.driver = None
+                logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
+            else:
+                logger.info('[XYZ Class ] MotorBoard.disconnect() failed: Motor controller not connected')
+        except Exception as e:
+            logger.exception(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
 
     #----------------------------------------------------------
     # Define Communication
@@ -111,38 +128,39 @@ class MotorBoard:
     def exchange_command(self, command, response_numlines=1):
         """ Exchange command through serial to SPI to the motor boards
         This should NOT be used in a script. It is intended for other functions to access"""
+        with self.thread_lock:
+            stream = command.encode('utf-8')+b"\n"
+            #print(stream)
 
-        stream = command.encode('utf-8')+b"\n"
-        #print(stream)
-
-        if not self.driver:
+            if not self.driver:
+                try:
+                    self.connect()
+                except:
+                    return
             try:
-                self.connect()
+                self.driver.write(stream)
+                #if (command)=='HOME': # ESW to increase homing reliability
+                #    CRLF = command.encode('utf-8')+b"\r\n"
+                #    self.driver.write(CRLF)
+                resp_lines = [self.driver.readline() for _ in range(response_numlines)]
+                response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
+                if response_numlines == 1:
+                    if '\r' in response[0].strip():
+                        response[0] = response[0].rsplit('\r')[-1]
+                    response = response[0]
+                logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
+
+            except serial.SerialTimeoutException:
+                self.driver = False
+                logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
+                response = None
+
             except:
-                return
-        try:
-            self.driver.write(stream)
-            #if (command)=='HOME': # ESW to increase homing reliability
-            #    CRLF = command.encode('utf-8')+b"\r\n"
-            #    self.driver.write(CRLF)
-
-            resp_lines = [self.driver.readline() for _ in range(response_numlines)]
-            response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
-            if response_numlines == 1:
-                response = response[0]
-            logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
-
-        except serial.SerialTimeoutException:
-            self.driver = False
-            logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
-            response = None
-
-        except:
-            self.driver = False
-            logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
-            response = None
-        
-        return response
+                self.driver = False
+                logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
+                response = None
+            
+            return response
 
 
     # Firmware 1-14-2023 commands include
@@ -374,7 +392,7 @@ class MotorBoard:
     def t_deg2ustep(self, degrees):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
         ustep = int( degrees * 80000./90.) # needs correct value
-        print("ustep: ",ustep)
+        #print("ustep: ",ustep)
         return ustep
     
     def t_pos2ustep(self, position):
@@ -407,8 +425,16 @@ class MotorBoard:
         # logger.info('def move(self, axis, steps)', axis, steps)
         if steps < 0:
             steps += 0x100000000 # twos compliment
-        print(f"Axis: {axis} steps: {steps}")
+        #print(f"Axis: {axis} steps: {steps}")
         self.exchange_command('TARGET_W' + axis + str(steps))
+
+        # target_pos = int(self.exchange_command('TARGET_R' + axis))
+        # desired_target = steps
+
+        # while int(target_pos) != desired_target:
+        #     self.exchange_command('TARGET_W' + axis + str(steps))
+        #     time.sleep(0.005)
+        #     target_pos = int(self.exchange_command('TARGET_R' + axis))
 
     # Get target position
     def target_pos(self, axis):
@@ -553,7 +579,13 @@ class MotorBoard:
 
         # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
         try:
-            response = self.exchange_command('STATUS_R' + axis)
+            #logger.warning(f"AXIS PARAM: ====={axis}=====")
+            payload = 'STATUS_R' + axis
+            #logger.warning(f"Sending payload to motorboard: {payload}=====")
+            response = self.exchange_command(payload)
+            #logger.warning(f"Response: {response}")
+            if response is None:
+                raise
             data = int( response )
             bits = format(data, 'b').zfill(32)
 

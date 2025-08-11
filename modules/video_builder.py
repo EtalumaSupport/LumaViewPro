@@ -93,6 +93,9 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
             frames_per_sec=kwargs['frames_per_sec'],
             enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
             output_file_loc=kwargs['output_file_loc'],
+            popup=kwargs['popup'],
+            total_groups=kwargs['total_groups'],
+            current_group=kwargs['current_group'],
         )
     
 
@@ -141,7 +144,10 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         df: pd.DataFrame,
         frames_per_sec: int,
         enable_timestamp_overlay: bool,
-        output_file_loc: pathlib.Path
+        output_file_loc: pathlib.Path,
+        popup=None,
+        total_groups=1,
+        current_group=1,
     ) -> bool:
         
 
@@ -205,7 +211,15 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         )
 
         logger.info(f"[{self._name}] Writing video to {output_file_loc}")
-        
+
+        # Progress bar percentage calculation
+        end_percentage = (current_group / total_groups) * 100
+        start_percentage = ((current_group - 1) / total_groups) * 100
+
+        percent_diff = end_percentage - start_percentage
+
+        total_frames = len(df)
+        i = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
             image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
@@ -215,6 +229,11 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
                 image = image_utils.add_timestamp(image=image, timestamp_str=frame_ts)
                 
             video.write(image)
+
+            if popup is not None:
+                popup.progress = start_percentage + (i / total_frames) * percent_diff
+            
+            i += 1
 
         cv2.destroyAllWindows()
         video.release()

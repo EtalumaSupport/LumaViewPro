@@ -80,6 +80,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
+        popup=None,
         **kwargs: dict,
     ) -> dict:
         start_ts = datetime.datetime.now()
@@ -108,10 +109,13 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         df = self._filter_ignored_types(df=df)
         groups = self._get_groups(df)
 
+        group_count = len(groups)
+
         logger.info(f"{self._name}: Generating {self._post_function.value.lower()} images")
 
         new_count = 0
         existing_count = 0
+        current_group = 1
 
         for _, group in groups:
             if len(group) == 0:
@@ -144,6 +148,9 @@ class ProtocolPostProcessingExecutor(abc.ABC):
             alg_results = self._group_algorithm(
                 path=root_path,
                 df=group,
+                popup=popup,
+                total_groups=group_count,
+                current_group=current_group,
                 **kwargs,
             )
 
@@ -175,8 +182,15 @@ class ProtocolPostProcessingExecutor(abc.ABC):
             )
       
             new_count += 1
+            current_group += 1
+
+            if popup is not None:
+                popup.progress = (new_count / group_count) * 100
 
         protocol_post_record.complete()
+
+        if popup is not None:
+            popup.progress = 100
 
         if (new_count == 0) and (existing_count == 0):
             logger.info(f"[{self._name} ] No sets of images found")
