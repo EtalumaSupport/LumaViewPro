@@ -59,7 +59,7 @@ import shutil
 import userpaths
 import queue
 import threading
-from lvp_logger import logger
+
 import tkinter
 from tkinter import filedialog, Tk
 from plyer import filechooser
@@ -70,52 +70,6 @@ import imagej
 
 import scyjava
 
-import modules.profiling_utils as profiling_utils
-
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-
-#post processing
-from image_stitcher import image_stitcher
-from modules.video_builder import VideoBuilder
-
-from modules.tiling_config import TilingConfig
-import modules.common_utils as common_utils
-
-import labware
-from modules.autofocus_executor import AutofocusExecutor
-from modules.stitcher import Stitcher
-import modules.binning as binning
-from modules.composite_generation import CompositeGeneration
-from modules.contrast_stretcher import ContrastStretcher
-import modules.coord_transformations as coord_transformations
-import modules.labware_loader as labware_loader
-import modules.objectives_loader as objectives_loader
-from modules.protocol import Protocol
-from modules.sequenced_capture_executor import SequencedCaptureExecutor
-from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
-from modules.stack_builder import StackBuilder
-from modules.zstack_config import ZStackConfig
-from modules.json_helper import CustomJSONizer
-from modules.timedelta_formatter import strfdelta
-import modules.imagej_helper as imagej_helper
-import modules.zprojector as zprojector
-from modules.video_writer import VideoWriter
-from modules.sequential_io_executor import IOTask, SequentialIOExecutor
-
-import cv2
-import skimage
-
-global debug_mode
-debug_mode = False
-
-
-# Hardware
-import lumascope_api
-import post_processing
-
-import image_utils
-
-
 if __name__ == "__main__":
     
     disable_homing = False
@@ -123,6 +77,9 @@ if __name__ == "__main__":
     ############################################################################
     #---------------------Directory Initialization-----------------------------#
     ############################################################################
+
+    global debug_mode
+    debug_mode = False
     
     """Main application entry point"""
     # All the initialization code goes here
@@ -215,8 +172,50 @@ if __name__ == "__main__":
 
 
     ############################################################################
-    #--------------------------------------------------------------------------#
+    #---------------------Module Imports---------------------------------------#
     ############################################################################
+
+    from lvp_logger import logger
+    import modules.profiling_utils as profiling_utils
+
+    from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+
+    #post processing
+    from image_stitcher import image_stitcher
+    from modules.video_builder import VideoBuilder
+
+    from modules.tiling_config import TilingConfig
+    import modules.common_utils as common_utils
+
+    import labware
+    from modules.autofocus_executor import AutofocusExecutor
+    from modules.stitcher import Stitcher
+    import modules.binning as binning
+    from modules.composite_generation import CompositeGeneration
+    from modules.contrast_stretcher import ContrastStretcher
+    import modules.coord_transformations as coord_transformations
+    import modules.labware_loader as labware_loader
+    import modules.objectives_loader as objectives_loader
+    from modules.protocol import Protocol
+    from modules.sequenced_capture_executor import SequencedCaptureExecutor
+    from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+    from modules.stack_builder import StackBuilder
+    from modules.zstack_config import ZStackConfig
+    from modules.json_helper import CustomJSONizer
+    from modules.timedelta_formatter import strfdelta
+    import modules.imagej_helper as imagej_helper
+    import modules.zprojector as zprojector
+    from modules.video_writer import VideoWriter
+    from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+
+    import cv2
+    import skimage
+
+    # Hardware
+    import lumascope_api
+    import post_processing
+
+    import image_utils
 
  
     imagej.doctor.checkup()
