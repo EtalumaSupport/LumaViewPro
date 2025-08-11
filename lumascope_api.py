@@ -957,8 +957,12 @@ class Lumascope():
          Return True if axis is in home position or motionboard is """
  
         #if not self.motion: return True
-        status = self.motion.home_status(axis)
-        return status
+        try:
+            status = self.motion.home_status(axis)
+            return status
+        except Exception as e:
+            logger.exception(f"[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}")
+            return False
 
     def get_target_status(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -969,15 +973,23 @@ class Lumascope():
         # Handle case where we want to know if turret has reached its target, but there is no turret
         if (axis == 'T') and (self.motion.has_turret == False):
             return True
-        
-        status = self.motion.target_status(axis)
-        return status
+
+        try:
+            status = self.motion.target_status(axis)
+            return status
+        except Exception as e:
+            logger.exception(f"[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}")
+            return False
     
     def get_target_pos(self, axis):
         if (axis == 'T') and (self.motion.has_turret == False):
             return -1
         
-        return self.motion.target_pos(axis)
+        try:
+            return self.motion.target_pos(axis)
+        except Exception as e:
+            logger.exception(f"[SCOPE API ] get_target_pos({axis}) failed; returning -1: {e}")
+            return -1
         
     # Get all reference status register bits as 32 character string (32-> 0)
     def get_reference_status(self, axis):
