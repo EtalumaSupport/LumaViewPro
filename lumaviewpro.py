@@ -4485,7 +4485,7 @@ class VerticalControl(BoxLayout):
             selected_position = int(selected_position)
 
         io_executor.put(IOTask(lumaview.scope.tmove, kwargs={'position':selected_position}))
-        
+
         for available_position in range(1,5):
             if selected_position == available_position:
                 state = 'down'
@@ -4500,13 +4500,21 @@ class VerticalControl(BoxLayout):
             else:
                 state = 'normal'
             
-            Clock.schedule_once(lambda dt: self.update_turret_btn_state(available_position, state), 0)
+        Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
 
     def update_spinner_text(self, selected_position):
         self.ids["objective_spinner2"].text = settings["turret_objectives"][selected_position]
 
-    def update_turret_btn_state(self, selected_position, state):
-        self.ids[f'turret_pos_{selected_position}_btn'].state = state
+    def update_turret_btn_state(self, position, state):
+        self.ids[f'turret_pos_{position}_btn'].state = state
+
+    def update_all_turret_btn_states(self, selected_position):
+        for available_position in range(1,5):
+            if selected_position == available_position:
+                state = 'down'
+            else:
+                state = 'normal'
+            self.update_turret_btn_state(available_position, state)
 
     def update_turret_gui(self, turret_position):
         for available_position in range(1,5):
@@ -6428,6 +6436,9 @@ class MicroscopeSettings(BoxLayout):
         # Reinitialize the scope object (connects motorboard, ledboard, camera)
         lumaview.scope = lumascope_api.Lumascope()
 
+        sequenced_capture_executor.set_scope(lumaview.scope)
+        autofocus_executor.set_scope(lumaview.scope)
+
         # Restart display
 
         lumaview.ids['viewer_id'].ids['scope_display_id'].stop()
@@ -8048,7 +8059,8 @@ class LumaViewProApp(App):
         ij_helper = None
         global sequenced_capture_executor
         
-        # global autofocus_executor
+        global autofocus_executor
+
         self.icon = './data/icons/icon.png'
 
         stage = Stage()
