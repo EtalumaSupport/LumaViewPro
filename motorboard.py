@@ -113,7 +113,7 @@ class MotorBoard:
     def disconnect(self):
         logger.info('[XYZ Class ] Disconnecting from motor controller...')
         try:
-            if self.driver is not None:
+            if self.driver is not None and self.driver is not False:
                 self.driver.close()
                 self.driver = None
                 logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
@@ -152,12 +152,12 @@ class MotorBoard:
 
             except serial.SerialTimeoutException:
                 self.driver = False
-                logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
+                logger.error('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
                 response = None
 
             except:
                 self.driver = False
-                logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
+                logger.error('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
                 response = None
             
             return response
@@ -570,7 +570,7 @@ class MotorBoard:
             else:
                 return False
         except:
-            logger.exception('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')
             raise
 
     # return True if current position and target position are the same
@@ -595,7 +595,7 @@ class MotorBoard:
                 return False
   
         except:
-            logger.exception('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
             raise
             #return False
 
@@ -618,7 +618,7 @@ class MotorBoard:
             # logger.info(data)
             return data
         except:
-            logger.exception('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
             raise
 
     def limit_switch_status(self, axis):
@@ -700,7 +700,7 @@ class MotorBoard:
 
             return True
         except:
-            logger.exception(f'[XYZ Class] Failed to upload new Firmware files to Motorboard')
+            logger.error(f'[XYZ Class] Failed to upload new Firmware files to Motorboard')
             raise
 
 

@@ -82,7 +82,7 @@ class IOTask:
                 return res, None
             except Exception as e:
                 logger.error(f"Uncaught Thread Exception in {self.name} Worker: {e}")
-                traceback.print_exc()
+                #traceback.print_exc()
                 return None, e
 
         def set_callback(self, callback, cb_args, cb_kwargs):
@@ -307,8 +307,12 @@ class SequentialIOExecutor:
         # Stops dispatcher and running tasks
         # If wait, wait until task running finishes
         self.pending_shutdown = True
-        self.dispatcher.shutdown(wait)
-        self.executor.shutdown(wait)
+        self.enable()
+        self.protocol_end()
+        self.clear_pending()
+        self.clear_protocol_pending()
+        self.dispatcher.shutdown(wait=wait, cancel_futures=not wait)
+        self.executor.shutdown(wait=wait, cancel_futures=not wait)
 
     def join(self, timeout=None):
         # Block until all queued tasks processed (or until timeout)

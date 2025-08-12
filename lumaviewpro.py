@@ -1275,7 +1275,7 @@ class ScopeDisplay(Image):
 
     def set_camera_disconnected_display(self):
         self.texture = None
-        self.source = "./data/icons/camera to USB.png"
+        self.source = "./data/icons/camera_to_USB.png"
         self.camera_disconnected_display_set = True
         return
 
@@ -3971,7 +3971,7 @@ class Histogram(Widget):
 
         if lumaview.scope.camera != False and lumaview.scope.camera.active != False:
             image = lumaview.scope.get_image_from_buffer(force_to_8bit=True)
-            if image is None:
+            if image is None or image is False:
                 return
             
             hist = np.histogram(image, bins=bins,range=(0,256))
