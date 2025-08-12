@@ -839,7 +839,6 @@ class SequencedCaptureExecutor:
         if not self.protocol_executor.is_protocol_running():
             return
         
-        print(f"DEBUG COUNTER: {self.debug_counter}")
         self.debug_counter += 1
         
         is_video = True if step['Acquire'] == "video" else False

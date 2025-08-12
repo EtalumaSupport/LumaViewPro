@@ -94,11 +94,14 @@ if __name__ == "__main__":
     global cpu_pool
     global motorboard_lock, ledboard_lock, camera_lock
     global ij_helper
+    global live_view_fps
 
     global use_multiprocessing
 
     cpu_pool = None
     use_multiprocessing = False
+
+    live_view_fps = 10
 
     ij_helper = None
     
@@ -1134,9 +1137,13 @@ class ScopeDisplay(Image):
         self.use_full_pixel_depth = False
         self.start()
 
-    def start(self, fps = 10):
+    def start(self, fps = None):
         logger.info('[LVP Main  ] ScopeDisplay.start()')
-        self.fps = fps
+        self.fps = live_view_fps
+
+        if fps is not None:
+            self.fps = fps
+
         logger.info('[LVP Main  ] Clock.schedule_interval(self.update, 1.0 / self.fps)')
         Clock.schedule_interval(self.update_scopedisplay, 1.0 / self.fps)
 
@@ -1340,7 +1347,7 @@ class ScopeDisplay(Image):
                 if open_layer is not None:
                     Clock.schedule_once(lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0)
 
-            if debug_counter % 3 == 0:
+            if debug_counter % 2 == 0:
                 if self.use_bullseye:
                     image_bullseye = self.transform_to_bullseye(image=image)
 
@@ -6595,6 +6602,15 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['video_recording_format_spinner'].text = 'Frames'
 
             self.select_video_recording_format()
+
+            global live_view_fps
+
+            if "live_view_fps" in settings:
+                live_view_fps = settings['live_view_fps']
+            else:
+                live_view_fps = 10
+
+            logger.info(f"[LVP Main  ] Live view FPS set to {live_view_fps}")
 
             acceleration_limit = settings['motion']['acceleration_max_pct']
             self.ids['acceleration_pct_slider'].value = acceleration_limit

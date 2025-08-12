@@ -177,5 +177,6 @@
         "max_duration": 30
     },
 
-    "show_tooltips": false
+    "show_tooltips": false,
+    "live_view_fps": 30
 }
