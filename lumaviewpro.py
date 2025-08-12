@@ -3970,7 +3970,7 @@ class Histogram(Widget):
         bins = 128
 
         if lumaview.scope.camera != False and lumaview.scope.camera.active != False:
-            image = lumaview.scope.image_buffer
+            image = lumaview.scope.get_image_from_buffer(force_to_8bit=True)
             if image is None:
                 return
             
