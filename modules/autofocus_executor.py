@@ -145,14 +145,14 @@ class AutofocusExecutor:
             return
         
         
-        exposure_delay = 2*self._params['exposure']/1000+0.2
-        time.sleep(exposure_delay)
+        # Sleep for at least 75ms to ensure that the camera is ready for the next capture
+        time.sleep(max(self._params['exposure']/1000, 0.075))
 
         image = False
         num_retries = 5
         count = 0
         while True:
-            image = self._scope.get_image()
+            image = self._scope.get_image(force_new_capture=True)
             count += 1
             if type(image) == np.ndarray:
                 break

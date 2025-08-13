@@ -898,8 +898,8 @@ class SequencedCaptureExecutor:
             if abs(real_exp - step['Exposure']) > accepted_exp_range:
                 self._scope.set_exposure_time(step['Exposure'])
 
-            
-            time.sleep(2*step['Exposure']/1000+0.2)
+            # Sleep for at least 75ms to ensure that the camera is ready for the next capture
+            time.sleep(max(step['Exposure']/1000, 0.075))
 
             if is_video:
                 # Disable autogain and then reenable it only for the first frame
