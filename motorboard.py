@@ -55,6 +55,7 @@ class MotorBoard:
         self._has_turret = False
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
+        self.port = None
         self.thread_lock = threading.RLock()
 
         for port in ports:
@@ -76,7 +77,7 @@ class MotorBoard:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
         except:
-            logger.exception('[XYZ Class ] Found motor controller but unable to establish connection.')
+            logger.error('[XYZ Class ] Found motor controller but unable to establish connection.')
             raise
 
     def connect(self):
@@ -85,13 +86,17 @@ class MotorBoard:
         with self.thread_lock:
             try:
                 logger.info('[XYZ Class ] Found motor controller and about to create driver.')
-                self.driver = serial.Serial(port=self.port,
-                                            baudrate=self.baudrate,
-                                            bytesize=self.bytesize,
-                                            parity=self.parity,
-                                            stopbits=self.stopbits,
-                                            timeout=self.timeout,
-                                            write_timeout=self.write_timeout)
+                if self.port is not None:
+                    self.driver = serial.Serial(port=self.port,
+                                                baudrate=self.baudrate,
+                                                bytesize=self.bytesize,
+                                                parity=self.parity,
+                                                stopbits=self.stopbits,
+                                                timeout=self.timeout,
+                                                write_timeout=self.write_timeout)
+                else:
+                    raise ValueError("No port found for motor controller")
+                
                 self.driver.close()
                 #print([comport.device for comport in serial.tools.list_ports.comports()])
                 self.driver.open()
@@ -106,9 +111,9 @@ class MotorBoard:
                 logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
                 # Fullinfo checks to see if it has a turret, so call that here
                 self._fullinfo = self.fullinfo()
-            except:
+            except Exception as e:
                 self.driver = False
-                logger.exception('[XYZ Class ] MotorBoard.connect() failed')
+                logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
 
     def disconnect(self):
         logger.info('[XYZ Class ] Disconnecting from motor controller...')
@@ -120,7 +125,7 @@ class MotorBoard:
             else:
                 logger.info('[XYZ Class ] MotorBoard.disconnect() failed: Motor controller not connected')
         except Exception as e:
-            logger.exception(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
+            logger.error(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
 
     #----------------------------------------------------------
     # Define Communication

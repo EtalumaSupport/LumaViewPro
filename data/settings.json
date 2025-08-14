@@ -178,5 +178,6 @@
     },
 
     "show_tooltips": false,
-    "live_view_fps": 30
+    "live_view_fps": 30,
+    "show_fps_monitor": false
 }

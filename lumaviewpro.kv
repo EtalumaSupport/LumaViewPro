@@ -2247,6 +2247,28 @@
 			background_down: './data/icons/ToggleRW.png'
 			on_release: root.update_bullseye_state()
 
+	BoxLayout:
+		id: enable_fps_monitor_box_id
+		opacity: 0
+        orientation: 'horizontal'
+        size_hint_y: None
+        height: '0dp'
+		Label:
+			font_size: '12sp'
+			text: 'Enable FPS Monitor'
+			halign: 'left'
+			valign: 'middle'
+			text_size: self.size
+		ToggleButton:
+			id: enable_fps_monitor_btn_id
+			size_hint: None, None
+			size: '45dp', '30dp'
+			border: 0, 0, 0, 0
+			valign: 'middle'
+			background_normal: './data/icons/ToggleL.png'
+			background_down: './data/icons/ToggleRW.png'
+			on_release: root.update_fps_monitor_state()
+
 	Label:
 
 # LayerControl - Settings for Layers within ImageSettings

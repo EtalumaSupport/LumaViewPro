@@ -33,7 +33,6 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 '''
 
-from numpy import False_
 import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
@@ -50,6 +49,7 @@ class LEDBoard:
         ports = list_ports.comports(include_links = True)
         self.found = False
         self.thread_lock = threading.RLock()
+        self.port = None
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
@@ -78,7 +78,7 @@ class LEDBoard:
             logger.info('[LED Class ] Found LED controller and about to establish connection.')
             self.connect()
         except:
-            logger.exception('[LED Class ] Found LED controller but unable to establish connection.')
+            logger.error('[LED Class ] Found LED controller but unable to establish connection.')
             raise
 
 
@@ -87,16 +87,19 @@ class LEDBoard:
         with self.thread_lock:
             try:
                 logger.info('[LED Class ] Found LED controller and about to create driver.')
-                self.driver = serial.Serial(port=self.port,
-                                            baudrate=self.baudrate,
-                                            bytesize=self.bytesize,
-                                            parity=self.parity,
-                                            stopbits=self.stopbits,
-                                            timeout=self.timeout,
-                                            write_timeout=self.write_timeout)
+                if self.port is not None:
+                    self.driver = serial.Serial(port=self.port,
+                                                baudrate=self.baudrate,
+                                                bytesize=self.bytesize,
+                                                parity=self.parity,
+                                                stopbits=self.stopbits,
+                                                timeout=self.timeout,
+                                                write_timeout=self.write_timeout)
+                else:
+                    raise ValueError("No port found for LED controller")
 
-                #self.driver.close()
-                #self.driver.open()
+                # self.driver.close()
+                # self.driver.open()
 
                 # self.exchange_command('import main.py')
                 # self.exchange_command('import main.py')
@@ -104,9 +107,9 @@ class LEDBoard:
                 #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains 
                 self.driver.write(b'\x04\n')
                 logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
-            except:
+            except Exception as e:
                 self.driver = False
-                logger.exception('[LED Class ] LEDBoard.connect() failed')
+                logger.error(f'[LED Class ] LEDBoard.connect() failed: {e}')
 
     def disconnect(self):
         logger.info('[LED Class ] Disconnecting from LED controller...')
@@ -114,12 +117,13 @@ class LEDBoard:
             if self.driver is not None:
                 self.driver.close()
                 self.driver = None
+                self.port = None
                 logger.info('[LED Class ] LEDBoard.disconnect() succeeded')
             else:
                 logger.info('[LED Class ] LEDBoard.disconnect() failed: LED controller not connected')
 
         except Exception as e:
-            logger.exception(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
+            logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
 
     def exchange_command(self, command):
         """ Exchange command through serial to LED board
@@ -142,7 +146,7 @@ class LEDBoard:
                 
                 except serial.SerialTimeoutException:
                     self.driver = False
-                    logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+                    logger.error('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
 
                 except:
                     self.driver = False

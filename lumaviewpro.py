@@ -59,6 +59,7 @@ import shutil
 import userpaths
 import queue
 import threading
+from types import SimpleNamespace
 
 import tkinter
 from tkinter import filedialog, Tk
@@ -78,8 +79,6 @@ if __name__ == "__main__":
     #---------------------Directory Initialization-----------------------------#
     ############################################################################
 
-    global debug_mode
-    debug_mode = False
     
     """Main application entry point"""
     # All the initialization code goes here
@@ -94,7 +93,7 @@ if __name__ == "__main__":
     global cpu_pool
     global motorboard_lock, ledboard_lock, camera_lock
     global ij_helper
-    global live_view_fps
+    global live_view_fps, show_fps_monitor, fps_context
 
     global use_multiprocessing
 
@@ -102,6 +101,7 @@ if __name__ == "__main__":
     use_multiprocessing = False
 
     live_view_fps = 10
+    fps_context = None
 
     ij_helper = None
     
@@ -241,9 +241,6 @@ if __name__ == "__main__":
     Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
     Config.set('kivy', 'exit_on_escape', '0')
 
-    if debug_mode:
-        Config.set('modules', 'monitor', '')
-
     # if fixed size at launch
     #Config.set('graphics', 'width', '1920')
     #Config.set('graphics', 'height', '1080')
@@ -281,6 +278,8 @@ if __name__ == "__main__":
 
     # Video Related
     from kivy.graphics.texture import Texture
+
+    from kivy.modules import monitor as fps_monitor
 
     # User Interface Custom Widgets
     from custom_widgets.range_slider import RangeSlider
@@ -2326,6 +2325,8 @@ class MotionSettings(BoxLayout):
 
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].height = '30dp'
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].opacity = 1
+            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].height = '30dp'
+            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].opacity = 1
                 
     def accordion_collapse(self):
         logger.info('[LVP Main  ] MotionSettings.accordion_collapse()')
@@ -6603,6 +6604,13 @@ class MicroscopeSettings(BoxLayout):
 
             self.select_video_recording_format()
 
+            global show_fps_monitor
+
+            if "show_fps_monitor" in settings:
+                show_fps_monitor = settings['show_fps_monitor']
+            else:
+                show_fps_monitor = False
+
             global live_view_fps
 
             if "live_view_fps" in settings:
@@ -6788,6 +6796,31 @@ class MicroscopeSettings(BoxLayout):
 
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = False
 
+    def update_fps_monitor_state(self):
+        global show_fps_monitor, settings, fps_context
+
+        if self.ids['enable_fps_monitor_btn_id'].state == 'down':
+            try:
+                if not fps_context:
+                    fps_context = SimpleNamespace()
+
+                show_fps_monitor = True
+                fps_monitor.start(Window, fps_context)
+            except Exception as e:
+                logger.error(f'[LVP Main  ] Failed to start FPS Monitor: {e}')
+                self.ids['enable_fps_monitor_btn_id'].state = 'normal'
+                show_fps_monitor = False
+        else:
+            try:
+                show_fps_monitor = False
+                settings['show_fps_monitor'] = False
+                if fps_context:
+                    fps_monitor.stop(Window, fps_context)
+                    fps_context = None
+            except Exception as e:
+                logger.error(f'[LVP Main  ] Failed to stop FPS Monitor: {e}')
+                self.ids['enable_fps_monitor_btn_id'].state = 'down'
+                show_fps_monitor = True
 
     def update_full_pixel_depth_state(self):
         global settings
@@ -8118,7 +8151,24 @@ class LumaViewProApp(App):
 
         # load settings file
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
+        global fps_context
 
+        if not fps_context:
+            fps_context = SimpleNamespace()
+
+        if show_fps_monitor:
+            try:
+                logger.info('[LVP Main  ] Starting FPS Monitor')
+
+                fps_monitor.start(Window, fps_context)
+            except Exception as e:
+                logger.error(f'[LVP Main  ] Failed to start FPS Monitor: {e}')
+        else:
+            # try:
+            #     fps_monitor.stop(Window, fps_context)
+            # except Exception as e:
+            #     pass
+            pass
         
             
         autofocus_executor = AutofocusExecutor(
