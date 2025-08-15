@@ -122,8 +122,12 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
+
+debug = False
+
 # Prevent logs from propagating to root (and the console)
-logger.propagate = False
+if not debug:
+    logger.propagate = False
 
 # determines lowest level of messages to log (DEBUG < INFO < WARNING < ERROR < CRITICAL)
 logger.setLevel(logging.INFO)
@@ -146,13 +150,14 @@ file_handler.setFormatter(CustomFormatter())
 logger.addHandler(file_handler)
 
 # Best-effort: remove any existing console/stream handlers from root to reduce terminal noise
-try:
-    root_logger = logging.getLogger()
-    for h in list(root_logger.handlers):
-        if isinstance(h, logging.StreamHandler):
-            root_logger.removeHandler(h)
-except Exception:
-    pass
+if not debug:
+    try:
+        root_logger = logging.getLogger()
+        for h in list(root_logger.handlers):
+            if isinstance(h, logging.StreamHandler):
+                root_logger.removeHandler(h)
+    except Exception:
+        pass
 
 sys.excepthook = custom_except_hook
 minimize_logger_window()

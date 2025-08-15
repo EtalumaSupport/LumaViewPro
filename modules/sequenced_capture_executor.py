@@ -98,6 +98,8 @@ class SequencedCaptureExecutor:
         self._scan_in_progress = threading.Event()
         self._protocol_ended = threading.Event()
         self._cpu_pool = cpu_pool
+        self._video_write_finished = threading.Event()
+        self._video_write_finished.set()
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -138,6 +140,7 @@ class SequencedCaptureExecutor:
         self._target_z_pos = -1
         self.debug_counter = 0
         self._protocol_ended.clear()
+        self._video_write_finished.set()
         
 
 
@@ -426,6 +429,9 @@ class SequencedCaptureExecutor:
     def _scan_iterate(self, dt=None):
         if self._protocol_ended.is_set():
             return
+
+        if not self._video_write_finished.is_set():
+            return
         
         if not self._scan_in_progress.is_set():
             return
@@ -559,6 +565,10 @@ class SequencedCaptureExecutor:
                     output_format = 'TIFF'
 
                 # TODO THREAD
+
+                if step['Acquire'] == 'video':
+                    self._video_write_finished.clear()
+
                 capture_result = self._capture(
                     save_folder=save_folder,
                     step=step,
@@ -931,17 +941,21 @@ class SequencedCaptureExecutor:
                 seconds_per_frame = 1.0 / fps
                 video_images = queue.Queue()
 
+                if "set_recording_title" in self._callbacks:
+                    Clock.schedule_once(lambda dt: self._callbacks['set_recording_title'](progress=0), 0)
+
                 logger.info(f"Protocol-Video] Capturing video...")
 
+                progress = 0
                 while time.time() < stop_ts:
-                    
-                    """     **NOT BEING REFRESHED ON SCREEN EVEN IF ENABLED**
-                    if 'update_scope_display' in self._callbacks:
-                        self._callbacks['update_scope_display']()
-                    """
+                    progress = (time.time() - start_ts) / duration_sec * 100
+                    if "set_recording_title" in self._callbacks:
+                        Clock.schedule_once(lambda dt: self._callbacks['set_recording_title'](progress=progress), 0)
 
                     if not self.protocol_executor.is_protocol_running():
                         self._scope.leds_off()
+                        if "reset_title" in self._callbacks:
+                            Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
                         return
                     
                     # Currently only support 8-bit images for video
@@ -1087,6 +1101,9 @@ class SequencedCaptureExecutor:
         
         if self._enable_image_saving == True:
             if is_video:
+                if "set_writing_title" in self._callbacks:
+                    Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=0), 0)
+
                 if video_as_frames:
                     frame_num = 0
                     capture_result = save_folder
@@ -1094,6 +1111,10 @@ class SequencedCaptureExecutor:
                         save_folder.mkdir(exist_ok=True, parents=True)
 
                     while not video_images.empty():
+
+                        progress = frame_num / captured_frames * 100
+                        if "set_writing_title" in self._callbacks:
+                            Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=progress), 0)
 
                         image_pair = video_images.get_nowait()
                         frame_num += 1
@@ -1144,12 +1165,18 @@ class SequencedCaptureExecutor:
                         fps=calculated_fps,
                         include_timestamp_overlay=True
                     )
+                    frame_num = 0
                     while not video_images.empty():
+                        progress = frame_num / captured_frames * 100
+                        if "set_writing_title" in self._callbacks:
+                            Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=progress), 0)
+
                         try:
                             image_pair = video_images.get_nowait()
                             video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
                             del image_pair
                             video_images.task_done()
+                            frame_num += 1
                         except Exception as e:
                             logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
 
@@ -1162,6 +1189,10 @@ class SequencedCaptureExecutor:
                     gc.collect()
                     
                     capture_result = output_file_loc
+
+                self._video_write_finished.set()
+                if "reset_title" in self._callbacks:
+                    Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
                 
                 logger.info("Protocol-Video] Video writing finished.")
                 logger.info(f"Protocol-Video] Video saved at {capture_result}")

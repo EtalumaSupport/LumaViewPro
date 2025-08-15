@@ -1083,15 +1083,30 @@ def move_home(axis: str):
     global version
     axis = axis.upper()
 
-
-
-    #Window.set_title(f"Lumaview Pro {version}   |   Homing, please wait...")
+    Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}   |   Homing, please wait..."), 0)
     if axis == 'Z':
         io_executor.put(IOTask(action=lumaview.scope.zhome, callback=move_home_cb, cb_args=(axis)))
     elif axis == 'XY':
         io_executor.put(IOTask(action=lumaview.scope.xyhome, callback=move_home_cb, cb_args=(axis)))
     elif axis == 'T':
         io_executor.put(IOTask(action=lumaview.scope.thome, callback=move_home_cb, cb_args=(axis)))
+
+# Should only be called from main thread
+def set_recording_title(progress=None):
+    if progress is None:
+        Window.set_title(f"Lumaview Pro {version}   |   Recording Video...")
+    else:
+        Window.set_title(f"Lumaview Pro {version}   |   Recording Video... {int(progress)}%")
+
+# Should only be called from main thread
+def set_writing_title(progress=None):
+    if progress is None:
+        Window.set_title(f"Lumaview Pro {version}   |   Writing Video...")
+    else:
+        Window.set_title(f"Lumaview Pro {version}   |   Writing Video... {int(progress)}%")
+
+def reset_title():
+    Window.set_title(f"Lumaview Pro {version}")
 
 
 
@@ -4401,6 +4416,9 @@ class VerticalControl(BoxLayout):
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
             'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+            'set_recording_title': set_recording_title,
+            'set_writing_title': set_writing_title,
+            'reset_title': reset_title,
         }
 
         protocol_executor.put(IOTask(
@@ -5511,6 +5529,9 @@ class ProtocolSettings(CompositeCapture):
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
             'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+            'set_recording_title': set_recording_title,
+            'set_writing_title': set_writing_title,
+            'reset_title': reset_title,
         }
 
         #TODO THREAD
@@ -5735,6 +5756,9 @@ class ProtocolSettings(CompositeCapture):
                 'go_to_step': go_to_step,
                 'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+                'set_recording_title': set_recording_title,
+                'set_writing_title': set_writing_title,
+                'reset_title': reset_title,
             }
         )
 
@@ -7628,7 +7652,10 @@ class ZStack(CompositeCapture):
             'run_complete': run_complete_func,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
-            'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+            'reset_autofocus_btns': update_autofocus_selection_after_protocol,  
+            'set_recording_title': set_recording_title,
+            'set_writing_title': set_writing_title,
+            'reset_title': reset_title,
         }
 
         parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
