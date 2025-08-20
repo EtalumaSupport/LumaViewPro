@@ -1286,6 +1286,12 @@ class ScopeDisplay(Image):
     
 
     def update_scopedisplay(self, dt=0):
+        # Backpressure: avoid flooding the scope display executor if it is still draining
+        try:
+            if hasattr(scope_display_thread_executor, 'queue_size') and scope_display_thread_executor.queue_size() > 3:
+                return
+        except Exception:
+            pass
         scope_display_thread_executor.put(IOTask(self.update_scopedisplay_thread))
 
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
@@ -4061,6 +4067,8 @@ class VerticalControl(BoxLayout):
 
 
     def update_gui(self, vertical_control=False):
+        if sequenced_capture_executor.run_in_progress():
+            return
         if not vertical_control:
             io_executor.put(IOTask(
                 action=lumaview.scope.get_target_position,
@@ -4264,7 +4272,7 @@ class VerticalControl(BoxLayout):
 
 
     def _cleanup_at_end_of_autofocus(self):
-        io_executor.put(IOTask(
+        protocol_executor.put(IOTask(
             action=sequenced_capture_executor.reset,
             callback=self._reset_run_autofocus_button
         ))
@@ -4275,6 +4283,11 @@ class VerticalControl(BoxLayout):
     def _autofocus_run_complete(self, **kwargs):
         live_histo_reverse()
         Clock.schedule_once(lambda dt: self._reset_run_autofocus_button(), 0)
+        # Clear any stuck AF protocol queue entries after completion
+        try:
+            autofocus_thread_executor.clear_protocol_pending()
+        except Exception:
+            pass
 
 
     def run_autofocus_from_ui(self):
@@ -4305,6 +4318,24 @@ class VerticalControl(BoxLayout):
             return
         
         self._set_run_autofocus_button()
+        # Safety timer to revert AF UI if AF doesn't progress within a timeout
+        try:
+            if hasattr(self, '_af_safety_event') and self._af_safety_event is not None:
+                Clock.unschedule(self._af_safety_event)
+        except Exception:
+            pass
+        def _af_safety(dt):
+            try:
+                if sequenced_capture_executor.run_trigger_source() == 'autofocus' and sequenced_capture_executor.run_in_progress():
+                    # If AF is still stuck after timeout, attempt a protocol reset and revert UI
+                    protocol_executor.put(IOTask(
+                        action=sequenced_capture_executor.reset,
+                        callback=self._reset_run_autofocus_button
+                    ))
+                    logger.warning('[AF Safety] Autofocus appeared stuck. Forced reset.')
+            except Exception:
+                pass
+        self._af_safety_event = Clock.schedule_once(_af_safety, 15)
 
         objective_id, _ = get_current_objective_info()
         labware_id, _ = get_selected_labware()
@@ -4563,6 +4594,8 @@ class VerticalControl(BoxLayout):
 class XYStageControl(BoxLayout):
 
     def update_gui(self, dt=0, full_redraw: bool = False):
+        if sequenced_capture_executor.run_in_progress():
+            return
         # logger.info('[LVP Main  ] XYStageControl.update_gui()')
         io_executor.put(IOTask(
             action=self.get_xy_targets,
@@ -5519,6 +5552,15 @@ class ProtocolSettings(CompositeCapture):
         callbacks = {
             'move_position': _handle_ui_update_for_axis,
             'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+            # Pause live UI during recording-heavy runs for throughput
+            'pause_live_ui': lambda: (
+                Clock.unschedule(lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay),
+                Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui)
+            ),
+            'resume_live_ui': lambda: (
+                lumaview.ids['viewer_id'].ids['scope_display_id'].start(),
+                Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1)
+            ),
             'run_scan_pre': self._run_scan_pre_callback,
             'autofocus_in_progress': self._autofocus_in_progress_callback,
             'autofocus_complete': self._autofocus_complete_callback,
@@ -5614,6 +5656,14 @@ class ProtocolSettings(CompositeCapture):
             'run_complete': run_complete_func,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
+            'pause_live_ui': lambda: (
+                Clock.unschedule(lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay),
+                Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui)
+            ),
+            'resume_live_ui': lambda: (
+                lumaview.ids['viewer_id'].ids['scope_display_id'].start(),
+                Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1)
+            ),
         }
 
         self.run_sequenced_capture(
@@ -5678,6 +5728,14 @@ class ProtocolSettings(CompositeCapture):
             'run_complete': run_complete_func,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
+            'pause_live_ui': lambda: (
+                Clock.unschedule(lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay),
+                Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui)
+            ),
+            'resume_live_ui': lambda: (
+                lumaview.ids['viewer_id'].ids['scope_display_id'].start(),
+                Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1)
+            ),
         }
 
         time_params = get_protocol_time_params()
@@ -5803,6 +5861,7 @@ class ProtocolSettings(CompositeCapture):
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
         self.reset_autofocus_ui()
+        self._autofocus_complete_callback()
         stage.set_motion_capability(True)
         
 
@@ -7656,6 +7715,14 @@ class ZStack(CompositeCapture):
             'set_recording_title': set_recording_title,
             'set_writing_title': set_writing_title,
             'reset_title': reset_title,
+            'pause_live_ui': lambda: (
+                Clock.unschedule(lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay),
+                Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui)
+            ),
+            'resume_live_ui': lambda: (
+                lumaview.ids['viewer_id'].ids['scope_display_id'].start(),
+                Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1)
+            ),
         }
 
         parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
@@ -8024,6 +8091,42 @@ class LumaViewProApp(App):
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
         Clock.schedule_once(functools.partial(lumaview.ids['imagesettings_id'].set_expanded_layer, 'BF'), 0.2)
+
+        # Executor health watchdog: logs queue depths periodically and prunes stale display backlog
+        def _executor_watchdog(dt):
+            try:
+                io_q = io_executor.queue_size() if hasattr(io_executor, 'queue_size') else -1
+                cam_q = camera_executor.queue_size() if hasattr(camera_executor, 'queue_size') else -1
+                prot_q = protocol_executor.queue_size() if hasattr(protocol_executor, 'protocol_queue_size') else -1
+                file_q = file_io_executor.queue_size() if hasattr(file_io_executor, 'protocol_queue_size') else -1
+                af_q = autofocus_thread_executor.queue_size() if hasattr(autofocus_thread_executor, 'protocol_queue_size') else -1
+                sd_q = scope_display_thread_executor.queue_size() if hasattr(scope_display_thread_executor, 'queue_size') else -1
+                stage_q = stage_executor.queue_size() if hasattr(stage_executor, 'queue_size') else -1  
+                turret_q = turret_executor.queue_size() if hasattr(turret_executor, 'queue_size') else -1
+
+                io_pq = io_executor.protocol_queue_size() if hasattr(io_executor, 'protocol_queue_size') else -1
+                cam_pq = camera_executor.protocol_queue_size() if hasattr(camera_executor, 'protocol_queue_size') else -1
+                prot_pq = protocol_executor.protocol_queue_size() if hasattr(protocol_executor, 'protocol_queue_size') else -1
+                file_pq = file_io_executor.protocol_queue_size() if hasattr(file_io_executor, 'protocol_queue_size') else -1
+                af_pq = autofocus_thread_executor.protocol_queue_size() if hasattr(autofocus_thread_executor, 'protocol_queue_size') else -1
+                sd_pq = scope_display_thread_executor.protocol_queue_size() if hasattr(scope_display_thread_executor, 'protocol_queue_size') else -1
+                stage_pq = stage_executor.protocol_queue_size() if hasattr(stage_executor, 'protocol_queue_size') else -1
+                turret_pq = turret_executor.protocol_queue_size() if hasattr(turret_executor, 'protocol_queue_size') else -1
+
+                logger.error(f"[Watchdog] Queues - IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q} SD:{sd_q} STAGE:{stage_q} TURRET:{turret_q}")
+                logger.error(f"[Watchdog] Protocol Queues - IO:{io_pq} CAM:{cam_pq} PROT:{prot_pq} FILE:{file_pq} AF:{af_pq} SD:{sd_pq} STAGE:{stage_pq} TURRET:{turret_pq}")
+
+                # If scopedisplay backlog is growing and appears stale, prune it to keep UI responsive
+                if sd_q is not None and sd_q > 20:
+                    try:
+                        scope_display_thread_executor.clear_pending()
+                        logger.warning("[Watchdog] Cleared ScopeDisplay pending queue to prevent backlog")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        #Clock.schedule_interval(_executor_watchdog, 60)
 
         os.chdir(source_path)
 

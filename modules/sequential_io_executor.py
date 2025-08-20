@@ -27,6 +27,8 @@ from collections.abc import Sequence
 from lvp_logger import logger
 import traceback
 import threading
+import time
+from collections import deque
 
 
 """
@@ -144,8 +146,8 @@ class SequentialIOExecutor:
         self.pending_shutdown = False
         self.caller_futures = {}
 
-        self.executed_protocol_tasks = []
-        self.executed_tasks = []
+        # self.executed_protocol_tasks = []
+        # self.executed_tasks = []
         self.cleared_queue = False
         self.cleared_protocol_queue = False
 
@@ -155,6 +157,7 @@ class SequentialIOExecutor:
         self._disable = False
 
         self.blocker = threading.Event()
+        self.last_task_done_monotonic = time.monotonic()
 
 
     def start(self):
@@ -172,6 +175,10 @@ class SequentialIOExecutor:
     def put(self, task: IOTask):
         if self._disable:
             return None
+
+        if self.protocol_running.is_set() and not self.protocol_finish.is_set():
+            return None
+        
         # Push IO work item into queue
         fut = Future()
         self.caller_futures[task] = fut
@@ -257,7 +264,7 @@ class SequentialIOExecutor:
                     future = self.executor.submit(task.run)
                     future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
                     self.running_task = task
-                    self.executed_protocol_tasks.append(task)
+                    #self.executed_protocol_tasks.append(task)
                 else:
                     if not self.protocol_queue.empty():
                         self.protocol_queue.queue.clear()
@@ -266,12 +273,13 @@ class SequentialIOExecutor:
                     future = self.executor.submit(task.run)
                     future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
                     self.running_task = task
-                    self.executed_tasks.append(task)
+                    #self.executed_tasks.append(task)
             except Exception as e:
                 logger.error(f"Uncaught Thread Exception in {self.name} Dispatcher: {e}")
 
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
+        self.last_task_done_monotonic = time.monotonic()
         caller_fut = self.caller_futures.pop(task, None)
         if caller_fut:
             if exception:
@@ -348,6 +356,15 @@ class SequentialIOExecutor:
     def is_busy(self):
         # Returns true if tasks queued or running
         return not (self.queue.empty() and self.running_task is None)
+
+    def queue_size(self) -> int:
+        return self.queue.qsize()
+
+    def protocol_queue_size(self) -> int:
+        return self.protocol_queue.qsize()
+
+    def seconds_since_last_task(self) -> float:
+        return time.monotonic() - self.last_task_done_monotonic
 
     
 

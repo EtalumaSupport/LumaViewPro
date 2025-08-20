@@ -8,6 +8,7 @@ import numpy as np
 import cv2
 import gc
 import queue
+import ctypes
 
 from modules.sequenced_capture_writer import write_capture
 
@@ -424,6 +425,22 @@ class SequencedCaptureExecutor:
 
         self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
         self._scan_iterator = Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._scan_iterate)), 0.1)
+        
+        # Periodic watchdog logging for long runs: report queue depth and executor health every ~60s
+        # try:
+        #     if not hasattr(self, '_last_watchdog_log'):
+        #         self._last_watchdog_log = time.monotonic()
+        #     now_mono = time.monotonic()
+        #     if now_mono - self._last_watchdog_log > 60:
+        #         self._last_watchdog_log = now_mono
+        #         io_q = self._io_executor.queue_size() if hasattr(self._io_executor, 'queue_size') else -1
+        #         cam_q = self.camera_executor.queue_size() if hasattr(self.camera_executor, 'queue_size') else -1
+        #         prot_q = self.protocol_executor.protocol_queue_size() if hasattr(self.protocol_executor, 'protocol_queue_size') else -1
+        #         file_q = self.file_io_executor.protocol_queue_size() if hasattr(self.file_io_executor, 'protocol_queue_size') else -1
+        #         af_q = self.autofocus_io_executor.protocol_queue_size() if hasattr(self.autofocus_io_executor, 'protocol_queue_size') else -1
+        #         logger.info(f"[Watchdog] Protocol Queues — IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q}")
+        # except Exception:
+        #     pass
     
 
     def _scan_iterate(self, dt=None):
@@ -928,103 +945,172 @@ class SequencedCaptureExecutor:
                 exposure_freq = 1.0 / (exposure / 1000)
                 fps = min(exposure_freq, 40)
                 
+                # Pause live UI to maximize throughput during recording
+                # try:
+                #     if 'pause_live_ui' in self._callbacks and callable(self._callbacks['pause_live_ui']):
+                #         self._callbacks['pause_live_ui']()
+                # except Exception:
+                #     pass
+
                 if video_as_frames:
                     save_folder = save_folder / f"{name}"
 
                 else:    
-                    output_file_loc = save_folder / f"{name}.mp4v"
+                    output_file_loc = save_folder / f"{name}.mp4"
 
-                start_ts = time.time()
-                stop_ts = start_ts + duration_sec
-                expected_frames = fps * duration_sec
-                captured_frames = 0
-                seconds_per_frame = 1.0 / fps
-                video_images = queue.Queue()
+                if True:
+                    start_ts = time.time()
+                    stop_ts = start_ts + duration_sec
+                    expected_frames = fps * duration_sec
+                    captured_frames = 0
+                    seconds_per_frame = 1.0 / fps
+                    video_images = queue.Queue()
 
-                if "set_recording_title" in self._callbacks:
-                    Clock.schedule_once(lambda dt: self._callbacks['set_recording_title'](progress=0), 0)
-
-                logger.info(f"Protocol-Video] Capturing video...")
-
-                progress = 0
-                while time.time() < stop_ts:
-                    progress = (time.time() - start_ts) / duration_sec * 100
                     if "set_recording_title" in self._callbacks:
-                        Clock.schedule_once(lambda dt: self._callbacks['set_recording_title'](progress=progress), 0)
+                        Clock.schedule_once(lambda dt: self._callbacks['set_recording_title'](progress=0), 0)
 
-                    if not self.protocol_executor.is_protocol_running():
-                        self._scope.leds_off()
-                        if "reset_title" in self._callbacks:
-                            Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
-                        return
-                    
-                    # Currently only support 8-bit images for video
-                    force_to_8bit = True
-                    image = self._scope.get_image(force_to_8bit=force_to_8bit)
+                    logger.info(f"Protocol-Video] Capturing video...")
 
-                    if type(image) == np.ndarray:
+                    progress = 0
+                    ctypes.windll.winmm.timeBeginPeriod(1)
+
+                    while time.time() < stop_ts:
+                        curr_time = time.time()
+                        progress = (curr_time - start_ts) / duration_sec * 100
+                        if "set_recording_title" in self._callbacks:
+                            Clock.schedule_once(lambda dt: self._callbacks['set_recording_title'](progress=progress), 0)
+
+                        if not self.protocol_executor.is_protocol_running():
+                            self._scope.leds_off()
+                            if "reset_title" in self._callbacks:
+                                Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
+                            return
                         
-                        # Should never be used since forcing images to 8-bit
-                        if image.dtype == np.uint16:
-                            image = image_utils.convert_12bit_to_16bit(image)
+                        # Currently only support 8-bit images for video
+                        force_to_8bit = True
+                        image = self._scope.get_image(force_to_8bit=force_to_8bit)
 
-                        # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
-                        if (image.dtype != np.uint16) and (step['False_Color']):
-                            image = image_utils.add_false_color(array=image, color=use_color)
+                        if type(image) == np.ndarray:
+                            
+                            # Should never be used since forcing images to 8-bit
+                            if image.dtype == np.uint16:
+                                image = image_utils.convert_12bit_to_16bit(image)
 
-                        image = np.flip(image, 0)
+                            # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
+                            if (image.dtype != np.uint16) and (step['False_Color']):
+                                image = image_utils.add_false_color(array=image, color=use_color)
 
-                        video_images.put_nowait((image, datetime.datetime.now()))
-                        #video_images.append((image, datetime.datetime.now()))
+                            image = np.flip(image, 0)
 
-                        captured_frames += 1
+                            video_images.put_nowait((image, datetime.datetime.now()))
+                            #video_images.append((image, datetime.datetime.now()))
+
+                            captured_frames += 1
+                        
+                        # Some process is slowing the video-process down (getting fewer frames than expected if delay of seconds_per_frame), so a shorter sleep time can be used
+                        time.sleep(seconds_per_frame*0.9)
+
+                    ctypes.windll.winmm.timeEndPeriod(1)
                     
-                    # Some process is slowing the video-process down (getting fewer frames than expected if delay of seconds_per_frame), so a shorter sleep time can be used
-                    time.sleep(seconds_per_frame*0.9)
+                    calculated_fps = captured_frames//duration_sec
 
-                calculated_fps = captured_frames//duration_sec
+                    logger.info(f"Protocol-Video] Images present in video array: {not video_images.empty()}")
+                    logger.info(f"Protocol-Video] Captured Frames: {captured_frames}")
+                    logger.info(f"Protocol-Video] Video FPS: {calculated_fps}")
+                    logger.info("Protocol-Video] Writing video...")
 
-                logger.info(f"Protocol-Video] Images present in video array: {not video_images.empty()}")
-                logger.info(f"Protocol-Video] Captured Frames: {captured_frames}")
-                logger.info(f"Protocol-Video] Video FPS: {calculated_fps}")
-                logger.info("Protocol-Video] Writing video...")
+                    # Resume live UI after recording finishes
+                    # try:
+                    #     if 'resume_live_ui' in self._callbacks and callable(self._callbacks['resume_live_ui']):
+                    #         self._callbacks['resume_live_ui']()
+                    # except Exception:
+                    #     pass
 
-                self._scope.leds_off()
+                    self._scope.leds_off()
 
-                # future = self.file_io_process_pool.submit(self._write_capture, 
-                #         is_video=is_video,
-                #         video_as_frames=video_as_frames,
-                #         video_images=video_images,
-                #         save_folder=save_folder,
-                #         use_color=use_color,
-                #         name=name,
-                #         calculated_fps=calculated_fps,
-                #         output_format=output_format,
-                #         step=step,
-                #         captured_image=None)
+                    # future = self.file_io_process_pool.submit(self._write_capture, 
+                    #         is_video=is_video,
+                    #         video_as_frames=video_as_frames,
+                    #         video_images=video_images,
+                    #         save_folder=save_folder,
+                    #         use_color=use_color,
+                    #         name=name,
+                    #         calculated_fps=calculated_fps,
+                    #         output_format=output_format,
+                    #         step=step,
+                    #         captured_image=None)
+                    
+                    # future.add_done_callback(logger.info("Protocol] Video writing complete"))
+
+                    self.file_io_executor.protocol_put(IOTask(
+                        action=self._write_capture,
+                        kwargs={
+                            "is_video": is_video,
+                            "video_as_frames": video_as_frames,
+                            "video_images": video_images,
+                            "save_folder": save_folder,
+                            "use_color": use_color,
+                            "name": name,
+                            "calculated_fps": calculated_fps,
+                            "output_format": output_format,
+                            "step": step,
+                            "captured_image": None,
+                            "step_index": self._curr_step,
+                            "scan_count": self._scan_count,
+                            "capture_time": datetime.datetime.now(),
+                            "duration_sec": duration_sec,
+                            "captured_frames": captured_frames
+                        }
+                    ))
                 
-                # future.add_done_callback(logger.info("Protocol] Video writing complete"))
+                else:
+                    try:
+                        record_result = self._scope.camera.record_video_vfr(
+                            output_file=output_file_loc,
+                            duration_sec=duration_sec,
+                            overlay_timestamp=True,
+                            false_color=use_color
+                        )
 
-                self.file_io_executor.protocol_put(IOTask(
-                    action=self._write_capture,
-                    kwargs={
-                        "is_video": is_video,
-                        "video_as_frames": video_as_frames,
-                        "video_images": video_images,
-                        "save_folder": save_folder,
-                        "use_color": use_color,
-                        "name": name,
-                        "calculated_fps": calculated_fps,
-                        "output_format": output_format,
-                        "step": step,
-                        "captured_image": None,
-                        "step_index": self._curr_step,
-                        "scan_count": self._scan_count,
-                        "capture_time": datetime.datetime.now(),
-                        "duration_sec": duration_sec,
-                        "captured_frames": captured_frames
-                    }
-                ))
+                    except Exception as e:
+                        logger.error(f"Protocol-Video] Failed to record video: {e}")
+                        try:
+                            self._protocol_execution_record.add_step(
+                                capture_result_file_name="unsaved",
+                                step_name=step['Name'],
+                                step_index=self._curr_step,
+                                scan_count=self._scan_count,
+                                timestamp=datetime.datetime.now(),
+                                frame_count=0,
+                                duration_sec=0.0
+                            )
+                        except Exception:
+                            pass
+                        return
+                    finally:
+                        self._video_write_finished.set()
+
+                    if "reset_title" in self._callbacks:
+                        Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
+
+                    logger.info("Protocol-Video] Video writing finished.")
+                    logger.info(f"Protocol-Video] Video saved at {output_file_loc}")
+
+                    self._scope.leds_off()
+
+
+
+                    self._protocol_execution_record.add_step(
+                        capture_result_file_name=output_file_loc,
+                        step_name=step['Name'],
+                        step_index=self._curr_step,
+                        scan_count=self._scan_count,
+                        timestamp=datetime.datetime.now(),
+                        frame_count=record_result['frames_captured'],
+                        duration_sec=duration_sec
+                    )
+
+
 
             else:
                 #time.sleep(self.sleep_time)

@@ -5,7 +5,7 @@ import pathlib
 import time
 import typing
 
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 
@@ -107,6 +107,7 @@ class AutofocusExecutor:
         self._reset_state()
         self._callbacks = callbacks
         self._autofocus_executor.protocol_start()
+        self._last_progress_ts = time.monotonic()
 
         if save_results_to_file and results_dir is None:
             raise Exception(f"Cannot save autofocus results to file if results_dir is None")
@@ -122,7 +123,8 @@ class AutofocusExecutor:
         self._calculate_params()
         self._move_absolute_position(pos=self._params['z_min'])
 
-        self._iterator_scheduled = self._kivy_clock_module.Clock.schedule_interval(lambda dt: self._autofocus_executor.protocol_put(IOTask(action=self._iterate)), 0.01)
+        # Use a guarded tick to avoid building an unbounded backlog if iterate runs slower than the schedule interval
+        self._iterator_scheduled = self._kivy_clock_module.Clock.schedule_interval(self._tick_iterate, 0.01)
         # self._iterator_scheduled = self._schedule_interval_func(
         #     func=self._iterate,
         #     interval_sec=0.01,
@@ -130,120 +132,163 @@ class AutofocusExecutor:
 
 
     def _iterate(self, dt=None):
-
-        if not self._is_focusing:
-            return
-
-        if not self._scope.get_target_status('Z'):
-            return
-        
-        if self._scope.get_overshoot():
-            return
-        
-        if not self._autofocus_executor.is_protocol_running():
-            self._is_focusing = False
-            return
-        
-        
-        # Sleep for at least 75ms to ensure that the camera is ready for the next capture
-        time.sleep(max(self._params['exposure']/1000, 0.075))
-
-        image = False
-        num_retries = 5
-        count = 0
-        while True:
-            image = self._scope.get_image(force_new_capture=True)
-            count += 1
-            if type(image) == np.ndarray:
-                break
-
-            if count >= num_retries:
-                # Failed to grab image after max retries
-                # TODO
-                raise Exception(f"Unable to grab image for autofocusing after max retries")
-            
-        height, width = image.shape
-
-        if not self._autofocus_executor.is_protocol_running():
-            self._is_focusing = False
-            return
-        
-        # Use center quarter of image for focusing
-        image = image[int(height/4):int(3*height/4),int(width/4):int(3*width/4)]
-
-        focus = self.focus_function(image=image)
-        current_pos = round(self._scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
-
-        self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=current_pos), 0)
-
-        self._af_data_pass.append(
-            {
-                'position': current_pos,
-                'score': focus,
-            }
-        )
-
-        if not self._autofocus_executor.is_protocol_running():
-            self._is_focusing = False
-            return
-        
-        resolution = self._params['resolution']
-        next_target = self._scope.get_target_position('Z') + resolution
-
-        if not self._autofocus_executor.is_protocol_running():
-            self._is_focusing = False
-            return
-
-        # Measure next step?
-        if next_target <= self._params['z_max']:
-            self._move_relative_position(pos=resolution)
-            return
-        
-        # Pass is complete
-
-        # Adjust the resolution
-        prev_resolution = self._params['resolution']
-        next_resolution = prev_resolution / 3
-
-        # Bound the resolution to AF_min
-        af_min = self._objective['AF_min']
-        self._params['resolution'] = max(af_min, next_resolution)
-
-        df = pd.DataFrame(self._af_data_pass)
-        best_focus_position = self._find_best(df=df)
-
-        if self._last_pass == True:
-            #self._unschedule_func(func=self._iterator_scheduled)
-            self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+        # Progress timeout: if AF does not advance for a while, cancel gracefully
+        if hasattr(self, '_last_progress_ts') and (time.monotonic() - self._last_progress_ts > 15):
+            try:
+                self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+            except Exception:
+                pass
             self._autofocus_executor.protocol_end()
             self._autofocus_executor.clear_protocol_pending()
-            self._move_absolute_position(pos=best_focus_position)
-            self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
-
-            if self._save_results_to_file:
-                self._save_autofocus_data()
-
             self._is_focusing = False
-            self._is_complete = True
+            self._is_complete = False
             if 'complete' in self._callbacks:
-                self._callbacks['complete']()
-
-            self._best_focus_position = best_focus_position
+                # Use UI thread to reset button if caller wired it
+                self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
             return
 
-        self._params['z_min'] = best_focus_position - prev_resolution
-        self._params['z_max'] = best_focus_position + prev_resolution
+        try:
+            if not self._is_focusing:
+                return
 
-        # Add the scores for the pass to the full dataset and then reset
-        # the pass list
-        self._af_data_full.extend(self._af_data_pass)
-        self._af_data_pass = []
+            if not self._scope.get_target_status('Z'):
+                return
+            
+            if self._scope.get_overshoot():
+                return
+            
+            if not self._autofocus_executor.is_protocol_running():
+                self._is_focusing = False
+                return
+            
+            # Sleep for at least 75ms to ensure that the camera is ready for the next capture
+            #time.sleep(max(self._params['exposure']/1000, 0.075))
 
-        self._move_absolute_position(pos=self._params['z_min'])
+            image = False
+            num_retries = 5
+            count = 0
+            while True:
+                image = self._scope.get_image(force_new_capture=True)
+                count += 1
+                if type(image) == np.ndarray:
+                    break
 
-        if self._params['resolution'] == af_min:
-            self._last_pass = True
+                if count >= num_retries:
+                    raise Exception(f"Unable to grab image for autofocusing after max retries")
+                
+            height, width = image.shape
 
+            if not self._autofocus_executor.is_protocol_running():
+                self._is_focusing = False
+                return
+            
+            # Use center quarter of image for focusing
+            image = image[int(height/4):int(3*height/4),int(width/4):int(3*width/4)]
+            
+            focus = self.focus_function(image=image)
+            current_pos = round(self._scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
+
+            self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=current_pos), 0)
+
+            self._af_data_pass.append(
+                {
+                    'position': current_pos,
+                    'score': focus,
+                }
+            )
+
+            if not self._autofocus_executor.is_protocol_running():
+                self._is_focusing = False
+                return
+            
+            resolution = self._params['resolution']
+            next_target = self._scope.get_target_position('Z') + resolution
+
+            if not self._autofocus_executor.is_protocol_running():
+                self._is_focusing = False
+                self._last_progress_ts = time.monotonic()
+                return
+
+            # Measure next step?
+            if next_target <= self._params['z_max']:
+                self._move_relative_position(pos=resolution)
+                return
+            
+            # Pass is complete
+
+            # Adjust the resolution
+            prev_resolution = self._params['resolution']
+            next_resolution = prev_resolution / 3
+
+            # Bound the resolution to AF_min
+            af_min = self._objective['AF_min']
+            self._params['resolution'] = max(af_min, next_resolution)
+
+            df = pd.DataFrame(self._af_data_pass)
+            best_focus_position = self._find_best(df=df)
+
+            if self._last_pass == True:
+                try:
+                    self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+                except Exception:
+                    pass
+                self._autofocus_executor.protocol_end()
+                self._autofocus_executor.clear_protocol_pending()
+                self._move_absolute_position(pos=best_focus_position)
+                self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
+
+                if self._save_results_to_file:
+                    # Push file/plot work off the UI thread using the file IO executor
+                    try:
+                        self._file_io_executor.put(IOTask(action=self._save_autofocus_data))
+                    except Exception:
+                        pass
+
+                self._is_focusing = False
+                self._is_complete = True
+                if 'complete' in self._callbacks:
+                    self._callbacks['complete']()
+
+                self._best_focus_position = best_focus_position
+                return
+
+            self._params['z_min'] = best_focus_position - prev_resolution
+            self._params['z_max'] = best_focus_position + prev_resolution
+
+            # Add the scores for the pass to the full dataset and then reset
+            # the pass list
+            self._af_data_full.extend(self._af_data_pass)
+            self._af_data_pass = []
+
+            self._move_absolute_position(pos=self._params['z_min'])
+            self._last_progress_ts = time.monotonic()
+
+            if self._params['resolution'] == af_min:
+                self._last_pass = True
+        except Exception as ex:
+            # Any unexpected AF error: unschedule and cleanup so UI is not stuck
+            try:
+                self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+            except Exception:
+                pass
+            self._autofocus_executor.protocol_end()
+            self._autofocus_executor.clear_protocol_pending()
+            self._is_focusing = False
+            self._is_complete = False
+            # Surface error in logs; UI callback (if present) will clear button
+            import logging as _logging
+            _logging.getLogger().error(f"[AF] Error during iterate: {ex}")
+            if 'complete' in self._callbacks:
+                self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
+
+
+    def _tick_iterate(self, dt=None):
+        try:
+            if hasattr(self._autofocus_executor, 'protocol_queue_size') and self._autofocus_executor.protocol_queue_size() > 3:
+                return
+        except Exception:
+            pass
+        self._autofocus_executor.protocol_put(IOTask(action=self._iterate))
 
     def best_focus_position(self) -> float | None:
         return self._best_focus_position
@@ -282,7 +327,9 @@ class AutofocusExecutor:
 
         plot_filename = f"autofocus_plot_{ts}.png"
         plot_outfile_loc = self._results_dir / plot_filename
-        fig, axs = plt.subplots(figsize=(12,12))
+        from matplotlib.figure import Figure
+        fig = Figure(figsize=(12, 12))
+        axs = fig.add_subplot(111)
         df.reset_index().plot.scatter(x="position", y="score", ax=axs)
         
         axs.set_title(f"""
@@ -295,7 +342,10 @@ class AutofocusExecutor:
         axs.grid()
 
         fig.savefig(str(plot_outfile_loc))
-        plt.close()
+        try:
+            fig.clear()
+        except Exception:
+            pass
 
 
     @staticmethod
