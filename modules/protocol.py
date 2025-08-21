@@ -381,14 +381,17 @@ class Protocol:
 
         new_steps = []
         for idx, row in orig_steps_df.iterrows():
-
-            tiles = self._tiling_config.get_tile_centers(
-                config_label=tiling,
-                focal_length=row['focal_length'],
-                frame_size=frame_dimensions,
-                fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
-                binning_size=binning_size,
-            )
+            try:
+                tiles = self._tiling_config.get_tile_centers(
+                    config_label=tiling,
+                    focal_length=row['focal_length'],
+                    frame_size=frame_dimensions,
+                    fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
+                    binning_size=binning_size,
+                )
+            except Exception as e:
+                logger.error(f"Error getting tile centers for step {idx}: {e}")
+                tiles = {}
 
             orig_step_df = orig_steps_df.iloc[idx]
             orig_step_dict = orig_step_df.to_dict()

@@ -5995,9 +5995,10 @@ class Stage(Widget):
         x_current = np.clip(lumaview.scope.get_current_position('X'), 0, 120000) # prevents crosshairs from leaving the stage area
         y_current = np.clip(lumaview.scope.get_current_position('Y'), 0, 80000) # prevents crosshairs from leaving the stage area
 
-        if not full_redraw:
+        if not full_redraw and not self._protocol_step_redraw:
             if x_target == self._prev_x_target and y_target == self._prev_y_target and x_current == self._prev_x_current and y_current == self._prev_y_current:
                 return
+                
         # Create current labware instance
         _, labware = get_selected_labware()
 
@@ -6116,11 +6117,11 @@ class Stage(Widget):
                             scale_y=scale_y
                         )
                         
-                        x_center = x+pixel_x
-                        y_center = y+pixel_y
+                            x_center = x+pixel_x
+                            y_center = y+pixel_y
 
-                        self.schedule_to_draw(self.draw_line, points=(x_center-half_size, y_center, x_center+half_size, y_center), color=(1., 1., 0., 1.), width = 1, group='steps') # horizontal line
-                        self.schedule_to_draw(self.draw_line, points=(x_center, y_center-half_size, x_center, y_center+half_size), color=(1., 1., 0., 1.), width = 1, group='steps') # vertical line
+                            self.schedule_to_draw(self.draw_line, points=(x_center-half_size, y_center, x_center+half_size, y_center), color=(1., 1., 0., 1.), width = 1, group='steps') # horizontal line
+                            self.schedule_to_draw(self.draw_line, points=(x_center, y_center-half_size, x_center, y_center+half_size), color=(1., 1., 0., 1.), width = 1, group='steps') # vertical line
 
         target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
                 labware=labware,
