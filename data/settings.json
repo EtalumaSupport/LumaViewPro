@@ -86,6 +86,13 @@
         "video_config": {
             "duration": 5
         },
+        "stim_config": {
+            "enabled": false,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 1
+        },
         "composite_brightness_threshold": 50
     },
     "Green": {
@@ -102,6 +109,13 @@
         "video_config": {
             "duration": 5
         },
+        "stim_config": {
+            "enabled": false,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 1
+        },
         "composite_brightness_threshold": 50
     },
     "Red": {
@@ -117,6 +131,13 @@
         "acquire": null,
         "video_config": {
             "duration": 5
+        },
+        "stim_config": {
+            "enabled": false,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 1
         },
         "composite_brightness_threshold": 50
     },

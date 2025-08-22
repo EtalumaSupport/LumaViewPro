@@ -322,6 +322,7 @@ class Protocol:
             zstack_group_id=zstack_group_id,
             acquire=layer_config['acquire'],
             video_config=layer_config['video_config'],
+            stim_config=layer_config['stim_config'],
         )
 
         if before_step is not None:
@@ -432,6 +433,7 @@ class Protocol:
                     zstack_group_id=orig_step_df['Z-Stack Group ID'],
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
+                    stim_config=orig_step_df['Stim Config'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -497,6 +499,7 @@ class Protocol:
                     zstack_group_id=zstack_group_id,
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
+                    stim_config=orig_step_df['Stim Config'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -532,6 +535,7 @@ class Protocol:
         duration = input_config['duration']
         frame_dimensions = input_config['frame_dimensions']
         binning_size = input_config['binning_size']
+        stim_config = input_config['stim_config']
 
         objective_loader = ObjectiveLoader()
         objective = objective_loader.get_objective_info(objective_id=objective_id)
@@ -624,6 +628,7 @@ class Protocol:
                         exposure = round(layer_config['exposure'], common_utils.max_decimal_precision('exposure'))
                         video_config = layer_config['video_config']
 
+
                         well_label = pos['name']
                         if position_source == 'from_labware':
                             custom_step = False
@@ -667,6 +672,7 @@ class Protocol:
                             zstack_group_id=zstack_group_id_label,
                             acquire=layer_config['acquire'],
                             video_config=video_config,
+                            stim_config=stim_config,
                         )
                         steps.append(step_dict)
                 
@@ -710,6 +716,7 @@ class Protocol:
         period = config['period']
         duration = config['duration']
         frame_dimensions = config['frame_dimensions']
+        stim_config = {}
 
         input_config = {
             'labware_id': labware_id,
@@ -722,6 +729,7 @@ class Protocol:
             'duration': duration,
             'frame_dimensions': frame_dimensions,
             'binning_size': config['binning_size'],
+            'stim_config': stim_config,
         }
 
         return cls.from_config(
@@ -753,6 +761,7 @@ class Protocol:
         zstack_group_id,
         acquire,
         video_config,
+        stim_config
     ):
         return {
             "Name": name,
@@ -776,7 +785,36 @@ class Protocol:
             "Z-Stack Group ID": zstack_group_id,
             "Acquire": acquire,
             "Video Config": video_config,
+            "Stim Config": stim_config,
         }
+        
+
+    """
+    stim_config = {
+        "Red": {
+            "enabled": True,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 1,
+        },
+        "Green": {
+            "enabled": True,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 1,
+        },
+        "Blue": {
+            "enabled": True,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 1,
+        }
+    }
+
+    """
 
 
     @staticmethod
