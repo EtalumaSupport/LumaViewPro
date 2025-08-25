@@ -526,6 +526,9 @@ class SequencedCaptureExecutor:
             if 'move_position' in self._callbacks:
                 af_executor_callbacks['move_position'] = self._callbacks['move_position']
 
+            if 'autofocus_completed' in self._callbacks:
+                af_executor_callbacks['complete'] = self._callbacks['autofocus_completed']
+
             #TODO: Make sure all of this IO is handled outside of Kivy main thread
             self._autofocus_executor.run(
                 objective_id=step['Objective'],
@@ -829,7 +832,7 @@ class SequencedCaptureExecutor:
                 z=self._return_to_position['z'],
             )
 
-        self._run_in_progress = False
+        
         self._scan_in_progress.clear()
         self._protocol_ended.set()
 
@@ -841,6 +844,8 @@ class SequencedCaptureExecutor:
 
         self._io_executor.clear_protocol_pending()
         self.protocol_executor.clear_protocol_pending()
+
+        self._run_in_progress = False
 
 
         if 'run_complete' in self._callbacks:

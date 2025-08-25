@@ -89,7 +89,7 @@ if __name__ == "__main__":
     global show_tooltips, protocol_running_global, live_histo_setting
     global last_save_folder, stage, ENGINEERING_MODE, debug_counter
     global display_update_counter, start_str, focus_round
-    global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor, stage_executor, turret_executor
+    global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor, stage_executor, turret_executor, reset_executor
     global cpu_pool
     global motorboard_lock, ledboard_lock, camera_lock
     global ij_helper
@@ -342,6 +342,7 @@ if __name__ == "__main__":
     scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
     stage_executor = SequentialIOExecutor(name="STAGE")
     turret_executor = SequentialIOExecutor(name="TURRET")
+    reset_executor = SequentialIOExecutor(name="RESET")
 
     if use_multiprocessing:
         import multiprocessing
@@ -4262,6 +4263,8 @@ class VerticalControl(BoxLayout):
 
 
     def _reset_run_autofocus_button(self, **kwargs):
+        autofocus_thread_executor.protocol_end()
+        autofocus_thread_executor.clear_protocol_pending()
         self.ids['autofocus_id'].state = 'normal'
         self.ids['autofocus_id'].text = 'Autofocus'
 
@@ -4272,7 +4275,10 @@ class VerticalControl(BoxLayout):
 
 
     def _cleanup_at_end_of_autofocus(self):
-        protocol_executor.put(IOTask(
+        reset_executor.put(IOTask(
+            action=autofocus_executor.reset
+        ))
+        reset_executor.put(IOTask(
             action=sequenced_capture_executor.reset,
             callback=self._reset_run_autofocus_button
         ))
@@ -4285,6 +4291,7 @@ class VerticalControl(BoxLayout):
         Clock.schedule_once(lambda dt: self._reset_run_autofocus_button(), 0)
         # Clear any stuck AF protocol queue entries after completion
         try:
+            autofocus_thread_executor.protocol_end()
             autofocus_thread_executor.clear_protocol_pending()
         except Exception:
             pass
@@ -4313,6 +4320,10 @@ class VerticalControl(BoxLayout):
             logger.warning(f"Cannot start autofocus. Run already in progress from {run_trigger_source}")
             return
         
+        if autofocus_executor.run_in_progress() or sequenced_capture_executor.run_in_progress():
+            self._cleanup_at_end_of_autofocus()
+            return
+        
         if self.ids['autofocus_id'].state == 'normal':
             self._cleanup_at_end_of_autofocus()
             return
@@ -4328,7 +4339,7 @@ class VerticalControl(BoxLayout):
             try:
                 if sequenced_capture_executor.run_trigger_source() == 'autofocus' and sequenced_capture_executor.run_in_progress():
                     # If AF is still stuck after timeout, attempt a protocol reset and revert UI
-                    protocol_executor.put(IOTask(
+                    reset_executor.put(IOTask(
                         action=sequenced_capture_executor.reset,
                         callback=self._reset_run_autofocus_button
                     ))
@@ -4450,6 +4461,7 @@ class VerticalControl(BoxLayout):
             'set_recording_title': set_recording_title,
             'set_writing_title': set_writing_title,
             'reset_title': reset_title,
+            'autofocus_completed': self._cleanup_at_end_of_autofocus,
         }
 
         protocol_executor.put(IOTask(
@@ -8104,7 +8116,7 @@ class LumaViewProApp(App):
                 sd_q = scope_display_thread_executor.queue_size() if hasattr(scope_display_thread_executor, 'queue_size') else -1
                 stage_q = stage_executor.queue_size() if hasattr(stage_executor, 'queue_size') else -1  
                 turret_q = turret_executor.queue_size() if hasattr(turret_executor, 'queue_size') else -1
-
+                reset_q = reset_executor.queue_size() if hasattr(reset_executor, 'queue_size') else -1
                 io_pq = io_executor.protocol_queue_size() if hasattr(io_executor, 'protocol_queue_size') else -1
                 cam_pq = camera_executor.protocol_queue_size() if hasattr(camera_executor, 'protocol_queue_size') else -1
                 prot_pq = protocol_executor.protocol_queue_size() if hasattr(protocol_executor, 'protocol_queue_size') else -1
@@ -8113,9 +8125,10 @@ class LumaViewProApp(App):
                 sd_pq = scope_display_thread_executor.protocol_queue_size() if hasattr(scope_display_thread_executor, 'protocol_queue_size') else -1
                 stage_pq = stage_executor.protocol_queue_size() if hasattr(stage_executor, 'protocol_queue_size') else -1
                 turret_pq = turret_executor.protocol_queue_size() if hasattr(turret_executor, 'protocol_queue_size') else -1
+                reset_pq = reset_executor.protocol_queue_size() if hasattr(reset_executor, 'protocol_queue_size') else -1
 
-                logger.error(f"[Watchdog] Queues - IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q} SD:{sd_q} STAGE:{stage_q} TURRET:{turret_q}")
-                logger.error(f"[Watchdog] Protocol Queues - IO:{io_pq} CAM:{cam_pq} PROT:{prot_pq} FILE:{file_pq} AF:{af_pq} SD:{sd_pq} STAGE:{stage_pq} TURRET:{turret_pq}")
+                logger.error(f"[Watchdog] Queues - IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q} SD:{sd_q} STAGE:{stage_q} TURRET:{turret_q} RESET:{reset_q}")
+                logger.error(f"[Watchdog] Protocol Queues - IO:{io_pq} CAM:{cam_pq} PROT:{prot_pq} FILE:{file_pq} AF:{af_pq} SD:{sd_pq} STAGE:{stage_pq} TURRET:{turret_pq} RESET:{reset_pq}")
 
                 # If scopedisplay backlog is growing and appears stale, prune it to keep UI responsive
                 if sd_q is not None and sd_q > 20:
@@ -8211,6 +8224,9 @@ class LumaViewProApp(App):
         if cpu_pool is not None:
             cpu_pool.shutdown(wait=True)
 
+        if reset_executor is not None:
+            reset_executor.shutdown(wait=False)
+
         logger.info('[LVP Main  ] Threads shut down.')
 
 
@@ -8272,6 +8288,7 @@ class LumaViewProApp(App):
         scope_display_thread_executor.start()
         stage_executor.start()
         turret_executor.start()
+        reset_executor.start()
         #ij_helper = imagej_helper.ImageJHelper()
 
         # temp_ij_executor.put(IOTask(

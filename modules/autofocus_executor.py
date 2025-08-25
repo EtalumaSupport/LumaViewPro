@@ -130,6 +130,8 @@ class AutofocusExecutor:
         #     interval_sec=0.01,
         # )
 
+    def run_in_progress(self) -> bool:
+        return self._is_focusing
 
     def _iterate(self, dt=None):
         # Progress timeout: if AF does not advance for a while, cancel gracefully
@@ -401,6 +403,7 @@ class AutofocusExecutor:
         self._best_focus_position = None # Last / Previous focus score
         self._last_pass = False         # Are we on the last scan for autofocus?
         self._params = {}
+        self._autofocus_executor.protocol_end()
         self._autofocus_executor.clear_protocol_pending()
 
 
