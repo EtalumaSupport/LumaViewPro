@@ -467,18 +467,20 @@ def go_to_step(
             stim_config = step['Stim Config'][layer]
             settings[layer]['stim_config'] = stim_config
 
+            stim_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+
             # TODO Update with proper UI elements
             if stim_config['enabled']:
-                layer_obj.ids['stim_enable_btn'].active = True
+                stim_layer_obj.ids['stim_enable_btn'].active = True
             else:
-                layer_obj.ids['stim_disable_btn'].active = True
+                stim_layer_obj.ids['stim_disable_btn'].active = True
 
-            layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
-            layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
-            layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
-            layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
-            layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
-            layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+            stim_layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
+            stim_layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
+            stim_layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
+            stim_layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
+            stim_layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
+            stim_layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
 
             # layer_obj.ids['enable_stim_btn'].state = 'down'
             # layer_obj.ids['stim_text'].text = str(stim_config['illumination'])

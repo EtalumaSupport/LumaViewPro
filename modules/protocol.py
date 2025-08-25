@@ -27,8 +27,9 @@ class Protocol:
         2: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'],
         3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
         4: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
+        5: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config', 'Stim Config'],
     }
-    CURRENT_VERSION = 4
+    CURRENT_VERSION = 5
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
     STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
     
@@ -153,6 +154,7 @@ class Protocol:
                 ("Z-Stack Group ID", int),
                 ("Acquire", str),
                 ("Video Config", object),
+                ("Stim Config", object),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -247,7 +249,7 @@ class Protocol:
         self._config['steps'].at[step_idx, "Objective"] = objective_id
         self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
         self._config['steps'].at[step_idx, "Video Config"] = layer_config['video_config']
-
+        self._config['steps'].at[step_idx, "Stim Config"] = layer_config['stim_config']
 
     def insert_step(
         self,
@@ -902,6 +904,31 @@ class Protocol:
         # Added in v4
         DEFAULT_SUM_CONFIG = 1
 
+        # Added in v5
+        DEFAULT_STIM_CONFIG = {
+            "Red": {
+                "enabled": False,
+                "illumination": 100,
+                "frequency": 1,
+                "pulse_width": 10,
+                "pulse_count": 1,
+            },
+            "Green": {
+                "enabled": False,
+                "illumination": 100,
+                "frequency": 1,
+                "pulse_width": 10,
+                "pulse_count": 1,
+            },
+            "Blue": {
+                "enabled": False,
+                "illumination": 100,
+                "frequency": 1,
+                "pulse_width": 10,
+                "pulse_count": 1,
+            }
+        }
+
         if (config['version'] < cls.CURRENT_VERSION):
             logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
 
@@ -921,6 +948,15 @@ class Protocol:
         if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION == 4):
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
+        if (config['version'] in (2,3,4)) and (cls.CURRENT_VERSION == 5):
+            protocol_df['Stim Config'] = DEFAULT_STIM_CONFIG
+        else:
+            # Convert Stim Config strings per step to dictionary
+            try:
+                protocol_df['Stim Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Stim Config']), axis=1)
+            except Exception as ex:
+                logger.error(f"Unable to parse stim config, using default instead: {ex}")
+                protocol_df['Stim Config'] = DEFAULT_STIM_CONFIG
 
         if config['version'] in (2, 3, 4):
             protocol_df['Step Index'] = protocol_df.index
