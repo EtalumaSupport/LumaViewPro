@@ -6539,6 +6539,17 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope = None
         # Reinitialize the scope object (connects motorboard, ledboard, camera)
         lumaview.scope = lumascope_api.Lumascope()
+        labware_id, labware = get_selected_labware()
+
+        # Set all variables that were already set at init
+        lumaview.scope.set_labware(labware)
+
+        if lumaview.scope.has_turret():
+            lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])      
+
+        lumaview.scope.set_scale_bar(enabled=settings['scale_bar']['enabled'])
+        lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
+        lumaview.scope.set_binning_size(size=binning.binning_size_str_to_int(text=settings['binning']['size']))
 
         sequenced_capture_executor.set_scope(lumaview.scope)
         autofocus_executor.set_scope(lumaview.scope)

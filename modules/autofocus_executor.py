@@ -36,6 +36,8 @@ class AutofocusExecutor:
         self._iterator_scheduled = None
         self.ui_update_func = ui_update_func
 
+        self._reset_state()
+
         if not self._scope.camera.active:
             return
 

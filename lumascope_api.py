@@ -94,10 +94,6 @@ class Lumascope():
         self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
         self.last_focus_score = None
 
-        self._file_io_executor = None
-        self._io_executor = None
-        self._camera_executor = None
-
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
@@ -131,6 +127,41 @@ class Lumascope():
 
         logger.info('[SCOPE API ] Microscope disconnected')
 
+    # def reconnect(self):
+    #     logger.info('[SCOPE API ] Attempting to reconnect to microscope...')
+    #     self.disconnect()
+    #     self.__init__()
+    #     logger.info('[SCOPE API ] Microscope reconnected')
+
+    def are_all_connected(self) -> bool:
+        logger.info('[SCOPE API ] Performing connection check...')
+        led = self.led is not None and self.led.is_connected()
+        motion = self.motion is not None and self.motion.is_connected()
+        camera = self.camera is not None and self.camera.is_connected()
+
+        if not led:
+            logger.info('[SCOPE API ] Connection Check: LED Board not connected')
+        if not motion:
+            logger.info('[SCOPE API ] Connection Check: Motion Board not connected')
+        if not camera:
+            logger.info('[SCOPE API ] Connection Check: Camera not connected')
+        
+        if led and motion and camera:
+            logger.info('[SCOPE API ] Connection Check: All components connected')
+            
+        return led and motion and camera
+
+    # def reconnect_if_disconnected(self):
+    #     if not self.are_all_connected():
+    #         if not self.led.is_connected():
+    #             self.led.connect()
+    #         if not self.motion.is_connected():
+    #             self.motion.connect()
+    #         if not self.camera.is_connected():
+    #             self.camera.connect()
+    #         self.reconnect()
+
+
     ########################################################################
     # SCOPE CONFIGURATION FUNCTIONS
     ########################################################################
@@ -139,15 +170,6 @@ class Lumascope():
 
     def get_labware(self):
         return self._labware
-
-    def set_camera_executor(self, camera_executor: SequentialIOExecutor):
-        self._camera_executor = camera_executor
-
-    def set_file_io_executor(self, file_io_executor: SequentialIOExecutor):
-        self._file_io_executor = file_io_executor
-
-    def set_io_executor(self, io_executor: SequentialIOExecutor):
-        self._io_executor = io_executor
 
     def set_objective(self, objective_id: str):
         self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
@@ -182,10 +204,13 @@ class Lumascope():
         self._stage_offset = stage_offset
 
     def set_binning_size(self, size):
-        self._binning_size = size
+        try:
+            self._binning_size = size
 
-        if self.camera:
-            self.camera.set_binning_size(size=size)
+            if self.camera:
+                self.camera.set_binning_size(size=size)
+        except Exception as ex:
+            logger.exception(f"[SCOPE API ] Error setting binning size: {ex}")
 
     def get_binning_size(self) -> int:
         if not self.camera:

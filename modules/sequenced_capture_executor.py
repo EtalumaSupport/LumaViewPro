@@ -326,7 +326,14 @@ class SequencedCaptureExecutor:
         if leds_state_at_end not in ("off", "return_to_original",):
             raise ValueError(f"Unsupported value for leds_state_at_end: {leds_state_at_end}")
         
-        
+        try:
+            if not self._scope.are_all_connected():
+                logger.error(f"[PROTOCOL] Not all scope components connected. Cannot start run.")
+                return
+        except Exception as ex:
+            logger.error(f"[PROTOCOL] Error checking scope connection: {ex}")
+            return
+
         
         # Not IO
         self._original_led_states = self._scope.get_led_states()

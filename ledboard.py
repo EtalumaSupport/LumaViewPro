@@ -64,7 +64,7 @@ class LEDBoard:
         self.stopbits=serial.STOPBITS_ONE
         self.timeout=0.1 # seconds
         self.write_timeout=0.1 # seconds
-        self.driver = False
+        self.driver = None
         self.led_ma = {
             'BF': -1,
             'PC': -1,
@@ -108,7 +108,7 @@ class LEDBoard:
                 self.driver.write(b'\x04\n')
                 logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
             except Exception as e:
-                self.driver = False
+                self.driver = None
                 logger.error(f'[LED Class ] LEDBoard.connect() failed: {e}')
 
     def disconnect(self):
@@ -125,13 +125,16 @@ class LEDBoard:
         except Exception as e:
             logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
 
+    def is_connected(self) -> bool:
+        return self.driver is not None
+
     def exchange_command(self, command):
         """ Exchange command through serial to LED board
         This should NOT be used in a script. It is intended for other functions to access"""
         with self.thread_lock:
             stream = command.encode('utf-8')+b"\n"
 
-            if self.driver != False:
+            if self.driver is not None:
                 try:
                     self.driver.flushInput()
                     self.driver.flush()
@@ -145,11 +148,11 @@ class LEDBoard:
                     return response[:-2]
                 
                 except serial.SerialTimeoutException:
-                    self.driver = False
+                    self.driver = None
                     logger.error('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
 
                 except:
-                    self.driver = False
+                    self.driver = None
 
             else:
                 try:

@@ -71,7 +71,7 @@ class MotorBoard:
         self.stopbits=serial.STOPBITS_ONE
         self.timeout=None # seconds
         self.write_timeout=None # seconds
-        self.driver = False
+        self.driver = None
         self._fullinfo = None
         try:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
@@ -112,13 +112,13 @@ class MotorBoard:
                 # Fullinfo checks to see if it has a turret, so call that here
                 self._fullinfo = self.fullinfo()
             except Exception as e:
-                self.driver = False
+                self.driver = None
                 logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
 
     def disconnect(self):
         logger.info('[XYZ Class ] Disconnecting from motor controller...')
         try:
-            if self.driver is not None and self.driver is not False:
+            if self.driver is not None:
                 self.driver.close()
                 self.driver = None
                 logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
@@ -126,6 +126,9 @@ class MotorBoard:
                 logger.info('[XYZ Class ] MotorBoard.disconnect() failed: Motor controller not connected')
         except Exception as e:
             logger.error(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
+
+    def is_connected(self) -> bool:
+        return self.driver is not None
 
     #----------------------------------------------------------
     # Define Communication
@@ -156,12 +159,12 @@ class MotorBoard:
                 logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
 
             except serial.SerialTimeoutException:
-                self.driver = False
+                self.driver = None
                 logger.error('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
                 response = None
 
             except:
-                self.driver = False
+                self.driver = None
                 logger.error('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
                 response = None
             
