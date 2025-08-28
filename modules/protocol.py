@@ -8,6 +8,7 @@ import pandas as pd
 import os
 import pathlib
 import re
+import copy
 
 from lvp_logger import logger
 
@@ -27,7 +28,7 @@ class Protocol:
         2: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'],
         3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
         4: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
-        5: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config', 'Stim Config'],
+        5: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config', 'Stim_Config'],
     }
     CURRENT_VERSION = 5
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
@@ -154,7 +155,7 @@ class Protocol:
                 ("Z-Stack Group ID", int),
                 ("Acquire", str),
                 ("Video Config", object),
-                ("Stim Config", object),
+                ("Stim_Config", object),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -223,6 +224,7 @@ class Protocol:
         layer_config: dict,
         plate_position: dict,
         objective_id: str,
+        stim_configs: dict,
     ):
         def _validate_inputs():
             if step_idx < 0:
@@ -249,7 +251,7 @@ class Protocol:
         self._config['steps'].at[step_idx, "Objective"] = objective_id
         self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
         self._config['steps'].at[step_idx, "Video Config"] = layer_config['video_config']
-        self._config['steps'].at[step_idx, "Stim Config"] = layer_config['stim_config']
+        self._config['steps'].at[step_idx, "Stim_Config"] = copy.deepcopy(stim_configs)
 
     def insert_step(
         self,
@@ -787,7 +789,7 @@ class Protocol:
             "Z-Stack Group ID": zstack_group_id,
             "Acquire": acquire,
             "Video Config": video_config,
-            "Stim Config": stim_config,
+            "Stim_Config": copy.deepcopy(stim_config),
         }
         
 
@@ -949,14 +951,14 @@ class Protocol:
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
         if (config['version'] in (2,3,4)) and (cls.CURRENT_VERSION == 5):
-            protocol_df['Stim Config'] = DEFAULT_STIM_CONFIG
+            protocol_df['Stim_Config'] = DEFAULT_STIM_CONFIG
         else:
             # Convert Stim Config strings per step to dictionary
             try:
-                protocol_df['Stim Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Stim Config']), axis=1)
+                protocol_df['Stim_Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Stim_Config']), axis=1)
             except Exception as ex:
                 logger.error(f"Unable to parse stim config, using default instead: {ex}")
-                protocol_df['Stim Config'] = DEFAULT_STIM_CONFIG
+                protocol_df['Stim_Config'] = DEFAULT_STIM_CONFIG
 
         if config['version'] in (2, 3, 4):
             protocol_df['Step Index'] = protocol_df.index

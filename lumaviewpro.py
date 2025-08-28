@@ -461,19 +461,21 @@ def go_to_step(
     layer_obj.ids['sum_slider'].value = int(step["Sum"])
 
     # Set stim configuration for each channel
-    if 'Stim Config' in step:
+    if 'Stim_Config' in step:
         # Update each channel's stim config
-        for layer in step['Stim Config']:
-            stim_config = step['Stim Config'][layer]
-            settings[layer]['stim_config'] = stim_config
+        for layer in step['Stim_Config']:
+            stim_config = step['Stim_Config'][layer]
+            settings[layer]['stim_config'] = copy.deepcopy(stim_config)
 
             stim_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
 
             # TODO Update with proper UI elements
             if stim_config['enabled']:
                 stim_layer_obj.ids['stim_enable_btn'].active = True
+                stim_layer_obj.ids['stim_disable_btn'].active = False
             else:
                 stim_layer_obj.ids['stim_disable_btn'].active = True
+                stim_layer_obj.ids['stim_enable_btn'].active = False
 
             stim_layer_obj.update_stim_controls_visibility()
 
@@ -3652,6 +3654,7 @@ class VerticalControl(BoxLayout):
             'duration': None,
             'frame_dimensions': get_current_frame_dimensions(),
             'binning_size': get_binning_from_ui(),
+            'stim_config': get_stim_configs(),
         }
       
         autofocus_sequence = Protocol.from_config(
@@ -4484,6 +4487,14 @@ class ProtocolSettings(CompositeCapture):
             return
         
         active_layer, active_layer_config = get_active_layer_config()
+
+        if 'stim_config' in active_layer_config:
+            if active_layer_config['stim_config']['enabled']:
+                # We want to keep the same acquire channel when we are only modifying the stim config.
+                true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
+                active_layer = true_step_layer
+                active_layer_config = get_layer_configs()[active_layer]
+
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
@@ -5875,6 +5886,10 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = self.ids['ill_slider'].value
         settings[self.layer]['ill'] = illumination
+
+        if 'stim_config' in settings[self.layer]:
+            settings[self.layer]['stim_config']['illumination'] = illumination
+
         self.apply_settings()
 
     def ill_text(self):
@@ -5891,6 +5906,9 @@ class LayerControl(BoxLayout):
         settings[self.layer]['ill'] = illumination
         self.ids['ill_slider'].value = illumination
         self.ids['ill_text'].text = str(illumination)
+
+        if 'stim_config' in settings[self.layer]:
+            settings[self.layer]['stim_config']['illumination'] = illumination
 
         self.apply_settings()
 
@@ -6132,7 +6150,6 @@ class LayerControl(BoxLayout):
         global lumaview
         pos = settings[self.layer]['focus']
         move_absolute_position('Z', pos)  # set current z height in usteps
-
 
     def update_led_state(self):
         enabled = True if self.ids['enable_led_btn'].state == 'down' else False
