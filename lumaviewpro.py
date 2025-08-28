@@ -475,6 +475,8 @@ def go_to_step(
             else:
                 stim_layer_obj.ids['stim_disable_btn'].active = True
 
+            stim_layer_obj.update_stim_controls_visibility()
+
             stim_layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
             stim_layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
             stim_layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
@@ -5515,6 +5517,9 @@ class MicroscopeSettings(BoxLayout):
                 layer_obj.ids['autofocus'].active = settings[layer]['autofocus']
 
                 if 'stim_config' in settings[layer]:
+                    # Default to hidden until enabled
+                    layer_obj.show_stim_controls = False
+
                     stim_config = settings[layer]['stim_config']
                     layer_obj.ids['stim_enable_btn'].active = stim_config['enabled']
                     layer_obj.ids['stim_disable_btn'].active = not stim_config['enabled']
@@ -5524,6 +5529,16 @@ class MicroscopeSettings(BoxLayout):
                     layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
                     layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
                     layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+
+                    # Force hide until enabled
+                    layer_obj.ids['stim_pulse_count_box'].visible = False
+                    layer_obj.ids['stim_freq_box'].visible = False
+                    layer_obj.ids['stim_pulse_width_box'].visible = False
+                    layer_obj.ids['stim_pulse_count_box'].opacity = 0
+                    layer_obj.ids['stim_freq_box'].opacity = 0
+                    layer_obj.ids['stim_pulse_width_box'].opacity = 0
+
+                    layer_obj.update_stim_controls_visibility()
 
         except:
             logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
@@ -5818,6 +5833,7 @@ class LayerControl(BoxLayout):
     bg_color = ObjectProperty(None)
     illumination_support = BooleanProperty(True)
     stimulation_support = BooleanProperty(True)
+    show_stim_controls = BooleanProperty(False)
     autogain_support = BooleanProperty(True)
     exposure_summing_support = BooleanProperty(False)
 
@@ -5834,14 +5850,26 @@ class LayerControl(BoxLayout):
     def _init_ui(self, dt=0):
         if self.layer not in ['Red', 'Green', 'Blue']:
             self.stimulation_support = False
+            self.show_stim_controls = False
+        else:
+            self.stimulation_support = True
+            self.show_stim_controls = True
 
         if True == self.autogain_support:
             self.update_auto_gain(init=True)
         else:
             self.apply_settings()
 
+        self.update_stim_controls_visibility()
         self.init_acquire()
         self.init_autofocus()
+
+    def update_stim_controls_visibility(self):
+        if self.ids['stim_enable_btn'].active:
+            self.show_stim_controls = True
+        else:
+            self.show_stim_controls = False
+
 
     def ill_slider(self):
         logger.info('[LVP Main  ] LayerControl.ill_slider()')
@@ -6080,6 +6108,8 @@ class LayerControl(BoxLayout):
             self.ids['acquire_none'].state = 'down'
         else:
             settings[self.layer]['stim_config']['enabled'] = False
+
+        self.update_stim_controls_visibility()
 
     def init_autofocus(self):
         if settings[self.layer]['autofocus'] == False:
