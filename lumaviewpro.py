@@ -583,6 +583,14 @@ def _update_step_number_callback(step_num: int):
     protocol_settings.curr_step = step_num-1
     Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
 
+def find_nearest_step(x: float, y: float, protocol: Protocol) -> int:
+    # Given a position, find the nearest step in the protocol
+    if protocol is None or protocol.num_steps() <= 0:
+        return -1
+    
+    steps_df = protocol.steps()
+    idx = (steps_df[['X','Y']].sub([x, y]).pow(2).sum(1)).idxmin()
+    return idx
 
 def go_to_step(
     protocol: Protocol,
@@ -595,16 +603,20 @@ def go_to_step(
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
     if num_steps <= 0:
         protocol_settings.curr_step = -1
-        protocol_settings.update_step_ui()
+        Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
         return
 
     if (step_idx < 0) or (step_idx >= num_steps):
         protocol_settings.curr_step = -1
-        protocol_settings.update_step_ui()
+        Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
         return
     
     step = protocol.step(idx=step_idx)
+    protocol_settings.curr_step = step_idx
+
     Clock.schedule_once(lambda dt: protocol_settings.generate_step_name_input(), 0)
+    Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
+    
 
     # Convert plate coordinates to stage coordinates
     if include_move:
@@ -5947,7 +5959,7 @@ class Stage(Widget):
         if not self._motion_enabled:
             return
 
-        if self.collide_point(*touch.pos) and touch.button == 'left':
+        if self.collide_point(*touch.pos) and (touch.button == 'left' or touch.button == 'right'):
 
             # Get mouse position in pixels
             (mouse_x, mouse_y) = touch.pos
@@ -5978,8 +5990,25 @@ class Stage(Widget):
                 px=plate_x,
                 py=plate_y
             )
-            io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
-            io_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y))) 
+
+            if touch.button == 'left':
+                io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
+                io_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y)))
+
+            elif touch.button == 'right':
+                try:
+                    logger.info(f"[Stage   ] Finding nearest step to {plate_x}, {plate_y}")
+                    step_idx = find_nearest_step(x=plate_x, y=plate_y, protocol=lumaview.ids['motionsettings_id'].ids['protocol_settings_id']._protocol)
+                    if step_idx == -1:
+                        return
+
+                    go_to_step(protocol=lumaview.ids['motionsettings_id'].ids['protocol_settings_id']._protocol, 
+                               step_idx=step_idx,
+                               called_from_protocol=False, 
+                               include_move=True)
+                    logger.info(f"[Stage   ] Successfully moved to step {step_idx}")
+                except Exception as e:
+                    logger.error(f"[Stage   ] Error finding nearest step: {e}")
             # move_absolute_position('X', stage_x)
             # move_absolute_position('Y', stage_y)
 
