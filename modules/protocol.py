@@ -364,17 +364,21 @@ class Protocol:
         if tiling == '1x1':
             return
         
-        orig_steps_df = self.steps().copy()
+        try:
+            orig_steps_df = self.steps().copy()
 
-        # Add objective focal length to steps dataframe
-        objectives_df = self._objective_loader.get_objectives_dataframe()[['focal_length']]
-        orig_steps_df = pd.merge(
-            orig_steps_df,
-            objectives_df,
-            how='left',
-            left_on='Objective',
-            right_index=True
-        )
+            # Add objective focal length to steps dataframe
+            objectives_df = self._objective_loader.get_objectives_dataframe()[['focal_length']]
+            orig_steps_df = pd.merge(
+                orig_steps_df,
+                objectives_df,
+                how='left',
+                left_on='Objective',
+                right_index=True
+            )
+        except Exception as e:
+            logger.error(f"Error adding objective focal length to steps dataframe: {e}")
+            return
 
         existing_max_tile_group_id = orig_steps_df['Tile Group ID'].max()
         tile_group_id = existing_max_tile_group_id + 1
