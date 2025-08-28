@@ -892,16 +892,33 @@ class SequencedCaptureExecutor:
         else:
             objective_short_name = None
         
+        # Build base name from protocol's custom root + step name
+        try:
+            capture_root = self._protocol.capture_root()
+        except Exception:
+            capture_root = ''
+
+        combined_prefix = None
+        if capture_root not in (None, ''):
+            combined_prefix = f"{capture_root}_{step['Name']}"
+        else:
+            combined_prefix = step['Name']
+
         name = common_utils.generate_default_step_name(
             well_label=step['Well'],
             color=step['Color'],
             z_height_idx=step['Z-Slice'],
             scan_count=scan_count,
-            custom_name_prefix=step['Name'],
+            custom_name_prefix=combined_prefix,
             objective_short_name=objective_short_name,
             tile_label=step['Tile'],
             video=is_video,
         )
+        # Ensure the filename base has no invalid path characters
+        try:
+            name = Protocol.sanitize_step_name(input=name)
+        except Exception:
+            pass
 
         # Illuminate
         if self._scope.led:
@@ -1354,7 +1371,7 @@ class SequencedCaptureExecutor:
         
         self._protocol_execution_record.add_step(
             capture_result_file_name=capture_result_filepath_name,
-            step_name=step['Name'],
+            step_name=name,
             step_index=step_index,
             scan_count=scan_count,
             timestamp=capture_time,

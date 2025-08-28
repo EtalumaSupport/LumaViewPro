@@ -78,6 +78,10 @@ class Protocol:
         return re.sub(r'[^a-zA-Z0-9-_]', '', input)
     
 
+    def capture_root(self) -> str:
+        return self._config.get('capture_root', '')
+
+
     def to_file(self, file_path: pathlib.Path):   
         
         if self.period() == None:
@@ -211,6 +215,12 @@ class Protocol:
         z: float
     ):
         self._config['steps'].at[step_idx, "Z"] = z
+
+    def modify_capture_root(
+        self,
+        capture_root: str
+    ):
+        self._config['capture_root'] = capture_root
         
         
     def modify_step(
@@ -558,6 +568,7 @@ class Protocol:
             'positions': positions,
             'labware_id': labware_id,
             'custom_step_count': 0,
+            'capture_root': '',
         }
         
         if positions is not None:
@@ -853,6 +864,10 @@ class Protocol:
 
         labware = next(csvreader)
         config['labware_id'] = labware[1]
+
+        # Optional fields not present in older/newer files
+        # Ensure defaults to avoid KeyErrors
+        config['capture_root'] = ''
 
         # Search for "Steps" to indicate start of steps
         while True:

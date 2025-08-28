@@ -4957,6 +4957,13 @@ class ProtocolSettings(CompositeCapture):
     def step_name_validation(self, text: str):
         self.ids['step_name_input'].text = Protocol.sanitize_step_name(input=text)
 
+    def update_capture_root(self, text: str):
+        # Sanitize and store capture root on protocol to avoid invalid path chars
+        sanitized = Protocol.sanitize_step_name(input=text)
+        self.ids['capture_root'].text = sanitized
+        if hasattr(self, '_protocol') and (self._protocol is not None):
+            self._protocol.modify_capture_root(capture_root=sanitized)
+
 
     # Labware Selection
     def select_labware(self, labware: str = None):

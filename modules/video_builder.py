@@ -54,8 +54,11 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         row0 = df.iloc[0]
         objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
 
+        # Use custom root + step name if available
+        custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
+        prefix = f"{custom_root}_{row0['Name']}" if custom_root not in (None, '') else row0['Name']
         name = common_utils.generate_default_step_name(
-            custom_name_prefix=row0['Name'],
+            custom_name_prefix=prefix,
             well_label=row0['Well'],
             color=row0['Color'],
             z_height_idx=row0['Z-Slice'],

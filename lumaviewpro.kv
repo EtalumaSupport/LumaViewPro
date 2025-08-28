@@ -999,6 +999,32 @@
 					multiline: False
 					disabled: True
 					hint_text: 'Protocol Filename'
+
+			# Caputre Name Root
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				spacing: '5dp'
+
+				Label:
+					text: 'Root'
+					tooltip_text: 'Prefix of saved files'
+					size_hint_x: None
+					width: '75dp'
+					font_size: '12sp'
+
+				TextInput:
+					id: capture_root
+					text: ''
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					halign: 'center'
+					multiline: False
+					hint_text: 'Filename prefix'
+					on_text_validate: root.update_capture_root(self.text)
+					on_focus: if not self.focus: root.update_capture_root(self.text)
 				
 
 			# Step Name
