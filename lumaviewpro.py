@@ -6166,6 +6166,8 @@ class LayerControl(BoxLayout):
         else:
             settings[self.layer]['acquire'] = None
 
+        self.update_stim_controls_visibility()
+
     def update_stim_enable(self):
         logger.info('[LVP Main  ] LayerControl.update_stim_enable()')
         if self.ids['stim_enable_btn'].active:
