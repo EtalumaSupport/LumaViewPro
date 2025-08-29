@@ -561,6 +561,8 @@ def get_layer_configs(
         video_config = layer_settings['video_config']
 
         if 'stim_config' in layer_settings:
+            # Force an update to keep stim_config.illumination in sync with layer illumination
+            settings[layer]['stim_config']['illumination'] = layer_settings['ill']
             stim_config = layer_settings['stim_config']
         else:
             stim_config = None
@@ -573,6 +575,10 @@ def get_layer_configs(
         auto_gain = common_utils.to_bool(layer_settings['auto_gain'])
         exposure = round(layer_settings['exp'], common_utils.max_decimal_precision('exposure'))
         focus = layer_settings['focus']
+
+        # Final check to ensure consistent stim_config.illumination
+        if stim_config is not None:
+            stim_config['illumination'] = illumination
 
         layer_configs[layer] = {
             'acquire': acquire,
@@ -609,6 +615,7 @@ def get_active_layer_config() -> tuple[str, dict]:
     return c_layer, layer_configs[c_layer]
 
 def get_stim_configs() -> dict:
+    # Build per-layer stim configs, forcing illumination to match current layer illumination
     stim_configs = {}
     layer_configs = get_layer_configs()
     for layer in layer_configs:

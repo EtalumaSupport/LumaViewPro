@@ -719,8 +719,8 @@ class SequencedCaptureExecutor:
 
                 stim_threads = []
 
-                for color in step['Stim Config']:
-                    stim_config = step['Stim Config'][color]
+                for color in step['Stim_Config']:
+                    stim_config = step['Stim_Config'][color]
                     if stim_config['enabled']:
                         stim_thread = threading.Thread(target=self._stimulate, args=(color, stim_config, start_event, stop_event))
                         stim_threads.append(stim_thread)
@@ -916,14 +916,14 @@ class SequencedCaptureExecutor:
 
             # Use fast path LED toggles if available via API
             def led_on_fast():
-                logger.info(f"[STIMULATOR] LED ON")
+                #logger.info(f"[STIMULATOR] {color} LED ON")
                 if hasattr(self._scope, 'led_on_fast'):
                     self._scope.led_on_fast(channel=self._scope.color2ch(color=color), mA=illumination)
                 else:
                     self._scope.led_on(channel=self._scope.color2ch(color=color), mA=illumination)
 
             def led_off_fast():
-                logger.info(f"[STIMULATOR] LED OFF")
+                #logger.info(f"[STIMULATOR] {color} LED OFF")
                 if hasattr(self._scope, 'led_off_fast'):
                     self._scope.led_off_fast(channel=self._scope.color2ch(color=color))
                 else:
@@ -986,6 +986,9 @@ class SequencedCaptureExecutor:
                     ctypes.windll.winmm.timeEndPeriod(1)
                 except Exception:
                     pass
+                finally:
+                    logger.info(f"[STIMULATOR] {color} Ended")
+                    
             # Ensure LED off at the end
             try:
                 if hasattr(self._scope, 'led_off_fast'):
