@@ -6073,19 +6073,61 @@ class LayerControl(BoxLayout):
     
     def stim_freq_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_freq_text()')
-        frequency = self.ids['stim_freq_slider'].value
+
+        freq_min = self.ids['stim_freq_slider'].min
+        freq_max = self.ids['stim_freq_slider'].max
+
+        try:
+            frequency = float(self.ids['stim_freq_text'].text)
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_freq_text() -> {e}")
+            return
+
+        frequency = round(float(np.clip(frequency, freq_min, freq_max)), 2)
+
+        self.ids['stim_freq_slider'].value = frequency
+        self.ids['stim_freq_text'].text = str(frequency)
+        
         settings[self.layer]['stim_config']['frequency'] = frequency
         self.apply_settings()
     
     def stim_pulse_count_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_text()')
-        pulse_count = self.ids['stim_pulse_count_slider'].value
+
+        pulse_count_min = self.ids['stim_pulse_count_slider'].min
+        pulse_count_max = self.ids['stim_pulse_count_slider'].max
+
+        try:
+            pulse_count = float(self.ids['stim_pulse_count_text'].text)
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_text() -> {e}")
+            return
+
+        pulse_count = int(np.clip(pulse_count, pulse_count_min, pulse_count_max))
+
+        self.ids['stim_pulse_count_slider'].value = pulse_count
+        self.ids['stim_pulse_count_text'].text = str(pulse_count)
+
         settings[self.layer]['stim_config']['pulse_count'] = pulse_count
         self.apply_settings()
-    
+
     def stim_pulse_width_text(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_text()')
-        pulse_width = self.ids['stim_pulse_width_slider'].value
+
+        pulse_width_min = self.ids['stim_pulse_width_slider'].min
+        pulse_width_max = self.ids['stim_pulse_width_slider'].max
+
+        try:
+            pulse_width = float(self.ids['stim_pulse_width_text'].text)
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_width_text() -> {e}")
+            return
+
+        pulse_width = int(np.clip(pulse_width, pulse_width_min, pulse_width_max))
+
+        self.ids['stim_pulse_width_slider'].value = pulse_width
+        self.ids['stim_pulse_width_text'].text = str(pulse_width)
+
         settings[self.layer]['stim_config']['pulse_width'] = pulse_width
         self.apply_settings()
 
