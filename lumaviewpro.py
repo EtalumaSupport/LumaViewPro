@@ -4496,11 +4496,12 @@ class ProtocolSettings(CompositeCapture):
         active_layer, active_layer_config = get_active_layer_config()
 
         if 'stim_config' in active_layer_config:
-            if active_layer_config['stim_config']['enabled']:
-                # We want to keep the same acquire channel when we are only modifying the stim config.
-                true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
-                active_layer = true_step_layer
-                active_layer_config = get_layer_configs()[active_layer]
+            if active_layer_config['stim_config'] is not None:
+                if active_layer_config['stim_config']['enabled']:
+                    # We want to keep the same acquire channel when we are only modifying the stim config.
+                    true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
+                    active_layer = true_step_layer
+                    active_layer_config = get_layer_configs()[active_layer]
 
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
