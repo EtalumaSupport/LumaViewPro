@@ -6156,17 +6156,21 @@ class LayerControl(BoxLayout):
 
         if self.ids['acquire_image'].active:
             settings[self.layer]['acquire'] = "image"
-            settings[self.layer]['stim_config']['enabled'] = False
-            self.ids['stim_disable_btn'].active = True
+            if "stim_config" in settings[self.layer]:
+                settings[self.layer]['stim_config']['enabled'] = False
+                self.ids['stim_disable_btn'].active = True
 
         elif self.ids['acquire_video'].active:
             settings[self.layer]['acquire'] = "video"   
-            settings[self.layer]['stim_config']['enabled'] = False
+            if "stim_config" in settings[self.layer]:
+                settings[self.layer]['stim_config']['enabled'] = False
+                self.ids['stim_disable_btn'].active = True
             self.ids['stim_disable_btn'].active = True
         else:
             settings[self.layer]['acquire'] = None
 
-        self.update_stim_controls_visibility()
+        if "stim_config" in settings[self.layer]:
+            self.update_stim_controls_visibility()
 
     def update_stim_enable(self):
         logger.info('[LVP Main  ] LayerControl.update_stim_enable()')
