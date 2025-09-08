@@ -864,7 +864,7 @@ class Protocol:
         if config['version'] == cls.CURRENT_VERSION:
             allowed = True
 
-        elif (config['version'] in (2, 3,)) and (cls.CURRENT_VERSION == 4):
+        elif (config['version'] in (2, 3, 4)) and (cls.CURRENT_VERSION == 5):
             allowed = True
                 
         if not allowed:
@@ -913,28 +913,28 @@ class Protocol:
                 "illumination": 100,
                 "frequency": 1,
                 "pulse_width": 10,
-                "pulse_count": 1,
+                "pulse_count": 100,
             },
             "Green": {
                 "enabled": False,
                 "illumination": 100,
                 "frequency": 1,
                 "pulse_width": 10,
-                "pulse_count": 1,
+                "pulse_count": 100,
             },
             "Blue": {
                 "enabled": False,
                 "illumination": 100,
                 "frequency": 1,
                 "pulse_width": 10,
-                "pulse_count": 1,
+                "pulse_count": 100,
             }
         }
 
         if (config['version'] < cls.CURRENT_VERSION):
             logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
 
-        if (config['version'] == 2) and (cls.CURRENT_VERSION == 4):
+        if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Acquire'] = "image"
             protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
         else:
@@ -947,10 +947,10 @@ class Protocol:
                 protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
 
 
-        if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION == 4):
+        if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
-        if (config['version'] in (2,3,4)) and (cls.CURRENT_VERSION == 5):
+        if (config['version'] in (2,3,4)) and (cls.CURRENT_VERSION >= 5):
             protocol_df['Stim_Config'] = DEFAULT_STIM_CONFIG
         else:
             # Convert Stim Config strings per step to dictionary
@@ -960,7 +960,7 @@ class Protocol:
                 logger.error(f"Unable to parse stim config, using default instead: {ex}")
                 protocol_df['Stim_Config'] = DEFAULT_STIM_CONFIG
 
-        if config['version'] in (2, 3, 4):
+        if config['version'] in (2, 3, 4, 5):
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names

@@ -462,33 +462,34 @@ def go_to_step(
 
     # Set stim configuration for each channel
     if 'Stim_Config' in step:
-        # Update each channel's stim config
-        for layer in step['Stim_Config']:
-            stim_config = step['Stim_Config'][layer]
-            settings[layer]['stim_config'] = copy.deepcopy(stim_config)
+        if isinstance(step['Stim_Config'], dict):
+            # Update each channel's stim config
+            for layer in step['Stim_Config']:
+                stim_config = step['Stim_Config'][layer]
+                settings[layer]['stim_config'] = copy.deepcopy(stim_config)
 
-            stim_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                stim_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
 
-            # TODO Update with proper UI elements
-            if stim_config['enabled']:
-                stim_layer_obj.ids['stim_enable_btn'].active = True
-                stim_layer_obj.ids['stim_disable_btn'].active = False
-            else:
-                stim_layer_obj.ids['stim_disable_btn'].active = True
-                stim_layer_obj.ids['stim_enable_btn'].active = False
+                # TODO Update with proper UI elements
+                if stim_config['enabled']:
+                    stim_layer_obj.ids['stim_enable_btn'].active = True
+                    stim_layer_obj.ids['stim_disable_btn'].active = False
+                else:
+                    stim_layer_obj.ids['stim_disable_btn'].active = True
+                    stim_layer_obj.ids['stim_enable_btn'].active = False
 
-            stim_layer_obj.update_stim_controls_visibility()
+                stim_layer_obj.update_stim_controls_visibility()
 
-            stim_layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
-            stim_layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
-            stim_layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
-            stim_layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
-            stim_layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
-            stim_layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+                stim_layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
+                stim_layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
+                stim_layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
+                stim_layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
+                stim_layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
+                stim_layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
 
-            # layer_obj.ids['enable_stim_btn'].state = 'down'
-            # layer_obj.ids['stim_text'].text = str(stim_config['illumination'])
-            # layer_obj.ids['stim_slider'].value = float(stim_config['illumination'])
+                # layer_obj.ids['enable_stim_btn'].state = 'down'
+                # layer_obj.ids['stim_text'].text = str(stim_config['illumination'])
+                # layer_obj.ids['stim_slider'].value = float(stim_config['illumination'])
 
     # acquire type
     settings[color]['acquire'] = step['Acquire']
@@ -4040,8 +4041,8 @@ class ProtocolSettings(CompositeCapture):
         try:
             filepath = settings['protocol']['filepath']
             lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
-        except:
-            logger.warning('[LVP Main  ] Unable to load protocol at startup')
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Unable to load protocol at startup: {e}')
             # If protocol file is missing or incomplete, file name and path are cleared from memory. 
             filepath=''	
             settings['protocol']['filepath']=''
@@ -4317,7 +4318,12 @@ class ProtocolSettings(CompositeCapture):
         # Set all layers to acquire = None
         for layer in common_utils.get_layers():
             settings[layer]['acquire'] = None
+            if "stim_config" in settings[layer]:
+                if settings[layer]['stim_config'] is not None:
+                    settings[layer]['stim_config']['enabled'] = False
+
         reset_acquire_ui()
+        reset_stim_ui()
 
         # Make steps available for drawing locations
         stage.set_protocol_steps(df=self._protocol.steps())
@@ -6282,6 +6288,15 @@ def reset_acquire_ui():
             layer_obj.ids['acquire_video'].active = True
         else:
             layer_obj.ids['acquire_none'].active = True
+
+def reset_stim_ui():
+    for layer in common_utils.get_layers():
+        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+        if "stim_config" in settings[layer]:
+            if settings[layer]['stim_config'] is not None:
+                settings[layer]['stim_config']['enabled'] = False
+                layer_obj.ids['stim_disable_btn'].active = True
+                layer_obj.update_stim_controls_visibility()
 
 # Z Stack functions class
 # ---------------------------------------------------------------------
