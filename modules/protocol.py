@@ -260,6 +260,7 @@ class Protocol:
         layer_config: dict,
         plate_position: dict,
         objective_id: str,
+        stim_configs: dict,
         before_step: int | None = 0,
         after_step: int | None = None,
         include_objective_in_step_name: bool = False,
@@ -326,7 +327,7 @@ class Protocol:
             zstack_group_id=zstack_group_id,
             acquire=layer_config['acquire'],
             video_config=layer_config['video_config'],
-            stim_config=layer_config['stim_config'],
+            stim_config=copy.deepcopy(stim_configs),
         )
 
         if before_step is not None:
@@ -337,6 +338,10 @@ class Protocol:
         line = pd.DataFrame(data=step_dict, index=[pos_index])
         line = line.astype({'Video Config': 'object'})
         line.at[pos_index, 'Video Config'] = step_dict['Video Config']
+        
+        line = line.astype({'Stim_Config': 'object'})
+        line.at[pos_index, 'Stim_Config'] = step_dict['Stim_Config']
+
         self._config['steps'] = pd.concat([self._config['steps'], line], ignore_index=False, axis=0)
         self._config['steps'] = self._config['steps'].sort_index().reset_index(drop=True)
 

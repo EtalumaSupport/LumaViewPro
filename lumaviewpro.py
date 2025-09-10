@@ -4279,6 +4279,10 @@ class ProtocolSettings(CompositeCapture):
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
         )
 
+        if protocol is None:
+            logger.error(f"Unable to load protocol at {filepath}")
+            return
+
         if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
             error_msg = f"Cannot load protocol. Not all objectives are in turret config."
             logger.error(error_msg)
@@ -4338,7 +4342,11 @@ class ProtocolSettings(CompositeCapture):
 
         if lumaview.scope.has_turret():
             objective_id = step['Objective']
-            objective_short_name = objective_helper.get_objective_info(objective_id=objective_id)['short_name']
+            objective_info = objective_helper.get_objective_info(objective_id=objective_id)
+            if objective_info is None:
+                objective_short_name = objective_id
+            else:
+                objective_short_name = objective_info['short_name']
         else:
             objective_short_name = None
 
@@ -4535,6 +4543,7 @@ class ProtocolSettings(CompositeCapture):
         stage.set_protocol_steps(df=self._protocol.steps())
 
 
+    # add_step
     def insert_step(self, after_current_step: bool = True):
         
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
@@ -6182,12 +6191,16 @@ class LayerControl(BoxLayout):
     def update_stim_enable(self):
         logger.info('[LVP Main  ] LayerControl.update_stim_enable()')
         if self.ids['stim_enable_btn'].active:
-            settings[self.layer]['stim_config']['enabled'] = True
+            if "stim_config" in settings[self.layer]:
+                if settings[self.layer]['stim_config'] is not None:
+                    settings[self.layer]['stim_config']['enabled'] = True
             settings[self.layer]['acquire'] = None
             self.ids['acquire_none'].active = True
             self.ids['acquire_none'].state = 'down'
         else:
-            settings[self.layer]['stim_config']['enabled'] = False
+            if "stim_config" in settings[self.layer]:
+                if settings[self.layer]['stim_config'] is not None:
+                    settings[self.layer]['stim_config']['enabled'] = False
 
         self.update_stim_controls_visibility()
 
