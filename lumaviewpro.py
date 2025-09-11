@@ -697,15 +697,19 @@ def get_protocol_time_params() -> dict:
 def get_selected_labware() -> tuple[str, labware.WellPlate]:
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
     labware_id = protocol_settings.ids['labware_spinner'].text
-    
-    if len(labware_id) < 1:
-        labware_id = settings['protocol']['labware']
     try:
-        labware = wellplate_loader.get_plate(plate_key=labware_id)
-        return labware_id, labware
+        if len(labware_id) < 1:
+            labware_id = settings['protocol']['labware']
+        try:
+            labware = wellplate_loader.get_plate(plate_key=labware_id)
+            return labware_id, labware
+        except Exception as e:
+            logger.exception("LVP Main: Settings file issue. Replace file with a known working version")
+            logger.exception(e)
     except Exception as e:
-        logger.exception("LVP Main: Settings file issue. Replace file with a known working version")
-        logger.exception(e)
+        logger.exception(f"LVP Main: Labware could not be loaded: {e}")
+        logger.warning(f"Check to ensure labware {labware_id} is in the labware file")
+        return None, None
 
 
 
@@ -4106,6 +4110,11 @@ class ProtocolSettings(CompositeCapture):
             settings['protocol']['labware'] = labware
 
         labware_id, labware = get_selected_labware()
+
+        if labware is None:
+            logger.error(f"Labware could not be loaded")
+            return
+            
         lumaview.scope.set_labware(labware=labware)
 
         if self._protocol is not None:
