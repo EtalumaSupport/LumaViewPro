@@ -6428,6 +6428,7 @@ class ZStack(CompositeCapture):
             'duration': None,
             'frame_dimensions': get_current_frame_dimensions(),
             'binning_size': get_binning_from_ui(),
+            'stim_config': get_stim_configs(),
         }
         
         zstack_sequence = Protocol.from_config(
