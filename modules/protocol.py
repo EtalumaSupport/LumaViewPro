@@ -442,7 +442,7 @@ class Protocol:
                     zstack_group_id=orig_step_df['Z-Stack Group ID'],
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
-                    stim_config=orig_step_df['Stim Config'],
+                    stim_config=orig_step_df['Stim_Config'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -508,7 +508,7 @@ class Protocol:
                     zstack_group_id=zstack_group_id,
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
-                    stim_config=orig_step_df['Stim Config'],
+                    stim_config=orig_step_df['Stim_Config'],
                 )
 
                 new_steps.append(new_step_dict)
