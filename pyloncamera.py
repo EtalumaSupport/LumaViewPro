@@ -369,26 +369,38 @@ class PylonCamera:
     
     def grab_new_capture(self, timeout: float):
         """
-        Blocks for timeout waiting for new frame. Saves from to self.array when received
-        returns bool, ts
+        Force a true new capture by switching to SingleFrame, grabbing one, then
+        restoring Continuous acquisition. Returns (bool, timestamp).
         """
-        if not self.cam_image_handler:
+        if self.active in (False, None):
             return False, None
-        
+
         try:
-            try:
-                self.cam_image_handler._frame_queue.get_nowait()
-            except queue.Empty:
-                pass
-            result, image, image_ts = self.cam_image_handler._frame_queue.get(block=True, timeout=timeout)
-            if result is False:
-                return False, None
-            
-            self.array = image
+            with self.update_camera_config():
+                # Ensure single-frame acquisition for a fresh frame
+                try:
+                    self.active.AcquisitionMode.SetValue('SingleFrame')
+                except Exception:
+                    pass
+
+                # Block for a single frame from the device
+                grab_result = self.active.GrabOne(int(timeout))
+                if not grab_result.GrabSucceeded():
+                    return False, None
+
+                self.array = grab_result.GetArray()
+                image_ts = datetime.datetime.now()
+
+                # Restore continuous mode so the stream resumes normally when exiting
+                try:
+                    self.active.AcquisitionMode.SetValue('Continuous')
+                except Exception:
+                    pass
+
             return True, image_ts
-        
+
         except Exception as ex:
-            logger.exception(f"Failed to grab image: {ex}")
+            logger.exception(f"Failed to grab single frame: {ex}")
             return False, None
         
 
