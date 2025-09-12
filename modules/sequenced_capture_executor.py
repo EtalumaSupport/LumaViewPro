@@ -955,7 +955,7 @@ class SequencedCaptureExecutor:
                 self._scope.set_exposure_time(step['Exposure'])
 
             # Sleep for at least 100ms to ensure that the camera is ready for the next capture
-            #time.sleep(max(step['Exposure']/1000, 0.1))
+            time.sleep(max(step['Exposure']/1000, 0.1))
 
             if is_video:
                 # Disable autogain and then reenable it only for the first frame
@@ -1152,7 +1152,7 @@ class SequencedCaptureExecutor:
                     sum_delay_s=step["Exposure"]/1000,
                     sum_iteration_callback=sum_iteration_callback,
                     force_new_capture=True,
-                    new_capture_timeout=1000
+                    new_capture_timeout=1
                 )
 
 
