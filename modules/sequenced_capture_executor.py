@@ -884,8 +884,9 @@ class SequencedCaptureExecutor:
         video_as_frames = self._video_as_frames
 
         if not step['Auto_Gain']:
-            self._scope.set_gain(step['Gain'])
-            self._scope.set_exposure_time(step['Exposure'])
+            with self._scope.camera.update_camera_config():
+                self._scope.set_gain(step['Gain'])
+                self._scope.set_exposure_time(step['Exposure'])
 
         if self._scope.has_turret():
             objective_short_name = self._scope.get_objective_info(objective_id=step["Objective"])['short_name']
@@ -945,14 +946,14 @@ class SequencedCaptureExecutor:
             accepted_gain_range = 0.001
             accepted_exp_range = 0.001
 
-            # Verify that we have the correct settings in the camera
-            real_gain = self._scope.get_gain()
-            if abs(real_gain - step['Gain']) > accepted_gain_range:
-                self._scope.set_gain(step['Gain'])
+            # # Verify that we have the correct settings in the camera
+            # real_gain = self._scope.get_gain()
+            # if abs(real_gain - step['Gain']) > accepted_gain_range:
+            #     self._scope.set_gain(step['Gain'])
 
-            real_exp = self._scope.get_exposure_time()
-            if abs(real_exp - step['Exposure']) > accepted_exp_range:
-                self._scope.set_exposure_time(step['Exposure'])
+            # real_exp = self._scope.get_exposure_time()
+            # if abs(real_exp - step['Exposure']) > accepted_exp_range:
+            #     self._scope.set_exposure_time(step['Exposure'])
 
             # Sleep for at least 100ms to ensure that the camera is ready for the next capture
             time.sleep(max(step['Exposure']/1000, 0.1))
