@@ -460,6 +460,14 @@ def go_to_step(
     layer_obj.ids['sum_text'].text = str(step["Sum"])
     layer_obj.ids['sum_slider'].value = int(step["Sum"])
 
+    # set video config (e.g., duration) controls
+    if 'Video Config' in step and isinstance(step['Video Config'], dict):
+        vc = step['Video Config']
+        settings[color]['video_config'] = copy.deepcopy(vc)
+        if 'duration' in vc:
+            layer_obj.ids['video_duration_text'].text = str(vc['duration'])
+            layer_obj.ids['video_duration_slider'].value = float(vc['duration'])
+
     # Set stim configuration for each channel
     if 'Stim_Config' in step:
         if isinstance(step['Stim_Config'], dict):
@@ -4517,6 +4525,7 @@ class ProtocolSettings(CompositeCapture):
             return
         
         active_layer, active_layer_config = get_active_layer_config()
+        stim_was_active = False
 
         if 'stim_config' in active_layer_config:
             if active_layer_config['stim_config'] is not None:
@@ -4525,6 +4534,7 @@ class ProtocolSettings(CompositeCapture):
                     true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
                     active_layer = true_step_layer
                     active_layer_config = get_layer_configs()[active_layer]
+                    stim_was_active = True
 
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
@@ -4536,6 +4546,15 @@ class ProtocolSettings(CompositeCapture):
             return
 
         step_name = self.ids['step_name_input'].text
+
+        # If the stim layer was active and the original acquire channel remains enabled,
+        # preserve the existing step name to avoid unintended renaming.
+        if stim_was_active:
+            original_step = self._protocol.step(idx=self.curr_step)
+            original_layer = original_step['Color']
+            layer_configs_all = get_layer_configs()
+            if original_layer in layer_configs_all and (layer_configs_all[original_layer]['acquire'] is not None):
+                step_name = original_step['Name']
 
         self._protocol.modify_step(
             step_idx=self.curr_step,

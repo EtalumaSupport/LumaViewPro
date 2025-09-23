@@ -250,7 +250,7 @@ class Protocol:
         self._config['steps'].at[step_idx, "Sum"] = int(layer_config['sum'])
         self._config['steps'].at[step_idx, "Objective"] = objective_id
         self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
-        self._config['steps'].at[step_idx, "Video Config"] = layer_config['video_config']
+        self._config['steps'].at[step_idx, "Video Config"] = copy.deepcopy(layer_config['video_config'])
         self._config['steps'].at[step_idx, "Stim_Config"] = copy.deepcopy(stim_configs)
 
     def insert_step(
@@ -793,7 +793,7 @@ class Protocol:
             "Tile Group ID": tile_group_id,
             "Z-Stack Group ID": zstack_group_id,
             "Acquire": acquire,
-            "Video Config": video_config,
+            "Video Config": copy.deepcopy(video_config),
             "Stim_Config": copy.deepcopy(stim_config),
         }
         
@@ -941,7 +941,8 @@ class Protocol:
 
         if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Acquire'] = "image"
-            protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
+            # Ensure each row gets its own Video Config dict
+            protocol_df['Video Config'] = copy.deepcopy(DEFAULT_VIDEO_CONFIG)
         else:
 
             # Convert Video Config strings per step to dictionary
@@ -949,21 +950,22 @@ class Protocol:
                 protocol_df['Video Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Video Config']), axis=1)
             except Exception as ex:
                 logger.error(f"Unable to parse video config, using default instead: {ex}")
-                protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
+                protocol_df['Video Config'] = copy.deepcopy(DEFAULT_VIDEO_CONFIG)
 
 
         if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
         if (config['version'] in (2,3,4)) and (cls.CURRENT_VERSION >= 5):
-            protocol_df['Stim_Config'] = DEFAULT_STIM_CONFIG
+            # Ensure each row gets its own Stim Config dict
+            protocol_df['Stim_Config'] = copy.deepcopy(DEFAULT_STIM_CONFIG)
         else:
             # Convert Stim Config strings per step to dictionary
             try:
                 protocol_df['Stim_Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Stim_Config']), axis=1)
             except Exception as ex:
                 logger.error(f"Unable to parse stim config, using default instead: {ex}")
-                protocol_df['Stim_Config'] = DEFAULT_STIM_CONFIG
+                protocol_df['Stim_Config'] = copy.deepcopy(DEFAULT_STIM_CONFIG)
 
         if config['version'] in (2, 3, 4, 5):
             protocol_df['Step Index'] = protocol_df.index
