@@ -1,12 +1,15 @@
+import datetime
+import enum
 import pathlib
 
 import cv2
 import numpy as np
 import tifffile as tf
 
+from modules.color_channels import ColorChannel
 import modules.common_utils as common_utils
 import image_utils
-import datetime
+
 from fractions import Fraction
 
 from lvp_logger import logger, version
@@ -143,39 +146,103 @@ def convert_16bit_to_8bit(image):
     new_image = image.copy()
     return (new_image/256).astype('uint8')
 
+@enum.unique
+class LvpColormap(enum.Enum):
+    GRAY = 'gray'
+    RED = 'red'
+    GREEN = 'green'
+    BLUE = 'blue'
+
+
+def color_channel_to_colormap_type(color_channel: str | ColorChannel) -> LvpColormap:
+    if type(color_channel) == str:
+        color_channel = ColorChannel[color_channel]
+
+    lut = {
+        ColorChannel.Blue: LvpColormap.BLUE,
+        ColorChannel.Green: LvpColormap.GREEN,
+        ColorChannel.Red: LvpColormap.RED,
+        ColorChannel.BF: LvpColormap.GRAY,
+        ColorChannel.PC: LvpColormap.GRAY,
+        ColorChannel.DF: LvpColormap.GRAY,
+    }
+
+    return lut[color_channel]
+
+
+def get_tiff_colormap(colormap: LvpColormap, dtype):
+    if dtype in ('uint8', np.uint8):
+        dtype = np.uint8
+        step_size = 2**0
+    elif dtype in ('uint16', np.uint16):
+        dtype = np.uint16
+        step_size = 2**8
+    else:
+        raise NotImplementedError(f"Unsupported dtype for colormap: {dtype}")
+
+    max_value = np.iinfo(dtype).max + 1
+
+    if colormap == LvpColormap.GRAY:
+        cmap_array = np.tile(np.arange(0, max_value, step_size, dtype=dtype), (3, 1))
+    else:
+        cmap_array = np.zeros((3,2**8), dtype=dtype)
+        if colormap == LvpColormap.RED:
+            cmap_array[0] = np.arange(0, max_value, step_size, dtype=dtype)
+        elif colormap == LvpColormap.GREEN:
+            cmap_array[1] = np.arange(0, max_value, step_size, dtype=dtype)
+        elif colormap == LvpColormap.BLUE:
+            cmap_array[2] = np.arange(0, max_value, step_size, dtype=dtype)
+        else:
+            raise NotImplementedError(f"Unsupported colormap: {colormap}")
+    
+    return cmap_array
+
 
 def write_tiff(
         data,
         file_loc: pathlib.Path,
         metadata: dict,
         ome: bool,
+        color: str,
         video_frame: bool = False,
         extratags: list = [],
 ):
-    
-    # Note: OpenCV and TIFFFILE have the Red/Blue color planes swapped, so need to swap
-    # them before writing out to tiff
-    use_color = image_utils.is_color_image(data)
-    if use_color:
-        data = cv2.cvtColor(data, cv2.COLOR_BGR2RGB)
 
-    support_data = generate_tiff_data(data=data, metadata=metadata, ome=ome, video_frame=video_frame)
+    support_data = generate_tiff_data(data=data, metadata=metadata, ome=ome, video_frame=video_frame, color=color)
 
     if True == ome:
         kwargs = {
-            'bigtiff': False
+            'bigtiff': False,
         }
     else:
         kwargs = {}
+        if data.dtype == np.uint16:
+            kwargs['imagej'] = True
 
     with tf.TiffWriter(str(file_loc), **kwargs) as tif:
         if not video_frame:
+
+            colormap_type = color_channel_to_colormap_type(color_channel=color)
+            colormap_array = get_tiff_colormap(
+                colormap=colormap_type,
+                dtype=data.dtype,
+            )
+            # Ref: https://forum.image.sc/t/saving-tiff-stack-with-a-colormap-with-tifffile-library/101788
+            if data.dtype == np.uint16:
+                support_data['extratags'].append((320, tifffile_dtypes['SHORT'], 0, colormap_array.tobytes(), True))
+            # elif data.dtype == np.uint8:
+            #     support_data['extratags'].append((320, tifffile_dtypes['BYTE'], 0, colormap_array.tobytes(), True))
+            
+                colormap_array = None
+
             tif.write(
                 data,
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f"LumaViewPro {version}",
+                colormap=colormap_array,
+                extratags=support_data['extratags'],
                 **support_data['options'],
             )
         else:
@@ -188,18 +255,18 @@ def write_tiff(
             )
             
     
-def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
+def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool, color: str):
     
     dtype = tifffile_dtypes
-    
-    use_color = image_utils.is_color_image(data)
+    axes = 'YX'
 
-    if use_color:
-        photometric = 'rgb'
-        axes = 'YXS'
+    if color in ('BF', 'PC', 'DF'):
+        photometric = tf.PHOTOMETRIC.MINISBLACK
+    elif color in ('Red', 'Green', 'Blue'):
+        photometric = tf.PHOTOMETRIC.PALETTE
     else:
-        photometric = 'minisblack'
-        axes = 'YX'
+        raise ValueError(f"Unexpected color value ({color}) for tiff data generation")
+    
 
     """
     To Add:
@@ -212,9 +279,9 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
             'axes': axes,
             'SignificantBits': data.itemsize*8,
             'PhysicalSizeX': metadata['pixel_size_um'],
-            'PhysicalSizeXUnit': 'µm',
+            'PhysicalSizeXUnit': 'um',
             'PhysicalSizeY': metadata['pixel_size_um'],
-            'PhysicalSizeYUnit': 'µm',
+            'PhysicalSizeYUnit': 'um',
             'Channel': {'Name': [metadata['channel']]},
             'Plane': {
                 'PositionX': metadata['plate_pos_mm']['x'],
@@ -255,9 +322,9 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
             'axes': axes,
             'SignificantBits': data.itemsize*8,
             'PhysicalSizeX': metadata['pixel_size_um'],
-            'PhysicalSizeXUnit': 'µm',
+            'PhysicalSizeXUnit': 'um',
             'PhysicalSizeY': metadata['pixel_size_um'],
-            'PhysicalSizeYUnit': 'µm',
+            'PhysicalSizeYUnit': 'um',
             'Channel': {'Name': [metadata['channel']]},
             'Plane': {
                 'PositionX': metadata['plate_pos_mm']['x'],
@@ -367,13 +434,18 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool):
 
 
 
+    # 2025-10-03:
+    # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
+    # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
     options=dict(
         photometric=photometric,
-        tile=(128, 128),
         compression='lzw',
         resolutionunit='CENTIMETER',
         maxworkers=2
     )
+
+    if data.dtype == np.uint8:
+        options['tile'] = (128, 128)
 
     if not video_frame:
         resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])

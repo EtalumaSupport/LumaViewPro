@@ -155,9 +155,9 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             'SignificantBits': sample_image.itemsize*8,
             'Pixels': {
                 'PhysicalSizeX': pixel_size_um,
-                'PhysicalSizeXUnit': 'µm',
+                'PhysicalSizeXUnit': 'um',
                 'PhysicalSizeY': pixel_size_um,
-                'PhysicalSizeYUnit': 'µm',
+                'PhysicalSizeYUnit': 'um',
             },
             'Channel': {'Name': channel_names},
 
@@ -277,9 +277,9 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         #     'SignificantBits': sample_image.itemsize*8,
         #     'Pixels': {
         #         'PhysicalSizeX': pixel_size_um,
-        #         'PhysicalSizeXUnit': 'µm',
+        #         'PhysicalSizeXUnit': 'um',
         #         'PhysicalSizeY': pixel_size_um,
-        #         'PhysicalSizeYUnit': 'µm',
+        #         'PhysicalSizeYUnit': 'um',
         #     },
         #     'Channel': {'Name': channel_names},
 
@@ -354,9 +354,9 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         #     dimension_order="XYCZT", #"TZCYX",
         #     metadata_only=True,
         #     # physical_size_x=0,
-        #     # physical_size_x_unit='µm',
+        #     # physical_size_x_unit='um',
         #     # physical_size_y=0,
-        #     # physical_size_y_unit='µm',
+        #     # physical_size_y_unit='um',
         #     significant_bits=sample_image.itemsize*8,
 
         # )

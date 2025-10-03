@@ -567,10 +567,6 @@ class Lumascope():
 
         if array.dtype == np.uint16:
             array = image_utils.convert_12bit_to_16bit(array)
-
-        img = image_utils.add_false_color(array=array, color=color)
-        img = np.flip(img, 0)
-
         path = self.generate_image_save_path(
             save_folder=save_folder,
             file_root=file_root,
@@ -582,7 +578,7 @@ class Lumascope():
         metadata['file_loc'] = path
 
         return {
-            'image': img,
+            'image': array,
             'metadata': metadata,
         }
 
@@ -634,6 +630,7 @@ class Lumascope():
                 file_loc=file_loc,
                 metadata=metadata,
                 ome=ome,
+                color=color,
             )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
