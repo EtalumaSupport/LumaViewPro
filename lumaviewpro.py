@@ -4757,6 +4757,9 @@ class XYStageControl(BoxLayout):
     def set_xbookmark(self):
         logger.info('[LVP Main  ] XYStageControl.set_xbookmark()')
         global lumaview
+        stage_executor.put(IOTask(action=self.ex_set_xbookmark))
+
+    def ex_set_xbookmark(self):
 
         # Get current stage x-position in um
         x_pos = lumaview.scope.get_current_position('X')
@@ -4776,8 +4779,10 @@ class XYStageControl(BoxLayout):
         logger.info('[LVP Main  ] XYStageControl.set_ybookmark()')
         global lumaview
 
-        # Get current stage y-position in um
-        y_pos = lumaview.scope.get_current_position('Y')  
+        stage_executor.put(IOTask(action=self.ex_set_ybookmark))
+
+    def ex_set_ybookmark(self):
+        y_pos = lumaview.scope.get_current_position('Y')  # Get current y pos in um
 
         # Save plate y-position to settings
         _, labware = get_selected_labware()
@@ -4805,7 +4810,7 @@ class XYStageControl(BoxLayout):
             px=x_pos,
             py=0
         )
-        stage_executor.put(IOTask(move_absolute_position, kwargs={'axis':'X', 'position':stage_x}))
+        stage_executor.put(IOTask(move_absolute_position, args=('X', stage_x)))
 
     def goto_ybookmark(self):
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
@@ -4822,7 +4827,7 @@ class XYStageControl(BoxLayout):
             px=0,
             py=y_pos
         )
-        stage_executor.put(IOTask(move_absolute_position, kwargs={'axis':'Y', 'position':stage_y})) # set current y position in um
+        stage_executor.put(IOTask(move_absolute_position, args=('Y', stage_y))) # set current y position in um
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')
