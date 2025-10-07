@@ -46,8 +46,8 @@ import functools
 import math
 import os
 import pathlib
-import matplotlib.pyplot as plt
-from matplotlib.dates import ConciseDateFormatter
+# import matplotlib.pyplot as plt
+# from matplotlib.dates import ConciseDateFormatter
 import numpy as np
 import pandas as pd
 import time
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     from kivy.metrics import dp
     #from kivy.animation import Animation
     from kivy.graphics import Line, Color, Rectangle, Ellipse
-    from kivy_garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
+    # from kivy_garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
 
     # User Interface
     from kivy.uix.accordion import AccordionItem
@@ -2804,294 +2804,294 @@ class VideoCreationControls(BoxLayout):
     #     except Exception as e:
     #         logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
 
-class GraphingControls(BoxLayout):
-    x_axis_label = "X-Axis"
-    y_axis_label = "Y-Axis"
-    graph_title = ""
-    available_axes = ['No Data Loaded']
+# class GraphingControls(BoxLayout):
+#     x_axis_label = "X-Axis"
+#     y_axis_label = "Y-Axis"
+#     graph_title = ""
+#     available_axes = ['No Data Loaded']
     
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        logger.info('LVP Main: GraphingControls.__init__()')
-        self._source_csv = None
-        self.fig = None
-        self._post = post_processing.PostProcessing()
-        self.graphing_area = self.ids.graphing_area
-        self.graph_widget = None
-        self.x_axis_data = []
-        self.y_axis_data = []
-        self.selected_x_axis = None
-        self.selected_y_axis = None
-        self.trendline_enabled = False
-        self.graph_df = None
-        self.initialize_graph()
+#     def __init__(self, **kwargs):
+#         super().__init__(**kwargs)
+#         logger.info('LVP Main: GraphingControls.__init__()')
+#         self._source_csv = None
+#         self.fig = None
+#         self._post = post_processing.PostProcessing()
+#         self.graphing_area = self.ids.graphing_area
+#         self.graph_widget = None
+#         self.x_axis_data = []
+#         self.y_axis_data = []
+#         self.selected_x_axis = None
+#         self.selected_y_axis = None
+#         self.trendline_enabled = False
+#         self.graph_df = None
+#         self.initialize_graph()
 
-    def set_x_axis(self):
-        if self._source_csv:
-            self.selected_x_axis = self.ids['graphing_x_axis_spinner'].text
-            self.ids.x_axis_label_input.text = self.selected_x_axis
+#     def set_x_axis(self):
+#         if self._source_csv:
+#             self.selected_x_axis = self.ids['graphing_x_axis_spinner'].text
+#             self.ids.x_axis_label_input.text = self.selected_x_axis
 
-            sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
-            self.x_axis_data = sorted_graph_df[self.selected_x_axis]
-            self.update_x_axis_label()
-            if self.selected_y_axis is None:
-                return
+#             sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
+#             self.x_axis_data = sorted_graph_df[self.selected_x_axis]
+#             self.update_x_axis_label()
+#             if self.selected_y_axis is None:
+#                 return
             
-            self.initialize_graph()
-            self.update_x_axis_label()
-            if "TIME" in self.selected_x_axis.upper():
-                self.ax.xaxis.set_major_formatter(ConciseDateFormatter(self.ax.xaxis.get_major_locator()))
-                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
-            elif "TIME" not in self.selected_y_axis.upper():
-                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
-            self.ax.scatter(self.x_axis_data, self.y_axis_data)
-            if self.trendline_enabled:
-                self.update_trendline(axis=True)
-            self.update_graph()
+#             self.initialize_graph()
+#             self.update_x_axis_label()
+#             if "TIME" in self.selected_x_axis.upper():
+#                 self.ax.xaxis.set_major_formatter(ConciseDateFormatter(self.ax.xaxis.get_major_locator()))
+#                 self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
+#             elif "TIME" not in self.selected_y_axis.upper():
+#                 self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
+#             self.ax.scatter(self.x_axis_data, self.y_axis_data)
+#             if self.trendline_enabled:
+#                 self.update_trendline(axis=True)
+#             self.update_graph()
 
-    def set_y_axis(self):
-        if self._source_csv:
-            self.selected_y_axis = self.ids['graphing_y_axis_spinner'].text
-            self.ids.y_axis_label_input.text = self.selected_y_axis
+#     def set_y_axis(self):
+#         if self._source_csv:
+#             self.selected_y_axis = self.ids['graphing_y_axis_spinner'].text
+#             self.ids.y_axis_label_input.text = self.selected_y_axis
             
-            if self.selected_x_axis is None:
-                self.y_axis_data = self.graph_df[self.selected_y_axis]
-                self.update_y_axis_label()
-                return
+#             if self.selected_x_axis is None:
+#                 self.y_axis_data = self.graph_df[self.selected_y_axis]
+#                 self.update_y_axis_label()
+#                 return
             
-            sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
-            self.y_axis_data = sorted_graph_df[self.selected_y_axis]
-            self.update_y_axis_label()
+#             sorted_graph_df = self.graph_df.sort_values(by=self.selected_x_axis)
+#             self.y_axis_data = sorted_graph_df[self.selected_y_axis]
+#             self.update_y_axis_label()
             
-            self.initialize_graph()
-            self.update_y_axis_label()
-            if "TIME" in self.selected_y_axis.upper():
-                self.ax.yaxis.set_major_formatter(ConciseDateFormatter(self.ax.yaxis.get_major_locator()))
-                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
-            elif "TIME" not in self.selected_x_axis.upper():
-                self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
-            self.ax.scatter(self.x_axis_data, self.y_axis_data)
-            if self.trendline_enabled:
-                self.update_trendline(axis=True)
-            self.update_graph()
+#             self.initialize_graph()
+#             self.update_y_axis_label()
+#             if "TIME" in self.selected_y_axis.upper():
+#                 self.ax.yaxis.set_major_formatter(ConciseDateFormatter(self.ax.yaxis.get_major_locator()))
+#                 self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential')
+#             elif "TIME" not in self.selected_x_axis.upper():
+#                 self.ids.trendline_spinner.values = ('None', 'Linear', 'Quadratic', 'Exponential', 'Power', 'Logarithmic')
+#             self.ax.scatter(self.x_axis_data, self.y_axis_data)
+#             if self.trendline_enabled:
+#                 self.update_trendline(axis=True)
+#             self.update_graph()
 
-    def update_x_axis_label(self):
-        self.ax.set_xlabel(self.ids.x_axis_label_input.text)
-        self.x_axis_label = self.ids.x_axis_label_input.text
-        self.update_graph()
+#     def update_x_axis_label(self):
+#         self.ax.set_xlabel(self.ids.x_axis_label_input.text)
+#         self.x_axis_label = self.ids.x_axis_label_input.text
+#         self.update_graph()
 
-    def update_y_axis_label(self):
-        self.ax.set_ylabel(self.ids.y_axis_label_input.text)
-        self.y_axis_label = self.ids.y_axis_label_input.text
-        self.update_graph()
+#     def update_y_axis_label(self):
+#         self.ax.set_ylabel(self.ids.y_axis_label_input.text)
+#         self.y_axis_label = self.ids.y_axis_label_input.text
+#         self.update_graph()
 
-    def update_available_axes(self):
-        self.available_x_axes = list(self.available_axes)
-        self.available_y_axes = list(self.available_axes)
+#     def update_available_axes(self):
+#         self.available_x_axes = list(self.available_axes)
+#         self.available_y_axes = list(self.available_axes)
 
-        # Remove time from y-axis because it cannot be properly formatted at the moment and causes trendline issues
-        if 'time' in self.available_y_axes:
-            self.available_y_axes.remove('time')
+#         # Remove time from y-axis because it cannot be properly formatted at the moment and causes trendline issues
+#         if 'time' in self.available_y_axes:
+#             self.available_y_axes.remove('time')
 
-        self.ids.graphing_x_axis_spinner.values = self.available_x_axes
-        self.ids.graphing_y_axis_spinner.values = self.available_y_axes
+#         self.ids.graphing_x_axis_spinner.values = self.available_x_axes
+#         self.ids.graphing_y_axis_spinner.values = self.available_y_axes
 
 
-    def update_graph_title(self):
-        self.ax.set_title(self.ids.graph_title_input.text)
-        self.graph_title = self.ids.graph_title_input.text
-        self.update_graph()
+#     def update_graph_title(self):
+#         self.ax.set_title(self.ids.graph_title_input.text)
+#         self.graph_title = self.ids.graph_title_input.text
+#         self.update_graph()
 
-    def update_trendline(self, axis: bool=False):
-        if self.selected_x_axis is None or self.selected_y_axis is None:
-            return
+#     def update_trendline(self, axis: bool=False):
+#         if self.selected_x_axis is None or self.selected_y_axis is None:
+#             return
         
-        trendline_type = self.ids.trendline_spinner.text
-        if trendline_type == "None":
-            self.trendline_enabled = False
+#         trendline_type = self.ids.trendline_spinner.text
+#         if trendline_type == "None":
+#             self.trendline_enabled = False
 
         
-        if not axis:
-            self.initialize_graph()
-            self.set_x_axis()
-            self.set_y_axis()
+#         if not axis:
+#             self.initialize_graph()
+#             self.set_x_axis()
+#             self.set_y_axis()
 
-        self.trendline_enabled = True
+#         self.trendline_enabled = True
 
-        #self.y_axis_data = self.graph_df[self.selected_y_axis]
+#         #self.y_axis_data = self.graph_df[self.selected_y_axis]
 
-        x_data = self.x_axis_data
-        y_data = self.y_axis_data
+#         x_data = self.x_axis_data
+#         y_data = self.y_axis_data
 
-        time_x = False
-        time_y = False
+#         time_x = False
+#         time_y = False
 
-        # If we are dealing with time, convert to an ordinal fomat for trendline creation
-        if 'time' in self.selected_x_axis:
-            x_time_data_original = x_data
-            x_ref_time = x_data.min()
+#         # If we are dealing with time, convert to an ordinal fomat for trendline creation
+#         if 'time' in self.selected_x_axis:
+#             x_time_data_original = x_data
+#             x_ref_time = x_data.min()
 
-            # Normalize x-data for scaling purposes
-            x_data = (x_data - x_ref_time).dt.total_seconds()
-            x_data = x_data.to_numpy()
-            time_x = True
-        else:
-            x_data = x_data.to_numpy()
+#             # Normalize x-data for scaling purposes
+#             x_data = (x_data - x_ref_time).dt.total_seconds()
+#             x_data = x_data.to_numpy()
+#             time_x = True
+#         else:
+#             x_data = x_data.to_numpy()
             
-        if 'time' in self.selected_y_axis:
-            y_time_data_original = y_data
-            y_ref_time = y_data.min()
+#         if 'time' in self.selected_y_axis:
+#             y_time_data_original = y_data
+#             y_ref_time = y_data.min()
 
-            # Normalize y-data for scaling purposes
-            y_data = (y_data - y_ref_time).dt.total_seconds()
-            y_data = y_data.to_numpy()
-            time_y = True
-        else:
-            y_data = y_data.to_numpy()
-
-
-        if len(x_data) > 1 and len(y_data) > 1:
-
-            if trendline_type == "Linear":
-                try:
-                    z = np.polyfit(x_data, y_data, 1)  # 1st degree polynomial (linear fit)
-                    p = np.poly1d(z)
-
-                    if time_x:
-                        self.ax.plot(x_time_data_original, p(x_data), "r--")
-                    else:
-                        self.ax.plot(x_data, p(x_data), "r--")
-                except Exception as e:
-                    logger.exception(f"[Graphing  ] Could not fit linear trendline: {e}")
-                    self.ids.trendline_spinner.text = "None"
+#             # Normalize y-data for scaling purposes
+#             y_data = (y_data - y_ref_time).dt.total_seconds()
+#             y_data = y_data.to_numpy()
+#             time_y = True
+#         else:
+#             y_data = y_data.to_numpy()
 
 
-            elif trendline_type == "Quadratic":
-                try:
-                    z = np.polyfit(x_data, y_data, 2)
-                    p = np.poly1d(z)
+#         if len(x_data) > 1 and len(y_data) > 1:
 
-                    if time_x:
-                        self.ax.plot(x_time_data_original, p(x_data), "r--")
-                    else:
-                        self.ax.plot(x_data, p(x_data), "r--")
-                except Exception as e:
-                    logger.exception(f"[Graphing  ] Could not fit quadratic trendline: {e}")
-                    self.ids.trendline_spinner.text = "None"
+#             if trendline_type == "Linear":
+#                 try:
+#                     z = np.polyfit(x_data, y_data, 1)  # 1st degree polynomial (linear fit)
+#                     p = np.poly1d(z)
 
-            elif trendline_type == "Exponential":
-                try:
-                    log_y_data = np.log(y_data)
+#                     if time_x:
+#                         self.ax.plot(x_time_data_original, p(x_data), "r--")
+#                     else:
+#                         self.ax.plot(x_data, p(x_data), "r--")
+#                 except Exception as e:
+#                     logger.exception(f"[Graphing  ] Could not fit linear trendline: {e}")
+#                     self.ids.trendline_spinner.text = "None"
 
-                    # Calculate the exponential trendline
-                    z = np.polyfit(x_data, log_y_data, 1)
-                    p = np.poly1d(z)
 
-                    # Convert back to original scale
-                    exp_y_data = np.exp(p(x_data))
+#             elif trendline_type == "Quadratic":
+#                 try:
+#                     z = np.polyfit(x_data, y_data, 2)
+#                     p = np.poly1d(z)
 
-                    if time_x:
-                        self.ax.plot(x_time_data_original, exp_y_data, "r--")
-                    else:
-                        self.ax.plot(x_data, exp_y_data, "r--")
-                except Exception as e:
-                    logger.exception(f"[Graphing  ] Could not fit exponential trendline: {e}")
-                    self.ids.trendline_spinner.text = "None"
+#                     if time_x:
+#                         self.ax.plot(x_time_data_original, p(x_data), "r--")
+#                     else:
+#                         self.ax.plot(x_data, p(x_data), "r--")
+#                 except Exception as e:
+#                     logger.exception(f"[Graphing  ] Could not fit quadratic trendline: {e}")
+#                     self.ids.trendline_spinner.text = "None"
 
-            elif trendline_type == "Power":
-                try:
-                    # Transform data for power fit
-                    log_x_data = np.log(x_data)
-                    log_y_data = np.log(y_data)
+#             elif trendline_type == "Exponential":
+#                 try:
+#                     log_y_data = np.log(y_data)
 
-                    # Calculate the power trendline
-                    z = np.polyfit(log_x_data, log_y_data, 1)
-                    p = np.poly1d(z)
+#                     # Calculate the exponential trendline
+#                     z = np.polyfit(x_data, log_y_data, 1)
+#                     p = np.poly1d(z)
 
-                    # Convert back to original scale
-                    power_y_data = np.exp(p(np.log(x_data)))
+#                     # Convert back to original scale
+#                     exp_y_data = np.exp(p(x_data))
 
-                    try:
-                        self.ax.plot(x_data, power_y_data, "r--")
-                    except Exception as e:
-                        logger.exception(f"Graphing ] Power trendline error: {e}")
-                except Exception as e:
-                    logger.exception(f"[Graphing  ] Could not fit power trendline: {e}")
-                    self.ids.trendline_spinner.text = "None"
+#                     if time_x:
+#                         self.ax.plot(x_time_data_original, exp_y_data, "r--")
+#                     else:
+#                         self.ax.plot(x_data, exp_y_data, "r--")
+#                 except Exception as e:
+#                     logger.exception(f"[Graphing  ] Could not fit exponential trendline: {e}")
+#                     self.ids.trendline_spinner.text = "None"
 
-            elif trendline_type == "Logarithmic":
-                try:
-                    # Transform x_data for logarithmic fit
-                    log_x_data = np.log(x_data)
+#             elif trendline_type == "Power":
+#                 try:
+#                     # Transform data for power fit
+#                     log_x_data = np.log(x_data)
+#                     log_y_data = np.log(y_data)
 
-                    # Calculate the logarithmic trendline
-                    z = np.polyfit(log_x_data, y_data, 1)
-                    p = np.poly1d(z)
+#                     # Calculate the power trendline
+#                     z = np.polyfit(log_x_data, log_y_data, 1)
+#                     p = np.poly1d(z)
 
-                    try:
-                        self.ax.plot(x_data, p(np.log(x_data)), "r--")
-                    except Exception as e:
-                        logger.exception(f"Graphing ] Logarithmic trendline error: {e}")
-                except Exception as e:
-                    logger.exception(f"[Graphing  ] Could not fit logarithmic trendline: {e}")
-                    self.ids.trendline_spinner.text = "None"
+#                     # Convert back to original scale
+#                     power_y_data = np.exp(p(np.log(x_data)))
+
+#                     try:
+#                         self.ax.plot(x_data, power_y_data, "r--")
+#                     except Exception as e:
+#                         logger.exception(f"Graphing ] Power trendline error: {e}")
+#                 except Exception as e:
+#                     logger.exception(f"[Graphing  ] Could not fit power trendline: {e}")
+#                     self.ids.trendline_spinner.text = "None"
+
+#             elif trendline_type == "Logarithmic":
+#                 try:
+#                     # Transform x_data for logarithmic fit
+#                     log_x_data = np.log(x_data)
+
+#                     # Calculate the logarithmic trendline
+#                     z = np.polyfit(log_x_data, y_data, 1)
+#                     p = np.poly1d(z)
+
+#                     try:
+#                         self.ax.plot(x_data, p(np.log(x_data)), "r--")
+#                     except Exception as e:
+#                         logger.exception(f"Graphing ] Logarithmic trendline error: {e}")
+#                 except Exception as e:
+#                     logger.exception(f"[Graphing  ] Could not fit logarithmic trendline: {e}")
+#                     self.ids.trendline_spinner.text = "None"
                 
-            self.update_graph()
+#             self.update_graph()
 
 
-    def regenerate_graph(self):
-        self.initialize_graph()
-        self.set_x_axis()
-        self.set_y_axis()
-        if self.trendline_enabled:
-            self.update_trendline()
+#     def regenerate_graph(self):
+#         self.initialize_graph()
+#         self.set_x_axis()
+#         self.set_y_axis()
+#         if self.trendline_enabled:
+#             self.update_trendline()
 
-    def initialize_graph(self):
-        if plt:
-            plt.clf()
-        graphing_area = self.graphing_area
-        self.fig, self.ax = plt.subplots()
-        self.ax.scatter([], [])
-        self.ax.set_xlabel(self.x_axis_label)
-        self.ax.set_ylabel(self.y_axis_label)
-        self.ax.set_title(self.graph_title)
+#     def initialize_graph(self):
+#         if plt:
+#             plt.clf()
+#         graphing_area = self.graphing_area
+#         self.fig, self.ax = plt.subplots()
+#         self.ax.scatter([], [])
+#         self.ax.set_xlabel(self.x_axis_label)
+#         self.ax.set_ylabel(self.y_axis_label)
+#         self.ax.set_title(self.graph_title)
 
-        if self.graph_widget:
-            graphing_area.remove_widget(self.graph_widget)
+#         if self.graph_widget:
+#             graphing_area.remove_widget(self.graph_widget)
 
-        self.graph_widget = FigureCanvasKivyAgg(plt.gcf())
+#         self.graph_widget = FigureCanvasKivyAgg(plt.gcf())
         
-        graphing_area.add_widget(self.graph_widget)
+#         graphing_area.add_widget(self.graph_widget)
 
 
-    def update_graph(self):
-        self.graph_widget.draw()
+#     def update_graph(self):
+#         self.graph_widget.draw()
 
-    def save_graph(self, filepath):
-        plt.savefig(filepath)
+#     def save_graph(self, filepath):
+#         plt.savefig(filepath)
 
-    def set_graphing_source(self, file):
-        self._source_csv = file
-        self.initialize_graph()
-        try:
-            self.graph_df = pd.read_csv(file)
-            self.available_axes = list(self.graph_df.keys())
-            if self.available_axes[0] == "file":
-                self.available_axes = self.available_axes[1:]
-            if "time" in self.available_axes:
-                self.graph_df['time'] = [date_time.strptime(datetime_obj, '%c') for datetime_obj in self.graph_df['time']]
+#     def set_graphing_source(self, file):
+#         self._source_csv = file
+#         self.initialize_graph()
+#         try:
+#             self.graph_df = pd.read_csv(file)
+#             self.available_axes = list(self.graph_df.keys())
+#             if self.available_axes[0] == "file":
+#                 self.available_axes = self.available_axes[1:]
+#             if "time" in self.available_axes:
+#                 self.graph_df['time'] = [date_time.strptime(datetime_obj, '%c') for datetime_obj in self.graph_df['time']]
                     
-            self.update_available_axes()
-            self.set_x_axis()
-            self.set_y_axis()
+#             self.update_available_axes()
+#             self.set_x_axis()
+#             self.set_y_axis()
 
-        except Exception as e:
-            logger.exception(f"Graph Generation | Set graphing source | {e}")
+#         except Exception as e:
+#             logger.exception(f"Graph Generation | Set graphing source | {e}")
 
 
 
-    def set_post_processing_module(self, postprocessingmodule):
-        self._post = postprocessingmodule
+#     def set_post_processing_module(self, postprocessingmodule):
+#         self._post = postprocessingmodule
 
 
 class CellCountControls(BoxLayout):
@@ -3607,18 +3607,18 @@ class PostProcessingAccordion(BoxLayout):
 
         self._cell_count_popup.open()
 
-    def open_graphing(self):
-        global graphing_controls
-        if self._graphing_popup is None:
-            graphing_controls.set_post_processing_module(self.post)
-            self._graphing_popup = Popup(
-                title="Post Processing - Object Plotting",
-                content=graphing_controls,
-                size_hint=(0.85,0.85),
-                auto_dismiss=True
-            )
+    # def open_graphing(self):
+    #     global graphing_controls
+    #     if self._graphing_popup is None:
+    #         graphing_controls.set_post_processing_module(self.post)
+    #         self._graphing_popup = Popup(
+    #             title="Post Processing - Object Plotting",
+    #             content=graphing_controls,
+    #             size_hint=(0.85,0.85),
+    #             auto_dismiss=True
+    #         )
         
-        self._graphing_popup.open()
+    #     self._graphing_popup.open()
 
 
 def open_last_save_folder():
@@ -7896,9 +7896,9 @@ class FileChooseBTN(Button):
             elif self.context == 'load_cell_count_input_image':
                 cell_count_content.set_preview_source_file(file=self.selection[0])
 
-            elif self.context == 'load_graphing_data':
-                print("Set Graphing source")
-                graphing_controls.set_graphing_source(file=self.selection[0])
+            # elif self.context == 'load_graphing_data':
+            #     print("Set Graphing source")
+            #     graphing_controls.set_graphing_source(file=self.selection[0])
 
             elif self.context == 'load_cell_count_method':
                 cell_count_content.load_method_from_file(file=self.selection[0])
@@ -8068,10 +8068,10 @@ class FileSaveBTN(Button):
                 lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
                 logger.info('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
 
-        elif self.context == 'save_graph':
-            if self.selection:
-                graphing_controls.save_graph(filepath=self.selection[0])
-                logger.info('[LVP Main  ] Saving Graph PNG to File:' + self.selection[0])
+        # elif self.context == 'save_graph':
+        #     if self.selection:
+        #         graphing_controls.save_graph(filepath=self.selection[0])
+        #         logger.info('[LVP Main  ] Saving Graph PNG to File:' + self.selection[0])
         
         elif self.context == 'saveas_cell_count_method':
             if self.selection:
@@ -8289,7 +8289,7 @@ class LumaViewProApp(App):
         global Window
         global lumaview
         global cell_count_content
-        global graphing_controls
+        # global graphing_controls
         global video_creation_controls
         global stitch_controls
         global zprojection_controls
@@ -8314,7 +8314,7 @@ class LumaViewProApp(App):
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
             cell_count_content = CellCountControls()
-            graphing_controls = GraphingControls()
+            # graphing_controls = GraphingControls()
             #Window.maximize()
         except:
             logger.exception('[LVP Main  ] Cannot open main display.')
