@@ -3839,7 +3839,7 @@ class ImageSettings(BoxLayout):
     def _init_ui(self, dt=0):
         self.assign_led_button_down_images()
         self.accordion_collapse()
-        self.set_layer_exposure_range()
+        self.set_layer_exposure_ranges()
         self.enable_image_stats_if_needed()
 
 
@@ -3853,7 +3853,7 @@ class ImageSettings(BoxLayout):
                 layer_obj.ids['image_af_score_id'].height = '30dp'
 
 
-    def set_layer_exposure_range(self):
+    def set_layer_exposure_ranges(self):
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['exp_slider'].max = max_exposure
@@ -6626,7 +6626,7 @@ class MicroscopeSettings(BoxLayout):
                     "wait_until_complete": True
                 }
             ))
-        
+        lumaview.ids['imagesettings_id'].set_layer_exposure_ranges()
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
         layer_obj.apply_settings()
         Clock.schedule_once(layer_obj.apply_settings, 5)
