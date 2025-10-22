@@ -6615,7 +6615,7 @@ class MicroscopeSettings(BoxLayout):
             
             if turret_position is None:
                 DEFAULT_POSITION = 1
-                logger.error(f"Turret position for objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
+                logger.info(f"Turret position for set objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
                 turret_position = DEFAULT_POSITION
 
             turret_executor.put(IOTask(
@@ -8216,7 +8216,7 @@ class LumaViewProApp(App):
             
             if turret_position is None:
                 DEFAULT_POSITION = 1
-                logger.error(f"Turret position for objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
+                logger.info(f"Turret position for set objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
                 turret_position = DEFAULT_POSITION
 
             turret_executor.put(IOTask(
