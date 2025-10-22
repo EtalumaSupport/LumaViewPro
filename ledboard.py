@@ -46,17 +46,26 @@ class LEDBoard:
     #----------------------------------------------------------
     def __init__(self, **kwargs):
         logger.info('[LED Class ] LEDBoard.__init__()')
-        ports = list_ports.comports(include_links = True)
+        
+        self._init_variables()
+
+        controller_found = self.device_search()
+
+        if not controller_found:
+            logger.error('[LED Class ] LED controller not found during initialization.')
+            return
+        
+        try:
+            logger.info('[LED Class ] Found LED controller. Attempting to establish connection.')
+            self.connect()
+        except:
+            logger.error('[LED Class ] Found LED controller but unable to establish connection.')
+            raise
+
+    def _init_variables(self):
         self.found = False
         self.thread_lock = threading.RLock()
         self.port = None
-
-        for port in ports:
-            if (port.vid == 0x0424) and (port.pid == 0x704C):
-                logger.info(f'[LED Class ] LED Controller at {port.device}')
-                self.port = port.device
-                self.found = True
-                break
 
         self.baudrate=115200
         self.bytesize=serial.EIGHTBITS
@@ -74,20 +83,40 @@ class LEDBoard:
             'Green': -1,
         }
 
-        try:
-            logger.info('[LED Class ] Found LED controller and about to establish connection.')
-            self.connect()
-        except:
-            logger.error('[LED Class ] Found LED controller but unable to establish connection.')
-            raise
+    def device_search(self) -> bool:
+        """ Search for the LED controller based on the known VID/PID"""
+        with self.thread_lock:
+            self.port = None
+
+            found = False
+
+            ports = list_ports.comports(include_links = True)
+            for port in ports:
+                if (port.vid == 0x0424) and (port.pid == 0x704C):
+                    logger.info(f'[LED Class ] LED Controller found at {port.device}')
+                    self.port = port.device
+                    found = True
+                    break
+
+            self.found = found
+
+        if not found:
+            logger.info(f'[LED Class ] LED Controller not found.')
+
+        return found
 
 
     def connect(self):
         """ Try to connect to the LED controller based on the known VID/PID"""
         with self.thread_lock:
             try:
-                logger.info('[LED Class ] Found LED controller and about to create driver.')
+                if self.is_connected():
+                    logger.warning('[LED Class ] LEDBoard.connect() already connected to LED controller or improper disconnection.')
+                    logger.warning('[LED Class ] LEDBoard.connect() Please disconnect first before attempting to reconnect.')
+                    return
+                
                 if self.port is not None:
+                    logger.info('[LED Class ] LEDBoard.connect() Port found. Attempting to establish connection.')
                     self.driver = serial.Serial(port=self.port,
                                                 baudrate=self.baudrate,
                                                 bytesize=self.bytesize,
@@ -96,7 +125,8 @@ class LEDBoard:
                                                 timeout=self.timeout,
                                                 write_timeout=self.write_timeout)
                 else:
-                    raise ValueError("No port found for LED controller")
+                    logger.error("[LED Class ] LEDBoard.connect() No port found for LED controller")
+                    return
 
                 # self.driver.close()
                 # self.driver.open()
@@ -111,22 +141,45 @@ class LEDBoard:
                 self.driver = None
                 logger.error(f'[LED Class ] LEDBoard.connect() failed: {e}')
 
-    def disconnect(self):
-        logger.info('[LED Class ] Disconnecting from LED controller...')
+    def disconnect(self, echo: bool = True):
+        if echo:
+            logger.info('[LED Class ] Disconnecting from LED controller...')
         try:
             if self.driver is not None:
                 self.driver.close()
                 self.driver = None
                 self.port = None
-                logger.info('[LED Class ] LEDBoard.disconnect() succeeded')
+                if echo:    
+                    logger.info('[LED Class ] LEDBoard.disconnect() succeeded')
             else:
-                logger.info('[LED Class ] LEDBoard.disconnect() failed: LED controller not connected')
+                if echo:
+                    logger.info('[LED Class ] LEDBoard.disconnect() failed: LED controller not connected')
 
         except Exception as e:
-            logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
+            if echo:
+                logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
 
     def is_connected(self) -> bool:
+        """ Check if connection to LED controller is established """
+        port_found = self.device_search()
+        if not port_found:
+            logger.info('[LED Class ] LEDBoard.is_connected() LED controller port not found during connection check.')
+            self.disconnect(echo=True)
+
         return self.driver is not None
+    
+    def search_and_connect(self) -> bool:
+        """ Search for the LED controller and connect if found """
+        if self.is_connected():
+            logger.info('[LED Class ] LEDBoard.search_and_connect() already connected to LED controller or improper disconnection.')
+            return True
+
+        found = self.device_search()
+        if found:
+            self.connect()
+            return self.is_connected()
+        else:
+            return False
 
     def exchange_command(self, command):
         """ Exchange command through serial to LED board

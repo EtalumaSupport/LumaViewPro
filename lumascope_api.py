@@ -64,26 +64,11 @@ class Lumascope():
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()
 
-        # LED Control Board
-        try:
-            self.led = LEDBoard()
+        self.connect(echo=True)
 
-        except:
-            logger.exception('[SCOPE API ] LED Board Not Initialized')
-        
-        # Motion Control Board
-        try:
-            self.motion = MotorBoard()
-        except:
-            logger.exception('[SCOPE API ] Motion Board Not Initialized')
+        self._init_variables()
 
-        # Camera
-        self.image_buffer = None
-        try:
-            self.camera = PylonCamera()
-        except:
-            logger.exception('[SCOPE API ] Camera Board Not Initialized')
-
+    def _init_variables(self):
         # Initialize scope status booleans
         self.is_homing = False           # Is the microscope currently moving to home position
 
@@ -111,27 +96,55 @@ class Lumascope():
             'enabled': False
         }
 
-    def disconnect(self):
-        logger.info('[SCOPE API ] Disconnecting from microscope...')
+    def connect(self, echo: bool = True):
+        # LED Control Board
+        try:
+            self.led = LEDBoard()
+
+        except:
+            if echo:
+                logger.exception('[SCOPE API ] LED Board Not Initialized')
+        
+        # Motion Control Board
+        try:
+            self.motion = MotorBoard()
+        except:
+            if echo:
+                logger.exception('[SCOPE API ] Motion Board Not Initialized')
+
+        # Camera
+        self.image_buffer = None
+        try:
+            self.camera = PylonCamera()
+        except:
+            if echo:
+                logger.exception('[SCOPE API ] Camera Board Not Initialized')
+
+    def disconnect(self, echo: bool = True):
+        if echo:
+            logger.info('[SCOPE API ] Disconnecting from microscope...')
         if self.led is not None:
-            self.led.disconnect()
+            self.led.disconnect(echo=echo)
             self.led = None
 
         if self.motion is not None:
-            self.motion.disconnect()
+            self.motion.disconnect(echo=echo)
             self.motion = None
 
         if self.camera is not None:
-            self.camera.disconnect()
+            self.camera.disconnect(echo=echo)
             self.camera = None
 
-        logger.info('[SCOPE API ] Microscope disconnected')
+        if echo:
+            logger.info('[SCOPE API ] Microscope disconnected')
 
-    # def reconnect(self):
-    #     logger.info('[SCOPE API ] Attempting to reconnect to microscope...')
-    #     self.disconnect()
-    #     self.__init__()
-    #     logger.info('[SCOPE API ] Microscope reconnected')
+    def reconnect(self, echo: bool = True):
+        if echo:
+            logger.info('[SCOPE API ] Attempting to reconnect to microscope...')
+        self.disconnect(echo=echo)
+        self.__init__()
+        if echo:
+            logger.info('[SCOPE API ] Microscope reconnected')
 
     def are_all_connected(self) -> bool:
         logger.info('[SCOPE API ] Performing connection check...')

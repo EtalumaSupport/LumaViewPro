@@ -1317,7 +1317,14 @@ class ScopeDisplay(Image):
         self.texture = None
         self.source = "./data/icons/camera_to_USB.png"
         self.camera_disconnected_display_set = True
+        #camera_executor.clear_pending()
+        #self.reconnection_check = Clock.schedule_interval(lambda dt: camera_executor.put(IOTask(self.check_reconnection)), 1.0)
         return
+
+    def check_reconnection(self):
+        pass
+
+
 
     def source_clear(self):
         self.source = ''

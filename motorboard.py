@@ -115,17 +115,21 @@ class MotorBoard:
                 self.driver = None
                 logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
 
-    def disconnect(self):
-        logger.info('[XYZ Class ] Disconnecting from motor controller...')
+    def disconnect(self, echo: bool = True):
+        if echo:
+            logger.info('[XYZ Class ] Disconnecting from motor controller...')
         try:
             if self.driver is not None:
                 self.driver.close()
                 self.driver = None
-                logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
+                if echo:
+                    logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
             else:
-                logger.info('[XYZ Class ] MotorBoard.disconnect() failed: Motor controller not connected')
+                if echo:
+                    logger.info('[XYZ Class ] MotorBoard.disconnect() failed: Motor controller not connected')
         except Exception as e:
-            logger.error(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
+            if echo:
+                logger.error(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
 
     def is_connected(self) -> bool:
         return self.driver is not None
