@@ -1150,6 +1150,7 @@ class ScopeDisplay(Image):
     def __init__(self, **kwargs):
         super(ScopeDisplay,self).__init__(**kwargs)
         logger.info('[LVP Main  ] ScopeDisplay.__init__()')
+        self.play = True
         self.use_bullseye = False
         self.use_crosshairs = False
         self.use_live_image_histogram_equalization = False
@@ -1819,10 +1820,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         if scope_display.play == True:
             scope_display.play = False
+            scope_display.stop()
             if self.scope.led:
+                # TODO: Update UI to reflect
                 self.scope.leds_off()
                 logger.info('[LVP Main  ] self.scope.leds_off()')
-            scope_display.stop()
+                for layer in common_utils.get_layers():
+                    layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                    layer_obj.update_led_toggle_ui()
         else:
             scope_display.play = True
             scope_display.start()
@@ -7576,6 +7581,15 @@ class LayerControl(BoxLayout):
         else:
             logger.info(f'[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch({self.layer}), {illumination})')
             lumaview.scope.led_on(channel=channel, mA=illumination)          
+
+    def update_led_toggle_ui(self):
+        if lumaview.scope.led:
+            channel=lumaview.scope.color2ch(self.layer)
+            led_state = lumaview.scope.get_led_state(channel=channel)
+            if led_state['enabled']:
+                self.ids['enable_led_btn'].state = 'down'
+            else:
+                self.ids['enable_led_btn'].state = 'normal'
 
 
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
