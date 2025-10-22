@@ -7297,7 +7297,10 @@ class LayerControl(BoxLayout):
     def ill_text(self):
         logger.info('[LVP Main  ] LayerControl.ill_text()')
         ill_min = self.ids['ill_slider'].min
-        ill_max = self.ids['ill_slider'].max
+        if self.layer == "BF":
+            ill_max = 500
+        else:
+            ill_max = self.ids['ill_slider'].max
         try:
             ill_val = float(self.ids['ill_text'].text)
         except:
@@ -7306,7 +7309,7 @@ class LayerControl(BoxLayout):
         illumination = float(np.clip(ill_val, ill_min, ill_max))
 
         settings[self.layer]['ill'] = illumination
-        self.ids['ill_slider'].value = illumination
+        self.ids['ill_slider'].value = float(np.clip(illumination, ill_min, self.ids['ill_slider'].max))
         self.ids['ill_text'].text = str(illumination)
 
         self.apply_settings()
@@ -7585,7 +7588,7 @@ class LayerControl(BoxLayout):
     def update_led_toggle_ui(self):
         if lumaview.scope.led:
             channel=lumaview.scope.color2ch(self.layer)
-            led_state = lumaview.scope.get_led_state(channel=channel)
+            led_state = lumaview.scope.get_led_state(color=channel)
             if led_state['enabled']:
                 self.ids['enable_led_btn'].state = 'down'
             else:
