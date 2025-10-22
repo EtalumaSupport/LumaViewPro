@@ -1811,6 +1811,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         super(MainDisplay,self).__init__(**kwargs)
         self.scope = lumascope_api.Lumascope()
         self.recording = False
+        self.led_on_before_pause = False
 
     def cam_toggle(self):
         logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
@@ -1823,12 +1824,17 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             scope_display.stop()
             if self.scope.led:
                 # TODO: Update UI to reflect
+                self.led_on_before_pause = self.scope.get_led_state(color=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))['enabled']
                 self.scope.leds_off()
                 logger.info('[LVP Main  ] self.scope.leds_off()')
-                for layer in common_utils.get_layers():
-                    layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-                    layer_obj.update_led_toggle_ui()
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))
+                layer_obj.update_led_toggle_ui()
         else:
+            if self.led_on_before_pause:
+                self.scope.led_on(channel=self.scope.color2ch(common_utils.get_opened_layer(lumaview.ids['imagesettings_id'])), mA=settings[common_utils.get_opened_layer(lumaview.ids['imagesettings_id'])]['ill'])
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))
+                layer_obj.update_led_toggle_ui()
+
             scope_display.play = True
             scope_display.start()
 
@@ -7587,8 +7593,7 @@ class LayerControl(BoxLayout):
 
     def update_led_toggle_ui(self):
         if lumaview.scope.led:
-            channel=lumaview.scope.color2ch(self.layer)
-            led_state = lumaview.scope.get_led_state(color=channel)
+            led_state = lumaview.scope.get_led_state(color=self.layer)
             if led_state['enabled']:
                 self.ids['enable_led_btn'].state = 'down'
             else:
