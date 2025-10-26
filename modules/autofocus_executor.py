@@ -104,10 +104,12 @@ class AutofocusExecutor:
         objective_id: str,
         callbacks: dict = {},
         save_results_to_file: bool = False,
+        run_trigger_source: str = None,
         results_dir: pathlib.Path | None = None,
     ):
         self._reset_state()
         self._callbacks = callbacks
+        self._run_trigger_source = run_trigger_source
         self._autofocus_executor.protocol_start()
         self._last_progress_ts = time.monotonic()
 
@@ -405,8 +407,14 @@ class AutofocusExecutor:
         self._best_focus_position = None # Last / Previous focus score
         self._last_pass = False         # Are we on the last scan for autofocus?
         self._params = {}
+        self._run_trigger_source = None
         self._autofocus_executor.protocol_end()
         self._autofocus_executor.clear_protocol_pending()
+        try:
+            if self._use_kivy_clock:
+                self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+        except Exception:
+            pass
 
 
 

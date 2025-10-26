@@ -541,6 +541,7 @@ class SequencedCaptureExecutor:
                 objective_id=step['Objective'],
                 save_results_to_file=self._save_autofocus_data,
                 results_dir=self._parent_dir,
+                run_trigger_source=self._run_trigger_source,
                 callbacks=af_executor_callbacks,
             )
             
