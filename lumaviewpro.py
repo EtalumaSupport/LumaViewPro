@@ -5747,16 +5747,10 @@ class ProtocolSettings(CompositeCapture):
 
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
         if self.ids['run_protocol_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
-            af_trigger_source = sequenced_capture_executor._autofocus_executor._run_trigger_source
-            if af_trigger_source == trigger_source:
-                # From the same source, so shutdown was unsuccessful. Force reset and continue.
-                sequenced_capture_executor._autofocus_executor._autofocus_executor.protocol_end()
-                sequenced_capture_executor._autofocus_executor.reset()
-
-            else:
-                run_not_started_func()
-                logger.warning(f"Cannot start protocol run. Autofocus still in progress.")
-                return
+  
+            run_not_started_func()
+            logger.warning(f"Cannot start protocol run. Autofocus still in progress.")
+            return
 
         if (sequenced_capture_executor.run_in_progress() and (run_trigger_source != trigger_source)):
             run_not_started_func()
@@ -5910,6 +5904,7 @@ class ProtocolSettings(CompositeCapture):
 
     def _cleanup_at_end_of_protocol(self, autofocus_scan: bool):
         sequenced_capture_executor.reset()
+        sequenced_capture_executor._autofocus_executor.reset()
         live_histo_reverse()
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
