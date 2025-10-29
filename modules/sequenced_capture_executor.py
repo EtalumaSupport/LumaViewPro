@@ -420,15 +420,17 @@ class SequencedCaptureExecutor:
         if self._scan_in_progress.is_set():
             self._scan_count += 1
 
-        self._scan_in_progress.set()
+        
         self._curr_step = 0
 
         # reset the is_complete flag on autofocus
         if 'run_scan_pre' in self._callbacks:
             self._callbacks['run_scan_pre']()
 
-        self.protocol_executor.protocol_put(IOTask(action=self._go_to_step, kwargs={"step_idx":self._curr_step}))
-        #self._go_to_step(step_idx=self._curr_step)
+        #self.protocol_executor.protocol_put(IOTask(action=self._go_to_step, kwargs={"step_idx":self._curr_step}))
+        self._go_to_step(step_idx=self._curr_step)
+
+        self._scan_in_progress.set()
 
         self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
         self._scan_iterator = Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._scan_iterate)), 0.1)

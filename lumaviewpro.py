@@ -1035,7 +1035,7 @@ def move_absolute_position(
                 }
             ))
         else:
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=pos)
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=pos, protocol=True)
     else:
         if not protocol:
             io_executor.put(IOTask(
@@ -4566,9 +4566,12 @@ class VerticalControl(BoxLayout):
             return
         
 
-    def turret_select(self, selected_position):
+    def turret_select(self, selected_position, protocol=False):
         if False == lumaview.scope.has_thomed():
-            io_executor.put(IOTask(lumaview.scope.thome))
+            if not protocol:
+                io_executor.put(IOTask(lumaview.scope.thome))
+            else:
+                lumaview.scope.thome()
 
         if not isinstance(selected_position, int) and not isinstance(selected_position, float):
             if not selected_position.isdigit():
@@ -4576,7 +4579,10 @@ class VerticalControl(BoxLayout):
         else:
             selected_position = int(selected_position)
 
-        io_executor.put(IOTask(lumaview.scope.tmove, kwargs={'position':selected_position}))
+        if not protocol:
+            io_executor.put(IOTask(lumaview.scope.tmove, kwargs={'position':selected_position}))
+        else:
+            lumaview.scope.tmove(position=selected_position)
 
         for available_position in range(1,5):
             if selected_position == available_position:
