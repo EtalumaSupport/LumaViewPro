@@ -671,7 +671,7 @@ def go_to_step(
                     Clock.schedule_once(lambda dt: lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].update_turret_gui(turret_pos), 0)
                 move_absolute_position('X', sx, protocol=True)
                 move_absolute_position('Y', sy, protocol=True)
-                move_absolute_position('Z', step["Z"], protocol=True)
+                move_absolute_position('Z', step["Z"], protocol=True, wait_until_complete=True)
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
@@ -1059,7 +1059,7 @@ def move_absolute_position(
             lumaview.scope.move_absolute_position(
                 axis=axis,
                 pos=pos,
-                wait_until_complete=protocol,
+                wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled
             )
 
