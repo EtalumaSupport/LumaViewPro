@@ -21,7 +21,7 @@ except ImportError:
         def unschedule(event): 
             pass
 
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future, CancelledError
 import queue
 from collections.abc import Sequence
 from lvp_logger import logger
@@ -262,7 +262,7 @@ class SequentialIOExecutor:
                     if self.pending_shutdown:
                         return
                     future = self.executor.submit(task.run)
-                    future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
+                    future.add_done_callback(lambda fut, t=task: self._safe_done_cb(fut, t))
                     self.running_task = task
                     #self.executed_protocol_tasks.append(task)
                 else:
@@ -271,11 +271,35 @@ class SequentialIOExecutor:
                     if self.pending_shutdown:
                         return
                     future = self.executor.submit(task.run)
-                    future.add_done_callback(lambda fut, t=task: self._on_task_done(t, *fut.result()))
+                    future.add_done_callback(lambda fut, t=task: self._safe_done_cb(fut, t))
                     self.running_task = task
                     #self.executed_tasks.append(task)
             except Exception as e:
                 logger.error(f"Uncaught Thread Exception in {self.name} Dispatcher: {e}")
+
+    def _safe_done_cb(self, fut, task):
+        try:
+            if fut.cancelled():
+                # Treat cancellation as a completed task with a CancelledError
+                self._on_task_done(task, None, CancelledError())
+                return
+
+            exc = fut.exception()
+            if exc is not None:
+                # This would only happen if task.run() itself raised and wasn't caught,
+                self._on_task_done(task, None, exc)
+                return
+
+            result = fut.result() 
+            # task.run() returns (res, None) or (None, e)
+            if isinstance(result, tuple) and len(result) == 2:
+                self._on_task_done(task, result[0], result[1])
+            else:
+                # Backstop in case run() changes
+                self._on_task_done(task, result, None)
+        except Exception as e:
+            logger.error(f"Done-callback error in {self.name}: {e}")
+
 
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
