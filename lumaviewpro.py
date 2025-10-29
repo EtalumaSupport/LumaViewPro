@@ -636,7 +636,11 @@ def go_to_step(
             )
 
             if turret_pos is None:
-                logger.error(f"Cannot move turret for step {step_idx}. No position found with objective {step_objective_id}")                
+                
+                logger.error(f"Cannot move turret for step {step_idx}. No position found with objective {step_objective_id}")         
+
+                error_msg = f"Cannot move turret to step {step_idx}. No objective position found matching step's objective: {step_objective_id}. Please check objective settings."
+                Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Objective Not Set", message=error_msg), 0)       
       
         # Move into position
         if lumaview.scope.motion.driver:
