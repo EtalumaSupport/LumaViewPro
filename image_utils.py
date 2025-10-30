@@ -229,10 +229,10 @@ def write_tiff(
             )
             # Ref: https://forum.image.sc/t/saving-tiff-stack-with-a-colormap-with-tifffile-library/101788
             if data.dtype == np.uint16:
-                support_data['extratags'].append((320, tifffile_dtypes['SHORT'], 0, colormap_array.tobytes(), True))            
-                colormap_array = None
-            elif (data.dtype == np.uint8) and (colormap_type == LvpColormap.GRAY):
-                # Note: tifffile doesn't support colormaps with 8-bit image and photometric is 'minisblack', so just disable
+                support_data['extratags'].append((320, tifffile_dtypes['SHORT'], 0, colormap_array.tobytes(), True))
+            # elif data.dtype == np.uint8:
+            #     support_data['extratags'].append((320, tifffile_dtypes['BYTE'], 0, colormap_array.tobytes(), True))
+            
                 colormap_array = None
 
             tif.write(
