@@ -1961,6 +1961,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         logger.info(f"Manual-Video] Video FPS: {calculated_fps}")
         logger.info("Manual-Video] Writing video...")
 
+        color, active_layer_config = get_active_layer_config()
+
+
         include_hyperstack_generation = False
 
         if self.video_as_frames:
@@ -1975,7 +1978,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 )
                 frame_metadata = []
 
-                active_layer_config = get_active_layer_config()
+                
 
             save_folder = self.video_save_folder
 
@@ -2006,7 +2009,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                         {
                             'Filepath': output_file_loc.name,
                             'Scan Count': frame_num,
-                            'Color': active_layer_config[0],
+                            'Color': color,
                             'Z-Slice': 0,
                             'X': current_position['X'],
                             'Y': current_position['Y'],
@@ -2021,6 +2024,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                         file_loc=output_file_loc,
                         video_frame=True,
                         ome=False,
+                        color=color
                     )
                 except Exception as e:
                     logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")

@@ -1267,6 +1267,7 @@ class SequencedCaptureExecutor:
                                 file_loc=output_file_loc,
                                 video_frame=True,
                                 ome=False,
+                                color=step['Color']
                             )
                         except Exception as e:
                             logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")

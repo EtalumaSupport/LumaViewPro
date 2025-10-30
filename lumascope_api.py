@@ -1550,6 +1550,7 @@ class Lumascope():
                 file_loc=file_loc,
                 metadata=metadata,
                 ome=ome,
+                color=color
             )
 
             print(f'[SCOPE API ] Saving Image to {file_loc}')
