@@ -592,6 +592,9 @@ class Lumascope():
 
         if array.dtype == np.uint16:
             array = image_utils.convert_12bit_to_16bit(array)
+
+        array = np.flip(array, 0)
+
         path = self.generate_image_save_path(
             save_folder=save_folder,
             file_root=file_root,
