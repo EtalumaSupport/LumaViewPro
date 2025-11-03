@@ -208,8 +208,6 @@ def write_tiff(
         extratags: list = [],
 ):
 
-    support_data = generate_tiff_data(data=data, metadata=metadata, ome=ome, video_frame=video_frame, color=color)
-
     if True == ome:
         kwargs = {
             'bigtiff': False,
@@ -219,8 +217,47 @@ def write_tiff(
         if data.dtype == np.uint16:
             kwargs['imagej'] = True
 
+    def _validate_type() -> str:
+        type_count = 0
+        image_type = 'none'
+
+        if True == ome:
+            type_count += 1
+            image_type = 'ome'
+
+        if kwargs.get('imagej', False) == True:
+            type_count += 1
+            image_type = 'imagej'
+        
+        if True == video_frame:
+            type_count += 1
+            image_type = 'video_frame'
+
+        if type_count > 1:
+            raise ValueError("Tiff must only be one type at most (OME, ImageJ, or Video Frame)")
+        
+        return image_type
+    
+    image_type = _validate_type()
+
+    support_data = generate_tiff_data(
+        data=data,
+        metadata=metadata,
+        image_type=image_type,
+        color=color
+    )
+
     with tf.TiffWriter(str(file_loc), **kwargs) as tif:
-        if not video_frame:
+        if image_type == 'video_frame':
+            tif.write(
+                data,
+                metadata=support_data['metadata'],
+                datetime=metadata['datetime'],
+                software=f"LumaViewPro {version}",
+                **support_data['options'],
+            )
+
+        else:
 
             colormap_type = color_channel_to_colormap_type(color_channel=color)
             colormap_array = get_tiff_colormap(
@@ -245,17 +282,9 @@ def write_tiff(
                 extratags=support_data['extratags'],
                 **support_data['options'],
             )
-        else:
-            tif.write(
-                data,
-                metadata=support_data['metadata'],
-                datetime=metadata['datetime'],
-                software=f"LumaViewPro {version}",
-                **support_data['options'],
-            )
             
     
-def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool, color: str):
+def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     
     dtype = tifffile_dtypes
     axes = 'YX'
@@ -274,7 +303,62 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool, color
     LensModel
 
     """
-    if True == ome:
+    
+    if image_type == 'imagej':
+        tiff_metadata={
+            'unit': 'um',
+            'axes': axes,
+            'SignificantBits': data.itemsize*8,
+            'PhysicalSizeX': metadata['pixel_size_um'],
+            'PhysicalSizeXUnit': 'um',
+            'PhysicalSizeY': metadata['pixel_size_um'],
+            'PhysicalSizeYUnit': 'um',
+            'Channel': {'Name': [metadata['channel']]},
+            'Plane': {
+                'PositionX': metadata['plate_pos_mm']['x'],
+                'PositionY': metadata['plate_pos_mm']['y'],
+                'PositionZ': metadata['z_pos_um'],
+                'PositionXUnit': 'mm',
+                'PositionYUnit': 'mm',
+                'PositionZUnit': 'um',
+                'Objective': metadata['objective'],
+                'ExposureTime': metadata['exposure_time_ms'],
+                'ExposureTimeUnit': 'ms',
+                'Gain': metadata['gain_db'],
+                'GainUnit': 'dB',
+                'Illumination': metadata['illumination_ma'],
+                'IlluminationUnit': 'mA'
+            }
+        }
+        tiff_extratags = []
+
+        # 2025-10-03:
+        # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
+        # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
+        options=dict(
+            photometric=photometric,
+            compression='lzw',
+            # resolutionunit='CENTIMETER',
+            # unit='um',
+            maxworkers=2,
+            # spacing=metadata['pixel_size_um'],
+        )
+
+        if data.dtype == np.uint8:
+            options['tile'] = (128, 128)
+
+        # Resolution for ImageJ types is in pixels/pixel
+        resolution = (1. / metadata['pixel_size_um'], 1. / metadata['pixel_size_um'])
+
+        return {
+            'metadata': tiff_metadata,
+            'extratags': tiff_extratags,
+            'options': options,
+            'resolution': resolution,
+            # 'resolutionunit': 'um',
+        }
+
+    elif image_type == 'ome':
         tiff_metadata={
             'axes': axes,
             'SignificantBits': data.itemsize*8,
@@ -302,23 +386,83 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool, color
         tiff_extratags = []
         # Metadata seems to be working properly for OME-TIFF's so let's leave it alone for now.
 
-    else:
-        if not video_frame:
-            """tiff_metadata={
-                "CameraMake": metadata['camera_make'],
-                "ExposureTime": metadata['exposure_time_ms'],           
-                "ISOSpeed": metadata['gain_db'],
-                "DateTime": metadata['datetime'],
-                "Software": metadata['software'],
-                "XPosition": metadata['x_pos'],             
-                "YPosition": metadata['y_pos'],
-                "SubjectDistance": metadata['z_pos_um'],
-                "SubSecTime": metadata['sub_sec_time'],
-                "Channel": metadata['channel'],
-                "BrightnessValue": metadata['illumination_ma']
-            }"""
+        # 2025-10-03:
+        # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
+        # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
+        options=dict(
+            photometric=photometric,
+            compression='lzw',
+            resolutionunit='CENTIMETER',
+            maxworkers=2
+        )
 
-            tiff_metadata={
+        if data.dtype == np.uint8:
+            options['tile'] = (128, 128)
+
+        resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
+
+        return {
+            'metadata': tiff_metadata,
+            'extratags': tiff_extratags,
+            'options': options,
+            'resolution': resolution,
+        }
+    
+    elif image_type == 'video_frame':
+        # Add further parameters in the future if testing goes well
+
+        """date_time_data = metadata['timestamp'].strftime("%Y:%m:%d %H:%M:%S")
+        sub_sec_time = f"{metadata['timestamp'].microsecond // 1000:03d}"
+
+        tiff_extratags = [
+        # Tag 306: DateTime (ASCII)
+        (306, 'ascii', len(date_time_data) + 1, date_time_data, False),
+
+        # Tag 37520: SubSecTime (ASCII)
+        (37520, 'ascii', len(sub_sec_time) + 1, sub_sec_time, False),
+
+        # Tag 37393: ImageNumber (long)
+        (37393, 'long', 1, metadata['frame_num'], False)
+
+        ]"""
+        tiff_extratags = []
+        tiff_metadata = metadata
+
+        # 2025-10-03:
+        # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
+        # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
+        options=dict(
+            photometric=photometric,
+            compression='lzw',
+            resolutionunit='CENTIMETER',
+            maxworkers=2
+        )
+
+        if data.dtype == np.uint8:
+            options['tile'] = (128, 128)
+
+        return {
+            'metadata': tiff_metadata,
+            'extratags': tiff_extratags,
+            'options': options,
+        }
+    
+    else:
+        """tiff_metadata={
+            "CameraMake": metadata['camera_make'],
+            "ExposureTime": metadata['exposure_time_ms'],           
+            "ISOSpeed": metadata['gain_db'],
+            "DateTime": metadata['datetime'],
+            "Software": metadata['software'],
+            "XPosition": metadata['x_pos'],             
+            "YPosition": metadata['y_pos'],
+            "SubjectDistance": metadata['z_pos_um'],
+            "SubSecTime": metadata['sub_sec_time'],
+            "Channel": metadata['channel'],
+            "BrightnessValue": metadata['illumination_ma']
+        }"""
+
+        tiff_metadata={
             'axes': axes,
             'SignificantBits': data.itemsize*8,
             'PhysicalSizeX': metadata['pixel_size_um'],
@@ -342,112 +486,85 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool, color
                 'IlluminationUnit': 'mA'
             }
         }
-            # extratags:
-            # Additional tags to write. A list of tuples with 5 items:
-            #
-            # 0. code (int): Tag Id.
-            #
-            # 1. dtype (:py:class:`DATATYPE`):
-            #    Data type of items in `value`.
-            #
-            # 2. count (int): Number of data values.
-            #    Not used for string or bytes values.
-            #
-            # 3. value (Sequence[Any]): `count` values compatible with
-            #   `dtype`. Bytes must contain count values of dtype packed
-            #    as binary data.
-            #
-            # 4. writeonce (bool): If *True*, write tag to first page
-            #    of a series only.
-            #
-            # Duplicate and select tags in TIFF.TAG_FILTERED are not written
-            # if the extratag is specified by integer code.
-            #
-            # Extratags cannot be used to write IFD type tags.
-            #
-            # Format: (tag_number, datatype, count, value, write_ifd)
-            # For rational number values: (numerator, denominator)
-            tiff_extratags = []
-            """tiff_extratags = [
-            # CameraMake: Tag ID 271, 'ASCII'
-            (271, dtype['ASCII'], len(metadata['camera_make']) + 1, metadata['camera_make'], False),
-            
+        # extratags:
+        # Additional tags to write. A list of tuples with 5 items:
+        #
+        # 0. code (int): Tag Id.
+        #
+        # 1. dtype (:py:class:`DATATYPE`):
+        #    Data type of items in `value`.
+        #
+        # 2. count (int): Number of data values.
+        #    Not used for string or bytes values.
+        #
+        # 3. value (Sequence[Any]): `count` values compatible with
+        #   `dtype`. Bytes must contain count values of dtype packed
+        #    as binary data.
+        #
+        # 4. writeonce (bool): If *True*, write tag to first page
+        #    of a series only.
+        #
+        # Duplicate and select tags in TIFF.TAG_FILTERED are not written
+        # if the extratag is specified by integer code.
+        #
+        # Extratags cannot be used to write IFD type tags.
+        #
+        # Format: (tag_number, datatype, count, value, write_ifd)
+        # For rational number values: (numerator, denominator)
+        tiff_extratags = []
+        """tiff_extratags = [
+        # CameraMake: Tag ID 271, 'ASCII'
+        (271, dtype['ASCII'], len(metadata['camera_make']) + 1, metadata['camera_make'], False),
+        
 
-            # ExposureTime: Tag ID 33434, 'RATIONAL'
-            (33434, dtype['RATIONAL'], 1, ms_exposure_to_rational(metadata['exposure_time_ms']), False),
+        # ExposureTime: Tag ID 33434, 'RATIONAL'
+        (33434, dtype['RATIONAL'], 1, ms_exposure_to_rational(metadata['exposure_time_ms']), False),
+
+    
+        # ISOSpeed: Tag ID 34867, 'double'
+        # Using in place of GainControl (Improper use of GainControl)
+        (34867, dtype['DOUBLE'], 1, metadata['gain_db'], False),
+        
+        # DateTime: Tag ID 306, 'ASCII'
+        (306, dtype['ASCII'], len(metadata['datetime']) + 1, metadata['datetime'], False),
+
+        # SubjectDistance: Tag ID 37386, 'RATIONAL'
+        (37386, dtype['RATIONAL'], 1, subject_dist_to_rational(metadata['z_pos_um']), False),
+
+        # SubSecTime: Tag ID 37520, 'ASCII'
+        (37520, dtype['ASCII'], len(metadata['sub_sec_time']) + 1, metadata['sub_sec_time'], False),
+
+        # Channel: Tag ID 65001, 'ASCII'  **CUSTOM**
+        (65001, dtype['ASCII'], len(metadata['channel']) + 1, metadata['channel'], False),
+
+        # BrightnessValue: Tag ID 37393, 'SRATIONAL'
+        (37393, dtype['SRATIONAL'], 1, (metadata['illumination_ma'], 1), False)]"""
+
+        """
+        # XPosition: Tag ID 65001, 'RATIONAL' 
+        # Need to double check units
+        (286, dtype['RATIONAL'], 1, (metadata['x_pos'], 1), False),]
 
         
-            # ISOSpeed: Tag ID 34867, 'double'
-            # Using in place of GainControl (Improper use of GainControl)
-            (34867, dtype['DOUBLE'], 1, metadata['gain_db'], False),
-            
-            # DateTime: Tag ID 306, 'ASCII'
-            (306, dtype['ASCII'], len(metadata['datetime']) + 1, metadata['datetime'], False),
+        # YPosition: Custom Tag ID 65002, 'RATIONAL'
+        # Need to double check units
+        (287, dtype['RATIONAL'], 1, (metadata['y_pos'], 1), False),
 
-            # SubjectDistance: Tag ID 37386, 'RATIONAL'
-            (37386, dtype['RATIONAL'], 1, subject_dist_to_rational(metadata['z_pos_um']), False),
+        
+        """
+        # 2025-10-03:
+        # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
+        # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
+        options=dict(
+            photometric=photometric,
+            compression='lzw',
+            resolutionunit='CENTIMETER',
+            maxworkers=2
+        )
 
-            # SubSecTime: Tag ID 37520, 'ASCII'
-            (37520, dtype['ASCII'], len(metadata['sub_sec_time']) + 1, metadata['sub_sec_time'], False),
+        if data.dtype == np.uint8:
+            options['tile'] = (128, 128)
 
-            # Channel: Tag ID 65001, 'ASCII'  **CUSTOM**
-            (65001, dtype['ASCII'], len(metadata['channel']) + 1, metadata['channel'], False),
-
-            # BrightnessValue: Tag ID 37393, 'SRATIONAL'
-            (37393, dtype['SRATIONAL'], 1, (metadata['illumination_ma'], 1), False)]"""
-
-            """
-            # XPosition: Tag ID 65001, 'RATIONAL' 
-            # Need to double check units
-            (286, dtype['RATIONAL'], 1, (metadata['x_pos'], 1), False),]
-
-            
-            # YPosition: Custom Tag ID 65002, 'RATIONAL'
-            # Need to double check units
-            (287, dtype['RATIONAL'], 1, (metadata['y_pos'], 1), False),
-
-            
-            """
-            
-
-
-        else:
-            # Video Frame
-            # Add further parameters in the future if testing goes well
-
-            """date_time_data = metadata['timestamp'].strftime("%Y:%m:%d %H:%M:%S")
-            sub_sec_time = f"{metadata['timestamp'].microsecond // 1000:03d}"
-
-            tiff_extratags = [
-            # Tag 306: DateTime (ASCII)
-            (306, 'ascii', len(date_time_data) + 1, date_time_data, False),
-
-            # Tag 37520: SubSecTime (ASCII)
-            (37520, 'ascii', len(sub_sec_time) + 1, sub_sec_time, False),
-
-            # Tag 37393: ImageNumber (long)
-            (37393, 'long', 1, metadata['frame_num'], False)
-
-            ]"""
-            tiff_extratags = []
-            tiff_metadata = metadata
-
-
-
-    # 2025-10-03:
-    # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
-    # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
-    options=dict(
-        photometric=photometric,
-        compression='lzw',
-        resolutionunit='CENTIMETER',
-        maxworkers=2
-    )
-
-    if data.dtype == np.uint8:
-        options['tile'] = (128, 128)
-
-    if not video_frame:
         resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
 
         return {
@@ -456,13 +573,7 @@ def generate_tiff_data(data, metadata: dict, ome: bool, video_frame: bool, color
             'options': options,
             'resolution': resolution,
         }
-    
-    else:
-        return {
-            'metadata': tiff_metadata,
-            'extratags': tiff_extratags,
-            'options': options,
-        }
+            
 
 def ms_exposure_to_rational(ms_exposure):
     exposure_seconds = ms_exposure / 1000
