@@ -1520,7 +1520,7 @@ class CompositeCapture(FloatLayout):
                     append,
                     color,
                     force_to_8bit=force_to_8bit_pixel_depth,
-                    output_format=settings['image_output_format'],
+                    output_format=settings['image_output_format']['live'],
                     sum_count=sum_count,
                     sum_delay_s=sum_delay_s,
                     sum_iteration_callback=sum_iteration_callback,

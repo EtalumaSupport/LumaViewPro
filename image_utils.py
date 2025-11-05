@@ -219,7 +219,7 @@ def write_tiff(
 
     def _validate_type() -> str:
         type_count = 0
-        image_type = 'none'
+        image_type = None
 
         if True == ome:
             type_count += 1
@@ -251,6 +251,17 @@ def write_tiff(
         if image_type == 'video_frame':
             tif.write(
                 data,
+                metadata=support_data['metadata'],
+                datetime=metadata['datetime'],
+                software=f"LumaViewPro {version}",
+                **support_data['options'],
+            )
+        
+        elif (image_type == None) and (True == is_color_image(image=data)):
+            # Handles case where an actual color image is provided (such as the bullseye in engineering mode)
+            tif.write(
+                data,
+                resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f"LumaViewPro {version}",
@@ -289,7 +300,10 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     dtype = tifffile_dtypes
     axes = 'YX'
 
-    if color in ('BF', 'PC', 'DF'):
+    if (image_type == None) and (True == is_color_image(data)):
+        # Handles case where an actual color image is provided (such as the bullseye in engineering mode)
+        photometric = tf.PHOTOMETRIC.RGB
+    elif color in ('BF', 'PC', 'DF'):
         photometric = tf.PHOTOMETRIC.MINISBLACK
     elif color in ('Red', 'Green', 'Blue'):
         photometric = tf.PHOTOMETRIC.PALETTE
