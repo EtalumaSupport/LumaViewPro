@@ -214,7 +214,11 @@ def write_tiff(
         }
     else:
         kwargs = {}
-        if data.dtype == np.uint16:
+        if is_color_image(data):
+            # For now, prevent 16-bit color images from being converted to ImageJ type
+            # such as composite (or bullseye). Could allow this once proper support is added.
+            pass
+        elif data.dtype == np.uint16:
             kwargs['imagej'] = True
 
     def _validate_type() -> str:
@@ -300,8 +304,8 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     dtype = tifffile_dtypes
     axes = 'YX'
 
-    if (image_type == None) and (True == is_color_image(data)):
-        # Handles case where an actual color image is provided (such as the bullseye in engineering mode)
+    if (True == is_color_image(data)):
+        # Handles case where an actual color image is provided (such as composite or bullseye in engineering mode)
         photometric = tf.PHOTOMETRIC.RGB
     elif color in ('BF', 'PC', 'DF'):
         photometric = tf.PHOTOMETRIC.MINISBLACK

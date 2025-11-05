@@ -1780,7 +1780,7 @@ class CompositeCapture(FloatLayout):
                 append=append,
                 color=None,
                 tail_id_mode='increment',
-                output_format=settings['image_output_format']
+                output_format=settings['image_output_format']['live']
             )
         elif acquired_channel_count != 0:
             lumaview.scope.save_image(
@@ -1790,7 +1790,7 @@ class CompositeCapture(FloatLayout):
                 append=append,
                 color=None,
                 tail_id_mode='increment',
-                output_format=settings['image_output_format']
+                output_format=settings['image_output_format']['live']
             )
         else:
             logger.info("[Composite Capture  ] No image saved as no channels were selected")
