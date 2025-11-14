@@ -1555,12 +1555,6 @@ class CompositeCapture(FloatLayout):
 
             if use_bullseye:
                 bullseye_image = lumaview.ids['viewer_id'].ids['scope_display_id'].transform_to_bullseye(image)
-
-                # Swap red/blue channels to match required format
-                red = bullseye_image[:,:,0].copy()
-                blue = bullseye_image[:,:,2].copy()
-                bullseye_image[:,:,0] = blue
-                bullseye_image[:,:,2] = red
             else:
                 bullseye_image = image
 
