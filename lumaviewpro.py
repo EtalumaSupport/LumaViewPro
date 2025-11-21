@@ -59,6 +59,11 @@ import shutil
 import userpaths
 import queue
 import threading
+import asyncio
+from asyncio import AbstractEventLoop
+from fastapi import FastAPI
+import uvicorn
+from rest_api import api_router
 from types import SimpleNamespace
 
 import tkinter
@@ -8745,12 +8750,24 @@ def dummy_function(PID: int):
         print(f"DUMMY FUNCTION {PID}")
     return
 
-if __name__ == "__main__":
+def start_kivy_app(loop: AbstractEventLoop):
+    loop.run_until_complete(LumaViewProApp().async_run(async_lib='asyncio'))
 
+def start_uvicorn_server(loop: AbstractEventLoop):
+    api = FastAPI()
+    api.include_router(api_router)
+    config = uvicorn.Config(api, loop=loop)
+    server = uvicorn.Server(config)
+    loop.create_task(server.serve())
+
+if __name__ == "__main__":
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
     # Replace the original method with our patched version
     ObservableReferenceList.__setslice__ = patched_setslice
-    LumaViewProApp().run()
+
+    loop = asyncio.get_event_loop()
+    start_uvicorn_server(loop)
+    start_kivy_app(loop)
 
 #endregion
