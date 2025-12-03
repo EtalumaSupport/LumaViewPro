@@ -5039,10 +5039,12 @@ class ProtocolSettings(CompositeCapture):
     def apply_tiling(self):
         logger.info('[LVP Main  ] Apply tiling to protocol')
 
+
         self._protocol.apply_tiling(
             tiling=self.ids['tiling_size_spinner'].text,
             frame_dimensions=get_current_frame_dimensions(),
             binning_size=get_binning_from_ui(),
+            curr_step_idx=self.curr_step
         )
         
         self._protocol.optimize_step_ordering()

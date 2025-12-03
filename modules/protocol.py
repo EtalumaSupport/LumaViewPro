@@ -370,6 +370,7 @@ class Protocol:
         tiling: str,
         frame_dimensions: dict,
         binning_size: int,
+        curr_step_idx: int,
     ):
         if tiling == '1x1':
             return
@@ -377,6 +378,7 @@ class Protocol:
         try:
             orig_steps_df = self.steps()
 
+            curr_step = orig_steps_df.iloc[curr_step_idx]
 
             # Add objective focal length to steps dataframe
             objectives = self._objective_loader.get_objectives_dataframe()['focal_length']
@@ -391,6 +393,8 @@ class Protocol:
         tile_group_id = existing_max_tile_group_id + 1
 
         new_steps = []
+
+        
         for idx, row in orig_steps_df.iterrows():
             try:
                 tiles = self._tiling_config.get_tile_centers(
@@ -424,8 +428,18 @@ class Protocol:
                 x_tile = round(x + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
                 y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
                 
+                if not orig_step_df['Custom Step']:
+                    name = common_utils.generate_default_step_name(
+                        well_label=orig_step_df['Well'],
+                        color=orig_step_df['Color'],
+                        tile_label=tile_label,
+                        objective_short_name=None,
+                    )
+                else:
+                    name = orig_step_df['Name']
+                
                 new_step_dict = self._create_step_dict(
-                    name=orig_step_df['Name'],
+                    name=name,
                     x=x_tile,
                     y=y_tile,
                     z=orig_step_df['Z'],
