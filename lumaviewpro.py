@@ -554,7 +554,7 @@ def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
     layer_obj.ids['enable_led_btn'].state = state
 
 
-def scope_leds_off():
+def scope_leds_off(no_callback: bool = False):
     global lumaview
 
     if protocol_running_global:
@@ -564,7 +564,10 @@ def scope_leds_off():
         logger.warning('[LVP Main  ] LED controller not available.')
         return
     
-    camera_executor.put(IOTask(action=lumaview.scope.leds_off, callback=_handle_ui_for_leds_off))
+    if no_callback:
+        camera_executor.put(IOTask(action=lumaview.scope.leds_off))
+    else:
+        camera_executor.put(IOTask(action=lumaview.scope.leds_off, callback=_handle_ui_for_leds_off))
     #lumaview.scope.leds_off()
     logger.info('[LVP Main  ] lumaview.scope.leds_off()')
     #_handle_ui_for_leds_off()
@@ -1585,6 +1588,11 @@ class CompositeCapture(FloatLayout):
 
         initial_layer = common_utils.get_opened_layer(lumaview.ids['imagesettings_id'])
 
+        if lumaview.scope.get_led_state(initial_layer)['enabled']:
+            led_restore_state = True
+        else:
+            led_restore_state = False
+
         acquired_channel_count = 0
         most_recent_aq_channel = None
 
@@ -1660,7 +1668,7 @@ class CompositeCapture(FloatLayout):
             'Lumi': 0,
         }
 
-        scope_leds_off()
+        scope_leds_off(no_callback=True)
 
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
             layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
@@ -1751,7 +1759,7 @@ class CompositeCapture(FloatLayout):
                     elif layer == 'Red':
                         img[:,:,2] = img_gray
 
-            scope_leds_off()
+            scope_leds_off(no_callback=True)
 
             Clock.unschedule(layer_obj.ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
@@ -1790,15 +1798,24 @@ class CompositeCapture(FloatLayout):
             logger.info("[Composite Capture  ] No image saved as no channels were selected")
 
         live_histo_reverse()
+        
+        opened_layer_obj = common_utils.get_opened_layer_obj(lumaview.ids['imagesettings_id'])
 
-        # Reverse to settings of the channel that were originally selected
-        if initial_layer is not None:
-            gain = settings[initial_layer]['gain']
-            lumaview.scope.set_gain(gain)
-            exposure = settings[initial_layer]['exp']
-            lumaview.scope.set_exposure_time(exposure)
-            sum_count=settings[initial_layer]['sum']
-            sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
+        
+        if led_restore_state:
+            opened_layer_obj.ids['enable_led_btn'].state = 'down'
+        else:
+            opened_layer_obj.ids['enable_led_btn'].state = 'normal'
+
+        opened_layer_obj.apply_settings(update_led=True)
+        # # Reverse to settings of the channel that were originally selected
+        # if initial_layer is not None:
+        #     gain = settings[initial_layer]['gain']
+        #     lumaview.scope.set_gain(gain)
+        #     exposure = settings[initial_layer]['exp']
+        #     lumaview.scope.set_exposure_time(exposure)
+        #     sum_count=settings[initial_layer]['sum']
+        #     sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
