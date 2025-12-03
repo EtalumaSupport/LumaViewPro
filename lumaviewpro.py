@@ -7528,7 +7528,11 @@ class LayerControl(BoxLayout):
     def exp_text(self):
         logger.info('[LVP Main  ] LayerControl.exp_text()')
         exp_min = self.ids['exp_slider'].min
-        exp_max = self.ids['exp_slider'].max
+        #exp_max = self.ids['exp_slider'].max
+        if self.layer == "BF":
+            exp_max = 1000
+        else:
+            exp_max = self.ids['exp_slider'].max
 
         try:
             exp_val = float(self.ids['exp_text'].text)
@@ -7538,7 +7542,7 @@ class LayerControl(BoxLayout):
         exposure = float(np.clip(exp_val, exp_min, exp_max))
 
         settings[self.layer]['exp'] = exposure
-        self.ids['exp_slider'].value = exposure
+        self.ids['exp_slider'].value = float(np.clip(exposure, exp_min, self.ids['exp_slider'].max))
         # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
         self.ids['exp_text'].text = str(exposure)
 
