@@ -690,7 +690,19 @@ def go_to_step(
         settings[color]['acquire'] = step['Acquire']
 
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=color)
-        layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+
+        def temp():
+            layer_obj.ids['enable_led_btn'].state = 'down'
+            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+
+        if not called_from_protocol and settings['protocol_led_on']:
+            io_executor.put(IOTask(action=lumaview.scope.led_on(color, step['Illumination'])))
+            Clock.schedule_once(lambda dt: temp(), 0)
+        else:
+            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+
+        
+        
         Clock.schedule_once(lambda dt: go_to_step_update_ui(step), 0)
 
 
@@ -708,6 +720,8 @@ def go_to_step_update_ui(step):
     # set accordion item to corresponding channel
     accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=color)
     accordion_item_obj.collapse = False
+
+
 
     # set autofocus checkbox
     logger.info(f'[LVP Main  ] autofocus: {step["Auto_Focus"]}')
@@ -759,6 +773,13 @@ def go_to_step_update_ui(step):
         layer_obj.ids['acquire_image'].active = True
     else:
         layer_obj.ids['acquire_none'].active = True
+
+    def temp():
+        layer_obj.ids['enable_led_btn'].state = 'down'
+    if settings['protocol_led_on']:
+        if not protocol_running_global:
+            camera_executor.put(IOTask(action=Clock.schedule_once(lambda dt: temp())))
+
 
 
 
@@ -6907,6 +6928,16 @@ class MicroscopeSettings(BoxLayout):
                     self.ids['show_tooltips_btn'].state = 'normal'
                     show_tooltips = False
 
+            
+            if "protocol_led_on" in settings:
+                if settings["protocol_led_on"] == True:
+                    self.ids['protocol_led_on_btn'].state = 'down'
+                else:
+                    self.ids['protocol_led_on_btn'].state = 'normal'
+            else:
+                self.ids['protocol_led_on_btn'].state = 'normal'
+                settings["protocol_led_on"] = False
+
             for layer in common_utils.get_layers():
               
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
@@ -7088,6 +7119,12 @@ class MicroscopeSettings(BoxLayout):
         else:
             show_tooltips = False
             settings["show_tooltips"] = False
+
+    def update_protocol_led_on(self):
+        if self.ids['protocol_led_on_btn'].state == 'down':
+            settings["protocol_led_on"] = True
+        else:
+            settings["protocol_led_on"] = False
 
 
     # Save settings to JSON file
