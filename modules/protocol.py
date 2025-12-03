@@ -375,17 +375,14 @@ class Protocol:
             return
         
         try:
-            orig_steps_df = self.steps().copy()
+            orig_steps_df = self.steps()
+
 
             # Add objective focal length to steps dataframe
-            objectives_df = self._objective_loader.get_objectives_dataframe()[['focal_length']]
-            orig_steps_df = pd.merge(
-                orig_steps_df,
-                objectives_df,
-                how='left',
-                left_on='Objective',
-                right_index=True
-            )
+            objectives = self._objective_loader.get_objectives_dataframe()['focal_length']
+
+            orig_steps_df["focal_length"] = orig_steps_df["Objective"].map(objectives)
+
         except Exception as e:
             logger.error(f"Error adding objective focal length to steps dataframe: {e}")
             return
