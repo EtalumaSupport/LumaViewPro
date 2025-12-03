@@ -34,6 +34,8 @@ Gerard Decker, The Earthineering Company
 lvp_logger.py configures a standard python logger for LumaViewPro.
 '''
 
+debug = False
+
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -123,7 +125,6 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
 
-debug = False
 
 # Prevent logs from propagating to root (and the console)
 if not debug:
