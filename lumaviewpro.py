@@ -2249,9 +2249,18 @@ void main (void) {
 
     def on_touch_down(self, touch, *args):
         logger.info('[LVP Main  ] ShaderViewer.on_touch_down()')
+
+        ZOOM_BLOCKERS = [lumaview.ids['imagesettings_id'], lumaview.ids['motionsettings_id']]
+        x, y = touch.pos
+
         # Override Scatter's `on_touch_down` behavior for mouse scroll
         if touch.is_mouse_scrolling:
-
+            
+            for w in ZOOM_BLOCKERS:
+                lx, ly = w.to_widget(x, y)
+                if w.collide_point(lx, ly):
+                    return
+                
             if 'ctrl' in self._active_key_presses:
                 # Focus control
                 vertical_control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
