@@ -2419,8 +2419,8 @@ class MotionSettings(BoxLayout):
 
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].height = '30dp'
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].opacity = 1
-            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].height = '30dp'
-            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].opacity = 1
+            #lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].height = '30dp'
+            #lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].opacity = 1
                 
     def accordion_collapse(self):
         logger.info('[LVP Main  ] MotionSettings.accordion_collapse()')
