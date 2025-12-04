@@ -696,7 +696,7 @@ def go_to_step(
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
         if not called_from_protocol and settings['protocol_led_on']:
-            io_executor.put(IOTask(action=lumaview.scope.led_on(color, step['Illumination'])))
+            io_executor.put(IOTask(action=lumaview.scope.led_on, args=(color, step['Illumination'])))
             Clock.schedule_once(lambda dt: temp(), 0)
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)

@@ -24,7 +24,7 @@ except ImportError:
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future, CancelledError
 import queue
 from collections.abc import Sequence
-from lvp_logger import logger
+from lvp_logger import logger, debug
 import traceback
 import threading
 import time
@@ -52,6 +52,12 @@ IOTask
 class IOTask:
         def __init__(self, action, args=None, kwargs={}, callback=None, cb_args=None, cb_kwargs={}, pass_result=False):
             self.action = action
+            # Capture creation stack to help trace where non-callable actions originate
+            try:
+                # Exclude the current frame to point to the caller creating the IOTask
+                self.creation_stack = ''.join(traceback.format_stack()[:-1])
+            except Exception:
+                self.creation_stack = '<failed to capture creation stack>'
             if args is None:
                 self.args = ()
             # if it’s a sequence (list, tuple, etc) but not a string
@@ -80,11 +86,13 @@ class IOTask:
         def run(self):
             try:
                 threading.current_thread().name = self.name
+                if not callable(self.action):
+                    logger.warning(f"{self.name} Worker received non-callable action: {str(self.action)}\nCreated at:\n{self.creation_stack}")
+                    return None, None
                 res = self.action(*self.args, **self.kwargs)
                 return res, None
             except Exception as e:
-                logger.error(f"Uncaught Thread Exception in {self.name} Worker: {e}")
-                #traceback.print_exc()
+                logger.error(f"Uncaught Thread Exception in {self.name} Worker: {e}", exc_info=True)
                 return None, e
 
         def set_callback(self, callback, cb_args, cb_kwargs):
@@ -275,7 +283,7 @@ class SequentialIOExecutor:
                     self.running_task = task
                     #self.executed_tasks.append(task)
             except Exception as e:
-                logger.error(f"Uncaught Thread Exception in {self.name} Dispatcher: {e}")
+                logger.error(f"Uncaught Thread Exception in {self.name} Dispatcher: {e}", exc_info=True)
 
     def _safe_done_cb(self, fut, task):
         try:
