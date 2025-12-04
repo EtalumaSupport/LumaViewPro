@@ -5086,13 +5086,25 @@ class ProtocolSettings(CompositeCapture):
     def apply_tiling(self):
         logger.info('[LVP Main  ] Apply tiling to protocol')
 
+        axes_config = lumaview.scope.get_axes_config()
+        _, labware = get_selected_labware()
+        stage_offset = settings['stage_offset']
 
-        self._protocol.apply_tiling(
+        tile_status = self._protocol.apply_tiling(
             tiling=self.ids['tiling_size_spinner'].text,
             frame_dimensions=get_current_frame_dimensions(),
             binning_size=get_binning_from_ui(),
-            curr_step_idx=self.curr_step
+            curr_step_idx=self.curr_step,
+            axes_config=axes_config,
+            labware=labware,
+            stage_offset=stage_offset
         )
+
+        tiles_skipped = tile_status['tiles_skipped']
+        
+        if tiles_skipped > 0:
+            error_msg = f"Tiling application skipped {tiles_skipped} new tiles due to bounds outside of labware."
+            Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Tiling Warning", message=error_msg), 0)  
         
         self._protocol.optimize_step_ordering()
         stage.set_protocol_steps(df=self._protocol.steps())

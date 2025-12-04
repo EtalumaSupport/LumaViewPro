@@ -827,6 +827,19 @@ class Lumascope():
         after = self.get_limit_switch_status_all_axes()
         logger.info(f"Limit switch status after homing: {after}")
 
+    def get_axes_config(self):
+        """MOTION CONTROL FUNCTIONS
+        Get the axis configuration from the motion board"""
+        return self.motion.get_axes_config()
+
+    def get_axis_limits(self, axis: str) -> dict:
+        """MOTION CONTROL FUNCTIONS
+        Get the axis limits from the motion board
+        returns dict with keys 'min' and 'max' in um
+        """
+
+        return self.motion.get_axis_limits(axis=axis)
+
 
     def zhome(self):
         """MOTION CONTROL FUNCTIONS
