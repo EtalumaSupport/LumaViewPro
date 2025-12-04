@@ -815,6 +815,17 @@ class Lumascope():
             return False
     
         return True
+    
+    def get_camera_temps(self) -> dict:
+        """CAMERA FUNCTIONS
+         Get camera temperature readings
+         Returns dict with key val pairs 'source' : temperature in Celsius
+        """
+
+        if not self.camera:
+            return {}
+        
+        return self.camera.get_all_temperatures()
 
     ########################################################################
     # MOTION CONTROL FUNCTIONS

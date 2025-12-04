@@ -183,8 +183,8 @@ class PylonCamera:
 
                     firmware = nm.GetNode("DeviceFirmwareVersion").ToString()
                     logger.info(f'[CAM Class ] Camera Firmware Version: {firmware}')
-                    
-                    temps = self.get_all_temperatures(camera=camera)
+
+                    temps = self.get_all_temperatures()
                     for name, temp in temps.items():
                         logger.info(f'[CAM Class ] Camera {name} Temperature : {temp:.2f} °C')
 
@@ -221,14 +221,14 @@ class PylonCamera:
         logger.info(f'[CAM Class ] Connected camera model detected as "{self.model_name}"')
         return
     
-    def get_all_temperatures(self, camera: pylon.InstantCamera):
+    def get_all_temperatures(self):
         """
         Returns dict like:
             {'FpgaCore': 43.2, 'SomethingElse': 40.1, ...}
         """
         # Camera Must be open prior to calling function
 
-        nodemap = camera.GetNodeMap()
+        nodemap = self.active.GetNodeMap()
 
         selector = nodemap.GetNode("DeviceTemperatureSelector")
         temp = nodemap.GetNode("DeviceTemperature")

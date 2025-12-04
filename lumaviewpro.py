@@ -1846,8 +1846,21 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
     def __init__(self, **kwargs):
         super(MainDisplay,self).__init__(**kwargs)
         self.scope = lumascope_api.Lumascope()
+        self.camera_temps_event = None
+
+        if self.scope.camera_is_connected():
+            self.camera_temps_event = Clock.schedule_interval(lambda dt: self.log_camera_temps(), 21600)  # Log every 6 hours
         self.recording = False
         self.led_on_before_pause = False
+
+    def log_camera_temps(self):
+        if self.scope.camera_is_connected():
+            temps = self.scope.get_camera_temps()
+            for source, temp in temps.items():
+                logger.info(f'[CAM Class ] Camera {source} Temperature : {temp:.2f} °C')
+        else:
+            if self.camera_temps_event is not None:
+                Clock.unschedule(self.camera_temps_event)
 
     def cam_toggle(self):
         logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
