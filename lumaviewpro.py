@@ -64,6 +64,7 @@ from asyncio import AbstractEventLoop
 from fastapi import FastAPI
 import uvicorn
 from rest_api import api_router
+import rest_api.api_config as api_config
 from types import SimpleNamespace
 
 import tkinter
@@ -8355,6 +8356,7 @@ class LumaViewProApp(App):
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
+            api_config.set_view(lumaview) #TODO: This line should probably be somewhere else
             cell_count_content = CellCountControls()
             # graphing_controls = GraphingControls()
             #Window.maximize()
@@ -8724,14 +8726,29 @@ class Tooltip(Label):
         self.rect.size = (self.texture_size[0] + self.horiz_padding, self.texture_size[1] + self.vert_padding)
 
 
+def dummy_function(PID: int):
+    for _ in range(100):
+        print(f"DUMMY FUNCTION {PID}")
+    return
+
+def start_kivy_app(loop: AbstractEventLoop):
+    app = LumaViewProApp()
+    # api_config.set_view(lumaview)
+    loop.run_until_complete(app.async_run(async_lib='asyncio'))
+
+def start_uvicorn_server(loop: AbstractEventLoop):
+    api = FastAPI()
+    api.include_router(api_router)
+    config = uvicorn.Config(api, loop=loop)
+    server = uvicorn.Server(config)
+    loop.create_task(server.serve())
+
 
 if __name__ == "__main__":
     # Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
     # For some reason kivy was calling a Python 2 method on newer Python 3 List objects, causing exceptions that would accumulate
     # These exceptions were CONSTANT because they were happening on each Main Display refresh and Histogram refresh
     from kivy.properties import ObservableReferenceList
-
-
 
     def patched_setslice(self, i, j, sequence, **kwargs):
         try:
@@ -8745,22 +8762,6 @@ if __name__ == "__main__":
             # If for some reason we get another error again, bite the bullet 
             return original_setslicemethod(self, i, j, sequence)
 
-def dummy_function(PID: int):
-    for _ in range(100):
-        print(f"DUMMY FUNCTION {PID}")
-    return
-
-def start_kivy_app(loop: AbstractEventLoop):
-    loop.run_until_complete(LumaViewProApp().async_run(async_lib='asyncio'))
-
-def start_uvicorn_server(loop: AbstractEventLoop):
-    api = FastAPI()
-    api.include_router(api_router)
-    config = uvicorn.Config(api, loop=loop)
-    server = uvicorn.Server(config)
-    loop.create_task(server.serve())
-
-if __name__ == "__main__":
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
     # Replace the original method with our patched version
