@@ -272,6 +272,17 @@ def write_tiff(
                 **support_data['options'],
             )
 
+        elif (image_type == 'ome') and (True == is_color_image(image=data)):
+
+            tif.write(
+                data,
+                resolution=support_data['resolution'],
+                metadata=support_data['metadata'],
+                datetime=metadata['datetime'],
+                software=f"LumaViewPro {version}",
+                **support_data['options'],
+            )
+
         else:
 
             colormap_type = color_channel_to_colormap_type(color_channel=color)
