@@ -39,6 +39,7 @@ import os
 import pathlib
 import threading
 import time
+import asyncio
 
 import cv2
 import numpy as np
@@ -1075,6 +1076,16 @@ class Lumascope():
             time.sleep(0.05)
         
         return
+    
+    async def async_wait_until_finished_moving(self):
+        """An async implementation of wait_until_finished_moving created for use in the REST API"""
+        if not self.motion.driver:
+            return False
+         
+        while self.is_moving():
+            await asyncio.sleep(0.05)
+
+        return True
     
 
     def set_acceleration_limit(self, val_pct: int):
