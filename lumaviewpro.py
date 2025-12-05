@@ -5229,20 +5229,49 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
         config = get_sequenced_capture_config_from_ui()
-
         motorconfig=lumaview.scope.motion.motorconfig
         axis_limits_mm = {
             'X': motorconfig.axis_travel_limit_mm(axis='X'),
             'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
         }
-
-        self._protocol = Protocol.from_config(
+        protocol = Protocol.from_config(
             input_config=config,
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
             axis_limits_mm=axis_limits_mm,
             scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
             camera_pixel_width_um=motorconfig.pixel_size(),
         )
+
+        protocol_executor.put(
+            IOTask(
+                action=self.new_protocol_ex,
+                args=(protocol),
+                callback=self.update_step_ui,
+            )
+        )
+
+
+    def new_protocol_ex(self, protocol):
+        if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
+            error_msg = f"Cannot create new protocol. Please set objective for current turret position."
+            logger.error(error_msg)
+            
+            Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Creation Error", message=error_msg), 0)     
+            return
+
+        if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
+            error_msg = f"Cannot create new protocol. Not all objectives are in turret config."
+            logger.error(error_msg)
+            Clock.schedule_once(lambda dt: 
+                Popup(
+                    title="Protocol Creation Error",
+                    content=Label(text=error_msg),
+                    size_hint=(0.85,0.85),
+                ), 0)
+            
+            return
+
+        self._protocol = protocol
 
         stage.set_protocol_steps(df=self._protocol.steps())
         def temp(): 
@@ -5308,6 +5337,14 @@ class ProtocolSettings(CompositeCapture):
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
             axis_limits_mm=axis_limits_mm,
         )
+
+        if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
+            error_msg = f"Cannot load protocol. Not all objectives are in turret config."
+            logger.error(error_msg)
+            show_notification_popup(title="Protocol Loading Error", message=error_msg)
+            return
+
+        self._protocol = protocol
 
         settings['protocol']['filepath'] = filepath
         self.ids['protocol_filename'].text = os.path.basename(filepath)
@@ -6626,14 +6663,41 @@ class Stage(Widget):
             #  Red Crosshairs
             # ------------------
             if self._motion_enabled:
-                motorconfig = lumaview.scope.motion.motorconfig
-                x_limit = motorconfig.axis_travel_limit_mm(axis='X')*1000
-                y_limit = motorconfig.axis_travel_limit_mm(axis='Y')*1000
+                io_executor.put(
+                    IOTask(
+                        action=self.motion_enabled_io,
+                        callback=self.motion_enabled_callback,
+                        cb_args=(
+                            scale_x,
+                            scale_y,
+                            x,
+                            y,
+                            labware
+                        ),
+                        pass_result=True
+                    )
+                )
+            
+    def motion_enabled_io(self):
+        try:
+            motorconfig = lumaview.scope.motion.motorconfig
+            x_limit = motorconfig.axis_travel_limit_mm(axis='X')*1000
+            y_limit = motorconfig.axis_travel_limit_mm(axis='Y')*1000
+            x_current = lumaview.scope.get_current_position('X')
+            x_current = np.clip(x_current, 0, y_limit) # prevents crosshairs from leaving the stage area
+            y_current = lumaview.scope.get_current_position('Y')
+            y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+        except:
+            logger.exception('[LVP Main  ] Error talking to Motor board.')
+            return None
+        
+        return (x_current, y_current)
+    
+    def motion_enabled_callback(self, scale_x, scale_y, x, y, labware, result=None, exception=None):
 
-                x_current = lumaview.scope.get_current_position('X')
-                x_current = np.clip(x_current, 0, x_limit) # prevents crosshairs from leaving the stage area
-                y_current = lumaview.scope.get_current_position('Y')
-                y_current = np.clip(y_current, 0, y_limit) # prevents crosshairs from leaving the stage area
+        if result is not None:
+            x_current = result[0]
+            y_current = result[1]
 
             # Convert stage coordinates to relative pixel coordinates
             pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
@@ -7260,7 +7324,7 @@ class MicroscopeSettings(BoxLayout):
         spinner.values = objective_helper.get_objectives_list()
 
 
-    def select_objective(self):
+        def select_objective(self):
         logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
         global lumaview
         global settings
@@ -7274,6 +7338,9 @@ class MicroscopeSettings(BoxLayout):
         # Update selected to be consistent with other selector
         vc_objective_spinner = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].ids['objective_spinner2']
         vc_objective_spinner.text = objective_id
+
+        if lumaview.scope.has_turret():
+            lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
 
         lumaview.scope.set_objective(objective_id=objective_id)
         motorconfig = lumaview.scope.motion.motorconfig
@@ -7841,6 +7908,130 @@ class ZStack(CompositeCapture):
         create_hyperstacks_if_needed()
         live_histo_reverse()
 
+
+    def run_zstack_acquire_from_ui(self):
+        logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
+
+        live_histo_off()
+
+        trigger_source = 'zstack'
+        run_not_started_func = self._reset_run_zstack_acquire_button
+        run_complete_func = self._zstack_run_complete
+
+        run_trigger_source = sequenced_capture_executor.run_trigger_source()
+        if sequenced_capture_executor.run_in_progress() and \
+            (run_trigger_source != trigger_source):
+            run_not_started_func()
+            logger.warning(f"Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}")
+            return
+        
+        if self.ids['zstack_aqr_btn'].state == 'normal':
+            self._cleanup_at_end_of_acquire()
+            return
+        
+        # Note: This will be quickly overwritten by the remaining number of scans
+        self.ids['zstack_aqr_btn'].text = 'Running Z-Stack'
+
+        config = get_sequenced_capture_config_from_ui()
+
+        labware_id, _ = get_selected_labware()
+        objective_id, _ = get_current_objective_info()
+        zstack_positions_valid, _ = get_zstack_positions()
+        zstack_params = get_zstack_params()
+        active_layer, active_layer_config = get_active_layer_config()
+        active_layer_config['acquire'] = "image"
+
+        if not zstack_positions_valid:
+            logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
+            run_not_started_func()
+            return
+        
+        curr_position = get_current_plate_position()
+        curr_position.update({'name': 'ZStack'})
+
+        positions = [
+            curr_position,
+        ]
+
+        motorconfig=lumaview.scope.motion.motorconfig
+        axis_limits_mm = {
+            'X': motorconfig.axis_travel_limit_mm(axis='X'),
+            'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
+        }
+        
+        tiling_config = TilingConfig(
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            axis_limits_mm=axis_limits_mm,
+        )
+        
+        config = {
+            'labware_id': labware_id,
+            'positions': positions,
+            'objective_id': objective_id,
+            'zstack_params': zstack_params,
+            'use_zstacking': True,
+            'tiling': tiling_config.no_tiling_label(),
+            'layer_configs': {active_layer: active_layer_config},
+            'period': None,
+            'duration': None,
+            'frame_dimensions': get_current_frame_dimensions(),
+            'binning_size': get_binning_from_ui(),
+        }
+        
+        zstack_sequence = Protocol.from_config(
+            input_config=config,
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            axis_limits_mm=axis_limits_mm,
+            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+            camera_pixel_width_um=motorconfig.pixel_size(),
+        )
+
+        autogain_settings = get_auto_gain_settings()
+
+        callbacks = {
+            'move_position': _handle_ui_update_for_axis,
+            'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+            'run_complete': run_complete_func,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
+            'reset_autofocus_btns': update_autofocus_selection_after_protocol,  
+            'set_recording_title': set_recording_title,
+            'set_writing_title': set_writing_title,
+            'reset_title': reset_title,
+            'pause_live_ui': lambda: (
+                Clock.unschedule(lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay),
+                Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui)
+            ),
+            'resume_live_ui': lambda: (
+                lumaview.ids['viewer_id'].ids['scope_display_id'].start(),
+                Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1)
+            ),
+        }
+
+        parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
+
+        initial_position = get_current_plate_position()
+        image_capture_config = get_image_capture_config_from_ui()
+
+        sequenced_capture_executor.run(
+            protocol=zstack_sequence,
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
+            run_trigger_source=trigger_source,
+            max_scans=1,
+            sequence_name='zstack',
+            parent_dir=parent_dir,
+            image_capture_config=image_capture_config,
+            enable_image_saving=is_image_saving_enabled(),
+            separate_folder_per_channel=False,
+            autogain_settings=autogain_settings,
+            callbacks=callbacks,
+            return_to_position=initial_position,
+            leds_state_at_end="off",
+            video_as_frames = settings['video_as_frames']
+        )
+
+        set_last_save_folder(dir=sequenced_capture_executor.run_dir())
 
     def run_zstack_acquire_from_ui(self):
         logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
