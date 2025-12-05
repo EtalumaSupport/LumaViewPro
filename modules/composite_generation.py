@@ -156,10 +156,10 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
             images[row['Filepath']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
 
         color_index_map = {
-            'Blue': 2,
+            'Blue': 0,
             'Green': 1,
-            'Red': 0,
-            'Lumi': 2,
+            'Red': 2,
+            'Lumi': 0,
         }
         
         error = None
