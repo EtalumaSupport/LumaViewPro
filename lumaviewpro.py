@@ -7322,7 +7322,7 @@ class MicroscopeSettings(BoxLayout):
         spinner.values = objective_helper.get_objectives_list()
 
 
-        def select_objective(self):
+    def select_objective(self):
         logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
         global lumaview
         global settings
