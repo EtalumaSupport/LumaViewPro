@@ -1138,7 +1138,7 @@ def move_home(axis: str):
     except:
         base_app_title = f"Lumaview Pro {version}"
 
-    Window.set_title(f"{base_app_title}   |   Homing, please wait...")
+    Clock.schedule_once(lambda dt: Window.set_title(f"{base_app_title}   |   Homing, please wait..."), 0)
     if axis == 'Z':
         io_executor.put(IOTask(action=lumaview.scope.zhome, callback=move_home_cb, cb_args=(axis)))
     elif axis == 'XY':
@@ -1168,7 +1168,7 @@ def reset_title():
 
 def move_home_cb(axis):
     _handle_ui_update_for_axis(axis=axis)
-    Clock.schedule_once(lambda dt: Window.set_title(f"{base_app_title}"), 1)
+    Window.set_title(f"{base_app_title}")
 
 def live_histo_off():
     if live_histo_setting == True and lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization == True:
@@ -2571,20 +2571,52 @@ class StitchControls(BoxLayout):
         }
         popup.title = "Stitcher"
         popup.text = "Generating stitched images..."
+        popup.progress = 0
+        popup.auto_dismiss = False
         stitcher = Stitcher()
         motorconfig = lumaview.scope.motion.motorconfig
         axis_limits_mm = {
             'X': motorconfig.axis_travel_limit_mm(axis='X'),
             'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
         }
-        result = stitcher.load_folder(
-            path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
-            camera_pixel_width_um=motorconfig.pixel_size(),
-            axis_limits_mm=axis_limits_mm,
+        # result = stitcher.load_folder(
+        #     path=pathlib.Path(path),
+        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+        #     scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+        #     camera_pixel_width_um=motorconfig.pixel_size(),
+        #     axis_limits_mm=axis_limits_mm,
+        # )
+        file_io_executor.put(
+            IOTask(
+                action=stitcher.load_folder,
+                args=(
+                    pathlib.Path(path), 
+                    pathlib.Path(source_path) / "data" / "tiling.json",
+                    motorconfig.lens_focal_length(),
+                    motorconfig.pixel_size(),
+                    axis_limits_mm,
+                    popup
+                ),
+                kwargs={
+                    "scope_lens_focal_length_mm": motorconfig.lens_focal_length(),
+                    "camera_pixel_width_um": motorconfig.pixel_size(),
+                    "axis_limits_mm": axis_limits_mm,
+                },
+                callback=self.stitcher_callback,
+                cb_args=(popup, status_map),
+                pass_result=True
+            )
         )
-        final_text = f"Generating stitched images - {status_map[result['status']]}"
+
+
+    def stitcher_callback(self, popup, status_map, result=None, exception=None):
+        if result is None:
+            popup.text = "Stitching images - FAILED"
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+
+        final_text = f"Stitching images - {status_map[result['status']]}"
+
         if result['status'] is False:
             final_text += f"\n{result['message']}"
             popup.text = final_text
@@ -2684,14 +2716,41 @@ class ZProjectionControls(BoxLayout):
             'X': motorconfig.axis_travel_limit_mm(axis='X'),
             'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
         }
-        result = zproj.load_folder(
-            path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            method=self.ids['zprojection_method_spinner'].text,
-            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
-            camera_pixel_width_um=motorconfig.pixel_size(),
-            axis_limits_mm=axis_limits_mm,
+        file_io_executor.put(
+            IOTask(
+                action=zproj.load_folder,
+                args=(
+                    pathlib.Path(path), 
+                    pathlib.Path(source_path) / "data" / "tiling.json",
+                    popup
+                ),
+                kwargs={
+                    "method": self.ids['zprojection_method_spinner'].text,
+                    "scope_lens_focal_length_mm": motorconfig.lens_focal_length(),
+                    "camera_pixel_width_um": motorconfig.pixel_size(),
+                    "axis_limits_mm": axis_limits_mm,
+                },
+                callback=self.zprojection_callback,
+                cb_args=(popup, status_map),
+                pass_result=True
+            )
         )
+
+    def zprojection_callback(self, popup, status_map, result=None, exception=None):
+        popup.progress = 100
+        if result is None:
+            popup.text = "Generating Z-Projection images - FAILED"
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+        
+        # result = zproj.load_folder(
+        #     path=pathlib.Path(path),
+        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+        #     method=self.ids['zprojection_method_spinner'].text,
+        #     scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+        #     camera_pixel_width_um=motorconfig.pixel_size(),
+        #     axis_limits_mm=axis_limits_mm,
+        # )
         final_text = f"Generating Z-Projection images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
@@ -2721,19 +2780,44 @@ class CompositeGenControls(BoxLayout):
         }
         popup.title = "Composite Image Generation"
         popup.text = "Generating composite images..."
+        popup.progress = 0
+        popup.auto_dismiss = False
+
         composite_gen = CompositeGeneration()
         motorconfig = lumaview.scope.motion.motorconfig
         axis_limits_mm = {
             'X': motorconfig.axis_travel_limit_mm(axis='X'),
             'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
         }
-        result = composite_gen.load_folder(
-            path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
-            camera_pixel_width_um=motorconfig.pixel_size(),
-            axis_limits_mm=axis_limits_mm,
+
+        # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
+        # May want to update this in the future
+        file_io_executor.put(
+            IOTask(
+                action=composite_gen.load_folder,
+                args=(
+                    pathlib.Path(path), 
+                    pathlib.Path(source_path) / "data" / "tiling.json",
+                    popup
+                ),
+                kwargs={
+                    "scope_lens_focal_length_mm": motorconfig.lens_focal_length(),
+                    "camera_pixel_width_um": motorconfig.pixel_size(),
+                    "axis_limits_mm": axis_limits_mm,
+                },
+                callback=self.composite_gen_callback,
+                cb_args=(popup, status_map),
+                pass_result=True
+            )
         )
+
+
+    def composite_gen_callback(self, popup, status_map, result=None, exception=None):
+        if result is None:
+            popup.text = "Generating composite images - FAILED"
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+
         final_text = f"Generating composite images - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
@@ -2785,7 +2869,6 @@ class VideoCreationControls(BoxLayout):
             logger.error(f"{msg}")
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
-            #self.done = True
 
         video_builder = VideoBuilder()
         motorconfig = lumaview.scope.motion.motorconfig
@@ -2793,15 +2876,34 @@ class VideoCreationControls(BoxLayout):
             'X': motorconfig.axis_travel_limit_mm(axis='X'),
             'Y': motorconfig.axis_travel_limit_mm(axis='Y'),
         }
-        result = video_builder.load_folder(
-            path=pathlib.Path(path),
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            frames_per_sec=fps,
-            enable_timestamp_overlay=enable_timestamp_overlay,
-            scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
-            camera_pixel_width_um=motorconfig.pixel_size(),
-            axis_limits_mm=axis_limits_mm,
+        file_io_executor.put(
+            IOTask(
+                action=video_builder.load_folder,
+                args=(
+                    pathlib.Path(path), 
+                    pathlib.Path(source_path) / "data" / "tiling.json",
+                    popup
+                ),
+                kwargs={
+                    "frames_per_sec": fps,
+                    "enable_timestamp_overlay": enable_timestamp_overlay,
+                    "scope_lens_focal_length_mm": motorconfig.lens_focal_length(),
+                    "camera_pixel_width_um": motorconfig.pixel_size(),
+                    "axis_limits_mm": axis_limits_mm,
+                },
+                callback=self.video_builder_callback,
+                cb_args=(popup, status_map),
+                pass_result=True
+            )
         )
+
+
+    def video_builder_callback(self, popup, status_map, result=None, exception=None):
+        if result is None:
+            popup.text = "Generating video(s) - FAILED"
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+
         final_text = f"Generating video(s) - {status_map[result['status']]}"
         if result['status'] is False:
             final_text += f"\n{result['message']}"
@@ -2813,7 +2915,7 @@ class VideoCreationControls(BoxLayout):
         popup.text = final_text
         Clock.schedule_once(lambda dt: popup.dismiss(), 2)
         return
-        # self._launch_video()       
+        # self._launch_video()             
 
     
     # def _launch_video(self) -> None:
@@ -4092,6 +4194,8 @@ class VerticalControl(BoxLayout):
         self.is_autofocus = False
         self.is_complete = False
         self.record_autofocus_to_file = False
+        self._next_pos = None
+        self.queue_slider_position_trigger = Clock.create_trigger(lambda dt: self.queue_slider_position(), 0.1)
         Clock.schedule_once(self._init_ui, 0)
 
 
@@ -4100,19 +4204,27 @@ class VerticalControl(BoxLayout):
         self.ids['obj_position'].max = motorconfig.axis_travel_limit_mm(axis='Z')*1000
 
 
-    def update_gui(self):
+    def update_gui(self, vertical_control=False):
+        if sequenced_capture_executor.run_in_progress():
+            return
+        
         try:
             set_pos = lumaview.scope.get_target_position('Z')  # Get target value
         except:
             return
+        
         if not vertical_control:
-            io_executor.put(IOTask(
-                action=lumaview.scope.get_target_position,
-                args=('Z'),
-                callback=self.execute_kivy_gui,
-                cb_kwargs={"vertical_control":vertical_control},
-                pass_result=True
-            ))
+            io_executor.put(
+                IOTask(
+                    action=lumaview.scope.get_target_position,
+                    args=('Z'),
+                    callback=self.execute_kivy_gui,
+                    cb_kwargs={
+                        "vertical_control": vertical_control,
+                    },
+                    pass_result=True
+                )
+            )
         else:
             Clock.schedule_once(lambda dt: self.update_text_only)
             
@@ -4512,65 +4624,28 @@ class VerticalControl(BoxLayout):
             'autofocus_completed': self._cleanup_at_end_of_autofocus,
         }
 
-        protocol_executor.put(IOTask(
-            action=sequenced_capture_executor.run,
-            kwargs={
-                "protocol":autofocus_sequence,
-                "run_mode":SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-                "run_trigger_source":trigger_source,
-                "max_scans":1,
-                "sequence_name":'af',
-                "parent_dir":parent_dir,
-                "image_capture_config":get_image_capture_config_from_ui(),
-                "enable_image_saving":False,
-                "disable_saving_artifacts":True,
-                "separate_folder_per_channel":False,
-                "autogain_settings":autogain_settings,
-                "callbacks":callbacks,
-                "return_to_position":None,
-                "save_autofocus_data":save_autofocus_data,
-                "leds_state_at_end":"return_to_original",
-                "video_as_frames":settings['video_as_frames']
-            }
-        ))
-        # sequenced_capture_executor.run(
-        #     protocol=autofocus_sequence,
-        #     run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-        #     run_trigger_source=trigger_source,
-        #     max_scans=1,
-        #     sequence_name='af',
-        #     parent_dir=parent_dir,
-        #     image_capture_config=get_image_capture_config_from_ui(),
-        #     enable_image_saving=False,
-        #     disable_saving_artifacts=True,
-        #     separate_folder_per_channel=False,
-        #     autogain_settings=autogain_settings,
-        #     callbacks=callbacks,
-        #     return_to_position=None,
-        #     save_autofocus_data=save_autofocus_data,
-        #     leds_state_at_end="return_to_original",
-        #     video_as_frames=settings['video_as_frames']
-        # )
-
-        }
-
-        sequenced_capture_executor.run(
-            protocol=autofocus_sequence,
-            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-            run_trigger_source=trigger_source,
-            max_scans=1,
-            sequence_name='af',
-            parent_dir=parent_dir,
-            image_capture_config=get_image_capture_config_from_ui(),
-            enable_image_saving=False,
-            disable_saving_artifacts=True,
-            separate_folder_per_channel=False,
-            autogain_settings=autogain_settings,
-            callbacks=callbacks,
-            return_to_position=None,
-            save_autofocus_data=save_autofocus_data,
-            leds_state_at_end="return_to_original",
-            video_as_frames=settings['video_as_frames']
+        protocol_executor.put(
+            IOTask(
+                action=sequenced_capture_executor.run,
+                kwargs={
+                    "protocol":autofocus_sequence,
+                    "run_mode":SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+                    "run_trigger_source":trigger_source,
+                    "max_scans":1,
+                    "sequence_name":'af',
+                    "parent_dir":parent_dir,
+                    "image_capture_config":get_image_capture_config_from_ui(),
+                    "enable_image_saving":False,
+                    "disable_saving_artifacts":True,
+                    "separate_folder_per_channel":False,
+                    "autogain_settings":autogain_settings,
+                    "callbacks":callbacks,
+                    "return_to_position":None,
+                    "save_autofocus_data":save_autofocus_data,
+                    "leds_state_at_end":"return_to_original",
+                    "video_as_frames":settings['video_as_frames']
+                }
+            )
         )
 
     
@@ -4628,23 +4703,48 @@ class VerticalControl(BoxLayout):
         else:
             lumaview.scope.tmove(position=selected_position)
 
-    def turret_select(self, position_index):
-        #TODO check if turret has been HOMED turret first
-        lumaview.scope.tmove(
-            position_index=position_index
-        )
-        
         for available_position in range(1,5):
-            if position_index == available_position:
+            if selected_position == available_position:
                 state = 'down'
 
                 # Check if an objective has been saved to that turret
-                if (len(settings["turret_objectives"][str(position_index)]) > 0):
-                    if (not settings["turret_objectives"][str(position_index)].isdigit()):
+                turret_position_objective = settings["turret_objectives"][selected_position]
+                if turret_position_objective is not None:
+                    # If an objective has been assigned to the turret position, change to that objective
+                    Clock.schedule_once(lambda dt: self.update_spinner_text(selected_position), 0)
+                    Clock.schedule_once(lambda dt: self.select_objective(), 0)                       
 
-                        # If an objective has been assigned to the turret position, change to that objective
-                        self.ids["objective_spinner2"].text = settings["turret_objectives"][str(position_index)]
-                        self.select_objective()
+            else:
+                state = 'normal'
+            
+        Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
+
+    def update_spinner_text(self, selected_position):
+        self.ids["objective_spinner2"].text = settings["turret_objectives"][selected_position]
+    
+    
+    def update_turret_btn_state(self, position, state):
+        self.ids[f'turret_pos_{position}_btn'].state = state
+
+    def update_all_turret_btn_states(self, selected_position):
+        for available_position in range(1,5):
+            if selected_position == available_position:
+                state = 'down'
+            else:
+                state = 'normal'
+            self.update_turret_btn_state(available_position, state)
+
+    def update_turret_gui(self, turret_position):
+        for available_position in range(1,5):
+            if turret_position == available_position:
+                state = 'down'
+
+                # Check if an objective has been saved to that turret
+                turret_position_objective = settings["turret_objectives"][turret_position]
+                if turret_position_objective is not None:
+                    # If an objective has been assigned to the turret position, change to that objective
+                    self.ids["objective_spinner2"].text = settings["turret_objectives"][turret_position]
+                    self.select_objective()                       
 
             else:
                 state = 'normal'
@@ -4658,7 +4758,15 @@ class XYStageControl(BoxLayout):
         if sequenced_capture_executor.run_in_progress():
             return
         # logger.info('[LVP Main  ] XYStageControl.update_gui()')
-        global lumaview
+        io_executor.put(
+            IOTask(
+                action=self.get_xy_targets,
+                callback=self.get_targets_ui_callback,
+                pass_result=True
+            )
+        )
+        
+    def get_xy_targets(self):
         try:
             motorconfig = lumaview.scope.motion.motorconfig
             x_limit = motorconfig.axis_travel_limit_mm(axis='X') * 1000
@@ -4672,7 +4780,7 @@ class XYStageControl(BoxLayout):
             return None
         
         return (x_target, y_target)
-
+    
     def get_targets_ui_callback(self, result=None, exception=None):
         if result is not None:
             x_target = result[0]
@@ -4886,7 +4994,7 @@ class XYStageControl(BoxLayout):
 
             # Firmware seems to move the turret back to position 1 when performing XY homing
             # Use this command to make sure the UI is in-sync
-            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(position_index=1)
+            lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=1)
             
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
