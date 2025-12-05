@@ -464,6 +464,8 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         output_file_loc: pathlib.Path,
         focal_length: float,
         binning_size: int,
+        scope_lens_focal_length_mm: float,
+        camera_pixel_width_um: float,
     ):
         num_t = df['Scan Count'].nunique()
         num_z = df['Z-Slice'].nunique()
@@ -520,6 +522,8 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             plane_metadata=plane_metadata,
             focal_length=focal_length,
             binning_size=binning_size,
+            scope_lens_focal_length_mm=scope_lens_focal_length_mm,
+            camera_pixel_width_um=camera_pixel_width_um,
         )
 
         output_file_loc_abs = output_file_loc

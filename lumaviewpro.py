@@ -2101,12 +2101,15 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
                 _, objective = get_current_objective_info()
                 frame_metadata_df = pd.DataFrame(frame_metadata)
+                motorconfig = lumaview.scope.motion.motorconfig
                 stack_builder.create_single_recording_stack(
                     df=frame_metadata_df,
                     path=save_folder,
                     output_file_loc=save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff",
                     focal_length=objective['focal_length'],
                     binning_size=get_binning_from_ui(),
+                    scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
+                    camera_pixel_width_um=motorconfig.pixel_size(),
                 )
 
                 logger.info(f"Manual-Video] Hyperstack created at {save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff'}")
@@ -4207,12 +4210,7 @@ class VerticalControl(BoxLayout):
     def update_gui(self, vertical_control=False):
         if sequenced_capture_executor.run_in_progress():
             return
-        
-        try:
-            set_pos = lumaview.scope.get_target_position('Z')  # Get target value
-        except:
-            return
-        
+    
         if not vertical_control:
             io_executor.put(
                 IOTask(
@@ -7980,7 +7978,6 @@ class ZStack(CompositeCapture):
         
         zstack_sequence = Protocol.from_config(
             input_config=config,
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
             axis_limits_mm=axis_limits_mm,
             scope_lens_focal_length_mm=motorconfig.lens_focal_length(),
