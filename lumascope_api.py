@@ -54,6 +54,7 @@ import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
 import image_utils
+from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
 
 class Lumascope():
@@ -98,9 +99,11 @@ class Lumascope():
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
-        self._labware = None             # The labware currently installed
-        self._objective = None           # The objective currently installed
-        self._stage_offset = None        # The stage offset for the microscope
+        self._labware = None              # The labware currently installed
+        self._objective = None            # The objective currently selected/installed
+        self._turret_config = {}          # The objectives loaded into the turret (if present)
+        self._stage_offset = None         # The stage offset for the microscope
+        self._last_turret_position = None # Stores the last known turret position
         if self.camera:
             self._binning_size = self.camera.get_binning_size()
         else:
@@ -110,6 +113,56 @@ class Lumascope():
             'enabled': False
         }
 
+    def disconnect(self):
+        logger.info('[SCOPE API ] Disconnecting from microscope...')
+        if self.led is not None:
+            self.led.disconnect()
+            self.led = None
+
+        if self.motion is not None:
+            self.motion.disconnect()
+            self.motion = None
+
+        if self.camera is not None:
+            self.camera.disconnect()
+            self.camera = None
+
+        logger.info('[SCOPE API ] Microscope disconnected')
+
+    # def reconnect(self):
+    #     logger.info('[SCOPE API ] Attempting to reconnect to microscope...')
+    #     self.disconnect()
+    #     self.__init__()
+    #     logger.info('[SCOPE API ] Microscope reconnected')
+
+    def are_all_connected(self) -> bool:
+        logger.info('[SCOPE API ] Performing connection check...')
+        led = self.led is not None and self.led.is_connected()
+        motion = self.motion is not None and self.motion.is_connected()
+        camera = self.camera is not None and self.camera.is_connected()
+
+        if not led:
+            logger.info('[SCOPE API ] Connection Check: LED Board not connected')
+        if not motion:
+            logger.info('[SCOPE API ] Connection Check: Motion Board not connected')
+        if not camera:
+            logger.info('[SCOPE API ] Connection Check: Camera not connected')
+        
+        if led and motion and camera:
+            logger.info('[SCOPE API ] Connection Check: All components connected')
+            
+        return led and motion and camera
+
+    # def reconnect_if_disconnected(self):
+    #     if not self.are_all_connected():
+    #         if not self.led.is_connected():
+    #             self.led.connect()
+    #         if not self.motion.is_connected():
+    #             self.motion.connect()
+    #         if not self.camera.is_connected():
+    #             self.camera.connect()
+    #         self.reconnect()
+
 
     ########################################################################
     # SCOPE CONFIGURATION FUNCTIONS
@@ -117,8 +170,34 @@ class Lumascope():
     def set_labware(self, labware):
         self._labware = labware
 
-    def set_objective(self, objective_id):
+    def get_labware(self):
+        return self._labware
+
+    def set_objective(self, objective_id: str):
         self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
+
+    def get_objective_info(self, objective_id: str):
+        return self._objectives_loader.get_objective_info(objective_id=objective_id)
+
+    def set_turret_config(self, turret_config: dict[int,str]) -> None:
+        self._turret_config = turret_config
+
+    def get_turret_config(self):
+        return self._turret_config
+    
+    def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
+        for turret_position, turret_objective_id in self._turret_config.items():
+            if objective_id == turret_objective_id:
+                return turret_position
+        
+        return None
+    
+    def is_current_turret_position_objective_set(self) -> bool:
+        position = self.get_current_position(axis='T')
+        if self._turret_config[position] is None:
+            return False
+        
+        return True
 
     def set_scale_bar(self, enabled: bool):
         self._scale_bar['enabled'] = enabled
@@ -127,10 +206,13 @@ class Lumascope():
         self._stage_offset = stage_offset
 
     def set_binning_size(self, size):
-        self._binning_size = size
+        try:
+            self._binning_size = size
 
-        if self.camera:
-            self.camera.set_binning_size(size=size)
+            if self.camera:
+                self.camera.set_binning_size(size=size)
+        except Exception as ex:
+            logger.exception(f"[SCOPE API ] Error setting binning size: {ex}")
 
     def get_binning_size(self) -> int:
         if not self.camera:
@@ -179,7 +261,7 @@ class Lumascope():
         return self.led.get_led_states()
     
 
-    def led_on(self, channel, mA):
+    def led_on(self, channel, mA, block=False):
         """ LED BOARD FUNCTIONS
         Turn on LED at channel number at mA power """
         if not self.led: return
@@ -187,7 +269,7 @@ class Lumascope():
         if type(channel) == str:
             channel = self.color2ch(color=channel)
 
-        self.led.led_on(channel, mA)
+        self.led.led_on(channel, mA, block=block)
 
     def led_off(self, channel):
         """ LED BOARD FUNCTIONS
@@ -204,6 +286,14 @@ class Lumascope():
         Turn off all LEDs """
         if not self.led: return
         self.led.leds_off()
+
+    def get_led_status(self):
+        if not self.led: return
+        return self.led.get_status()
+    
+    def wait_until_led_on(self):
+        if not self.led: return
+        self.led.wait_until_on()
 
     def ch2color(self, color):
         """ LED BOARD FUNCTIONS
@@ -244,11 +334,13 @@ class Lumascope():
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback = None,
+        force_new_capture = False,
+        new_capture_timeout = 1000,
     ):
         """ CAMERA FUNCTIONS
         Grab and return image from camera
-        # If use_host_buffer set to true, it will return the results already stored in the
-        # host array. It will not wait for the next capture.
+        # Will only force new capture if force_new_capture set to True
+        # Else, will return last captured image from buffer array
         """
     
         tmp_buffer = []
@@ -258,7 +350,10 @@ class Lumascope():
             
             while True:
                 all_ones_failed = False
-                grab_status, grab_image_ts = self.camera.grab()
+                if force_new_capture:
+                    grab_status, grab_image_ts = self.camera.grab_new_capture(new_capture_timeout)
+                else:
+                    grab_status, grab_image_ts = self.camera.grab()
 
                 if grab_status == True:
                     tmp = self.camera.array.copy()
@@ -336,7 +431,32 @@ class Lumascope():
             self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
 
         return self.image_buffer
+    
+    def get_image_from_buffer(
+        self,
+        force_to_8bit: bool = True
+        ):
+        grab_status, grab_image_ts = self.camera.grab()
+        if grab_status == True:
+            tmp = self.camera.array.copy()
+        else:
+            return False
 
+        use_scale_bar = self._scale_bar['enabled']
+        if self._objective is None:
+            use_scale_bar = False
+
+        if use_scale_bar:
+            tmp = image_utils.add_scale_bar(
+                image=tmp,
+                objective=self._objective,
+                binning_size=self._binning_size,
+            )
+
+        if force_to_8bit and tmp.dtype != np.uint8:
+            tmp = image_utils.convert_12bit_to_8bit(tmp)
+
+        return tmp
         
     def get_next_save_path(self, path):
         """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
@@ -396,7 +516,7 @@ class Lumascope():
         return path
 
 
-    def generate_image_metadata(self, color) -> dict:
+    def generate_image_metadata(self, color, x, y, z) -> dict:
         def _validate():
             if self._objective is None:
                 raise Exception(f"[SCOPE API ] Objective not set")
@@ -412,13 +532,19 @@ class Lumascope():
             
         _validate()
 
+        if x is None:
+            x = 0
+        if y is None:
+            y = 0
+        if z is None:
+            z = 0
+
         px, py = self._coordinate_transformer.stage_to_plate(
             labware=self._labware,
             stage_offset=self._stage_offset,
-            sx=self.get_current_position(axis='X'),
-            sy=self.get_current_position(axis='Y')
+            sx=x,
+            sy=y
         )
-        z = self.get_current_position(axis='Z')
 
         px = round(px, common_utils.max_decimal_precision('x'))
         py = round(py, common_utils.max_decimal_precision('y'))
@@ -466,14 +592,16 @@ class Lumascope():
         tail_id_mode: str,
         output_format: str,
         true_color: str,
+        x,
+        y,
+        z
     ):
-        metadata = self.generate_image_metadata(color=true_color)
+        metadata = self.generate_image_metadata(color=true_color, x=x, y=y, z=z)
 
         if array.dtype == np.uint16:
             array = image_utils.convert_12bit_to_16bit(array)
 
-        img = image_utils.add_false_color(array=array, color=color)
-        img = np.flip(img, 0)
+        array = np.flip(array, 0)
 
         path = self.generate_image_save_path(
             save_folder=save_folder,
@@ -486,7 +614,7 @@ class Lumascope():
         metadata['file_loc'] = path
 
         return {
-            'image': img,
+            'image': array,
             'metadata': metadata,
         }
 
@@ -501,6 +629,9 @@ class Lumascope():
         tail_id_mode = "increment",
         output_format: str = "TIFF",
         true_color: str = 'BF',
+        x=None,
+        y=None,
+        z=None
     ):
         """CAMERA FUNCTIONS
         save image (as array) to file
@@ -515,6 +646,9 @@ class Lumascope():
             tail_id_mode=tail_id_mode,
             output_format=output_format,
             true_color=true_color,
+            x=x,
+            y=y,
+            z=z
         )
 
         image = image_data['image']
@@ -532,6 +666,7 @@ class Lumascope():
                 file_loc=file_loc,
                 metadata=metadata,
                 ome=ome,
+                color=color,
             )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
@@ -558,6 +693,7 @@ class Lumascope():
             sum_delay_s: float = 0,
             sum_iteration_callback = None,
             turn_off_all_leds_after: bool = False,
+            use_executor = False
         ):
 
         """CAMERA FUNCTIONS
@@ -578,6 +714,7 @@ class Lumascope():
 
         if array is False:
             return 
+        
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
  
 
@@ -686,6 +823,17 @@ class Lumascope():
             return False
     
         return True
+    
+    def get_camera_temps(self) -> dict:
+        """CAMERA FUNCTIONS
+         Get camera temperature readings
+         Returns dict with key val pairs 'source' : temperature in Celsius
+        """
+
+        if not self.camera:
+            return {}
+        
+        return self.camera.get_all_temperatures()
 
     ########################################################################
     # MOTION CONTROL FUNCTIONS
@@ -697,6 +845,19 @@ class Lumascope():
         yield
         after = self.get_limit_switch_status_all_axes()
         logger.info(f"Limit switch status after homing: {after}")
+
+    def get_axes_config(self):
+        """MOTION CONTROL FUNCTIONS
+        Get the axis configuration from the motion board"""
+        return self.motion.get_axes_config()
+
+    def get_axis_limits(self, axis: str) -> dict:
+        """MOTION CONTROL FUNCTIONS
+        Get the axis limits from the motion board
+        returns dict with keys 'min' and 'max' in um
+        """
+
+        return self.motion.get_axis_limits(axis=axis)
 
 
     def zhome(self):
@@ -765,17 +926,29 @@ class Lumascope():
                 self.motion.thome()
 
 
-    def tmove(self, position_index: int):
+    def has_thomed(self):
         """MOTION CONTROL FUNCTIONS
-        Move turret to position index (1 to 4)"""
+        Indicate if the t-axes has been homed since startup"""
+        return self.motion.has_thomed()
+    
 
-        if position_index not in range(1, 5):
-            logger.exception(f'[SCOPE API ] Invalid turret position provided: {position_index}')
+    def tmove(self, position):
+        """MOTION CONTROL FUNCTIONS
+        Move turret to position 1-4"""
+        # Commanding a move of the T axis is slow, even if the move is to the current position.
+        # Use caching to determine if T is requested to move to it's current position, and bypass the
+        # move altogether if it is.
+        if self._last_turret_position == position:
             return
-
+        
         with self.safe_turret_mover():
-            logger.info(f'[SCOPE API ] Moving T to position {position_index}')
-            self.move_absolute_position('T', position_index, wait_until_complete=True)
+            logger.info(f'[SCOPE API ] Moving T to position {position}')
+            self.move_absolute_position('T', position, wait_until_complete=True)
+            self._last_turret_position = position
+
+
+    def has_turret(self) -> bool:
+        return self.motion.has_turret()
 
 
     def get_target_position(self, axis=None):
@@ -791,6 +964,9 @@ class Lumascope():
             for ax in ('X', 'Y', 'Z', 'T'):
                 positions[ax] = self.motion.target_pos(axis=ax)
             return positions
+        
+        if (False == self.motion.has_turret()) and (axis == 'T'):
+            return None
         
         position = self.motion.target_pos(axis)
         return position
@@ -813,18 +989,18 @@ class Lumascope():
         return position
 
 
-    def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True):
+    def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True, ignore_limits: bool = False):
         """MOTION CONTROL FUNCTIONS
          Move to absolute position (in um) of axis"""
 
         #if not self.motion: return
-        self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled)
+        self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
         
         if wait_until_complete is True:
             self.wait_until_finished_moving()
 
 
-    def move_relative_position(self, axis, um, wait_until_complete=False, overshoot_enabled: bool = True):
+    def move_relative_position(self, axis, um, wait_until_complete=False, overshoot_enabled: bool = False):
         """MOTION CONTROL FUNCTIONS
          Move to relative distance (in um) of axis"""
 
@@ -840,8 +1016,12 @@ class Lumascope():
          Return True if axis is in home position or motionboard is """
  
         #if not self.motion: return True
-        status = self.motion.home_status(axis)
-        return status
+        try:
+            status = self.motion.home_status(axis)
+            return status
+        except Exception as e:
+            logger.exception(f"[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}")
+            return False
 
     def get_target_status(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -852,9 +1032,23 @@ class Lumascope():
         # Handle case where we want to know if turret has reached its target, but there is no turret
         if (axis == 'T') and (self.motion.has_turret == False):
             return True
+
+        try:
+            status = self.motion.target_status(axis)
+            return status
+        except Exception as e:
+            logger.exception(f"[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}")
+            return False
+    
+    def get_target_pos(self, axis):
+        if (axis == 'T') and (self.motion.has_turret == False):
+            return -1
         
-        status = self.motion.target_status(axis)
-        return status
+        try:
+            return self.motion.target_pos(axis)
+        except Exception as e:
+            logger.exception(f"[SCOPE API ] get_target_pos({axis}) failed; returning -1: {e}")
+            return -1
         
     # Get all reference status register bits as 32 character string (32-> 0)
     def get_reference_status(self, axis):
@@ -1153,5 +1347,251 @@ class Lumascope():
 
         else:
             return positions[0]
+
+
+# Static methods for save_image functionality
+    @staticmethod
+    def get_next_save_path_static(path):
+        """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
+
+            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'   
+            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'   
+
+        """
+        NUM_SEQ_DIGITS = 6
+        # Handle both .tiff and .ome.tiff by detecting multiple extensions if present
+        # pathlib doesn't seem to handle multiple extensions natively
+        path2 = pathlib.Path(path)
+        extension = ''.join(path2.suffixes)
+        stem = path2.name[:len(path2.name)-len(extension)]
+        seq_separator_idx = stem.rfind('_')
+        stem_base = stem[:seq_separator_idx]
+        seq_num_str = stem[seq_separator_idx+1:]
+        seq_num = int(seq_num_str)
+
+        next_seq_num = seq_num + 1
+        next_seq_num_str = f"{next_seq_num:0>{NUM_SEQ_DIGITS}}"
+        
+        new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
+        return str(new_path)
+
+    @staticmethod
+    def generate_image_save_path_static(save_folder, file_root, append, tail_id_mode, output_format):
+        if type(save_folder) == str:
+            save_folder = pathlib.Path(save_folder)
+
+        if file_root is None:
+            file_root = ""
+
+        if output_format == 'OME-TIFF':
+            file_extension = ".ome.tiff"
+        else:
+            file_extension = ".tiff"
+
+        # generate filename and save path string
+        if tail_id_mode == "increment":
+            initial_id = '_000001'
+            filename =  f"{file_root}{append}{initial_id}{file_extension}"
+            path = save_folder / filename
+
+            # Obtain next save path if current directory already exists
+            while os.path.exists(path):
+                path = Lumascope.get_next_save_path_static(path)
+
+        elif tail_id_mode == None:
+            filename =  f"{file_root}{append}{file_extension}"
+            path = save_folder / filename
+        
+        else:
+            raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
+        
+        return path
+
+    @staticmethod
+    def generate_image_metadata_static(
+        color, x, y, z, objective, labware, stage_offset, coordinate_transformer, 
+        binning_size, exposure_time_ms, gain_db, illumination_ma
+    ):
+        def _validate():
+            if objective is None:
+                raise Exception(f"[SCOPE API ] Objective not set")
+            
+            if 'focal_length' not in objective:
+                raise Exception(f"[SCOPE API ] Objective focal length not provided")
+
+            if labware is None:
+                raise Exception(f"[SCOPE API ] Labware not set")
+            
+            if stage_offset is None:
+                raise Exception(f"[SCOPE API ] Stage offset not set")
+            
+        _validate()
+
+        if x is None:
+            x = 0
+        if y is None:
+            y = 0
+        if z is None:
+            z = 0
+
+        px, py = coordinate_transformer.stage_to_plate(
+            labware=labware,
+            stage_offset=stage_offset,
+            sx=x,
+            sy=y
+        )
+
+        px = round(px, common_utils.max_decimal_precision('x'))
+        py = round(py, common_utils.max_decimal_precision('y'))
+        z  = round(z,  common_utils.max_decimal_precision('z'))
+
+        pixel_size_um = round(
+            common_utils.get_pixel_size(
+                focal_length=objective['focal_length'],
+                binning_size=binning_size,
+            ),
+            common_utils.max_decimal_precision('pixel_size'),
+        )
+        
+        metadata = {
+            'camera_make': 'Etaluma',
+            'software': f'LumaViewPro {version}',
+            'channel': color,
+            'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
+            'sub_sec_time': f"{datetime.datetime.now().microsecond // 1000:03d}",
+            'objective': objective,
+            'focal_length': objective['focal_length'],
+            'plate_pos_mm': {'x': px, 'y': py},
+            'x_pos': px,
+            'y_pos': py,
+            'z_pos_um': z,
+            'exposure_time_ms': round(exposure_time_ms, common_utils.max_decimal_precision('exposure')),
+            'gain_db': round(gain_db, common_utils.max_decimal_precision('gain')),
+            'illumination_ma': round(illumination_ma, common_utils.max_decimal_precision('illumination')),
+            'binning_size': binning_size,
+            'pixel_size_um': pixel_size_um,
+        }
+
+        return metadata
+
+    @staticmethod
+    def prepare_image_for_saving_static(
+        array: np.ndarray,
+        save_folder: str,
+        file_root: str,
+        append: str,
+        color: str,
+        tail_id_mode: str,
+        output_format: str,
+        true_color: str,
+        x, y, z,
+        objective, labware, stage_offset, coordinate_transformer, 
+        binning_size, exposure_time_ms, gain_db, illumination_ma
+    ):
+        metadata = Lumascope.generate_image_metadata_static(
+            color=true_color, x=x, y=y, z=z,
+            objective=objective, labware=labware, stage_offset=stage_offset,
+            coordinate_transformer=coordinate_transformer, binning_size=binning_size,
+            exposure_time_ms=exposure_time_ms, gain_db=gain_db, illumination_ma=illumination_ma
+        )
+
+        if array.dtype == np.uint16:
+            array = image_utils.convert_12bit_to_16bit(array)
+
+        img = image_utils.add_false_color(array=array, color=color)
+        img = np.flip(img, 0)
+
+        path = Lumascope.generate_image_save_path_static(
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format
+        )
+
+        metadata['file_loc'] = path
+
+        return {
+            'image': img,
+            'metadata': metadata,
+        }
+
+    @staticmethod
+    def save_image_static(
+        array,
+        save_folder='./capture',
+        file_root='img_',
+        append='ms',
+        color='BF',
+        tail_id_mode="increment",
+        output_format: str = "TIFF",
+        true_color: str = 'BF',
+        x=None, y=None, z=None,
+        objective=None, labware=None, stage_offset=None, coordinate_transformer=None,
+        binning_size=None, exposure_time_ms=None, gain_db=None, illumination_ma=None
+    ):
+        """CAMERA FUNCTIONS
+        save image (as array) to file - static version that doesn't require Lumascope instance
+        
+        :param array: image array to save
+        :param save_folder: folder to save image in
+        :param file_root: root filename 
+        :param append: string to append to filename
+        :param color: color channel identifier
+        :param tail_id_mode: how to handle filename incrementing
+        :param output_format: output format (TIFF or OME-TIFF)
+        :param true_color: true color for metadata
+        :param x: x position
+        :param y: y position  
+        :param z: z position
+        :param objective: objective dictionary with focal_length
+        :param labware: labware configuration
+        :param stage_offset: stage offset configuration
+        :param coordinate_transformer: coordinate transformer instance
+        :param binning_size: camera binning size
+        :param exposure_time_ms: exposure time in milliseconds
+        :param gain_db: camera gain in dB
+        :param illumination_ma: LED illumination in mA
+        """
+
+        image_data = Lumascope.prepare_image_for_saving_static(
+            array=array,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            color=color,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+            true_color=true_color,
+            x=x, y=y, z=z,
+            objective=objective, labware=labware, stage_offset=stage_offset,
+            coordinate_transformer=coordinate_transformer, binning_size=binning_size,
+            exposure_time_ms=exposure_time_ms, gain_db=gain_db, illumination_ma=illumination_ma
+        )
+
+        image = image_data['image']
+        metadata = image_data['metadata']
+        file_loc = metadata['file_loc']
+
+        if output_format == 'OME-TIFF':
+            ome=True
+        else:
+            ome=False
+
+        try:
+            image_utils.write_tiff(
+                data=image,
+                file_loc=file_loc,
+                metadata=metadata,
+                ome=ome,
+                color=color
+            )
+
+            print(f'[SCOPE API ] Saving Image to {file_loc}')
+        except:
+            print(f"[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist? {file_loc}")
+            raise Exception(f"Unable to save image to {file_loc}")
+
+        return file_loc
 
 

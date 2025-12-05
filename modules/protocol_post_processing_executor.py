@@ -6,6 +6,7 @@ import pathlib
 import cv2
 import pandas as pd
 
+from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_record import ProtocolPostRecord
@@ -18,11 +19,15 @@ class ProtocolPostProcessingExecutor(abc.ABC):
 
     def __init__(
         self,
-        post_function: PostFunction
+        post_function: PostFunction,
+        *args,
+        **kwargs,
     ):
         self._name = self.__class__.__name__
         self._post_function = post_function
         self._post_processing_helper = ProtocolPostProcessingHelper()
+        self._has_turret = kwargs['has_turret']
+        self._objectives_helper = ObjectiveLoader()
         
 
     @staticmethod
@@ -31,9 +36,8 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         raise NotImplementedError(f"Implement in child class")
 
 
-    @staticmethod
     @abc.abstractmethod
-    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         raise NotImplementedError(f"Implement in child class")
 
 
@@ -58,12 +62,25 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         root_path: pathlib.Path,
     ):
         raise NotImplementedError(f"Implement in child class")
+    
+
+    def _get_objective_short_name_if_has_turret(
+        self,
+        objective_id: str
+    ) -> str | None:
+        if self._has_turret == True:
+            short_name = self._objectives_helper.get_objective_info(objective_id=objective_id)['short_name']
+        else:
+            short_name = None
+
+        return short_name
 
 
     def load_folder(
         self,
         path: str | pathlib.Path,
         tiling_configs_file_loc: pathlib.Path,
+        popup=None,
         **kwargs: dict,
     ) -> dict:
         start_ts = datetime.datetime.now()
@@ -93,10 +110,13 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         df = self._filter_ignored_types(df=df)
         groups = self._get_groups(df)
 
+        group_count = len(groups)
+
         logger.info(f"{self._name}: Generating {self._post_function.value.lower()} images")
 
         new_count = 0
         existing_count = 0
+        current_group = 1
 
         for _, group in groups:
             if len(group) == 0:
@@ -129,6 +149,9 @@ class ProtocolPostProcessingExecutor(abc.ABC):
             alg_results = self._group_algorithm(
                 path=root_path,
                 df=group,
+                popup=popup,
+                total_groups=group_count,
+                current_group=current_group,
                 **kwargs,
             )
 
@@ -160,8 +183,15 @@ class ProtocolPostProcessingExecutor(abc.ABC):
             )
       
             new_count += 1
+            current_group += 1
+
+            if popup is not None:
+                popup.progress = (new_count / group_count) * 100
 
         protocol_post_record.complete()
+
+        if popup is not None:
+            popup.progress = 100
 
         if (new_count == 0) and (existing_count == 0):
             logger.info(f"[{self._name} ] No sets of images found")

@@ -12,10 +12,10 @@
     },
     "objective_id": "20x Oly",
     "turret_objectives": {
-        "1": "1",
-        "2": "2",
-        "3": "3",
-        "4": "4"
+        "1": null,
+        "2": null,
+        "3": null,
+        "4": null
     },
     "frame": {
         "width": 1900,
@@ -23,8 +23,8 @@
     },
     "live_folder": "./capture",
     "bookmark": {
-        "x": 50000.0,
-        "y": 75000.0,
+        "x": 14.38,
+        "y": 11.24,
         "z": 4950.0
     },
     "BF": {
@@ -168,10 +168,16 @@
     "scale_bar": {
         "enabled": false
     },
-
     "video_as_frames": false,
     "motion": {
         "acceleration_max_pct": 100
-    }
-  
+    },
+    "manual_video": {
+        "max_fps": 40,
+        "max_duration": 30
+    },
+
+    "show_tooltips": false,
+    "live_view_fps": 30,
+    "protocol_led_on": false
 }

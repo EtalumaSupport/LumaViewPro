@@ -35,6 +35,7 @@ Gerard Decker, The Earthineering Company
 
 import json
 import pathlib
+import threading
 import time
 from requests.structures import CaseInsensitiveDict
 import serial
@@ -63,8 +64,37 @@ class MotorBoard:
         self.found = False
         self.overshoot = False
         self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
-        self.has_turret = False
+        self._has_turret = False
         self.initial_homing_complete = False
+        self.initial_t_homing_complete = False
+        self.port = None
+        self.thread_lock = threading.RLock()
+        self.axes_config = {
+            'Z': {
+                'limits': {
+                    'min': 0.,
+                    'max': 14000.,
+                },
+                'move_func': self.z_um2ustep
+            },
+            'X': {
+                'limits': {
+                    'min': 0.,
+                    'max': 120000.,
+                },
+                'move_func': self.xy_um2ustep
+            },
+            'Y': {
+                'limits': {
+                    'min': 0.,
+                    'max': 80000.,
+                },
+                'move_func': self.xy_um2ustep
+            },
+            'T': {
+                'move_func': self.t_pos2ustep
+            }
+        }
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
@@ -79,47 +109,70 @@ class MotorBoard:
         self.stopbits=serial.STOPBITS_ONE
         self.timeout=None # seconds
         self.write_timeout=None # seconds
-        self.driver = False
+        self.driver = None
+        self._fullinfo = None
 
         try:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
         except:
-            logger.exception('[XYZ Class ] Found motor controller but unable to establish connection.')
+            logger.error('[XYZ Class ] Found motor controller but unable to establish connection.')
             raise
 
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
+        # Lock to ensure mutex
+        with self.thread_lock:
+            try:
+                logger.info('[XYZ Class ] Found motor controller and about to create driver.')
+                if self.port is not None:
+                    self.driver = serial.Serial(port=self.port,
+                                                baudrate=self.baudrate,
+                                                bytesize=self.bytesize,
+                                                parity=self.parity,
+                                                stopbits=self.stopbits,
+                                                timeout=self.timeout,
+                                                write_timeout=self.write_timeout)
+                else:
+                    raise ValueError("No port found for motor controller")
+                
+                self.driver.close()
+                #print([comport.device for comport in serial.tools.list_ports.comports()])
+                self.driver.open()
+
+                logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
+
+                # After powering on the scope, the first command seems to be ignored.
+                # This is to ensure the following commands are followed
+                # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
+                #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains
+                self.driver.write(b'\x04\n')
+                logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
+
+                self._fullinfo = self.fullinfo()
+                self.motorconfig.update(config=self._motorboard_actual_config())
+                self._has_turret = self.motorconfig.axis_present(axis='T')
+
+            except Exception as e:
+                self.driver = None
+                logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
+
+    def disconnect(self):
+        logger.info('[XYZ Class ] Disconnecting from motor controller...')
         try:
-            logger.info('[XYZ Class ] Found motor controller and about to create driver.')
-            self.driver = serial.Serial(port=self.port,
-                                        baudrate=self.baudrate,
-                                        bytesize=self.bytesize,
-                                        parity=self.parity,
-                                        stopbits=self.stopbits,
-                                        timeout=self.timeout,
-                                        write_timeout=self.write_timeout)
-            self.driver.close()
-            #print([comport.device for comport in serial.tools.list_ports.comports()])
-            self.driver.open()
+            if self.driver is not None:
+                self.driver.close()
+                self.driver = None
+                logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
+            else:
+                logger.info('[XYZ Class ] MotorBoard.disconnect() failed: Motor controller not connected')
+        except Exception as e:
+            logger.error(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
 
-            logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
 
-            # After powering on the scope, the first command seems to be ignored.
-            # This is to ensure the following commands are followed
-            # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
-            #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains
-            self.driver.write(b'\x04\n')
-            logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
-            
-            self.motorconfig.update(config=self._motorboard_actual_config())
-            self.has_turret = self.motorconfig.axis_present(axis='T')
+    def is_connected(self) -> bool:
+        return self.driver is not None
 
-            self.fullinfo()
-
-        except:
-            self.driver = False
-            logger.exception('[XYZ Class ] MotorBoard.connect() failed')
 
     #----------------------------------------------------------
     # Define Communication
@@ -127,38 +180,39 @@ class MotorBoard:
     def exchange_command(self, command, response_numlines=1):
         """ Exchange command through serial to SPI to the motor boards
         This should NOT be used in a script. It is intended for other functions to access"""
+        with self.thread_lock:
+            stream = command.encode('utf-8')+b"\n"
+            #print(stream)
 
-        stream = command.encode('utf-8')+b"\n"
-        #print(stream)
-
-        if not self.driver:
+            if not self.driver:
+                try:
+                    self.connect()
+                except:
+                    return
             try:
-                self.connect()
+                self.driver.write(stream)
+                #if (command)=='HOME': # ESW to increase homing reliability
+                #    CRLF = command.encode('utf-8')+b"\r\n"
+                #    self.driver.write(CRLF)
+                resp_lines = [self.driver.readline() for _ in range(response_numlines)]
+                response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
+                if response_numlines == 1:
+                    if '\r' in response[0].strip():
+                        response[0] = response[0].rsplit('\r')[-1]
+                    response = response[0]
+                logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
+
+            except serial.SerialTimeoutException:
+                self.driver = None
+                logger.error('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
+                response = None
+
             except:
-                return
-        try:
-            self.driver.write(stream)
-            #if (command)=='HOME': # ESW to increase homing reliability
-            #    CRLF = command.encode('utf-8')+b"\r\n"
-            #    self.driver.write(CRLF)
-
-            resp_lines = [self.driver.readline() for _ in range(response_numlines)]
-            response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
-            if response_numlines == 1:
-                response = response[0]
-            logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
-
-        except serial.SerialTimeoutException:
-            self.driver = False
-            logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
-            response = None
-
-        except:
-            self.driver = False
-            logger.exception('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
-            response = None
-        
-        return response
+                self.driver = None
+                logger.error('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
+                response = None
+            
+            return response
 
 
     # Firmware 1-14-2023 commands include
@@ -180,7 +234,6 @@ class MotorBoard:
     def fullinfo(self):
         info = self.exchange_command("FULLINFO")
         logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info)
-
 
     def _motorboard_actual_config(self) -> dict:
         raw_config = self.exchange_command('CONFIG')
@@ -381,17 +434,33 @@ class MotorBoard:
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
         degrees = 90./80000. * ustep # needs correct value
         return degrees
+    
+    def t_ustep2pos(self, ustep):
+        return int(self.t_ustep2deg(ustep=ustep)/90)+1
 
     def t_deg2ustep(self, degrees):
         # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
         ustep = int( degrees * 80000./90.) # needs correct value
-        print("ustep: ",ustep)
+        #print("ustep: ",ustep)
         return ustep
+    
+    def t_pos2ustep(self, position):
+        return self.t_deg2ustep(degrees=90*(position-1))
 
     def thome(self):
         """ Home the turret, need to test if functional in hardware"""
         resp = self.exchange_command('THOME')
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}')
+        if (resp is not None) and ('T home successful' in resp):
+            self.initial_t_homing_complete = True
+    
+    def has_turret(self) -> bool:
+        return self._has_turret
+    
+    def has_thomed(self):
+        # Note: When the motorboard firmware performs an XYZ homing, it also
+        # does a T homing if a turret is present
+        return self.initial_homing_complete or self.initial_t_homing_complete
 
     #----------------------------------------------------------
     # Motion Functions
@@ -405,8 +474,16 @@ class MotorBoard:
         # logger.info('def move(self, axis, steps)', axis, steps)
         if steps < 0:
             steps += 0x100000000 # twos compliment
-        print(f"Axis: {axis} steps: {steps}")
+        #print(f"Axis: {axis} steps: {steps}")
         self.exchange_command('TARGET_W' + axis + str(steps))
+
+        # target_pos = int(self.exchange_command('TARGET_R' + axis))
+        # desired_target = steps
+
+        # while int(target_pos) != desired_target:
+        #     self.exchange_command('TARGET_W' + axis + str(steps))
+        #     time.sleep(0.005)
+        #     target_pos = int(self.exchange_command('TARGET_R' + axis))
 
     # Get target position
     def target_pos(self, axis):
@@ -425,12 +502,11 @@ class MotorBoard:
             um = self.xy_ustep2um(position)
             return um
         elif axis == 'T':
-            degrees = self.t_ustep2deg(position)
-            return degrees
+            return self.t_ustep2pos(position)
         else:
             return 0
         
-    # Get current position (in um or degrees for Turret)
+    # Get current position (in um or position for Turret)
     def current_pos(self, axis):
         """Get current position (in um) of axis"""
         
@@ -447,49 +523,22 @@ class MotorBoard:
             um = self.xy_ustep2um(position)
             return um
         elif axis == 'T':
-            degrees = self.t_ustep2deg(position)
-            return degrees
+            return self.t_ustep2pos(position)
         else:
             return 0
  
     # Move to absolute position (in um or degrees for Turret)
-    def move_abs_pos(self, axis, pos, overshoot_enabled: bool=True):
+    def move_abs_pos(self, axis, pos, overshoot_enabled: bool=True, ignore_limits: bool=False):
         """ Move to absolute position (in um) of axis"""
         # logger.info('move_abs_pos', axis, pos)
-
-        AXES_CONFIG = {
-            'Z': {
-                'limits': {
-                    'min': 0.,
-                    'max': 14000.,
-                },
-                'move_func': self.z_um2ustep
-            },
-            'X': {
-                'limits': {
-                    'min': 0.,
-                    'max': 120000.,
-                },
-                'move_func': self.xy_um2ustep
-            },
-            'Y': {
-                'limits': {
-                    'min': 0.,
-                    'max': 80000.,
-                },
-                'move_func': self.xy_um2ustep
-            },
-            'T': {
-                'move_func': self.t_deg2ustep
-            }
-        }
+        AXES_CONFIG = self.axes_config
 
         if axis not in AXES_CONFIG:
             raise Exception(f"Unsupported axis ({axis})")
         
         axis_config = AXES_CONFIG[axis]
 
-        if 'limits' in axis_config:
+        if ('limits' in axis_config) and (ignore_limits == False):
             axis_limits = axis_config['limits']
             pos = max(pos, axis_limits['min'])
             pos = min(pos, axis_limits['max'])
@@ -519,7 +568,7 @@ class MotorBoard:
 
     # Move by relative distance (in um or degrees for Turret)
     def move_rel_pos(self, axis, um, overshoot_enabled: bool = False):
-        """ Move by relative distance (in um for X, Y, Z or degrees for T) of axis """
+        """ Move by relative distance (in um for X, Y, Z or position for T) of axis """
 
         # Read target position in um
         pos = self.target_pos(axis)
@@ -544,7 +593,7 @@ class MotorBoard:
             else:
                 return False
         except:
-            logger.exception('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')
             raise
 
     # return True if current position and target position are the same
@@ -553,7 +602,13 @@ class MotorBoard:
 
         # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
         try:
-            response = self.exchange_command('STATUS_R' + axis)
+            #logger.warning(f"AXIS PARAM: ====={axis}=====")
+            payload = 'STATUS_R' + axis
+            #logger.warning(f"Sending payload to motorboard: {payload}=====")
+            response = self.exchange_command(payload)
+            #logger.warning(f"Response: {response}")
+            if response is None:
+                raise
             data = int( response )
             bits = format(data, 'b').zfill(32)
 
@@ -563,7 +618,7 @@ class MotorBoard:
                 return False
   
         except:
-            logger.exception('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
             raise
             #return False
 
@@ -586,15 +641,23 @@ class MotorBoard:
             # logger.info(data)
             return data
         except:
-            logger.exception('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
+            logger.error('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
             raise
 
     def limit_switch_status(self, axis):
         try:
             resp = self.reference_status(axis=axis)
-            bin_val = bin(int(resp))
-            left = bin_val[-1]
-            right = bin_val[-2]
+            resp_int = int(resp)
+            if resp_int & (1 << 0):
+                left = 1
+            else:
+                left = 0
+
+            if resp_int & (1 << 1):
+                right = 1
+            else:
+                right = 0
+
         except:
             left, right = -1, -1
 
@@ -660,7 +723,7 @@ class MotorBoard:
 
             return True
         except:
-            logger.exception(f'[XYZ Class] Failed to upload new Firmware files to Motorboard')
+            logger.error(f'[XYZ Class] Failed to upload new Firmware files to Motorboard')
             raise
 
 
@@ -742,6 +805,22 @@ class MotorBoard:
             logger.info('[XYZ Class ] MotorBoard not connected. Unable to check current firmware')
             return 
         return response
+    
+    def get_axes_config(self):
+        return self.axes_config
+    
+    def get_axis_limits(self, axis: str):
+        AXES_CONFIG = self.axes_config
+        if axis not in AXES_CONFIG:
+            logger.error(f"[XYZ Class ] MotorBoard.get_axis_limits(): Unsupported axis ({axis})")
+            raise Exception(f"Unsupported axis ({axis})")
+        
+        axis_config = AXES_CONFIG[axis]
+        if 'limits' not in axis_config:
+            logger.error(f"[XYZ Class ] MotorBoard.get_axis_limits(): No limits defined for axis ({axis})")
+            raise Exception(f"Axis {axis} does not have defined limits")
+        
+        return axis_config['limits']
 
 '''
 # signed 32 bit hex to dec

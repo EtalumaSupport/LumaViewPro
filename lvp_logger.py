@@ -34,6 +34,8 @@ Gerard Decker, The Earthineering Company
 lvp_logger.py configures a standard python logger for LumaViewPro.
 '''
 
+debug = False
+
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -79,14 +81,14 @@ else:
 
 os.makedirs("logs/LVP_Log", exist_ok=True)
 
-# file to which messages are logged 
+# files to which messages are logged 
 LOG_FILE = 'logs/LVP_Log/lumaviewpro.log'
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
     # if level is DEBUG/WARNING/ERROR/CRITICAL, log the level, message, time, and filename
     def __init__(self, 
-                 fmt = '[%(levelname)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s', 
+                 fmt = '[%(levelname)s] [%(threadName)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s', 
                  datefmt ='%m/%d/%Y %H:%M:%S'):
         logging.Formatter.__init__(self, fmt, datefmt)
 
@@ -109,8 +111,24 @@ def minimize_logger_window():
         except Exception as e:
             logger.error(f"[Logger  ] Failed to minimize console window: {e}")
 
+#TODO Separate crash logs into a separate file that contains any other info we might need to debug (settings.json maybe) besides stacktrace
+
+# Log traceback if we have a crash to tell us more info on what happened
+def custom_except_hook(exc_type, exc_value, exc_traceback):
+    if issubclass(exc_type, KeyboardInterrupt):
+        logger.critical("Logger ] Keyboard interrupt quit.")
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    
+    logger.critical("Logger ] CRASH - Uncaught Exception: ", exc_info=(exc_type, exc_value, exc_traceback))
+
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
+
+
+# Prevent logs from propagating to root (and the console)
+if not debug:
+    logger.propagate = False
 
 # determines lowest level of messages to log (DEBUG < INFO < WARNING < ERROR < CRITICAL)
 logger.setLevel(logging.INFO)
@@ -120,17 +138,28 @@ filename = '%s' % __file__
 file_handler = RotatingFileHandler(
     LOG_FILE,
     mode='a',
-    maxBytes=5*1024*1024, 
+    maxBytes=5*1024*1024,
     backupCount=2,
     encoding=None,
-    delay=False
+    delay=False,
 )
-
-# Modify default log naming behavior so that it ends as .x.log instead of .log.x
 file_handler.namer = lambda name: name.replace('.log', '') + '.log'
-
-# file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setFormatter(CustomFormatter())
+
+# Separate error/critical file with extra debugging context (e.g., settings.json)
+
 logger.addHandler(file_handler)
+
+# Best-effort: remove any existing console/stream handlers from root to reduce terminal noise
+if not debug:
+    try:
+        root_logger = logging.getLogger()
+        for h in list(root_logger.handlers):
+            if isinstance(h, logging.StreamHandler):
+                root_logger.removeHandler(h)
+    except Exception:
+        pass
+
+sys.excepthook = custom_except_hook
 minimize_logger_window()
 logging.disable(logging.DEBUG)

@@ -16,9 +16,11 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 class Stitcher(ProtocolPostProcessingExecutor):
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.STITCHED
+            post_function=PostFunction.STITCHED,
+            *args,
+            **kwargs,
         )
         self._name = self.__class__.__name__
         
@@ -41,16 +43,20 @@ class Stitcher(ProtocolPostProcessingExecutor):
         )
     
 
-    @staticmethod
-    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
+        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
 
+        # Use custom root + step name if available
+        custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
+        prefix = f"{custom_root}_{row0['Name']}" if custom_root not in (None, '') else row0['Name']
         name = common_utils.generate_default_step_name(
-            custom_name_prefix=row0['Name'],
+            custom_name_prefix=prefix,
             well_label=row0['Well'],
             color=row0['Color'],
             z_height_idx=row0['Z-Slice'],
             scan_count=row0['Scan Count'],
+            objective_short_name=objective_short_name,
             tile_label=None,
             stitched=True,
         )
@@ -289,5 +295,5 @@ class Stitcher(ProtocolPostProcessingExecutor):
             
 
 if __name__ == "__main__":
-    stitcher = Stitcher()
+    stitcher = Stitcher(has_turret=False)
     stitcher.load_folder(pathlib.Path(os.getenv("SAMPLE_IMAGE_FOLDER")))

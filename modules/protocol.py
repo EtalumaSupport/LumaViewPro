@@ -17,7 +17,9 @@ import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
 from modules.objectives_loader import ObjectiveLoader
 from modules.zstack_config import ZStackConfig
+from modules.coord_transformations import CoordinateTransformer
 
+coordinate_transformer = CoordinateTransformer()
 
 class Protocol:
 
@@ -80,6 +82,10 @@ class Protocol:
         return re.sub(r'[^a-zA-Z0-9-_]', '', input)
     
 
+    def capture_root(self) -> str:
+        return self._config.get('capture_root', '')
+
+
     def to_file(self, file_path: pathlib.Path):   
         
         if self.period() == None:
@@ -119,11 +125,11 @@ class Protocol:
 
         # First group by X/Y location
         grouped_df = steps.groupby(by=['X','Y'], sort=False)
-
+        
         # For each X/Y location, sort by Z-height
         grouped_list = []
         for _, group_df in grouped_df:
-            group_df = group_df.sort_values(by=['Z'], ascending=True)
+            group_df = group_df.sort_values(by=['Objective', 'Z'], ascending=[True,True])
             grouped_list.append(group_df)
 
         # Re-combine into single dataframe
@@ -213,6 +219,12 @@ class Protocol:
         z: float
     ):
         self._config['steps'].at[step_idx, "Z"] = z
+
+    def modify_capture_root(
+        self,
+        capture_root: str
+    ):
+        self._config['capture_root'] = capture_root
         
         
     def modify_step(
@@ -260,6 +272,7 @@ class Protocol:
         objective_id: str,
         before_step: int | None = 0,
         after_step: int | None = None,
+        include_objective_in_step_name: bool = False,
     ) -> str:
         
         def _validate_inputs():
@@ -277,8 +290,21 @@ class Protocol:
             
         _validate_inputs()
         
+        if include_objective_in_step_name == True:
+            objective_short_name = self._objective_loader.get_objective_info(objective_id=objective_id)['short_name']
+        else:
+            objective_short_name = None
+
         if step_name is None:
-            step_name = f"custom{self._config['custom_step_count']}"
+            step_name = common_utils.generate_default_step_name(
+                well_label="",
+                custom_name_prefix=f"custom{self._config['custom_step_count']}",
+                color=layer,
+                objective_short_name=objective_short_name
+
+            )
+            CUSTOM_INDEX_WIDTH = 4
+            step_name = f"custom{self._config['custom_step_count']:0{CUSTOM_INDEX_WIDTH}d}"
             self._config['custom_step_count'] += 1
 
         well = ""
@@ -347,30 +373,70 @@ class Protocol:
         self,
         tiling: str,
         frame_dimensions: dict,
-        objective_id: str,
         binning_size: int,
-    ):       
-        objective = self._objective_loader.get_objective_info(objective_id=objective_id)
-        tiles = self._tiling_config.get_tile_centers(
-            config_label=tiling,
-            focal_length=objective['focal_length'],
-            frame_size=frame_dimensions,
-            fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
-            binning_size=binning_size,
-        )
+        curr_step_idx: int,
+        axes_config: dict,
+        labware,
+        stage_offset,
+    ) -> dict:
+        "Returns status dict"
+        "If"
 
-        if len(tiles) == 1: # No tiling
-            return
+        status = {
+            "tiles_skipped": 0,
+                  }
 
-        steps = self.steps()
-        existing_max_tile_group_id = steps['Tile Group ID'].max()
+        if tiling == '1x1':
+            return status
 
+        try:
+            orig_steps_df = self.steps()
+
+            curr_step = orig_steps_df.iloc[curr_step_idx]
+
+            # Add objective focal length to steps dataframe
+            objectives = self._objective_loader.get_objectives_dataframe()['focal_length']
+
+            orig_steps_df["focal_length"] = orig_steps_df["Objective"].map(objectives)
+
+        except Exception as e:
+            logger.error(f"Error adding objective focal length to steps dataframe: {e}")
+            return status
+
+
+        try:
+            x_limits = axes_config['X']['limits']
+            y_limits = axes_config['Y']['limits']
+
+        except Exception as e:
+            logger.error(f"Error getting axes limits from axes_config: {e}")
+            return status
+
+        existing_max_tile_group_id = orig_steps_df['Tile Group ID'].max()
         tile_group_id = existing_max_tile_group_id + 1
 
-        new_steps = list()
-        for row_idx in range(self.num_steps()):
-            orig_step_df = self.step(idx=row_idx)
+        new_steps = []
+
+        
+        for idx, row in orig_steps_df.iterrows():
+            try:
+                tiles = self._tiling_config.get_tile_centers(
+                    config_label=tiling,
+                    focal_length=row['focal_length'],
+                    frame_size=frame_dimensions,
+                    fill_factor=TilingConfig.DEFAULT_FILL_FACTORS['position'],
+                    binning_size=binning_size,
+                )
+            except Exception as e:
+                logger.error(f"Error getting tile centers for step {idx}: {e}")
+                tiles = {}
+
+            orig_step_df = orig_steps_df.iloc[idx]
             orig_step_dict = orig_step_df.to_dict()
+
+            if len(tiles) == 1: # No tiles generated
+                new_steps.append(orig_step_dict)
+                continue
 
             # If already a tile, copy it over to the new protocol
             if orig_step_df['Tile'] not in (None, ""):
@@ -380,14 +446,36 @@ class Protocol:
             x = orig_step_df["X"]
             y = orig_step_df["Y"]
 
-            # If not a tile, tile it.  
             for tile_label, tile_position in tiles.items():   
                 
                 x_tile = round(x + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
-                y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
+                y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates 
+
+                sx, sy = coordinate_transformer.plate_to_stage(
+                    labware=labware,
+                    stage_offset=stage_offset,
+                    px=x_tile,
+                    py=y_tile
+                )
+
+                # Check if tile is within stage limits
+                if (sx > x_limits['max']) or (sx < x_limits['min']) or (sy > y_limits['max']) or (sy < y_limits['min']):
+                    logger.info(f"[Protocol] Skipping tile {tile_label} for step {idx} - out of stage limits")
+                    status['tiles_skipped'] += 1
+                    continue
+                
+                if not orig_step_df['Custom Step']:
+                    name = common_utils.generate_default_step_name(
+                        well_label=orig_step_df['Well'],
+                        color=orig_step_df['Color'],
+                        tile_label=tile_label,
+                        objective_short_name=None,
+                    )
+                else:
+                    name = orig_step_df['Name']
                 
                 new_step_dict = self._create_step_dict(
-                    name=orig_step_df['Name'],
+                    name=name,
                     x=x_tile,
                     y=y_tile,
                     z=orig_step_df['Z'],
@@ -415,6 +503,8 @@ class Protocol:
             tile_group_id += 1
 
         self._config['steps'] = pd.DataFrame.from_dict(new_steps)
+
+        return status
  
 
     def apply_zstacking(
@@ -533,6 +623,7 @@ class Protocol:
             'positions': positions,
             'labware_id': labware_id,
             'custom_step_count': 0,
+            'capture_root': '',
         }
         
         if positions is not None:
@@ -581,7 +672,7 @@ class Protocol:
 
                 for zstack_slice, zstack_position_offset in zstack_position_offsets.items():
                     for layer_name, layer_config in layer_configs.items():
-                        if layer_config['acquire'] == None:
+                        if layer_config['acquire'] not in ['image', 'video']:
                             continue
                         
                         x = round(pos['x'] + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
@@ -627,8 +718,17 @@ class Protocol:
                         else:
                             zstack_group_id_label = zstack_group_id
                         
+                        step_name = common_utils.generate_default_step_name(
+                            well_label=well_label,
+                            color=layer_name,
+                            z_height_idx=zstack_slice_label,
+                            tile_label=tile_label,
+                            objective_short_name=None,  # Can add this if needed
+                            custom_name_prefix=None if not custom_step else well_label,
+                        )
+
                         step_dict = cls._create_step_dict(
-                            name="",
+                            name=step_name,
                             x=x,
                             y=y,
                             z=z,
@@ -828,6 +928,10 @@ class Protocol:
 
         labware = next(csvreader)
         config['labware_id'] = labware[1]
+
+        # Optional fields not present in older/newer files
+        # Ensure defaults to avoid KeyErrors
+        config['capture_root'] = ''
 
         # Search for "Steps" to indicate start of steps
         while True:

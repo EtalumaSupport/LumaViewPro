@@ -9,9 +9,9 @@ import pandas as pd
 class ProtocolExecutionRecord:
 
     FILE_HEADER = "LumaViewPro Protocol Execution Record"
-    CURRENT_VERSION = 2
+    CURRENT_VERSION = 3
     DEFAULT_FILENAME = 'protocol_record.tsv'
-    COLUMNS = ('Filename', 'Step Name', 'Step Index', 'Scan Count', 'Timestamp')
+    COLUMNS = ('Filename', 'Step Name', 'Step Index', 'Scan Count', 'Timestamp', 'Frame Count', 'Duration (s)')
 
     def __init__(
         self,
@@ -67,12 +67,14 @@ class ProtocolExecutionRecord:
         step_name: str,
         step_index: int,
         scan_count: int,
-        timestamp: datetime.datetime
+        timestamp: datetime.datetime,
+        frame_count: int = 1,
+        duration_sec: float = 0.0
     ):
         if self._mode != "to_file":
             raise Exception(f"add_step() can only be called when the instance is initialized with an 'outfile'.")
         
-        self._outfile_csv.writerow([capture_result_file_name, step_name, step_index, scan_count, timestamp])
+        self._outfile_csv.writerow([capture_result_file_name, step_name, step_index, scan_count, timestamp, frame_count, duration_sec])
         self._outfile_fp.flush()
         
     
@@ -105,7 +107,7 @@ class ProtocolExecutionRecord:
             if version[0] != 'Version':
                 raise Exception(f"Version key not found")
             
-            if int(version[1]) not in (2,):
+            if int(version[1]) not in (2, 3):  # Add 3 to supported versions
                 raise Exception(f"Unsupported protocol execution record version")
             
             protocol_file_loc_row = next(csvreader)
@@ -118,15 +120,24 @@ class ProtocolExecutionRecord:
 
             records = []
             for row in csvreader:
-                records.append(
-                    {
-                        'Filename': row[0],
-                        'Step Name': row[1],
-                        'Step Index': int(row[2]),
-                        'Scan Count': int(row[3]),
-                        'Timestamp': datetime.datetime.strptime(row[4], "%Y-%m-%d %H:%M:%S.%f")
-                    }
-                )
+                record_dict = {
+                    'Filename': row[0],
+                    'Step Name': row[1],
+                    'Step Index': int(row[2]),
+                    'Scan Count': int(row[3]),
+                    'Timestamp': datetime.datetime.strptime(row[4], "%Y-%m-%d %H:%M:%S.%f")
+                }
+                
+                # Handle version 3 additions
+                if len(row) > 5:
+                    record_dict['Frame Count'] = int(row[5])
+                    record_dict['Duration (s)'] = float(row[6])
+                else:
+                    # Default values for older versions
+                    record_dict['Frame Count'] = 1
+                    record_dict['Duration (s)'] = 0.0
+                    
+                records.append(record_dict)
 
             df = pd.DataFrame(records)
 

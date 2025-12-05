@@ -16,9 +16,11 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 class StackBuilder(ProtocolPostProcessingExecutor):
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.HYPERSTACK
+            post_function=PostFunction.HYPERSTACK,
+            *args,
+            **kwargs,
         )
         self._name = self.__class__.__name__
         
@@ -41,9 +43,10 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         )
     
 
-    @staticmethod
-    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
+
+        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
 
         name = common_utils.generate_default_step_name(
             custom_name_prefix=row0['Name'],
@@ -52,6 +55,7 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             z_height_idx=None,
             scan_count=None,
             tile_label=None,
+            objective_short_name=objective_short_name,
             hyperstack=True,
         )
         
@@ -157,9 +161,9 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             'SignificantBits': sample_image.itemsize*8,
             'Pixels': {
                 'PhysicalSizeX': pixel_size_um,
-                'PhysicalSizeXUnit': 'µm',
+                'PhysicalSizeXUnit': 'um',
                 'PhysicalSizeY': pixel_size_um,
-                'PhysicalSizeYUnit': 'µm',
+                'PhysicalSizeYUnit': 'um',
             },
             'Channel': {'Name': channel_names},
 
@@ -279,9 +283,9 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         #     'SignificantBits': sample_image.itemsize*8,
         #     'Pixels': {
         #         'PhysicalSizeX': pixel_size_um,
-        #         'PhysicalSizeXUnit': 'µm',
+        #         'PhysicalSizeXUnit': 'um',
         #         'PhysicalSizeY': pixel_size_um,
-        #         'PhysicalSizeYUnit': 'µm',
+        #         'PhysicalSizeYUnit': 'um',
         #     },
         #     'Channel': {'Name': channel_names},
 
@@ -358,9 +362,9 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         #     dimension_order="XYCZT", #"TZCYX",
         #     metadata_only=True,
         #     # physical_size_x=0,
-        #     # physical_size_x_unit='µm',
+        #     # physical_size_x_unit='um',
         #     # physical_size_y=0,
-        #     # physical_size_y_unit='µm',
+        #     # physical_size_y_unit='um',
         #     significant_bits=sample_image.itemsize*8,
 
         # )
@@ -453,9 +457,93 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             'metadata': {}
         }
 
+    @staticmethod
+    def create_single_recording_stack(
+        df: pd.DataFrame,
+        path: pathlib.Path,
+        output_file_loc: pathlib.Path,
+        focal_length: float,
+        binning_size: int,
+    ):
+        num_t = df['Scan Count'].nunique()
+        num_z = df['Z-Slice'].nunique()
+        num_c = df['Color'].nunique()
+
+        row0 = df.iloc[0]
+        sample_image_file_loc = path / row0['Filepath']
+        sample_image = tf.imread(sample_image_file_loc)
+        sample_image_shape = sample_image.shape
+
+        _, color_idx_map = np.unique(df['Color'], return_inverse=True)
+        df['Color Index'] = color_idx_map
+        
+        h, w = sample_image_shape[0], sample_image_shape[1]
+
+        stacked_image = np.zeros(
+            shape=(num_t, num_z, num_c, h, w), # Hyperstack order TZCYX
+            dtype=sample_image.dtype,
+        )
+
+        df = df.sort_values(by=['Scan Count'], ascending=True)
+
+        plane_metadata = {
+            'PositionX': [],
+            'PositionY': [],
+            'PositionZ': [],
+        }
+
+        for _, row in df.iterrows():
+            t = row['Scan Count']
+            z = row['Z-Slice']
+            c = row['Color Index']
+            image = tf.imread(path / row['Filepath'])
+
+            if image_utils.is_color_image(image):
+                image = image_utils.rgb_image_to_gray(image=image)
+
+            stacked_image[t,z,c,:,:] = image
+            plane_metadata['PositionX'].append(row['X'])
+            plane_metadata['PositionY'].append(row['Y'])
+            plane_metadata['PositionZ'].append(row['Z'])
+
+
+        num_planes = len(plane_metadata['PositionX'])
+        plane_metadata['PositionXUnit'] = num_planes*['mm']
+        plane_metadata['PositionYUnit'] = num_planes*['mm']
+        plane_metadata['PositionZUnit'] = num_planes*['um']
+
+        # ome_info = StackBuilder._generate_image_metadata_ome_types(
+        ome_info = StackBuilder._generate_image_metadata(
+            df=df,
+            path=path,
+            output_file_loc=output_file_loc,
+            plane_metadata=plane_metadata,
+            focal_length=focal_length,
+            binning_size=binning_size,
+        )
+
+        output_file_loc_abs = output_file_loc
+        output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
+        tf.imwrite(
+            output_file_loc_abs,
+            data=stacked_image,
+            bigtiff=False, #True,
+            ome=True,
+            imagej=True,
+            metadata=ome_info['metadata'],
+            resolution=ome_info['resolution'],
+            **ome_info['options'],
+        )
+
+        return {
+            'status': True,
+            'error': None,
+            'metadata': {}
+        }
+
 
 if __name__ == "__main__":
-    stack_builder = StackBuilder()
+    stack_builder = StackBuilder(has_turret=False)
     tiling_configs_file_loc=pathlib.Path(os.getenv('SOURCE_ROOT')) / "data" / "tiling.json"
     stack_builder.load_folder(
         path=os.getenv('SAMPLE_IMAGE_FOLDER'),

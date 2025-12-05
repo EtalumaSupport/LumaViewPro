@@ -8,6 +8,26 @@
 },
 
 "Wellplate": {
+  "Blank": {
+    "standard" : "",
+    "diameter" : 0.001,
+    "columns" : 0,
+    "rows" : 0,
+    "dimensions" : {
+      "x" : 127.76,
+      "y" : 85.48,
+      "z" : -1
+    },
+    "spacing" : {
+      "x" : 0.001,
+      "y" : 0.001
+    },
+    "offset" : {
+      "x" : 0.001,
+      "y" : 0.001
+    }
+  },
+  
   "Center Plate": {
     "standard" : "",
     "diameter" : -1,

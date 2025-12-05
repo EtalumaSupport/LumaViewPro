@@ -17,9 +17,11 @@ from lvp_logger import logger
 
 class CompositeGeneration(ProtocolPostProcessingExecutor):
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.COMPOSITE
+            post_function=PostFunction.COMPOSITE,
+            *args,
+            **kwargs,
         )
         self._name = self.__class__.__name__
 
@@ -43,16 +45,24 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
         )
     
 
-    @staticmethod
-    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
 
+        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
+
+        # Prepend custom root + step name if available
+        custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
+        if custom_root not in (None, ''):
+            prefix = f"{custom_root}_{row0['Name']}"
+        else:
+            prefix = row0['Name']
         name = common_utils.generate_default_step_name(
-            custom_name_prefix=row0['Name'],
+            custom_name_prefix=prefix,
             well_label=row0['Well'],
             color='Composite',
             z_height_idx=row0['Z-Slice'],
             scan_count=row0['Scan Count'],
+            objective_short_name=objective_short_name,
             tile_label=row0['Tile'],
             stitched=row0['Stitched'],
         )
@@ -193,7 +203,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                     if img_dtype == "uint8":
                         brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
                     elif img_dtype == "uint16":
-                        brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 65536
+                        brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 4095
 
                     channel_index = color_index_map[layer]
 
@@ -287,5 +297,5 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
        
 
 if __name__ == "__main__":
-    composite_gen = CompositeGeneration()
+    composite_gen = CompositeGeneration(has_turret=False)
     composite_gen.load_folder(pathlib.Path(os.getenv("SAMPLE_IMAGE_FOLDER")))

@@ -22,9 +22,11 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         'mjpg'
     ]
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.VIDEO
+            post_function=PostFunction.VIDEO,
+            *args,
+            **kwargs,
         )
         self._name = self.__class__.__name__
 
@@ -48,16 +50,20 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         )
 
 
-    @staticmethod
-    def _generate_filename(df: pd.DataFrame, **kwargs) -> str:
+    def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         row0 = df.iloc[0]
+        objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
 
+        # Use custom root + step name if available
+        custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
+        prefix = f"{custom_root}_{row0['Name']}" if custom_root not in (None, '') else row0['Name']
         name = common_utils.generate_default_step_name(
-            custom_name_prefix=row0['Name'],
+            custom_name_prefix=prefix,
             well_label=row0['Well'],
             color=row0['Color'],
             z_height_idx=row0['Z-Slice'],
             scan_count=None,
+            objective_short_name=objective_short_name,
             tile_label=row0['Tile'],
             stitched=row0['Stitched'],
             video=True,
@@ -90,6 +96,9 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
             frames_per_sec=kwargs['frames_per_sec'],
             enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
             output_file_loc=kwargs['output_file_loc'],
+            popup=kwargs['popup'],
+            total_groups=kwargs['total_groups'],
+            current_group=kwargs['current_group'],
         )
     
 
@@ -138,7 +147,10 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         df: pd.DataFrame,
         frames_per_sec: int,
         enable_timestamp_overlay: bool,
-        output_file_loc: pathlib.Path
+        output_file_loc: pathlib.Path,
+        popup=None,
+        total_groups=1,
+        current_group=1,
     ) -> bool:
         
 
@@ -202,7 +214,15 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         )
 
         logger.info(f"[{self._name}] Writing video to {output_file_loc}")
-        
+
+        # Progress bar percentage calculation
+        end_percentage = (current_group / total_groups) * 100
+        start_percentage = ((current_group - 1) / total_groups) * 100
+
+        percent_diff = end_percentage - start_percentage
+
+        total_frames = len(df)
+        i = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
             image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
@@ -212,6 +232,11 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
                 image = image_utils.add_timestamp(image=image, timestamp_str=frame_ts)
                 
             video.write(image)
+
+            if popup is not None:
+                popup.progress = start_percentage + (i / total_frames) * percent_diff
+            
+            i += 1
 
         cv2.destroyAllWindows()
         video.release()

@@ -33,11 +33,11 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 '''
 
-from numpy import False_
 import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
 import time
+import threading
 
 class LEDBoard:    
 
@@ -48,6 +48,8 @@ class LEDBoard:
         logger.info('[LED Class ] LEDBoard.__init__()')
         ports = list_ports.comports(include_links = True)
         self.found = False
+        self.thread_lock = threading.RLock()
+        self.port = None
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
@@ -62,7 +64,7 @@ class LEDBoard:
         self.stopbits=serial.STOPBITS_ONE
         self.timeout=0.1 # seconds
         self.write_timeout=0.1 # seconds
-        self.driver = False
+        self.driver = None
         self.led_ma = {
             'BF': -1,
             'PC': -1,
@@ -76,66 +78,87 @@ class LEDBoard:
             logger.info('[LED Class ] Found LED controller and about to establish connection.')
             self.connect()
         except:
-            logger.exception('[LED Class ] Found LED controller but unable to establish connection.')
+            logger.error('[LED Class ] Found LED controller but unable to establish connection.')
             raise
 
 
     def connect(self):
         """ Try to connect to the LED controller based on the known VID/PID"""
+        with self.thread_lock:
+            try:
+                logger.info('[LED Class ] Found LED controller and about to create driver.')
+                if self.port is not None:
+                    self.driver = serial.Serial(port=self.port,
+                                                baudrate=self.baudrate,
+                                                bytesize=self.bytesize,
+                                                parity=self.parity,
+                                                stopbits=self.stopbits,
+                                                timeout=self.timeout,
+                                                write_timeout=self.write_timeout)
+                else:
+                    raise ValueError("No port found for LED controller")
+
+                # self.driver.close()
+                # self.driver.open()
+
+                # self.exchange_command('import main.py')
+                # self.exchange_command('import main.py')
+                logger.info('[LED Class ] LEDBoard.connect() succeeded')
+                #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains 
+                self.driver.write(b'\x04\n')
+                logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
+            except Exception as e:
+                self.driver = None
+                logger.error(f'[LED Class ] LEDBoard.connect() failed: {e}')
+
+    def disconnect(self):
+        logger.info('[LED Class ] Disconnecting from LED controller...')
         try:
-            logger.info('[LED Class ] Found LED controller and about to create driver.')
-            self.driver = serial.Serial(port=self.port,
-                                        baudrate=self.baudrate,
-                                        bytesize=self.bytesize,
-                                        parity=self.parity,
-                                        stopbits=self.stopbits,
-                                        timeout=self.timeout,
-                                        write_timeout=self.write_timeout)
+            if self.driver is not None:
+                self.driver.close()
+                self.driver = None
+                self.port = None
+                logger.info('[LED Class ] LEDBoard.disconnect() succeeded')
+            else:
+                logger.info('[LED Class ] LEDBoard.disconnect() failed: LED controller not connected')
 
-            #self.driver.close()
-            #self.driver.open()
+        except Exception as e:
+            logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
 
-            # self.exchange_command('import main.py')
-            # self.exchange_command('import main.py')
-            logger.info('[LED Class ] LEDBoard.connect() succeeded')
-            #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains 
-            self.driver.write(b'\x04\n')
-            logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
-        except:
-            self.driver = False
-            logger.exception('[LED Class ] LEDBoard.connect() failed')
-            
+    def is_connected(self) -> bool:
+        return self.driver is not None
+
     def exchange_command(self, command):
         """ Exchange command through serial to LED board
         This should NOT be used in a script. It is intended for other functions to access"""
+        with self.thread_lock:
+            stream = command.encode('utf-8')+b"\n"
 
-        stream = command.encode('utf-8')+b"\n"
+            if self.driver is not None:
+                try:
+                    self.driver.flushInput()
+                    self.driver.flush()
+                    time.sleep(0.001)
+                    self.driver.write(stream)
+                    time.sleep(0.01)
+                    response = self.driver.readline()
+                    response = response.decode("utf-8","ignore")
 
-        if self.driver != False:
-            try:
-                self.driver.flushInput()
-                self.driver.flush()
-                time.sleep(0.05)
-                self.driver.write(stream)
-                time.sleep(0.05)
-                response = self.driver.readline()
-                response = response.decode("utf-8","ignore")
+                    logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
+                    return response[:-2]
+                
+                except serial.SerialTimeoutException:
+                    self.driver = None
+                    logger.error('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
 
-                logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
-                return response[:-2]
-            
-            except serial.SerialTimeoutException:
-                self.driver = False
-                logger.exception('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+                except:
+                    self.driver = None
 
-            except:
-                self.driver = False
-
-        else:
-            try:
-                self.connect()
-            except:
-                return
+            else:
+                try:
+                    self.connect()
+                except:
+                    return
       
     def color2ch(self, color):
         """ Convert color name to numerical channel """
@@ -191,6 +214,17 @@ class LEDBoard:
         command = 'LEDS_ENF'
         self.exchange_command(command)
 
+    def get_status(self):
+        command = 'STATUS'
+        return self.exchange_command(command)
+    
+    def wait_until_on(self):
+        # Waits in loop until ledboard confirms that an LED is on (not turned off)
+
+        status = self.get_status()
+        while "STATUS" not in status:
+            status = self.get_status()
+
     def get_led_ma(self, color):
         return self.led_ma.get(color, -1)
     
@@ -221,13 +255,27 @@ class LEDBoard:
         return states
         
     
-    def led_on(self, channel, mA):
-        """ Turn on LED at channel number at mA power """
+    def led_on(self, channel, mA, block=False):
+        """ 
+        Turn on LED at channel number at mA power 
+        If block=True, verify correct callback before returning
+        """
         color = self.ch2color(channel=channel)
         self.led_ma[color] = mA
 
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
-        self.exchange_command(command)
+        response = self.exchange_command(command)
+
+        def check_each_substr(list, result):
+            for sub_str in list:
+                if sub_str not in result:
+                    return False
+            return True
+        
+        if block:
+            while command not in response and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response):
+                response = self.exchange_command(command)
+
 
     def led_off(self, channel):
         """ Turn off LED at channel number """

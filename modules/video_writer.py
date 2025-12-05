@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 
 import image_utils
+from lvp_logger import logger
 
 
 class VideoWriter:
@@ -70,6 +71,8 @@ class VideoWriter:
     def _init_video(self, image: np.ndarray):
         (height, width), is_color = self._get_image_info(image=image)
 
+        self._shape = (height, width)
+
         self._video = cv2.VideoWriter(
             filename=str(self._output_file_loc),
             fourcc=self._fourcc,
@@ -95,6 +98,9 @@ class VideoWriter:
         #     ],
         # )
 
+    def _is_correct_image_shape(self, image):
+        (height, width), is_color = self._get_image_info(image=image)
+        return (height, width) == self._shape
 
     def add_frame(self, image: np.ndarray, timestamp=None):
 
@@ -102,6 +108,11 @@ class VideoWriter:
         if self._video is None:
             self._init_video(image=image)
         
+        if not self._is_correct_image_shape(image):
+            logger.error("VideoWriter: Inconsistent Image Shape. Video will likely corrupt")
+            logger.warning("VideoWriter: Currently continuing with writing (may want to change)")
+            # return
+
         if self._include_timestamp_overlay:
             if timestamp is not None:
                 ts = self._get_timestamp_str(timestamp)
@@ -115,3 +126,18 @@ class VideoWriter:
     def finish(self):
         cv2.destroyAllWindows()
         self._video.release()
+
+    def test_video(self, filename):
+        logger.info(f"VideoWriter: Testing video {filename}")
+        cap = cv2.VideoCapture(str(filename))
+        if not cap.isOpened():
+            logger.error("Video Writer: Output file is corrupt or unreadable")
+            return False
+            #raise RuntimeError("Output file is corrupt or unreadable")
+        ok, test_frame = cap.read()
+        if not ok:
+            logger.error("Video Writer: No frames could be read back; file is probably corrupt")
+            return False
+            #raise RuntimeError("No frames could be read back; file is probably corrupt")
+        cap.release()
+        return True

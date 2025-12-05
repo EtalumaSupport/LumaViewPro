@@ -12,3 +12,4 @@ dist/
 tmp/
 .DS_Store
 notebooks/
+scripts/build_exe/deps/amazon-corretto-8.442.06.1-windows-x64-jdk.msi
