@@ -41,6 +41,8 @@ from lvp_logger import logger
 
 import threading
 
+
+
 class MotorBoard:
 
     #----------------------------------------------------------
@@ -57,6 +59,32 @@ class MotorBoard:
         self.initial_t_homing_complete = False
         self.port = None
         self.thread_lock = threading.RLock()
+        self.axes_config = {
+            'Z': {
+                'limits': {
+                    'min': 0.,
+                    'max': 14000.,
+                },
+                'move_func': self.z_um2ustep
+            },
+            'X': {
+                'limits': {
+                    'min': 0.,
+                    'max': 120000.,
+                },
+                'move_func': self.xy_um2ustep
+            },
+            'Y': {
+                'limits': {
+                    'min': 0.,
+                    'max': 80000.,
+                },
+                'move_func': self.xy_um2ustep
+            },
+            'T': {
+                'move_func': self.t_pos2ustep
+            }
+        }
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
@@ -490,33 +518,7 @@ class MotorBoard:
     def move_abs_pos(self, axis, pos, overshoot_enabled: bool=True, ignore_limits: bool=False):
         """ Move to absolute position (in um) of axis"""
         # logger.info('move_abs_pos', axis, pos)
-
-        AXES_CONFIG = {
-            'Z': {
-                'limits': {
-                    'min': 0.,
-                    'max': 14000.,
-                },
-                'move_func': self.z_um2ustep
-            },
-            'X': {
-                'limits': {
-                    'min': 0.,
-                    'max': 120000.,
-                },
-                'move_func': self.xy_um2ustep
-            },
-            'Y': {
-                'limits': {
-                    'min': 0.,
-                    'max': 80000.,
-                },
-                'move_func': self.xy_um2ustep
-            },
-            'T': {
-                'move_func': self.t_pos2ustep
-            }
-        }
+        AXES_CONFIG = self.axes_config
 
         if axis not in AXES_CONFIG:
             raise Exception(f"Unsupported axis ({axis})")
@@ -790,6 +792,22 @@ class MotorBoard:
             logger.info('[XYZ Class ] MotorBoard not connected. Unable to check current firmware')
             return 
         return response
+    
+    def get_axes_config(self):
+        return self.axes_config
+    
+    def get_axis_limits(self, axis: str):
+        AXES_CONFIG = self.axes_config
+        if axis not in AXES_CONFIG:
+            logger.error(f"[XYZ Class ] MotorBoard.get_axis_limits(): Unsupported axis ({axis})")
+            raise Exception(f"Unsupported axis ({axis})")
+        
+        axis_config = AXES_CONFIG[axis]
+        if 'limits' not in axis_config:
+            logger.error(f"[XYZ Class ] MotorBoard.get_axis_limits(): No limits defined for axis ({axis})")
+            raise Exception(f"Axis {axis} does not have defined limits")
+        
+        return axis_config['limits']
 
 '''
 # signed 32 bit hex to dec

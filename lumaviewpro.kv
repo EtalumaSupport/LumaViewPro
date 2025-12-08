@@ -1801,501 +1801,535 @@
             size: self.size
             pos: self.pos
 
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Lumascope Model'
-			tooltip_text: 'Lumi, LS820, LS850, and LS850T'
-            size_hint_x: None
-            width: '120dp'
-			font_size: '12sp'
-	    Spinner:
-			id: scope_spinner
-			sync_height: True
-	        text: 'Select'
-			font_size:'12dp'
-			option_cls: "SpinnerOption0"
-			text_autoupdate: True
-	        on_release: root.load_scopes()
-	        on_text: root.select_scope()
-
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Objective'
-			tooltip_text: 'Current objective in the lightpath'
-            size_hint_x: None
-            width: '120dp'
-			font_size: '12sp'
-	    Spinner:
-			id: objective_spinner
-			sync_height: True
-	        text: 'Select'
-			font_size:'12dp'
-			option_cls: "SpinnerOption0"
-			text_autoupdate: True
-	        on_release: root.load_objectives()
-	        on_text: root.select_objective()
-
-    BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Magnification'
-			tooltip_text: 'Current objective magnification'
-            size_hint_x: None
-            width: '120dp'
-			font_size: '12sp'
-        TextInput:
-            id: magnification_id
-            multiline: False
-            padding: ['5dp', (self.height-self.line_height)/2]
-            halign: 'center'
-            input_filter: 'int'
-            text: '40'
-			disabled: True
-			font_size: '12sp'
-
-	# Frame Size
-	BoxLayout:
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
-		padding: '0dp'
-		spacing: '5dp'
-
-		Label:
-			text: 'Frame Size'
-			tooltip_text: 'Camera sensor frame size in pixels'
-			halign: 'left'
-			valign: 'middle'
-			font_size: '12sp'
-			size_hint_x: None
-			width: '80dp'
-			text_size: self.size
-
-		TextInput:
-			id: frame_width_id
-			multiline: False
-			padding: ['2dp', (self.height-self.line_height)/2]
-			halign: 'center'
-			input_filter: 'int'
-			text: '1900'
-			on_text_validate: root.frame_size()
-			on_focus: if not self.focus: root.frame_size()
-			font_size: '12sp'
-		Label:
-			text: 'x'
-			tooltip_text: 'Camera sensor X and Y dimension\nframe size in pixels\n from 4 to 3860 in X and 2178 in Y\nbut 1600-2100 recommended'
-			size_hint_x: None
-			width: '15dp'
-			font_size: '12sp'
-			halign: 'center'
-		TextInput:
-			id: frame_height_id
-			multiline: False
-			padding: ['5dp', (self.height-self.line_height)/2]
-			halign: 'center'
-			input_filter: 'int'
-			text: '1900'
-			on_text_validate: root.frame_size()
-			on_focus: if not self.focus: root.frame_size()
-			font_size: '12sp'
-	
-	# Field of View
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Field of View'
-			tooltip_text: 'FOV calculated from magnification and frame size'
-            size_hint_x: None
-            width: '120dp'
-            font_size: '12sp'
-
-		TextInput:
-			id: field_of_view_width_id
-			multiline: False
-			padding: ['2dp', (self.height-self.line_height)/2]
-			halign: 'center'
-			input_filter: 'int'
-			text: ''
-			font_size: '12sp'
-			disabled: True
-		Label:
-			text: 'x'
-			size_hint_x: None
-			width: '15dp'
-			font_size: '12sp'
-			halign: 'center'
-		TextInput:
-			id: field_of_view_height_id
-			multiline: False
-			padding: ['5dp', (self.height-self.line_height)/2]
-			halign: 'center'
-			input_filter: 'int'
-			text: ''
-			font_size: '12sp'
-			disabled: True
-		Label:
-			text: ' um'
-			size_hint_x: None
-			width: '15dp'
-			font_size: '12sp'
-			halign: 'center'
-
-	FileChooseBTN:
-		text: 'Load'
-		tooltip_text: 'Load previously saved Settings file'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		on_release: self.choose('load_settings')
-	FileSaveBTN:
-		text: 'Save'
-		tooltip_text: 'Save Settings file'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		on_release: self.choose('save_settings')
-
-	BoxLayout:
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
-		Button:
-			id: reconnect_btn
+	ScrollView:
+		scroll_type: ['bars']
+		do_scroll_x: False
+		pos_hint: {'top': 1.0}
+		BoxLayout:
+			orientation: 'vertical'
 			size_hint_y: None
-			height: '30dp'
-			font_size: '12sp'
-			text: 'Reconnect'
-			tooltip_text: 'Restart connection to microscope'
-			on_release: root.reconnect()
+			height: self.minimum_height
+			padding: 0, 0, dp(8), 0
+			spacing: dp(5)
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Lumascope Model'
+					tooltip_text: 'Lumi, LS820, LS850, and LS850T'
+					size_hint_x: None
+					width: '120dp'
+					font_size: '12sp'
+				Spinner:
+					id: scope_spinner
+					sync_height: True
+					text: 'Select'
+					font_size:'12dp'
+					option_cls: "SpinnerOption0"
+					text_autoupdate: True
+					on_release: root.load_scopes()
+					on_text: root.select_scope()
 
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-		Label:
-			font_size: '12sp'
-			text: 'Enable Full Pixel Depth'
-			tooltip_text: 'Choose between 8 and 12 bit depth images'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-		ToggleButton:
-			id: enable_full_pixel_depth_btn
-			tooltip_text: 'Save all images as 12-bit tiff'
-			size_hint: None, None
-			size: '45dp', '30dp'
-			border: 0, 0, 0, 0
-			valign: 'middle'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_full_pixel_depth_state()
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Objective'
+					tooltip_text: 'Current objective in the lightpath'
+					size_hint_x: None
+					width: '120dp'
+					font_size: '12sp'
+				Spinner:
+					id: objective_spinner
+					sync_height: True
+					text: 'Select'
+					font_size:'12dp'
+					option_cls: "SpinnerOption0"
+					text_autoupdate: True
+					on_release: root.load_objectives()
+					on_text: root.select_objective()
 
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Live Image Format'
-			tooltip_text: 'Choose between TIFF and OME-TIFF\nfor live image capture'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-			font_size: '12sp'
-	    Spinner:
-			id: live_image_output_format_spinner
-			sync_height: True
-	        text: 'Select'
-			font_size:'12dp'
-			option_cls: "SpinnerOption0"
-			text_autoupdate: True
-	        on_text: root.select_live_image_output_format()
-			values: ('TIFF', 'OME-TIFF')
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Magnification'
+					tooltip_text: 'Current objective magnification'
+					size_hint_x: None
+					width: '120dp'
+					font_size: '12sp'
+				TextInput:
+					id: magnification_id
+					multiline: False
+					padding: ['5dp', (self.height-self.line_height)/2]
+					halign: 'center'
+					input_filter: 'int'
+					text: '40'
+					disabled: True
+					font_size: '12sp'
 
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Sequenced Image Format'
-			tooltip_text: 'Choose between TIFF, OME-TIFF or\nImageJ Hyperstack with TIFF\nfor Protocol image capture'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-			font_size: '12sp'
-	    Spinner:
-			id: sequenced_image_output_format_spinner
-			sync_height: True
-	        text: 'Select'
-			font_size:'12dp'
-			option_cls: "SpinnerOption0"
-			text_autoupdate: True
-	        on_text: root.select_sequenced_image_output_format()
-			values: ('TIFF', 'OME-TIFF', 'ImageJ Hyperstack')
+			# Frame Size
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				padding: '0dp'
+				spacing: '5dp'
 
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Video Recording\nFormat'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-			font_size: '12sp'
-	    Spinner:
-			id: video_recording_format_spinner
-			sync_height: True
-	        text: 'Select'
-			font_size:'12dp'
-			option_cls: "SpinnerOption0"
-			text_autoupdate: True
-	        on_text: root.select_video_recording_format()
-			values: ('mp4', 'Frames')
+				Label:
+					text: 'Frame Size'
+					tooltip_text: 'Camera sensor frame size in pixels'
+					halign: 'left'
+					valign: 'middle'
+					font_size: '12sp'
+					size_hint_x: None
+					width: '80dp'
+					text_size: self.size
 
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-		Label:
-			font_size: '12sp'
-			text: 'Enable Scale Bar'
-			tooltip_text: 'Show scale bar in lower right corner of image'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-		ToggleButton:
-			id: enable_scale_bar_btn
-			tooltip_text: 'Show scale bar in lower right corner of image'
-			size_hint: None, None
-			size: '45dp', '30dp'
-			border: 0, 0, 0, 0
-			valign: 'middle'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_scale_bar_state()
-			state: 'normal'
+				TextInput:
+					id: frame_width_id
+					multiline: False
+					padding: ['2dp', (self.height-self.line_height)/2]
+					halign: 'center'
+					input_filter: 'int'
+					text: '1900'
+					on_text_validate: root.frame_size()
+					on_focus: if not self.focus: root.frame_size()
+					font_size: '12sp'
+				Label:
+					text: 'x'
+					tooltip_text: 'Camera sensor X and Y dimension\nframe size in pixels\n from 4 to 3860 in X and 2178 in Y\nbut 1600-2100 recommended'
+					size_hint_x: None
+					width: '15dp'
+					font_size: '12sp'
+					halign: 'center'
+				TextInput:
+					id: frame_height_id
+					multiline: False
+					padding: ['5dp', (self.height-self.line_height)/2]
+					halign: 'center'
+					input_filter: 'int'
+					text: '1900'
+					on_text_validate: root.frame_size()
+					on_focus: if not self.focus: root.frame_size()
+					font_size: '12sp'
 			
-	# Separate Folders
-	BoxLayout:
-		orientation: 'horizontal'
-		size_hint_y: None
-		height: '30dp'
+			# Field of View
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Field of View'
+					tooltip_text: 'FOV calculated from magnification and frame size'
+					size_hint_x: None
+					width: '120dp'
+					font_size: '12sp'
+
+				TextInput:
+					id: field_of_view_width_id
+					multiline: False
+					padding: ['2dp', (self.height-self.line_height)/2]
+					halign: 'center'
+					input_filter: 'int'
+					text: ''
+					font_size: '12sp'
+					disabled: True
+				Label:
+					text: 'x'
+					size_hint_x: None
+					width: '15dp'
+					font_size: '12sp'
+					halign: 'center'
+				TextInput:
+					id: field_of_view_height_id
+					multiline: False
+					padding: ['5dp', (self.height-self.line_height)/2]
+					halign: 'center'
+					input_filter: 'int'
+					text: ''
+					font_size: '12sp'
+					disabled: True
+				Label:
+					text: ' um'
+					size_hint_x: None
+					width: '15dp'
+					font_size: '12sp'
+					halign: 'center'
+
+			FileChooseBTN:
+				text: 'Load'
+				tooltip_text: 'Load previously saved Settings file'
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				on_release: self.choose('load_settings')
+			FileSaveBTN:
+				text: 'Save'
+				tooltip_text: 'Save Settings file'
+				size_hint_y: None
+				height: '30dp'
+				font_size: '12sp'
+				on_release: self.choose('save_settings')
+
+			# BoxLayout:
+			# 	orientation: 'horizontal'
+			# 	size_hint_y: None
+			# 	height: '30dp'
+			# 	Button:
+			# 		id: reconnect_btn
+			# 		size_hint_y: None
+			# 		height: '30dp'
+			# 		font_size: '12sp'
+			# 		text: 'Reconnect'
+			# 		tooltip_text: 'Restart connection to microscope'
+			# 		on_release: root.reconnect()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Enable Full Pixel Depth'
+					tooltip_text: 'Choose between 8 and 12 bit depth images'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: enable_full_pixel_depth_btn
+					tooltip_text: 'Save all images as 12-bit tiff'
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_full_pixel_depth_state()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Live Image Format'
+					tooltip_text: 'Choose between TIFF and OME-TIFF\nfor live image capture'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+				Spinner:
+					id: live_image_output_format_spinner
+					sync_height: True
+					text: 'Select'
+					font_size:'12dp'
+					option_cls: "SpinnerOption0"
+					text_autoupdate: True
+					on_text: root.select_live_image_output_format()
+					values: ('TIFF', 'OME-TIFF')
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Sequenced Image Format'
+					tooltip_text: 'Choose between TIFF, OME-TIFF or\nImageJ Hyperstack with TIFF\nfor Protocol image capture'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+				Spinner:
+					id: sequenced_image_output_format_spinner
+					sync_height: True
+					text: 'Select'
+					font_size:'12dp'
+					option_cls: "SpinnerOption0"
+					text_autoupdate: True
+					on_text: root.select_sequenced_image_output_format()
+					values: ('TIFF', 'OME-TIFF', 'ImageJ Hyperstack')
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Video Recording\nFormat'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+				Spinner:
+					id: video_recording_format_spinner
+					sync_height: True
+					text: 'Select'
+					font_size:'12dp'
+					option_cls: "SpinnerOption0"
+					text_autoupdate: True
+					on_text: root.select_video_recording_format()
+					values: ('mp4', 'Frames')
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Enable Scale Bar'
+					tooltip_text: 'Show scale bar in lower right corner of image'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: enable_scale_bar_btn
+					tooltip_text: 'Show scale bar in lower right corner of image'
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_scale_bar_state()
+					state: 'normal'
 					
-		Label:
-			text: 'Save channels in separate folders'
-			tooltip_text: "Save each channels' images in separate folders"
-			font_size: '12sp'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
+			# Separate Folders
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+							
+				Label:
+					text: 'Save channels in separate folders'
+					tooltip_text: "Save each channels' images in separate folders"
+					font_size: '12sp'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
 
-		ToggleButton:
-			id: separate_folder_per_channel_id
-			size_hint: None, None
-			tooltip_text: "Save each channels' images in separate folders"
-			size: '45dp', '30dp'
-			border: 0, 0, 0, 0
-			valign: 'middle'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_separate_folders_per_channel()
-			state: 'normal'
+				ToggleButton:
+					id: separate_folder_per_channel_id
+					size_hint: None, None
+					tooltip_text: "Save each channels' images in separate folders"
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_separate_folders_per_channel()
+					state: 'normal'
 
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-		Label:
-			font_size: '12sp'
-			text: 'Enable Crosshairs'
-			tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-		ToggleButton:
-			id: enable_crosshairs_btn
-			tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
-			size_hint: None, None
-			size: '45dp', '30dp'
-			border: 0, 0, 0, 0
-			valign: 'middle'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_crosshairs_state()
-			state: 'normal'
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Enable Crosshairs'
+					tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: enable_crosshairs_btn
+					tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_crosshairs_state()
+					state: 'normal'
 
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-		Label:
-			font_size: '12sp'
-			text: 'Live Image Contrast Stretching'
-			tooltip_text: 'Expand pixel brightness histogram to full dynamic range,\ndoes not effect saved image'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-		ToggleButton:
-			id: enable_live_image_histogram_equalization_btn
-			tooltip_text: 'Show image with full dynamic range pixel brightness histogram\nsaved image may appear black but this shows what information is in the image\nif expanded post acquisition'
-			size_hint: None, None
-			size: '45dp', '30dp'
-			border: 0, 0, 0, 0
-			valign: 'middle'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_live_image_histogram_equalization()
-			state: 'normal'
-
-
-	BoxLayout:
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-        Label:
-            text: 'Binning'
-			tooltip_text: 'Add adjacent pixels together for increased sensitivity\nsacrificing resolution'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-			font_size: '12sp'
-	    Spinner:
-			id: binning_spinner
-			sync_height: True
-	        text: 'Select'
-			font_size:'12dp'
-			option_cls: "SpinnerOption0"
-			text_autoupdate: True
-	        on_release: root.load_binning_sizes()
-	        on_text: root.select_binning_size()
-
-	BoxLayout:
-
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '30dp'
-		Label:
-			font_size: '12sp'
-			text: 'Show Tooltips'
-			tooltip_text: 'Display hint while hovering over controls'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-		ToggleButton:
-			id: show_tooltips_btn
-			size_hint: None, None
-			tooltip_text: 'Display hint while hovering over controls'
-			size: '45dp', '30dp'
-			border: 0, 0, 0, 0
-			valign: 'middle'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_show_tooltips()
-			state: 'normal'
-      
-	BoxLayout:
-		id: acceleration_control_box
-		size_hint_y: None if self.visible else 0
-		height: '30dp' if self.visible else 0
-		opacity: 1 if self.visible else 0
-		disabled: not self.visible
-		visible: True
-		orientation: 'horizontal'
-		Label:
-			id: acceleration_pct_label
-			text: 'Acceleration Max (%)'
-			tooltip_text: 'Maximum acceleration percentage for X-Y stage'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-			font_size: '12sp'
-		ModSlider:
-			id: acceleration_pct_slider
-			min: 1
-			max: 100
-			value: 100
-			step: 1
-			cursor_size: '20dp','20dp'
-			cursor_image: './data/icons/slider_cursor.png'
-			value_track: True
-			#value_track_color: root.bg_color
-			value_track_width: 5
-			on_release: root.acceleration_pct_slider() # on_touch_move # on_release
-		TextInput:
-			id: acceleration_pct_text
-			size_hint_x: None
-			width: '45dp'
-			multiline: False
-			font_size: '12sp'
-			padding: ['4dp', (self.height-self.line_height)/2]
-			halign: 'right'
-			input_filter: 'int'
-			text: format(acceleration_pct_slider.value)
-			on_text_validate: root.acceleration_pct_text()
-			on_focus: if not self.focus: root.acceleration_pct_text()
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Live Image Contrast Stretching'
+					tooltip_text: 'Expand pixel brightness histogram to full dynamic range,\ndoes not effect saved image'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: enable_live_image_histogram_equalization_btn
+					tooltip_text: 'Show image with full dynamic range pixel brightness histogram\nsaved image may appear black but this shows what information is in the image\nif expanded post acquisition'
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_live_image_histogram_equalization()
+					state: 'normal'
 
 
-	BoxLayout:
-		height: '30dp'
-		size_hint_y: None
-		orientation: 'horizontal'
-		opacity: 0
-		
-	BoxLayout:
-		id: enable_bullseye_box_id
-		opacity: 0
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '0dp'
-		Label:
-			font_size: '12sp'
-			text: 'Enable Bullseye Mode'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-		ToggleButton:
-			id: enable_bullseye_btn_id
-			size_hint: None, None
-			size: '45dp', '30dp'
-			border: 0, 0, 0, 0
-			valign: 'middle'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_bullseye_state()
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Binning'
+					tooltip_text: 'Add adjacent pixels together for increased sensitivity\nsacrificing resolution'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+				Spinner:
+					id: binning_spinner
+					sync_height: True
+					text: 'Select'
+					font_size:'12dp'
+					option_cls: "SpinnerOption0"
+					text_autoupdate: True
+					on_release: root.load_binning_sizes()
+					on_text: root.select_binning_size()
 
-	BoxLayout:
-		id: enable_fps_monitor_box_id
-		opacity: 0
-        orientation: 'horizontal'
-        size_hint_y: None
-        height: '0dp'
-		Label:
-			font_size: '12sp'
-			text: 'Enable FPS Monitor'
-			halign: 'left'
-			valign: 'middle'
-			text_size: self.size
-		ToggleButton:
-			id: enable_fps_monitor_btn_id
-			size_hint: None, None
-			size: '45dp', '30dp'
-			border: 0, 0, 0, 0
-			valign: 'middle'
-			background_normal: './data/icons/ToggleL.png'
-			background_down: './data/icons/ToggleRW.png'
-			on_release: root.update_fps_monitor_state()
+			BoxLayout:
 
-	Label:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Show Tooltips'
+					tooltip_text: 'Display hint while hovering over controls'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: show_tooltips_btn
+					size_hint: None, None
+					tooltip_text: 'Display hint while hovering over controls'
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_show_tooltips()
+					state: 'normal'
+			
+			BoxLayout:
+				id: acceleration_control_box
+				size_hint_y: None if self.visible else 0
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: not self.visible
+				visible: True
+				orientation: 'horizontal'
+				Label:
+					id: acceleration_pct_label
+					text: 'Acceleration Max (%)'
+					tooltip_text: 'Maximum acceleration percentage for X-Y stage'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+				ModSlider:
+					id: acceleration_pct_slider
+					min: 1
+					max: 100
+					value: 100
+					step: 1
+					cursor_size: '20dp','20dp'
+					cursor_image: './data/icons/slider_cursor.png'
+					value_track: True
+					#value_track_color: root.bg_color
+					value_track_width: 5
+					on_release: root.acceleration_pct_slider() # on_touch_move # on_release
+				TextInput:
+					id: acceleration_pct_text
+					size_hint_x: None
+					width: '45dp'
+					multiline: False
+					font_size: '12sp'
+					padding: ['4dp', (self.height-self.line_height)/2]
+					halign: 'right'
+					input_filter: 'int'
+					text: format(acceleration_pct_slider.value)
+					on_text_validate: root.acceleration_pct_text()
+					on_focus: if not self.focus: root.acceleration_pct_text()
+				
+			BoxLayout:
+
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Protocol LED On'
+					tooltip_text: 'Automatically turn on LED for each protocol step'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: protocol_led_on_btn
+					size_hint: None, None
+					tooltip_text: 'Automatically turn on LED for each protocol step'
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_protocol_led_on()
+					state: 'normal'
+
+
+			BoxLayout:
+				height: '30dp'
+				size_hint_y: None
+				orientation: 'horizontal'
+				opacity: 0
+				
+			BoxLayout:
+				id: enable_bullseye_box_id
+				opacity: 0
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '0dp'
+				Label:
+					font_size: '12sp'
+					text: 'Enable Bullseye Mode'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: enable_bullseye_btn_id
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_bullseye_state()
+
+			# BoxLayout:
+			# 	id: enable_fps_monitor_box_id
+			# 	opacity: 0
+			# 	orientation: 'horizontal'
+			# 	size_hint_y: None
+			# 	height: '0dp'
+			# 	Label:
+			# 		font_size: '12sp'
+			# 		text: 'Enable FPS Monitor'
+			# 		halign: 'left'
+			# 		valign: 'middle'
+			# 		text_size: self.size
+			# 	ToggleButton:
+			# 		id: enable_fps_monitor_btn_id
+			# 		size_hint: None, None
+			# 		size: '45dp', '30dp'
+			# 		border: 0, 0, 0, 0
+			# 		valign: 'middle'
+			# 		background_normal: './data/icons/ToggleL.png'
+			# 		background_down: './data/icons/ToggleRW.png'
+			# 		on_release: root.update_fps_monitor_state()
+
+			Label:
 
 # LayerControl - Settings for Layers within ImageSettings
 # ------------------------------------------

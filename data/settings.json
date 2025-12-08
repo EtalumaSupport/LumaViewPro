@@ -179,5 +179,5 @@
 
     "show_tooltips": false,
     "live_view_fps": 30,
-    "show_fps_monitor": false
+    "protocol_led_on": false
 }

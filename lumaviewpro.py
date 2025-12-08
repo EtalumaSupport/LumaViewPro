@@ -560,7 +560,7 @@ def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
     layer_obj.ids['enable_led_btn'].state = state
 
 
-def scope_leds_off():
+def scope_leds_off(no_callback: bool = False):
     global lumaview
 
     if protocol_running_global:
@@ -570,7 +570,10 @@ def scope_leds_off():
         logger.warning('[LVP Main  ] LED controller not available.')
         return
     
-    camera_executor.put(IOTask(action=lumaview.scope.leds_off, callback=_handle_ui_for_leds_off))
+    if no_callback:
+        camera_executor.put(IOTask(action=lumaview.scope.leds_off))
+    else:
+        camera_executor.put(IOTask(action=lumaview.scope.leds_off, callback=_handle_ui_for_leds_off))
     #lumaview.scope.leds_off()
     logger.info('[LVP Main  ] lumaview.scope.leds_off()')
     #_handle_ui_for_leds_off()
@@ -693,7 +696,19 @@ def go_to_step(
         settings[color]['acquire'] = step['Acquire']
 
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=color)
-        layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+
+        def temp():
+            layer_obj.ids['enable_led_btn'].state = 'down'
+            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+
+        if not called_from_protocol and settings['protocol_led_on']:
+            io_executor.put(IOTask(action=lumaview.scope.led_on, args=(color, step['Illumination'])))
+            Clock.schedule_once(lambda dt: temp(), 0)
+        else:
+            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+
+        
+        
         Clock.schedule_once(lambda dt: go_to_step_update_ui(step), 0)
 
 
@@ -711,6 +726,8 @@ def go_to_step_update_ui(step):
     # set accordion item to corresponding channel
     accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=color)
     accordion_item_obj.collapse = False
+
+
 
     # set autofocus checkbox
     logger.info(f'[LVP Main  ] autofocus: {step["Auto_Focus"]}')
@@ -762,6 +779,13 @@ def go_to_step_update_ui(step):
         layer_obj.ids['acquire_image'].active = True
     else:
         layer_obj.ids['acquire_none'].active = True
+
+    def temp():
+        layer_obj.ids['enable_led_btn'].state = 'down'
+    if settings['protocol_led_on']:
+        if not protocol_running_global:
+            camera_executor.put(IOTask(action=Clock.schedule_once(lambda dt: temp())))
+
 
 
 
@@ -1591,6 +1615,11 @@ class CompositeCapture(FloatLayout):
 
         initial_layer = common_utils.get_opened_layer(lumaview.ids['imagesettings_id'])
 
+        if lumaview.scope.get_led_state(initial_layer)['enabled']:
+            led_restore_state = True
+        else:
+            led_restore_state = False
+
         acquired_channel_count = 0
         most_recent_aq_channel = None
 
@@ -1660,13 +1689,13 @@ class CompositeCapture(FloatLayout):
 
         
         layer_map = {
-            'Blue': 0,
+            'Red': 0,
             'Green': 1,
-            'Red': 2,
-            'Lumi': 0,
+            'Blue': 2,
+            'Lumi': 2,
         }
 
-        scope_leds_off()
+        scope_leds_off(no_callback=True)
 
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
             layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
@@ -1750,14 +1779,14 @@ class CompositeCapture(FloatLayout):
                 else:
                     # No transmitted channel present
                     # buffer the images
-                    if layer in ('Blue', 'Lumi'):
+                    if layer == 'Red':
                         img[:,:,0] = img_gray
                     elif layer == 'Green':
                         img[:,:,1] = img_gray
-                    elif layer == 'Red':
+                    elif layer in ('Blue', 'Lumi'):
                         img[:,:,2] = img_gray
 
-            scope_leds_off()
+            scope_leds_off(no_callback=True)
 
             Clock.unschedule(layer_obj.ids['histo_id'].histogram)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
@@ -1796,15 +1825,24 @@ class CompositeCapture(FloatLayout):
             logger.info("[Composite Capture  ] No image saved as no channels were selected")
 
         live_histo_reverse()
+        
+        opened_layer_obj = common_utils.get_opened_layer_obj(lumaview.ids['imagesettings_id'])
 
-        # Reverse to settings of the channel that were originally selected
-        if initial_layer is not None:
-            gain = settings[initial_layer]['gain']
-            lumaview.scope.set_gain(gain)
-            exposure = settings[initial_layer]['exp']
-            lumaview.scope.set_exposure_time(exposure)
-            sum_count=settings[initial_layer]['sum']
-            sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
+        
+        if led_restore_state:
+            opened_layer_obj.ids['enable_led_btn'].state = 'down'
+        else:
+            opened_layer_obj.ids['enable_led_btn'].state = 'normal'
+
+        opened_layer_obj.apply_settings(update_led=True)
+        # # Reverse to settings of the channel that were originally selected
+        # if initial_layer is not None:
+        #     gain = settings[initial_layer]['gain']
+        #     lumaview.scope.set_gain(gain)
+        #     exposure = settings[initial_layer]['exp']
+        #     lumaview.scope.set_exposure_time(exposure)
+        #     sum_count=settings[initial_layer]['sum']
+        #     sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
 
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
@@ -1814,8 +1852,21 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
     def __init__(self, **kwargs):
         super(MainDisplay,self).__init__(**kwargs)
         self.scope = lumascope_api.Lumascope()
+        self.camera_temps_event = None
+
+        if self.scope.camera_is_connected():
+            self.camera_temps_event = Clock.schedule_interval(lambda dt: self.log_camera_temps(), 21600)  # Log every 6 hours
         self.recording = False
         self.led_on_before_pause = False
+
+    def log_camera_temps(self):
+        if self.scope.camera_is_connected():
+            temps = self.scope.get_camera_temps()
+            for source, temp in temps.items():
+                logger.info(f'[CAM Class ] Camera {source} Temperature : {temp:.2f} °C')
+        else:
+            if self.camera_temps_event is not None:
+                Clock.unschedule(self.camera_temps_event)
 
     def cam_toggle(self):
         logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
@@ -2238,9 +2289,18 @@ void main (void) {
 
     def on_touch_down(self, touch, *args):
         logger.info('[LVP Main  ] ShaderViewer.on_touch_down()')
+
+        ZOOM_BLOCKERS = [lumaview.ids['imagesettings_id'], lumaview.ids['motionsettings_id']]
+        x, y = touch.pos
+
         # Override Scatter's `on_touch_down` behavior for mouse scroll
         if touch.is_mouse_scrolling:
-
+            
+            for w in ZOOM_BLOCKERS:
+                lx, ly = w.to_widget(x, y)
+                if w.collide_point(lx, ly):
+                    return
+                
             if 'ctrl' in self._active_key_presses:
                 # Focus control
                 vertical_control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
@@ -2378,8 +2438,8 @@ class MotionSettings(BoxLayout):
 
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].height = '30dp'
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].opacity = 1
-            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].height = '30dp'
-            lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].opacity = 1
+            #lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].height = '30dp'
+            #lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].opacity = 1
                 
     def accordion_collapse(self):
         logger.info('[LVP Main  ] MotionSettings.accordion_collapse()')
@@ -5045,11 +5105,25 @@ class ProtocolSettings(CompositeCapture):
     def apply_tiling(self):
         logger.info('[LVP Main  ] Apply tiling to protocol')
 
-        self._protocol.apply_tiling(
+        axes_config = lumaview.scope.get_axes_config()
+        _, labware = get_selected_labware()
+        stage_offset = settings['stage_offset']
+
+        tile_status = self._protocol.apply_tiling(
             tiling=self.ids['tiling_size_spinner'].text,
             frame_dimensions=get_current_frame_dimensions(),
             binning_size=get_binning_from_ui(),
+            curr_step_idx=self.curr_step,
+            axes_config=axes_config,
+            labware=labware,
+            stage_offset=stage_offset
         )
+
+        tiles_skipped = tile_status['tiles_skipped']
+        
+        if tiles_skipped > 0:
+            error_msg = f"Tiling application skipped {tiles_skipped} new tiles due to bounds outside of labware."
+            Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Tiling Warning", message=error_msg), 0)  
         
         self._protocol.optimize_step_ordering()
         stage.set_protocol_steps(df=self._protocol.steps())
@@ -6885,6 +6959,16 @@ class MicroscopeSettings(BoxLayout):
                     self.ids['show_tooltips_btn'].state = 'normal'
                     show_tooltips = False
 
+            
+            if "protocol_led_on" in settings:
+                if settings["protocol_led_on"] == True:
+                    self.ids['protocol_led_on_btn'].state = 'down'
+                else:
+                    self.ids['protocol_led_on_btn'].state = 'normal'
+            else:
+                self.ids['protocol_led_on_btn'].state = 'normal'
+                settings["protocol_led_on"] = False
+
             for layer in common_utils.get_layers():
               
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
@@ -7066,6 +7150,12 @@ class MicroscopeSettings(BoxLayout):
         else:
             show_tooltips = False
             settings["show_tooltips"] = False
+
+    def update_protocol_led_on(self):
+        if self.ids['protocol_led_on_btn'].state == 'down':
+            settings["protocol_led_on"] = True
+        else:
+            settings["protocol_led_on"] = False
 
 
     # Save settings to JSON file
@@ -7506,7 +7596,11 @@ class LayerControl(BoxLayout):
     def exp_text(self):
         logger.info('[LVP Main  ] LayerControl.exp_text()')
         exp_min = self.ids['exp_slider'].min
-        exp_max = self.ids['exp_slider'].max
+        #exp_max = self.ids['exp_slider'].max
+        if self.layer == "BF":
+            exp_max = 1000
+        else:
+            exp_max = self.ids['exp_slider'].max
 
         try:
             exp_val = float(self.ids['exp_text'].text)
@@ -7516,7 +7610,7 @@ class LayerControl(BoxLayout):
         exposure = float(np.clip(exp_val, exp_min, exp_max))
 
         settings[self.layer]['exp'] = exposure
-        self.ids['exp_slider'].value = exposure
+        self.ids['exp_slider'].value = float(np.clip(exposure, exp_min, self.ids['exp_slider'].max))
         # self.ids['exp_slider'].value = float(np.log10(exposure)) # convert slider to log_10
         self.ids['exp_text'].text = str(exposure)
 

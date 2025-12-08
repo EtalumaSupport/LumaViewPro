@@ -173,6 +173,24 @@ class PylonCamera:
                 except Exception:
                     # Some transports may not provide a serial accessor
                     self._device_serial = None
+
+                try:
+                    nm = camera.GetNodeMap()
+                    
+                    ds_n = nm.GetNode("DeviceSerialNumber")
+                    device_serial = nm.GetNode("DeviceSerialNumber").ToString()
+                    logger.info(f'[CAM Class ] Camera Serial Number: {device_serial}')
+
+                    firmware = nm.GetNode("DeviceFirmwareVersion").ToString()
+                    logger.info(f'[CAM Class ] Camera Firmware Version: {firmware}')
+
+                    temps = self.get_all_temperatures()
+                    for name, temp in temps.items():
+                        logger.info(f'[CAM Class ] Camera {name} Temperature : {temp:.2f} °C')
+
+                except Exception as e:
+                    logger.error(f'[CAM Class ] Failed to read device info nodes: {e}', exc_info=True)
+
             except Exception:
                 self.model_name = None
                 self._device_serial = None
@@ -202,6 +220,38 @@ class PylonCamera:
         self.model_name = dev_info.GetModelName()
         logger.info(f'[CAM Class ] Connected camera model detected as "{self.model_name}"')
         return
+    
+    def get_all_temperatures(self):
+        """
+        Returns dict like:
+            {'FpgaCore': 43.2, 'SomethingElse': 40.1, ...}
+        """
+        # Camera Must be open prior to calling function
+
+        nodemap = self.active.GetNodeMap()
+
+        selector = nodemap.GetNode("DeviceTemperatureSelector")
+        temp = nodemap.GetNode("DeviceTemperature")
+
+        if selector is None or temp is None:
+            return {}
+
+        temps: dict[str, float] = {}
+
+        # Iterate all available selector entries
+        for entry in selector.GetEntries():
+
+            name = entry.GetSymbolic()       # e.g. "FpgaCore"
+            value = entry.GetValue()         # enum integer value
+
+            # Select this temperature source
+            selector.SetIntValue(value)
+
+            # Read temperature
+            if genicam.IsReadable(temp):
+                temps[name] = temp.GetValue()
+
+        return temps
 
     def get_model_name(self):
         return self.model_name

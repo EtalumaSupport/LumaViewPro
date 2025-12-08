@@ -17,7 +17,9 @@ import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig
 from modules.objectives_loader import ObjectiveLoader
 from modules.zstack_config import ZStackConfig
+from modules.coord_transformations import CoordinateTransformer
 
+coordinate_transformer = CoordinateTransformer()
 
 class Protocol:
 
@@ -370,30 +372,50 @@ class Protocol:
         tiling: str,
         frame_dimensions: dict,
         binning_size: int,
-    ):
+        curr_step_idx: int,
+        axes_config: dict,
+        labware,
+        stage_offset,
+    ) -> dict:
+        "Returns status dict"
+        "If"
+
+        status = {
+            "tiles_skipped": 0,
+                  }
+
         if tiling == '1x1':
-            return
-        
+            return status
+
         try:
-            orig_steps_df = self.steps().copy()
+            orig_steps_df = self.steps()
+
+            curr_step = orig_steps_df.iloc[curr_step_idx]
 
             # Add objective focal length to steps dataframe
-            objectives_df = self._objective_loader.get_objectives_dataframe()[['focal_length']]
-            orig_steps_df = pd.merge(
-                orig_steps_df,
-                objectives_df,
-                how='left',
-                left_on='Objective',
-                right_index=True
-            )
+            objectives = self._objective_loader.get_objectives_dataframe()['focal_length']
+
+            orig_steps_df["focal_length"] = orig_steps_df["Objective"].map(objectives)
+
         except Exception as e:
             logger.error(f"Error adding objective focal length to steps dataframe: {e}")
-            return
+            return status
+
+
+        try:
+            x_limits = axes_config['X']['limits']
+            y_limits = axes_config['Y']['limits']
+
+        except Exception as e:
+            logger.error(f"Error getting axes limits from axes_config: {e}")
+            return status
 
         existing_max_tile_group_id = orig_steps_df['Tile Group ID'].max()
         tile_group_id = existing_max_tile_group_id + 1
 
         new_steps = []
+
+        
         for idx, row in orig_steps_df.iterrows():
             try:
                 tiles = self._tiling_config.get_tile_centers(
@@ -425,10 +447,33 @@ class Protocol:
             for tile_label, tile_position in tiles.items():   
                 
                 x_tile = round(x + tile_position["x"]/1000, common_utils.max_decimal_precision('x')) # in 'plate' coordinates
-                y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates
+                y_tile = round(y + tile_position["y"]/1000, common_utils.max_decimal_precision('y')) # in 'plate' coordinates 
+
+                sx, sy = coordinate_transformer.plate_to_stage(
+                    labware=labware,
+                    stage_offset=stage_offset,
+                    px=x_tile,
+                    py=y_tile
+                )
+
+                # Check if tile is within stage limits
+                if (sx > x_limits['max']) or (sx < x_limits['min']) or (sy > y_limits['max']) or (sy < y_limits['min']):
+                    logger.info(f"[Protocol] Skipping tile {tile_label} for step {idx} - out of stage limits")
+                    status['tiles_skipped'] += 1
+                    continue
+                
+                if not orig_step_df['Custom Step']:
+                    name = common_utils.generate_default_step_name(
+                        well_label=orig_step_df['Well'],
+                        color=orig_step_df['Color'],
+                        tile_label=tile_label,
+                        objective_short_name=None,
+                    )
+                else:
+                    name = orig_step_df['Name']
                 
                 new_step_dict = self._create_step_dict(
-                    name=orig_step_df['Name'],
+                    name=name,
                     x=x_tile,
                     y=y_tile,
                     z=orig_step_df['Z'],
@@ -456,6 +501,8 @@ class Protocol:
             tile_group_id += 1
 
         self._config['steps'] = pd.DataFrame.from_dict(new_steps)
+
+        return status
  
 
     def apply_zstacking(
