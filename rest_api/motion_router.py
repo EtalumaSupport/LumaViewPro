@@ -3,7 +3,7 @@ from rest_api.api_config import get_scope
 from lumascope_api import Lumascope
 from enum import Enum
 
-motion_router = APIRouter(prefix="/move")
+motion_router = APIRouter(prefix="/move", tags=['Motion'])
 
 class Axis(str, Enum):
     X = "X"
