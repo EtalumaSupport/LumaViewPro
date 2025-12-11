@@ -20,7 +20,7 @@ def list_protocols(settings:dict = Depends(get_settings)):
         for filename in os.listdir(path):
             filename:str
             if os.path.isfile(os.path.join(path, filename)) and filename.endswith('.tsv'):
-                protocols.append(filename[:-4])
+                protocols.append(filename)
         return protocols
     raise HTTPException(status_code=500, detail="Could not list protocols")
 
