@@ -1683,10 +1683,10 @@ class CompositeCapture(FloatLayout):
 
         
         layer_map = {
-            'Blue': 0,
+            'Red': 0,
             'Green': 1,
-            'Red': 2,
-            'Lumi': 0,
+            'Blue': 2,
+            'Lumi': 2,
         }
 
         scope_leds_off(no_callback=True)
@@ -1773,11 +1773,11 @@ class CompositeCapture(FloatLayout):
                 else:
                     # No transmitted channel present
                     # buffer the images
-                    if layer in ('Blue', 'Lumi'):
+                    if layer == 'Red':
                         img[:,:,0] = img_gray
                     elif layer == 'Green':
                         img[:,:,1] = img_gray
-                    elif layer == 'Red':
+                    elif layer in ('Blue', 'Lumi'):
                         img[:,:,2] = img_gray
 
             scope_leds_off(no_callback=True)
