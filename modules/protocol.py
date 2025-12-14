@@ -462,15 +462,24 @@ class Protocol:
                     status['tiles_skipped'] += 1
                     continue
                 
-                if not orig_step_df['Custom Step']:
-                    name = common_utils.generate_default_step_name(
+                name = common_utils.generate_default_step_name(
                         well_label=orig_step_df['Well'],
                         color=orig_step_df['Color'],
+                        z_height_idx=orig_step_df['Z-Slice'],
                         tile_label=tile_label,
-                        objective_short_name=None,
+                        objective_short_name=None,  # Can add this if needed
+                        custom_name_prefix=None if not orig_step_df['Custom Step'] else orig_step_df['Name'],
                     )
-                else:
-                    name = orig_step_df['Name']
+                    
+                # if not orig_step_df['Custom Step']:
+                #     name = common_utils.generate_default_step_name(
+                #         well_label=orig_step_df['Well'],
+                #         color=orig_step_df['Color'],
+                #         tile_label=tile_label,
+                #         objective_short_name=None,
+                #     )
+                # else:
+                #     name = orig_step_df['Name']
                 
                 new_step_dict = self._create_step_dict(
                     name=name,
@@ -544,8 +553,18 @@ class Protocol:
             
             # Create a z-stack  
             for zstack_slice, zstack_position in zstack_positions.items():
+
+                name = common_utils.generate_default_step_name(
+                            well_label=orig_step_df['Well'],
+                            color=orig_step_df['Color'],
+                            z_height_idx=zstack_slice,
+                            tile_label=orig_step_df['Tile'],
+                            objective_short_name=None,  # Can add this if needed
+                            custom_name_prefix=None if not orig_step_df['Custom Step'] else orig_step_df['Name'],
+                        )
+                
                 new_step_dict = self._create_step_dict(
-                    name=orig_step_df['Name'],
+                    name=name,
                     x=orig_step_df["X"],
                     y=orig_step_df["Y"],
                     z=zstack_position,

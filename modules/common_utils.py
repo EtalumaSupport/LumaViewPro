@@ -27,13 +27,15 @@ def generate_default_step_name(
         name = f"{name}_{color}"
     
     if tile_label not in (None, "", -1):
-        name = f"{name}_T{tile_label}"
+        if not f"_T{tile_label}" in name:
+            name = f"{name}_T{tile_label}"
 
     if objective_short_name not in (None, "", -1):
         name = f"{name}_{objective_short_name}"
 
     if z_height_idx not in (None, "", -1):
-        name = f"{name}_Z{z_height_idx}"
+        if not f"_Z{z_height_idx}" in name:
+            name = f"{name}_Z{z_height_idx}"
 
     DESIRED_SCAN_COUNT_DIGITS = 4
     if scan_count not in (None, ""):
