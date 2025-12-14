@@ -5040,6 +5040,12 @@ class ProtocolSettings(CompositeCapture):
 
     def step_name_validation(self, text: str):
         self.ids['step_name_input'].text = Protocol.sanitize_step_name(input=text)
+        
+        if hasattr(self, '_protocol') and (self._protocol is not None):
+            self._protocol.modify_name(
+                step_idx=self.curr_step,
+                step_name=self.ids['step_name_input'].text
+            )
 
     def update_capture_root(self, text: str):
         # Sanitize and store capture root on protocol to avoid invalid path chars

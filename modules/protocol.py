@@ -223,6 +223,20 @@ class Protocol:
         capture_root: str
     ):
         self._config['capture_root'] = capture_root
+
+    def modify_name(
+            self,
+            step_idx: int,
+            step_name: str,
+    ):
+        if step_idx < 0:
+                raise Exception(f"Step idx must be > 0")
+            
+        if step_idx >= self.num_steps():
+            raise Exception(f"Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.")
+
+        Protocol.sanitize_step_name(step_name)
+        self._config['steps'].at[step_idx, "Name"] = step_name
         
         
     def modify_step(
