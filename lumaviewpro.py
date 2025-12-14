@@ -6814,8 +6814,16 @@ class MicroscopeSettings(BoxLayout):
                     'max_gain': 20.0,
                 }
 
-            live_folder = pathlib.Path(settings['live_folder']).resolve()
-            live_folder.mkdir(exist_ok=True, parents=True)
+            try:
+                live_folder = pathlib.Path(settings['live_folder']).resolve()
+                live_folder.mkdir(exist_ok=True, parents=True)
+
+            except Exception as e:
+                logger.warning(f"[LVP Main  ] Unable to find/create live image folder at {settings['live_folder']}: {e}")
+                live_folder = pathlib.Path('./capture').resolve()
+                live_folder.mkdir(exist_ok=True, parents=True)
+                logger.info(f"[LVP Main  ] Defaulting live image folder to {str(live_folder)}")
+
             settings['live_folder'] = str(live_folder)
             
             # update GUI values from JSON data:
