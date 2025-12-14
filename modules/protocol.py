@@ -104,6 +104,7 @@ class Protocol:
             csvwriter.writerow(['Period', period_minutes])
             csvwriter.writerow(['Duration', duration_hours])
             csvwriter.writerow(['Labware', self._config['labware_id']])
+            csvwriter.writerow(['Capture Root', self.capture_root() if self.capture_root() is not None or self.capture_root() != '' else ''])
             
             fp.write('\nSteps\n')
 
@@ -952,16 +953,22 @@ class Protocol:
 
         # Optional fields not present in older/newer files
         # Ensure defaults to avoid KeyErrors
-        config['capture_root'] = ''
+        next_row = next(csvreader)
+        if next_row[0] == "Capture Root":
+            config['capture_root'] = next_row[1]
+        else:
+            config['capture_root'] = ''
+
 
         # Search for "Steps" to indicate start of steps
-        while True:
-            tmp = next(csvreader)
-            if len(tmp) == 0:
-                continue
+        if next_row[0] != "Steps": # Check to ensure compatibility with no capture_root field
+            while True:
+                tmp = next(csvreader)
+                if len(tmp) == 0:
+                    continue
 
-            if tmp[0] == "Steps":
-                break
+                if tmp[0] == "Steps":
+                    break
         
         table_lines = []
         for line in fp:

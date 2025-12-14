@@ -5040,7 +5040,7 @@ class ProtocolSettings(CompositeCapture):
 
     def step_name_validation(self, text: str):
         self.ids['step_name_input'].text = Protocol.sanitize_step_name(input=text)
-        
+
         if hasattr(self, '_protocol') and (self._protocol is not None):
             self._protocol.modify_name(
                 step_idx=self.curr_step,
@@ -5223,6 +5223,7 @@ class ProtocolSettings(CompositeCapture):
         stage.set_protocol_steps(df=self._protocol.steps())
         def temp(): 
             self.ids['protocol_filename'].text = ''
+            self.ids['capture_root'].text = ''
 
         settings['protocol']['filepath'] = ''
         Clock.schedule_once(lambda dt: temp(), 0)
@@ -5313,6 +5314,7 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['duration'] = duration
         settings['protocol']['labware'] = labware
         self.ids['labware_spinner'].text = settings['protocol']['labware']
+        self.ids['capture_root'].text = self._protocol.capture_root()
 
         # Set all layers to acquire as set in loaded protocol
         for layer in common_utils.get_layers():
