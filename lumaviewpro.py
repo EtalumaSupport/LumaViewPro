@@ -5129,6 +5129,15 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
         zstack_params = get_zstack_params()
         
+        if zstack_params['range'] < 0 or zstack_params['step_size'] < 0:
+            error_msg = f"Z-Stacking parameters are not valid. Please ensure range and step size are positive values."
+            logger.warning(error_msg)
+            Clock.schedule_once(lambda dt: show_notification_popup(title="Z-Stacking Warning", message=error_msg), 0)
+            return
+        elif zstack_params['range'] == 0 or zstack_params['step_size'] == 0:
+            logger.warning(f"Z-stacking parameters are zero. No changes applied.")
+            return
+        
         self._protocol.apply_zstacking(
             zstack_params=zstack_params,
         )
@@ -7786,10 +7795,26 @@ class ZStack(CompositeCapture):
         logger.info('[LVP Main  ] ZStack.set_steps()')
 
         try:
-            settings['zstack']['step_size'] = float(self.ids['zstack_stepsize_id'].text)
-            settings['zstack']['range'] = float(self.ids['zstack_range_id'].text)
+            step_size = float(self.ids['zstack_stepsize_id'].text)
+            if step_size < 0:
+                step_size = 0
+                self.ids['zstack_stepsize_id'].text = str(step_size)
         except:
-            return
+            step_size = 0
+            self.ids['zstack_stepsize_id'].text = str(step_size)
+        finally:
+            settings['zstack']['step_size'] = step_size
+
+        try:
+            step_range = float(self.ids['zstack_range_id'].text)
+            if step_range < 0:
+                step_range = 0
+                self.ids['zstack_range_id'].text = str(step_range)
+        except:
+            step_range = 0
+            self.ids['zstack_range_id'].text = str(step_range)
+        finally:
+            settings['zstack']['range'] = step_range
 
         z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
             text_label=self.ids['zstack_spinner'].text

@@ -509,6 +509,10 @@ class Protocol:
         self,
         zstack_params: dict,
     ):
+        
+        if zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
+            return
+        
         steps = self.steps()
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
 
@@ -516,6 +520,7 @@ class Protocol:
 
         num_steps = self.num_steps()
         new_steps = list()
+
         for row_idx in range(num_steps):
             orig_step_df = self.step(idx=row_idx)
             orig_step_dict = orig_step_df.to_dict()
