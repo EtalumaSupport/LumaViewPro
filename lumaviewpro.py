@@ -199,7 +199,7 @@ if __name__ == "__main__":
     import modules.coord_transformations as coord_transformations
     import modules.labware_loader as labware_loader
     import modules.objectives_loader as objectives_loader
-    from modules.protocol import Protocol
+    from modules.protocol import Protocol, ProtocolFormatError
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
     from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
     from modules.stack_builder import StackBuilder
@@ -4992,18 +4992,30 @@ class ProtocolSettings(CompositeCapture):
 
         try:
             filepath = settings['protocol']['filepath']
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
-        except:
-            logger.warning('[LVP Main  ] Unable to load protocol at startup')
-            # If protocol file is missing or incomplete, file name and path are cleared from memory. 
-            filepath=''	
-            settings['protocol']['filepath']=''
+            protocol_success = lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
+        
+            if not protocol_success:
+                logger.warning('[LVP Main  ] Unable to load protocol at startup')
+                # If protocol file is missing or incomplete, file name and path are cleared from memory. 
+                filepath=''	
+                settings['protocol']['filepath']=''
 
+                protocol_config = get_sequenced_capture_config_from_ui()
+                self._protocol = Protocol.create_empty(
+                    config=protocol_config,
+                    tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+                )
+
+        except Exception:
+            logger.exception('[LVP Main  ] Error loading protocol at startup')
+            filepath=''
+            settings['protocol']['filepath']=''
             protocol_config = get_sequenced_capture_config_from_ui()
             self._protocol = Protocol.create_empty(
-                config=protocol_config,
-                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            )
+                    config=protocol_config,
+                    tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+                )
+
 
         self.select_labware()
         self.update_step_ui()
@@ -5274,16 +5286,26 @@ class ProtocolSettings(CompositeCapture):
         if not pathlib.Path(filepath).exists():
             raise FileNotFoundError(f"Protocol not found at {filepath}")
         
-        protocol = Protocol.from_file(
-            file_path=filepath,
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-        )
+        try:
+            protocol = Protocol.from_file(
+                file_path=filepath,
+                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            )
+        except IOError:
+            # Guard to prevent LVP startup notification popup
+            return False
+        
+        except Exception as e:
+            error_title = "Protocol Loading Error"
+            error_msg = f"Cannot load protocol from file: {e}"
+            show_notification_popup(title=error_title, message=error_msg)
+            return False
 
         if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
             error_msg = f"Cannot load protocol. Not all objectives are in turret config."
             logger.error(error_msg)
             show_notification_popup(title="Protocol Loading Error", message=error_msg)
-            return
+            return False
         
         self._protocol = protocol
 
@@ -5327,6 +5349,8 @@ class ProtocolSettings(CompositeCapture):
         self.update_step_ui()
         #if lumaview.scope.has_xyhomed():
         self.go_to_step(protocol=False)
+
+        return True
     
 
     def get_default_name_for_curr_step(self):
