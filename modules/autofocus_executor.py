@@ -246,7 +246,7 @@ class AutofocusExecutor:
                 if self._save_results_to_file:
                     # Push file/plot work off the UI thread using the file IO executor
                     try:
-                        self._file_io_executor.put(IOTask(action=self._save_autofocus_data))
+                        self._file_io_executor.protocol_put(IOTask(action=self._save_autofocus_data))
                     except Exception:
                         pass
 
