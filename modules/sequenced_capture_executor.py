@@ -508,18 +508,29 @@ class SequencedCaptureExecutor:
         #         "settings": self._autogain_settings,
         #     }
         # ))
+
+        if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
+            return
+        
         self._scope.set_auto_gain(
             state=step['Auto_Gain'],
             settings=self._autogain_settings,
         )
 
+        if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
+            return
+
         self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
 
         if not step['Auto_Gain']:
             #self._io_executor.protocol_put(IOTask(action=self._scope.set_gain, args=(step['Gain'])))
+            if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
+                return
             self._scope.set_gain(step['Gain'])
             # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
             #self._io_executor.protocol_put(IOTask(action=self._scope.set_exposure_time, args=(step['Exposure'])))
+            if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
+                return
             self._scope.set_exposure_time(step['Exposure'])
 
         if step['Auto_Gain'] and self._auto_gain_countdown > 0:
@@ -538,6 +549,9 @@ class SequencedCaptureExecutor:
             if 'autofocus_completed' in self._callbacks:
                 af_executor_callbacks['complete'] = self._callbacks['autofocus_completed']
 
+            if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
+                return
+            
             #TODO: Make sure all of this IO is handled outside of Kivy main thread
             self._autofocus_executor.run(
                 objective_id=step['Objective'],

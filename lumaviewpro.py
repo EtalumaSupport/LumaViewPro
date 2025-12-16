@@ -4360,13 +4360,17 @@ class VerticalControl(BoxLayout):
 
 
     def _cleanup_at_end_of_autofocus(self):
-        reset_executor.put(IOTask(
-            action=autofocus_executor.reset
-        ))
+
         reset_executor.put(IOTask(
             action=sequenced_capture_executor.reset,
             callback=self._reset_run_autofocus_button
         ))
+
+        reset_executor.put(IOTask(
+            action=autofocus_executor.reset
+        ))
+
+        # Resetting autofocus_executor before sequenced_capture_executor leads to possiblity of sequenced_capture accidentally re-starting AF. (sees it is finished, sequenced iterate is running, restarts AF)
         # sequenced_capture_executor.reset()
         # self._reset_run_autofocus_button()
 

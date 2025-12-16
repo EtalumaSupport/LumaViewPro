@@ -5,6 +5,10 @@ import pathlib
 import time
 import typing
 
+from lvp_logger import logger
+
+import threading
+
 from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
@@ -35,6 +39,8 @@ class AutofocusExecutor:
         self._autofocus_executor = autofocus_executor
         self._iterator_scheduled = None
         self.ui_update_func = ui_update_func
+
+        self._af_in_progress = threading.Event()
 
         self._reset_state()
 
@@ -107,6 +113,10 @@ class AutofocusExecutor:
         run_trigger_source: str = None,
         results_dir: pathlib.Path | None = None,
     ):
+        if self._af_in_progress.is_set():
+            return
+        
+        #logger.error(f"AF RUN")
         self._reset_state()
         self._callbacks = callbacks
         self._run_trigger_source = run_trigger_source
@@ -119,6 +129,7 @@ class AutofocusExecutor:
         self._save_results_to_file = save_results_to_file
         self._results_dir = results_dir
         self._is_focusing = True
+        self._af_in_progress.set()
 
         self._objective = self._objective_loader.get_objective_info(
             objective_id=objective_id
@@ -135,7 +146,7 @@ class AutofocusExecutor:
         # )
 
     def run_in_progress(self) -> bool:
-        return self._is_focusing
+        return self._af_in_progress.is_set()
 
     def _iterate(self, dt=None):
         # Progress timeout: if AF does not advance for a while, cancel gracefully
@@ -155,6 +166,9 @@ class AutofocusExecutor:
 
         try:
             if not self._is_focusing:
+                return
+            
+            if not self._af_in_progress.is_set():
                 return
 
             if not self._scope.get_target_status('Z'):
@@ -230,7 +244,12 @@ class AutofocusExecutor:
             af_min = self._objective['AF_min']
             self._params['resolution'] = max(af_min, next_resolution)
 
-            df = pd.DataFrame(self._af_data_pass)
+                        # Add the scores for the pass to the full dataset and then reset
+            # the pass list
+            self._af_data_full.extend(self._af_data_pass)
+            self._af_data_pass = []
+
+            df = pd.DataFrame(self._af_data_full)
             best_focus_position = self._find_best(df=df)
 
             if self._last_pass == True:
@@ -238,8 +257,15 @@ class AutofocusExecutor:
                     self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
                 except Exception:
                     pass
+                
+                # Move just underneath focus position to ensure we move UP to final position
+                self._move_absolute_position(pos=(best_focus_position-self._params['resolution']))
+
                 self._autofocus_executor.protocol_end()
                 self._autofocus_executor.clear_protocol_pending()
+
+                logger.info(f"[AF] Autofocus complete. Best focus position: {best_focus_position} um")
+
                 self._move_absolute_position(pos=best_focus_position)
                 self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
 
@@ -252,6 +278,9 @@ class AutofocusExecutor:
 
                 self._is_focusing = False
                 self._is_complete = True
+
+                #self._af_in_progress.clear()
+
                 if 'complete' in self._callbacks:
                     self._callbacks['complete']()
 
@@ -261,16 +290,15 @@ class AutofocusExecutor:
             self._params['z_min'] = best_focus_position - prev_resolution
             self._params['z_max'] = best_focus_position + prev_resolution
 
-            # Add the scores for the pass to the full dataset and then reset
-            # the pass list
-            self._af_data_full.extend(self._af_data_pass)
-            self._af_data_pass = []
 
+
+            #logger.error(f"[AF] Moving to z_min: {self._params['z_min']} um")
             self._move_absolute_position(pos=self._params['z_min'])
             self._last_progress_ts = time.monotonic()
 
             if self._params['resolution'] == af_min:
                 self._last_pass = True
+
         except Exception as ex:
             # Any unexpected AF error: unschedule and cleanup so UI is not stuck
             try:
@@ -283,7 +311,7 @@ class AutofocusExecutor:
             self._is_complete = False
             # Surface error in logs; UI callback (if present) will clear button
             import logging as _logging
-            _logging.getLogger().error(f"[AF] Error during iterate: {ex}")
+            _logging.getLogger().error(f"[AF] Error during iterate: {ex}", exc_info=True)
             if 'complete' in self._callbacks:
                 self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
 
@@ -402,6 +430,7 @@ class AutofocusExecutor:
         self._objective = None
         self._is_focusing = False
         self._is_complete = False
+        self._af_in_progress.clear()
         self._af_data_pass = []
         self._af_data_full = []
         self._best_focus_position = None # Last / Previous focus score
