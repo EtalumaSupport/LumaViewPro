@@ -1075,6 +1075,10 @@ class Protocol:
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
         protocol_df['Name'] = protocol_df['Name'].astype(str)
 
+        if len(protocol_df) == 0:
+            # Will create an empty protocol
+            return False
+
         # Added in v3
         DEFAULT_VIDEO_CONFIG = {
             'fps': 5,
@@ -1111,9 +1115,14 @@ class Protocol:
             tc = TilingConfig(
                 tiling_configs_file_loc=tiling_configs_file_loc
             )
-            config['tiling'] = tc.determine_tiling_label_from_names(
-                names=protocol_df['Name'].to_list()
-            )
+            
+            if len(protocol_df) > 0:
+                
+                config['tiling'] = tc.determine_tiling_label_from_names(
+                    names=protocol_df['Name'].to_list()
+                )
+            else:
+                config['tiling'] = tc.no_tiling_label()
 
         config['steps'] = protocol_df
         config['custom_step_count'] = 0 # TODO determine custom step count

@@ -5327,6 +5327,16 @@ class ProtocolSettings(CompositeCapture):
             show_notification_popup(title=error_title, message=error_msg)
             return False
 
+        if protocol is False:
+            error_title = "Empty Protocol Steps"
+            error_msg = f"Warning: Selected protocol had no steps. Empty protocol loaded."
+            protocol_config = get_sequenced_capture_config_from_ui()
+            
+            protocol = Protocol.create_empty(
+                config=protocol_config,
+                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            )
+
         if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
             error_msg = f"Cannot load protocol. Not all objectives are in turret config."
             logger.error(error_msg)
