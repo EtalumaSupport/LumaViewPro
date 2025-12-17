@@ -34,8 +34,6 @@ Gerard Decker, The Earthineering Company
 lvp_logger.py configures a standard python logger for LumaViewPro.
 '''
 
-debug = False
-
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -78,6 +76,14 @@ if windows_machine and (lvp_installed == True):
     
 else:
     lvp_appdata = script_path
+
+from settings_init import load_debug_setting
+try:
+    debug = load_debug_setting(lvp_appdata)
+except:
+    debug = False
+
+
 
 os.makedirs("logs/LVP_Log", exist_ok=True)
 

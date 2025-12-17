@@ -178,7 +178,27 @@ if __name__ == "__main__":
     #---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from lvp_logger import logger
+    global DEBUG_MODE
+
+    from lvp_logger import logger, debug
+
+    DEBUG_MODE = debug
+
+    if DEBUG_MODE:
+        logger.info("[LVP Main  ] Debug mode is enabled.")
+
+    try:
+        from settings_init import load_lvp_settings
+
+        load_lvp_settings(logger, source_path)
+
+        from settings_init import settings as initialized_settings
+
+        settings = initialized_settings
+
+    except Exception as e:
+        logger.exception(f"[LVP Main  ] Failed to load settings. {e}")
+
     import modules.profiling_utils as profiling_utils
 
     from modules.memory_profiler import MemoryLeakProfiler
@@ -6824,10 +6844,7 @@ class MicroscopeSettings(BoxLayout):
         global max_exposure
 
         try:
-
-            from settings_init import settings as initialized_settings
-
-            settings = initialized_settings
+            # Settings are imported at the very beginning of file
 
             if settings['profiling']['enabled']:
                 global profiling_helper
@@ -8438,7 +8455,6 @@ class LumaViewProApp(App):
         if profiling:
             MemoryLeakProfiler.start()
             logger.info('[LVP Main  ] MemoryLeakProfiler started.')
-        #scope_leds_off()
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
