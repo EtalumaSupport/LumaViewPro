@@ -1,4 +1,3 @@
-
 try:
     from kivy.clock import Clock
 except ImportError:
@@ -53,11 +52,11 @@ class IOTask:
         def __init__(self, action, args=None, kwargs={}, callback=None, cb_args=None, cb_kwargs={}, pass_result=False):
             self.action = action
             # Capture creation stack to help trace where non-callable actions originate
-            try:
-                # Exclude the current frame to point to the caller creating the IOTask
-                self.creation_stack = ''.join(traceback.format_stack()[:-1])
-            except Exception:
-                self.creation_stack = '<failed to capture creation stack>'
+            # try:
+            #     # Exclude the current frame to point to the caller creating the IOTask
+            #     self.creation_stack = ''.join(traceback.format_stack()[:-1])
+            # except Exception:
+            #     self.creation_stack = '<failed to capture creation stack>'
             if args is None:
                 self.args = ()
             # if it’s a sequence (list, tuple, etc) but not a string
@@ -87,13 +86,25 @@ class IOTask:
             try:
                 threading.current_thread().name = self.name
                 if not callable(self.action):
-                    logger.warning(f"{self.name} Worker received non-callable action: {str(self.action)}\nCreated at:\n{self.creation_stack}")
-                    return None, None
+                    logger.warning(f"{self.name} Worker received non-callable action: {str(self.action)}")
+                    # release the stored creation stack so it can be garbage-collected
+                    # try:
+                    #     del self.creation_stack
+                    # except Exception:
+                    #     pass
+                    # return None, None
                 res = self.action(*self.args, **self.kwargs)
                 return res, None
             except Exception as e:
                 logger.error(f"Uncaught Thread Exception in {self.name} Worker: {e}", exc_info=True)
                 return None, e
+            # finally:
+            #     # Ensure we don't keep the potentially large creation stack around after the task completes
+            #     try:
+            #         if hasattr(self, 'creation_stack'):
+            #             del self.creation_stack
+            #     except Exception:
+            #         pass
 
         def set_callback(self, callback, cb_args, cb_kwargs):
             self.callback = callback
@@ -398,5 +409,5 @@ class SequentialIOExecutor:
     def seconds_since_last_task(self) -> float:
         return time.monotonic() - self.last_task_done_monotonic
 
-    
+
 

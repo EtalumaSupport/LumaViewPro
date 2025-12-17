@@ -181,6 +181,8 @@ if __name__ == "__main__":
     from lvp_logger import logger
     import modules.profiling_utils as profiling_utils
 
+    from modules.memory_profiler import MemoryLeakProfiler
+
     from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
     #post processing
@@ -8430,6 +8432,12 @@ class LumaViewProApp(App):
         Clock.schedule_once(layer_obj.apply_settings, 5)
 
         camera_executor.put(IOTask(scope_leds_off))
+
+        profiling = False
+
+        if profiling:
+            MemoryLeakProfiler.start()
+            logger.info('[LVP Main  ] MemoryLeakProfiler started.')
         #scope_leds_off()
 
         if getattr(sys, 'frozen', False):
