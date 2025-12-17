@@ -8503,7 +8503,7 @@ class LumaViewProApp(App):
 
     def build(self):
         current_time = time.strftime("%m/%d/%Y", time.localtime())
-        logger.info('[LVP Main  ] LumaViewProApp.build()')
+        logger.info('[LVP Main  ] LumaViewProApp.build()', extra={'force_error': True})
 
         logger.info('[LVP Main  ] -----------------------------------------')
         logger.info('[LVP Main  ] Code Compiled On: %s', current_time)
@@ -8641,7 +8641,9 @@ class LumaViewProApp(App):
         logger.info("[LVP Main  ] lumaview.scope.leds_off()")
         lumaview.scope.leds_off()
 
-        lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")        
+        lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json") 
+
+        logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})       
 
 
     # Returns a list of widgets with tooltip_text attribute
