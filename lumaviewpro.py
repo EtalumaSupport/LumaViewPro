@@ -7628,7 +7628,8 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = self.ids['gain_slider'].value
         settings[self.layer]['gain'] = gain
-        self.apply_gain_slider()
+        if not self.ids['gain_slider'].disabled:
+            self.apply_gain_slider()
         ####
 
     def gain_text(self):
@@ -7675,7 +7676,8 @@ class LayerControl(BoxLayout):
         exposure = self.ids['exp_slider'].value
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         settings[self.layer]['exp'] = exposure        # exposure in ms
-        self.apply_exp_slider()
+        if not self.ids['exp_slider'].disabled:
+            self.apply_exp_slider()
 
     def exp_text(self):
         logger.info('[LVP Main  ] LayerControl.exp_text()')
