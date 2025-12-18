@@ -34,8 +34,6 @@ Gerard Decker, The Earthineering Company
 lvp_logger.py configures a standard python logger for LumaViewPro.
 '''
 
-debug = False
-
 import logging
 from logging.handlers import RotatingFileHandler
 import os
@@ -79,10 +77,20 @@ if windows_machine and (lvp_installed == True):
 else:
     lvp_appdata = script_path
 
+from settings_init import load_debug_setting
+try:
+    debug = load_debug_setting(lvp_appdata)
+except:
+    debug = False
+
+
+
 os.makedirs("logs/LVP_Log", exist_ok=True)
 
 # files to which messages are logged 
 LOG_FILE = 'logs/LVP_Log/lumaviewpro.log'
+
+ERRORS_LOG_FILE = 'logs/LVP_Log/lumaviewpro_errors.log'
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
@@ -146,9 +154,41 @@ file_handler = RotatingFileHandler(
 file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 file_handler.setFormatter(CustomFormatter())
 
-# Separate error/critical file with extra debugging context (e.g., settings.json)
+# Additional rotating file handler for errors and critical logs only
+error_file_handler = RotatingFileHandler(
+    ERRORS_LOG_FILE,
+    mode='a',
+    maxBytes=5*1024*1024,
+    backupCount=2,
+    encoding=None,
+    delay=False,
+)
+# keep the same filename pattern for rotations
+error_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+error_file_handler.setFormatter(CustomFormatter())
+
+# Accept all levels on the handler but filter to ERROR+ or forced records
+error_file_handler.setLevel(logging.NOTSET)
+
+"""
+
+Example of forcing a log record to also go to the errors log file:
+
+logger.info("Info message that should also go to errors file", extra={'force_error': True})
+
+"""
+
+class ErrorOrForcedFilter(logging.Filter):
+    """Allows records that are ERROR/CRITICAL or explicitly marked via extra={'force_error': True}."""
+    def filter(self, record):
+        if record.levelno >= logging.ERROR:
+            return True
+        return bool(getattr(record, 'force_error', False))
+
+error_file_handler.addFilter(ErrorOrForcedFilter())
 
 logger.addHandler(file_handler)
+logger.addHandler(error_file_handler)
 
 # Best-effort: remove any existing console/stream handlers from root to reduce terminal noise
 if not debug:

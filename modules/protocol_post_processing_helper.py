@@ -252,10 +252,17 @@ class ProtocolPostProcessingHelper:
             Protocol post-processing metadata: {protocol_post_record_str}
         """)
 
-        protocol = Protocol.from_file(
-            file_path=protocol_tsvs['protocol'],
-            tiling_configs_file_loc=tiling_configs_file_loc
-        )
+        try:
+            protocol = Protocol.from_file(
+                file_path=protocol_tsvs['protocol'],
+                tiling_configs_file_loc=tiling_configs_file_loc
+            )
+        except Exception as e:
+            msg = f"Unable to load protocol file: {e}"
+            return {
+                'status': False,
+                'message': msg,
+            }
 
         if protocol is None:
             msg = "Protocol not loaded"

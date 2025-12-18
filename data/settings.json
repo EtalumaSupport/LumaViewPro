@@ -162,6 +162,7 @@
         }
     },
     "mode": "normal",
+    "debug_mode": false,
     "profiling": {
         "enabled": false
     },

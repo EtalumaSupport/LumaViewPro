@@ -216,6 +216,10 @@ class PylonCamera:
             self.error_report_count += 1
 
     def find_model_name(self):
+        if not self.active:
+            logger.warning('[CAM Class ] find_model_name(): inactive camera')
+            return
+
         dev_info = self.active.GetDeviceInfo()
         self.model_name = dev_info.GetModelName()
         logger.info(f'[CAM Class ] Connected camera model detected as "{self.model_name}"')
@@ -227,6 +231,9 @@ class PylonCamera:
             {'FpgaCore': 43.2, 'SomethingElse': 40.1, ...}
         """
         # Camera Must be open prior to calling function
+        if not self.active:
+            logger.warning('[CAM Class ] get_all_temperatures(): inactive camera')
+            return {}
 
         nodemap = self.active.GetNodeMap()
 
@@ -768,5 +775,7 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
         # Avoid doing anything heavy here; just mark state silently
         try:
             self._parent._device_removed = True
+            self._parent.active = False
+            logger.info('[CAM Class ] Camera device removed detected by removal handler')
         except Exception:
             pass

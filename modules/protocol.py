@@ -21,6 +21,11 @@ from modules.coord_transformations import CoordinateTransformer
 
 coordinate_transformer = CoordinateTransformer()
 
+class ProtocolFormatError(Exception):
+    pass
+
+
+
 class Protocol:
 
     PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
@@ -104,6 +109,7 @@ class Protocol:
             csvwriter.writerow(['Period', period_minutes])
             csvwriter.writerow(['Duration', duration_hours])
             csvwriter.writerow(['Labware', self._config['labware_id']])
+            csvwriter.writerow(['Capture Root', self.capture_root() if self.capture_root() is not None or self.capture_root() != '' else ''])
             
             fp.write('\nSteps\n')
 
@@ -223,6 +229,20 @@ class Protocol:
         capture_root: str
     ):
         self._config['capture_root'] = capture_root
+
+    def modify_name(
+            self,
+            step_idx: int,
+            step_name: str,
+    ):
+        if step_idx < 0:
+                raise Exception(f"Step idx must be > 0")
+            
+        if step_idx >= self.num_steps():
+            raise Exception(f"Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.")
+
+        Protocol.sanitize_step_name(step_name)
+        self._config['steps'].at[step_idx, "Name"] = step_name
         
         
     def modify_step(
@@ -462,15 +482,24 @@ class Protocol:
                     status['tiles_skipped'] += 1
                     continue
                 
-                if not orig_step_df['Custom Step']:
-                    name = common_utils.generate_default_step_name(
+                name = common_utils.generate_default_step_name(
                         well_label=orig_step_df['Well'],
                         color=orig_step_df['Color'],
+                        z_height_idx=orig_step_df['Z-Slice'],
                         tile_label=tile_label,
-                        objective_short_name=None,
+                        objective_short_name=None,  # Can add this if needed
+                        custom_name_prefix=None if not orig_step_df['Custom Step'] else orig_step_df['Name'],
                     )
-                else:
-                    name = orig_step_df['Name']
+                    
+                # if not orig_step_df['Custom Step']:
+                #     name = common_utils.generate_default_step_name(
+                #         well_label=orig_step_df['Well'],
+                #         color=orig_step_df['Color'],
+                #         tile_label=tile_label,
+                #         objective_short_name=None,
+                #     )
+                # else:
+                #     name = orig_step_df['Name']
                 
                 new_step_dict = self._create_step_dict(
                     name=name,
@@ -509,6 +538,10 @@ class Protocol:
         self,
         zstack_params: dict,
     ):
+        
+        if zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
+            return
+        
         steps = self.steps()
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
 
@@ -516,6 +549,7 @@ class Protocol:
 
         num_steps = self.num_steps()
         new_steps = list()
+
         for row_idx in range(num_steps):
             orig_step_df = self.step(idx=row_idx)
             orig_step_dict = orig_step_df.to_dict()
@@ -539,8 +573,18 @@ class Protocol:
             
             # Create a z-stack  
             for zstack_slice, zstack_position in zstack_positions.items():
+
+                name = common_utils.generate_default_step_name(
+                            well_label=orig_step_df['Well'],
+                            color=orig_step_df['Color'],
+                            z_height_idx=zstack_slice,
+                            tile_label=orig_step_df['Tile'],
+                            objective_short_name=None,  # Can add this if needed
+                            custom_name_prefix=None if not orig_step_df['Custom Step'] else orig_step_df['Name'],
+                        )
+                
                 new_step_dict = self._create_step_dict(
-                    name=orig_step_df['Name'],
+                    name=name,
                     x=orig_step_df["X"],
                     y=orig_step_df["Y"],
                     z=zstack_position,
@@ -869,28 +913,52 @@ class Protocol:
         file_path: pathlib.Path,
         tiling_configs_file_loc : pathlib.Path | None
     ):
+        """
+        Returns Protocol object loaded from file on success
+        Raises ProtocolFormatError on format issues
+        """
         
         config = {}
 
         # Filter out blank lines
         file_content = None
         fp = None
-        with open(file_path, 'r') as fp_orig:
-            file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
-            file_content = ''.join(file_data_lines)
-            fp = io.StringIO(file_content)
+
+        try:
+            with open(file_path, 'r') as fp_orig:
+                file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
+                file_content = ''.join(file_data_lines)
+                fp = io.StringIO(file_content)
+        except Exception as e:
+            logger.error(f"Error reading protocol file {file_path}: {e}")
+            raise IOError(f"Error reading protocol file {file_path}") from e
 
         csvreader = csv.reader(fp, delimiter='\t')
-        verify = next(csvreader)
-        if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
-            raise Exception(f"Not a valid LumaViewPro Protocol")
-        
-        version_row = next(csvreader)
-        if version_row[0] != "Version":
-            logger.error(f"Unable to load {file_path} which contains an older protocol format that is no longer supported.\nPlease create a new protocol using this version of LumaViewPro.")
-            return
 
-        config['version'] = int(version_row[1])
+        try:
+            verify = next(csvreader)
+        except StopIteration:
+            logger.error(f"Protocol file {file_path} is empty or invalid.")
+            raise ProtocolFormatError(f"Protocol file is empty or invalid.")
+        
+        if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
+            raise ProtocolFormatError(f"Not a valid LumaViewPro Protocol")
+        
+        try:
+            version_row = next(csvreader)
+        except StopIteration:
+            logger.error(f"Protocol file {file_path} is missing version information.")
+            raise ProtocolFormatError(f"Protocol file is missing version information.")
+        
+        if version_row[0] != "Version":
+            logger.error(f"Unable to load {file_path} which is missing 'Version' row.")
+            raise ProtocolFormatError(f"Protocol format is missing 'Version' row.")
+
+        try:
+            config['version'] = int(version_row[1])
+        except ValueError as ve:
+            logger.error(f"Invalid 'Version' value in protocol file {file_path}. 'Version' must be an integer: {ve}")
+            raise ProtocolFormatError(f"Invalid 'Version' value in protocol file {file_path}") from ve
 
         allowed = False
         if config['version'] == cls.CURRENT_VERSION:
@@ -901,29 +969,103 @@ class Protocol:
                 
         if not allowed:
             logger.error(f"Unable to load {file_path} which contains protocol version {config['version']}.\nPlease create a new protocol using this version of LumaViewPro.")
-            return
+            raise ProtocolFormatError(f"Protocol version {config['version']} is not supported.")
 
-        period_row = next(csvreader)
-        config['period'] = datetime.timedelta(minutes=float(period_row[1]))
+
+        # Read Period
+        try:
+            period_row = next(csvreader)
+            if period_row[0] != "Period":
+                logger.error(f"Missing 'Period' row in protocol file {file_path}")
+                raise ProtocolFormatError(f"Missing 'Period' row in protocol file")
+            
+            minutes = float(period_row[1])
+            if minutes <= 0:
+                logger.error(f"Invalid 'Period' value in protocol file {file_path}: must be > 0")
+                raise ProtocolFormatError(f"Invalid 'Period' value in protocol file: must be > 0")
+            
+            config['period'] = datetime.timedelta(minutes=minutes)
+
+        except StopIteration:
+            logger.error(f"Missing 'Period' row in protocol file {file_path}")
+            raise ProtocolFormatError(f"Missing 'Period' row in protocol file")
         
-        duration = next(csvreader)
-        config['duration'] = datetime.timedelta(hours=float(duration[1]))
+        except ValueError as ve:
+            logger.error(f"Invalid 'Period' value in protocol file {file_path} 'Period' must be numeric: {ve}")
+            raise ProtocolFormatError(f"Invalid 'Period' value in protocol file") from ve
+        
+        except ProtocolFormatError as pfe:
+            raise pfe
 
-        labware = next(csvreader)
-        config['labware_id'] = labware[1]
+
+        # Read Duration
+        try:
+            duration = next(csvreader)
+            if duration[0] != "Duration":
+                logger.error(f"Missing 'Duration' row in protocol file {file_path}")
+                raise ProtocolFormatError(f"Missing 'Duration' row in protocol file")
+            
+            hours = float(duration[1])
+            if hours <= 0:
+                logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be > 0")
+                raise ProtocolFormatError(f"Invalid 'Duration' value in protocol file: must be > 0")
+            
+            config['duration'] = datetime.timedelta(hours=hours)
+
+        except StopIteration:
+            logger.error(f"Missing 'Duration' row in protocol file {file_path}")
+            raise ProtocolFormatError(f"Missing 'Duration' row in protocol file")
+        
+        except ValueError as ve:
+            logger.error(f"Invalid 'Duration' value in protocol file {file_path}. 'Duration' must be numeric: {ve}")
+            raise ProtocolFormatError(f"Invalid 'Duration' value in protocol file") from ve
+        
+        except ProtocolFormatError as pfe:
+            raise pfe
+        
+
+        # Read Labware
+        try:
+            labware = next(csvreader)
+            if labware[0] != "Labware":
+                logger.error(f"Invalid 'Labware' row in protocol file {file_path}")
+                raise ProtocolFormatError(f"Invalid 'Labware' row in protocol file")
+            
+            config['labware_id'] = labware[1]
+
+        except StopIteration:
+            logger.error(f"Missing 'Labware' row in protocol file {file_path}")
+            raise ProtocolFormatError(f"Missing 'Labware' row in protocol file")
+        
+        except ProtocolFormatError as pfe:
+            raise pfe
 
         # Optional fields not present in older/newer files
         # Ensure defaults to avoid KeyErrors
-        config['capture_root'] = ''
+        try:
+            next_row = next(csvreader)
+            if next_row[0] == "Capture Root":
+                config['capture_root'] = next_row[1]
+            else:
+                config['capture_root'] = ''
+        except StopIteration:
+            logger.error(f"Protocol file {file_path} is incomplete.")
+            raise ProtocolFormatError(f"Protocol file is incomplete.")
+
 
         # Search for "Steps" to indicate start of steps
-        while True:
-            tmp = next(csvreader)
-            if len(tmp) == 0:
-                continue
+        if next_row[0] != "Steps": # Check to ensure compatibility with no capture_root field
+            try:
+                while True:
+                    tmp = next(csvreader)
+                    if len(tmp) == 0:
+                        continue
 
-            if tmp[0] == "Steps":
-                break
+                    if tmp[0] == "Steps":
+                        break
+            except StopIteration:
+                logger.error(f"Missing 'Steps' section in protocol file {file_path}")
+                raise ProtocolFormatError(f"Missing 'Steps' section in protocol file")
         
         table_lines = []
         for line in fp:
@@ -932,6 +1074,10 @@ class Protocol:
         table_str = ''.join(table_lines)
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
         protocol_df['Name'] = protocol_df['Name'].astype(str)
+
+        if len(protocol_df) == 0:
+            # Will create an empty protocol
+            return False
 
         # Added in v3
         DEFAULT_VIDEO_CONFIG = {
@@ -969,9 +1115,14 @@ class Protocol:
             tc = TilingConfig(
                 tiling_configs_file_loc=tiling_configs_file_loc
             )
-            config['tiling'] = tc.determine_tiling_label_from_names(
-                names=protocol_df['Name'].to_list()
-            )
+            
+            if len(protocol_df) > 0:
+                
+                config['tiling'] = tc.determine_tiling_label_from_names(
+                    names=protocol_df['Name'].to_list()
+                )
+            else:
+                config['tiling'] = tc.no_tiling_label()
 
         config['steps'] = protocol_df
         config['custom_step_count'] = 0 # TODO determine custom step count

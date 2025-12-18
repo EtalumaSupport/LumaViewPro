@@ -187,8 +187,30 @@ if __name__ == "__main__":
     #---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from lvp_logger import logger
+    global DEBUG_MODE
+
+    from lvp_logger import logger, debug
+
+    DEBUG_MODE = debug
+
+    if DEBUG_MODE:
+        logger.info("[LVP Main  ] Debug mode is enabled.")
+
+    try:
+        from settings_init import load_lvp_settings
+
+        load_lvp_settings(logger, source_path)
+
+        from settings_init import settings as initialized_settings
+
+        settings = initialized_settings
+
+    except Exception as e:
+        logger.exception(f"[LVP Main  ] Failed to load settings. {e}")
+
     import modules.profiling_utils as profiling_utils
+
+    from modules.memory_profiler import MemoryLeakProfiler
 
     from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
@@ -208,7 +230,7 @@ if __name__ == "__main__":
     import modules.coord_transformations as coord_transformations
     import modules.labware_loader as labware_loader
     import modules.objectives_loader as objectives_loader
-    from modules.protocol import Protocol
+    from modules.protocol import Protocol, ProtocolFormatError
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
     from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
     from modules.stack_builder import StackBuilder
@@ -1188,6 +1210,9 @@ class ScopeDisplay(Image):
         super(ScopeDisplay,self).__init__(**kwargs)
         logger.info('[LVP Main  ] ScopeDisplay.__init__()')
         self.play = True
+        self.paused = threading.Event()
+        self.paused.clear()
+
         self.use_bullseye = False
         self.use_crosshairs = False
         self.use_live_image_histogram_equalization = False
@@ -1210,9 +1235,12 @@ class ScopeDisplay(Image):
             self.fps = fps
 
         logger.info('[LVP Main  ] Clock.schedule_interval(self.update, 1.0 / self.fps)')
+        self.paused.clear()
+
         Clock.schedule_interval(self.update_scopedisplay, 1.0 / self.fps)
 
     def stop(self):
+        self.paused.set()
         logger.info('[LVP Main  ] ScopeDisplay.stop()')
         logger.info('[LVP Main  ] Clock.unschedule(self.update)')
         Clock.unschedule(self.update_scopedisplay)
@@ -1981,7 +2009,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         
         self.recording = True
         self.recording_check = Clock.schedule_interval(self.check_recording_state, seconds_per_frame)
-        self.recording_event = Clock.schedule_interval(lambda dt: camera_executor.put(IOTask(self.record_helper)), seconds_per_frame)
+        self.recording_event = Clock.schedule_interval(self._enqueue_recording_frame, seconds_per_frame)
+
+    def _enqueue_recording_frame(self, dt=None):
+        """Enqueue a recording frame task without creating closure."""
+        camera_executor.put(IOTask(self.record_helper))
 
     def check_recording_state(self, dt=None):
         # Over the max duration, stop video
@@ -1989,7 +2021,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             Clock.unschedule(self.recording_check)
             Clock.unschedule(self.recording_event)
             self.video_duration = time.time() - self.start_ts
-            self.recording_complete_event = Clock.schedule_once(lambda dt: camera_executor.put(IOTask(self.recording_complete)))
+            self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
             self.ids['record_btn'].state = 'normal'
             
         # Button not clicked yet, keep recording
@@ -2000,7 +2032,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         Clock.unschedule(self.recording_check)
         Clock.unschedule(self.recording_event)
         self.video_duration = time.time() - self.start_ts
-        self.recording_complete_event = Clock.schedule_once(lambda dt: camera_executor.put(IOTask(self.recording_complete)))
+        self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
+
+    def _enqueue_recording_complete(self, dt=None):
+        """Enqueue recording complete task without creating closure."""
+        camera_executor.put(IOTask(self.recording_complete))
 
     def recording_complete(self, dt=None):
         if self.recording == False:
@@ -2516,7 +2552,7 @@ class MotionSettings(BoxLayout):
         logger.info('[LVP Main  ] MotionSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        scope_display.stop()
+        #scope_display.stop()
         self.ids['verticalcontrol_id'].update_gui()
         self.ids['protocol_settings_id'].select_labware()
 
@@ -2526,8 +2562,8 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
-        if scope_display.play == True:
-            scope_display.start()
+        # if scope_display.play == True:
+        #     scope_display.start()
 
     
     def update_xy_stage_control_gui(self, *args, full_redraw: bool=False):
@@ -3969,12 +4005,13 @@ class ImageSettings(BoxLayout):
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
-        self.update_transmitted()
+        if not protocol_running_global:
+            self.update_transmitted()
         logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         
-        scope_display.stop()
+        # scope_display.stop()
 
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_imagesettings'].state == 'normal':
@@ -3987,8 +4024,8 @@ class ImageSettings(BoxLayout):
         else:
             self.pos = lumaview.width - self.settings_width, 0
  
-        if scope_display.play == True:
-            scope_display.start()
+        # if scope_display.play == True:
+        #     scope_display.start()
 
     def update_transmitted(self):
         for layer in common_utils.get_transmitted_layers():
@@ -4026,7 +4063,7 @@ class ImageSettings(BoxLayout):
 
         # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        scope_display.stop()
+        # scope_display.stop()
         scope_leds_off()
 
         # turn off all LED toggle buttons and histograms
@@ -4041,8 +4078,8 @@ class ImageSettings(BoxLayout):
             layer_obj.apply_settings()
 
         # Restart camera feed
-        if scope_display.play == True:
-            scope_display.start()
+        # if scope_display.play == True:
+        #     scope_display.start()
 
 
     def check_settings(self, *args):
@@ -4369,13 +4406,17 @@ class VerticalControl(BoxLayout):
 
 
     def _cleanup_at_end_of_autofocus(self):
-        reset_executor.put(IOTask(
-            action=autofocus_executor.reset
-        ))
+
         reset_executor.put(IOTask(
             action=sequenced_capture_executor.reset,
             callback=self._reset_run_autofocus_button
         ))
+
+        reset_executor.put(IOTask(
+            action=autofocus_executor.reset
+        ))
+
+        # Resetting autofocus_executor before sequenced_capture_executor leads to possiblity of sequenced_capture accidentally re-starting AF. (sees it is finished, sequenced iterate is running, restarts AF)
         # sequenced_capture_executor.reset()
         # self._reset_run_autofocus_button()
 
@@ -5001,18 +5042,30 @@ class ProtocolSettings(CompositeCapture):
 
         try:
             filepath = settings['protocol']['filepath']
-            lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
-        except:
-            logger.warning('[LVP Main  ] Unable to load protocol at startup')
-            # If protocol file is missing or incomplete, file name and path are cleared from memory. 
-            filepath=''	
-            settings['protocol']['filepath']=''
+            protocol_success = lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].load_protocol(filepath=filepath)
+        
+            if not protocol_success:
+                logger.warning('[LVP Main  ] Unable to load protocol at startup')
+                # If protocol file is missing or incomplete, file name and path are cleared from memory. 
+                filepath=''	
+                settings['protocol']['filepath']=''
 
+                protocol_config = get_sequenced_capture_config_from_ui()
+                self._protocol = Protocol.create_empty(
+                    config=protocol_config,
+                    tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+                )
+
+        except Exception:
+            logger.exception('[LVP Main  ] Error loading protocol at startup')
+            filepath=''
+            settings['protocol']['filepath']=''
             protocol_config = get_sequenced_capture_config_from_ui()
             self._protocol = Protocol.create_empty(
-                config=protocol_config,
-                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-            )
+                    config=protocol_config,
+                    tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+                )
+
 
         self.select_labware()
         self.update_step_ui()
@@ -5049,6 +5102,12 @@ class ProtocolSettings(CompositeCapture):
 
     def step_name_validation(self, text: str):
         self.ids['step_name_input'].text = Protocol.sanitize_step_name(input=text)
+
+        if hasattr(self, '_protocol') and (self._protocol is not None):
+            self._protocol.modify_name(
+                step_idx=self.curr_step,
+                step_name=self.ids['step_name_input'].text
+            )
 
     def update_capture_root(self, text: str):
         # Sanitize and store capture root on protocol to avoid invalid path chars
@@ -5138,6 +5197,15 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
         zstack_params = get_zstack_params()
         
+        if zstack_params['range'] < 0 or zstack_params['step_size'] < 0:
+            error_msg = f"Z-Stacking parameters are not valid. Please ensure range and step size are positive values."
+            logger.warning(error_msg)
+            Clock.schedule_once(lambda dt: show_notification_popup(title="Z-Stacking Warning", message=error_msg), 0)
+            return
+        elif zstack_params['range'] == 0 or zstack_params['step_size'] == 0:
+            logger.warning(f"Z-stacking parameters are zero. No changes applied.")
+            return
+        
         self._protocol.apply_zstacking(
             zstack_params=zstack_params,
         )
@@ -5217,6 +5285,7 @@ class ProtocolSettings(CompositeCapture):
         stage.set_protocol_steps(df=self._protocol.steps())
         def temp(): 
             self.ids['protocol_filename'].text = ''
+            self.ids['capture_root'].text = ''
 
         settings['protocol']['filepath'] = ''
         Clock.schedule_once(lambda dt: temp(), 0)
@@ -5267,16 +5336,36 @@ class ProtocolSettings(CompositeCapture):
         if not pathlib.Path(filepath).exists():
             raise FileNotFoundError(f"Protocol not found at {filepath}")
         
-        protocol = Protocol.from_file(
-            file_path=filepath,
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-        )
+        try:
+            protocol = Protocol.from_file(
+                file_path=filepath,
+                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            )
+        except IOError:
+            # Guard to prevent LVP startup notification popup
+            return False
+        
+        except Exception as e:
+            error_title = "Protocol Loading Error"
+            error_msg = f"Cannot load protocol from file: {e}"
+            show_notification_popup(title=error_title, message=error_msg)
+            return False
+
+        if protocol is False:
+            error_title = "Empty Protocol Steps"
+            error_msg = f"Warning: Selected protocol had no steps. Empty protocol loaded."
+            protocol_config = get_sequenced_capture_config_from_ui()
+
+            protocol = Protocol.create_empty(
+                config=protocol_config,
+                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
+            )
 
         if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
             error_msg = f"Cannot load protocol. Not all objectives are in turret config."
             logger.error(error_msg)
             show_notification_popup(title="Protocol Loading Error", message=error_msg)
-            return
+            return False
         
         self._protocol = protocol
 
@@ -5307,6 +5396,7 @@ class ProtocolSettings(CompositeCapture):
         settings['protocol']['duration'] = duration
         settings['protocol']['labware'] = labware
         self.ids['labware_spinner'].text = settings['protocol']['labware']
+        self.ids['capture_root'].text = self._protocol.capture_root()
 
         # Set all layers to acquire as set in loaded protocol
         for layer in common_utils.get_layers():
@@ -5319,6 +5409,8 @@ class ProtocolSettings(CompositeCapture):
         self.update_step_ui()
         #if lumaview.scope.has_xyhomed():
         self.go_to_step(protocol=False)
+
+        return True
     
 
     def get_default_name_for_curr_step(self):
@@ -6786,9 +6878,7 @@ class MicroscopeSettings(BoxLayout):
         global max_exposure
 
         try:
-
-            from settings_init import settings as initialized_settings
-
+            # Settings are imported at the very beginning of file
             settings = initialized_settings
             # Configure the REST API
             api_config.set_settings(settings)
@@ -6796,9 +6886,9 @@ class MicroscopeSettings(BoxLayout):
             if settings['profiling']['enabled']:
                 global profiling_helper
                 ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                profiling_save_path = f'./logs/profile/{ts}'
-                profiling_helper = profiling_utils.ProfilingHelper(save_path=profiling_save_path)
-                Clock.schedule_interval(profiling_helper.restart, 120)
+                profiling_save_path = os.path.join(source_path, f'./logs/profiling')
+                MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
+                logger.info('[LVP Main  ] Memory Profiler started.')
 
             if 'autogain' not in settings['protocol']:
                 settings['protocol']['autogain'] = {
@@ -6808,8 +6898,16 @@ class MicroscopeSettings(BoxLayout):
                     'max_gain': 20.0,
                 }
 
-            live_folder = pathlib.Path(settings['live_folder']).resolve()
-            live_folder.mkdir(exist_ok=True, parents=True)
+            try:
+                live_folder = pathlib.Path(settings['live_folder']).resolve()
+                live_folder.mkdir(exist_ok=True, parents=True)
+
+            except Exception as e:
+                logger.warning(f"[LVP Main  ] Unable to find/create live image folder at {settings['live_folder']}: {e}")
+                live_folder = pathlib.Path('./capture').resolve()
+                live_folder.mkdir(exist_ok=True, parents=True)
+                logger.info(f"[LVP Main  ] Defaulting live image folder to {str(live_folder)}")
+
             settings['live_folder'] = str(live_folder)
             
             # update GUI values from JSON data:
@@ -7549,7 +7647,8 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = self.ids['gain_slider'].value
         settings[self.layer]['gain'] = gain
-        self.apply_gain_slider()
+        if not self.ids['gain_slider'].disabled:
+            self.apply_gain_slider()
         ####
 
     def gain_text(self):
@@ -7596,7 +7695,8 @@ class LayerControl(BoxLayout):
         exposure = self.ids['exp_slider'].value
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         settings[self.layer]['exp'] = exposure        # exposure in ms
-        self.apply_exp_slider()
+        if not self.ids['exp_slider'].disabled:
+            self.apply_exp_slider()
 
     def exp_text(self):
         logger.info('[LVP Main  ] LayerControl.exp_text()')
@@ -7719,25 +7819,46 @@ class LayerControl(BoxLayout):
         
         logger.info('[LVP Main  ] LayerControl.apply_settings()')
         global lumaview
+
+        def update_shader(dt=None):
+            if not lumaview.ids['viewer_id'].ids['scope_display_id'].paused.is_set():
+                if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
+                    self.update_shader(dt=0)
+
+        def disable_leds_for_other_layers(dt=None):
+            if self.ids['enable_led_btn'].state == 'down': # if the button is down
+                for layer in common_utils.get_layers():
+                    if layer != self.layer:
+                        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                        layer_obj.ids['enable_led_btn'].state = 'normal'
+
+        
+
+        if protocol or protocol_running_global:
+            Clock.schedule_once(disable_leds_for_other_layers, 0)
+            Clock.schedule_once(update_shader, 0)
+            return
+
         # global gain_vals
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
         if not protocol:
             set_histogram_layer(active_layer=self.layer)
+            
 
         # Queue IO task and update UI after completing IO
         if update_led:
             if not protocol_running_global:
                 self.update_led_state(apply_settings=False)
 
-        if self.ids['enable_led_btn'].state == 'down': # if the button is down
-            for layer in common_utils.get_layers():
-                if layer != self.layer:
-                    layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-                    layer_obj.ids['enable_led_btn'].state = 'normal'
 
 
+
+
+        disable_leds_for_other_layers()
+
+        
         # update exposure to currently selected settings
         # -----------------------------------------------------
         
@@ -7769,8 +7890,9 @@ class LayerControl(BoxLayout):
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
-        if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
-            self.update_shader(dt=0)
+        update_shader()
+
+
 
 
     def update_shader(self, dt):
@@ -7797,10 +7919,26 @@ class ZStack(CompositeCapture):
         logger.info('[LVP Main  ] ZStack.set_steps()')
 
         try:
-            settings['zstack']['step_size'] = float(self.ids['zstack_stepsize_id'].text)
-            settings['zstack']['range'] = float(self.ids['zstack_range_id'].text)
+            step_size = float(self.ids['zstack_stepsize_id'].text)
+            if step_size < 0:
+                step_size = 0
+                self.ids['zstack_stepsize_id'].text = str(step_size)
         except:
-            return
+            step_size = 0
+            self.ids['zstack_stepsize_id'].text = str(step_size)
+        finally:
+            settings['zstack']['step_size'] = step_size
+
+        try:
+            step_range = float(self.ids['zstack_range_id'].text)
+            if step_range < 0:
+                step_range = 0
+                self.ids['zstack_range_id'].text = str(step_range)
+        except:
+            step_range = 0
+            self.ids['zstack_range_id'].text = str(step_range)
+        finally:
+            settings['zstack']['range'] = step_range
 
         z_reference = common_utils.convert_zstack_reference_position_setting_to_config(
             text_label=self.ids['zstack_spinner'].text
@@ -8372,7 +8510,7 @@ class LumaViewProApp(App):
         Clock.schedule_once(layer_obj.apply_settings, 5)
 
         camera_executor.put(IOTask(scope_leds_off))
-        #scope_leds_off()
+
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
@@ -8421,7 +8559,7 @@ class LumaViewProApp(App):
 
     def build(self):
         current_time = time.strftime("%m/%d/%Y", time.localtime())
-        logger.info('[LVP Main  ] LumaViewProApp.build()')
+        logger.info('[LVP Main  ] LumaViewProApp.build()', extra={'force_error': True})
 
         logger.info('[LVP Main  ] -----------------------------------------')
         logger.info('[LVP Main  ] Code Compiled On: %s', current_time)
@@ -8576,7 +8714,9 @@ class LumaViewProApp(App):
         logger.info("[LVP Main  ] lumaview.scope.leds_off()")
         lumaview.scope.leds_off()
 
-        lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")        
+        lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json") 
+
+        logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})       
 
 
     # Returns a list of widgets with tooltip_text attribute
