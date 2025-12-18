@@ -52,11 +52,15 @@ class IOTask:
         def __init__(self, action, args=None, kwargs={}, callback=None, cb_args=None, cb_kwargs={}, pass_result=False):
             self.action = action
             # Capture creation stack to help trace where non-callable actions originate
+
+            ### USE ONLY FOR DEBUGGING PURPOSES ### Comment out otherwise
             # try:
             #     # Exclude the current frame to point to the caller creating the IOTask
             #     self.creation_stack = ''.join(traceback.format_stack()[:-1])
             # except Exception:
             #     self.creation_stack = '<failed to capture creation stack>'
+            ### USE ONLY FOR DEBUGGING PURPOSES ### Comment out otherwise
+
             if args is None:
                 self.args = ()
             # if it’s a sequence (list, tuple, etc) but not a string

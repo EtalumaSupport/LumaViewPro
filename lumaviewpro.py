@@ -807,6 +807,7 @@ def go_to_step_update_ui(step):
 
     def temp():
         layer_obj.ids['enable_led_btn'].state = 'down'
+
     if settings['protocol_led_on']:
         if not protocol_running_global:
             camera_executor.put(IOTask(action=Clock.schedule_once(lambda dt: temp())))
@@ -7439,7 +7440,8 @@ class ModSlider(Slider):
     def __init__(self, **kwargs):
         self.register_event_type('on_release')
         super(ModSlider, self).__init__(**kwargs)
-        logger.info('[LVP Main  ] ModSlider.__init__()')
+        # logger.info('[LVP Main  ] ModSlider.__init__()')
+        self.user_interacting = False
         self.step = 5
 
     def on_release(self):
@@ -7448,9 +7450,25 @@ class ModSlider(Slider):
     def on_touch_up(self, touch):
         super(ModSlider, self).on_touch_up(touch)
         # logger.info('[LVP Main  ] ModSlider.on_touch_up()')
+        self.user_interacting = False
         if touch.grab_current == self:
             self.dispatch('on_release')
             return True
+
+    def on_touch_down(self, touch):
+        super(ModSlider, self).on_touch_down(touch)
+        out = super().on_touch_down(touch)
+        # If the slider accepted the touch, it will grab it.
+        if touch.grab_current == self:
+            self.user_interacting = True
+        return out
+
+    def on_touch_move(self, touch):
+        super(ModSlider, self).on_touch_move(touch)
+        out = super().on_touch_move(touch)
+        if touch.grab_current == self:
+            self.user_interacting = True
+        return out
         
     # def keyboard_on_key_down(self, window, keycode, text, modifiers):
     #     # keycode is a tuple (keycode_int, keycode_str)
@@ -7482,6 +7500,7 @@ class LayerControl(BoxLayout):
 
     def __init__(self, **kwargs):
         super(LayerControl, self).__init__(**kwargs)
+
         logger.info('[LVP Main  ] LayerControl.__init__()')
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
@@ -7817,7 +7836,7 @@ class LayerControl(BoxLayout):
 
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
         
-        logger.info('[LVP Main  ] LayerControl.apply_settings()')
+        logger.info(f'[LVP Main  ] {self.layer}_LayerControl.apply_settings()')
         global lumaview
 
         def update_shader(dt=None):
