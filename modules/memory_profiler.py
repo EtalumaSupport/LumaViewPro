@@ -9,12 +9,14 @@ class MemoryLeakProfiler:
     # 1. Configuration
     INTERVAL = 900  # Take a snapshot every 15 minutes (900s)
     TRACE_DEPTH = 25 # How many stack frames to record
-    LOG_DIR = "memory_logs"
+    LOG_DIR = datetime.now().strftime("%Y%m%d_%H%M%S") + "_memory_logs"
+
     
     _first_snapshot = None
 
     @classmethod
-    def start(cls):
+    def start(cls, root_log_dir="."):
+        cls.LOG_DIR = os.path.join(root_log_dir, cls.LOG_DIR)
         if not os.path.exists(cls.LOG_DIR):
             os.makedirs(cls.LOG_DIR)
             

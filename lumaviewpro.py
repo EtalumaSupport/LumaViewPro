@@ -1994,7 +1994,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         
         self.recording = True
         self.recording_check = Clock.schedule_interval(self.check_recording_state, seconds_per_frame)
-        self.recording_event = Clock.schedule_interval(lambda dt: camera_executor.put(IOTask(self.record_helper)), seconds_per_frame)
+        self.recording_event = Clock.schedule_interval(self._enqueue_recording_frame, seconds_per_frame)
+
+    def _enqueue_recording_frame(self, dt=None):
+        """Enqueue a recording frame task without creating closure."""
+        camera_executor.put(IOTask(self.record_helper))
 
     def check_recording_state(self, dt=None):
         # Over the max duration, stop video
@@ -2002,7 +2006,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             Clock.unschedule(self.recording_check)
             Clock.unschedule(self.recording_event)
             self.video_duration = time.time() - self.start_ts
-            self.recording_complete_event = Clock.schedule_once(lambda dt: camera_executor.put(IOTask(self.recording_complete)))
+            self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
             self.ids['record_btn'].state = 'normal'
             
         # Button not clicked yet, keep recording
@@ -2013,7 +2017,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         Clock.unschedule(self.recording_check)
         Clock.unschedule(self.recording_event)
         self.video_duration = time.time() - self.start_ts
-        self.recording_complete_event = Clock.schedule_once(lambda dt: camera_executor.put(IOTask(self.recording_complete)))
+        self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
+
+    def _enqueue_recording_complete(self, dt=None):
+        """Enqueue recording complete task without creating closure."""
+        camera_executor.put(IOTask(self.recording_complete))
 
     def recording_complete(self, dt=None):
         if self.recording == False:
@@ -5331,7 +5339,7 @@ class ProtocolSettings(CompositeCapture):
             error_title = "Empty Protocol Steps"
             error_msg = f"Warning: Selected protocol had no steps. Empty protocol loaded."
             protocol_config = get_sequenced_capture_config_from_ui()
-            
+
             protocol = Protocol.create_empty(
                 config=protocol_config,
                 tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
@@ -6859,9 +6867,9 @@ class MicroscopeSettings(BoxLayout):
             if settings['profiling']['enabled']:
                 global profiling_helper
                 ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                profiling_save_path = f'./logs/profile/{ts}'
-                profiling_helper = profiling_utils.ProfilingHelper(save_path=profiling_save_path)
-                Clock.schedule_interval(profiling_helper.restart, 120)
+                profiling_save_path = os.path.join(source_path, f'./logs/profiling')
+                MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
+                logger.info('[LVP Main  ] Memory Profiler started.')
 
             if 'autogain' not in settings['protocol']:
                 settings['protocol']['autogain'] = {
@@ -8460,11 +8468,6 @@ class LumaViewProApp(App):
 
         camera_executor.put(IOTask(scope_leds_off))
 
-        profiling = False
-
-        if profiling:
-            MemoryLeakProfiler.start()
-            logger.info('[LVP Main  ] MemoryLeakProfiler started.')
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()

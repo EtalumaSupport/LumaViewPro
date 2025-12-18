@@ -1286,6 +1286,13 @@ class SequencedCaptureExecutor:
                         except Exception as e:
                             logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
 
+                    # Ensure queue is fully drained before deletion
+                    try:
+                        while not video_images.empty():
+                            video_images.get_nowait()
+                            video_images.task_done()
+                    except Exception:
+                        pass
                     # Queue is not empty, delete it and force garbage collection
                     del video_images
                     gc.collect()
@@ -1314,6 +1321,13 @@ class SequencedCaptureExecutor:
                         except Exception as e:
                             logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
 
+                    # Ensure queue is fully drained before deletion
+                    try:
+                        while not video_images.empty():
+                            video_images.get_nowait()
+                            video_images.task_done()
+                    except Exception:
+                        pass
                     # Video images queue empty. Delete it and force garbage collection
                     del video_images
 
