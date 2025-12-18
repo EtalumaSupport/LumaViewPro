@@ -59,6 +59,12 @@ import shutil
 import userpaths
 import queue
 import threading
+import asyncio
+from asyncio import AbstractEventLoop
+from fastapi import FastAPI
+import uvicorn
+from rest_api import api_router
+import rest_api.api_v1.api_config as api_config
 from types import SimpleNamespace
 
 import tkinter
@@ -169,6 +175,9 @@ if __name__ == "__main__":
     else:
         print("Machine-Type - NON-WINDOWS")
         source_path = script_path
+
+    #Configure REST API
+    api_config.set_source_path(source_path)
 
     num_cores = os.cpu_count()
     print(f"Num cores identified as {num_cores}")
@@ -6870,6 +6879,9 @@ class MicroscopeSettings(BoxLayout):
 
         try:
             # Settings are imported at the very beginning of file
+            settings = initialized_settings
+            # Configure the REST API
+            api_config.set_settings(settings)
 
             if settings['profiling']['enabled']:
                 global profiling_helper
@@ -8581,6 +8593,20 @@ class LumaViewProApp(App):
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
+            # Configure the REST API
+            api_config.set_view(lumaview)
+            api_config.set_protocol_callbacks({
+                'move_position': _handle_ui_update_for_axis,
+                'leds_off': _handle_ui_for_leds_off,
+                'led_state': _handle_ui_for_led,
+                'update_step_number': _update_step_number_callback,
+                'go_to_step': go_to_step,
+                'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+                'set_recording_title': set_recording_title,
+                'set_writing_title': set_writing_title,
+                'reset_title': reset_title,
+            })
             cell_count_content = CellCountControls()
             # graphing_controls = GraphingControls()
             #Window.maximize()
@@ -8656,6 +8682,9 @@ class LumaViewProApp(App):
             z_ui_update_func=_handle_autofocus_ui,
             cpu_pool=cpu_pool if use_multiprocessing else None
         )
+
+        #Configure REST API
+        api_config.set_sequenced_capture_executor(sequenced_capture_executor)
         
 
         # Creates and manages Tooltips
@@ -8952,14 +8981,29 @@ class Tooltip(Label):
         self.rect.size = (self.texture_size[0] + self.horiz_padding, self.texture_size[1] + self.vert_padding)
 
 
+def dummy_function(PID: int):
+    for _ in range(100):
+        print(f"DUMMY FUNCTION {PID}")
+    return
+
+def start_kivy_app(loop: AbstractEventLoop):
+    app = LumaViewProApp()
+    # api_config.set_view(lumaview)
+    loop.run_until_complete(app.async_run(async_lib='asyncio'))
+
+def start_uvicorn_server(loop: AbstractEventLoop):
+    api = FastAPI()
+    api.include_router(api_router)
+    config = uvicorn.Config(api, loop=loop)
+    server = uvicorn.Server(config)
+    loop.create_task(server.serve())
+
 
 if __name__ == "__main__":
     # Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
     # For some reason kivy was calling a Python 2 method on newer Python 3 List objects, causing exceptions that would accumulate
     # These exceptions were CONSTANT because they were happening on each Main Display refresh and Histogram refresh
     from kivy.properties import ObservableReferenceList
-
-
 
     def patched_setslice(self, i, j, sequence, **kwargs):
         try:
@@ -8973,17 +9017,13 @@ if __name__ == "__main__":
             # If for some reason we get another error again, bite the bullet 
             return original_setslicemethod(self, i, j, sequence)
 
-def dummy_function(PID: int):
-    for _ in range(100):
-        print(f"DUMMY FUNCTION {PID}")
-    return
-
-if __name__ == "__main__":
-
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
     # Replace the original method with our patched version
     ObservableReferenceList.__setslice__ = patched_setslice
-    LumaViewProApp().run()
+
+    loop = asyncio.get_event_loop()
+    start_uvicorn_server(loop)
+    start_kivy_app(loop)
 
 #endregion
