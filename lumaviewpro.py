@@ -2537,7 +2537,7 @@ class MotionSettings(BoxLayout):
         logger.info('[LVP Main  ] MotionSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        scope_display.stop()
+        #scope_display.stop()
         self.ids['verticalcontrol_id'].update_gui()
         self.ids['protocol_settings_id'].select_labware()
 
@@ -2547,8 +2547,8 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
-        if scope_display.play == True:
-            scope_display.start()
+        # if scope_display.play == True:
+        #     scope_display.start()
 
     
     def update_xy_stage_control_gui(self, *args, full_redraw: bool=False):
@@ -3990,12 +3990,13 @@ class ImageSettings(BoxLayout):
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
-        self.update_transmitted()
+        if not protocol_running_global:
+            self.update_transmitted()
         logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         
-        scope_display.stop()
+        # scope_display.stop()
 
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_imagesettings'].state == 'normal':
@@ -4008,8 +4009,8 @@ class ImageSettings(BoxLayout):
         else:
             self.pos = lumaview.width - self.settings_width, 0
  
-        if scope_display.play == True:
-            scope_display.start()
+        # if scope_display.play == True:
+        #     scope_display.start()
 
     def update_transmitted(self):
         for layer in common_utils.get_transmitted_layers():
@@ -4047,7 +4048,7 @@ class ImageSettings(BoxLayout):
 
         # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        scope_display.stop()
+        # scope_display.stop()
         scope_leds_off()
 
         # turn off all LED toggle buttons and histograms
@@ -4062,8 +4063,8 @@ class ImageSettings(BoxLayout):
             layer_obj.apply_settings()
 
         # Restart camera feed
-        if scope_display.play == True:
-            scope_display.start()
+        # if scope_display.play == True:
+        #     scope_display.start()
 
 
     def check_settings(self, *args):
@@ -7800,25 +7801,45 @@ class LayerControl(BoxLayout):
         
         logger.info('[LVP Main  ] LayerControl.apply_settings()')
         global lumaview
+
+        def update_shader(dt=None):
+            if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
+                self.update_shader(dt=0)
+
+        def disable_leds_for_other_layers(dt=None):
+            if self.ids['enable_led_btn'].state == 'down': # if the button is down
+                for layer in common_utils.get_layers():
+                    if layer != self.layer:
+                        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                        layer_obj.ids['enable_led_btn'].state = 'normal'
+
+        
+
+        if protocol or protocol_running_global:
+            Clock.schedule_once(disable_leds_for_other_layers, 0)
+            Clock.schedule_once(update_shader, 0)
+            return
+
         # global gain_vals
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
         if not protocol:
             set_histogram_layer(active_layer=self.layer)
+            
 
         # Queue IO task and update UI after completing IO
         if update_led:
             if not protocol_running_global:
                 self.update_led_state(apply_settings=False)
 
-        if self.ids['enable_led_btn'].state == 'down': # if the button is down
-            for layer in common_utils.get_layers():
-                if layer != self.layer:
-                    layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-                    layer_obj.ids['enable_led_btn'].state = 'normal'
 
 
+
+
+        disable_leds_for_other_layers()
+
+        
         # update exposure to currently selected settings
         # -----------------------------------------------------
         
@@ -7850,8 +7871,9 @@ class LayerControl(BoxLayout):
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
-        if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
-            self.update_shader(dt=0)
+        update_shader()
+
+
 
 
     def update_shader(self, dt):
