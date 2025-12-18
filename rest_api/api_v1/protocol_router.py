@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
-from rest_api.api_config import get_settings, get_sequenced_capture_executor, get_source_path, get_protocol_callbacks, get_image_capture_config
+from rest_api.api_v1.api_config import get_settings, get_sequenced_capture_executor, get_source_path, get_protocol_callbacks, get_image_capture_config
 from typing import TYPE_CHECKING
 from modules.protocol import Protocol
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
@@ -8,7 +8,7 @@ import pathlib
 import datetime
 
 if TYPE_CHECKING:
-    from ..modules.sequenced_capture_executor import SequencedCaptureExecutor
+    from ...modules.sequenced_capture_executor import SequencedCaptureExecutor
 
 protocol_router = APIRouter(prefix="/protocol", tags=['Protocol'])
 

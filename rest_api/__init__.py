@@ -1,14 +1,6 @@
 from fastapi import APIRouter
-from .motion_router import motion_router
-from .protocol_router import protocol_router
-from .status_router import status_router
-
-api_router = APIRouter()
-api_router.include_router(motion_router)
-api_router.include_router(protocol_router)
-api_router.include_router(status_router)
+from rest_api.api_v1 import api_v1_router
 
 
-@api_router.get("/")
-def root():
-    return "Welcome to the LumaViewPro REST API!"
+api_router = APIRouter(prefix="/api")
+api_router.include_router(api_v1_router)

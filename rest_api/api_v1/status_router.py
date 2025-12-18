@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
-from rest_api.api_config import get_scope, get_sequenced_capture_executor
+from rest_api.api_v1.api_config import get_scope, get_sequenced_capture_executor
 from typing import TYPE_CHECKING
 from lumascope_api import Lumascope
 
 if TYPE_CHECKING:
-    from ..modules.sequenced_capture_executor import SequencedCaptureExecutor
+    from ...modules.sequenced_capture_executor import SequencedCaptureExecutor
 
 status_router = APIRouter(prefix="/status", tags=['Status'])
 

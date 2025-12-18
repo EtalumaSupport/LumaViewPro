@@ -64,7 +64,7 @@ from asyncio import AbstractEventLoop
 from fastapi import FastAPI
 import uvicorn
 from rest_api import api_router
-import rest_api.api_config as api_config
+import rest_api.api_v1.api_config as api_config
 from types import SimpleNamespace
 
 import tkinter
