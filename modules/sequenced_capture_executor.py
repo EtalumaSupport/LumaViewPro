@@ -949,11 +949,11 @@ class SequencedCaptureExecutor:
         # Grab image and save
 
         earliest_image_ts = datetime.datetime.now()
-        if 'update_scope_display' in self._callbacks:
-            Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
-            sum_iteration_callback=lambda: Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
-        else:
-            sum_iteration_callback=None
+        # if 'update_scope_display' in self._callbacks:
+        #     Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
+        #     sum_iteration_callback=lambda: Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
+        # else:
+        sum_iteration_callback=None
 
         use_color = step['Color'] if step['False_Color'] else 'BF'
 

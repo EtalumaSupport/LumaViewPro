@@ -1201,6 +1201,9 @@ class ScopeDisplay(Image):
         super(ScopeDisplay,self).__init__(**kwargs)
         logger.info('[LVP Main  ] ScopeDisplay.__init__()')
         self.play = True
+        self.paused = threading.Event()
+        self.paused.clear()
+
         self.use_bullseye = False
         self.use_crosshairs = False
         self.use_live_image_histogram_equalization = False
@@ -1223,9 +1226,12 @@ class ScopeDisplay(Image):
             self.fps = fps
 
         logger.info('[LVP Main  ] Clock.schedule_interval(self.update, 1.0 / self.fps)')
+        self.paused.clear()
+
         Clock.schedule_interval(self.update_scopedisplay, 1.0 / self.fps)
 
     def stop(self):
+        self.paused.set()
         logger.info('[LVP Main  ] ScopeDisplay.stop()')
         logger.info('[LVP Main  ] Clock.unschedule(self.update)')
         Clock.unschedule(self.update_scopedisplay)
@@ -7803,8 +7809,9 @@ class LayerControl(BoxLayout):
         global lumaview
 
         def update_shader(dt=None):
-            if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
-                self.update_shader(dt=0)
+            if not lumaview.ids['viewer_id'].ids['scope_display_id'].paused.is_set():
+                if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
+                    self.update_shader(dt=0)
 
         def disable_leds_for_other_layers(dt=None):
             if self.ids['enable_led_btn'].state == 'down': # if the button is down
