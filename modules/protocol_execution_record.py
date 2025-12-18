@@ -5,6 +5,8 @@ import pathlib
 
 import pandas as pd
 
+from lvp_logger import logger
+
 
 class ProtocolExecutionRecord:
 
@@ -27,7 +29,6 @@ class ProtocolExecutionRecord:
         
         self._protocol_file_loc = pathlib.Path(protocol_file_loc)
 
-        self._outfile_fp = None
         if outfile is not None:
             self._mode = "to_file"
             self._outfile = outfile
@@ -38,12 +39,13 @@ class ProtocolExecutionRecord:
 
 
     def _initialize_outfile(self, outfile: pathlib.Path):
-        self._outfile_fp = open(outfile, 'w')
-        self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
-        self._outfile_csv.writerow([self.FILE_HEADER])
-        self._outfile_csv.writerow(['Version', self.CURRENT_VERSION])
-        self._outfile_csv.writerow(['Protocol File', str(self._protocol_file_loc)])
-        self._outfile_csv.writerow(self.COLUMNS)
+        """Create file with header. Each add_step will append separately."""
+        with open(outfile, 'w', newline='') as fp:
+            csv_writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
+            csv_writer.writerow([self.FILE_HEADER])
+            csv_writer.writerow(['Version', self.CURRENT_VERSION])
+            csv_writer.writerow(['Protocol File', str(self._protocol_file_loc)])
+            csv_writer.writerow(self.COLUMNS)
 
     
     def protocol_file_loc(self) -> pathlib.Path:
@@ -74,8 +76,12 @@ class ProtocolExecutionRecord:
         if self._mode != "to_file":
             raise Exception(f"add_step() can only be called when the instance is initialized with an 'outfile'.")
         
-        self._outfile_csv.writerow([capture_result_file_name, step_name, step_index, scan_count, timestamp, frame_count, duration_sec])
-        self._outfile_fp.flush()
+        try:
+            with open(self._outfile, 'a', newline='') as fp:
+                csv_writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
+                csv_writer.writerow([capture_result_file_name, step_name, step_index, scan_count, timestamp, frame_count, duration_sec])
+        except Exception as e:
+            logger.error(f"ProtocolExecutionRecord: Failed to write step {step_name}: {e}")
         
     
     def get_data_from_filename(self, file_path: str | pathlib.Path) -> dict | None:
