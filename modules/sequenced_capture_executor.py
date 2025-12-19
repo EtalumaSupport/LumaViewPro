@@ -437,11 +437,17 @@ class SequencedCaptureExecutor:
         self._scan_in_progress.set()
 
         self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
-        self._scan_iterator = Clock.schedule_interval(self._scan_iterate_scheduled, 0.1)
+        self._scan_iterator = Clock.schedule_once(self._scan_iterate_scheduled, 0.1)
     
-    def _scan_iterate_scheduled(self, dt):
+    def _scan_iterate_scheduled(self, dt=None):
         """Wrapper to schedule scan iteration without creating IOTask in lambda"""
-        self.protocol_executor.protocol_put(IOTask(action=self._scan_iterate))
+        if not self._scan_in_progress.is_set() or self._protocol_ended.is_set():
+            return
+
+        self.protocol_executor.protocol_put(IOTask(
+            action=self._scan_iterate,
+            callback=self._scan_iterate_scheduled
+        ))
         
         # Periodic cleanup and watchdog logging for long runs
         try:
