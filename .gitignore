@@ -4,6 +4,7 @@ data/current.json
 calls.txt
 logs/LVP_Log*
 logs/profile/*
+logs/profiling/*
 capture/
 script_testing.py
 venv*/

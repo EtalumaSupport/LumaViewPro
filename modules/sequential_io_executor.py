@@ -52,11 +52,15 @@ class IOTask:
         def __init__(self, action, args=None, kwargs={}, callback=None, cb_args=None, cb_kwargs={}, pass_result=False):
             self.action = action
             # Capture creation stack to help trace where non-callable actions originate
+
+            ### USE ONLY FOR DEBUGGING PURPOSES ### Comment out otherwise
             # try:
             #     # Exclude the current frame to point to the caller creating the IOTask
             #     self.creation_stack = ''.join(traceback.format_stack()[:-1])
             # except Exception:
             #     self.creation_stack = '<failed to capture creation stack>'
+            ### USE ONLY FOR DEBUGGING PURPOSES ### Comment out otherwise
+
             if args is None:
                 self.args = ()
             # if it’s a sequence (list, tuple, etc) but not a string
@@ -191,7 +195,7 @@ class SequentialIOExecutor:
         self.blocker.set()
 
     # TODO: Have it return a future to be able to block until that thread has finished its task
-    def put(self, task: IOTask):
+    def put(self, task: IOTask, return_future: bool = False):
         if self._disable:
             return None
 
@@ -199,13 +203,17 @@ class SequentialIOExecutor:
             return None
         
         # Push IO work item into queue
-        fut = Future()
-        self.caller_futures[task] = fut
+        # Only create Future if caller explicitly requests it to reduce memory overhead
+        if return_future:
+            fut = Future()
+            self.caller_futures[task] = fut
+        else:
+            fut = None
         self.queue.put(task)
         task.set_name(self.executor_name)
         return fut
 
-    def protocol_put(self, task: IOTask):
+    def protocol_put(self, task: IOTask, return_future: bool = False):
         """
         Adds an IOTask to the Protocol Execution Queue
         NOTE: Protocol Execution Queue only executes when protocol is in session:
@@ -217,8 +225,12 @@ class SequentialIOExecutor:
         if not self.protocol_running.is_set():
             return None
         
-        fut = Future()
-        self.caller_futures[task] = fut
+        # Only create Future if caller explicitly requests it to reduce memory overhead
+        if return_future:
+            fut = Future()
+            self.caller_futures[task] = fut
+        else:
+            fut = None
         self.protocol_queue.put(task)
         task.set_name(self.executor_name)
         return fut
@@ -281,7 +293,10 @@ class SequentialIOExecutor:
                     if self.pending_shutdown:
                         return
                     future = self.executor.submit(task.run)
-                    future.add_done_callback(lambda fut, t=task: self._safe_done_cb(fut, t))
+                    # Avoid lambda closure to prevent reference cycles
+                    def done_callback(fut, task_ref=task):
+                        self._safe_done_cb(fut, task_ref)
+                    future.add_done_callback(done_callback)
                     self.running_task = task
                     #self.executed_protocol_tasks.append(task)
                 else:
@@ -290,7 +305,10 @@ class SequentialIOExecutor:
                     if self.pending_shutdown:
                         return
                     future = self.executor.submit(task.run)
-                    future.add_done_callback(lambda fut, t=task: self._safe_done_cb(fut, t))
+                    # Avoid lambda closure to prevent reference cycles
+                    def done_callback(fut, task_ref=task):
+                        self._safe_done_cb(fut, task_ref)
+                    future.add_done_callback(done_callback)
                     self.running_task = task
                     #self.executed_tasks.append(task)
             except Exception as e:
@@ -371,27 +389,39 @@ class SequentialIOExecutor:
 
     def clear_pending(self):
         # Remove all tasks still in queue
+        cleared_tasks = []
         while True:
             try:
                 task = self.queue.get_nowait()
+                cleared_tasks.append(task)
             except queue.Empty:
                 break
             else:
                 # Balance out get_nowait with a task_done
                 self.queue.task_done()
+        
+        # Clean up futures for cleared tasks to prevent memory leak
+        for task in cleared_tasks:
+            self.caller_futures.pop(task, None)
 
         self.cleared_queue = True
         logger.info(f"{self.name} Pending Queue Cleared")
 
     def clear_protocol_pending(self):
+        cleared_tasks = []
         while True:
             try:
                 task = self.protocol_queue.get_nowait()
+                cleared_tasks.append(task)
             except queue.Empty:
                 break
             else:
                 # Balance out get_nowait with a task_done
                 self.protocol_queue.task_done()
+        
+        # Clean up futures for cleared tasks to prevent memory leak
+        for task in cleared_tasks:
+            self.caller_futures.pop(task, None)
         
         self.cleared_protocol_queue = True
         logger.info(f"{self.name} Pending Protocol Queue Cleared")

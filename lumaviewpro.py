@@ -59,6 +59,12 @@ import shutil
 import userpaths
 import queue
 import threading
+import asyncio
+from asyncio import AbstractEventLoop
+from fastapi import FastAPI
+import uvicorn
+from rest_api import api_router
+import rest_api.api_v1.api_config as api_config
 from types import SimpleNamespace
 
 import tkinter
@@ -167,6 +173,9 @@ if __name__ == "__main__":
     else:
         print("Machine-Type - NON-WINDOWS")
         source_path = script_path
+
+    #Configure REST API
+    api_config.set_source_path(source_path)
 
     num_cores = os.cpu_count()
     print(f"Num cores identified as {num_cores}")
@@ -796,6 +805,7 @@ def go_to_step_update_ui(step):
 
     def temp():
         layer_obj.ids['enable_led_btn'].state = 'down'
+
     if settings['protocol_led_on']:
         if not protocol_running_global:
             camera_executor.put(IOTask(action=Clock.schedule_once(lambda dt: temp())))
@@ -1199,6 +1209,9 @@ class ScopeDisplay(Image):
         super(ScopeDisplay,self).__init__(**kwargs)
         logger.info('[LVP Main  ] ScopeDisplay.__init__()')
         self.play = True
+        self.paused = threading.Event()
+        self.paused.clear()
+
         self.use_bullseye = False
         self.use_crosshairs = False
         self.use_live_image_histogram_equalization = False
@@ -1221,9 +1234,12 @@ class ScopeDisplay(Image):
             self.fps = fps
 
         logger.info('[LVP Main  ] Clock.schedule_interval(self.update, 1.0 / self.fps)')
+        self.paused.clear()
+
         Clock.schedule_interval(self.update_scopedisplay, 1.0 / self.fps)
 
     def stop(self):
+        self.paused.set()
         logger.info('[LVP Main  ] ScopeDisplay.stop()')
         logger.info('[LVP Main  ] Clock.unschedule(self.update)')
         Clock.unschedule(self.update_scopedisplay)
@@ -1992,7 +2008,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         self.recording = True
         self.recording_check = Clock.schedule_interval(self.check_recording_state, seconds_per_frame)
-        self.recording_event = Clock.schedule_interval(lambda dt: camera_executor.put(IOTask(self.record_helper)), seconds_per_frame)
+        self.recording_event = Clock.schedule_interval(self._enqueue_recording_frame, seconds_per_frame)
+
+    def _enqueue_recording_frame(self, dt=None):
+        """Enqueue a recording frame task without creating closure."""
+        camera_executor.put(IOTask(self.record_helper))
 
     def check_recording_state(self, dt=None):
         # Over the max duration, stop video
@@ -2000,7 +2020,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             Clock.unschedule(self.recording_check)
             Clock.unschedule(self.recording_event)
             self.video_duration = time.time() - self.start_ts
-            self.recording_complete_event = Clock.schedule_once(lambda dt: camera_executor.put(IOTask(self.recording_complete)))
+            self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
             self.ids['record_btn'].state = 'normal'
 
         # Button not clicked yet, keep recording
@@ -2011,7 +2031,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         Clock.unschedule(self.recording_check)
         Clock.unschedule(self.recording_event)
         self.video_duration = time.time() - self.start_ts
-        self.recording_complete_event = Clock.schedule_once(lambda dt: camera_executor.put(IOTask(self.recording_complete)))
+        self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
+
+    def _enqueue_recording_complete(self, dt=None):
+        """Enqueue recording complete task without creating closure."""
+        camera_executor.put(IOTask(self.recording_complete))
 
     def recording_complete(self, dt=None):
         if self.recording == False:
@@ -2527,7 +2551,7 @@ class MotionSettings(BoxLayout):
         logger.info('[LVP Main  ] MotionSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        scope_display.stop()
+        #scope_display.stop()
         self.ids['verticalcontrol_id'].update_gui()
         self.ids['protocol_settings_id'].select_labware()
 
@@ -2537,8 +2561,8 @@ class MotionSettings(BoxLayout):
         else:
             self.pos = 0, 0
 
-        if scope_display.play == True:
-            scope_display.start()
+        # if scope_display.play == True:
+        #     scope_display.start()
 
 
     def update_xy_stage_control_gui(self, *args, full_redraw: bool=False):
@@ -3980,12 +4004,13 @@ class ImageSettings(BoxLayout):
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
-        self.update_transmitted()
+        if not protocol_running_global:
+            self.update_transmitted()
         logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
         global lumaview
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-
-        scope_display.stop()
+        
+        # scope_display.stop()
 
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_imagesettings'].state == 'normal':
@@ -3997,9 +4022,9 @@ class ImageSettings(BoxLayout):
                 logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
             self.pos = lumaview.width - self.settings_width, 0
-
-        if scope_display.play == True:
-            scope_display.start()
+ 
+        # if scope_display.play == True:
+        #     scope_display.start()
 
     def update_transmitted(self):
         for layer in common_utils.get_transmitted_layers():
@@ -4037,7 +4062,7 @@ class ImageSettings(BoxLayout):
 
         # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
-        scope_display.stop()
+        # scope_display.stop()
         scope_leds_off()
 
         # turn off all LED toggle buttons and histograms
@@ -4052,8 +4077,8 @@ class ImageSettings(BoxLayout):
             layer_obj.apply_settings()
 
         # Restart camera feed
-        if scope_display.play == True:
-            scope_display.start()
+        # if scope_display.play == True:
+        #     scope_display.start()
 
 
     def check_settings(self, *args):
@@ -6855,13 +6880,16 @@ class MicroscopeSettings(BoxLayout):
 
         try:
             # Settings are imported at the very beginning of file
+            settings = initialized_settings
+            # Configure the REST API
+            api_config.set_settings(settings)
 
             if settings['profiling']['enabled']:
                 global profiling_helper
                 ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                profiling_save_path = f'./logs/profile/{ts}'
-                profiling_helper = profiling_utils.ProfilingHelper(save_path=profiling_save_path)
-                Clock.schedule_interval(profiling_helper.restart, 120)
+                profiling_save_path = os.path.join(source_path, f'./logs/profiling')
+                MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
+                logger.info('[LVP Main  ] Memory Profiler started.')
 
             if 'autogain' not in settings['protocol']:
                 settings['protocol']['autogain'] = {
@@ -7412,7 +7440,8 @@ class ModSlider(Slider):
     def __init__(self, **kwargs):
         self.register_event_type('on_release')
         super(ModSlider, self).__init__(**kwargs)
-        logger.info('[LVP Main  ] ModSlider.__init__()')
+        # logger.info('[LVP Main  ] ModSlider.__init__()')
+        self.user_interacting = False
         self.step = 5
 
     def on_release(self):
@@ -7421,10 +7450,26 @@ class ModSlider(Slider):
     def on_touch_up(self, touch):
         super(ModSlider, self).on_touch_up(touch)
         # logger.info('[LVP Main  ] ModSlider.on_touch_up()')
+        self.user_interacting = False
         if touch.grab_current == self:
             self.dispatch('on_release')
             return True
 
+    def on_touch_down(self, touch):
+        super(ModSlider, self).on_touch_down(touch)
+        out = super().on_touch_down(touch)
+        # If the slider accepted the touch, it will grab it.
+        if touch.grab_current == self:
+            self.user_interacting = True
+        return out
+
+    def on_touch_move(self, touch):
+        super(ModSlider, self).on_touch_move(touch)
+        out = super().on_touch_move(touch)
+        if touch.grab_current == self:
+            self.user_interacting = True
+        return out
+        
     # def keyboard_on_key_down(self, window, keycode, text, modifiers):
     #     # keycode is a tuple (keycode_int, keycode_str)
     #     name = keycode[1]
@@ -7455,6 +7500,7 @@ class LayerControl(BoxLayout):
 
     def __init__(self, **kwargs):
         super(LayerControl, self).__init__(**kwargs)
+
         logger.info('[LVP Main  ] LayerControl.__init__()')
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
@@ -7620,7 +7666,8 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = self.ids['gain_slider'].value
         settings[self.layer]['gain'] = gain
-        self.apply_gain_slider()
+        if not self.ids['gain_slider'].disabled:
+            self.apply_gain_slider()
         ####
 
     def gain_text(self):
@@ -7667,7 +7714,8 @@ class LayerControl(BoxLayout):
         exposure = self.ids['exp_slider'].value
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         settings[self.layer]['exp'] = exposure        # exposure in ms
-        self.apply_exp_slider()
+        if not self.ids['exp_slider'].disabled:
+            self.apply_exp_slider()
 
     def exp_text(self):
         logger.info('[LVP Main  ] LayerControl.exp_text()')
@@ -7787,28 +7835,49 @@ class LayerControl(BoxLayout):
 
 
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
-
-        logger.info('[LVP Main  ] LayerControl.apply_settings()')
+        
+        logger.info(f'[LVP Main  ] {self.layer}_LayerControl.apply_settings()')
         global lumaview
+
+        def update_shader(dt=None):
+            if not lumaview.ids['viewer_id'].ids['scope_display_id'].paused.is_set():
+                if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
+                    self.update_shader(dt=0)
+
+        def disable_leds_for_other_layers(dt=None):
+            if self.ids['enable_led_btn'].state == 'down': # if the button is down
+                for layer in common_utils.get_layers():
+                    if layer != self.layer:
+                        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                        layer_obj.ids['enable_led_btn'].state = 'normal'
+
+        
+
+        if protocol or protocol_running_global:
+            Clock.schedule_once(disable_leds_for_other_layers, 0)
+            Clock.schedule_once(update_shader, 0)
+            return
+
         # global gain_vals
 
         # update illumination to currently selected settings
         # -----------------------------------------------------
         if not protocol:
             set_histogram_layer(active_layer=self.layer)
+            
 
         # Queue IO task and update UI after completing IO
         if update_led:
             if not protocol_running_global:
                 self.update_led_state(apply_settings=False)
 
-        if self.ids['enable_led_btn'].state == 'down': # if the button is down
-            for layer in common_utils.get_layers():
-                if layer != self.layer:
-                    layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-                    layer_obj.ids['enable_led_btn'].state = 'normal'
 
 
+
+
+        disable_leds_for_other_layers()
+
+        
         # update exposure to currently selected settings
         # -----------------------------------------------------
         exposure = settings[self.layer]['exp']
@@ -7839,8 +7908,9 @@ class LayerControl(BoxLayout):
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
-        if lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye is False:
-            self.update_shader(dt=0)
+        update_shader()
+
+
 
 
     def update_shader(self, dt):
@@ -8464,11 +8534,6 @@ class LumaViewProApp(App):
 
         camera_executor.put(IOTask(scope_leds_off))
 
-        profiling = False
-
-        if profiling:
-            MemoryLeakProfiler.start()
-            logger.info('[LVP Main  ] MemoryLeakProfiler started.')
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
@@ -8551,6 +8616,20 @@ class LumaViewProApp(App):
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
+            # Configure the REST API
+            api_config.set_view(lumaview)
+            api_config.set_protocol_callbacks({
+                'move_position': _handle_ui_update_for_axis,
+                'leds_off': _handle_ui_for_leds_off,
+                'led_state': _handle_ui_for_led,
+                'update_step_number': _update_step_number_callback,
+                'go_to_step': go_to_step,
+                'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+                'set_recording_title': set_recording_title,
+                'set_writing_title': set_writing_title,
+                'reset_title': reset_title,
+            })
             cell_count_content = CellCountControls()
             # graphing_controls = GraphingControls()
             #Window.maximize()
@@ -8627,6 +8706,9 @@ class LumaViewProApp(App):
             cpu_pool=cpu_pool if use_multiprocessing else None
         )
 
+        #Configure REST API
+        api_config.set_sequenced_capture_executor(sequenced_capture_executor)
+        
 
         # Creates and manages Tooltips
         self.hidden = True
@@ -8922,14 +9004,29 @@ class Tooltip(Label):
         self.rect.size = (self.texture_size[0] + self.horiz_padding, self.texture_size[1] + self.vert_padding)
 
 
+def dummy_function(PID: int):
+    for _ in range(100):
+        print(f"DUMMY FUNCTION {PID}")
+    return
+
+def start_kivy_app(loop: AbstractEventLoop):
+    app = LumaViewProApp()
+    # api_config.set_view(lumaview)
+    loop.run_until_complete(app.async_run(async_lib='asyncio'))
+
+def start_uvicorn_server(loop: AbstractEventLoop):
+    api = FastAPI()
+    api.include_router(api_router)
+    config = uvicorn.Config(api, loop=loop)
+    server = uvicorn.Server(config)
+    loop.create_task(server.serve())
+
 
 if __name__ == "__main__":
     # Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
     # For some reason kivy was calling a Python 2 method on newer Python 3 List objects, causing exceptions that would accumulate
     # These exceptions were CONSTANT because they were happening on each Main Display refresh and Histogram refresh
     from kivy.properties import ObservableReferenceList
-
-
 
     def patched_setslice(self, i, j, sequence, **kwargs):
         try:
@@ -8943,17 +9040,13 @@ if __name__ == "__main__":
             # If for some reason we get another error again, bite the bullet
             return original_setslicemethod(self, i, j, sequence)
 
-def dummy_function(PID: int):
-    for _ in range(100):
-        print(f"DUMMY FUNCTION {PID}")
-    return
-
-if __name__ == "__main__":
-
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
     # Replace the original method with our patched version
     ObservableReferenceList.__setslice__ = patched_setslice
-    LumaViewProApp().run()
+
+    loop = asyncio.get_event_loop()
+    start_uvicorn_server(loop)
+    start_kivy_app(loop)
 
 #endregion

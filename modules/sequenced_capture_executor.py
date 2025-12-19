@@ -949,11 +949,11 @@ class SequencedCaptureExecutor:
         # Grab image and save
 
         earliest_image_ts = datetime.datetime.now()
-        if 'update_scope_display' in self._callbacks:
-            Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
-            sum_iteration_callback=lambda: Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
-        else:
-            sum_iteration_callback=None
+        # if 'update_scope_display' in self._callbacks:
+        #     Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
+        #     sum_iteration_callback=lambda: Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
+        # else:
+        sum_iteration_callback=None
 
         use_color = step['Color'] if step['False_Color'] else 'BF'
 
@@ -1286,6 +1286,13 @@ class SequencedCaptureExecutor:
                         except Exception as e:
                             logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
 
+                    # Ensure queue is fully drained before deletion
+                    try:
+                        while not video_images.empty():
+                            video_images.get_nowait()
+                            video_images.task_done()
+                    except Exception:
+                        pass
                     # Queue is not empty, delete it and force garbage collection
                     del video_images
                     gc.collect()
@@ -1314,6 +1321,13 @@ class SequencedCaptureExecutor:
                         except Exception as e:
                             logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
 
+                    # Ensure queue is fully drained before deletion
+                    try:
+                        while not video_images.empty():
+                            video_images.get_nowait()
+                            video_images.task_done()
+                    except Exception:
+                        pass
                     # Video images queue empty. Delete it and force garbage collection
                     del video_images
 
