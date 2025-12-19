@@ -380,7 +380,11 @@ class SequencedCaptureExecutor:
         self._scope.camera.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
         self._run_scan()
-        self._protocol_iterator = Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._protocol_iterate)), 1)
+        self._protocol_iterator = Clock.schedule_interval(self._protocol_iterate_scheduled, 1)
+    
+    def _protocol_iterate_scheduled(self, dt):
+        """Wrapper to schedule protocol iteration without creating IOTask in lambda"""
+        self.protocol_executor.protocol_put(IOTask(action=self._protocol_iterate))
 
     
     def _protocol_iterate(self, dt=None):
@@ -433,23 +437,30 @@ class SequencedCaptureExecutor:
         self._scan_in_progress.set()
 
         self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
-        self._scan_iterator = Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._scan_iterate)), 0.1)
+        self._scan_iterator = Clock.schedule_interval(self._scan_iterate_scheduled, 0.1)
+    
+    def _scan_iterate_scheduled(self, dt):
+        """Wrapper to schedule scan iteration without creating IOTask in lambda"""
+        self.protocol_executor.protocol_put(IOTask(action=self._scan_iterate))
         
-        # Periodic watchdog logging for long runs: report queue depth and executor health every ~60s
-        # try:
-        #     if not hasattr(self, '_last_watchdog_log'):
-        #         self._last_watchdog_log = time.monotonic()
-        #     now_mono = time.monotonic()
-        #     if now_mono - self._last_watchdog_log > 60:
-        #         self._last_watchdog_log = now_mono
-        #         io_q = self._io_executor.queue_size() if hasattr(self._io_executor, 'queue_size') else -1
-        #         cam_q = self.camera_executor.queue_size() if hasattr(self.camera_executor, 'queue_size') else -1
-        #         prot_q = self.protocol_executor.protocol_queue_size() if hasattr(self.protocol_executor, 'protocol_queue_size') else -1
-        #         file_q = self.file_io_executor.protocol_queue_size() if hasattr(self.file_io_executor, 'protocol_queue_size') else -1
-        #         af_q = self.autofocus_io_executor.protocol_queue_size() if hasattr(self.autofocus_io_executor, 'protocol_queue_size') else -1
-        #         logger.info(f"[Watchdog] Protocol Queues — IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q}")
-        # except Exception:
-        #     pass
+        # Periodic cleanup and watchdog logging for long runs
+        try:
+            if not hasattr(self, '_last_maintenance_time'):
+                self._last_maintenance_time = time.monotonic()
+            
+            now_mono = time.monotonic()
+            # Run maintenance every 60 seconds
+            if now_mono - self._last_maintenance_time > 60:
+                self._last_maintenance_time = now_mono
+                                
+                # Force garbage collection to prevent accumulation
+                # This is a safety net - properly written code shouldn't need this,
+                # but it helps during long protocol runs (24+ hours)
+                collected = gc.collect()
+                if collected > 0:
+                    logger.info(f"[Watchdog] GC collected {collected} objects")
+        except Exception as e:
+            logger.warning(f"[Watchdog] Maintenance error (non-critical): {e}", extra={"force_error": True})
     
 
     def _scan_iterate(self, dt=None):

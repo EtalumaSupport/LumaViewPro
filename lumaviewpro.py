@@ -6125,6 +6125,9 @@ class Stage(Widget):
         self.ROI_max = [0,0]
         self._motion_enabled = True
         self.ROIs = []
+        
+        # Track labware state for smart redraws
+        self._cached_labware_name = None
 
         self.full_redraw()
         self.bind(
@@ -6250,8 +6253,14 @@ class Stage(Widget):
                 return
                 
         # Create current labware instance
-        _, labware = get_selected_labware()
+        labware_name, labware = get_selected_labware()
+        
+        # Check if labware changed - trigger full redraw
+        if labware_name != self._cached_labware_name:
+            full_redraw = True
+            self._cached_labware_name = labware_name
 
+        # Clear canvas based on redraw type
         if full_redraw:
             Clock.schedule_once(lambda dt: self.canvas.clear(), 0)
         else:
@@ -6298,6 +6307,7 @@ class Stage(Widget):
             well_radius_pixel_x = well_radius * scale_x
             well_radius_pixel_y = well_radius * scale_y
 
+        # Draw static labware elements (only on full redraw)
         if full_redraw:
             self.schedule_to_draw(self.draw_rectangle, pos=(x+(dim_max['x']-stage_w-stage_x)*scale_x, y+stage_y*scale_y), size=(stage_w*scale_x, stage_h*scale_y), color=(.2, .2, .2 , 0.5), group='outline')
 
@@ -6349,11 +6359,12 @@ class Stage(Widget):
 
                     self.schedule_to_draw(self.draw_ellipse, pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), radius=(well_radius_pixel_x*2, well_radius_pixel_y*2), color=(0.4, 0.4, 0.4, 0.5), group='wells')
 
+        # Draw protocol steps if needed (semi-static, only when steps change)
         if full_redraw or self._protocol_step_redraw:
-                self._protocol_step_redraw = False
+            self._protocol_step_redraw = False
 
-                if  (self._protocol_step_locations_show == True) and \
-                    (self._protocol_step_locations_df is not None):
+            if (self._protocol_step_locations_show == True) and \
+                (self._protocol_step_locations_df is not None):
 
                     half_size = 2
                     with self.canvas:
@@ -6373,6 +6384,7 @@ class Stage(Widget):
                             self.schedule_to_draw(self.draw_line, points=(x_center-half_size, y_center, x_center+half_size, y_center), color=(1., 1., 0., 1.), width = 1, group='steps') # horizontal line
                             self.schedule_to_draw(self.draw_line, points=(x_center, y_center-half_size, x_center, y_center+half_size), color=(1., 1., 0., 1.), width = 1, group='steps') # vertical line
 
+        # Draw selected well (updates when target changes)
         target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
                 labware=labware,
                 stage_offset=settings['stage_offset'],
@@ -6395,6 +6407,7 @@ class Stage(Widget):
         # Draw selected well
         self.schedule_to_draw(self.draw_line, ellipse=(target_well_center_x - (well_radius_pixel_x), target_well_center_y - (well_radius_pixel_y), well_radius_pixel_x*2, well_radius_pixel_y*2), color=(0., 1., 0., 1.), group='selected_well')
 
+        # Draw crosshairs (updates every frame - but only 2 lines!)
         pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
                 labware=labware,
                 stage_offset=settings['stage_offset'],
@@ -6442,6 +6455,7 @@ class Stage(Widget):
         """Draw a line on the canvas - safe to call from schedule_to_draw_on_canvas"""
         with self.canvas:
             Color(*color)
+            
             if points:
                 Line(points=points, width=width, group=group)
             elif circle:
@@ -6880,7 +6894,7 @@ class MicroscopeSettings(BoxLayout):
 
         try:
             # Settings are imported at the very beginning of file
-            settings = initialized_settings
+            
             # Configure the REST API
             api_config.set_settings(settings)
 
