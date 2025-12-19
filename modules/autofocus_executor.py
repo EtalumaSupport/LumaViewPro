@@ -70,7 +70,10 @@ class AutofocusExecutor:
         interval_sec: float
     ):
         if self._use_kivy_clock:
-            return self._kivy_clock_module.Clock.schedule_interval(lambda dt: self._autofocus_executor.protocol_put(IOTask(action=func)), interval_sec)
+            # Create wrapper method to avoid lambda closure
+            def wrapper(dt):
+                self._autofocus_executor.protocol_put(IOTask(action=func))
+            return self._kivy_clock_module.Clock.schedule_interval(wrapper, interval_sec)
         else:
             raise NotImplementedError(f"Not implemented for support outside Kivy")
         

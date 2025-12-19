@@ -59,12 +59,6 @@ import shutil
 import userpaths
 import queue
 import threading
-import asyncio
-from asyncio import AbstractEventLoop
-from fastapi import FastAPI
-import uvicorn
-from rest_api import api_router
-import rest_api.api_v1.api_config as api_config
 from types import SimpleNamespace
 
 import tkinter
@@ -173,9 +167,6 @@ if __name__ == "__main__":
     else:
         print("Machine-Type - NON-WINDOWS")
         source_path = script_path
-
-    #Configure REST API
-    api_config.set_source_path(source_path)
 
     num_cores = os.cpu_count()
     print(f"Num cores identified as {num_cores}")
@@ -304,6 +295,7 @@ if __name__ == "__main__":
     from kivy.uix.scrollview import ScrollView
     from kivy.uix.popup import Popup
     from kivy.uix.label import Label
+    from kivy.graphics import Fbo
 
     # Video Related
     from kivy.graphics.texture import Texture
@@ -2487,18 +2479,34 @@ class MotionSettings(BoxLayout):
         protocol_stage_widget_parent = self.ids['protocol_settings_id'].ids['protocol_stage_holder_id']
         xystage_widget_parent = self._accordion_item_xystagecontrol.ids['xy_stagecontrol_id'].ids['xy_stage_holder_id']
 
-        if (protocol_accordion_item.collapse is True) or (self._accordion_item_xystagecontrol.collapse is True):
+        # Determine which accordion is open
+        protocol_open = protocol_accordion_item.collapse is False
+        xystage_open = self._accordion_item_xystagecontrol.collapse is False
+        
+        # If switching between accordions, move the stage instantly
+        if protocol_open or xystage_open:
+            # Store current parent
+            current_parent = stage.parent
+            target_parent = protocol_stage_widget_parent if protocol_open else xystage_widget_parent
+            
+            # Only move if parent is changing
+            if current_parent != target_parent:
+                # Remove from current parent
+                if current_parent is not None:
+                    stage.remove_parent()
+                
+                # Add to new parent with consistent settings
+                stage.pos_hint = {'center_x': 0.5, 'center_y': 0.5}
+                stage.size_hint = (1, 1)
+                target_parent.add_widget(stage)
+                
+                # Use lightweight redraw that preserves FBO cache
+                # This avoids regenerating the entire stage visualization
+                stage.draw_labware(full_redraw=False)
+        else:
+            # Both closed - remove stage
             stage.remove_parent()
-
-        if protocol_accordion_item.collapse is False:
-            stage.pos_hint = {'center_x':0.5, 'center_y':0.5}
-            protocol_stage_widget_parent.add_widget(stage)
-            stage.full_redraw()
-        elif self._accordion_item_xystagecontrol.collapse is False:
-            stage.pos_hint = {'center_x':0.5, 'center_y':0.5}
-            xystage_widget_parent.add_widget(stage)
-            stage.full_redraw()
-
+        
 
     def set_xystage_control_visibility(self, visible: bool) -> None:
         if visible:
@@ -6106,6 +6114,10 @@ class ProtocolSettings(CompositeCapture):
 class Stage(Widget):
 
     def full_redraw(self, *args):
+        # Invalidate FBO caches on size/position change
+        self._labware_fbos.clear()
+        self._step_locations_fbo = None
+        self._cached_step_locations_hash = None
         self.draw_labware(full_redraw=True)
 
 
@@ -6125,6 +6137,16 @@ class Stage(Widget):
         self.ROI_max = [0,0]
         self._motion_enabled = True
         self.ROIs = []
+        
+        # Track labware state for smart redraws
+        self._cached_labware_name = None
+        self._labware_fbos = {}
+        self._step_locations_fbo = None
+        self._cached_step_locations_hash = None
+
+        # Stage Coordinates (120x80 mm)
+        self.STAGE_W = 120
+        self.STAGE_H = 80
 
         self.full_redraw()
         self.bind(
@@ -6152,6 +6174,9 @@ class Stage(Widget):
         df = df[['X','Y']]
         self._protocol_step_locations_df = df.drop_duplicates()
         self._protocol_step_redraw = True
+        # Invalidate step locations FBO cache
+        self._step_locations_fbo = None
+        self._cached_step_locations_hash = None
 
 
     def append_ROI(self, x_min, y_min, x_max, y_max):
@@ -6235,6 +6260,220 @@ class Stage(Widget):
         # Get all IO out of the way immediately as well as calculating drawing parameters
         stage_executor.put(IOTask(action=self.draw_labware_io_calculations, args=(full_redraw,)))
 
+    def create_labware_fbo(self):
+        """
+        Create FBO for static labware rendering (wells, outlines, stage area).
+        This significantly optimizes performance by pre-rendering static elements.
+        """
+        labware_name, labware = get_selected_labware()
+
+        if labware_name in self._labware_fbos:
+            logger.debug(f"[Stage     ] Using cached labware FBO for {labware_name}")
+            return self._labware_fbos[labware_name]
+        
+        logger.debug(f"[Stage     ] Creating new labware FBO for {labware_name}, size=({int(self.width)}, {int(self.height)})")
+        
+        # Labware FBO is not cached - create new one
+        fbo_width = int(self.width)
+        fbo_height = int(self.height)
+        fbo = Fbo(size=(fbo_width, fbo_height), with_stencilbuffer=False)
+
+        # Bind and clear FBO
+        fbo.bind()
+        
+        # Clear to transparent
+        from kivy.graphics.opengl import glClearColor, glClear, GL_COLOR_BUFFER_BIT
+        glClearColor(0, 0, 0, 0)
+        glClear(GL_COLOR_BUFFER_BIT)
+        
+        fbo.release()
+        
+        # Now draw to the FBO
+        with fbo:
+            # Get dimensions for drawing - use exact FBO size
+            w = float(fbo_width)
+            h = float(fbo_height)
+            x = 0  # FBO coordinates are relative to FBO, not screen
+            y = 0
+
+            # Get labware dimensions
+            dim_max = labware.get_dimensions()
+
+            # mm to pixels scale
+            scale_x = w/dim_max['x']
+            scale_y = h/dim_max['y']
+
+            # Stage Coordinates (120x80 mm)
+            stage_w = 120
+            stage_h = 80
+
+            stage_x = settings['stage_offset']['x']/1000
+            stage_y = settings['stage_offset']['y']/1000
+
+            # Draw stage area outline
+            Color(.2, .2, .2, 0.5)
+            Rectangle(
+                pos=(x+(dim_max['x']-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
+                size=(stage_w*scale_x, stage_h*scale_y)
+            )
+
+            # Draw plate outline from above
+            # Add 0.5 pixel offset to prevent edge clipping (lines are centered on coords)
+            Color(50/255, 164/255, 206/255, 1.)  # kivy aqua
+            Line(points=(x+0.5, y+0.5, x+0.5, y+h-15), width=1)          # Left
+            Line(points=(x+w-0.5, y+0.5, x+w-0.5, y+h-0.5), width=1)         # Right
+            Line(points=(x+0.5, y+0.5, x+w-0.5, y+0.5), width=1)             # Bottom
+            Line(points=(x+15, y+h-0.5, x+w-0.5, y+h-0.5), width=1)      # Top
+            Line(points=(x+0.5, y+h-15, x+15, y+h-0.5), width=1)     # Diagonal
+
+            # Draw ROI rectangle if set
+            if self.ROI_max[0] > self.ROI_min[0]:
+                roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(
+                    labware=labware,
+                    stage_offset=settings['stage_offset'],
+                    sx=self.ROI_min[0],
+                    sy=self.ROI_min[1],
+                    scale_x=scale_x,
+                    scale_y=scale_y
+                )
+            
+                roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(
+                    labware=labware,
+                    stage_offset=settings['stage_offset'],
+                    sx=self.ROI_max[0],
+                    sy=self.ROI_max[1],
+                    scale_x=scale_x,
+                    scale_y=scale_y
+                )
+
+                Color(50/255, 164/255, 206/255, 1.)
+                Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y), width=1)
+
+            # Draw all wells
+            cols = labware.config['columns']
+            rows = labware.config['rows']
+
+            well_spacing_x = labware.config['spacing']['x']
+            well_spacing_y = labware.config['spacing']['y']
+
+            well_diameter = labware.config['diameter']
+            if well_diameter == -1:
+                well_radius_pixel_x = well_spacing_x
+                well_radius_pixel_y = well_spacing_y
+            else:
+                well_radius = well_diameter / 2
+                well_radius_pixel_x = well_radius * scale_x
+                well_radius_pixel_y = well_radius * scale_y
+
+            Color(0.4, 0.4, 0.4, 0.5)
+            for i in range(cols):
+                for j in range(rows):
+                    well_plate_x, well_plate_y = labware.get_well_position(i, j)
+                    well_pixel_x, well_pixel_y = coordinate_transformer.plate_to_pixel(
+                        labware=labware,
+                        px=well_plate_x,
+                        py=well_plate_y,
+                        scale_x=scale_x,
+                        scale_y=scale_y
+                    )
+                    # Use float for precise positioning to avoid rounding errors
+                    x_center = x + well_pixel_x
+                    y_center = y + well_pixel_y
+                    
+                    # Draw ellipse
+                    Ellipse(
+                        pos=(x_center - well_radius_pixel_x, y_center - well_radius_pixel_y),
+                        size=(well_radius_pixel_x * 2, well_radius_pixel_y * 2)
+                    )
+
+        # Force FBO to render
+        fbo.draw()
+        
+        # Cache the FBO for this labware
+        self._labware_fbos[labware_name] = fbo
+        return fbo
+
+    def create_step_locations_fbo(self):
+        """
+        Create FBO for protocol step locations rendering.
+        This optimizes performance by pre-rendering step markers.
+        """
+        labware_name, labware = get_selected_labware()
+        
+        # Check if we need to regenerate the FBO
+        if self._protocol_step_locations_df is None or not self._protocol_step_locations_show:
+            return None
+        
+        # Create a hash of the step locations for cache validation
+        step_hash = hash(tuple(self._protocol_step_locations_df.to_records(index=False).tolist()))
+        
+        # Return cached FBO if it's still valid
+        if (self._step_locations_fbo is not None and 
+            self._cached_step_locations_hash == step_hash and
+            self._cached_labware_name == labware_name):
+            return self._step_locations_fbo
+        
+        # Create new FBO for step locations
+        fbo_width = int(self.width)
+        fbo_height = int(self.height)
+        fbo = Fbo(size=(fbo_width, fbo_height), with_stencilbuffer=False)
+        
+        # Bind and clear FBO
+        fbo.bind()
+        
+        # Clear to transparent
+        from kivy.graphics.opengl import glClearColor, glClear, GL_COLOR_BUFFER_BIT
+        glClearColor(0, 0, 0, 0)
+        glClear(GL_COLOR_BUFFER_BIT)
+        
+        fbo.release()
+        
+        # Now draw to the FBO
+        with fbo:
+            # Get dimensions for drawing - use exact FBO size
+            w = float(fbo_width)
+            h = float(fbo_height)
+            x = 0  # FBO coordinates are relative to FBO, not screen
+            y = 0
+            
+            # Get labware dimensions
+            dim_max = labware.get_dimensions()
+            
+            # mm to pixels scale
+            scale_x = w/dim_max['x']
+            scale_y = h/dim_max['y']
+            
+            # Draw protocol step markers
+            half_size = 2
+            Color(1., 1., 0., 1.)  # Yellow color for step markers
+            
+            for _, step in self._protocol_step_locations_df.iterrows():
+                pixel_x, pixel_y = coordinate_transformer.plate_to_pixel(
+                    labware=labware,
+                    px=step['X'],
+                    py=step['Y'],
+                    scale_x=scale_x,
+                    scale_y=scale_y
+                )
+                
+                x_center = x + pixel_x
+                y_center = y + pixel_y
+                
+                # Draw crosshair for step location
+                Line(points=(x_center-half_size, y_center, x_center+half_size, y_center), width=1)  # horizontal
+                Line(points=(x_center, y_center-half_size, x_center, y_center+half_size), width=1)  # vertical
+        
+        # Force FBO to render
+        fbo.draw()
+        
+        # Cache the FBO
+        self._step_locations_fbo = fbo
+        self._cached_step_locations_hash = step_hash
+        
+        return fbo
+
+
+
 
     def draw_labware_io_calculations(self, full_redraw: bool = False):
         global lumaview
@@ -6250,8 +6489,14 @@ class Stage(Widget):
                 return
 
         # Create current labware instance
-        _, labware = get_selected_labware()
+        labware_name, labware = get_selected_labware()
+        
+        # Check if labware changed - trigger full redraw
+        if labware_name != self._cached_labware_name:
+            full_redraw = True
+            self._cached_labware_name = labware_name
 
+        # Clear canvas based on redraw type
         if full_redraw:
             Clock.schedule_once(lambda dt: self.canvas.clear(), 0)
         else:
@@ -6259,7 +6504,7 @@ class Stage(Widget):
             Clock.schedule_once(lambda dt: self.canvas.remove_group('selected_well'), 0)
 
         if self._protocol_step_redraw:
-            Clock.schedule_once(lambda dt: self.canvas.remove_group('steps'), 0)
+            Clock.schedule_once(lambda dt: self.canvas.remove_group('steps_fbo'), 0)
 
         w = self.width
         h = self.height
@@ -6273,9 +6518,7 @@ class Stage(Widget):
         scale_x = w/dim_max['x']
         scale_y = h/dim_max['y']
 
-        # Stage Coordinates (120x80 mm)
-        stage_w = 120
-        stage_h = 80
+
 
         stage_x = settings['stage_offset']['x']/1000
         stage_y = settings['stage_offset']['y']/1000
@@ -6298,81 +6541,44 @@ class Stage(Widget):
             well_radius_pixel_x = well_radius * scale_x
             well_radius_pixel_y = well_radius * scale_y
 
+        # Draw static labware elements using FBO (only on full redraw)
         if full_redraw:
-            self.schedule_to_draw(self.draw_rectangle, pos=(x+(dim_max['x']-stage_w-stage_x)*scale_x, y+stage_y*scale_y), size=(stage_w*scale_x, stage_h*scale_y), color=(.2, .2, .2 , 0.5), group='outline')
+            # Capture variables by value for the lambda
+            pos_x, pos_y, size_w, size_h = x, y, w, h
+            
+            # Schedule FBO creation and drawing on main thread
+            def create_and_draw_labware_fbo(_):
+                try:
+                    labware_fbo = self.create_labware_fbo()
+                    if labware_fbo and labware_fbo.texture:
+                        self.draw_fbo_texture(texture=labware_fbo.texture, pos=(pos_x, pos_y), size=(size_w, size_h), group='labware_fbo')
+                except Exception as e:
+                    logger.exception(f"[Stage     ] Error drawing labware FBO: {e}")
+            
+            Clock.schedule_once(create_and_draw_labware_fbo, 0)
 
-            # Outline of Plate from Above
-            # ------------------
-            self.schedule_to_draw(self.draw_line, points=(x, y, x, y+h-15), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')          # Left
-            self.schedule_to_draw(self.draw_line, points=(x+w, y, x+w, y+h), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')         # Right
-            self.schedule_to_draw(self.draw_line, points=(x, y, x+w, y), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')             # Bottom
-            self.schedule_to_draw(self.draw_line, points=(x+15, y+h, x+w, y+h), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')      # Top
-            self.schedule_to_draw(self.draw_line, points=(x, y+h-15, x+15, y+h), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')     # Diagonal
-
-            # ROI rectangle
-            # ------------------
-            if self.ROI_max[0] > self.ROI_min[0]:
-                roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(
-                    labware=labware,
-                    stage_offset=settings['stage_offset'],
-                    sx=self.ROI_min[0],
-                    sy=self.ROI_min[1],
-                    scale_x=scale_x,
-                    scale_y=scale_y
-                )
-
-                roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(
-                    labware=labware,
-                    stage_offset=settings['stage_offset'],
-                    sx=self.ROI_max[0],
-                    sy=self.ROI_max[1],
-                    scale_x=scale_x,
-                    scale_y=scale_y
-                )
-
-                self.schedule_to_draw(self.draw_line, rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y), width = 1, color=(50/255, 164/255, 206/255, 1.), group='outline')
-
-            # Draw all wells
-            # ------------------
-            for i in range(cols):
-                for j in range(rows):
-                    well_plate_x, well_plate_y = labware.get_well_position(i, j)
-                    well_pixel_x, well_pixel_y = coordinate_transformer.plate_to_pixel(
-                        labware=labware,
-                        px=well_plate_x,
-                        py=well_plate_y,
-                        scale_x=scale_x,
-                        scale_y=scale_y
-                    )
-                    x_center = int(x+well_pixel_x) # on screen center
-                    y_center = int(y+well_pixel_y) # on screen center
-
-                    self.schedule_to_draw(self.draw_ellipse, pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), radius=(well_radius_pixel_x*2, well_radius_pixel_y*2), color=(0.4, 0.4, 0.4, 0.5), group='wells')
-
+        # Draw protocol steps using FBO (if needed)
         if full_redraw or self._protocol_step_redraw:
-                self._protocol_step_redraw = False
+            self._protocol_step_redraw = False
+            
+            # Remove old step locations if they exist
+            Clock.schedule_once(lambda dt: self.canvas.remove_group('steps_fbo'), 0)
+            
+            # Capture variables by value for the lambda
+            pos_x, pos_y, size_w, size_h = x, y, w, h
+            
+            # Schedule FBO creation and drawing on main thread
+            def create_and_draw_steps_fbo(_):
+                try:
+                    steps_fbo = self.create_step_locations_fbo()
+                    if steps_fbo and steps_fbo.texture:
+                        self.draw_fbo_texture(texture=steps_fbo.texture, pos=(pos_x, pos_y), size=(size_w, size_h), group='steps_fbo')
+                except Exception as e:
+                    logger.exception(f"[Stage     ] Error drawing steps FBO: {e}")
+            
+            Clock.schedule_once(create_and_draw_steps_fbo, 0)
 
-                if  (self._protocol_step_locations_show == True) and \
-                    (self._protocol_step_locations_df is not None):
-
-                    half_size = 2
-                    with self.canvas:
-
-                        for _, step in self._protocol_step_locations_df.iterrows():
-                            pixel_x, pixel_y = coordinate_transformer.plate_to_pixel(
-                            labware=labware,
-                            px=step['X'],
-                            py=step['Y'],
-                            scale_x=scale_x,
-                            scale_y=scale_y
-                        )
-
-                            x_center = x+pixel_x
-                            y_center = y+pixel_y
-
-                            self.schedule_to_draw(self.draw_line, points=(x_center-half_size, y_center, x_center+half_size, y_center), color=(1., 1., 0., 1.), width = 1, group='steps') # horizontal line
-                            self.schedule_to_draw(self.draw_line, points=(x_center, y_center-half_size, x_center, y_center+half_size), color=(1., 1., 0., 1.), width = 1, group='steps') # vertical line
-
+        # Draw selected well (updates when target changes)
         target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
                 labware=labware,
                 stage_offset=settings['stage_offset'],
@@ -6395,6 +6601,7 @@ class Stage(Widget):
         # Draw selected well
         self.schedule_to_draw(self.draw_line, ellipse=(target_well_center_x - (well_radius_pixel_x), target_well_center_y - (well_radius_pixel_y), well_radius_pixel_x*2, well_radius_pixel_y*2), color=(0., 1., 0., 1.), group='selected_well')
 
+        # Draw crosshairs (updates every frame - but only 2 lines!)
         pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
                 labware=labware,
                 stage_offset=settings['stage_offset'],
@@ -6442,6 +6649,7 @@ class Stage(Widget):
         """Draw a line on the canvas - safe to call from schedule_to_draw_on_canvas"""
         with self.canvas:
             Color(*color)
+            
             if points:
                 Line(points=points, width=width, group=group)
             elif circle:
@@ -6465,6 +6673,13 @@ class Stage(Widget):
         with self.canvas:
             Color(*color)
             Ellipse(pos=pos, size=radius, group=group)
+    
+    def draw_fbo_texture(self, texture, pos, size, group=None):
+        """Draw an FBO texture on the canvas - safe to call from schedule_to_draw_on_canvas"""
+        with self.canvas:
+            Color(1, 1, 1, 1)  # White color with full opacity to render texture as-is
+            # Draw the FBO texture directly - Kivy handles FBO texture coordinates automatically
+            Rectangle(texture=texture, pos=pos, size=size, group=group)
 
 
     # def draw_labware(
@@ -6880,9 +7095,6 @@ class MicroscopeSettings(BoxLayout):
 
         try:
             # Settings are imported at the very beginning of file
-            settings = initialized_settings
-            # Configure the REST API
-            api_config.set_settings(settings)
 
             if settings['profiling']['enabled']:
                 global profiling_helper
@@ -8616,20 +8828,6 @@ class LumaViewProApp(App):
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
             lumaview = MainDisplay()
-            # Configure the REST API
-            api_config.set_view(lumaview)
-            api_config.set_protocol_callbacks({
-                'move_position': _handle_ui_update_for_axis,
-                'leds_off': _handle_ui_for_leds_off,
-                'led_state': _handle_ui_for_led,
-                'update_step_number': _update_step_number_callback,
-                'go_to_step': go_to_step,
-                'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
-                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
-                'set_recording_title': set_recording_title,
-                'set_writing_title': set_writing_title,
-                'reset_title': reset_title,
-            })
             cell_count_content = CellCountControls()
             # graphing_controls = GraphingControls()
             #Window.maximize()
@@ -8705,9 +8903,6 @@ class LumaViewProApp(App):
             z_ui_update_func=_handle_autofocus_ui,
             cpu_pool=cpu_pool if use_multiprocessing else None
         )
-
-        #Configure REST API
-        api_config.set_sequenced_capture_executor(sequenced_capture_executor)
         
 
         # Creates and manages Tooltips
@@ -9004,29 +9199,14 @@ class Tooltip(Label):
         self.rect.size = (self.texture_size[0] + self.horiz_padding, self.texture_size[1] + self.vert_padding)
 
 
-def dummy_function(PID: int):
-    for _ in range(100):
-        print(f"DUMMY FUNCTION {PID}")
-    return
-
-def start_kivy_app(loop: AbstractEventLoop):
-    app = LumaViewProApp()
-    # api_config.set_view(lumaview)
-    loop.run_until_complete(app.async_run(async_lib='asyncio'))
-
-def start_uvicorn_server(loop: AbstractEventLoop):
-    api = FastAPI()
-    api.include_router(api_router)
-    config = uvicorn.Config(api, loop=loop)
-    server = uvicorn.Server(config)
-    loop.create_task(server.serve())
-
 
 if __name__ == "__main__":
     # Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
     # For some reason kivy was calling a Python 2 method on newer Python 3 List objects, causing exceptions that would accumulate
     # These exceptions were CONSTANT because they were happening on each Main Display refresh and Histogram refresh
     from kivy.properties import ObservableReferenceList
+
+
 
     def patched_setslice(self, i, j, sequence, **kwargs):
         try:
@@ -9040,13 +9220,17 @@ if __name__ == "__main__":
             # If for some reason we get another error again, bite the bullet
             return original_setslicemethod(self, i, j, sequence)
 
+def dummy_function(PID: int):
+    for _ in range(100):
+        print(f"DUMMY FUNCTION {PID}")
+    return
+
+if __name__ == "__main__":
+
     original_setslicemethod = ObservableReferenceList.__setslice__
     set_item_method = ObservableReferenceList.__setitem__
     # Replace the original method with our patched version
     ObservableReferenceList.__setslice__ = patched_setslice
-
-    loop = asyncio.get_event_loop()
-    start_uvicorn_server(loop)
-    start_kivy_app(loop)
+    LumaViewProApp().run()
 
 #endregion

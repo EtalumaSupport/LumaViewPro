@@ -23,11 +23,11 @@ except ImportError:
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future, CancelledError
 import queue
 from collections.abc import Sequence
+from functools import partial
 from lvp_logger import logger, debug
 import traceback
 import threading
 import time
-from collections import deque
 
 
 """
@@ -49,7 +49,7 @@ IOTask
     executor.enqueue(task)
 """
 class IOTask:
-        def __init__(self, action, args=None, kwargs={}, callback=None, cb_args=None, cb_kwargs={}, pass_result=False):
+        def __init__(self, action, args=None, kwargs=None, callback=None, cb_args=None, cb_kwargs=None, pass_result=False):
             self.action = action
             # Capture creation stack to help trace where non-callable actions originate
 
@@ -69,7 +69,7 @@ class IOTask:
             else:
                 self.args = (args,)
 
-            self.kwargs = kwargs
+            self.kwargs = kwargs if kwargs is not None else {}
             self.callback = callback
             self.protocol = None
             self.name = ""
@@ -83,7 +83,7 @@ class IOTask:
             else:
                 self.cb_args = (cb_args,)
 
-            self.cb_kwargs = cb_kwargs.copy()
+            self.cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
             self.pass_result = pass_result
 
         def run(self):
@@ -113,16 +113,22 @@ class IOTask:
         def set_callback(self, callback, cb_args, cb_kwargs):
             self.callback = callback
             self.cb_args = cb_args
-            self.cb_kwargs = cb_kwargs.copy()
+            self.cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
 
         def on_complete(self, result, exception):
-            final_kwargs = dict(self.cb_kwargs)
+            if self.callback is None:
+                return
+                
             if self.pass_result:
+                # Only copy when we need to mutate
+                final_kwargs = dict(self.cb_kwargs)
                 final_kwargs['result'] = result
                 final_kwargs['exception'] = exception
-
-            if self.callback is not None:
+                # Lambda wrapper to consume dt parameter that Clock always passes
                 Clock.schedule_once(lambda dt: self.callback(*self.cb_args, **final_kwargs), 0)
+            else:
+                # Use reference directly - lambda consumes the dt from Clock
+                Clock.schedule_once(lambda dt: self.callback(*self.cb_args, **self.cb_kwargs), 0)
 
         def set_name(self, name):
             self.name = name
@@ -174,9 +180,6 @@ class SequentialIOExecutor:
         self.cleared_queue = False
         self.cleared_protocol_queue = False
 
-        self.queue_lock = threading.Lock()
-        self.protocol_queue_lock = threading.Lock()
-        self.protocol_running_lock = threading.Lock()
         self._disable = False
 
         self.blocker = threading.Event()
@@ -292,11 +295,8 @@ class SequentialIOExecutor:
                 if self.protocol_running.is_set() or self.protocol_finish.is_set():
                     if self.pending_shutdown:
                         return
-                    future = self.executor.submit(task.run)
-                    # Avoid lambda closure to prevent reference cycles
-                    def done_callback(fut, task_ref=task):
-                        self._safe_done_cb(fut, task_ref)
-                    future.add_done_callback(done_callback)
+                    # Inline to avoid holding future reference - GC can collect immediately after callback attached
+                    self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
                     self.running_task = task
                     #self.executed_protocol_tasks.append(task)
                 else:
@@ -304,11 +304,8 @@ class SequentialIOExecutor:
                         self.protocol_queue.queue.clear()
                     if self.pending_shutdown:
                         return
-                    future = self.executor.submit(task.run)
-                    # Avoid lambda closure to prevent reference cycles
-                    def done_callback(fut, task_ref=task):
-                        self._safe_done_cb(fut, task_ref)
-                    future.add_done_callback(done_callback)
+                    # Inline to avoid holding future reference - GC can collect immediately after callback attached
+                    self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
                     self.running_task = task
                     #self.executed_tasks.append(task)
             except Exception as e:
@@ -336,6 +333,17 @@ class SequentialIOExecutor:
                 self._on_task_done(task, result, None)
         except Exception as e:
             logger.error(f"Done-callback error in {self.name}: {e}")
+        finally:
+            # Explicitly dereference the future to help GC
+            # This breaks any circular references and allows immediate cleanup
+            try:
+                fut._condition = None
+                fut._waiters = None
+                fut._result = None
+                fut._exception = None
+                del fut  # Explicitly delete to free memory immediately
+            except:
+                pass
 
 
     def _on_task_done(self, task: IOTask, result, exception):
@@ -343,10 +351,14 @@ class SequentialIOExecutor:
         self.last_task_done_monotonic = time.monotonic()
         caller_fut = self.caller_futures.pop(task, None)
         if caller_fut:
+            # This future was returned to a caller - they still hold a reference
+            # DON'T null internal state or it will break their .result() call
             if exception:
                 caller_fut.set_exception(exception)
             else:
                 caller_fut.set_result(result)
+            # Only delete our local reference, not the object internals
+            del caller_fut
 
         task.on_complete(result, exception)
         if task.protocol:
@@ -364,6 +376,7 @@ class SequentialIOExecutor:
 
         self.running_task = None
         if self.global_callback is not None:
+            # Lambda wrapper to consume dt parameter that Clock always passes
             Clock.schedule_once(lambda dt: self.global_callback(*self.global_cb_args, **self.global_cb_kwargs), 0)
 
     def set_done_callback(self, callback_fn, cb_args, cb_kwargs):
@@ -382,6 +395,16 @@ class SequentialIOExecutor:
         self.clear_protocol_pending()
         self.dispatcher.shutdown(wait=wait, cancel_futures=not wait)
         self.executor.shutdown(wait=wait, cancel_futures=not wait)
+        
+        # Explicitly clear callback references and futures dict to break circular refs
+        self.global_callback = None
+        self.global_cb_args = None
+        self.global_cb_kwargs = None
+        
+        # Clear futures dict - don't corrupt internals as callers may hold references
+        # Just remove our tracking references
+        self.caller_futures.clear()
+        self.running_task = None
 
     def join(self, timeout=None):
         # Block until all queued tasks processed (or until timeout)
@@ -389,42 +412,62 @@ class SequentialIOExecutor:
 
     def clear_pending(self):
         # Remove all tasks still in queue
-        cleared_tasks = []
+        cleared_count = 0
         while True:
             try:
                 task = self.queue.get_nowait()
-                cleared_tasks.append(task)
-            except queue.Empty:
-                break
-            else:
+                # Cancel future and aggressively cleanup
+                fut = self.caller_futures.pop(task, None)
+                if fut:
+                    try:
+                        # Cancel first so caller gets CancelledError if waiting
+                        fut.cancel()
+                        # Now safe to aggressively cleanup since future is done
+                        fut._condition = None
+                        fut._waiters = None
+                        fut._result = None
+                        fut._exception = None
+                        del fut
+                    except:
+                        pass
+                cleared_count += 1
                 # Balance out get_nowait with a task_done
                 self.queue.task_done()
+            except queue.Empty:
+                break
         
-        # Clean up futures for cleared tasks to prevent memory leak
-        for task in cleared_tasks:
-            self.caller_futures.pop(task, None)
-
         self.cleared_queue = True
-        logger.info(f"{self.name} Pending Queue Cleared")
+        if cleared_count > 0:
+            logger.info(f"{self.name} Pending Queue Cleared ({cleared_count} tasks)")
 
     def clear_protocol_pending(self):
-        cleared_tasks = []
+        cleared_count = 0
         while True:
             try:
                 task = self.protocol_queue.get_nowait()
-                cleared_tasks.append(task)
-            except queue.Empty:
-                break
-            else:
+                # Cancel future and aggressively cleanup
+                fut = self.caller_futures.pop(task, None)
+                if fut:
+                    try:
+                        # Cancel first so caller gets CancelledError if waiting
+                        fut.cancel()
+                        # Now safe to aggressively cleanup since future is done
+                        fut._condition = None
+                        fut._waiters = None
+                        fut._result = None
+                        fut._exception = None
+                        del fut
+                    except:
+                        pass
+                cleared_count += 1
                 # Balance out get_nowait with a task_done
                 self.protocol_queue.task_done()
-        
-        # Clean up futures for cleared tasks to prevent memory leak
-        for task in cleared_tasks:
-            self.caller_futures.pop(task, None)
+            except queue.Empty:
+                break
         
         self.cleared_protocol_queue = True
-        logger.info(f"{self.name} Pending Protocol Queue Cleared")
+        if cleared_count > 0:
+            logger.info(f"{self.name} Pending Protocol Queue Cleared ({cleared_count} tasks)")
     
     def is_busy(self):
         # Returns true if tasks queued or running
