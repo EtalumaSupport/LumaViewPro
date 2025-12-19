@@ -141,33 +141,66 @@ class AutofocusExecutor:
         self._calculate_params()
         self._move_absolute_position(pos=self._params['z_min'])
 
-        # Use a guarded tick to avoid building an unbounded backlog if iterate runs slower than the schedule interval
-        self._iterator_scheduled = self._kivy_clock_module.Clock.schedule_interval(self._tick_iterate, 0.01)
-        # self._iterator_scheduled = self._schedule_interval_func(
-        #     func=self._iterate,
-        #     interval_sec=0.01,
-        # )
+        # Queue single IOTask that runs the entire autofocus loop
+        self._autofocus_executor.protocol_put(IOTask(action=self._autofocus_loop))
+
+    def _autofocus_loop(self):
+        """Main autofocus loop - runs continuously until AF completes or is cancelled"""
+        last_gc_time = time.monotonic()
+        
+        while self._af_in_progress.is_set() and self._is_focusing:
+            try:
+                # Periodic maintenance: GC every 60 seconds
+                if time.monotonic() - last_gc_time > 60:
+                    import gc
+                    gc.collect()
+                    last_gc_time = time.monotonic()
+                    
+                    # Log queue depths for monitoring
+                    try:
+                        af_queue_size = self._autofocus_executor.protocol_queue_size()
+                        logger.debug(f"[AF Watchdog] AF protocol queue: {af_queue_size}")
+                    except Exception:
+                        pass
+                
+                # Run one iteration
+                self._iterate()
+                
+                # Small delay to prevent CPU throttling
+                time.sleep(0.01)
+                
+            except Exception as ex:
+                # Any unexpected AF error: cleanup so UI is not stuck
+                self._autofocus_executor.protocol_end()
+                self._autofocus_executor.clear_protocol_pending()
+                self._is_focusing = False
+                self._is_complete = False
+                # Surface error in logs; UI callback (if present) will clear button
+                import logging as _logging
+                _logging.getLogger().error(f"[AF] Error during loop: {ex}", exc_info=True)
+                if 'complete' in self._callbacks:
+                    self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
+                break
 
     def run_in_progress(self) -> bool:
         return self._af_in_progress.is_set()
 
     def _iterate(self, dt=None):
-        # Progress timeout: if AF does not advance for a while, cancel gracefully
-        if hasattr(self, '_last_progress_ts') and (time.monotonic() - self._last_progress_ts > 15):
-            try:
-                self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
-            except Exception:
-                pass
-            self._autofocus_executor.protocol_end()
-            self._autofocus_executor.clear_protocol_pending()
-            self._is_focusing = False
-            self._is_complete = False
-            if 'complete' in self._callbacks:
-                # Use UI thread to reset button if caller wired it
-                self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
-            return
+        # # Progress timeout: if AF does not advance for a while, cancel gracefully
+        # if hasattr(self, '_last_progress_ts') and (time.monotonic() - self._last_progress_ts > 15):
+        #     try:
+        #         self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+        #     except Exception:
+        #         pass
+        #     self._autofocus_executor.protocol_end()
+        #     self._autofocus_executor.clear_protocol_pending()
+        #     self._is_focusing = False
+        #     self._is_complete = False
+        #     if 'complete' in self._callbacks:
+        #         # Use UI thread to reset button if caller wired it
+        #         self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
+        #     return
 
-        try:
             if not self._is_focusing:
                 return
             
@@ -302,30 +335,41 @@ class AutofocusExecutor:
             if self._params['resolution'] == af_min:
                 self._last_pass = True
 
-        except Exception as ex:
-            # Any unexpected AF error: unschedule and cleanup so UI is not stuck
-            try:
-                self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
-            except Exception:
-                pass
-            self._autofocus_executor.protocol_end()
-            self._autofocus_executor.clear_protocol_pending()
-            self._is_focusing = False
-            self._is_complete = False
-            # Surface error in logs; UI callback (if present) will clear button
-            import logging as _logging
-            _logging.getLogger().error(f"[AF] Error during iterate: {ex}", exc_info=True)
-            if 'complete' in self._callbacks:
-                self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
-
 
     def _tick_iterate(self, dt=None):
+        """Callback-based iteration - triggers next iteration without Clock.schedule_interval"""
+        # Don't queue if AF is done or stopped
+        if not self._af_in_progress.is_set() or not self._is_focusing:
+            return
+        
+        # Guard against queue buildup
         try:
             if hasattr(self._autofocus_executor, 'protocol_queue_size') and self._autofocus_executor.protocol_queue_size() > 3:
                 return
         except Exception:
             pass
-        self._autofocus_executor.protocol_put(IOTask(action=self._iterate))
+        
+        # Periodic maintenance: GC and watchdog logging every 60 seconds
+        if not hasattr(self, '_last_gc_time'):
+            self._last_gc_time = time.monotonic()
+        
+        if time.monotonic() - self._last_gc_time > 60:
+            import gc
+            gc.collect()
+            self._last_gc_time = time.monotonic()
+            
+            # Log queue depths for monitoring
+            try:
+                af_queue_size = self._autofocus_executor.protocol_queue_size()
+                logger.debug(f"[AF Watchdog] AF protocol queue: {af_queue_size}")
+            except Exception:
+                pass
+        
+        # Queue next iteration with callback to continue the loop
+        self._autofocus_executor.protocol_put(IOTask(
+            action=self._iterate,
+            callback=self._tick_iterate
+        ))
 
     def best_focus_position(self) -> float | None:
         return self._best_focus_position
