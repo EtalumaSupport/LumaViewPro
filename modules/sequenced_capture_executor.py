@@ -437,7 +437,44 @@ class SequencedCaptureExecutor:
         self._scan_in_progress.set()
 
         self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
-        self._scan_iterator = Clock.schedule_once(self._scan_iterate_scheduled, 0.1)
+        # Queue single IOTask that runs the entire scan loop
+        self.protocol_executor.protocol_put(IOTask(action=self._scan_loop))
+    
+    def _scan_loop(self):
+        """Main scan loop - runs continuously until scan completes"""
+        last_maintenance_time = time.monotonic()
+        
+        # Initial delay before first iteration
+        time.sleep(0.1)
+        
+        while self._scan_in_progress.is_set() and not self._protocol_ended.is_set():
+            try:
+                # Periodic cleanup and watchdog logging for long runs
+                now_mono = time.monotonic()
+                if now_mono - last_maintenance_time > 60:
+                    last_maintenance_time = now_mono
+                    
+                    # Force garbage collection
+                    collected = gc.collect()
+                    if collected > 0:
+                        logger.info(f"[Watchdog] GC collected {collected} objects")
+                    
+                    # Log queue depths
+                    try:
+                        protocol_queue_size = self.protocol_executor.protocol_queue_size()
+                        logger.debug(f"[Scan Watchdog] Protocol queue: {protocol_queue_size}")
+                    except Exception:
+                        pass
+                
+                # Run one iteration
+                self._scan_iterate()
+                
+                # Small delay to prevent CPU throttling
+                time.sleep(0.01)
+                
+            except Exception as ex:
+                logger.error(f"[Scan] Error during loop: {ex}", exc_info=True)
+                break
     
     def _scan_iterate_scheduled(self, dt=None):
         """Wrapper to schedule scan iteration without creating IOTask in lambda"""
@@ -680,7 +717,6 @@ class SequencedCaptureExecutor:
         if 'scan_iterate_post' in self._callbacks and self._callbacks['scan_iterate_post'] is not None:
             Clock.schedule_once(lambda dt: self._callbacks['scan_iterate_post'](), 0)
 
-        Clock.unschedule(self._scan_iterator)
         self._scan_in_progress.clear()
         #self._protocol_iterate()
 
