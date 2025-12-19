@@ -15,7 +15,6 @@ scipy==1.12.0
 tifffile==2025.9.30
 userpaths==0.1.3
 xarray==2025.3.0
-fastapi[standard]==0.121.3
 
 # Packages related to Java support
 jgo==1.0.6
