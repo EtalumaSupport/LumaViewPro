@@ -344,6 +344,9 @@ if __name__ == "__main__":
 
     ENGINEERING_MODE = False
 
+    # Flag to prevent apply_settings during app initialization
+    _app_initializing = True
+
     debug_counter = 0
 
     display_update_counter = 0
@@ -1201,7 +1204,7 @@ class ScopeDisplay(Image):
 
     def __init__(self, **kwargs):
         super(ScopeDisplay,self).__init__(**kwargs)
-        logger.info('[LVP Main  ] ScopeDisplay.__init__()')
+        logger.debug('[LVP Main  ] ScopeDisplay.__init__()')
         self.play = True
         self.paused = threading.Event()
         self.paused.clear()
@@ -2287,7 +2290,7 @@ void main (void) {
 
     def __init__(self, **kwargs):
         super(ShaderViewer, self).__init__(**kwargs)
-        logger.info('[LVP Main  ] ShaderViewer.__init__()')
+        logger.debug('[LVP Main  ] ShaderViewer.__init__()')
         self.canvas = RenderContext()
         self.canvas.shader.fs = fs_header + self.fs
         self.canvas.shader.vs = vs_header + self.vs
@@ -2449,7 +2452,7 @@ class MotionSettings(BoxLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        logger.info('[LVP Main  ] MotionSettings.__init__()')
+        logger.debug('[LVP Main  ] MotionSettings.__init__()')
         self._accordion_item_xystagecontrol = AccordionItemXyStageControl()
         self._accordion_item_xystagecontrol_visible = False
         Clock.schedule_once(self._init_ui, 0)
@@ -3836,7 +3839,7 @@ class ImageSettings(BoxLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        logger.info('[LVP Main  ] ImageSettings.__init__()')
+        logger.debug('[LVP Main  ] ImageSettings.__init__()')
         self._accordion_item_df_control_visible = False
         self._accordion_item_df_control = AccordionItemImageSettingsDfControl()
         self._accordion_item_lumi_control_visible = False
@@ -3965,7 +3968,9 @@ class ImageSettings(BoxLayout):
 
     def _init_ui(self, dt=0):
         self.assign_led_button_down_images()
-        self.accordion_collapse()
+        # Skip accordion_collapse during app initialization to prevent premature apply_settings
+        if not _app_initializing:
+            self.accordion_collapse()
         self.set_layer_exposure_ranges()
         self.enable_image_stats_if_needed()
 
@@ -4069,6 +4074,12 @@ class ImageSettings(BoxLayout):
     def accordion_collapse(self):
         logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
         global lumaview
+        
+        # Skip during app initialization - will be called explicitly after init completes
+        if _app_initializing:
+            return
+            
+        logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
 
         # turn off the camera update and all LEDs
         scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
@@ -4116,7 +4127,7 @@ class Histogram(Widget):
 
     def __init__(self, **kwargs):
         super(Histogram, self).__init__(**kwargs)
-        logger.info('[LVP Main  ] Histogram.__init__()')
+        logger.debug('[LVP Main  ] Histogram.__init__()')
         if self.bg_color is None:
             self.bg_color = (1, 1, 1, 1)
 
@@ -4196,7 +4207,7 @@ class VerticalControl(BoxLayout):
 
     def __init__(self, **kwargs):
         super(VerticalControl, self).__init__(**kwargs)
-        logger.info('[LVP Main  ] VerticalControl.__init__()')
+        logger.debug('[LVP Main  ] VerticalControl.__init__()')
 
         # boolean describing whether the scope is currently in the process of autofocus
         self.is_autofocus = False
@@ -5416,8 +5427,10 @@ class ProtocolSettings(CompositeCapture):
         stage.set_protocol_steps(df=self._protocol.steps())
 
         self.update_step_ui()
-        #if lumaview.scope.has_xyhomed():
-        self.go_to_step(protocol=False)
+        # Skip go_to_step during startup - will be handled by on_start if initializing,
+        # or called explicitly by user action if loading protocol later
+        if not _app_initializing:
+            self.go_to_step(protocol=False)
 
         return True
     
@@ -6132,7 +6145,7 @@ class Stage(Widget):
 
     def __init__(self, **kwargs):
         super(Stage, self).__init__(**kwargs)
-        logger.info('[LVP Main  ] Stage.__init__()')
+        logger.debug('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0,0]
         self.ROI_max = [0,0]
         self._motion_enabled = True
@@ -6961,7 +6974,7 @@ class MicroscopeSettings(BoxLayout):
 
     def __init__(self, **kwargs):
         super(MicroscopeSettings, self).__init__(**kwargs)
-        logger.info('[LVP Main  ] MicroscopeSettings.__init__()')
+        logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
 
         try:
             os.chdir(source_path)
@@ -7289,6 +7302,9 @@ class MicroscopeSettings(BoxLayout):
               
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
 
+                # Set initializing flag to prevent apply_settings during load
+                layer_obj._initializing = True
+
                 if (layer in common_utils.get_fluorescence_layers()):
                     layer_obj.ids['composite_threshold_slider'].value = settings[layer]['composite_brightness_threshold']
   
@@ -7336,6 +7352,9 @@ class MicroscopeSettings(BoxLayout):
                 layer_obj.ids['video_duration_slider'].value = video_config['duration']
 
                 layer_obj.ids['autofocus'].active = settings[layer]['autofocus']
+                
+                # Clear initializing flag - settings are now loaded
+                layer_obj._initializing = False
 
         except:
             logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
@@ -7713,10 +7732,13 @@ class LayerControl(BoxLayout):
     def __init__(self, **kwargs):
         super(LayerControl, self).__init__(**kwargs)
 
-        logger.info('[LVP Main  ] LayerControl.__init__()')
+        logger.debug('[LVP Main  ] LayerControl.__init__()')
         if self.bg_color is None:
             self.bg_color = (0.5, 0.5, 0.5, 0.5)
 
+        # Flag to prevent apply_settings during initialization
+        self._initializing = True
+        
         self.apply_gain_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
         self.apply_exp_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
         self.apply_ill_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
@@ -7724,21 +7746,21 @@ class LayerControl(BoxLayout):
     
     
     def _init_ui(self, dt=0):
-        if True == self.autogain_support:
-            self.update_auto_gain(init=True)
-        else:
-            self.apply_settings()
-
+        # Don't apply settings during initial UI setup - will be done after load_settings
+        # Skip initialization of autogain and apply_settings here
+        
         self.init_acquire()
         self.init_autofocus()
 
     def ill_slider(self):
         if protocol_running_global:
             return
-        logger.info('[LVP Main  ] LayerControl.ill_slider()')
+        if not self._initializing:
+            logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = self.ids['ill_slider'].value
         settings[self.layer]['ill'] = illumination
-        self.apply_ill_slider()
+        if not self._initializing:
+            self.apply_ill_slider()
 
     def ill_text(self):
         logger.info('[LVP Main  ] LayerControl.ill_text()')
@@ -7875,10 +7897,11 @@ class LayerControl(BoxLayout):
     def gain_slider(self):
         if protocol_running_global:
             return
-        logger.info('[LVP Main  ] LayerControl.gain_slider()')
+        if not self._initializing:
+            logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = self.ids['gain_slider'].value
         settings[self.layer]['gain'] = gain
-        if not self.ids['gain_slider'].disabled:
+        if not self.ids['gain_slider'].disabled and not self._initializing:
             self.apply_gain_slider()
         ####
 
@@ -7922,11 +7945,12 @@ class LayerControl(BoxLayout):
     def exp_slider(self):
         if protocol_running_global:
             return
-        logger.info('[LVP Main  ] LayerControl.exp_slider()')
+        if not self._initializing:
+            logger.info('[LVP Main  ] LayerControl.exp_slider()')
         exposure = self.ids['exp_slider'].value
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         settings[self.layer]['exp'] = exposure        # exposure in ms
-        if not self.ids['exp_slider'].disabled:
+        if not self.ids['exp_slider'].disabled and not self._initializing:
             self.apply_exp_slider()
 
     def exp_text(self):
@@ -8047,6 +8071,10 @@ class LayerControl(BoxLayout):
 
 
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
+        
+        # Skip apply_settings if layer is still initializing
+        if getattr(self, '_initializing', False):
+            return
         
         logger.info(f'[LVP Main  ] {self.layer}_LayerControl.apply_settings()')
         global lumaview
@@ -8657,11 +8685,30 @@ class LumaViewProApp(App):
     
 
     def on_start(self):
+        global _app_initializing
         
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
         Clock.schedule_once(functools.partial(lumaview.ids['imagesettings_id'].set_expanded_layer, 'BF'), 0.2)
+        
+        # Clear app initialization flag and apply settings for the default opened layer
+        def complete_initialization(dt):
+            global _app_initializing
+            _app_initializing = False
+            
+            # Check if a protocol is loaded and has steps
+            protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
+            if hasattr(protocol_settings, '_protocol') and protocol_settings._protocol is not None:
+                if protocol_settings._protocol.num_steps() > 0:
+                    # Go to the first step of the protocol
+                    protocol_settings.go_to_step(protocol=False)
+                    return
+            
+            # If no protocol, just apply settings for the default BF layer
+            lumaview.ids['imagesettings_id'].accordion_collapse()
+        
+        Clock.schedule_once(complete_initialization, 0.3)
 
         # Executor health watchdog: logs queue depths periodically and prunes stale display backlog
         def _executor_watchdog(dt):
