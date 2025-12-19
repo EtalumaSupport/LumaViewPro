@@ -295,8 +295,8 @@ class SequentialIOExecutor:
                 if self.protocol_running.is_set() or self.protocol_finish.is_set():
                     if self.pending_shutdown:
                         return
-                    future = self.executor.submit(task.run)
-                    future.add_done_callback(partial(self._safe_done_cb, task=task))
+                    # Inline to avoid holding future reference - GC can collect immediately after callback attached
+                    self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
                     self.running_task = task
                     #self.executed_protocol_tasks.append(task)
                 else:
@@ -304,8 +304,8 @@ class SequentialIOExecutor:
                         self.protocol_queue.queue.clear()
                     if self.pending_shutdown:
                         return
-                    future = self.executor.submit(task.run)
-                    future.add_done_callback(partial(self._safe_done_cb, task=task))
+                    # Inline to avoid holding future reference - GC can collect immediately after callback attached
+                    self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
                     self.running_task = task
                     #self.executed_tasks.append(task)
             except Exception as e:
@@ -333,6 +333,17 @@ class SequentialIOExecutor:
                 self._on_task_done(task, result, None)
         except Exception as e:
             logger.error(f"Done-callback error in {self.name}: {e}")
+        finally:
+            # Explicitly dereference the future to help GC
+            # This breaks any circular references and allows immediate cleanup
+            try:
+                fut._condition = None
+                fut._waiters = None
+                fut._result = None
+                fut._exception = None
+                del fut  # Explicitly delete to free memory immediately
+            except:
+                pass
 
 
     def _on_task_done(self, task: IOTask, result, exception):
@@ -340,10 +351,14 @@ class SequentialIOExecutor:
         self.last_task_done_monotonic = time.monotonic()
         caller_fut = self.caller_futures.pop(task, None)
         if caller_fut:
+            # This future was returned to a caller - they still hold a reference
+            # DON'T null internal state or it will break their .result() call
             if exception:
                 caller_fut.set_exception(exception)
             else:
                 caller_fut.set_result(result)
+            # Only delete our local reference, not the object internals
+            del caller_fut
 
         task.on_complete(result, exception)
         if task.protocol:
@@ -385,6 +400,9 @@ class SequentialIOExecutor:
         self.global_callback = None
         self.global_cb_args = None
         self.global_cb_kwargs = None
+        
+        # Clear futures dict - don't corrupt internals as callers may hold references
+        # Just remove our tracking references
         self.caller_futures.clear()
         self.running_task = None
 
@@ -398,8 +416,20 @@ class SequentialIOExecutor:
         while True:
             try:
                 task = self.queue.get_nowait()
-                # Clean up futures immediately instead of accumulating in list
-                self.caller_futures.pop(task, None)
+                # Cancel future and aggressively cleanup
+                fut = self.caller_futures.pop(task, None)
+                if fut:
+                    try:
+                        # Cancel first so caller gets CancelledError if waiting
+                        fut.cancel()
+                        # Now safe to aggressively cleanup since future is done
+                        fut._condition = None
+                        fut._waiters = None
+                        fut._result = None
+                        fut._exception = None
+                        del fut
+                    except:
+                        pass
                 cleared_count += 1
                 # Balance out get_nowait with a task_done
                 self.queue.task_done()
@@ -415,8 +445,20 @@ class SequentialIOExecutor:
         while True:
             try:
                 task = self.protocol_queue.get_nowait()
-                # Clean up futures immediately instead of accumulating in list
-                self.caller_futures.pop(task, None)
+                # Cancel future and aggressively cleanup
+                fut = self.caller_futures.pop(task, None)
+                if fut:
+                    try:
+                        # Cancel first so caller gets CancelledError if waiting
+                        fut.cancel()
+                        # Now safe to aggressively cleanup since future is done
+                        fut._condition = None
+                        fut._waiters = None
+                        fut._result = None
+                        fut._exception = None
+                        del fut
+                    except:
+                        pass
                 cleared_count += 1
                 # Balance out get_nowait with a task_done
                 self.protocol_queue.task_done()
