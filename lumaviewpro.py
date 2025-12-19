@@ -9023,7 +9023,8 @@ if __name__ == "__main__":
     ObservableReferenceList.__setslice__ = patched_setslice
 
     loop = asyncio.get_event_loop()
-    start_uvicorn_server(loop)
+    if initialized_settings['rest_api_enabled']:
+        start_uvicorn_server(loop)
     start_kivy_app(loop)
 
 #endregion

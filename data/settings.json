@@ -180,5 +180,6 @@
 
     "show_tooltips": false,
     "live_view_fps": 30,
-    "protocol_led_on": false
+    "protocol_led_on": false,
+    "rest_api_enabled": false
 }
