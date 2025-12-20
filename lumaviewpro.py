@@ -6175,6 +6175,29 @@ class Stage(Widget):
         self._prev_x_current = None
         self._prev_y_current = None
 
+        # Persistent canvas objects for crosshairs and selected well
+        # These are created once and properties are updated to avoid memory accumulation
+        self._selected_well_color = None
+        self._selected_well_line = None
+        self._crosshair_color = None
+        self._crosshair_h_line = None
+        self._crosshair_v_line = None
+        self._create_persistent_canvas_objects()
+
+
+    def _create_persistent_canvas_objects(self):
+        """Create persistent canvas objects for crosshairs and selected well.
+        These objects are updated in place rather than being removed and recreated.
+        Using canvas.after ensures they're always drawn on top of everything else."""
+        with self.canvas.after:
+            # Selected well (green ellipse)
+            self._selected_well_color = Color(0., 1., 0., 1.)
+            self._selected_well_line = Line(ellipse=(0, 0, 0, 0), group='selected_well')
+            
+            # Crosshairs (red lines) - drawn last so they're on top
+            self._crosshair_color = Color(1., 0., 0., 1.)
+            self._crosshair_h_line = Line(points=[0, 0, 0, 0], width=1, group='crosshairs')
+            self._crosshair_v_line = Line(points=[0, 0, 0, 0], width=1, group='crosshairs')
 
     def show_protocol_steps(self, enable: bool):
         self._protocol_step_locations_show = enable
@@ -6512,9 +6535,9 @@ class Stage(Widget):
         # Clear canvas based on redraw type
         if full_redraw:
             Clock.schedule_once(lambda dt: self.canvas.clear(), 0)
-        else:
-            Clock.schedule_once(lambda dt: self.canvas.remove_group('crosshairs'), 0)
-            Clock.schedule_once(lambda dt: self.canvas.remove_group('selected_well'), 0)
+            Clock.schedule_once(lambda dt: self.canvas.after.clear(), 0)
+            # Recreate persistent objects after full clear
+            Clock.schedule_once(lambda dt: self._create_persistent_canvas_objects(), 0)
 
         if self._protocol_step_redraw:
             Clock.schedule_once(lambda dt: self.canvas.remove_group('steps_fbo'), 0)
@@ -6611,8 +6634,14 @@ class Stage(Widget):
         target_well_center_x = int(x+target_well_pixel_x) # on screen center
         target_well_center_y = int(y+target_well_pixel_y) # on screen center
 
-        # Draw selected well
-        self.schedule_to_draw(self.draw_line, ellipse=(target_well_center_x - (well_radius_pixel_x), target_well_center_y - (well_radius_pixel_y), well_radius_pixel_x*2, well_radius_pixel_y*2), color=(0., 1., 0., 1.), group='selected_well')
+        # Update selected well ellipse properties (instead of recreating)
+        ellipse_params = (
+            target_well_center_x - well_radius_pixel_x,
+            target_well_center_y - well_radius_pixel_y,
+            well_radius_pixel_x * 2,
+            well_radius_pixel_y * 2
+        )
+        Clock.schedule_once(lambda dt: setattr(self._selected_well_line, 'ellipse', ellipse_params), 0)
 
         # Draw crosshairs (updates every frame - but only 2 lines!)
         pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
@@ -6627,9 +6656,11 @@ class Stage(Widget):
         x_center = x+pixel_x
         y_center = y+pixel_y
         
-        # Draw crosshairs
-        self.schedule_to_draw(self.draw_line, points=(x_center-10, y_center, x_center+10, y_center), color=(1., 0., 0., 1.), width = 1, group='crosshairs') # horizontal line
-        self.schedule_to_draw(self.draw_line, points=(x_center, y_center-10, x_center, y_center+10), color=(1., 0., 0., 1.), width = 1, group='crosshairs') # vertical line
+        # Update crosshairs properties (instead of recreating)
+        h_line_points = [x_center-10, y_center, x_center+10, y_center]
+        v_line_points = [x_center, y_center-10, x_center, y_center+10]
+        Clock.schedule_once(lambda dt: setattr(self._crosshair_h_line, 'points', h_line_points), 0)
+        Clock.schedule_once(lambda dt: setattr(self._crosshair_v_line, 'points', v_line_points), 0)
 
         self._prev_x_target = x_target
         self._prev_y_target = y_target
