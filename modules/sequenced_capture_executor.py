@@ -379,69 +379,87 @@ class SequencedCaptureExecutor:
         # Not IO
         self._scope.camera.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
-        self._run_scan()
-        self._protocol_iterator = Clock.schedule_interval(self._protocol_iterate_scheduled, 1)
+        # Start the main run loop which manages all scan timing and execution
+        self.protocol_executor.protocol_put(IOTask(action=self._run_loop))
     
-    def _protocol_iterate_scheduled(self, dt):
-        """Wrapper to schedule protocol iteration without creating IOTask in lambda"""
-        self.protocol_executor.protocol_put(IOTask(action=self._protocol_iterate))
-
-    
-    def _protocol_iterate(self, dt=None):
-        if self._scan_in_progress.is_set():
-            return
-
-        if self._protocol_ended.is_set():
-            return
+    def _run_loop(self):
+        """Main run loop - manages protocol execution and scan timing.
+        A 'scan' is one complete iteration through all steps in the protocol.
+        This loop runs until all scans are complete.
+        """
+        last_maintenance_time = time.monotonic()
         
-        remaining_scans=self.remaining_scans()
-        if remaining_scans == 0:
-            self._cleanup()
-            return 
-
-        if 'protocol_iterate_pre' in self._callbacks:
-            self._callbacks['protocol_iterate_pre'](remaining_scans=remaining_scans, interval=self._protocol.period())
-
-        current_time = datetime.datetime.now()
-        elapsed_time = current_time - self._start_t
-
-        # If the next period hasn't been reached, then return
-        if elapsed_time <= self._protocol.period():
-            return
-
-        # reset the start time and update number of scans remaining
-        self._start_t = current_time
+        # Initial delay before first iteration
+        time.sleep(0.1)
+        
+        while self._run_in_progress and not self._protocol_ended.is_set():
+            try:
+                # Check if we've completed all scans
+                remaining_scans = self.remaining_scans()
+                if remaining_scans <= 0:
+                    self._cleanup()
+                    break
                 
-        self._run_scan()
+                # Check if enough time has elapsed for the next scan
+                # Skip this check for the first scan (scan_count == 0) - start immediately
+                if self._scan_count > 0:
+                    current_time = datetime.datetime.now()
+                    elapsed_time = current_time - self._start_t
+                    
+                    if elapsed_time < self._protocol.period():
+                        # Not time for next scan yet, sleep briefly
+                        time.sleep(0.1)
+                        continue
+                    
+                    # Reset the start time for next period
+                    self._start_t = current_time
+                
+                # Time for next scan
+                if 'protocol_iterate_pre' in self._callbacks:
+                    Clock.schedule_once(
+                        lambda dt: self._callbacks['protocol_iterate_pre'](
+                            remaining_scans=remaining_scans, 
+                            interval=self._protocol.period()
+                        ), 0
+                    )
+                
+                # Initialize scan variables
+                self._curr_step = 0
+                if 'run_scan_pre' in self._callbacks:
+                    self._callbacks['run_scan_pre']()
+                
+                self._go_to_step(step_idx=self._curr_step)
+                self._scan_in_progress.set()
+                self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
+                
+                start_scan_time = datetime.datetime.now()
+                # Run the scan loop - this will block until scan completes
+                self._scan_loop()
 
+                end_scan_time = datetime.datetime.now()
+                scan_duration = end_scan_time - start_scan_time
 
-    def _run_scan(
-        self
-    ):
-        if self._protocol_ended.is_set():
-            return
-        
-        if self._scan_in_progress.is_set():
-            self._scan_count += 1
-
-        
-        self._curr_step = 0
-
-        # reset the is_complete flag on autofocus
-        if 'run_scan_pre' in self._callbacks:
-            self._callbacks['run_scan_pre']()
-
-        #self.protocol_executor.protocol_put(IOTask(action=self._go_to_step, kwargs={"step_idx":self._curr_step}))
-        self._go_to_step(step_idx=self._curr_step)
-
-        self._scan_in_progress.set()
-
-        self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
-        # Queue single IOTask that runs the entire scan loop
-        self.protocol_executor.protocol_put(IOTask(action=self._scan_loop))
+                logger.info(f"Protocol scan {self._scan_count} completed in {scan_duration.total_seconds():.2f} seconds", extra={"force_error": True})
+                
+                # Scan completed - increment counter
+                self._scan_count += 1
+                logger.debug(f"[{self.LOGGER_NAME}] Scan {self._scan_count}/{self._n_scans} completed")
+                
+                if 'scan_iterate_post' in self._callbacks and self._callbacks['scan_iterate_post'] is not None:
+                    Clock.schedule_once(lambda dt: self._callbacks['scan_iterate_post'](), 0)
+                
+                # Clear the flag so we know scan is done
+                self._scan_in_progress.clear()
+                
+            except Exception as ex:
+                logger.error(f"[Protocol] Error during run loop: {ex}", exc_info=True)
+                self._cleanup()
+                break
     
     def _scan_loop(self):
-        """Main scan loop - runs continuously until scan completes"""
+        """Scan loop - iterates through all protocol steps until scan completes.
+        Returns when the scan is complete (all steps executed).
+        """
         last_maintenance_time = time.monotonic()
         
         # Initial delay before first iteration
@@ -457,7 +475,7 @@ class SequencedCaptureExecutor:
                     # Force garbage collection
                     collected = gc.collect()
                     if collected > 0:
-                        logger.info(f"[Watchdog] GC collected {collected} objects")
+                        logger.info(f"[Scan Watchdog] GC collected {collected} objects")
                     
                     # Log queue depths
                     try:
@@ -466,45 +484,16 @@ class SequencedCaptureExecutor:
                     except Exception:
                         pass
                 
-                # Run one iteration
+                # Run one step iteration
                 self._scan_iterate()
                 
                 # Small delay to prevent CPU throttling
                 time.sleep(0.01)
                 
             except Exception as ex:
-                logger.error(f"[Scan] Error during loop: {ex}", exc_info=True)
+                logger.error(f"[Scan] Error during scan loop: {ex}", exc_info=True)
+                self._scan_in_progress.clear()
                 break
-    
-    def _scan_iterate_scheduled(self, dt=None):
-        """Wrapper to schedule scan iteration without creating IOTask in lambda"""
-        if not self._scan_in_progress.is_set() or self._protocol_ended.is_set():
-            return
-
-        self.protocol_executor.protocol_put(IOTask(
-            action=self._scan_iterate,
-            callback=self._scan_iterate_scheduled
-        ))
-        
-        # Periodic cleanup and watchdog logging for long runs
-        try:
-            if not hasattr(self, '_last_maintenance_time'):
-                self._last_maintenance_time = time.monotonic()
-            
-            now_mono = time.monotonic()
-            # Run maintenance every 60 seconds
-            if now_mono - self._last_maintenance_time > 60:
-                self._last_maintenance_time = now_mono
-                                
-                # Force garbage collection to prevent accumulation
-                # This is a safety net - properly written code shouldn't need this,
-                # but it helps during long protocol runs (24+ hours)
-                collected = gc.collect()
-                if collected > 0:
-                    logger.info(f"[Watchdog] GC collected {collected} objects")
-        except Exception as e:
-            logger.warning(f"[Watchdog] Maintenance error (non-critical): {e}", extra={"force_error": True})
-    
 
     def _scan_iterate(self, dt=None):
         if self._protocol_ended.is_set():
@@ -712,13 +701,9 @@ class SequencedCaptureExecutor:
             self._perform_grease_redistribution()
             self._autofocus_count = 0
 
-        self._scan_count += 1
-        
-        if 'scan_iterate_post' in self._callbacks and self._callbacks['scan_iterate_post'] is not None:
-            Clock.schedule_once(lambda dt: self._callbacks['scan_iterate_post'](), 0)
-
+        # Scan completed - clear the flag so run_loop knows to proceed
+        # The run_loop will handle incrementing scan_count and callbacks
         self._scan_in_progress.clear()
-        #self._protocol_iterate()
 
 
     def run_in_progress(self) -> bool:
@@ -832,10 +817,14 @@ class SequencedCaptureExecutor:
 
 
     def _cancel_all_scheduled_events(self):
-        Clock.unschedule(self._protocol_iterator)
-        Clock.unschedule(self._scan_iterator)
-        #self._io_executor.clear_protocol_pending()
-        #self.protocol_executor.clear_protocol_pending()
+        """Cancel any remaining scheduled events. 
+        Note: With the loop-based approach, most work happens in executor threads,
+        so there's less to unschedule than before.
+        """
+        if self._protocol_iterator is not None:
+            Clock.unschedule(self._protocol_iterator)
+        if self._scan_iterator is not None:
+            Clock.unschedule(self._scan_iterator)
 
 
     def _leds_off(self):
