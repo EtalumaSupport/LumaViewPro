@@ -1371,9 +1371,15 @@ class ScopeDisplay(Image):
 
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         open_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=open_layer)
-        open_layer_obj.ids['image_stats_mean_id'].text = f"Mean: {mean}"
-        open_layer_obj.ids['image_stats_stddev_id'].text = f"StdDev: {stddev}"
-        open_layer_obj.ids['image_af_score_id'].text = f"AF Score: {af_score}"
+        new_mean_text = f"Mean: {mean}"
+        if open_layer_obj.ids['image_stats_mean_id'].text != new_mean_text:
+            open_layer_obj.ids['image_stats_mean_id'].text = new_mean_text
+        new_stddev_text = f"StdDev: {stddev}"
+        if open_layer_obj.ids['image_stats_stddev_id'].text != new_stddev_text:
+            open_layer_obj.ids['image_stats_stddev_id'].text = new_stddev_text
+        new_af_text = f"AF Score: {af_score}"
+        if open_layer_obj.ids['image_af_score_id'].text != new_af_text:
+            open_layer_obj.ids['image_af_score_id'].text = new_af_text
 
     def set_camera_disconnected_display(self):
         self.texture = None
@@ -1484,8 +1490,11 @@ class ScopeDisplay(Image):
 
     def update_auto_gain_ui(self, layer, actual_gain, actual_exp):
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-        layer_obj.ids['gain_slider'].value = actual_gain
-        layer_obj.ids['exp_slider'].value = actual_exp
+        # Only update if values changed to prevent unnecessary ScrollView layout recalculation
+        if abs(layer_obj.ids['gain_slider'].value - actual_gain) > 0.01:
+            layer_obj.ids['gain_slider'].value = actual_gain
+        if abs(layer_obj.ids['exp_slider'].value - actual_exp) > 0.01:
+            layer_obj.ids['exp_slider'].value = actual_exp
     
 # -------------------------------------------------------------------------
 # COMPOSITE CAPTURE FloatLayout with shared capture capabilities
@@ -4237,10 +4246,16 @@ class VerticalControl(BoxLayout):
             return
 
         self.ids['obj_position'].value = max(0, pos)
-        self.ids['z_position_id'].text = format(max(0, pos), '.2f')
+        # Cache text to prevent redundant ScrollView updates
+        new_text = format(max(0, pos), '.2f')
+        if self.ids['z_position_id'].text != new_text:
+            self.ids['z_position_id'].text = new_text
 
     def update_text_only(self):
-        self.ids['z_position_id'].text = format(max(0, self.ids['obj_position'].value), '.2f')
+        # Cache text to prevent redundant ScrollView updates
+        new_text = format(max(0, self.ids['obj_position'].value), '.2f')
+        if self.ids['z_position_id'].text != new_text:
+            self.ids['z_position_id'].text = new_text
         
 
     def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
@@ -4803,10 +4818,16 @@ class XYStageControl(BoxLayout):
             )
 
             if not self.ids['x_pos_id'].focus:
-                self.ids['x_pos_id'].text = format(max(0, stage_x), '.2f') # display coordinate in mm
+                # Cache text to prevent redundant ScrollView updates
+                new_x_text = format(max(0, stage_x), '.2f')
+                if self.ids['x_pos_id'].text != new_x_text:
+                    self.ids['x_pos_id'].text = new_x_text # Update x position text box
+
 
             if not self.ids['y_pos_id'].focus:  
-                self.ids['y_pos_id'].text = format(max(0, stage_y), '.2f') # display coordinate in mm
+                new_y_text = format(max(0, stage_y), '.2f')
+                if self.ids['y_pos_id'].text != new_y_text:
+                    self.ids['y_pos_id'].text = new_y_text # Update y position text box
 
     def fine_left(self):
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
@@ -5016,6 +5037,9 @@ class ProtocolSettings(CompositeCapture):
 
         super(ProtocolSettings, self).__init__(**kwargs)
         logger.info('[LVP Main  ] ProtocolSettings.__init__()')
+        
+        # Create trigger for debounced UI updates to prevent memory leaks
+        self._update_step_ui_trigger = Clock.create_trigger(self._do_update_step_ui, 0.05)
 
         os.chdir(source_path)
         try:
@@ -5052,6 +5076,29 @@ class ProtocolSettings(CompositeCapture):
 
         self.exposures = 1  # 1 indexed
         Clock.schedule_once(self._init_ui, 0)
+
+    def _do_update_step_ui(self, *args):
+        """Actual UI update method, called by trigger."""
+        self.update_step_ui_immediate()
+    
+    def update_step_ui(self):
+        """Triggered version - debounces rapid calls."""
+        self._update_step_ui_trigger()
+    
+    def update_step_ui_immediate(self):
+        """Non-triggered version for immediate updates."""
+        num_steps = self._protocol.num_steps()
+
+        # Only update if values changed to prevent unnecessary layout recalculation
+        new_step_num = str(self.curr_step+1)
+        if self.ids['step_number_input'].text != new_step_num:
+            self.ids['step_number_input'].text = new_step_num
+        
+        new_total = str(num_steps)
+        if self.ids['step_total_input'].text != new_total:
+            self.ids['step_total_input'].text = new_total
+
+        self.generate_step_name_input()
 
 
     def _init_ui(self, dt=0):
@@ -5241,27 +5288,25 @@ class ProtocolSettings(CompositeCapture):
         if num_steps > 0:
             step = self.get_curr_step()
             if step['Name'] == '':
-                self.ids['step_name_input'].text = step["Name"]
-                self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
+                new_text = step["Name"]
+                new_hint = self.get_default_name_for_curr_step()
             elif (step['Custom Step'] == True) and (step["Name"].startswith("custom")):
                 # For custom added steps where the user did not change the default name (i.e. custom####)
-                self.ids['step_name_input'].text = ""
-                self.ids['step_name_input'].hint_text = self.get_default_name_for_curr_step()
+                new_text = ""
+                new_hint = self.get_default_name_for_curr_step()
             else:
-                self.ids['step_name_input'].text = step["Name"]
+                new_text = step["Name"]
+                new_hint = self.ids['step_name_input'].hint_text  # Keep existing hint
 
         else:
-            self.ids['step_name_input'].text = ''
-            self.ids['step_name_input'].hint_text = 'Step Name'
-
-
-    def update_step_ui(self):
-        num_steps = self._protocol.num_steps()
-
-        self.ids['step_number_input'].text = str(self.curr_step+1)
-        self.ids['step_total_input'].text = str(num_steps)
-
-        self.generate_step_name_input()
+            new_text = ''
+            new_hint = 'Step Name'
+        
+        # Only update if changed to prevent unnecessary ScrollView layout recalculation
+        if self.ids['step_name_input'].text != new_text:
+            self.ids['step_name_input'].text = new_text
+        if self.ids['step_name_input'].hint_text != new_hint:
+            self.ids['step_name_input'].hint_text = new_hint
 
 
     def new_protocol(self):
@@ -6126,6 +6171,10 @@ class ProtocolSettings(CompositeCapture):
 # Widget for displaying Microscope Stage area, labware, and current position 
 class Stage(Widget):
 
+    def _triggered_full_redraw(self, *args):
+        """Triggered version of full_redraw to debounce rapid events."""
+        self.full_redraw()
+
     def full_redraw(self, *args):
         # Invalidate FBO caches on size/position change
         self._labware_fbos.clear()
@@ -6161,10 +6210,12 @@ class Stage(Widget):
         self.STAGE_W = 120
         self.STAGE_H = 80
 
+        # Use a trigger to debounce redraw calls and prevent memory leaks from excessive events
+        self._redraw_trigger = Clock.create_trigger(self._triggered_full_redraw, 0.1)
         self.full_redraw()
         self.bind(
-            pos=self.full_redraw,
-            size=self.full_redraw
+            pos=self._redraw_trigger,
+            size=self._redraw_trigger
         )
         self._protocol_step_locations_df = None
         self._protocol_step_redraw = False
@@ -6534,10 +6585,12 @@ class Stage(Widget):
 
         # Clear canvas based on redraw type
         if full_redraw:
-            Clock.schedule_once(lambda dt: self.canvas.clear(), 0)
-            Clock.schedule_once(lambda dt: self.canvas.after.clear(), 0)
-            # Recreate persistent objects after full clear
-            Clock.schedule_once(lambda dt: self._create_persistent_canvas_objects(), 0)
+            # Use Clock.schedule_once with single combined callback to reduce lambda creation
+            def clear_and_recreate(_):
+                self.canvas.clear()
+                self.canvas.after.clear()
+                self._create_persistent_canvas_objects()
+            Clock.schedule_once(clear_and_recreate, 0)
 
         if self._protocol_step_redraw:
             Clock.schedule_once(lambda dt: self.canvas.remove_group('steps_fbo'), 0)
@@ -6579,19 +6632,10 @@ class Stage(Widget):
 
         # Draw static labware elements using FBO (only on full redraw)
         if full_redraw:
-            # Capture variables by value for the lambda
-            pos_x, pos_y, size_w, size_h = x, y, w, h
-            
             # Schedule FBO creation and drawing on main thread
-            def create_and_draw_labware_fbo(_):
-                try:
-                    labware_fbo = self.create_labware_fbo()
-                    if labware_fbo and labware_fbo.texture:
-                        self.draw_fbo_texture(texture=labware_fbo.texture, pos=(pos_x, pos_y), size=(size_w, size_h), group='labware_fbo')
-                except Exception as e:
-                    logger.exception(f"[Stage     ] Error drawing labware FBO: {e}")
-            
-            Clock.schedule_once(create_and_draw_labware_fbo, 0)
+            # Use partial to avoid lambda closure memory accumulation
+            from functools import partial
+            Clock.schedule_once(partial(self._draw_labware_fbo_scheduled, x, y, w, h), 0)
 
         # Draw protocol steps using FBO (if needed)
         if full_redraw or self._protocol_step_redraw:
@@ -6604,15 +6648,9 @@ class Stage(Widget):
             pos_x, pos_y, size_w, size_h = x, y, w, h
             
             # Schedule FBO creation and drawing on main thread
-            def create_and_draw_steps_fbo(_):
-                try:
-                    steps_fbo = self.create_step_locations_fbo()
-                    if steps_fbo and steps_fbo.texture:
-                        self.draw_fbo_texture(texture=steps_fbo.texture, pos=(pos_x, pos_y), size=(size_w, size_h), group='steps_fbo')
-                except Exception as e:
-                    logger.exception(f"[Stage     ] Error drawing steps FBO: {e}")
-            
-            Clock.schedule_once(create_and_draw_steps_fbo, 0)
+            # Use partial to avoid lambda closure memory accumulation
+            from functools import partial
+            Clock.schedule_once(partial(self._draw_steps_fbo_scheduled, x, y, w, h), 0)
 
         # Draw selected well (updates when target changes)
         target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
@@ -6718,6 +6756,24 @@ class Stage(Widget):
             Color(*color)
             Ellipse(pos=pos, size=radius, group=group)
     
+    def _draw_labware_fbo_scheduled(self, x, y, w, h, *args):
+        """Scheduled callback for drawing labware FBO."""
+        try:
+            labware_fbo = self.create_labware_fbo()
+            if labware_fbo and labware_fbo.texture:
+                self.draw_fbo_texture(texture=labware_fbo.texture, pos=(x, y), size=(w, h), group='labware_fbo')
+        except Exception as e:
+            logger.exception(f"[Stage     ] Error drawing labware FBO: {e}")
+
+    def _draw_steps_fbo_scheduled(self, x, y, w, h, *args):
+        """Scheduled callback for drawing steps FBO."""
+        try:
+            steps_fbo = self.create_step_locations_fbo()
+            if steps_fbo and steps_fbo.texture:
+                self.draw_fbo_texture(texture=steps_fbo.texture, pos=(x, y), size=(w, h), group='steps_fbo')
+        except Exception as e:
+            logger.exception(f"[Stage     ] Error drawing steps FBO: {e}")
+
     def draw_fbo_texture(self, texture, pos, size, group=None):
         """Draw an FBO texture on the canvas - safe to call from schedule_to_draw_on_canvas"""
         with self.canvas:
@@ -7788,8 +7844,12 @@ class LayerControl(BoxLayout):
             return
         if not self._initializing:
             logger.info('[LVP Main  ] LayerControl.ill_slider()')
-        illumination = self.ids['ill_slider'].value
+        illumination = round(self.ids['ill_slider'].value)  # Round to integer (step=1)
         settings[self.layer]['ill'] = illumination
+        # Update text only if changed to reduce ScrollView recalculations
+        new_text = str(illumination)
+        if self.ids['ill_text'].text != new_text:
+            self.ids['ill_text'].text = new_text
         if not self._initializing:
             self.apply_ill_slider()
 
@@ -7930,8 +7990,12 @@ class LayerControl(BoxLayout):
             return
         if not self._initializing:
             logger.info('[LVP Main  ] LayerControl.gain_slider()')
-        gain = self.ids['gain_slider'].value
+        gain = round(self.ids['gain_slider'].value, 1)  # Round to 1 decimal (step=0.1)
         settings[self.layer]['gain'] = gain
+        # Update text only if changed to reduce ScrollView recalculations
+        new_text = str(gain)
+        if self.ids['gain_text'].text != new_text:
+            self.ids['gain_text'].text = new_text
         if not self.ids['gain_slider'].disabled and not self._initializing:
             self.apply_gain_slider()
         ####
@@ -7978,9 +8042,13 @@ class LayerControl(BoxLayout):
             return
         if not self._initializing:
             logger.info('[LVP Main  ] LayerControl.exp_slider()')
-        exposure = self.ids['exp_slider'].value
+        exposure = round(self.ids['exp_slider'].value, 2)  # Round to 2 decimals (step=0.01)
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         settings[self.layer]['exp'] = exposure        # exposure in ms
+        # Update text only if changed to reduce ScrollView recalculations
+        new_text = str(exposure)
+        if self.ids['exp_text'].text != new_text:
+            self.ids['exp_text'].text = new_text
         if not self.ids['exp_slider'].disabled and not self._initializing:
             self.apply_exp_slider()
 
