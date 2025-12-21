@@ -339,6 +339,42 @@ if __name__ == "__main__":
 
     live_histo_setting = False
 
+
+    # -------------------------------------------------------------------------
+    # SCROLLVIEW MEMORY CLEANUP UTILITY
+    # -------------------------------------------------------------------------
+    def cleanup_scrollview_viewport(scrollview):
+        """
+        Aggressively clean up ScrollView viewport textures to prevent memory accumulation.
+        This is called after accordion collapse events to release viewport resources.
+        """
+        try:
+            import gc
+            
+            if not isinstance(scrollview, ScrollView):
+                return
+            
+            # Clear viewport canvas
+            if hasattr(scrollview, '_viewport') and scrollview._viewport:
+                if hasattr(scrollview._viewport, 'canvas'):
+                    scrollview._viewport.canvas.ask_update()
+            
+            # Clear effect textures (primary source of memory accumulation)
+            for effect in [scrollview.effect_x, scrollview.effect_y]:
+                if effect and hasattr(effect, '_texture'):
+                    effect._texture = None
+            
+            # Clear viewport texture reference
+            if hasattr(scrollview, '_viewport_texture'):
+                scrollview._viewport_texture = None
+            
+            # Force garbage collection to reclaim memory immediately
+            gc.collect()
+            
+            logger.debug('[LVP Main  ] ScrollView viewport cleanup completed')
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] ScrollView cleanup error: {e}')
+
     last_save_folder = None
     stage = None
 
@@ -734,7 +770,7 @@ def go_to_step(
 
 
 def go_to_step_update_ui(step):
-
+    global protocol_running_global
 
     color = step['Color']
     layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=color)
@@ -743,9 +779,10 @@ def go_to_step_update_ui(step):
     lumaview.ids['imagesettings_id'].ids['toggle_imagesettings'].state = 'down'
     lumaview.ids['imagesettings_id'].toggle_settings()
     
-    # set accordion item to corresponding channel
-    accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=color)
-    accordion_item_obj.collapse = False
+    # set accordion item to corresponding channel (unless disabled during protocol)
+    if not (protocol_running_global and settings.get("disable_protocol_accordions", False)):
+        accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=color)
+        accordion_item_obj.collapse = False
 
 
 
@@ -3891,12 +3928,35 @@ class ImageSettings(BoxLayout):
         
     
     def set_expanded_layer(self, layer: str, *largs) -> None:
+        """
+        Expand the specified layer accordion and collapse all others.
+        Cleans up ScrollView viewport textures on collapse to prevent memory accumulation.
+        Respects the disable_protocol_accordions setting during protocol execution.
+        """
+        global protocol_running_global
+        
+        # Check if accordion updates are disabled during protocol execution
+        if protocol_running_global and settings.get("disable_protocol_accordions", False):
+            return
+        
         for a_layer in common_utils.get_layers():
             accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
+            
+            # Check if we need to collapse this accordion
+            target_collapsed = (layer != a_layer)
             
             if layer == a_layer:
                 accordion_item_obj.collapse = False
             else:
+                # Before collapsing, clean up ScrollView to prevent memory leak
+                if not accordion_item_obj.collapse and target_collapsed:
+                    layer_control = self.layer_lookup(layer=a_layer)
+                    # Find and clean up ScrollView in this layer control
+                    for child in layer_control.walk():
+                        if isinstance(child, ScrollView):
+                            # Schedule cleanup after collapse animation completes
+                            Clock.schedule_once(lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2)
+                
                 accordion_item_obj.collapse = True
 
     
@@ -7385,6 +7445,15 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['protocol_led_on_btn'].state = 'normal'
                 settings["protocol_led_on"] = False
 
+            if "disable_protocol_accordions" in settings:
+                if settings["disable_protocol_accordions"] == True:
+                    self.ids['disable_protocol_accordions_btn'].state = 'down'
+                else:
+                    self.ids['disable_protocol_accordions_btn'].state = 'normal'
+            else:
+                self.ids['disable_protocol_accordions_btn'].state = 'normal'
+                settings["disable_protocol_accordions"] = False
+
             for layer in common_utils.get_layers():
               
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
@@ -7578,6 +7647,13 @@ class MicroscopeSettings(BoxLayout):
             settings["protocol_led_on"] = True
         else:
             settings["protocol_led_on"] = False
+
+    def update_disable_protocol_accordions(self):
+        """Toggle whether layer accordions are disabled during protocol execution."""
+        if self.ids['disable_protocol_accordions_btn'].state == 'down':
+            settings["disable_protocol_accordions"] = True
+        else:
+            settings["disable_protocol_accordions"] = False
 
 
     # Save settings to JSON file
@@ -7838,6 +7914,16 @@ class LayerControl(BoxLayout):
         
         self.init_acquire()
         self.init_autofocus()
+    
+    
+    def cleanup_scrollviews(self):
+        """
+        Clean up ScrollView viewport resources in this LayerControl.
+        Called when accordion is collapsed to prevent memory accumulation.
+        """
+        for child in self.walk():
+            if isinstance(child, ScrollView):
+                cleanup_scrollview_viewport(child)
 
     def ill_slider(self):
         if protocol_running_global:
