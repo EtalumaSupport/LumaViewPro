@@ -422,7 +422,7 @@
 		text:'Turret Selection'
 		id: turret_selection_label
 		font_size: '16sp'
-		size_hint_y: None if self.visible else 0
+		size_hint_y: None
 		height: '30dp' if self.visible else 0
 		opacity: 1 if self.visible else 0
 		disabled: not self.visible
@@ -433,7 +433,7 @@
 	BoxLayout:
 		orientation: 'horizontal'
 		id: turret_btn_box
-		size_hint_y: None if self.visible else 0
+		size_hint_y: None
 		height: '30dp' if self.visible else 0
 		opacity: 1 if self.visible else 0
 		disabled: not self.visible
@@ -2217,7 +2217,7 @@
 			
 			BoxLayout:
 				id: acceleration_control_box
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				opacity: 1 if self.visible else 0
 				disabled: not self.visible
@@ -2278,6 +2278,30 @@
 					background_normal: './data/icons/ToggleL.png'
 					background_down: './data/icons/ToggleRW.png'
 					on_release: root.update_protocol_led_on()
+					state: 'normal'
+
+			BoxLayout:
+
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Stimulation Settings'
+					tooltip_text: 'Enable stimulation features globally'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: stimulation_settings_btn
+					size_hint: None, None
+					tooltip_text: 'Enable stimulation features globally'
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_stimulation_settings()
 					state: 'normal'
 
 			BoxLayout:
@@ -2390,7 +2414,7 @@
 
 				text:'Illumination'
 				font_size: '16sp'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				disabled: False if self.visible else True
 				# spacing: '5dp'
@@ -2400,7 +2424,7 @@
 
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
@@ -2429,7 +2453,7 @@
 
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
@@ -2486,7 +2510,7 @@
 
 				text:'Stimulation'
 				font_size: '16sp'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				disabled: False if self.visible else True
 				# spacing: '5dp'
@@ -2495,7 +2519,7 @@
 
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp' if self.visible else 0
@@ -2536,7 +2560,7 @@
 			BoxLayout:
 				id: stim_freq_box
 				orientation: 'horizontal'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp' if self.visible else 0
@@ -2580,7 +2604,7 @@
 			BoxLayout:
 				id: stim_pulse_width_box
 				orientation: 'horizontal'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp' if self.visible else 0
@@ -2625,7 +2649,7 @@
 			BoxLayout:
 				id: stim_pulse_count_box
 				orientation: 'horizontal'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp' if self.visible else 0
@@ -2668,6 +2692,7 @@
 
 			# Camera
 			Label:
+				visible: True if root.show_camera_controls else False
 				canvas:
 					Color:
 						rgba: root.bg_color
@@ -2677,20 +2702,22 @@
 				text:'Camera'
 				font_size: '16sp'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
 				# spacing: '5dp'
 				color: root.bg_color
 
 			# Auto Gain/Exp
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
 				disabled: False if self.visible else True
 				opacity: 1 if self.visible else 0
-				visible: True if root.autogain_support else False
+				visible: True if root.autogain_support and root.show_camera_controls else False
 
 				CheckBox:
 					id: auto_gain
@@ -2715,9 +2742,12 @@
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
-				spacing: '5dp'
+				spacing: '5dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.show_camera_controls else False
 
 				Label:
 					text: 'Gain (dB)'
@@ -2757,9 +2787,12 @@
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
-				spacing: '5dp'
+				spacing: '5dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.show_camera_controls else False
 
 				Label:
 					text: 'Exposure (ms)'
@@ -2805,13 +2838,13 @@
 			# Exposure Summing
 			BoxLayout:
 				orientation: 'horizontal'
-				size_hint_y: None if self.visible else 0
+				size_hint_y: None
 				height: '30dp' if self.visible else 0
 				padding: '0dp'
 				spacing: '5dp'
 				opacity: 1 if self.visible else 0
 				disabled: not self.visible
-				visible: True if root.exposure_summing_support else False
+				visible: True if root.exposure_summing_support and root.show_camera_controls else False
 
 				Label:
 					text: 'Sum'
@@ -2850,6 +2883,7 @@
 
 			# Focus
 			Label:
+				visible: True if root.show_camera_controls else False
 				canvas:
 					Color:
 						rgba: root.bg_color
@@ -2859,16 +2893,21 @@
 				text:'Focus'
 				font_size: '16sp'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
 				color: root.bg_color
 			
 			# Focus Settings
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
-				spacing: '5dp'
+				spacing: '5dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.show_camera_controls else False
 
 				Button:
 					size_hint_y: None
@@ -2887,6 +2926,7 @@
 			
 			# Protocol Settings
 			Label:
+				visible: True if root.show_camera_controls else False
 				canvas:
 					Color:
 						rgba: root.bg_color
@@ -2896,15 +2936,20 @@
 				text:'Protocol Settings'
 				font_size: '16sp'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
 				color: root.bg_color
 
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
-				spacing: '5dp'
+				spacing: '5dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.show_camera_controls else False
 
 				CheckBox:
 					id: autofocus
@@ -2923,6 +2968,7 @@
 			
 			# Video Settings
 			Label:
+				visible: True if root.show_camera_controls else False
 				canvas:
 					Color:
 						rgba: root.bg_color
@@ -2933,15 +2979,20 @@
 				tooltip_text: 'Define length of Protocol video at each Interval'
 				font_size: '16sp'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
 				color: root.bg_color
 
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
-				spacing: '5dp'
+				spacing: '5dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.show_camera_controls else False
 
 				Label:
 					text: 'Duration (s)'
@@ -2979,6 +3030,7 @@
 
 			# Acquire Settings
 			Label:
+				visible: True if root.show_camera_controls else False
 				canvas:
 					Color:
 						rgba: root.bg_color
@@ -2989,15 +3041,20 @@
 				tooltip_text: 'Choose channel activity for Protocol'
 				font_size: '16sp'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
 				color: root.bg_color
 
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
-				spacing: '5dp'
+				spacing: '5dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.show_camera_controls else False
 				
 				CheckBox:
 					id: acquire_none
@@ -3054,9 +3111,12 @@
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '30dp' if self.visible else 0
 				padding: '0dp'
-				spacing: '5dp'
+				spacing: '5dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.show_camera_controls and root.show_cbt else False
 
 				Label:
 					id: composite_threshold_label
@@ -3097,7 +3157,10 @@
 				padding: '0dp'
 				spacing: '5dp'
 				size_hint_y: None
-				height: '128dp'
+				height: '128dp' if self.visible else 0
+				opacity: 1 if self.visible else 0
+				disabled: False if self.visible else True
+				visible: True if root.show_camera_controls else False
 
 				Histogram:
 					id: histo_id
@@ -3107,29 +3170,30 @@
 
 			Label:
 			    id: image_stats_mean_id
+				size_hint_y: None
 				height: '0dp'
 				pos_hint:{'left': 0.1}
 				halign: 'left'
 				size_hint_x: None
-				size_hint_y: None
 				text: ''
+				
 
 			Label:
 			    id: image_stats_stddev_id
+				size_hint_y: None
 				height: '0dp'
 				pos_hint:{'left': 0.1}
 				halign: 'left'
 				size_hint_x: None
-				size_hint_y: None
 				text: ''
 
 			Label:
 			    id: image_af_score_id
+				size_hint_y: None
 				height: '0dp'
 				pos_hint:{'left': 0.1}
 				halign: 'left'
 				size_hint_x: None
-				size_hint_y: None
 				text: ''
 
             # Display Properties

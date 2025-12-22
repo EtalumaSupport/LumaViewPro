@@ -4191,6 +4191,7 @@ class ImageSettings(BoxLayout):
             # Remove 'Colorize' option in transmitted channels control
             # -----------------------------------------------------
             # Remove CBT from transmitted channel control
+            layer_obj.show_cbt = False
             label = layer_obj.ids['composite_threshold_label']
             slider = layer_obj.ids['composite_threshold_slider']
             text = layer_obj.ids['composite_threshold_text']
@@ -7561,6 +7562,17 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['protocol_led_on_btn'].state = 'normal'
                 settings["protocol_led_on"] = False
 
+            if "stimulation_enabled" in settings:
+                if settings["stimulation_enabled"] == True:
+                    self.ids['stimulation_settings_btn'].state = 'down'
+                else:
+                    self.ids['stimulation_settings_btn'].state = 'normal'
+                    # Apply the disabled state to all layers
+                    self.update_stimulation_settings()
+            else:
+                self.ids['stimulation_settings_btn'].state = 'normal'
+                settings["stimulation_enabled"] = False
+
             if "disable_protocol_accordions" in settings:
                 if settings["disable_protocol_accordions"] == True:
                     self.ids['disable_protocol_accordions_btn'].state = 'down'
@@ -7787,6 +7799,32 @@ class MicroscopeSettings(BoxLayout):
             settings["protocol_led_on"] = True
         else:
             settings["protocol_led_on"] = False
+
+    def update_stimulation_settings(self):
+        """Toggle stimulation features globally across all channels."""
+        stimulation_enabled = self.ids['stimulation_settings_btn'].state == 'down'
+        settings["stimulation_enabled"] = stimulation_enabled
+        
+        # Update all layer controls
+        for layer in ['BF', 'PC', 'EP', 'DF', 'Lumi', 'Red', 'Green', 'Blue']:
+            if layer in ['Red', 'Green', 'Blue']:
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                if layer_obj:
+                    if stimulation_enabled:
+                        # Enable stimulation features
+                        layer_obj.stimulation_support = True
+                        # Don't automatically show stim controls, just enable support
+                    else:
+                        # Disable stimulation features
+                        layer_obj.stimulation_support = False
+                        layer_obj.show_stim_controls = False
+                        layer_obj.show_camera_controls = True
+                        # Set stim to disabled
+                        if 'stim_disable_btn' in layer_obj.ids:
+                            layer_obj.ids['stim_disable_btn'].active = True
+                        # Disable stim_config
+                        if 'stim_config' in settings[layer]:
+                            settings[layer]['stim_config']['enabled'] = False
 
     def update_disable_protocol_accordions(self):
         """Toggle whether layer accordions are disabled during protocol execution."""
@@ -8025,10 +8063,12 @@ class LayerControl(BoxLayout):
     layer = StringProperty(None)
     bg_color = ObjectProperty(None)
     illumination_support = BooleanProperty(True)
-    stimulation_support = BooleanProperty(True)
+    stimulation_support = BooleanProperty(False)
     show_stim_controls = BooleanProperty(False)
     autogain_support = BooleanProperty(True)
     exposure_summing_support = BooleanProperty(False)
+    show_camera_controls = BooleanProperty(True)
+    show_cbt = BooleanProperty(True)
 
     global settings
 
@@ -8052,12 +8092,12 @@ class LayerControl(BoxLayout):
     
     def _init_ui(self, dt=0):
 
-        if self.layer not in ['Red', 'Green', 'Blue']:
-            self.stimulation_support = False
-            self.show_stim_controls = False
-        else:
+        if self.layer in ['Red', 'Green', 'Blue'] and settings['stimulation_enabled'] == True:
             self.stimulation_support = True
             self.show_stim_controls = True
+        else:
+            self.stimulation_support = False
+            self.show_stim_controls = False
             
         self.update_stim_controls_visibility()
         
@@ -8081,9 +8121,16 @@ class LayerControl(BoxLayout):
     def update_stim_controls_visibility(self):
         if self.ids['stim_enable_btn'].active:
             self.show_stim_controls = True
+            self.show_camera_controls = False
+            self.hide_camera_controls()
         else:
             self.show_stim_controls = False
+            self.show_camera_controls = True
 
+    def hide_camera_controls(self):
+        self.show_camera_controls = False
+        settings[self.layer]['acquire'] = None
+        self.ids['acquire_none'].active = True
 
     def ill_slider(self):
         if protocol_running_global:
@@ -8332,19 +8379,28 @@ class LayerControl(BoxLayout):
     def stim_freq_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_freq_slider()')
         frequency = self.ids['stim_freq_slider'].value
-        settings[self.layer]['stim_config']['frequency'] = frequency
+        try:
+            settings[self.layer]['stim_config']['frequency'] = frequency
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_freq_slider() -> {e}")
         self.apply_settings()
     
     def stim_pulse_count_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
         pulse_count = self.ids['stim_pulse_count_slider'].value
-        settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        try:
+            settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_slider() -> {e}")
         self.apply_settings()
     
     def stim_pulse_width_slider(self):
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_slider()')
         pulse_width = self.ids['stim_pulse_width_slider'].value
-        settings[self.layer]['stim_config']['pulse_width'] = pulse_width
+        try:
+            settings[self.layer]['stim_config']['pulse_width'] = pulse_width
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_width_slider() -> {e}")
         self.apply_settings()
     
     def stim_freq_text(self):
@@ -8363,8 +8419,10 @@ class LayerControl(BoxLayout):
 
         self.ids['stim_freq_slider'].value = frequency
         self.ids['stim_freq_text'].text = str(frequency)
-        
-        settings[self.layer]['stim_config']['frequency'] = frequency
+        try:
+            settings[self.layer]['stim_config']['frequency'] = frequency
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_freq_text() -> {e}")
         self.apply_settings()
     
     def stim_pulse_count_text(self):
@@ -8383,8 +8441,10 @@ class LayerControl(BoxLayout):
 
         self.ids['stim_pulse_count_slider'].value = pulse_count
         self.ids['stim_pulse_count_text'].text = str(pulse_count)
-
-        settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        try:
+            settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_text() -> {e}")
         self.apply_settings()
 
     def stim_pulse_width_text(self):
@@ -8404,7 +8464,10 @@ class LayerControl(BoxLayout):
         self.ids['stim_pulse_width_slider'].value = pulse_width
         self.ids['stim_pulse_width_text'].text = str(pulse_width)
 
-        settings[self.layer]['stim_config']['pulse_width'] = pulse_width
+        try:
+            settings[self.layer]['stim_config']['pulse_width'] = pulse_width
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_width_text() -> {e}")
         self.apply_settings()
 
     def false_color(self):
@@ -8427,7 +8490,8 @@ class LayerControl(BoxLayout):
             settings[self.layer]['acquire'] = "image"
             if "stim_config" in settings[self.layer]:
                 settings[self.layer]['stim_config']['enabled'] = False
-                self.ids['stim_disable_btn'].active = True
+            self.ids['stim_disable_btn'].active = True
+            self.show_stim_controls = False
 
         elif self.ids['acquire_video'].active:
             settings[self.layer]['acquire'] = "video"   
@@ -8435,6 +8499,7 @@ class LayerControl(BoxLayout):
                 settings[self.layer]['stim_config']['enabled'] = False
                 self.ids['stim_disable_btn'].active = True
             self.ids['stim_disable_btn'].active = True
+            self.show_stim_controls = False
         else:
             settings[self.layer]['acquire'] = None
 

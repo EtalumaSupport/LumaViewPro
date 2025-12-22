@@ -105,6 +105,8 @@ class SequencedCaptureExecutor:
         self._cpu_pool = cpu_pool
         self._video_write_finished = threading.Event()
         self._video_write_finished.set()
+        self._stim_start_event = threading.Event()
+        self._stim_stop_event = threading.Event()
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -668,6 +670,8 @@ class SequencedCaptureExecutor:
                     sum_count=step["Sum"],
                 )
 
+                self._stim_stop_event.set()
+
 
                 # Protocol record creation and adding is handled in capture method
 
@@ -906,6 +910,9 @@ class SequencedCaptureExecutor:
         self._scan_in_progress.clear()
         self._protocol_ended.set()
 
+        self._stim_start_event.clear()
+        self._stim_stop_event.set()
+
         self._io_executor.protocol_end()
         self.file_io_executor.protocol_finish_then_end()
         self.protocol_executor.protocol_end()
@@ -1058,16 +1065,13 @@ class SequencedCaptureExecutor:
                     captured_frames = 0
                     seconds_per_frame = 1.0 / fps
                     video_images = queue.Queue()
-                  
-                    stop_event = threading.Event()
-                    start_event = threading.Event()
 
                     stim_threads = []
 
                     for color in step['Stim_Config']:
                         stim_config = step['Stim_Config'][color]
                         if stim_config['enabled']:
-                            stim_thread = threading.Thread(target=self._stimulate, args=(color, stim_config, start_event, stop_event))
+                            stim_thread = threading.Thread(target=self._stimulate, args=(color, stim_config, self._stim_start_event, self._stim_stop_event))
                             stim_threads.append(stim_thread)
                             stim_thread.start() 
 
@@ -1079,8 +1083,8 @@ class SequencedCaptureExecutor:
 
                     progress = 0
                     ctypes.windll.winmm.timeBeginPeriod(1)
-                    
-                    start_event.set()
+                    self._stim_stop_event.clear()
+                    self._stim_start_event.set()
 
                     while time.time() < stop_ts:
                         curr_time = time.time()
@@ -1119,6 +1123,10 @@ class SequencedCaptureExecutor:
                         time.sleep(seconds_per_frame*0.9)
 
                     ctypes.windll.winmm.timeEndPeriod(1)
+                    self._stim_stop_event.set()
+
+                    for stim_thread in stim_threads:
+                        stim_thread.join()
                     
                     calculated_fps = captured_frames//duration_sec
 
@@ -1208,8 +1216,7 @@ class SequencedCaptureExecutor:
                     stop_event.set()
                     self._scope.leds_off()
                     
-                    for stim_thread in stim_threads:
-                        stim_thread.join()
+                    
 
 
                     self._protocol_execution_record.add_step(
