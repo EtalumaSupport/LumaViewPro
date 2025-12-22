@@ -2,6 +2,8 @@
 import datetime
 import pathlib
 import time
+import sys
+import ctypes
 import typing
 
 import numpy as np
@@ -41,6 +43,8 @@ from concurrent.futures import ProcessPoolExecutor
 import threading
 
 from settings_init import settings
+
+import threading
 
 
 """
@@ -1054,7 +1058,20 @@ class SequencedCaptureExecutor:
                     captured_frames = 0
                     seconds_per_frame = 1.0 / fps
                     video_images = queue.Queue()
+                  
+                    stop_event = threading.Event()
+                    start_event = threading.Event()
 
+                    stim_threads = []
+
+                    for color in step['Stim_Config']:
+                        stim_config = step['Stim_Config'][color]
+                        if stim_config['enabled']:
+                            stim_thread = threading.Thread(target=self._stimulate, args=(color, stim_config, start_event, stop_event))
+                            stim_threads.append(stim_thread)
+                            stim_thread.start() 
+
+                  
                     if "set_recording_title" in self._callbacks:
                         Clock.schedule_once(lambda dt: self._callbacks['set_recording_title'](progress=0), 0)
 
@@ -1062,6 +1079,8 @@ class SequencedCaptureExecutor:
 
                     progress = 0
                     ctypes.windll.winmm.timeBeginPeriod(1)
+                    
+                    start_event.set()
 
                     while time.time() < stop_ts:
                         curr_time = time.time()
@@ -1178,6 +1197,7 @@ class SequencedCaptureExecutor:
                         return
                     finally:
                         self._video_write_finished.set()
+                        stop_event.set()
 
                     if "reset_title" in self._callbacks:
                         Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
@@ -1185,8 +1205,11 @@ class SequencedCaptureExecutor:
                     logger.info("Protocol-Video] Video writing finished.")
                     logger.info(f"Protocol-Video] Video saved at {output_file_loc}")
 
+                    stop_event.set()
                     self._scope.leds_off()
-
+                    
+                    for stim_thread in stim_threads:
+                        stim_thread.join()
 
 
                     self._protocol_execution_record.add_step(
@@ -1456,4 +1479,146 @@ class SequencedCaptureExecutor:
 
         logger.info(f"Protocol-Writer] Added step to protocol execution record")
 
-        return
+    
+
+    # stim_config = {
+    #         "Red": {
+    #             "enabled": True,
+    #             "illumination": 100,
+    #             "frequency": 1,
+    #             "pulse_width": 10,
+    #             "pulse_count": 1,
+    #         },
+    #         "Green": {
+    #             "enabled": True,
+    #             "illumination": 100,
+    #             "frequency": 1,
+    #             "pulse_width": 10,
+    #             "pulse_count": 1,
+    #         },
+    #         "Blue": {
+    #             "enabled": True,
+    #             "illumination": 100,
+    #             "frequency": 1,
+    #             "pulse_width": 10,
+    #             "pulse_count": 1,
+    #         }
+    #     }
+
+    def _stimulate(self, color: str, stim_config: dict, start_event: threading.Event, stop_event: threading.Event):
+        if not stim_config['enabled']:
+            return
+
+        logger.info(f"[STIMULATOR] Stimulating {color} with {stim_config}")
+
+        illumination = stim_config['illumination']
+        frequency = stim_config['frequency']
+        pulse_width = stim_config['pulse_width']
+        pulse_count = stim_config['pulse_count']
+
+        # Optional: reduce Windows timer quantum to 1 ms during stimulation
+        time_period_set = False
+        if sys.platform.startswith('win'):
+            try:
+                ctypes.windll.winmm.timeBeginPeriod(1)
+                time_period_set = True
+            except Exception:
+                time_period_set = False
+
+        try:
+            period_s = 1.0 / float(frequency)
+            pulse_s = float(pulse_width) / 1000.0
+
+            # # Measure approximate command latency to compensate in scheduling
+            # # Keep this minimal to avoid warm-up effects
+            # t0 = time.perf_counter()
+            # self._led_on(color=color, illumination=illumination)
+            # t1 = time.perf_counter()
+            # self._led_off(color=color)
+            # t2 = time.perf_counter()
+            # on_latency = max(0.0, t1 - t0)
+            # off_latency = max(0.0, t2 - t1)
+
+            # Use fast path LED toggles if available via API
+            def led_on_fast():
+                #logger.info(f"[STIMULATOR] {color} LED ON")
+                if hasattr(self._scope, 'led_on_fast'):
+                    self._scope.led_on_fast(channel=self._scope.color2ch(color=color), mA=illumination)
+                else:
+                    self._scope.led_on(channel=self._scope.color2ch(color=color), mA=illumination)
+
+            def led_off_fast():
+                #logger.info(f"[STIMULATOR] {color} LED OFF")
+                if hasattr(self._scope, 'led_off_fast'):
+                    self._scope.led_off_fast(channel=self._scope.color2ch(color=color))
+                else:
+                    self._scope.led_off(channel=self._scope.color2ch(color=color))
+
+            start_epoch = time.perf_counter()
+            
+            start_event.wait()
+
+            for i in range(pulse_count):
+                if stop_event.is_set():
+                    break
+
+                # Target times for this pulse
+                on_time = start_epoch + i * period_s
+                off_time = on_time + pulse_s
+                next_period_time = start_epoch + (i + 1) * period_s
+
+                # Sleep until on_time (coarse) then spin
+                while True:
+                    now = time.perf_counter()
+                    remaining = on_time - now
+                    if remaining <= 0:
+                        break
+                    if remaining > 0.003:
+                        time.sleep(remaining - 0.002)
+                    else:
+                        # short busy-wait to reduce jitter
+                        pass
+
+                led_on_fast()
+
+                # Sleep/spin until off_time
+                while True:
+                    now = time.perf_counter()
+                    remaining = off_time - now
+                    if remaining <= 0:
+                        break
+                    if remaining > 0.003:
+                        time.sleep(remaining - 0.002)
+                    else:
+                        pass
+
+                led_off_fast()
+
+                # Maintain period; wait until next_period_time
+                while True:
+                    now = time.perf_counter()
+                    remaining = next_period_time - now
+                    if remaining <= 0:
+                        break
+                    if remaining > 0.003:
+                        time.sleep(remaining - 0.002)
+                    else:
+                        pass
+
+        finally:
+            if sys.platform.startswith('win') and time_period_set:
+                try:
+                    ctypes.windll.winmm.timeEndPeriod(1)
+                except Exception:
+                    pass
+                finally:
+                    logger.info(f"[STIMULATOR] {color} Ended")
+                    
+            # Ensure LED off at the end
+            try:
+                if hasattr(self._scope, 'led_off_fast'):
+                    self._scope.led_off_fast(channel=self._scope.color2ch(color=color))
+                else:
+                    self._scope.led_off(channel=self._scope.color2ch(color=color))
+            except Exception:
+                pass

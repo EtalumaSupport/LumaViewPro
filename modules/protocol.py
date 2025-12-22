@@ -8,6 +8,7 @@ import pandas as pd
 import os
 import pathlib
 import re
+import copy
 
 from lvp_logger import logger
 
@@ -34,8 +35,9 @@ class Protocol:
         2: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID'],
         3: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
         4: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config'],
+        5: ['Name', 'X', 'Y', 'Z', 'Auto_Focus', 'Color', 'False_Color', 'Illumination', 'Gain', 'Auto_Gain', 'Exposure', 'Sum', 'Objective', 'Well', 'Tile', 'Z-Slice', 'Custom Step', 'Tile Group ID', 'Z-Stack Group ID', 'Acquire', 'Video Config', 'Stim_Config'],
     }
-    CURRENT_VERSION = 4
+    CURRENT_VERSION = 5
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
     STEP_NAME_PATTERN = re.compile(r"^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$")
     
@@ -165,6 +167,7 @@ class Protocol:
                 ("Z-Stack Group ID", int),
                 ("Acquire", str),
                 ("Video Config", object),
+                ("Stim_Config", object),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -253,6 +256,7 @@ class Protocol:
         layer_config: dict,
         plate_position: dict,
         objective_id: str,
+        stim_configs: dict,
     ):
         def _validate_inputs():
             if step_idx < 0:
@@ -278,8 +282,8 @@ class Protocol:
         self._config['steps'].at[step_idx, "Sum"] = int(layer_config['sum'])
         self._config['steps'].at[step_idx, "Objective"] = objective_id
         self._config['steps'].at[step_idx, "Acquire"] = layer_config['acquire']
-        self._config['steps'].at[step_idx, "Video Config"] = layer_config['video_config']
-
+        self._config['steps'].at[step_idx, "Video Config"] = copy.deepcopy(layer_config['video_config'])
+        self._config['steps'].at[step_idx, "Stim_Config"] = copy.deepcopy(stim_configs)
 
     def insert_step(
         self,
@@ -288,6 +292,7 @@ class Protocol:
         layer_config: dict,
         plate_position: dict,
         objective_id: str,
+        stim_configs: dict,
         before_step: int | None = 0,
         after_step: int | None = None,
         include_objective_in_step_name: bool = False,
@@ -354,6 +359,7 @@ class Protocol:
             zstack_group_id=zstack_group_id,
             acquire=layer_config['acquire'],
             video_config=layer_config['video_config'],
+            stim_config=copy.deepcopy(stim_configs),
         )
 
         if before_step is not None:
@@ -364,6 +370,10 @@ class Protocol:
         line = pd.DataFrame(data=step_dict, index=[pos_index])
         line = line.astype({'Video Config': 'object'})
         line.at[pos_index, 'Video Config'] = step_dict['Video Config']
+        
+        line = line.astype({'Stim_Config': 'object'})
+        line.at[pos_index, 'Stim_Config'] = step_dict['Stim_Config']
+
         self._config['steps'] = pd.concat([self._config['steps'], line], ignore_index=False, axis=0)
         self._config['steps'] = self._config['steps'].sort_index().reset_index(drop=True)
 
@@ -523,6 +533,7 @@ class Protocol:
                     zstack_group_id=orig_step_df['Z-Stack Group ID'],
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
+                    stim_config=orig_step_df['Stim_Config'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -605,6 +616,7 @@ class Protocol:
                     zstack_group_id=zstack_group_id,
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
+                    stim_config=orig_step_df['Stim_Config'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -640,6 +652,7 @@ class Protocol:
         duration = input_config['duration']
         frame_dimensions = input_config['frame_dimensions']
         binning_size = input_config['binning_size']
+        stim_config = input_config['stim_config']
 
         objective_loader = ObjectiveLoader()
         objective = objective_loader.get_objective_info(objective_id=objective_id)
@@ -733,6 +746,7 @@ class Protocol:
                         exposure = round(layer_config['exposure'], common_utils.max_decimal_precision('exposure'))
                         video_config = layer_config['video_config']
 
+
                         well_label = pos['name']
                         if position_source == 'from_labware':
                             custom_step = False
@@ -785,6 +799,7 @@ class Protocol:
                             zstack_group_id=zstack_group_id_label,
                             acquire=layer_config['acquire'],
                             video_config=video_config,
+                            stim_config=stim_config,
                         )
                         steps.append(step_dict)
                 
@@ -828,6 +843,7 @@ class Protocol:
         period = config['period']
         duration = config['duration']
         frame_dimensions = config['frame_dimensions']
+        stim_config = {}
 
         input_config = {
             'labware_id': labware_id,
@@ -840,6 +856,7 @@ class Protocol:
             'duration': duration,
             'frame_dimensions': frame_dimensions,
             'binning_size': config['binning_size'],
+            'stim_config': stim_config,
         }
 
         return cls.from_config(
@@ -871,6 +888,7 @@ class Protocol:
         zstack_group_id,
         acquire,
         video_config,
+        stim_config
     ):
         return {
             "Name": name,
@@ -893,8 +911,37 @@ class Protocol:
             "Tile Group ID": tile_group_id,
             "Z-Stack Group ID": zstack_group_id,
             "Acquire": acquire,
-            "Video Config": video_config,
+            "Video Config": copy.deepcopy(video_config),
+            "Stim_Config": copy.deepcopy(stim_config),
         }
+        
+
+    """
+    stim_config = {
+        "Red": {
+            "enabled": True,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 1,
+        },
+        "Green": {
+            "enabled": True,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 1,
+        },
+        "Blue": {
+            "enabled": True,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 1,
+        }
+    }
+
+    """
 
 
     @staticmethod
@@ -964,7 +1011,7 @@ class Protocol:
         if config['version'] == cls.CURRENT_VERSION:
             allowed = True
 
-        elif (config['version'] in (2, 3,)) and (cls.CURRENT_VERSION == 4):
+        elif (config['version'] in (2, 3, 4)) and (cls.CURRENT_VERSION == 5):
             allowed = True
                 
         if not allowed:
@@ -1088,12 +1135,38 @@ class Protocol:
         # Added in v4
         DEFAULT_SUM_CONFIG = 1
 
+        # Added in v5
+        DEFAULT_STIM_CONFIG = {
+            "Red": {
+                "enabled": False,
+                "illumination": 100,
+                "frequency": 1,
+                "pulse_width": 10,
+                "pulse_count": 100,
+            },
+            "Green": {
+                "enabled": False,
+                "illumination": 100,
+                "frequency": 1,
+                "pulse_width": 10,
+                "pulse_count": 100,
+            },
+            "Blue": {
+                "enabled": False,
+                "illumination": 100,
+                "frequency": 1,
+                "pulse_width": 10,
+                "pulse_count": 100,
+            }
+        }
+
         if (config['version'] < cls.CURRENT_VERSION):
             logger.info(f"Converting loaded protocol from {config['version']} to {cls.CURRENT_VERSION}")
 
-        if (config['version'] == 2) and (cls.CURRENT_VERSION == 4):
+        if (config['version'] == 2) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Acquire'] = "image"
-            protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
+            # Ensure each row gets its own Video Config dict
+            protocol_df['Video Config'] = copy.deepcopy(DEFAULT_VIDEO_CONFIG)
         else:
 
             # Convert Video Config strings per step to dictionary
@@ -1101,14 +1174,24 @@ class Protocol:
                 protocol_df['Video Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Video Config']), axis=1)
             except Exception as ex:
                 logger.error(f"Unable to parse video config, using default instead: {ex}")
-                protocol_df['Video Config'] = DEFAULT_VIDEO_CONFIG
+                protocol_df['Video Config'] = copy.deepcopy(DEFAULT_VIDEO_CONFIG)
 
 
-        if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION == 4):
+        if (config['version'] in (2,3,)) and (cls.CURRENT_VERSION >= 4):
             protocol_df['Sum'] = DEFAULT_SUM_CONFIG
 
+        if (config['version'] in (2,3,4)) and (cls.CURRENT_VERSION >= 5):
+            # Ensure each row gets its own Stim Config dict
+            protocol_df['Stim_Config'] = copy.deepcopy(DEFAULT_STIM_CONFIG)
+        else:
+            # Convert Stim Config strings per step to dictionary
+            try:
+                protocol_df['Stim_Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Stim_Config']), axis=1)
+            except Exception as ex:
+                logger.error(f"Unable to parse stim config, using default instead: {ex}")
+                protocol_df['Stim_Config'] = copy.deepcopy(DEFAULT_STIM_CONFIG)
 
-        if config['version'] in (2, 3, 4):
+        if config['version'] in (2, 3, 4, 5):
             protocol_df['Step Index'] = protocol_df.index
 
             # Extract tiling config from step names
