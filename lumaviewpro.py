@@ -6015,7 +6015,8 @@ class ProtocolSettings(CompositeCapture):
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
         
-        self.ids['run_scan_btn'].text = 'Running Scan'
+        self.ids['run_scan_btn'].text = 'Abort One Scan'
+        self.ids['run_scan_btn'].background_down = './data/icons/abort_protocol_background.png'
 
         callbacks = {
             'run_scan_pre': self._run_scan_pre_callback,
