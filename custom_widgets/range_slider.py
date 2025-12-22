@@ -90,7 +90,7 @@ class RangeSlider(Widget):
     slider bounding box.
 
     By default, padding is sp(16). The range of the slider is reduced from
-    padding \*2 on the screen. It allows drawing the default cursor of sp(32)
+    padding * 2 on the screen. It allows drawing the default cursor of sp(32)
     width without having the cursor go out of the widget.
 
     :attr:`padding` is a :class:`~kivy.properties.NumericProperty` and defaults

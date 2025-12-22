@@ -1,10 +1,12 @@
 import os
 import json
-from lvp_logger import lvp_appdata, logger
+
 
 global settings
 
-def load_settings(logger, filename):
+global debug_setting
+
+def load_settings(logger, filename, lvp_appdata):
         
         global settings
 
@@ -19,17 +21,46 @@ def load_settings(logger, filename):
         else:
             try:
                 settings = json.load(read_file)
+                read_file.close()
             except:
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
 
-os.chdir(lvp_appdata)
+def load_lvp_settings(logger, lvp_appdata):
+    global settings
 
-if os.path.exists("./data/current.json"):
-    load_settings(logger, "./data/current.json")
-elif os.path.exists("./data/settings.json"):
-    load_settings(logger, "./data/settings.json")
-else:
-    if not os.path.isdir('./data'):
-        raise FileNotFoundError("Cound't find 'data' directory.")
+    os.chdir(lvp_appdata)
+
+    if os.path.exists("./data/current.json"):
+        load_settings(logger, "./data/current.json", lvp_appdata)
+    elif os.path.exists("./data/settings.json"):
+        load_settings(logger, "./data/settings.json", lvp_appdata)
     else:
-        raise FileNotFoundError('No settings files found.')
+        if not os.path.isdir('./data'):
+            raise FileNotFoundError("Cound't find 'data' directory.")
+        else:
+            raise FileNotFoundError('No settings files found.')
+
+def load_debug_setting(directory):
+    global debug_setting
+
+    try:
+        os.chdir(directory)
+        if os.path.exists("./data/current.json"):
+            filename = "./data/current.json"
+        elif os.path.exists("./data/settings.json"):
+            filename = "./data/settings.json"
+        else:
+            if not os.path.isdir('./data'):
+                raise FileNotFoundError("Cound't find 'data' directory.")
+            else:
+                raise FileNotFoundError('No settings files found.')
+
+        with open(filename, "r") as read_file:
+            temp_settings = json.load(read_file)
+
+        debug_setting = temp_settings.get("debug_mode", False)
+        return debug_setting
+
+    except Exception as e:
+        raise e
+    

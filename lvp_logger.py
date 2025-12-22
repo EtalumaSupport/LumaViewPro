@@ -77,16 +77,26 @@ if windows_machine and (lvp_installed == True):
 else:
     lvp_appdata = script_path
 
+from settings_init import load_debug_setting
+try:
+    debug = load_debug_setting(lvp_appdata)
+except:
+    debug = False
+
+
+
 os.makedirs("logs/LVP_Log", exist_ok=True)
 
-# file to which messages are logged 
+# files to which messages are logged 
 LOG_FILE = 'logs/LVP_Log/lumaviewpro.log'
+
+ERRORS_LOG_FILE = 'logs/LVP_Log/lumaviewpro_errors.log'
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
     # if level is DEBUG/WARNING/ERROR/CRITICAL, log the level, message, time, and filename
     def __init__(self, 
-                 fmt = '[%(levelname)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s', 
+                 fmt = '[%(levelname)s] [%(threadName)s] %(asctime)s.%(msecs)03d - %(filename)s - %(message)s', 
                  datefmt ='%m/%d/%Y %H:%M:%S'):
         logging.Formatter.__init__(self, fmt, datefmt)
 
@@ -123,6 +133,11 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
 
+
+# Prevent logs from propagating to root (and the console)
+if not debug:
+    logger.propagate = False
+
 # determines lowest level of messages to log (DEBUG < INFO < WARNING < ERROR < CRITICAL)
 logger.setLevel(logging.INFO)
 
@@ -131,18 +146,60 @@ filename = '%s' % __file__
 file_handler = RotatingFileHandler(
     LOG_FILE,
     mode='a',
-    maxBytes=5*1024*1024, 
+    maxBytes=5*1024*1024,
     backupCount=2,
     encoding=None,
-    delay=False
+    delay=False,
 )
-
-# Modify default log naming behavior so that it ends as .x.log instead of .log.x
 file_handler.namer = lambda name: name.replace('.log', '') + '.log'
-
-# file_handler = logging.FileHandler(LOG_FILE)
 file_handler.setFormatter(CustomFormatter())
+
+# Additional rotating file handler for errors and critical logs only
+error_file_handler = RotatingFileHandler(
+    ERRORS_LOG_FILE,
+    mode='a',
+    maxBytes=5*1024*1024,
+    backupCount=2,
+    encoding=None,
+    delay=False,
+)
+# keep the same filename pattern for rotations
+error_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+error_file_handler.setFormatter(CustomFormatter())
+
+# Accept all levels on the handler but filter to ERROR+ or forced records
+error_file_handler.setLevel(logging.NOTSET)
+
+"""
+
+Example of forcing a log record to also go to the errors log file:
+
+logger.info("Info message that should also go to errors file", extra={'force_error': True})
+
+"""
+
+class ErrorOrForcedFilter(logging.Filter):
+    """Allows records that are ERROR/CRITICAL or explicitly marked via extra={'force_error': True}."""
+    def filter(self, record):
+        if record.levelno >= logging.ERROR:
+            return True
+        return bool(getattr(record, 'force_error', False))
+
+error_file_handler.addFilter(ErrorOrForcedFilter())
+
 logger.addHandler(file_handler)
+logger.addHandler(error_file_handler)
+
+# Best-effort: remove any existing console/stream handlers from root to reduce terminal noise
+if not debug:
+    try:
+        root_logger = logging.getLogger()
+        for h in list(root_logger.handlers):
+            if isinstance(h, logging.StreamHandler):
+                root_logger.removeHandler(h)
+    except Exception:
+        pass
+
 sys.excepthook = custom_except_hook
 minimize_logger_window()
 logging.disable(logging.DEBUG)

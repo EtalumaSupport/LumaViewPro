@@ -50,8 +50,14 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
 
         objective_short_name = self._get_objective_short_name_if_has_turret(objective_id=row0['Objective'])
 
+        # Prepend custom root + step name if available
+        custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
+        if custom_root not in (None, ''):
+            prefix = f"{custom_root}_{row0['Name']}"
+        else:
+            prefix = row0['Name']
         name = common_utils.generate_default_step_name(
-            custom_name_prefix=row0['Name'],
+            custom_name_prefix=prefix,
             well_label=row0['Well'],
             color='Composite',
             z_height_idx=row0['Z-Slice'],

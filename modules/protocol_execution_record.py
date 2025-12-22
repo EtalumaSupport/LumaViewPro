@@ -5,13 +5,15 @@ import pathlib
 
 import pandas as pd
 
+from lvp_logger import logger
+
 
 class ProtocolExecutionRecord:
 
     FILE_HEADER = "LumaViewPro Protocol Execution Record"
-    CURRENT_VERSION = 2
+    CURRENT_VERSION = 3
     DEFAULT_FILENAME = 'protocol_record.tsv'
-    COLUMNS = ('Filename', 'Step Name', 'Step Index', 'Scan Count', 'Timestamp')
+    COLUMNS = ('Filename', 'Step Name', 'Step Index', 'Scan Count', 'Timestamp', 'Frame Count', 'Duration (s)')
 
     def __init__(
         self,
@@ -27,7 +29,6 @@ class ProtocolExecutionRecord:
         
         self._protocol_file_loc = pathlib.Path(protocol_file_loc)
 
-        self._outfile_fp = None
         if outfile is not None:
             self._mode = "to_file"
             self._outfile = outfile
@@ -38,12 +39,13 @@ class ProtocolExecutionRecord:
 
 
     def _initialize_outfile(self, outfile: pathlib.Path):
-        self._outfile_fp = open(outfile, 'w')
-        self._outfile_csv = csv.writer(self._outfile_fp, delimiter='\t', lineterminator='\n')
-        self._outfile_csv.writerow([self.FILE_HEADER])
-        self._outfile_csv.writerow(['Version', self.CURRENT_VERSION])
-        self._outfile_csv.writerow(['Protocol File', str(self._protocol_file_loc)])
-        self._outfile_csv.writerow(self.COLUMNS)
+        """Create file with header. Each add_step will append separately."""
+        with open(outfile, 'w', newline='') as fp:
+            csv_writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
+            csv_writer.writerow([self.FILE_HEADER])
+            csv_writer.writerow(['Version', self.CURRENT_VERSION])
+            csv_writer.writerow(['Protocol File', str(self._protocol_file_loc)])
+            csv_writer.writerow(self.COLUMNS)
 
     
     def protocol_file_loc(self) -> pathlib.Path:
@@ -55,10 +57,12 @@ class ProtocolExecutionRecord:
 
 
     def _close_outfile(self):
-        if self._outfile_fp is None:
-            return
+        # Execution record is written in append mode; nothing to close
+        pass
+        # if self._outfile_fp is None:
+        #     return
         
-        self._outfile_fp.close()
+        # self._outfile_fp.close()
 
 
     def add_step(
@@ -67,13 +71,19 @@ class ProtocolExecutionRecord:
         step_name: str,
         step_index: int,
         scan_count: int,
-        timestamp: datetime.datetime
+        timestamp: datetime.datetime,
+        frame_count: int = 1,
+        duration_sec: float = 0.0
     ):
         if self._mode != "to_file":
             raise Exception(f"add_step() can only be called when the instance is initialized with an 'outfile'.")
         
-        self._outfile_csv.writerow([capture_result_file_name, step_name, step_index, scan_count, timestamp])
-        self._outfile_fp.flush()
+        try:
+            with open(self._outfile, 'a', newline='') as fp:
+                csv_writer = csv.writer(fp, delimiter='\t', lineterminator='\n')
+                csv_writer.writerow([capture_result_file_name, step_name, step_index, scan_count, timestamp, frame_count, duration_sec])
+        except Exception as e:
+            logger.error(f"ProtocolExecutionRecord: Failed to write step {step_name}: {e}")
         
     
     def get_data_from_filename(self, file_path: str | pathlib.Path) -> dict | None:
@@ -105,7 +115,7 @@ class ProtocolExecutionRecord:
             if version[0] != 'Version':
                 raise Exception(f"Version key not found")
             
-            if int(version[1]) not in (2,):
+            if int(version[1]) not in (2, 3):  # Add 3 to supported versions
                 raise Exception(f"Unsupported protocol execution record version")
             
             protocol_file_loc_row = next(csvreader)
@@ -118,15 +128,24 @@ class ProtocolExecutionRecord:
 
             records = []
             for row in csvreader:
-                records.append(
-                    {
-                        'Filename': row[0],
-                        'Step Name': row[1],
-                        'Step Index': int(row[2]),
-                        'Scan Count': int(row[3]),
-                        'Timestamp': datetime.datetime.strptime(row[4], "%Y-%m-%d %H:%M:%S.%f")
-                    }
-                )
+                record_dict = {
+                    'Filename': row[0],
+                    'Step Name': row[1],
+                    'Step Index': int(row[2]),
+                    'Scan Count': int(row[3]),
+                    'Timestamp': datetime.datetime.strptime(row[4], "%Y-%m-%d %H:%M:%S.%f")
+                }
+                
+                # Handle version 3 additions
+                if len(row) > 5:
+                    record_dict['Frame Count'] = int(row[5])
+                    record_dict['Duration (s)'] = float(row[6])
+                else:
+                    # Default values for older versions
+                    record_dict['Frame Count'] = 1
+                    record_dict['Duration (s)'] = 0.0
+                    
+                records.append(record_dict)
 
             df = pd.DataFrame(records)
 

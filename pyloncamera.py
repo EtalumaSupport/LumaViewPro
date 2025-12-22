@@ -39,6 +39,8 @@ import numpy as np
 from pypylon import pylon, genicam
 from lvp_logger import logger
 
+import queue
+
 default_max_exposure = 1_000 # in ms
 
 class PylonCamera:
@@ -51,6 +53,8 @@ class PylonCamera:
         self.cam_image_handler = None
         self.model_name = None
         self.max_exposure = 100 # in ms
+        self._device_removed = False
+        self._device_serial = None
 
         self.max_exposure_dict = {
             "daA3840-45um": 1_000,
@@ -64,6 +68,23 @@ class PylonCamera:
             self._use_camera_emulation = False
 
         self.connect()
+
+    def disconnect(self):
+        logger.info('[CAM Class ] Disconnecting from camera...')
+        try:
+            if self.active is not None:
+                try:
+                    if self.active.IsGrabbing():
+                        self.stop_grabbing()
+                except Exception:
+                    pass
+                self.active.Close()
+                self.active = None
+                logger.info('[CAM Class ] PylonCamera.disconnect() succeeded')
+            else:
+                logger.info('[CAM Class ] PylonCamera.disconnect() failed: Camera not connected')
+        except Exception as e:
+            logger.exception(f'[CAM Class ] PylonCamera.disconnect() failed: {e}')
 
     def __delete__(self):
         try:
@@ -87,15 +108,21 @@ class PylonCamera:
 
     def stop_grabbing(self):
         camera = self.active
-        camera.StopGrabbing()
+        try:
+            camera.StopGrabbing()
+        except Exception as e:
+            logger.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
 
     def start_grabbing(self):
         camera = self.active
-        camera.StartGrabbing(
-            pylon.GrabStrategy_LatestImageOnly,
-            pylon.GrabLoop_ProvidedByInstantCamera
-        )
+        try:
+            camera.StartGrabbing(
+                pylon.GrabStrategy_LatestImageOnly,
+                pylon.GrabLoop_ProvidedByInstantCamera
+            )
+        except Exception as e:
+            logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
     def connect(self):
         """ Try to connect to the first available basler camera"""
@@ -103,6 +130,8 @@ class PylonCamera:
             p_device = pylon.TlFactory.GetInstance().CreateFirstDevice()
             self.active = pylon.InstantCamera(p_device)
             camera = self.active
+            # Ensure previous removal flag does not persist across a new connection
+            self._device_removed = False
             camera.RegisterConfiguration(
                 pylon.AcquireContinuousConfiguration(),
                 pylon.RegistrationMode_ReplaceAll,
@@ -113,8 +142,18 @@ class PylonCamera:
             #     pylon.RegistrationMode_Append,
             #     pylon.Cleanup_Delete
             # )
+            # Register a minimal removal handler that only sets an internal flag
+            try:
+                camera.RegisterConfiguration(
+                    _CameraRemovalHandler(self),
+                    pylon.RegistrationMode_Append,
+                    pylon.Cleanup_Delete
+                )
+            except Exception:
+                # If registration isn't supported on this platform/TL, ignore
+                pass
 
-            self.cam_image_handler = ImageHandler()
+            self.cam_image_handler = ImageHandler(self)
             camera.RegisterImageEventHandler(
                 self.cam_image_handler,
                 pylon.RegistrationMode_Append,
@@ -122,7 +161,45 @@ class PylonCamera:
             )
 
             camera.Open()
+            
+            self._device_removed = False
+
+            # Store device identity if possible
+            try:
+                dev_info = camera.GetDeviceInfo()
+                self.model_name = dev_info.GetModelName()
+                try:
+                    self._device_serial = dev_info.GetSerialNumber()
+                except Exception:
+                    # Some transports may not provide a serial accessor
+                    self._device_serial = None
+
+                try:
+                    nm = camera.GetNodeMap()
+                    
+                    ds_n = nm.GetNode("DeviceSerialNumber")
+                    device_serial = nm.GetNode("DeviceSerialNumber").ToString()
+                    logger.info(f'[CAM Class ] Camera Serial Number: {device_serial}')
+
+                    firmware = nm.GetNode("DeviceFirmwareVersion").ToString()
+                    logger.info(f'[CAM Class ] Camera Firmware Version: {firmware}')
+
+                    temps = self.get_all_temperatures()
+                    for name, temp in temps.items():
+                        logger.info(f'[CAM Class ] Camera {name} Temperature : {temp:.2f} °C')
+
+                except Exception as e:
+                    logger.error(f'[CAM Class ] Failed to read device info nodes: {e}', exc_info=True)
+
+            except Exception:
+                self.model_name = None
+                self._device_serial = None
             self.init_camera_config()
+            # Ensure no stale queued frames or state
+            try:
+                self.cam_image_handler.reset()
+            except Exception:
+                pass
             self.start_grabbing()
 
             self.error_report_count = 0
@@ -139,10 +216,49 @@ class PylonCamera:
             self.error_report_count += 1
 
     def find_model_name(self):
+        if not self.active:
+            logger.warning('[CAM Class ] find_model_name(): inactive camera')
+            return
+
         dev_info = self.active.GetDeviceInfo()
         self.model_name = dev_info.GetModelName()
         logger.info(f'[CAM Class ] Connected camera model detected as "{self.model_name}"')
         return
+    
+    def get_all_temperatures(self):
+        """
+        Returns dict like:
+            {'FpgaCore': 43.2, 'SomethingElse': 40.1, ...}
+        """
+        # Camera Must be open prior to calling function
+        if not self.active:
+            logger.warning('[CAM Class ] get_all_temperatures(): inactive camera')
+            return {}
+
+        nodemap = self.active.GetNodeMap()
+
+        selector = nodemap.GetNode("DeviceTemperatureSelector")
+        temp = nodemap.GetNode("DeviceTemperature")
+
+        if selector is None or temp is None:
+            return {}
+
+        temps: dict[str, float] = {}
+
+        # Iterate all available selector entries
+        for entry in selector.GetEntries():
+
+            name = entry.GetSymbolic()       # e.g. "FpgaCore"
+            value = entry.GetValue()         # enum integer value
+
+            # Select this temperature source
+            selector.SetIntValue(value)
+
+            # Read temperature
+            if genicam.IsReadable(temp):
+                temps[name] = temp.GetValue()
+
+        return temps
 
     def get_model_name(self):
         return self.model_name
@@ -307,7 +423,31 @@ class PylonCamera:
         except Exception as ex:
             logger.exception(f"Failed to grab image: {ex}")
             return False, None
-  
+    
+    def grab_new_capture(self, timeout: float):
+        """
+        Blocks for timeout waiting for new frame. Saves from to self.array when received
+        returns bool, ts
+        """
+        if not self.cam_image_handler:
+            return False, None
+        
+        try:
+            try:
+                self.cam_image_handler._frame_queue.get_nowait()
+            except queue.Empty:
+                pass
+            result, image, image_ts = self.cam_image_handler._frame_queue.get(block=True, timeout=timeout)
+            if result is False:
+                return False, None
+            
+            self.array = image
+            return True, image_ts
+        
+        except Exception as ex:
+            logger.exception(f"Failed to grab image: {ex}")
+            return False, None
+        
 
     def set_frame_size(self, w, h):
         """ Set camera frame size to w by h and keep centered """
@@ -370,6 +510,28 @@ class PylonCamera:
             return -1
         
         return float(self.active.Gain.GetValue())
+
+    def is_connected(self) -> bool:
+        """Return True if the current camera is considered connected.
+        Uses internal removal flag and, if available, the SDK's device-removed query.
+        Avoids transport-layer enumeration to reduce risk of native-side instability.
+        """
+        if self.active in (False, None):
+            self._device_removed = True
+            return False
+        if self._device_removed:
+            return False
+        if getattr(self, "_use_camera_emulation", False):
+            return True
+        try:
+            if hasattr(self.active, "IsCameraDeviceRemoved"):
+                if self.active.IsCameraDeviceRemoved():
+                    self._device_removed = True
+                    logger.warning('[CAM Class ] Camera device removed')
+                    return False
+        except Exception:
+            return False
+        return True
 
 
     def gain(self, gain):
@@ -491,31 +653,66 @@ class PylonCamera:
 
 class ImageHandler(pylon.ImageEventHandler):
 
-    def __init__(self):
+    def __init__(self, parent_cam: PylonCamera):
         super().__init__()
         self.last_result = False
         self.last_img = None
         self._failed_grabs = 0
         self._last_img_ts = None
+        self._frame_queue = queue.Queue(maxsize=1)
+        self._parent = parent_cam
         
-
+    
     def OnImageGrabbed(self, camera, grabResult):
         try:
+            if not self._frame_queue.empty():
+                try:
+                    self._frame_queue.get_nowait()
+                except queue.Empty:
+                    pass
             self.last_result = grabResult.GrabSucceeded()
             if self.last_result:
                 self.last_img = grabResult.GetArray()
                 self._last_img_ts = datetime.datetime.now()
+                self._frame_queue.put((self.last_result, self.last_img, self._last_img_ts))
+                self._failed_grabs = 0
             else:
                 self._failed_grabs += 1
-                logger.exception(f"Grab Failed -> result: {self.last_result}, {self._failed_grabs} failed grabs")
+                # Rate-limit noisy grab failure logs
+                if self._failed_grabs % 5 == 1:
+                    logger.warning(f"Grab Failed -> result: {self.last_result}, {self._failed_grabs} failed grabs")
+                # If we've failed a lot in a row, stop grabbing to avoid potential underlying SDK exit
+                if self._failed_grabs >= 128:
+                    try:
+                        logger.error('[CAM Class ] Too many grab failures; stopping acquisition')
+                        if self._parent.active and self._parent.active.IsGrabbing():
+                            self._parent.stop_grabbing()
+                        self._parent._device_removed = True
+                    except Exception:
+                        pass
         except Exception as e:
             logger.exception(e)
+
+    def reset(self):
+        try:
+            while not self._frame_queue.empty():
+                try:
+                    self._frame_queue.get_nowait()
+                except queue.Empty:
+                    break
+            self.last_result = False
+            self.last_img = None
+            self._last_img_ts = None
+            self._failed_grabs = 0
+        except Exception:
+            pass
 
     def GetLastImage(self):
         if self.last_result is False:
             return False, None, None
         
         return self.last_result, self.last_img.copy(), self._last_img_ts
+    
     
 
 # class ConfigurationEventPrinter(pylon.ConfigurationEventHandler):
@@ -567,3 +764,18 @@ class ImageHandler(pylon.ImageEventHandler):
 
 #     def OnCameraDeviceRemoved(self, camera):
 #         print("OnCameraDeviceRemoved event for device ", camera.GetDeviceInfo().GetModelName())
+
+# Handle camera removal events to flag device disconnect
+class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
+    def __init__(self, parent_cam: PylonCamera):
+        super().__init__()
+        self._parent = parent_cam
+
+    def OnCameraDeviceRemoved(self, camera):
+        # Avoid doing anything heavy here; just mark state silently
+        try:
+            self._parent._device_removed = True
+            self._parent.active = False
+            logger.info('[CAM Class ] Camera device removed detected by removal handler')
+        except Exception:
+            pass
