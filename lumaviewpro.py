@@ -1258,7 +1258,19 @@ class ScopeDisplay(Image):
         )
         
         self.use_full_pixel_depth = False
+        
+        # Create a black texture to avoid white flash on startup
+        self._create_default_black_texture()
+        
         self.start()
+    
+    def _create_default_black_texture(self):
+        """Create a default black texture to display before camera feed starts."""
+        # Create a small black image (will be stretched to fit)
+        black_image = np.zeros((100, 100), dtype=np.uint8)
+        texture = Texture.create(size=(black_image.shape[1], black_image.shape[0]), colorfmt='luminance')
+        texture.blit_buffer(black_image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+        self.texture = texture
 
     def start(self, fps = None):
         logger.info('[LVP Main  ] ScopeDisplay.start()')
