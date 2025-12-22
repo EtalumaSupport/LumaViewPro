@@ -6638,12 +6638,26 @@ class Stage(Widget):
         global lumaview
         global settings
 
-        x_target = lumaview.scope.get_target_position('X')
-        y_target = lumaview.scope.get_target_position('Y')
-        x_current = np.clip(lumaview.scope.get_current_position('X'), 0, 120000) # prevents crosshairs from leaving the stage area
-        y_current = np.clip(lumaview.scope.get_current_position('Y'), 0, 80000) # prevents crosshairs from leaving the stage area
+        # Try to get current and target positions - may fail if not homed yet
+        position_available = False
+        x_target = None
+        y_target = None
+        x_current = None
+        y_current = None
+        
+        try:
+            if lumaview.scope.has_xyhomed():
+                x_target = lumaview.scope.get_target_position('X')
+                y_target = lumaview.scope.get_target_position('Y')
+                x_current = np.clip(lumaview.scope.get_current_position('X'), 0, 120000) # prevents crosshairs from leaving the stage area
+                y_current = np.clip(lumaview.scope.get_current_position('Y'), 0, 80000) # prevents crosshairs from leaving the stage area
+                position_available = True
+        except:
+            # If we can't get positions (not homed yet), we'll still draw the labware
+            logger.debug('[Stage     ] Position not available yet, drawing labware only')
+            position_available = False
 
-        if not full_redraw and not self._protocol_step_redraw:
+        if not full_redraw and not self._protocol_step_redraw and position_available:
             if x_target == self._prev_x_target and y_target == self._prev_y_target and x_current == self._prev_x_current and y_current == self._prev_y_current:
                 return
                 
@@ -6724,58 +6738,65 @@ class Stage(Widget):
             from functools import partial
             Clock.schedule_once(partial(self._draw_steps_fbo_scheduled, x, y, w, h), 0)
 
-        # Draw selected well (updates when target changes)
-        target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
+        # Only draw crosshairs and selected well if position is available (after homing)
+        if position_available:
+            # Draw selected well (updates when target changes)
+            target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
+                    labware=labware,
+                    stage_offset=settings['stage_offset'],
+                    sx=x_target,
+                    sy=y_target
+                )
+
+            target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
+            target_well_plate_x, target_well_plate_y = labware.get_well_position(target_i, target_j)
+            target_well_pixel_x, target_well_pixel_y = coordinate_transformer.plate_to_pixel(
                 labware=labware,
-                stage_offset=settings['stage_offset'],
-                sx=x_target,
-                sy=y_target
-            )
-
-        target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
-        target_well_plate_x, target_well_plate_y = labware.get_well_position(target_i, target_j)
-        target_well_pixel_x, target_well_pixel_y = coordinate_transformer.plate_to_pixel(
-            labware=labware,
-            px=target_well_plate_x,
-            py=target_well_plate_y,
-            scale_x=scale_x,
-            scale_y=scale_y
-        )
-        target_well_center_x = int(x+target_well_pixel_x) # on screen center
-        target_well_center_y = int(y+target_well_pixel_y) # on screen center
-
-        # Update selected well ellipse properties (instead of recreating)
-        ellipse_params = (
-            target_well_center_x - well_radius_pixel_x,
-            target_well_center_y - well_radius_pixel_y,
-            well_radius_pixel_x * 2,
-            well_radius_pixel_y * 2
-        )
-        Clock.schedule_once(lambda dt: setattr(self._selected_well_line, 'ellipse', ellipse_params), 0)
-
-        # Draw crosshairs (updates every frame - but only 2 lines!)
-        pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
-                labware=labware,
-                stage_offset=settings['stage_offset'],
-                sx=x_current,
-                sy=y_current,
+                px=target_well_plate_x,
+                py=target_well_plate_y,
                 scale_x=scale_x,
                 scale_y=scale_y
             )
-            
-        x_center = x+pixel_x
-        y_center = y+pixel_y
-        
-        # Update crosshairs properties (instead of recreating)
-        h_line_points = [x_center-10, y_center, x_center+10, y_center]
-        v_line_points = [x_center, y_center-10, x_center, y_center+10]
-        Clock.schedule_once(lambda dt: setattr(self._crosshair_h_line, 'points', h_line_points), 0)
-        Clock.schedule_once(lambda dt: setattr(self._crosshair_v_line, 'points', v_line_points), 0)
+            target_well_center_x = int(x+target_well_pixel_x) # on screen center
+            target_well_center_y = int(y+target_well_pixel_y) # on screen center
 
-        self._prev_x_target = x_target
-        self._prev_y_target = y_target
-        self._prev_x_current = x_current
-        self._prev_y_current = y_current
+            # Update selected well ellipse properties (instead of recreating)
+            ellipse_params = (
+                target_well_center_x - well_radius_pixel_x,
+                target_well_center_y - well_radius_pixel_y,
+                well_radius_pixel_x * 2,
+                well_radius_pixel_y * 2
+            )
+            Clock.schedule_once(lambda dt: setattr(self._selected_well_line, 'ellipse', ellipse_params), 0)
+
+            # Draw crosshairs (updates every frame - but only 2 lines!)
+            pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
+                    labware=labware,
+                    stage_offset=settings['stage_offset'],
+                    sx=x_current,
+                    sy=y_current,
+                    scale_x=scale_x,
+                    scale_y=scale_y
+                )
+                
+            x_center = x+pixel_x
+            y_center = y+pixel_y
+            
+            # Update crosshairs properties (instead of recreating)
+            h_line_points = [x_center-10, y_center, x_center+10, y_center]
+            v_line_points = [x_center, y_center-10, x_center, y_center+10]
+            Clock.schedule_once(lambda dt: setattr(self._crosshair_h_line, 'points', h_line_points), 0)
+            Clock.schedule_once(lambda dt: setattr(self._crosshair_v_line, 'points', v_line_points), 0)
+
+            self._prev_x_target = x_target
+            self._prev_y_target = y_target
+            self._prev_x_current = x_current
+            self._prev_y_current = y_current
+        else:
+            # Hide crosshairs and selected well by setting them to zero size/empty points
+            Clock.schedule_once(lambda dt: setattr(self._selected_well_line, 'ellipse', (0, 0, 0, 0)), 0)
+            Clock.schedule_once(lambda dt: setattr(self._crosshair_h_line, 'points', [0, 0, 0, 0]), 0)
+            Clock.schedule_once(lambda dt: setattr(self._crosshair_v_line, 'points', [0, 0, 0, 0]), 0)
 
 
     def schedule_to_draw(self, draw_function, *args, **kwargs):
