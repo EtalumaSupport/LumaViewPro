@@ -448,14 +448,18 @@ class Lumascope():
             use_scale_bar = False
 
         if use_scale_bar:
+            old_tmp = tmp
             tmp = image_utils.add_scale_bar(
                 image=tmp,
                 objective=self._objective,
                 binning_size=self._binning_size,
             )
+            del old_tmp  # Explicitly release reference to allow immediate memory reclaim
 
         if force_to_8bit and tmp.dtype != np.uint8:
+            old_tmp = tmp
             tmp = image_utils.convert_12bit_to_8bit(tmp)
+            del old_tmp  # Explicitly release reference to allow immediate memory reclaim
 
         return tmp
 

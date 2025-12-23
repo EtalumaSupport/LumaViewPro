@@ -2278,6 +2278,28 @@
 					on_release: root.update_protocol_led_on()
 					state: 'normal'
 
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Disable Protocol Accordions'
+					tooltip_text: 'Prevent layer accordions from expanding/collapsing\nduring protocol execution (reduces memory usage)'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: disable_protocol_accordions_btn
+					size_hint: None, None
+					tooltip_text: 'Prevent layer accordions from expanding/collapsing\nduring protocol execution (reduces memory usage)'
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_disable_protocol_accordions()
+					state: 'normal'
 
 			BoxLayout:
 				height: '30dp'
