@@ -307,7 +307,7 @@ if __name__ == "__main__":
     # User Interface Custom Widgets
     from custom_widgets.range_slider import RangeSlider
     from custom_widgets.progress_popup import show_popup
-    from custom_widgets.notification_popup import show_notification_popup
+    from custom_widgets.notification_popup import show_notification_popup, show_confirmation_popup
 
 
     import image_utils_kivy
@@ -6240,6 +6240,10 @@ class ProtocolSettings(CompositeCapture):
         if not autofocus_scan:
             create_hyperstacks_if_needed()
 
+    def cancel_all_protocols(self):
+        logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')
+        self._cleanup_at_end_of_protocol(autofocus_scan=False)
+
 
 # Widget for displaying Microscope Stage area, labware, and current position 
 class Stage(Widget):
@@ -9089,6 +9093,7 @@ class LumaViewProApp(App):
         try:
             from kivy.core.window import Window
             #Window.bind(on_resize=self._on_resize)
+            Window.bind(on_request_close=self.on_request_close)
             lumaview = MainDisplay()
             cell_count_content = CellCountControls()
             # graphing_controls = GraphingControls()
@@ -9184,12 +9189,35 @@ class LumaViewProApp(App):
         #Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
         #Clock.schedule_once(lumaview.ids['imagesettings_id'].check_settings, 0.1)
 
+    def on_request_close(self, *args):
+        """Handle window close request - show confirmation if protocol is running."""
+        global protocol_running_global
+        
+        if protocol_running_global:
+            Clock.schedule_once(lambda dt: (
+                show_confirmation_popup(
+                title='Confirm Exit',
+                message='A protocol is currently running.\n\nAre you sure you want to exit?',
+                confirm_text='Confirm Exit',
+                cancel_text='Cancel',
+                on_confirm=self.stop
+                )
+            ))           
+           
+            return True  # Prevent window from closing
+        
+        # No protocol running - allow normal close
+        return False
+
     def on_stop(self):
+        global lumaview
+
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
+
+        lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].cancel_all_protocols()
         
         self.shutdown_threads()
 
-        global lumaview
 
         logger.info("[LVP Main  ] lumaview.scope.leds_off()")
         lumaview.scope.leds_off()
