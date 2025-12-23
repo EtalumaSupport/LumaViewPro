@@ -110,7 +110,20 @@ class ObjectiveLoader:
                 raise Exception(f"No objective found with short name {short_name}")
             
         try:
-            objective_info = self._objectives[objective_id]
+            objective_info = None
+            if objective_id in self._objectives:
+                objective_info = self._objectives[objective_id]
+            else:
+                logger.warning(f"Exact match for objective ID {objective_id} not found, attmempting to use closest match")
+                for key in self._objectives:
+                    if key.startswith(objective_id):
+                        objective_info = self._objectives[key]
+                        break
+
+                if objective_info is None:
+                    logger.error(f"No close match found for objective ID {objective_id}")
+                    return None
+
         except:
             raise Exception(f"Unable to retrieve information for objective {objective_id}")
         

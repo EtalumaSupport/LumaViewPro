@@ -825,6 +825,45 @@ def go_to_step_update_ui(step):
     layer_obj.ids['sum_text'].text = str(step["Sum"])
     layer_obj.ids['sum_slider'].value = int(step["Sum"])
 
+    # set video config (e.g., duration) controls
+    if 'Video Config' in step and isinstance(step['Video Config'], dict):
+        vc = step['Video Config']
+        settings[color]['video_config'] = copy.deepcopy(vc)
+        if 'duration' in vc:
+            layer_obj.ids['video_duration_text'].text = str(vc['duration'])
+            layer_obj.ids['video_duration_slider'].value = float(vc['duration'])
+
+    # Set stim configuration for each channel
+    if 'Stim_Config' in step:
+        if isinstance(step['Stim_Config'], dict):
+            # Update each channel's stim config
+            for layer in step['Stim_Config']:
+                stim_config = step['Stim_Config'][layer]
+                settings[layer]['stim_config'] = copy.deepcopy(stim_config)
+
+                stim_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+
+                # TODO Update with proper UI elements
+                if stim_config['enabled']:
+                    stim_layer_obj.ids['stim_enable_btn'].active = True
+                    stim_layer_obj.ids['stim_disable_btn'].active = False
+                else:
+                    stim_layer_obj.ids['stim_disable_btn'].active = True
+                    stim_layer_obj.ids['stim_enable_btn'].active = False
+
+                stim_layer_obj.update_stim_controls_visibility()
+
+                stim_layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
+                stim_layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
+                stim_layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
+                stim_layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
+                stim_layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
+                stim_layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+
+                # layer_obj.ids['enable_stim_btn'].state = 'down'
+                # layer_obj.ids['stim_text'].text = str(stim_config['illumination'])
+                # layer_obj.ids['stim_slider'].value = float(stim_config['illumination'])
+
     # acquire type
     
     for acquire_sel in ('acquire_video', 'acquire_image', 'acquire_none'):  
@@ -901,6 +940,14 @@ def get_layer_configs(
 
         acquire = layer_settings['acquire']
         video_config = layer_settings['video_config']
+
+        if 'stim_config' in layer_settings:
+            # Force an update to keep stim_config.illumination in sync with layer illumination
+            settings[layer]['stim_config']['illumination'] = layer_settings['ill']
+            stim_config = layer_settings['stim_config']
+        else:
+            stim_config = None
+
         autofocus = layer_settings['autofocus']
         false_color = layer_settings['false_color']
         illumination = round(layer_settings['ill'], common_utils.max_decimal_precision('illumination'))
@@ -910,9 +957,14 @@ def get_layer_configs(
         exposure = round(layer_settings['exp'], common_utils.max_decimal_precision('exposure'))
         focus = layer_settings['focus']
 
+        # Final check to ensure consistent stim_config.illumination
+        if stim_config is not None:
+            stim_config['illumination'] = illumination
+
         layer_configs[layer] = {
             'acquire': acquire,
             'video_config': video_config,
+            'stim_config': stim_config,
             'autofocus': autofocus,
             'false_color': false_color,
             'illumination': illumination,
@@ -942,6 +994,23 @@ def get_active_layer_config() -> tuple[str, dict]:
     )
     
     return c_layer, layer_configs[c_layer]
+
+def get_stim_configs() -> dict:
+    # Build per-layer stim configs, forcing illumination to match current layer illumination
+    stim_configs = {}
+    layer_configs = get_layer_configs()
+    for layer in layer_configs:
+        if layer_configs[layer]['stim_config'] is not None:
+            stim_configs[layer] = layer_configs[layer]['stim_config']
+    return stim_configs
+
+def get_enabled_stim_configs() -> dict:
+    stim_configs = get_stim_configs()
+    enabled_stim_configs = {}
+    for layer in stim_configs:
+        if stim_configs[layer]['enabled']:
+            enabled_stim_configs[layer] = stim_configs[layer]
+    return enabled_stim_configs
 
 
 def get_current_plate_position():
@@ -1008,15 +1077,19 @@ def get_protocol_time_params() -> dict:
 def get_selected_labware() -> tuple[str, labware.WellPlate]:
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
     labware_id = protocol_settings.ids['labware_spinner'].text
-    
-    if len(labware_id) < 1:
-        labware_id = settings['protocol']['labware']
     try:
-        labware = wellplate_loader.get_plate(plate_key=labware_id)
-        return labware_id, labware
+        if len(labware_id) < 1:
+            labware_id = settings['protocol']['labware']
+        try:
+            labware = wellplate_loader.get_plate(plate_key=labware_id)
+            return labware_id, labware
+        except Exception as e:
+            logger.exception("LVP Main: Settings file issue. Replace file with a known working version")
+            logger.exception(e)
     except Exception as e:
-        logger.exception("LVP Main: Settings file issue. Replace file with a known working version")
-        logger.exception(e)
+        logger.exception(f"LVP Main: Labware could not be loaded: {e}")
+        logger.warning(f"Check to ensure labware {labware_id} is in the labware file")
+        return None, None
 
 
 
@@ -1055,6 +1128,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
         'duration': time_params['duration'],
         'frame_dimensions': frame_dimensions,
         'binning_size': get_binning_from_ui(),
+        'stim_config': get_stim_configs(),
     }
 
     return config
@@ -4129,6 +4203,7 @@ class ImageSettings(BoxLayout):
             # Remove 'Colorize' option in transmitted channels control
             # -----------------------------------------------------
             # Remove CBT from transmitted channel control
+            layer_obj.show_cbt = False
             label = layer_obj.ids['composite_threshold_label']
             slider = layer_obj.ids['composite_threshold_slider']
             text = layer_obj.ids['composite_threshold_text']
@@ -4683,6 +4758,7 @@ class VerticalControl(BoxLayout):
             'duration': None,
             'frame_dimensions': get_current_frame_dimensions(),
             'binning_size': get_binning_from_ui(),
+            'stim_config': get_stim_configs(),
         }
       
         autofocus_sequence = Protocol.from_config(
@@ -5272,6 +5348,11 @@ class ProtocolSettings(CompositeCapture):
             settings['protocol']['labware'] = labware
 
         labware_id, labware = get_selected_labware()
+
+        if labware is None:
+            logger.error(f"Labware could not be loaded")
+            return
+            
         lumaview.scope.set_labware(labware=labware)
 
         if self._protocol is not None:
@@ -5498,6 +5579,10 @@ class ProtocolSettings(CompositeCapture):
                 tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
             )
 
+        if protocol is None:
+            logger.error(f"Unable to load protocol at {filepath}")
+            return
+
         if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
             error_msg = f"Cannot load protocol. Not all objectives are in turret config."
             logger.error(error_msg)
@@ -5538,7 +5623,12 @@ class ProtocolSettings(CompositeCapture):
         # Set all layers to acquire as set in loaded protocol
         for layer in common_utils.get_layers():
             settings[layer]['acquire'] = None
+            if "stim_config" in settings[layer]:
+                if settings[layer]['stim_config'] is not None:
+                    settings[layer]['stim_config']['enabled'] = False
+
         reset_acquire_ui()
+        reset_stim_ui()
 
         # Make steps available for drawing locations
         stage.set_protocol_steps(df=self._protocol.steps())
@@ -5557,7 +5647,11 @@ class ProtocolSettings(CompositeCapture):
 
         if lumaview.scope.has_turret():
             objective_id = step['Objective']
-            objective_short_name = objective_helper.get_objective_info(objective_id=objective_id)['short_name']
+            objective_info = objective_helper.get_objective_info(objective_id=objective_id)
+            if objective_info is None:
+                objective_short_name = objective_id
+            else:
+                objective_short_name = objective_info['short_name']
         else:
             objective_short_name = None
 
@@ -5729,6 +5823,17 @@ class ProtocolSettings(CompositeCapture):
     def modify_step_ex(self):
         
         active_layer, active_layer_config = get_active_layer_config()
+        stim_was_active = False
+
+        if 'stim_config' in active_layer_config:
+            if active_layer_config['stim_config'] is not None:
+                if active_layer_config['stim_config']['enabled']:
+                    # We want to keep the same acquire channel when we are only modifying the stim config.
+                    true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
+                    active_layer = true_step_layer
+                    active_layer_config = get_layer_configs()[active_layer]
+                    stim_was_active = True
+
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
@@ -5742,11 +5847,21 @@ class ProtocolSettings(CompositeCapture):
 
         step_name = self.ids['step_name_input'].text
 
+        # If the stim layer was active and the original acquire channel remains enabled,
+        # preserve the existing step name to avoid unintended renaming.
+        if stim_was_active:
+            original_step = self._protocol.step(idx=self.curr_step)
+            original_layer = original_step['Color']
+            layer_configs_all = get_layer_configs()
+            if original_layer in layer_configs_all and (layer_configs_all[original_layer]['acquire'] is not None):
+                step_name = original_step['Name']
+
         self._protocol.modify_step(
             step_idx=self.curr_step,
             step_name=step_name,
             layer=active_layer,
             layer_config=active_layer_config,
+            stim_configs=get_stim_configs(),
             plate_position=plate_position,
             objective_id=objective_id,
         )
@@ -5756,6 +5871,7 @@ class ProtocolSettings(CompositeCapture):
         stage.set_protocol_steps(df=self._protocol.steps())
 
 
+    # add_step
     def insert_step(self, after_current_step: bool = True):
         
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
@@ -5793,6 +5909,7 @@ class ProtocolSettings(CompositeCapture):
                 step_name=None,
                 layer=layer,
                 layer_config=layer_config,
+                stim_configs=get_stim_configs(),
                 plate_position=plate_position,
                 objective_id=objective_id,
                 before_step=before_step,
@@ -7483,6 +7600,17 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['protocol_led_on_btn'].state = 'normal'
                 settings["protocol_led_on"] = False
 
+            if "stimulation_enabled" in settings:
+                if settings["stimulation_enabled"] == True:
+                    self.ids['stimulation_settings_btn'].state = 'down'
+                else:
+                    self.ids['stimulation_settings_btn'].state = 'normal'
+                    # Apply the disabled state to all layers
+                    self.update_stimulation_settings()
+            else:
+                self.ids['stimulation_settings_btn'].state = 'normal'
+                settings["stimulation_enabled"] = False
+
             if "disable_protocol_accordions" in settings:
                 if settings["disable_protocol_accordions"] == True:
                     self.ids['disable_protocol_accordions_btn'].state = 'down'
@@ -7549,6 +7677,30 @@ class MicroscopeSettings(BoxLayout):
                 
                 # Clear initializing flag - settings are now loaded
                 layer_obj._initializing = False
+
+                if 'stim_config' in settings[layer]:
+                    # Default to hidden until enabled
+                    layer_obj.show_stim_controls = False
+
+                    stim_config = settings[layer]['stim_config']
+                    layer_obj.ids['stim_enable_btn'].active = stim_config['enabled']
+                    layer_obj.ids['stim_disable_btn'].active = not stim_config['enabled']
+                    layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
+                    layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
+                    layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
+                    layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
+                    layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
+                    layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+
+                    # Force hide until enabled
+                    layer_obj.ids['stim_pulse_count_box'].visible = False
+                    layer_obj.ids['stim_freq_box'].visible = False
+                    layer_obj.ids['stim_pulse_width_box'].visible = False
+                    layer_obj.ids['stim_pulse_count_box'].opacity = 0
+                    layer_obj.ids['stim_freq_box'].opacity = 0
+                    layer_obj.ids['stim_pulse_width_box'].opacity = 0
+
+                    layer_obj.update_stim_controls_visibility()
 
         except:
             logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
@@ -7685,6 +7837,32 @@ class MicroscopeSettings(BoxLayout):
             settings["protocol_led_on"] = True
         else:
             settings["protocol_led_on"] = False
+
+    def update_stimulation_settings(self):
+        """Toggle stimulation features globally across all channels."""
+        stimulation_enabled = self.ids['stimulation_settings_btn'].state == 'down'
+        settings["stimulation_enabled"] = stimulation_enabled
+        
+        # Update all layer controls
+        for layer in ['BF', 'PC', 'EP', 'DF', 'Lumi', 'Red', 'Green', 'Blue']:
+            if layer in ['Red', 'Green', 'Blue']:
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                if layer_obj:
+                    if stimulation_enabled:
+                        # Enable stimulation features
+                        layer_obj.stimulation_support = True
+                        # Don't automatically show stim controls, just enable support
+                    else:
+                        # Disable stimulation features
+                        layer_obj.stimulation_support = False
+                        layer_obj.show_stim_controls = False
+                        layer_obj.show_camera_controls = True
+                        # Set stim to disabled
+                        if 'stim_disable_btn' in layer_obj.ids:
+                            layer_obj.ids['stim_disable_btn'].active = True
+                        # Disable stim_config
+                        if 'stim_config' in settings[layer]:
+                            settings[layer]['stim_config']['enabled'] = False
 
     def update_disable_protocol_accordions(self):
         """Toggle whether layer accordions are disabled during protocol execution."""
@@ -7923,8 +8101,12 @@ class LayerControl(BoxLayout):
     layer = StringProperty(None)
     bg_color = ObjectProperty(None)
     illumination_support = BooleanProperty(True)
+    stimulation_support = BooleanProperty(False)
+    show_stim_controls = BooleanProperty(False)
     autogain_support = BooleanProperty(True)
     exposure_summing_support = BooleanProperty(False)
+    show_camera_controls = BooleanProperty(True)
+    show_cbt = BooleanProperty(True)
 
     global settings
 
@@ -7947,9 +8129,20 @@ class LayerControl(BoxLayout):
     
     
     def _init_ui(self, dt=0):
+
+        if self.layer in ['Red', 'Green', 'Blue'] and settings['stimulation_enabled'] == True:
+            self.stimulation_support = True
+            self.show_stim_controls = True
+        else:
+            self.stimulation_support = False
+            self.show_stim_controls = False
+            
+        self.update_stim_controls_visibility()
+        
         # Don't apply settings during initial UI setup - will be done after load_settings
         # Skip initialization of autogain and apply_settings here
         
+
         self.init_acquire()
         self.init_autofocus()
     
@@ -7963,6 +8156,20 @@ class LayerControl(BoxLayout):
             if isinstance(child, ScrollView):
                 cleanup_scrollview_viewport(child)
 
+    def update_stim_controls_visibility(self):
+        if self.ids['stim_enable_btn'].active:
+            self.show_stim_controls = True
+            self.show_camera_controls = False
+            self.hide_camera_controls()
+        else:
+            self.show_stim_controls = False
+            self.show_camera_controls = True
+
+    def hide_camera_controls(self):
+        self.show_camera_controls = False
+        settings[self.layer]['acquire'] = None
+        self.ids['acquire_none'].active = True
+
     def ill_slider(self):
         if protocol_running_global:
             return
@@ -7970,12 +8177,17 @@ class LayerControl(BoxLayout):
             logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = round(self.ids['ill_slider'].value)  # Round to integer (step=1)
         settings[self.layer]['ill'] = illumination
+        
+        if 'stim_config' in settings[self.layer]:
+            settings[self.layer]['stim_config']['illumination'] = illumination
+
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(illumination)
         if self.ids['ill_text'].text != new_text:
             self.ids['ill_text'].text = new_text
         if not self._initializing:
             self.apply_ill_slider()
+
 
     def ill_text(self):
         logger.info('[LVP Main  ] LayerControl.ill_text()')
@@ -7994,6 +8206,9 @@ class LayerControl(BoxLayout):
         settings[self.layer]['ill'] = illumination
         self.ids['ill_slider'].value = float(np.clip(illumination, ill_min, self.ids['ill_slider'].max))
         self.ids['ill_text'].text = str(illumination)
+
+        if 'stim_config' in settings[self.layer]:
+            settings[self.layer]['stim_config']['illumination'] = illumination
 
         self.apply_settings()
 
@@ -8199,6 +8414,100 @@ class LayerControl(BoxLayout):
 
         self.apply_exp_slider()
 
+    def stim_freq_slider(self):
+        logger.info('[LVP Main  ] LayerControl.stim_freq_slider()')
+        frequency = self.ids['stim_freq_slider'].value
+        try:
+            settings[self.layer]['stim_config']['frequency'] = frequency
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_freq_slider() -> {e}")
+        self.apply_settings()
+    
+    def stim_pulse_count_slider(self):
+        logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
+        pulse_count = self.ids['stim_pulse_count_slider'].value
+        try:
+            settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_slider() -> {e}")
+        self.apply_settings()
+    
+    def stim_pulse_width_slider(self):
+        logger.info('[LVP Main  ] LayerControl.stim_pulse_width_slider()')
+        pulse_width = self.ids['stim_pulse_width_slider'].value
+        try:
+            settings[self.layer]['stim_config']['pulse_width'] = pulse_width
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_width_slider() -> {e}")
+        self.apply_settings()
+    
+    def stim_freq_text(self):
+        logger.info('[LVP Main  ] LayerControl.stim_freq_text()')
+
+        freq_min = self.ids['stim_freq_slider'].min
+        freq_max = self.ids['stim_freq_slider'].max
+
+        try:
+            frequency = float(self.ids['stim_freq_text'].text)
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_freq_text() -> {e}")
+            return
+
+        frequency = round(float(np.clip(frequency, freq_min, freq_max)), 2)
+
+        self.ids['stim_freq_slider'].value = frequency
+        self.ids['stim_freq_text'].text = str(frequency)
+        try:
+            settings[self.layer]['stim_config']['frequency'] = frequency
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_freq_text() -> {e}")
+        self.apply_settings()
+    
+    def stim_pulse_count_text(self):
+        logger.info('[LVP Main  ] LayerControl.stim_pulse_count_text()')
+
+        pulse_count_min = self.ids['stim_pulse_count_slider'].min
+        pulse_count_max = self.ids['stim_pulse_count_slider'].max
+
+        try:
+            pulse_count = float(self.ids['stim_pulse_count_text'].text)
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_text() -> {e}")
+            return
+
+        pulse_count = int(np.clip(pulse_count, pulse_count_min, pulse_count_max))
+
+        self.ids['stim_pulse_count_slider'].value = pulse_count
+        self.ids['stim_pulse_count_text'].text = str(pulse_count)
+        try:
+            settings[self.layer]['stim_config']['pulse_count'] = pulse_count
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_text() -> {e}")
+        self.apply_settings()
+
+    def stim_pulse_width_text(self):
+        logger.info('[LVP Main  ] LayerControl.stim_pulse_width_text()')
+
+        pulse_width_min = self.ids['stim_pulse_width_slider'].min
+        pulse_width_max = self.ids['stim_pulse_width_slider'].max
+
+        try:
+            pulse_width = float(self.ids['stim_pulse_width_text'].text)
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_width_text() -> {e}")
+            return
+
+        pulse_width = int(np.clip(pulse_width, pulse_width_min, pulse_width_max))
+
+        self.ids['stim_pulse_width_slider'].value = pulse_width
+        self.ids['stim_pulse_width_text'].text = str(pulse_width)
+
+        try:
+            settings[self.layer]['stim_config']['pulse_width'] = pulse_width
+        except Exception as e:
+            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_width_text() -> {e}")
+        self.apply_settings()
+
     def false_color(self):
         logger.info('[LVP Main  ] LayerControl.false_color()')
         settings[self.layer]['false_color'] = self.ids['false_color'].active
@@ -8217,10 +8526,39 @@ class LayerControl(BoxLayout):
 
         if self.ids['acquire_image'].active:
             settings[self.layer]['acquire'] = "image"
+            if "stim_config" in settings[self.layer]:
+                settings[self.layer]['stim_config']['enabled'] = False
+            self.ids['stim_disable_btn'].active = True
+            self.show_stim_controls = False
+
         elif self.ids['acquire_video'].active:
-            settings[self.layer]['acquire'] = "video"
+            settings[self.layer]['acquire'] = "video"   
+            if "stim_config" in settings[self.layer]:
+                settings[self.layer]['stim_config']['enabled'] = False
+                self.ids['stim_disable_btn'].active = True
+            self.ids['stim_disable_btn'].active = True
+            self.show_stim_controls = False
         else:
             settings[self.layer]['acquire'] = None
+
+        if "stim_config" in settings[self.layer]:
+            self.update_stim_controls_visibility()
+
+    def update_stim_enable(self):
+        logger.info('[LVP Main  ] LayerControl.update_stim_enable()')
+        if self.ids['stim_enable_btn'].active:
+            if "stim_config" in settings[self.layer]:
+                if settings[self.layer]['stim_config'] is not None:
+                    settings[self.layer]['stim_config']['enabled'] = True
+            settings[self.layer]['acquire'] = None
+            self.ids['acquire_none'].active = True
+            self.ids['acquire_none'].state = 'down'
+        else:
+            if "stim_config" in settings[self.layer]:
+                if settings[self.layer]['stim_config'] is not None:
+                    settings[self.layer]['stim_config']['enabled'] = False
+
+        self.update_stim_controls_visibility()
 
     def init_autofocus(self):
         if settings[self.layer]['autofocus'] == False:
@@ -8394,6 +8732,15 @@ def reset_acquire_ui():
         else:
             layer_obj.ids['acquire_none'].active = True
 
+def reset_stim_ui():
+    for layer in common_utils.get_layers():
+        layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+        if "stim_config" in settings[layer]:
+            if settings[layer]['stim_config'] is not None:
+                settings[layer]['stim_config']['enabled'] = False
+                layer_obj.ids['stim_disable_btn'].active = True
+                layer_obj.update_stim_controls_visibility()
+
 # Z Stack functions class
 # ---------------------------------------------------------------------
 class ZStack(CompositeCapture):
@@ -8518,6 +8865,7 @@ class ZStack(CompositeCapture):
             'duration': None,
             'frame_dimensions': get_current_frame_dimensions(),
             'binning_size': get_binning_from_ui(),
+            'stim_config': get_stim_configs(),
         }
         
         zstack_sequence = Protocol.from_config(
