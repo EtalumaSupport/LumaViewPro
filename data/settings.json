@@ -202,5 +202,6 @@
     "show_tooltips": false,
     "live_view_fps": 30,
     "protocol_led_on": false,
-    "stimulation_enabled": false
+    "stimulation_enabled": false,
+    "disable_protocol_accordions": false
 }
