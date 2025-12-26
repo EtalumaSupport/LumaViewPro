@@ -15,6 +15,7 @@ class ProtocolStep:
     gain: float
     auto_gain: bool
     exposure: float
+    stim_config: dict
 
     def __post_init__(self):
         if not isinstance(self.auto_focus, bool):
