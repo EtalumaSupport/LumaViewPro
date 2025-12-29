@@ -53,6 +53,23 @@ class TestRESTv1(unittest.TestCase):
         response = requests.post('http://localhost:8000/api/v1/protocol/run?protocol_name=test_protocol')
         self.assertDictEqual(response.json(),{"message": "Protocol started"})
 
+    def test_live_capture(self):
+        body = {
+            "file_root": "img_",
+            "append": "ms",
+            "color": "BF",
+            "tail_id_mode": "increment",
+            "force_to_8bit": True,
+            "output_format": "TIFF",
+            "true_color": "BF",
+            "timeout": 0,
+            "all_ones_check": False,
+            "sum_count": 1,
+            "sum_delay_s": 0
+        }
+        response = requests.post('http://localhost:8000/api/v1/capture/live',json=body)
+        self.assertDictEqual(response.json(),{"message": "Capture saved"})
+
     def test_status(self):
         response = requests.get('http://localhost:8000/api/v1/status')
         self.assertIsInstance(response.json(),dict)
