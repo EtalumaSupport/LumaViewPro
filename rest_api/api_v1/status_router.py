@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 status_router = APIRouter(prefix="/status", tags=['Status'])
 
-@status_router.get("")
+@status_router.get("", description="Returns status of motion and protocol")
 def get_status(scope:Lumascope = Depends(get_scope),
                sequenced_capture_executor:"SequencedCaptureExecutor" = Depends(get_sequenced_capture_executor)):
     

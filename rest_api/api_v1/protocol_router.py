@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from rest_api.api_v1.api_config import get_settings, get_sequenced_capture_executor, get_source_path, get_protocol_callbacks, get_image_capture_config
+from rest_api.api_v1.api_utils import model_param_description
+from pydantic import BaseModel, Field
 from typing import TYPE_CHECKING
 from modules.protocol import Protocol
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
@@ -12,7 +14,7 @@ if TYPE_CHECKING:
 
 protocol_router = APIRouter(prefix="/protocol", tags=['Protocol'])
 
-@protocol_router.get("")
+@protocol_router.get("", description='List all saved protocols')
 def list_protocols(settings:dict = Depends(get_settings)):
     if 'live_folder' in settings:
         protocols = []
@@ -24,15 +26,18 @@ def list_protocols(settings:dict = Depends(get_settings)):
         return protocols
     raise HTTPException(status_code=500, detail="Could not list protocols")
 
-@protocol_router.post("/run")
-def run_protocol(protocol_name:str,
+class ProtocolParameters(BaseModel):
+    protocol_name: str = Field(..., description="Name of protocol to run")
+
+@protocol_router.post("/run", description=model_param_description("Runs an existing saved protocol", ProtocolParameters))
+def run_protocol(protocol_parameters:ProtocolParameters,
                  settings:dict = Depends(get_settings),
                  source_path:str = Depends(get_source_path),
                  callbacks:dict = Depends(get_protocol_callbacks),
                  image_capture_config:dict = Depends(get_image_capture_config),
                  sequenced_capture_executor:"SequencedCaptureExecutor" = Depends(get_sequenced_capture_executor)):
     if 'live_folder' in settings:
-        path = os.path.join(settings['live_folder'],protocol_name)
+        path = os.path.join(settings['live_folder'],protocol_parameters.protocol_name)
         if not path.endswith('.tsv'):
             path += '.tsv'
         if os.path.exists(path):
