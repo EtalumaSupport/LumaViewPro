@@ -2,6 +2,8 @@
 import datetime
 import pathlib
 import time
+import sys
+import ctypes
 import typing
 
 import numpy as np
@@ -41,6 +43,8 @@ from concurrent.futures import ProcessPoolExecutor
 import threading
 
 from settings_init import settings
+
+import threading
 
 
 """
@@ -101,6 +105,8 @@ class SequencedCaptureExecutor:
         self._cpu_pool = cpu_pool
         self._video_write_finished = threading.Event()
         self._video_write_finished.set()
+        self._stim_start_event = threading.Event()
+        self._stim_stop_event = threading.Event()
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -379,78 +385,121 @@ class SequencedCaptureExecutor:
         # Not IO
         self._scope.camera.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
-        self._run_scan()
-        self._protocol_iterator = Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._protocol_iterate)), 1)
-
+        # Start the main run loop which manages all scan timing and execution
+        self.protocol_executor.protocol_put(IOTask(action=self._run_loop))
     
-    def _protocol_iterate(self, dt=None):
-        if self._scan_in_progress.is_set():
-            return
-
-        if self._protocol_ended.is_set():
-            return
+    def _run_loop(self):
+        """Main run loop - manages protocol execution and scan timing.
+        A 'scan' is one complete iteration through all steps in the protocol.
+        This loop runs until all scans are complete.
+        """
+        last_maintenance_time = time.monotonic()
         
-        remaining_scans=self.remaining_scans()
-        if remaining_scans == 0:
-            self._cleanup()
-            return 
-
-        if 'protocol_iterate_pre' in self._callbacks:
-            self._callbacks['protocol_iterate_pre'](remaining_scans=remaining_scans, interval=self._protocol.period())
-
-        current_time = datetime.datetime.now()
-        elapsed_time = current_time - self._start_t
-
-        # If the next period hasn't been reached, then return
-        if elapsed_time <= self._protocol.period():
-            return
-
-        # reset the start time and update number of scans remaining
-        self._start_t = current_time
+        # Initial delay before first iteration
+        time.sleep(0.1)
+        
+        while self._run_in_progress and not self._protocol_ended.is_set():
+            try:
+                # Check if we've completed all scans
+                remaining_scans = self.remaining_scans()
+                if remaining_scans <= 0:
+                    self._cleanup()
+                    break
                 
-        self._run_scan()
+                # Check if enough time has elapsed for the next scan
+                # Skip this check for the first scan (scan_count == 0) - start immediately
+                if self._scan_count > 0:
+                    current_time = datetime.datetime.now()
+                    elapsed_time = current_time - self._start_t
+                    
+                    if elapsed_time < self._protocol.period():
+                        # Not time for next scan yet, sleep briefly
+                        time.sleep(0.1)
+                        continue
+                    
+                    # Reset the start time for next period
+                    self._start_t = current_time
+                
+                # Time for next scan
+                if 'protocol_iterate_pre' in self._callbacks:
+                    Clock.schedule_once(
+                        lambda dt: self._callbacks['protocol_iterate_pre'](
+                            remaining_scans=remaining_scans, 
+                            interval=self._protocol.period()
+                        ), 0
+                    )
+                
+                # Initialize scan variables
+                self._curr_step = 0
+                if 'run_scan_pre' in self._callbacks:
+                    self._callbacks['run_scan_pre']()
+                
+                self._go_to_step(step_idx=self._curr_step)
+                self._scan_in_progress.set()
+                self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
+                
+                start_scan_time = datetime.datetime.now()
+                # Run the scan loop - this will block until scan completes
+                self._scan_loop()
 
+                end_scan_time = datetime.datetime.now()
+                scan_duration = end_scan_time - start_scan_time
 
-    def _run_scan(
-        self
-    ):
-        if self._protocol_ended.is_set():
-            return
-        
-        if self._scan_in_progress.is_set():
-            self._scan_count += 1
-
-        
-        self._curr_step = 0
-
-        # reset the is_complete flag on autofocus
-        if 'run_scan_pre' in self._callbacks:
-            self._callbacks['run_scan_pre']()
-
-        #self.protocol_executor.protocol_put(IOTask(action=self._go_to_step, kwargs={"step_idx":self._curr_step}))
-        self._go_to_step(step_idx=self._curr_step)
-
-        self._scan_in_progress.set()
-
-        self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
-        self._scan_iterator = Clock.schedule_interval(lambda dt: self.protocol_executor.protocol_put(IOTask(action=self._scan_iterate)), 0.1)
-        
-        # Periodic watchdog logging for long runs: report queue depth and executor health every ~60s
-        # try:
-        #     if not hasattr(self, '_last_watchdog_log'):
-        #         self._last_watchdog_log = time.monotonic()
-        #     now_mono = time.monotonic()
-        #     if now_mono - self._last_watchdog_log > 60:
-        #         self._last_watchdog_log = now_mono
-        #         io_q = self._io_executor.queue_size() if hasattr(self._io_executor, 'queue_size') else -1
-        #         cam_q = self.camera_executor.queue_size() if hasattr(self.camera_executor, 'queue_size') else -1
-        #         prot_q = self.protocol_executor.protocol_queue_size() if hasattr(self.protocol_executor, 'protocol_queue_size') else -1
-        #         file_q = self.file_io_executor.protocol_queue_size() if hasattr(self.file_io_executor, 'protocol_queue_size') else -1
-        #         af_q = self.autofocus_io_executor.protocol_queue_size() if hasattr(self.autofocus_io_executor, 'protocol_queue_size') else -1
-        #         logger.info(f"[Watchdog] Protocol Queues — IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q}")
-        # except Exception:
-        #     pass
+                logger.info(f"Protocol scan {self._scan_count} completed in {scan_duration.total_seconds():.2f} seconds", extra={"force_error": True})
+                
+                # Scan completed - increment counter
+                self._scan_count += 1
+                logger.debug(f"[{self.LOGGER_NAME}] Scan {self._scan_count}/{self._n_scans} completed")
+                
+                if 'scan_iterate_post' in self._callbacks and self._callbacks['scan_iterate_post'] is not None:
+                    Clock.schedule_once(lambda dt: self._callbacks['scan_iterate_post'](), 0)
+                
+                # Clear the flag so we know scan is done
+                self._scan_in_progress.clear()
+                
+            except Exception as ex:
+                logger.error(f"[Protocol] Error during run loop: {ex}", exc_info=True)
+                self._cleanup()
+                break
     
+    def _scan_loop(self):
+        """Scan loop - iterates through all protocol steps until scan completes.
+        Returns when the scan is complete (all steps executed).
+        """
+        last_maintenance_time = time.monotonic()
+        
+        # Initial delay before first iteration
+        time.sleep(0.1)
+        
+        while self._scan_in_progress.is_set() and not self._protocol_ended.is_set():
+            try:
+                # Periodic cleanup and watchdog logging for long runs
+                now_mono = time.monotonic()
+                if now_mono - last_maintenance_time > 60:
+                    last_maintenance_time = now_mono
+                    
+                    # Force garbage collection
+                    collected = gc.collect()
+                    if collected > 0:
+                        logger.info(f"[Scan Watchdog] GC collected {collected} objects")
+                    
+                    # Log queue depths
+                    try:
+                        protocol_queue_size = self.protocol_executor.protocol_queue_size()
+                        logger.debug(f"[Scan Watchdog] Protocol queue: {protocol_queue_size}")
+                    except Exception:
+                        pass
+                
+                # Run one step iteration
+                self._scan_iterate()
+                
+                # Small delay to prevent CPU throttling
+                time.sleep(0.01)
+                
+            except Exception as ex:
+                logger.error(f"[Scan] Error during scan loop: {ex}", exc_info=True)
+                self._scan_in_progress.clear()
+                break
 
     def _scan_iterate(self, dt=None):
         if self._protocol_ended.is_set():
@@ -621,6 +670,8 @@ class SequencedCaptureExecutor:
                     sum_count=step["Sum"],
                 )
 
+                self._stim_stop_event.set()
+
 
                 # Protocol record creation and adding is handled in capture method
 
@@ -658,14 +709,9 @@ class SequencedCaptureExecutor:
             self._perform_grease_redistribution()
             self._autofocus_count = 0
 
-        self._scan_count += 1
-        
-        if 'scan_iterate_post' in self._callbacks and self._callbacks['scan_iterate_post'] is not None:
-            Clock.schedule_once(lambda dt: self._callbacks['scan_iterate_post'](), 0)
-
-        Clock.unschedule(self._scan_iterator)
+        # Scan completed - clear the flag so run_loop knows to proceed
+        # The run_loop will handle incrementing scan_count and callbacks
         self._scan_in_progress.clear()
-        #self._protocol_iterate()
 
 
     def run_in_progress(self) -> bool:
@@ -779,10 +825,14 @@ class SequencedCaptureExecutor:
 
 
     def _cancel_all_scheduled_events(self):
-        Clock.unschedule(self._protocol_iterator)
-        Clock.unschedule(self._scan_iterator)
-        #self._io_executor.clear_protocol_pending()
-        #self.protocol_executor.clear_protocol_pending()
+        """Cancel any remaining scheduled events. 
+        Note: With the loop-based approach, most work happens in executor threads,
+        so there's less to unschedule than before.
+        """
+        if self._protocol_iterator is not None:
+            Clock.unschedule(self._protocol_iterator)
+        if self._scan_iterator is not None:
+            Clock.unschedule(self._scan_iterator)
 
 
     def _leds_off(self):
@@ -859,6 +909,9 @@ class SequencedCaptureExecutor:
         
         self._scan_in_progress.clear()
         self._protocol_ended.set()
+
+        self._stim_start_event.clear()
+        self._stim_stop_event.set()
 
         self._io_executor.protocol_end()
         self.file_io_executor.protocol_finish_then_end()
@@ -949,11 +1002,11 @@ class SequencedCaptureExecutor:
         # Grab image and save
 
         earliest_image_ts = datetime.datetime.now()
-        if 'update_scope_display' in self._callbacks:
-            Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
-            sum_iteration_callback=lambda: Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
-        else:
-            sum_iteration_callback=None
+        # if 'update_scope_display' in self._callbacks:
+        #     Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
+        #     sum_iteration_callback=lambda: Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
+        # else:
+        sum_iteration_callback=None
 
         use_color = step['Color'] if step['False_Color'] else 'BF'
 
@@ -1013,6 +1066,16 @@ class SequencedCaptureExecutor:
                     seconds_per_frame = 1.0 / fps
                     video_images = queue.Queue()
 
+                    stim_threads = []
+
+                    for color in step['Stim_Config']:
+                        stim_config = step['Stim_Config'][color]
+                        if stim_config['enabled']:
+                            stim_thread = threading.Thread(target=self._stimulate, args=(color, stim_config, self._stim_start_event, self._stim_stop_event))
+                            stim_threads.append(stim_thread)
+                            stim_thread.start() 
+
+                  
                     if "set_recording_title" in self._callbacks:
                         Clock.schedule_once(lambda dt: self._callbacks['set_recording_title'](progress=0), 0)
 
@@ -1020,6 +1083,8 @@ class SequencedCaptureExecutor:
 
                     progress = 0
                     ctypes.windll.winmm.timeBeginPeriod(1)
+                    self._stim_stop_event.clear()
+                    self._stim_start_event.set()
 
                     while time.time() < stop_ts:
                         curr_time = time.time()
@@ -1058,6 +1123,10 @@ class SequencedCaptureExecutor:
                         time.sleep(seconds_per_frame*0.9)
 
                     ctypes.windll.winmm.timeEndPeriod(1)
+                    self._stim_stop_event.set()
+
+                    for stim_thread in stim_threads:
+                        stim_thread.join()
                     
                     calculated_fps = captured_frames//duration_sec
 
@@ -1136,6 +1205,7 @@ class SequencedCaptureExecutor:
                         return
                     finally:
                         self._video_write_finished.set()
+                        stop_event.set()
 
                     if "reset_title" in self._callbacks:
                         Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
@@ -1143,8 +1213,10 @@ class SequencedCaptureExecutor:
                     logger.info("Protocol-Video] Video writing finished.")
                     logger.info(f"Protocol-Video] Video saved at {output_file_loc}")
 
+                    stop_event.set()
                     self._scope.leds_off()
-
+                    
+                    
 
 
                     self._protocol_execution_record.add_step(
@@ -1286,6 +1358,13 @@ class SequencedCaptureExecutor:
                         except Exception as e:
                             logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
 
+                    # Ensure queue is fully drained before deletion
+                    try:
+                        while not video_images.empty():
+                            video_images.get_nowait()
+                            video_images.task_done()
+                    except Exception:
+                        pass
                     # Queue is not empty, delete it and force garbage collection
                     del video_images
                     gc.collect()
@@ -1314,6 +1393,13 @@ class SequencedCaptureExecutor:
                         except Exception as e:
                             logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
 
+                    # Ensure queue is fully drained before deletion
+                    try:
+                        while not video_images.empty():
+                            video_images.get_nowait()
+                            video_images.task_done()
+                    except Exception:
+                        pass
                     # Video images queue empty. Delete it and force garbage collection
                     del video_images
 
@@ -1400,4 +1486,146 @@ class SequencedCaptureExecutor:
 
         logger.info(f"Protocol-Writer] Added step to protocol execution record")
 
-        return
+    
+
+    # stim_config = {
+    #         "Red": {
+    #             "enabled": True,
+    #             "illumination": 100,
+    #             "frequency": 1,
+    #             "pulse_width": 10,
+    #             "pulse_count": 1,
+    #         },
+    #         "Green": {
+    #             "enabled": True,
+    #             "illumination": 100,
+    #             "frequency": 1,
+    #             "pulse_width": 10,
+    #             "pulse_count": 1,
+    #         },
+    #         "Blue": {
+    #             "enabled": True,
+    #             "illumination": 100,
+    #             "frequency": 1,
+    #             "pulse_width": 10,
+    #             "pulse_count": 1,
+    #         }
+    #     }
+
+    def _stimulate(self, color: str, stim_config: dict, start_event: threading.Event, stop_event: threading.Event):
+        if not stim_config['enabled']:
+            return
+
+        logger.info(f"[STIMULATOR] Stimulating {color} with {stim_config}")
+
+        illumination = stim_config['illumination']
+        frequency = stim_config['frequency']
+        pulse_width = stim_config['pulse_width']
+        pulse_count = stim_config['pulse_count']
+
+        # Optional: reduce Windows timer quantum to 1 ms during stimulation
+        time_period_set = False
+        if sys.platform.startswith('win'):
+            try:
+                ctypes.windll.winmm.timeBeginPeriod(1)
+                time_period_set = True
+            except Exception:
+                time_period_set = False
+
+        try:
+            period_s = 1.0 / float(frequency)
+            pulse_s = float(pulse_width) / 1000.0
+
+            # # Measure approximate command latency to compensate in scheduling
+            # # Keep this minimal to avoid warm-up effects
+            # t0 = time.perf_counter()
+            # self._led_on(color=color, illumination=illumination)
+            # t1 = time.perf_counter()
+            # self._led_off(color=color)
+            # t2 = time.perf_counter()
+            # on_latency = max(0.0, t1 - t0)
+            # off_latency = max(0.0, t2 - t1)
+
+            # Use fast path LED toggles if available via API
+            def led_on_fast():
+                #logger.info(f"[STIMULATOR] {color} LED ON")
+                if hasattr(self._scope, 'led_on_fast'):
+                    self._scope.led_on_fast(channel=self._scope.color2ch(color=color), mA=illumination)
+                else:
+                    self._scope.led_on(channel=self._scope.color2ch(color=color), mA=illumination)
+
+            def led_off_fast():
+                #logger.info(f"[STIMULATOR] {color} LED OFF")
+                if hasattr(self._scope, 'led_off_fast'):
+                    self._scope.led_off_fast(channel=self._scope.color2ch(color=color))
+                else:
+                    self._scope.led_off(channel=self._scope.color2ch(color=color))
+
+            start_epoch = time.perf_counter()
+            
+            start_event.wait()
+
+            for i in range(pulse_count):
+                if stop_event.is_set():
+                    break
+
+                # Target times for this pulse
+                on_time = start_epoch + i * period_s
+                off_time = on_time + pulse_s
+                next_period_time = start_epoch + (i + 1) * period_s
+
+                # Sleep until on_time (coarse) then spin
+                while True:
+                    now = time.perf_counter()
+                    remaining = on_time - now
+                    if remaining <= 0:
+                        break
+                    if remaining > 0.003:
+                        time.sleep(remaining - 0.002)
+                    else:
+                        # short busy-wait to reduce jitter
+                        pass
+
+                led_on_fast()
+
+                # Sleep/spin until off_time
+                while True:
+                    now = time.perf_counter()
+                    remaining = off_time - now
+                    if remaining <= 0:
+                        break
+                    if remaining > 0.003:
+                        time.sleep(remaining - 0.002)
+                    else:
+                        pass
+
+                led_off_fast()
+
+                # Maintain period; wait until next_period_time
+                while True:
+                    now = time.perf_counter()
+                    remaining = next_period_time - now
+                    if remaining <= 0:
+                        break
+                    if remaining > 0.003:
+                        time.sleep(remaining - 0.002)
+                    else:
+                        pass
+
+        finally:
+            if sys.platform.startswith('win') and time_period_set:
+                try:
+                    ctypes.windll.winmm.timeEndPeriod(1)
+                except Exception:
+                    pass
+                finally:
+                    logger.info(f"[STIMULATOR] {color} Ended")
+                    
+            # Ensure LED off at the end
+            try:
+                if hasattr(self._scope, 'led_off_fast'):
+                    self._scope.led_off_fast(channel=self._scope.color2ch(color=color))
+                else:
+                    self._scope.led_off(channel=self._scope.color2ch(color=color))
+            except Exception:
+                pass

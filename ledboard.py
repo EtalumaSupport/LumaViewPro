@@ -39,6 +39,8 @@ from lvp_logger import logger
 import time
 import threading
 
+import threading
+
 class LEDBoard:    
 
     #----------------------------------------------------------
@@ -50,6 +52,8 @@ class LEDBoard:
         self.found = False
         self.thread_lock = threading.RLock()
         self.port = None
+
+        self.com_lock = threading.RLock()
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
@@ -159,6 +163,26 @@ class LEDBoard:
                     self.connect()
                 except:
                     return
+    
+    def _write_command_fast(self, command: str):
+        """Write-only fast path: send command without sleeps or reading a response."""
+        stream = command.encode('utf-8')+b"\n"
+        if self.driver != False:
+            try:
+                with self.com_lock:
+                    self.driver.write(stream)
+            except:
+                # Suppress to keep this path fast and non-blocking
+                pass
+        else:
+            # If not connected, attempt to connect quickly; if it fails, just return
+            try:
+                self.connect()
+                if self.driver:
+                    with self.com_lock:
+                        self.driver.write(stream)
+            except:
+                pass
       
     def color2ch(self, color):
         """ Convert color name to numerical channel """
@@ -285,6 +309,20 @@ class LEDBoard:
         command = 'LED' + str(int(channel)) + '_OFF'
         self.exchange_command(command)
 
+    def led_on_fast(self, channel, mA):
+        """Fast write-only version of led_on for time-critical toggling."""
+        color = self.ch2color(channel=channel)
+        self.led_ma[color] = mA
+        command = 'LED' + str(int(channel)) + '_' + str(int(mA))
+        self._write_command_fast(command)
+
+    def led_off_fast(self, channel):
+        """Fast write-only version of led_off for time-critical toggling."""
+        color = self.ch2color(channel=channel)
+        self.led_ma[color] = -1
+        command = 'LED' + str(int(channel)) + '_OFF'
+        self._write_command_fast(command)
+
     def leds_off(self):
         """ Turn off all LEDs """
         for color, mA in self.led_ma.items():
@@ -292,5 +330,12 @@ class LEDBoard:
 
         command = 'LEDS_OFF'
         self.exchange_command(command)
+
+    def leds_off_fast(self):
+        """Fast write-only version to turn off all LEDs."""
+        for color, mA in self.led_ma.items():
+            self.led_ma[color] = -1
+        command = 'LEDS_OFF'
+        self._write_command_fast(command)
 
 

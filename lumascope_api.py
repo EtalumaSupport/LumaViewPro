@@ -279,6 +279,28 @@ class Lumascope():
 
         self.led.led_off(channel)
 
+    def led_on_fast(self, channel, mA):
+        """ LED BOARD FUNCTIONS
+        Fast write-only LED on for time-critical pulses """
+        if not self.led: return
+        if type(channel) == str:
+            channel = self.color2ch(color=channel)
+        self.led.led_on_fast(channel, mA)
+
+    def led_off_fast(self, channel):
+        """ LED BOARD FUNCTIONS
+        Fast write-only LED off for time-critical pulses """
+        if not self.led: return
+        if type(channel) == str:
+            channel = self.color2ch(color=channel)
+        self.led.led_off_fast(channel)
+
+    def leds_off_fast(self):
+        """ LED BOARD FUNCTIONS
+        Fast write-only LEDs off for time-critical pulses """
+        if not self.led: return
+        self.led.leds_off_fast()
+
     def leds_off(self):
         """ LED BOARD FUNCTIONS
         Turn off all LEDs """
@@ -442,14 +464,18 @@ class Lumascope():
             use_scale_bar = False
 
         if use_scale_bar:
+            old_tmp = tmp
             tmp = image_utils.add_scale_bar(
                 image=tmp,
                 objective=self._objective,
                 binning_size=self._binning_size,
             )
+            del old_tmp  # Explicitly release reference to allow immediate memory reclaim
 
         if force_to_8bit and tmp.dtype != np.uint8:
+            old_tmp = tmp
             tmp = image_utils.convert_12bit_to_8bit(tmp)
+            del old_tmp  # Explicitly release reference to allow immediate memory reclaim
 
         return tmp
 
