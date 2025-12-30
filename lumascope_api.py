@@ -70,7 +70,7 @@ class Lumascope():
 
         except:
             logger.exception('[SCOPE API ] LED Board Not Initialized')
-        
+
         # Motion Control Board
         try:
             self.motion = MotorBoard()
@@ -145,10 +145,10 @@ class Lumascope():
             logger.info('[SCOPE API ] Connection Check: Motion Board not connected')
         if not camera:
             logger.info('[SCOPE API ] Connection Check: Camera not connected')
-        
+
         if led and motion and camera:
             logger.info('[SCOPE API ] Connection Check: All components connected')
-            
+
         return led and motion and camera
 
     # def reconnect_if_disconnected(self):
@@ -182,19 +182,19 @@ class Lumascope():
 
     def get_turret_config(self):
         return self._turret_config
-    
+
     def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
         for turret_position, turret_objective_id in self._turret_config.items():
             if objective_id == turret_objective_id:
                 return turret_position
-        
+
         return None
-    
+
     def is_current_turret_position_objective_set(self) -> bool:
         position = self.get_current_position(axis='T')
         if self._turret_config[position] is None:
             return False
-        
+
         return True
 
     def set_scale_bar(self, enabled: bool):
@@ -217,7 +217,7 @@ class Lumascope():
             return 1
 
         return self.camera.get_binning_size()
-    
+
 
     ########################################################################
     # LED BOARD FUNCTIONS
@@ -241,7 +241,7 @@ class Lumascope():
         if not self.led: return -1
 
         return self.led.get_led_ma(color=color)
-    
+
 
     def get_led_state(self, color: str):
         """ LED BOARD FUNCTIONS
@@ -249,7 +249,7 @@ class Lumascope():
         if not self.led: return -1
 
         return self.led.get_led_state(color=color)
-    
+
 
     def get_led_states(self):
         """ LED BOARD FUNCTIONS
@@ -257,7 +257,7 @@ class Lumascope():
         if not self.led: return -1
 
         return self.led.get_led_states()
-    
+
 
     def led_on(self, channel, mA, block=False):
         """ LED BOARD FUNCTIONS
@@ -288,7 +288,7 @@ class Lumascope():
     def get_led_status(self):
         if not self.led: return
         return self.led.get_status()
-    
+
     def wait_until_led_on(self):
         if not self.led: return
         self.led.wait_until_on()
@@ -340,12 +340,12 @@ class Lumascope():
         # Will only force new capture if force_new_capture set to True
         # Else, will return last captured image from buffer array
         """
-    
+
         tmp_buffer = []
         for idx in range(sum_count):
             start_time = datetime.datetime.now()
             stop_time = start_time + timeout
-            
+
             while True:
                 all_ones_failed = False
                 if force_new_capture:
@@ -355,7 +355,7 @@ class Lumascope():
 
                 if grab_status == True:
                     tmp = self.camera.array.copy()
-    
+
                     if all_ones_check == True:
 
                         if np.all(tmp == np.iinfo(tmp.dtype).max):
@@ -366,7 +366,7 @@ class Lumascope():
                         if earliest_image_ts is None:
                             tmp_buffer.append(tmp)
                             break
-                        
+
                         if grab_image_ts > earliest_image_ts:
                             tmp_buffer.append(tmp)
                             break
@@ -375,24 +375,24 @@ class Lumascope():
 
 
                 # In case of timeout, if we hit the timeout because of the all ones check, then just let it continue and return the all ones image
-                if datetime.datetime.now() > stop_time: 
+                if datetime.datetime.now() > stop_time:
                     if all_ones_failed == False:
                         logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
                         return False
                     else:
                         logger.warning(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded with all_ones_failed")
                         break
-                
+
                 if grab_status == False:
                     logger.error(f"[SCOPE API ] get_image grab failed, retrying")
 
                 time.sleep(0.05)
-            
+
             if sum_count > 1:
                 earliest_image_ts = grab_image_ts + datetime.timedelta(milliseconds=1)
                 if sum_iteration_callback is not None:
                     sum_iteration_callback()
-                    
+
                 time.sleep(sum_delay_s)
 
         # Add the images together
@@ -426,7 +426,7 @@ class Lumascope():
             self.image_buffer = image_utils.convert_12bit_to_8bit(self.image_buffer)
 
         return self.image_buffer
-    
+
     def get_image_from_buffer(
         self,
         force_to_8bit: bool = True
@@ -452,12 +452,12 @@ class Lumascope():
             tmp = image_utils.convert_12bit_to_8bit(tmp)
 
         return tmp
-        
+
     def get_next_save_path(self, path):
         """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
 
-            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'   
-            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'   
+            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'
+            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'
 
         """
 
@@ -474,10 +474,10 @@ class Lumascope():
 
         next_seq_num = seq_num + 1
         next_seq_num_str = f"{next_seq_num:0>{NUM_SEQ_DIGITS}}"
-        
+
         new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
         return str(new_path)
-    
+
 
     def generate_image_save_path(self, save_folder, file_root, append, tail_id_mode, output_format):
         if type(save_folder) == str:
@@ -504,10 +504,10 @@ class Lumascope():
         elif tail_id_mode == None:
             filename =  f"{file_root}{append}{file_extension}"
             path = save_folder / filename
-        
+
         else:
             raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
-        
+
         return path
 
 
@@ -515,16 +515,16 @@ class Lumascope():
         def _validate():
             if self._objective is None:
                 raise Exception(f"[SCOPE API ] Objective not set")
-            
+
             if 'focal_length' not in self._objective:
                 raise Exception(f"[SCOPE API ] Objective focal length not provided")
 
             if self._labware is None:
                 raise Exception(f"[SCOPE API ] Labware not set")
-            
+
             if self._stage_offset is None:
                 raise Exception(f"[SCOPE API ] Stage offset not set")
-            
+
         _validate()
 
         if x is None:
@@ -552,7 +552,7 @@ class Lumascope():
             ),
             common_utils.max_decimal_precision('pixel_size'),
         )
-        
+
         metadata = {
             'camera_make': 'Etaluma',
             'software': f'LumaViewPro {version}',
@@ -666,7 +666,7 @@ class Lumascope():
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
         return file_loc
-    
+
 
     def save_live_image(
             self,
@@ -705,10 +705,10 @@ class Lumascope():
             self.leds_off()
 
         if array is False:
-            return 
-        
+            return
+
         return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
- 
+
 
     def get_max_width(self):
         """CAMERA FUNCTIONS
@@ -723,7 +723,7 @@ class Lumascope():
         """
         if (not self.camera) or (not self.camera.active): return 0
         return self.camera.active.Height.Max
-      
+
     def get_width(self):
         """CAMERA FUNCTIONS
         Grab the current pixel width setting of camera
@@ -761,7 +761,7 @@ class Lumascope():
 
         if not self.camera: return -1
         return self.camera.get_gain()
-    
+
     def set_gain(self, gain):
         """CAMERA FUNCTIONS
         Set camera gain"""
@@ -797,7 +797,7 @@ class Lumascope():
         if not self.camera: return 0
         exposure = self.camera.get_exposure_t()
         return exposure
-        
+
     def set_auto_exposure_time(self, state = True):
         """CAMERA FUNCTIONS
          Enable / Disable camera auto_exposure with the value of 'state'
@@ -806,16 +806,16 @@ class Lumascope():
         if not self.camera: return
         self.camera.auto_exposure_t(state)
 
-    
+
     def camera_is_connected(self) -> bool:
         if not self.camera:
             return False
-        
+
         if not self.camera.active:
             return False
-    
+
         return True
-    
+
     def get_camera_temps(self) -> dict:
         """CAMERA FUNCTIONS
          Get camera temperature readings
@@ -824,7 +824,7 @@ class Lumascope():
 
         if not self.camera:
             return {}
-        
+
         return self.camera.get_all_temperatures()
 
     ########################################################################
@@ -872,7 +872,7 @@ class Lumascope():
         #while self.is_moving():
         #    time.sleep(0.01)
         #self.is_homing = False
-    
+
     def has_xyhomed(self):
         """MOTION CONTROL FUNCTIONS
         Indicate if the xy-axes (i.e. stage) has been homed since startup"""
@@ -930,13 +930,13 @@ class Lumascope():
         # move altogether if it is.
         if self._last_turret_position == position:
             return
-        
+
         with self.safe_turret_mover():
             logger.info(f'[SCOPE API ] Moving T to position {position}')
             self.move_absolute_position('T', position, wait_until_complete=True)
             self._last_turret_position = position
 
-    
+
     def has_turret(self) -> bool:
         return self.motion.has_turret()
 
@@ -954,13 +954,13 @@ class Lumascope():
             for ax in ('X', 'Y', 'Z', 'T'):
                 positions[ax] = self.motion.target_pos(axis=ax)
             return positions
-        
+
         if (False == self.motion.has_turret()) and (axis == 'T'):
             return None
-        
+
         position = self.motion.target_pos(axis)
         return position
-        
+
     def get_current_position(self, axis=None):
         """MOTION CONTROL FUNCTIONS
         Get the value of the current position of the axis relative to home
@@ -974,7 +974,7 @@ class Lumascope():
             for ax in ('X', 'Y', 'Z', 'T'):
                 positions[ax] = self.motion.current_pos(axis=ax)
             return positions
-        
+
         position = self.motion.current_pos(axis)
         return position
 
@@ -985,7 +985,7 @@ class Lumascope():
 
         #if not self.motion: return
         self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
-        
+
         if wait_until_complete is True:
             self.wait_until_finished_moving()
 
@@ -1004,7 +1004,7 @@ class Lumascope():
     def get_home_status(self, axis):
         """MOTION CONTROL FUNCTIONS
          Return True if axis is in home position or motionboard is """
- 
+
         #if not self.motion: return True
         try:
             status = self.motion.home_status(axis)
@@ -1029,17 +1029,17 @@ class Lumascope():
         except Exception as e:
             logger.exception(f"[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}")
             return False
-    
+
     def get_target_pos(self, axis):
         if (axis == 'T') and (self.motion.has_turret == False):
             return -1
-        
+
         try:
             return self.motion.target_pos(axis)
         except Exception as e:
             logger.exception(f"[SCOPE API ] get_target_pos({axis}) failed; returning -1: {e}")
             return -1
-        
+
     # Get all reference status register bits as 32 character string (32-> 0)
     def get_reference_status(self, axis):
         """MOTION CONTROL FUNCTIONS
@@ -1047,7 +1047,7 @@ class Lumascope():
 
         #if not self.motion: return
         return self.motion.reference_status(axis=axis)
-    
+
 
     def get_limit_switch_status(self, axis):
         """
@@ -1089,7 +1089,7 @@ class Lumascope():
             return False
         else:
             return True
-        
+
 
     def wait_until_finished_moving(self):
 
@@ -1097,20 +1097,20 @@ class Lumascope():
 
         while self.is_moving():
             time.sleep(0.05)
-        
+
         return
-    
+
 
     def set_acceleration_limit(self, val_pct: int):
         self.motion.set_acceleration_limits(val_pct=val_pct)
-    
+
 
     def get_microscope_model(self):
         if not self.motion.driver:
             return None
-        
+
         return self.motion.get_microscope_model()
-    
+
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS
     ########################################################################
@@ -1120,7 +1120,7 @@ class Lumascope():
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     def capture(self):
         """INTEGRATED SCOPE FUNCTIONS
-        Capture image with illumination"""       
+        Capture image with illumination"""
 
         if not self.led: return
         if not self.camera: return
@@ -1141,7 +1141,7 @@ class Lumascope():
         self.capture_return = self.get_image() # Grab image
         self.is_capturing = False
 
-    
+
     def capture_blocking(self):
         if not self.led: return
         if not self.camera: return
@@ -1155,7 +1155,7 @@ class Lumascope():
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     # Functional, but not integrated with LVP, just for scripting at the moment.
-    
+
     def autofocus(self, AF_min, AF_max, AF_range):
         """INTEGRATED SCOPE FUNCTIONS
         begin autofocus functionality"""
@@ -1169,7 +1169,7 @@ class Lumascope():
         if self.led.driver is False: return
         if self.motion.driver is False: return
         if self.camera.active is False: return
-        
+
         # Set autofocus states
         self.is_focusing = True          # Is the microscope currently attempting autofocus
         self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
@@ -1206,17 +1206,17 @@ class Lumascope():
             # No -> start a capture event
             self.capture()
             return done
-            
+
         else:
             # Yes -> pull the capture result and clear
             image = self.capture_return
             self.capture_return = False
-            
+
         if image is False:
             # Stop thread image can't be acquired
             done = True
             return done
-   
+
         # observe the image
         rows, cols = image.shape
 
@@ -1253,8 +1253,8 @@ class Lumascope():
 
         if not self.last_focus_pass:
             # assign new z_min, z_max, resolution, and sweep
-            self.z_min = focus-prev_resolution 
-            self.z_max = focus+prev_resolution 
+            self.z_min = focus-prev_resolution
+            self.z_max = focus+prev_resolution
 
             # reset positions and focus measures
             self.AF_positions = []
@@ -1262,11 +1262,11 @@ class Lumascope():
 
             # go to new z_min
             self.move_absolute_position('Z', self.z_min)
-                
+
         else:
             # go to best focus
             self.move_absolute_position('Z', focus) # move to absolute target
-            
+
             # end autofocus sequence
             self.autofocus_return = focus
             self.is_focusing = False
@@ -1316,10 +1316,10 @@ class Lumascope():
             if include_logging:
                 logger.info('[SCOPE API ] Focus Score Pixel Variation: ' + str(var))
             return var
-        
+
         else:
             return 0
-    
+
     def focus_best(self, positions, values, algorithm='direct'):
         """INTEGRATED SCOPE FUNCTIONS
         select best focus position for autofocus function"""
@@ -1344,8 +1344,8 @@ class Lumascope():
     def get_next_save_path_static(path):
         """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH
 
-            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'   
-            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'   
+            :param path of the format './{save_folder}/{well_label}_{color}_{file_id}.tiff'
+            :returns the next save path './{save_folder}/{well_label}_{color}_{file_id + 1}.tiff'
 
         """
         NUM_SEQ_DIGITS = 6
@@ -1361,7 +1361,7 @@ class Lumascope():
 
         next_seq_num = seq_num + 1
         next_seq_num_str = f"{next_seq_num:0>{NUM_SEQ_DIGITS}}"
-        
+
         new_path = path2.parent / f"{stem_base}_{next_seq_num_str}{extension}"
         return str(new_path)
 
@@ -1391,30 +1391,30 @@ class Lumascope():
         elif tail_id_mode == None:
             filename =  f"{file_root}{append}{file_extension}"
             path = save_folder / filename
-        
+
         else:
             raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
-        
+
         return path
 
     @staticmethod
     def generate_image_metadata_static(
-        color, x, y, z, objective, labware, stage_offset, coordinate_transformer, 
+        color, x, y, z, objective, labware, stage_offset, coordinate_transformer,
         binning_size, exposure_time_ms, gain_db, illumination_ma
     ):
         def _validate():
             if objective is None:
                 raise Exception(f"[SCOPE API ] Objective not set")
-            
+
             if 'focal_length' not in objective:
                 raise Exception(f"[SCOPE API ] Objective focal length not provided")
 
             if labware is None:
                 raise Exception(f"[SCOPE API ] Labware not set")
-            
+
             if stage_offset is None:
                 raise Exception(f"[SCOPE API ] Stage offset not set")
-            
+
         _validate()
 
         if x is None:
@@ -1442,7 +1442,7 @@ class Lumascope():
             ),
             common_utils.max_decimal_precision('pixel_size'),
         )
-        
+
         metadata = {
             'camera_make': 'Etaluma',
             'software': f'LumaViewPro {version}',
@@ -1475,7 +1475,7 @@ class Lumascope():
         output_format: str,
         true_color: str,
         x, y, z,
-        objective, labware, stage_offset, coordinate_transformer, 
+        objective, labware, stage_offset, coordinate_transformer,
         binning_size, exposure_time_ms, gain_db, illumination_ma
     ):
         metadata = Lumascope.generate_image_metadata_static(
@@ -1522,17 +1522,17 @@ class Lumascope():
     ):
         """CAMERA FUNCTIONS
         save image (as array) to file - static version that doesn't require Lumascope instance
-        
+
         :param array: image array to save
         :param save_folder: folder to save image in
-        :param file_root: root filename 
+        :param file_root: root filename
         :param append: string to append to filename
         :param color: color channel identifier
         :param tail_id_mode: how to handle filename incrementing
         :param output_format: output format (TIFF or OME-TIFF)
         :param true_color: true color for metadata
         :param x: x position
-        :param y: y position  
+        :param y: y position
         :param z: z position
         :param objective: objective dictionary with focal_length
         :param labware: labware configuration
