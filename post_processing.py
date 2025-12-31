@@ -59,26 +59,6 @@ class PostProcessing:
         self._cell_count = CellCount()
 
 
-    def convert_to_avi(self, filepath):
-        pass
-
-        # # self.choose_folder()
-        # save_location = './capture/movie.avi'
-
-        # img_array = []
-        # for filename in glob.glob('./capture/*.tiff'):
-        #     img = cv2.imread(filename)
-        #     height, width, layers = img.shape
-        #     size = (width,height)
-        #     img_array.append(img)
-
-        # if len(img_array) > 0:
-        #     out = cv2.VideoWriter(save_location,cv2.VideoWriter_fourcc(*'DIVX'), 5, size)
-
-        # for i in range(len(img_array)):
-        #     out.write(img_array[i])
-        # out.release()
-
     def stitch(self, filepath):
         pass
 

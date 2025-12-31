@@ -2,9 +2,9 @@
 import os
 import pathlib
 
-import cv2
 import numpy as np
 import pandas as pd
+import tifffile as tf
 
 import modules.common_utils as common_utils
 import image_utils
@@ -130,7 +130,7 @@ class Stitcher(ProtocolPostProcessingExecutor):
         images = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            images[row['Filepath']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
+            images[row['Filepath']] = tf.imread(image_filepath)
 
         df = df.copy()
 
@@ -225,7 +225,7 @@ class Stitcher(ProtocolPostProcessingExecutor):
         images = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            images[row['Filepath']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
+            images[row['Filepath']] = tf.imread(image_filepath)
 
         df = df.copy()
 

@@ -206,7 +206,6 @@ if __name__ == "__main__":
     from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
     #post processing
-    from image_stitcher import image_stitcher
     from modules.video_builder import VideoBuilder
 
     from modules.tiling_config import TilingConfig
@@ -1741,7 +1740,7 @@ class CompositeCapture(FloatLayout):
                 append=append,
                 color=color,
                 tail_id_mode=None,
-                output_format=settings['image_output_format']
+                output_format=settings['image_output_format']['live']
             )
 
             if use_bullseye:
@@ -1762,7 +1761,7 @@ class CompositeCapture(FloatLayout):
                 append=f"{append}_overlay",
                 color=color,
                 tail_id_mode=None,
-                output_format=settings['image_output_format']
+                output_format=settings['image_output_format']['live']
             )
 
 
@@ -3746,7 +3745,6 @@ class PostProcessingAccordion(BoxLayout):
         self.name = self.__class__.__name__
         self.post = post_processing.PostProcessing()
         #global settings
-        #stitching params (see more info in image_stitcher.py):
         #self.raw_images_folder = settings['save_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.raw_images_folder = './capture/' # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
@@ -3852,10 +3850,6 @@ class PostProcessingAccordion(BoxLayout):
 
     def init_cell_count(self):
         self._cell_count_popup = None
-
-
-    def convert_to_avi(self):
-        logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
 
 
     def open_cell_count(self):

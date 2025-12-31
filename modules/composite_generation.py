@@ -2,9 +2,9 @@
 import os
 import pathlib
 
-import cv2
 import numpy as np
 import pandas as pd
+import tifffile as tf
 
 import modules.common_utils as common_utils
 import image_utils
@@ -153,13 +153,13 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
         images = {}
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            images[row['Filepath']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
+            images[row['Filepath']] = tf.imread(image_filepath)
 
-        color_index_map = {
-            'Blue': 0,
+        layer_map = {
+            'Red': 0,
             'Green': 1,
-            'Red': 2,
-            'Lumi': 0,
+            'Blue': 2,
+            'Lumi': 2,
         }
         
         error = None
@@ -205,7 +205,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                     elif img_dtype == "uint16":
                         brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 4095
 
-                    channel_index = color_index_map[layer]
+                    channel_index = layer_map[layer]
 
                     # Convert to np array
                     f_image = np.array(f_image)
@@ -262,7 +262,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                 for _, row in df.iterrows():
                     layer = row['Color']
                     try:
-                        layer_index = color_index_map[layer]
+                        layer_index = layer_map[layer]
                     except:
                         # If color not flourescent, skip this image
                         continue

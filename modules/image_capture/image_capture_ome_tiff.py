@@ -48,7 +48,7 @@ class ImageCapture_OmeTiff(ImageCaptureFormatBase):
         metadata: dict,
         color_channel: str,
     ):
-        axes = 'YX'
+        axes = self._lookup_axes(image_data=image_data)
 
         photometric = self._lookup_photometric(
             image_data=image_data,

@@ -24,12 +24,12 @@ class ImageCaptureFormatBase(abc.ABC):
     
     def _lookup_photometric(
         self,
-        image_data,
+        image_data: np.ndarray,
         color_channel: str,
     ) -> tf.PHOTOMETRIC:
         if image_utils.is_color_image(image_data):
             photometric = tf.PHOTOMETRIC.RGB
-        if color_channel in ('BF', 'PC', 'DF'):
+        elif color_channel in ('BF', 'PC', 'DF'):
             photometric = tf.PHOTOMETRIC.MINISBLACK
         elif color_channel in ('Red', 'Green', 'Blue'):
             photometric = tf.PHOTOMETRIC.PALETTE
@@ -37,6 +37,16 @@ class ImageCaptureFormatBase(abc.ABC):
             raise ValueError(f"Unexpected color value ({color_channel}) for tiff data generation")
         
         return photometric
+    
+
+    def _lookup_axes(
+        self,
+        image_data: np.ndarray,
+    ):
+        if True == image_utils.is_color_image(image=image_data):
+            return 'YXS'
+        
+        return 'YX'
     
 
     @abc.abstractmethod

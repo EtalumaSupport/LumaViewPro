@@ -1,9 +1,9 @@
 
-import itertools
 import pathlib
 
 import cv2
 import pandas as pd
+import tifffile as tf
 
 import image_utils
 import modules.common_utils as common_utils
@@ -187,7 +187,7 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         def _get_image_info() -> tuple:
             source_image_sample_filename = df['Filepath'].values[0]
             source_image_sample_filepath = path / source_image_sample_filename
-            source_image_sample = cv2.imread(str(source_image_sample_filepath), cv2.IMREAD_UNCHANGED)
+            source_image_sample = tf.imread(source_image_sample_filepath)
             is_color = True if source_image_sample.ndim == 3 else False
             
             if is_color:
@@ -225,7 +225,7 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         i = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
-            image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+            image = tf.imread(image_path)
 
             if enable_timestamp_overlay:
                 frame_ts = _get_timestamp_str(row['Timestamp'])
