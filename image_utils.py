@@ -36,7 +36,7 @@ tifffile_dtypes = {
 def is_color_image(image) -> bool:
     if len(image.shape) == 3 and image.shape[2] == 3:
         return True
-    
+
     return False
 
 
@@ -87,7 +87,7 @@ def image_file_to_image(image_file):
 def get_used_color_planes(image) -> list:
     if not is_color_image(image=image):
         return []
-    
+
     used_color_planes = []
     for color_plane_idx in range(image.shape[2]):
         image_view = image[:,:,color_plane_idx]
@@ -105,7 +105,7 @@ def rgb_image_to_gray(image):
             return True
 
         return False
-    
+
     def _values_in_one_plane(image):
         used_color_planes = get_used_color_planes(image=image)
 
@@ -126,7 +126,7 @@ def rgb_image_to_gray(image):
 def convert_12bit_to_8bit(image):
     if image.dtype == 'uint8':
         return image
-    
+
     new_image = image.copy()
     return (new_image // 16).astype(np.uint8)
 
@@ -134,7 +134,7 @@ def convert_12bit_to_8bit(image):
 def convert_12bit_to_16bit(image):
     if image.dtype == 'uint8':
         return image
-    
+
     new_image = image.copy()
     return (new_image * 16)
 
@@ -142,7 +142,7 @@ def convert_12bit_to_16bit(image):
 def convert_16bit_to_8bit(image):
     if image.dtype == 'uint8':
         return image
-    
+
     new_image = image.copy()
     return (new_image/256).astype('uint8')
 
@@ -194,7 +194,7 @@ def get_tiff_colormap(colormap: LvpColormap, dtype):
             cmap_array[2] = np.arange(0, max_value, step_size, dtype=dtype)
         else:
             raise NotImplementedError(f"Unsupported colormap: {colormap}")
-    
+
     return cmap_array
 
 
@@ -232,16 +232,16 @@ def write_tiff(
         if kwargs.get('imagej', False) == True:
             type_count += 1
             image_type = 'imagej'
-        
+
         if True == video_frame:
             type_count += 1
             image_type = 'video_frame'
 
         if type_count > 1:
             raise ValueError("Tiff must only be one type at most (OME, ImageJ, or Video Frame)")
-        
+
         return image_type
-    
+
     image_type = _validate_type()
 
     support_data = generate_tiff_data(
@@ -260,7 +260,7 @@ def write_tiff(
                 software=f"LumaViewPro {version}",
                 **support_data['options'],
             )
-        
+
         elif (image_type == None) and (True == is_color_image(image=data)):
             # Handles case where an actual color image is provided (such as the bullseye in engineering mode)
             tif.write(
@@ -292,7 +292,7 @@ def write_tiff(
             )
             # Ref: https://forum.image.sc/t/saving-tiff-stack-with-a-colormap-with-tifffile-library/101788
             if data.dtype == np.uint16:
-                support_data['extratags'].append((320, tifffile_dtypes['SHORT'], 0, colormap_array.tobytes(), True))            
+                support_data['extratags'].append((320, tifffile_dtypes['SHORT'], 0, colormap_array.tobytes(), True))
                 colormap_array = None
             elif (data.dtype == np.uint8) and (colormap_type == LvpColormap.GRAY):
                 # Note: tifffile doesn't support colormaps with 8-bit image and photometric is 'minisblack', so just disable
@@ -308,10 +308,10 @@ def write_tiff(
                 extratags=support_data['extratags'],
                 **support_data['options'],
             )
-            
-    
+
+
 def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
-    
+
     dtype = tifffile_dtypes
     axes = 'YX'
 
@@ -324,7 +324,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         photometric = tf.PHOTOMETRIC.PALETTE
     else:
         raise ValueError(f"Unexpected color value ({color}) for tiff data generation")
-    
+
 
     """
     To Add:
@@ -332,7 +332,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     LensModel
 
     """
-    
+
     if image_type == 'imagej':
         tiff_metadata={
             'unit': 'um',
@@ -436,7 +436,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
             'options': options,
             'resolution': resolution,
         }
-    
+
     elif image_type == 'video_frame':
         # Add further parameters in the future if testing goes well
 
@@ -475,15 +475,15 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
             'extratags': tiff_extratags,
             'options': options,
         }
-    
+
     else:
         """tiff_metadata={
             "CameraMake": metadata['camera_make'],
-            "ExposureTime": metadata['exposure_time_ms'],           
+            "ExposureTime": metadata['exposure_time_ms'],
             "ISOSpeed": metadata['gain_db'],
             "DateTime": metadata['datetime'],
             "Software": metadata['software'],
-            "XPosition": metadata['x_pos'],             
+            "XPosition": metadata['x_pos'],
             "YPosition": metadata['y_pos'],
             "SubjectDistance": metadata['z_pos_um'],
             "SubSecTime": metadata['sub_sec_time'],
@@ -544,16 +544,16 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         """tiff_extratags = [
         # CameraMake: Tag ID 271, 'ASCII'
         (271, dtype['ASCII'], len(metadata['camera_make']) + 1, metadata['camera_make'], False),
-        
+
 
         # ExposureTime: Tag ID 33434, 'RATIONAL'
         (33434, dtype['RATIONAL'], 1, ms_exposure_to_rational(metadata['exposure_time_ms']), False),
 
-    
+
         # ISOSpeed: Tag ID 34867, 'double'
         # Using in place of GainControl (Improper use of GainControl)
         (34867, dtype['DOUBLE'], 1, metadata['gain_db'], False),
-        
+
         # DateTime: Tag ID 306, 'ASCII'
         (306, dtype['ASCII'], len(metadata['datetime']) + 1, metadata['datetime'], False),
 
@@ -570,16 +570,16 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         (37393, dtype['SRATIONAL'], 1, (metadata['illumination_ma'], 1), False)]"""
 
         """
-        # XPosition: Tag ID 65001, 'RATIONAL' 
+        # XPosition: Tag ID 65001, 'RATIONAL'
         # Need to double check units
         (286, dtype['RATIONAL'], 1, (metadata['x_pos'], 1), False),]
 
-        
+
         # YPosition: Custom Tag ID 65002, 'RATIONAL'
         # Need to double check units
         (287, dtype['RATIONAL'], 1, (metadata['y_pos'], 1), False),
 
-        
+
         """
         # 2025-10-03:
         # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
@@ -602,7 +602,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
             'options': options,
             'resolution': resolution,
         }
-            
+
 
 def ms_exposure_to_rational(ms_exposure):
     exposure_seconds = ms_exposure / 1000
@@ -707,7 +707,7 @@ def add_scale_bar(
         font_scale *= 0.75
 
     cv2.putText(
-        img=image, 
+        img=image,
         text=scale_bar_text,
         org=(text_x_pos, text_y_pos),
         fontFace=font_face,
@@ -759,7 +759,7 @@ def add_timestamp(image, timestamp_str: str):
     )
 
     cv2.putText(
-        img=image, 
+        img=image,
         text=f"{timestamp_str}",
         org=(left_offset, int(top_offset + text_h + font_scale - 1)),
         fontFace=font_face,
