@@ -33,7 +33,7 @@ tifffile_dtypes = {
 def is_color_image(image) -> bool:
     if len(image.shape) == 3 and image.shape[2] == 3:
         return True
-    
+
     return False
 
 
@@ -80,7 +80,7 @@ def image_file_to_image(image_file):
 def get_used_color_planes(image) -> list:
     if not is_color_image(image=image):
         return []
-    
+
     used_color_planes = []
     for color_plane_idx in range(image.shape[2]):
         image_view = image[:,:,color_plane_idx]
@@ -98,7 +98,7 @@ def rgb_image_to_gray(image):
             return True
 
         return False
-    
+
     def _values_in_one_plane(image):
         used_color_planes = get_used_color_planes(image=image)
 
@@ -119,7 +119,7 @@ def rgb_image_to_gray(image):
 def convert_12bit_to_8bit(image):
     if image.dtype == 'uint8':
         return image
-    
+
     new_image = image.copy()
     return (new_image // 16).astype(np.uint8)
 
@@ -127,7 +127,7 @@ def convert_12bit_to_8bit(image):
 def convert_12bit_to_16bit(image):
     if image.dtype == 'uint8':
         return image
-    
+
     new_image = image.copy()
     return (new_image * 16)
 
@@ -135,7 +135,7 @@ def convert_12bit_to_16bit(image):
 def convert_16bit_to_8bit(image):
     if image.dtype == 'uint8':
         return image
-    
+
     new_image = image.copy()
     return (new_image/256).astype('uint8')
 
@@ -187,7 +187,7 @@ def get_tiff_colormap(colormap: LvpColormap, dtype):
             cmap_array[2] = np.arange(0, max_value, step_size, dtype=dtype)
         else:
             raise NotImplementedError(f"Unsupported colormap: {colormap}")
-    
+
     return cmap_array
             
 
@@ -294,7 +294,7 @@ def add_scale_bar(
         font_scale *= 0.75
 
     cv2.putText(
-        img=image, 
+        img=image,
         text=scale_bar_text,
         org=(text_x_pos, text_y_pos),
         fontFace=font_face,
@@ -346,7 +346,7 @@ def add_timestamp(image, timestamp_str: str):
     )
 
     cv2.putText(
-        img=image, 
+        img=image,
         text=f"{timestamp_str}",
         org=(left_offset, int(top_offset + text_h + font_scale - 1)),
         fontFace=font_face,
