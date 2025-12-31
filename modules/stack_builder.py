@@ -181,11 +181,11 @@ class StackBuilder(ProtocolPostProcessingExecutor):
             photometric=photometric,
             tile=(128, 128),
             compression='lzw',
-            resolutionunit='CENTIMETER',
+            resolutionunit=tf.RESUNIT.MICROMETER,
             maxworkers=2
         )
         
-        resolution = (1e4 / pixel_size_um, 1e4 / pixel_size_um)
+        resolution = (1 / pixel_size_um, 1 / pixel_size_um)
 
         return {
             'metadata': metadata,
@@ -303,11 +303,11 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         #     photometric=photometric,
         #     tile=(128, 128),
         #     compression='lzw',
-        #     resolutionunit='CENTIMETER',
+        #     resolutionunit=tf.RESUNIT.MICROMETER,
         #     maxworkers=2
         # )
         
-        # resolution = (1e4 / pixel_size_um, 1e4 / pixel_size_um)
+        # resolution = (1 / pixel_size_um, 1 / pixel_size_um)
 
         # return {
         #     'metadata': metadata,

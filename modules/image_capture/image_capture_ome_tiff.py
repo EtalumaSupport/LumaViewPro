@@ -7,15 +7,16 @@ import tifffile as tf
 
 import image_utils
 from modules.image_capture.image_capture_enums import *
+from modules.image_capture.image_capture_format_base import ImageCaptureFormatBase
 
-
-class ImageCapture_OmeTiff:
+class ImageCapture_OmeTiff(ImageCaptureFormatBase):
     
     def __init__(self):
         self._name = self.__class__.__name__
         super().__init__(self._name)
 
 
+    @staticmethod
     def supported_configs() -> tuple[ImageCaptureConfig]:
         return (
             ImageCaptureConfig(
@@ -87,14 +88,14 @@ class ImageCapture_OmeTiff:
         options=dict(
             photometric=photometric,
             compression='lzw',
-            resolutionunit='CENTIMETER',
+            resolutionunit=tf.RESUNIT.MICROMETER,
             maxworkers=2
         )
 
         if image_data.dtype == np.uint8:
             options['tile'] = (128, 128)
 
-        resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
+        resolution = (1 / metadata['pixel_size_um'], 1 / metadata['pixel_size_um'])
 
         return {
             'metadata': tiff_metadata,

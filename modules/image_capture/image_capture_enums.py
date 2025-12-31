@@ -20,6 +20,7 @@ class ImageFileFormat(enum.Enum):
     TIFF                = 'TIFF'
     OME_TIFF            = 'OME-TIFF'
     IMAGEJ_HYPERSTACK   = 'ImageJ Hyperstack'
+    VIDEO               = 'Video'
 
 
 @enum.unique
@@ -28,7 +29,7 @@ class VideoFileFormat(enum.Enum):
     MP4     = 'mp4'
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(eq=True, frozen=True)
 class ImageCaptureConfig:
     pixel_depth: ImagePixelDepth
     channel_count: ImageChannelCount

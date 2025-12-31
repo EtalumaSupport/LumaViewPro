@@ -6,15 +6,16 @@ import tifffile as tf
 
 import image_utils
 from modules.image_capture.image_capture_enums import *
+from modules.image_capture.image_capture_format_base import ImageCaptureFormatBase
 
-
-class ImageCapture_Video:
+class ImageCapture_Video(ImageCaptureFormatBase):
     
     def __init__(self):
         self._name = self.__class__.__name__
         super().__init__(self._name)
 
 
+    @staticmethod
     def supported_configs() -> tuple[ImageCaptureConfig]:
         return (
             ImageCaptureConfig(
@@ -76,7 +77,7 @@ class ImageCapture_Video:
         options=dict(
             photometric=photometric,
             compression='lzw',
-            resolutionunit='CENTIMETER',
+            resolutionunit=tf.RESUNIT.MICROMETER,
             maxworkers=2
         )
 

@@ -21,7 +21,7 @@ class ImageCaptureRouter:
 
     
     def _load_supported_image_capture_formats(self) -> dict[str, ImageCaptureConfig]:
-        classes = {}
+        instances = {}
         current_dir = pathlib.Path(__file__).resolve().parent
 
         for file_path in current_dir.glob("*.py"):
@@ -53,13 +53,13 @@ class ImageCaptureRouter:
                         if False == issubclass(obj, ImageCaptureFormatBase):
                             continue
 
-                        classes[name] = obj
+                        instances[name] = obj()
                         self._logger.debug(f"  Found class: {name}")
 
             except Exception as e:
                 self._logger.error(f"Error importing {file_path}: {e}")
 
-        return classes
+        return instances
             
     
     def _build_capture_config_lookup(self) -> dict[tuple[ImageCaptureConfig], ImageCaptureFormatBase]:
@@ -101,7 +101,12 @@ class ImageCaptureRouter:
         )
 
         try:
-            self._capture_config_lookup[image_capture_config].save(image_data, **kwargs)
+            image_plugin = self._capture_config_lookup[image_capture_config]
         except:
             self._logger.error(f"Unable to save image with config {image_capture_config}. No plugin found.")
+
+        try:
+            image_plugin.save(image_data=image_data, **kwargs)
+        except Exception as ex:
+            self._logger.error(f"Unable to save image (config {image_capture_config}) with plugin ({image_plugin}): {ex}")
 
