@@ -17,9 +17,15 @@ class ImageChannelCount(enum.Enum):
 
 @enum.unique
 class ImageFileFormat(enum.Enum):
-    TIFF        = 'TIFF'
-    OME_TIFF    = 'OME-TIFF'
-    IMAGEJ      = 'ImageJ'
+    TIFF                = 'TIFF'
+    OME_TIFF            = 'OME-TIFF'
+    IMAGEJ_HYPERSTACK   = 'ImageJ Hyperstack'
+
+
+@enum.unique
+class VideoFileFormat(enum.Enum):
+    FRAMES  = 'Frames'
+    MP4     = 'mp4'
 
 
 @dataclasses.dataclass

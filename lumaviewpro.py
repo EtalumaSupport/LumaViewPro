@@ -312,6 +312,8 @@ if __name__ == "__main__":
 
     import image_utils_kivy
 
+    from modules.image_capture.image_capture_enums import ImageFileFormat
+
 
 
     
@@ -1096,8 +1098,8 @@ def get_selected_labware() -> tuple[str, labware.WellPlate]:
 def get_image_capture_config_from_ui() -> dict:
     microscope_settings = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
     output_format = {
-        'live': microscope_settings.ids['live_image_output_format_spinner'].text,
-        'sequenced': microscope_settings.ids['sequenced_image_output_format_spinner'].text,
+        'live': ImageFileFormat(microscope_settings.ids['live_image_output_format_spinner'].text),
+        'sequenced': ImageFileFormat(microscope_settings.ids['sequenced_image_output_format_spinner'].text),
     }
     use_full_pixel_depth = lumaview.ids['viewer_id'].ids['scope_display_id'].use_full_pixel_depth
     return {
@@ -1143,7 +1145,7 @@ def get_auto_gain_settings() -> dict:
 
 def create_hyperstacks_if_needed():
     image_capture_config = get_image_capture_config_from_ui()
-    if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+    if image_capture_config['output_format']['sequenced'] == ImageFileFormat.IMAGEJ_HYPERSTACK:
         _, objective = get_current_objective_info()
         stack_builder = StackBuilder(
             has_turret=lumaview.scope.has_turret(),
@@ -2188,7 +2190,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
             image_capture_config = get_image_capture_config_from_ui()
 
-            if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+            if image_capture_config['output_format']['sequenced'] == ImageFileFormat.IMAGEJ_HYPERSTACK:
                 include_hyperstack_generation = True
                 _, objective = get_current_objective_info()
                 stack_builder = StackBuilder(
@@ -7462,10 +7464,12 @@ class MicroscopeSettings(BoxLayout):
                     self.ids['separate_folder_per_channel_id'].state = 'normal'
             self.update_separate_folders_per_channel()
 
-            self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
+            settings['image_output_format']['live'] = ImageFileFormat(settings['image_output_format']['live'])
+            self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live'].value
             self.select_live_image_output_format()
 
-            self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
+            settings['image_output_format']['sequenced'] = ImageFileFormat(settings['image_output_format']['sequenced'])
+            self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced'].value
             self.select_sequenced_image_output_format()
 
             try:
@@ -7782,12 +7786,12 @@ class MicroscopeSettings(BoxLayout):
     
     def select_live_image_output_format(self):
         global settings
-        settings['image_output_format']['live'] = self.ids['live_image_output_format_spinner'].text
+        settings['image_output_format']['live'] = ImageFileFormat(self.ids['live_image_output_format_spinner'].text)
 
 
     def select_sequenced_image_output_format(self):
         global settings
-        settings['image_output_format']['sequenced'] = self.ids['sequenced_image_output_format_spinner'].text
+        settings['image_output_format']['sequenced'] = ImageFileFormat(self.ids['sequenced_image_output_format_spinner'].text)
 
     def select_video_recording_format(self):
         global settings

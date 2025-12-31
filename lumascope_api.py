@@ -56,6 +56,9 @@ import modules.objectives_loader as objectives_loader
 import image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
+from modules.image_capture.image_capture_enums import ImageFileFormat
+from modules.image_capture.image_capture_router import ImageCaptureRouter
+
 
 class Lumascope():
 
@@ -63,6 +66,7 @@ class Lumascope():
         """Initialize Microscope"""
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()
+        self._image_capture_router = ImageCaptureRouter()
 
         # LED Control Board
         try:
@@ -505,14 +509,21 @@ class Lumascope():
         return str(new_path)
     
 
-    def generate_image_save_path(self, save_folder, file_root, append, tail_id_mode, output_format):
+    def generate_image_save_path(
+        self,
+        save_folder: pathlib.Path,
+        file_root: str | None,
+        append: str,
+        tail_id_mode: str | None,
+        output_format: ImageFileFormat
+    ):
         if type(save_folder) == str:
             save_folder = pathlib.Path(save_folder)
 
         if file_root is None:
             file_root = ""
 
-        if output_format == 'OME-TIFF':
+        if output_format == ImageFileFormat.OME_TIFF:
             file_extension = ".ome.tiff"
         else:
             file_extension = ".tiff"
@@ -622,7 +633,7 @@ class Lumascope():
         array = np.flip(array, 0)
 
         path = self.generate_image_save_path(
-            save_folder=save_folder,
+            save_folder=pathlib.Path(save_folder),
             file_root=file_root,
             append=append,
             tail_id_mode=tail_id_mode,
@@ -636,16 +647,32 @@ class Lumascope():
             'metadata': metadata,
         }
 
+    def write_tiff(
+        self,
+        image_data: np.ndarray,
+        file_loc: pathlib.Path,
+        metadata: dict,
+        file_format: ImageFileFormat,
+        color_channel: str,
+    ):
+        self._image_capture_router.save(
+            image_data=image_data,
+            file_loc=file_loc,
+            metadata=metadata,
+            file_format=file_format,
+            color_channel=color_channel,
+        )
+
 
     def save_image(
         self,
-        array,
-        save_folder = './capture',
-        file_root = 'img_',
-        append = 'ms',
+        array: np.ndarray,
+        save_folder: pathlib.Path = pathlib.Path('./capture'),
+        file_root: str | None = 'img_',
+        append: str = 'ms',
         color = 'BF',
-        tail_id_mode = "increment",
-        output_format: str = "TIFF",
+        tail_id_mode: str | None = "increment",
+        output_format: ImageFileFormat = ImageFileFormat.TIFF,
         true_color: str = 'BF',
         x=None,
         y=None,
@@ -673,18 +700,13 @@ class Lumascope():
         metadata = image_data['metadata']
         file_loc = metadata['file_loc']
 
-        if output_format == 'OME-TIFF':
-            ome=True
-        else:
-            ome=False
-
         try:
-            image_utils.write_tiff(
-                data=image,
+            self.write_tiff(
+                image_data=image,
                 file_loc=file_loc,
                 metadata=metadata,
-                ome=ome,
-                color=color,
+                file_format=output_format,
+                color_channel=color,
             )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
@@ -733,7 +755,16 @@ class Lumascope():
         if array is False:
             return 
         
-        return self.save_image(array, save_folder, file_root, append, color, tail_id_mode, output_format=output_format, true_color=true_color)
+        return self.save_image(
+            array,
+            save_folder,
+            file_root,
+            append,
+            color,
+            tail_id_mode,
+            output_format=output_format,
+            true_color=true_color,
+        )
  
 
     def get_max_width(self):
@@ -1392,14 +1423,17 @@ class Lumascope():
         return str(new_path)
 
     @staticmethod
-    def generate_image_save_path_static(save_folder, file_root, append, tail_id_mode, output_format):
-        if type(save_folder) == str:
-            save_folder = pathlib.Path(save_folder)
-
+    def generate_image_save_path_static(
+        save_folder: pathlib.Path,
+        file_root: str | None,
+        append: str,
+        tail_id_mode: str,
+        output_format: ImageFileFormat
+    ):
         if file_root is None:
             file_root = ""
 
-        if output_format == 'OME-TIFF':
+        if output_format == ImageFileFormat.OME_TIFF:
             file_extension = ".ome.tiff"
         else:
             file_extension = ".tiff"
@@ -1518,7 +1552,7 @@ class Lumascope():
         img = np.flip(img, 0)
 
         path = Lumascope.generate_image_save_path_static(
-            save_folder=save_folder,
+            save_folder=pathlib.Path(save_folder),
             file_root=file_root,
             append=append,
             tail_id_mode=tail_id_mode,

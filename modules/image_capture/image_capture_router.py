@@ -5,6 +5,9 @@ import logging
 import pathlib
 import sys
 
+import numpy as np
+
+import image_utils
 from modules.image_capture.image_capture_format_base import ImageCaptureFormatBase
 from modules.image_capture.image_capture_enums import ImageCaptureConfig, ImageFileFormat, ImageChannelCount, ImagePixelDepth
 
@@ -31,7 +34,6 @@ class ImageCaptureRouter:
             # Don't import base classes
             if module_name.lower().endswith("base"):
                 continue
-
 
             try:
 
@@ -75,13 +77,22 @@ class ImageCaptureRouter:
 
     def save(
         self,
-        image_data,
+        image_data: np.ndarray,
         file_format: ImageFileFormat,
+        **kwargs
     ):
         
-        # TODO extract bit depth, num channels
-        pixel_depth = ImagePixelDepth.BIT8
-        channel_count = ImageChannelCount.SINGLE_CHANNEL
+        if image_data.dtype == np.uint8:
+            pixel_depth = ImagePixelDepth.BIT8
+        elif image_data.dtype == np.uint16:
+            pixel_depth = ImagePixelDepth.BIT12
+        else:
+            raise NotImplementedError
+
+        if image_utils.is_color_image(image_data):
+            channel_count = ImageChannelCount.THREE_CHANNEL
+        else:
+            channel_count = ImageChannelCount.SINGLE_CHANNEL
 
         image_capture_config = ImageCaptureConfig(
             pixel_depth=pixel_depth,
@@ -90,7 +101,7 @@ class ImageCaptureRouter:
         )
 
         try:
-            self._capture_config_lookup[image_capture_config].save(image_data)
+            self._capture_config_lookup[image_capture_config].save(image_data, **kwargs)
         except:
             self._logger.error(f"Unable to save image with config {image_capture_config}. No plugin found.")
 

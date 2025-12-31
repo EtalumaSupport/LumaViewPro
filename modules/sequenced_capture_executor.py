@@ -33,6 +33,7 @@ import modules.coord_transformations as coord_transformations
 
 import modules.labware_loader as labware_loader
 from modules.autofocus_executor import AutofocusExecutor
+from modules.image_capture.image_capture_enums import ImageFileFormat
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
@@ -654,8 +655,8 @@ class SequencedCaptureExecutor:
                 output_format=self._image_capture_config['output_format']['sequenced']
 
                 # Handle hyperstack creation as a post-processing function for now. Capture images in TIFF.
-                if output_format == 'ImageJ Hyperstack':
-                    output_format = 'TIFF'
+                if output_format == ImageFileFormat.IMAGEJ_HYPERSTACK:
+                    output_format = ImageFileFormat.TIFF
 
                 # TODO THREAD
 
@@ -1438,25 +1439,6 @@ class SequencedCaptureExecutor:
                 del captured_image
                 gc.collect()
 
-                
-                
-                # result = self._scope.save_live_image(
-                #     save_folder=save_folder,
-                #     file_root=None,
-                #     append=name,
-                #     color=use_color,
-                #     tail_id_mode=None,
-                #     force_to_8bit=not use_full_pixel_depth,
-                #     output_format=output_format,
-                #     true_color=step['Color'],
-                #     earliest_image_ts=earliest_image_ts,
-                #     timeout=datetime.timedelta(seconds=1.0),
-                #     all_ones_check=True,
-                #     sum_count=sum_count,
-                #     sum_delay_s=step["Exposure"]/1000,
-                #     sum_iteration_callback=sum_iteration_callback,
-                #     turn_off_all_leds_after=True,
-                # )
             if capture_result is None:
                 capture_result_filepath_name = "unsaved"
 

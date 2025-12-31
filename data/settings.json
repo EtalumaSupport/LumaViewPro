@@ -5,6 +5,7 @@
         "live": "TIFF",
         "sequenced": "TIFF"
     },
+    "video_output_format": "Frames",
     "separate_folder_per_channel": false,
     "stage_offset": {
         "x": 5500.0,
@@ -190,7 +191,6 @@
     "scale_bar": {
         "enabled": false
     },
-    "video_as_frames": false,
     "motion": {
         "acceleration_max_pct": 100
     },
