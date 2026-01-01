@@ -65,9 +65,6 @@ import tkinter
 from tkinter import filedialog, Tk
 from plyer import filechooser
 
-# import imagej.doctor # moved all java init to init_ij
-# import imagej
-# import scyjava
 
 if __name__ == "__main__":
 
@@ -240,8 +237,6 @@ if __name__ == "__main__":
 
     import image_utils
 
-
-    # imagej.doctor.checkup() # moved all java init to init_ij
 
     global profiling_helper
     profiling_helper = None
