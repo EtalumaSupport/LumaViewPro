@@ -219,11 +219,6 @@ class Lumascope():
 
         return self.camera.get_binning_size()
 
-    def set_microscope(self, microscope: str):
-        self._microscope = microscope
-
-    def get_microscope(self):
-        return self._microscope
 
     ########################################################################
     # LED BOARD FUNCTIONS
@@ -1154,7 +1149,7 @@ class Lumascope():
             time.sleep(0.05)
 
         return
-    
+
 
     def set_acceleration_limit(self, val_pct: int):
         self.motion.set_acceleration_limits(val_pct=val_pct)
