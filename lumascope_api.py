@@ -97,6 +97,7 @@ class Lumascope():
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
+        self._microscope = None
         self._labware = None              # The labware currently installed
         self._objective = None            # The objective currently selected/installed
         self._turret_config = {}          # The objectives loaded into the turret (if present)
@@ -536,6 +537,25 @@ class Lumascope():
 
         return path
 
+    def get_well_label(self):
+        labware = self._labware
+
+        # Get target position
+        try:
+            x_target = self.get_target_position('X')
+            y_target = self.get_target_position('Y')
+        except:
+            logger.exception('[LVP API  ] Error getting target position.')
+            raise
+
+        x_target, y_target = self._coordinate_transformer.stage_to_plate(
+            labware=labware,
+            stage_offset=self._stage_offset,
+            sx=x_target,
+            sy=y_target
+        )
+
+        return labware.get_well_label(x=x_target, y=y_target)
 
     def generate_image_metadata(self, color, x, y, z) -> dict:
         def _validate():
@@ -566,6 +586,7 @@ class Lumascope():
             sx=x,
             sy=y
         )
+        well_label = self.get_well_label()
 
         px = round(px, common_utils.max_decimal_precision('x'))
         py = round(py, common_utils.max_decimal_precision('y'))
@@ -581,6 +602,7 @@ class Lumascope():
 
         metadata = {
             'camera_make': 'Etaluma',
+            'microscope': self._microscope or '',
             'software': f'LumaViewPro {version}',
             'channel': color,
             'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
@@ -596,6 +618,8 @@ class Lumascope():
             'illumination_ma': round(self.get_led_ma(color=color), common_utils.max_decimal_precision('illumination')),
             'binning_size': self._binning_size,
             'pixel_size_um': pixel_size_um,
+            'well_label': well_label,
+            # 'well_site': 3, # TODO: provide well site, id of image within the well, ex: 3
         }
 
         return metadata

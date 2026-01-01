@@ -315,13 +315,17 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     dtype = tifffile_dtypes
     axes = 'YX'
 
+    modality = ''
     if (True == is_color_image(data)):
         # Handles case where an actual color image is provided (such as composite or bullseye in engineering mode)
         photometric = tf.PHOTOMETRIC.RGB
+        modality = 'RGB'
     elif color in ('BF', 'PC', 'DF'):
         photometric = tf.PHOTOMETRIC.MINISBLACK
+        modality = color
     elif color in ('Red', 'Green', 'Blue'):
         photometric = tf.PHOTOMETRIC.PALETTE
+        modality = 'MIF'
     else:
         raise ValueError(f"Unexpected color value ({color}) for tiff data generation")
 
@@ -342,7 +346,10 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
             'PhysicalSizeXUnit': 'um',
             'PhysicalSizeY': metadata['pixel_size_um'],
             'PhysicalSizeYUnit': 'um',
-            'Channel': {'Name': [metadata['channel']]},
+            'Channel': {
+                'Name': [metadata['channel']],
+                'Modality': [modality],
+            },
             'Plane': {
                 'PositionX': metadata['plate_pos_mm']['x'],
                 'PositionY': metadata['plate_pos_mm']['y'],
@@ -357,7 +364,13 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
                 'GainUnit': 'dB',
                 'Illumination': metadata['illumination_ma'],
                 'IlluminationUnit': 'mA'
-            }
+            },
+            'Document': {
+                'Manufacturer': metadata.get('camera_make', ''),
+                'Device': metadata.get('microscope', ''),
+                'WellLabel': metadata.get('well_label', ''),
+                'WellSite': metadata.get('well_site', ''), # TODO: provide well site, id of image within the well, ex: 3
+            },
         }
         tiff_extratags = []
 
@@ -366,10 +379,10 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
         options=dict(
             photometric=photometric,
-            compression='lzw',
+            compression='deflate', # 'lzw', # deflate is much faster with 1 worker than lzw with two
             # resolutionunit='CENTIMETER',
             # unit='um',
-            maxworkers=2,
+            maxworkers=1, # 2, # deflate is much faster with 1 worker than lzw with two
             # spacing=metadata['pixel_size_um'],
         )
 
