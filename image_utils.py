@@ -208,12 +208,12 @@ def write_tiff(
         extratags: list = [],
 ):
 
+    kwargs = {}
     if True == ome:
         kwargs = {
             'bigtiff': False,
         }
-    else:
-        kwargs = {}
+    elif False == video_frame:
         if is_color_image(data):
             # For now, prevent 16-bit color images from being converted to ImageJ type
             # such as composite (or bullseye). Could allow this once proper support is added.
