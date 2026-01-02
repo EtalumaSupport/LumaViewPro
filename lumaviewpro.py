@@ -2210,10 +2210,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 output_file_loc = save_folder / f"{frame_name}.tiff"
 
                 metadata = {
-                            "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
-                            "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
-                            "frame_num": frame_num
-                        }
+                    'datetime': ts.strftime("%Y:%m:%d %H:%M:%S"),
+                    'timestamp': ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
+                    'frame_num': frame_num,
+                    'software': f'LumaViewPro {version}',
+                }
 
                 if include_hyperstack_generation == True:
                     current_position = lumaview.scope.get_current_position()
@@ -2230,13 +2231,12 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     )
 
                 try:
-                    image_utils.write_tiff(
-                        data=image,
-                        metadata=metadata,
+                    lumaview.scope.write_tiff(
+                        image_data=image,
                         file_loc=output_file_loc,
-                        video_frame=True,
-                        ome=False,
-                        color=color
+                        metadata=metadata,
+                        file_format=ImageFileFormat.VIDEO,
+                        color_channel=color,
                     )
                 except Exception as e:
                     logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")

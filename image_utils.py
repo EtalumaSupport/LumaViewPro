@@ -41,11 +41,11 @@ def add_false_color(array, color):
     src_dtype = array.dtype
     if (not image_utils.is_color_image(array)) and (color in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers())):
         img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
-        if color in ('Blue', 'Lumi'):
+        if color == 'Red':
             img[:,:,0] = array
         elif color == 'Green':
             img[:,:,1] = array
-        elif color == 'Red':
+        elif color in ('Blue', 'Lumi'):
             img[:,:,2] = array
 
         # For HSL colorspace
