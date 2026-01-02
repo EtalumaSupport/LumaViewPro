@@ -101,7 +101,6 @@ class Lumascope():
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
-        self._microscope = None
         self._labware = None              # The labware currently installed
         self._objective = None            # The objective currently selected/installed
         self._turret_config = {}          # The objectives loaded into the turret (if present)
@@ -613,7 +612,7 @@ class Lumascope():
 
         metadata = {
             'camera_make': 'Etaluma',
-            'microscope': self._microscope or '',
+            'microscope': self.get_microscope_model(),
             'software': f'LumaViewPro {version}',
             'channel': color,
             'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
