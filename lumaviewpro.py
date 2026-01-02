@@ -65,11 +65,6 @@ import tkinter
 from tkinter import filedialog, Tk
 from plyer import filechooser
 
-import imagej.doctor
-import imagej
-
-
-import scyjava
 
 if __name__ == "__main__":
 
@@ -241,8 +236,6 @@ if __name__ == "__main__":
 
     import image_utils
 
-
-    imagej.doctor.checkup()
 
     global profiling_helper
     profiling_helper = None
@@ -5510,6 +5503,7 @@ class ProtocolSettings(CompositeCapture):
     def _validate_labware(self, labware: str):
         scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
         selected_scope_config = scope_configs[settings['microscope']]
+        lumaview.scope.set_microscope(settings.get('microscope')) # Set microscope name for metadata
 
         # If XY motion is available, any type of labware is acceptable
         if selected_scope_config['XYStage'] is True:
@@ -5602,6 +5596,7 @@ class ProtocolSettings(CompositeCapture):
 
         scope_configs = lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].scopes
         selected_scope_config = scope_configs[settings['microscope']]
+        lumaview.scope.set_microscope(settings.get('microscope')) # Set microscope name for metadata
 
         # If the scope has no XY stage, then don't allow the protocol to modify the labware
         if selected_scope_config['XYStage'] == False:
@@ -7930,6 +7925,7 @@ class MicroscopeSettings(BoxLayout):
         microscope_settings = lumaview.ids['motionsettings_id'].ids['microscope_settings_id']
         scope_configs = microscope_settings.scopes
         selected_scope_config = scope_configs[settings['microscope']]
+        lumaview.scope.set_microscope(settings.get('microscope')) # Set microscope name for metadata
 
         microscope_settings.set_acceleration_control_visibility(visible=selected_scope_config['XYStage'])
 
@@ -9239,6 +9235,11 @@ def block_wait_for_threads(futures: list, log_loc="LVP") -> None:
     return
 
 def init_ij():
+    import imagej.doctor
+    import imagej
+    import scyjava
+
+    imagej.doctor.checkup()
     global ij_helper
     ij_helper = imagej_helper.ImageJHelper()
     return

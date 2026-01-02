@@ -22,21 +22,25 @@ class ImageCaptureFormatBase(abc.ABC):
         return tuple()
     
     
-    def _lookup_photometric(
+    def _lookup_photometric_and_modality(
         self,
         image_data: np.ndarray,
         color_channel: str,
     ) -> tf.PHOTOMETRIC:
+        modality = ''
         if image_utils.is_color_image(image_data):
             photometric = tf.PHOTOMETRIC.RGB
+            modality = 'RGB'
         elif color_channel in ('BF', 'PC', 'DF'):
             photometric = tf.PHOTOMETRIC.MINISBLACK
+            modality = color_channel
         elif color_channel in ('Red', 'Green', 'Blue'):
             photometric = tf.PHOTOMETRIC.PALETTE
+            modality = 'MIF'
         else:
             raise ValueError(f"Unexpected color value ({color_channel}) for tiff data generation")
         
-        return photometric
+        return photometric, modality
     
 
     def _lookup_axes(

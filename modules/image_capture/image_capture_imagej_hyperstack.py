@@ -50,7 +50,7 @@ class ImageCapture_ImageJHyperstack(ImageCaptureFormatBase):
     ):
         axes = self._lookup_axes(image_data=image_data)
 
-        photometric = self._lookup_photometric(
+        photometric, modality = self._lookup_photometric_and_modality(
             image_data=image_data,
             color_channel=color_channel,
         )
@@ -63,7 +63,10 @@ class ImageCapture_ImageJHyperstack(ImageCaptureFormatBase):
             'PhysicalSizeXUnit': 'um',
             'PhysicalSizeY': metadata['pixel_size_um'],
             'PhysicalSizeYUnit': 'um',
-            'Channel': {'Name': [metadata['channel']]},
+            'Channel': {
+                'Name': [metadata['channel']],
+                'Modality': [modality],
+            },
             'Plane': {
                 'PositionX': metadata['plate_pos_mm']['x'],
                 'PositionY': metadata['plate_pos_mm']['y'],
@@ -78,7 +81,13 @@ class ImageCapture_ImageJHyperstack(ImageCaptureFormatBase):
                 'GainUnit': 'dB',
                 'Illumination': metadata['illumination_ma'],
                 'IlluminationUnit': 'mA'
-            }
+            },
+            'Document': {
+                'Manufacturer': metadata.get('camera_make', ''),
+                'Device': metadata.get('microscope', ''),
+                'WellLabel': metadata.get('well_label', ''),
+                'WellSite': metadata.get('well_site', ''), # TODO: provide well site, id of image within the well, ex: 3
+            },
         }
         tiff_extratags = []
 
@@ -87,8 +96,8 @@ class ImageCapture_ImageJHyperstack(ImageCaptureFormatBase):
         # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
         options=dict(
             photometric=photometric,
-            compression='lzw',
-            maxworkers=2,
+            compression='deflate',
+            maxworkers=1,
         )
 
         if image_data.dtype == np.uint8:

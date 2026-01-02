@@ -47,7 +47,7 @@ class ImageCapture_Video(ImageCaptureFormatBase):
         metadata: dict,
         color_channel: str,
     ):
-        photometric = self._lookup_photometric(
+        photometric, modality = self._lookup_photometric_and_modality(
             image_data=image_data,
             color_channel=color_channel,
         )
