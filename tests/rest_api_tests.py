@@ -50,7 +50,10 @@ class TestRESTv1(unittest.TestCase):
             assert '.tsv' in item
 
     def test_run_protocol(self):
-        response = requests.post('http://localhost:8000/api/v1/protocol/run?protocol_name=test_protocol')
+        body = {
+            "protocol_name": "test_protocol"
+        }
+        response = requests.post('http://localhost:8000/api/v1/protocol/run', json=body)
         self.assertDictEqual(response.json(),{"message": "Protocol started"})
 
     def test_live_capture(self):
