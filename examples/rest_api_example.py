@@ -70,6 +70,10 @@ body = {
 response = requests.post(PROTOCOL_URL + "/run", json=body) #POST http://localhost:8000/api/v1/protocol/run
 print(response.json()) #Returns protocol started message upon success
 
+#Abort protocol
+response = requests.post(PROTOCOL_URL + "/abort") #POST http://localhost:8000/api/v1/protocol/abort
+print(response.json())
+
 
 #---------------STATUS OPERATIONS---------------
 STATUS_URL = URL + "/status"

@@ -71,3 +71,13 @@ def run_protocol(protocol_parameters:ProtocolParameters,
             return{"message":"Protocol started"}
 
     raise HTTPException(status_code=500, detail="Could not run protocol")
+
+@protocol_router.post("/abort", description="Aborts a currently running protocol")
+def abort_protocol(sequenced_capture_executor:"SequencedCaptureExecutor" = Depends(get_sequenced_capture_executor)):
+    if not sequenced_capture_executor.run_in_progress():
+        raise HTTPException(status_code=500, detail="No protocol running")
+    
+    sequenced_capture_executor.reset()
+    sequenced_capture_executor._autofocus_executor.reset()
+
+    return {"message":"Protocol aborted"}

@@ -49,12 +49,18 @@ class TestRESTv1(unittest.TestCase):
         for item in response.json():
             assert '.tsv' in item
 
-    def test_run_protocol(self):
+    def test_run_abort_protocol(self):
         body = {
             "protocol_name": "test_protocol"
         }
         response = requests.post('http://localhost:8000/api/v1/protocol/run', json=body)
         self.assertDictEqual(response.json(),{"message": "Protocol started"})
+
+        response = requests.post('http://localhost:8000/api/v1/protocol/abort')
+        self.assertDictEqual(response.json(),{"message": "Protocol aborted"})
+
+        response = requests.post('http://localhost:8000/api/v1/protocol/abort')
+        self.assertDictEqual(response.json(),{'detail':'No protocol running'})
 
     def test_live_capture(self):
         body = {
