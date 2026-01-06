@@ -1,0 +1,75 @@
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+	<!-- These variables can be overridden via -d command line arguments -->
+	<?ifndef ProductName ?>
+		<?define ProductName = "LumaViewPro 3.0.0-beta" ?>
+	<?endif ?>
+	<?ifndef Version ?>
+		<?define Version = "3.0.0" ?>
+	<?endif ?>
+	<!-- Version must be in format x.x.x -->
+	<?ifndef Manufacturer ?>
+		<?define Manufacturer = "Etaluma" ?>
+	<?endif ?>
+	<?ifndef InstallFolderDir ?>
+		<?define InstallFolderDir = "path" ?>
+	<?endif ?>
+	
+  <Package Name="$(var.ProductName)" Manufacturer="$(var.Manufacturer)" Version="$(var.Version)" Compressed="yes" UpgradeCode="90907569-ca5a-4e20-b393-2e042e9f8b93">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed. Please uninstall the newer version before installing this version." />
+	  <DirectoryRef Id="INSTALLFOLDER">
+		  <!-- 
+		  INSTALLFOLDER goes to ProgramFiles LVP folder.
+		  Make sure that the directory to the desired base LVP folder is correct and has \** after in order to include all in folder
+	      -->
+		<Files Include="$(var.InstallFolderDir)\**" />
+		  <Component Id="MarkerFileComponent" Guid="f5103a8e-44d6-4214-aa02-73843c670f6d">
+			  <File Id="MarkerFile"
+					Name="marker.lvpinstalled"
+					Source="$(var.ProjectDir)marker.lvpinstalled"
+					KeyPath="yes"
+					Vital="yes" />
+		  </Component>
+		  
+		  <Component Id="LVPINSTALLFOLDERComponent" Guid="7c20a30c-6247-43ea-bdf6-8bf1b915fdd3">
+			  <RemoveFolder Id="INSTALLFOLDER" On="uninstall" />
+		  </Component>
+	  </DirectoryRef>
+	  
+	  <!-- Make sure to update icon directory -->
+	  <Icon Id="icon.ico" SourceFile="$(var.InstallFolderDir)\data\icons\icon.ico"/>
+	  <Property Id="ARPPRODUCTICON" Value="icon.ico" />
+	  <DirectoryRef Id="ApplicationProgramsFolder">
+		  <Component Id="ApplicationShortcut" Guid="90907569-ca5a-4e20-b393-2e042e9f8b93">
+			  <Shortcut Id="ApplicationStartMenuShortcut"
+						Name="$(var.ProductName)"
+						Description="Etaluma LumaViewPro"
+						Target="[INSTALLFOLDER]lumaviewpro.exe"
+						WorkingDirectory="INSTALLFOLDER"/>
+			  <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall"/>
+			  <RegistryValue Root="HKCU" Key="Software\Etaluma\LumaViewPro" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+		  </Component>
+	  </DirectoryRef>
+	  
+	  <Component Id="pathComponentMaven" Guid="a096f34d-64fb-48af-ac95-1f24648ce759" KeyPath="yes">
+		  <CreateFolder />
+		  <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]apache-maven-3.9.8\bin" Permanent="no" Part="last" Action="set" System="yes" />
+
+	  </Component>
+	  <Component Id="pathComponentLVPInstall" Guid="e2ae148c-3520-454f-9cf7-4f5aca7ca6bd" KeyPath="yes">
+		  <CreateFolder />
+		  <Environment Id="LVPINSTALL" Name="LVP_INSTALLED" Value="True" Permanent="no" Part="last" Action="set" System="yes"/>
+
+	  </Component>
+
+	  <Component Id="GpuPref" Guid="b5b58055-9c6d-4b4b-af22-7bc48ba14702">
+		  <RegistryValue
+			Root="HKCU"
+			Key="Software\Microsoft\DirectX\UserGpuPreferences"
+			Name="[INSTALLFOLDER]LumaViewPro.exe"
+			Type="string"
+			Value="GpuPreference=2;"
+			Action="write" />
+	  </Component>
+	  
+  </Package>
+</Wix>
