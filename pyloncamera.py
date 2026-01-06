@@ -34,6 +34,7 @@ Gerard Decker, The Earthineering Company
 import contextlib
 import datetime
 import os
+import threading
 
 import numpy as np
 from pypylon import pylon, genicam
@@ -661,10 +662,15 @@ class ImageHandler(pylon.ImageEventHandler):
         self._last_img_ts = None
         self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
+        self._thread_name_set = False
         
     
     def OnImageGrabbed(self, camera, grabResult):
         try:
+            # Set thread name for better logging (only once)
+            if not self._thread_name_set:
+                threading.current_thread().name = "PylonImageGrab"
+                self._thread_name_set = True
             if not self._frame_queue.empty():
                 try:
                     self._frame_queue.get_nowait()
