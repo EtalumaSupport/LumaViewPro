@@ -1498,7 +1498,6 @@ class ScopeDisplay(Image):
             open_layer_obj.ids['image_af_score_id'].text = new_af_text
 
     def set_camera_disconnected_display(self):
-        self.texture = None
         self.source = "./data/icons/camera_to_USB.png"
         self.camera_disconnected_display_set = True
         return
