@@ -69,12 +69,14 @@ class Lumascope():
             self.led = LEDBoard()
 
         except:
+            self.led = None
             logger.exception('[SCOPE API ] LED Board Not Initialized')
 
         # Motion Control Board
         try:
             self.motion = MotorBoard()
         except:
+            self.motion = None
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
 
         # Camera
@@ -82,6 +84,7 @@ class Lumascope():
         try:
             self.camera = PylonCamera()
         except:
+            self.camera = None
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
         # Initialize scope status booleans
@@ -862,8 +865,10 @@ class Lumascope():
 
         if not self.camera.active:
             return False
+        
+        return self.camera.is_connected()
 
-        return True
+        #return True
 
     def get_camera_temps(self) -> dict:
         """CAMERA FUNCTIONS

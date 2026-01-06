@@ -1515,7 +1515,7 @@ class ScopeDisplay(Image):
 
         display_update_counter += 1
 
-        if lumaview.scope.camera.is_connected() == False:
+        if lumaview.scope.camera_is_connected() == False:
             if self.camera_disconnected_display_set:
                 return
 
