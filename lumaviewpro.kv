@@ -3240,6 +3240,9 @@
 					active: True
 					tooltip_text: 'Change X-axis of histogram to log scale'
 					state: 'normal'
+					disabled: False if self.visible else True
+					opacity: 1 if self.visible else 0
+					visible: True if root.show_camera_controls else False
 				Label:
 					text: 'Log'
 					tooltip_text: 'Change X-axis of histogram to log scale'
@@ -3247,6 +3250,9 @@
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
+					disabled: False if self.visible else True
+					opacity: 1 if self.visible else 0
+					visible: True if root.show_camera_controls else False
 
 			Label:
 
