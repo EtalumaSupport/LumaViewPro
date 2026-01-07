@@ -31,7 +31,6 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 '''
 
-import contextlib
 import datetime
 import os
 
@@ -41,25 +40,14 @@ from lvp_logger import logger
 
 import queue
 
+from camera.camera import Camera
+
 default_max_exposure = 1_000 # in ms
 
-class PylonCamera:
+class PylonCamera(Camera):
 
     def __init__(self, **kwargs):
         logger.info('[CAM Class ] PylonCamera.__init__()')
-        self.active = False
-        self.error_report_count = 0
-        self.array = np.array([])
-        self.cam_image_handler = None
-        self.model_name = None
-        self.max_exposure = 100 # in ms
-        self._device_removed = False
-        self._device_serial = None
-
-        self.max_exposure_dict = {
-            "daA3840-45um": 1_000,
-            "a2A3536-31umBAS": 10_000
-        }
 
         if os.getenv("PYLON_CAMEMU", None) != None:
             logger.info('[CAM Class ] PylonCamera.connect() detected request to use camera emulation')
@@ -67,14 +55,14 @@ class PylonCamera:
         else:
             self._use_camera_emulation = False
 
-        self.connect()
+        super().__init__()
 
     def disconnect(self):
         logger.info('[CAM Class ] Disconnecting from camera...')
         try:
             if self.active is not None:
                 try:
-                    if self.active.IsGrabbing():
+                    if self.is_grabbing():
                         self.stop_grabbing()
                 except Exception:
                     pass
@@ -91,20 +79,6 @@ class PylonCamera:
             self.active.close()
         except:
             logger.exception('[CAM Class ] exception')
-
-    @contextlib.contextmanager
-    def update_camera_config(self):
-        camera = self.active
-        was_grabbing = camera.IsGrabbing()
-
-        if was_grabbing:
-            self.stop_grabbing()
-
-        yield
-
-        if was_grabbing:
-            self.start_grabbing()
-
 
     def stop_grabbing(self):
         camera = self.active
@@ -123,6 +97,9 @@ class PylonCamera:
             )
         except Exception as e:
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
+
+    def is_grabbing(self):
+        return self.active.IsGrabbing()
 
     def connect(self):
         """ Try to connect to the first available basler camera"""
@@ -194,13 +171,14 @@ class PylonCamera:
             except Exception:
                 self.model_name = None
                 self._device_serial = None
-            self.init_camera_config()
+
             # Ensure no stale queued frames or state
             try:
                 self.cam_image_handler.reset()
             except Exception:
                 pass
-            self.start_grabbing()
+
+            super().connect()
 
             self.error_report_count = 0
             logger.info('[CAM Class ] PylonCamera.connect() succeeded')
@@ -685,7 +663,7 @@ class ImageHandler(pylon.ImageEventHandler):
                 if self._failed_grabs >= 128:
                     try:
                         logger.error('[CAM Class ] Too many grab failures; stopping acquisition')
-                        if self._parent.active and self._parent.active.IsGrabbing():
+                        if self._parent.active and self._parent.is_grabbing():
                             self._parent.stop_grabbing()
                         self._parent._device_removed = True
                     except Exception:

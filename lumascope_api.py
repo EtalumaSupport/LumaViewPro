@@ -46,7 +46,7 @@ import numpy as np
 # Import Lumascope Hardware files
 from motorboard import MotorBoard
 from ledboard import LEDBoard
-from pyloncamera import PylonCamera
+from camera.pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger, version
