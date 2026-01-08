@@ -3,6 +3,8 @@ import numpy as np
 import contextlib
 from lvp_logger import logger
 
+default_max_exposure = 1_000 # in ms
+
 class Camera(ABC):
     def __init__(self):
         logger.info('[CAM Class ] Camera.__init__()')
@@ -26,6 +28,10 @@ class Camera(ABC):
     def connect(self):
         self.init_camera_config()
         self.start_grabbing()
+
+    @abstractmethod
+    def disconnect(self):
+        pass
 
     @contextlib.contextmanager
     def update_camera_config(self):
@@ -60,6 +66,18 @@ class Camera(ABC):
         pass
 
     @abstractmethod
+    def get_min_frame_size(self) -> dict:
+        pass
+
+    @abstractmethod
+    def get_max_frame_size(self) -> dict:
+        pass
+
+    @abstractmethod
+    def get_frame_size(self):
+        pass
+
+    @abstractmethod
     def set_pixel_format(self, pixel_format: str) -> bool:
         pass
 
@@ -77,4 +95,44 @@ class Camera(ABC):
 
     @abstractmethod
     def get_exposure_t(self):
+        pass
+
+    @abstractmethod
+    def find_model_name(self):
+        pass
+
+    def get_model_name(self):
+        return self.model_name
+
+    @abstractmethod
+    def get_all_temperatures(self):
+        pass
+
+    def set_max_exposure_time(self):
+        found_key = None
+        for key in self.max_exposure_dict.keys():
+            if self.model_name in key:
+                found_key = key
+                break
+        
+        if found_key is None:
+            self.max_exposure = default_max_exposure
+            return
+        
+        self.max_exposure = self.max_exposure_dict[found_key]
+        logger.info(f"[CAM Class ] Max exposure set to {self.max_exposure} ms")
+
+    def get_max_exposure(self):
+        return self.max_exposure
+    
+    @abstractmethod
+    def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
+        pass
+
+    @abstractmethod
+    def set_binning_size(self, size: int) -> bool:
+        pass
+
+    @abstractmethod
+    def get_binning_size(self) -> int:
         pass

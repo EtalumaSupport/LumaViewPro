@@ -42,7 +42,6 @@ import queue
 
 from camera.camera import Camera
 
-default_max_exposure = 1_000 # in ms
 
 class PylonCamera(Camera):
 
@@ -237,26 +236,6 @@ class PylonCamera(Camera):
                 temps[name] = temp.GetValue()
 
         return temps
-
-    def get_model_name(self):
-        return self.model_name
-    
-    def set_max_exposure_time(self):
-        found_key = None
-        for key in self.max_exposure_dict.keys():
-            if self.model_name in key:
-                found_key = key
-                break
-        
-        if found_key is None:
-            self.max_exposure = default_max_exposure
-            return
-        
-        self.max_exposure = self.max_exposure_dict[found_key]
-        logger.info(f"[CAM Class ] Max exposure set to {self.max_exposure} ms")
-
-    def get_max_exposure(self):
-        return self.max_exposure
     
     def init_camera_config(self):
         camera = self.active
