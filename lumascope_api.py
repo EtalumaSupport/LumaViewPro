@@ -100,7 +100,6 @@ class Lumascope():
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
         # self.step_capture_return = False # Will be image at step settings if ready to pull, else False
 
-        self._microscope = None
         self._labware = None              # The labware currently installed
         self._objective = None            # The objective currently selected/installed
         self._turret_config = {}          # The objectives loaded into the turret (if present)
@@ -872,7 +871,7 @@ class Lumascope():
 
         if not self.camera.active:
             return False
-
+        
         return self.camera.is_connected()
 
         #return True
