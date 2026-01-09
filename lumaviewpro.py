@@ -63,8 +63,6 @@ import asyncio
 from asyncio import AbstractEventLoop
 from fastapi import FastAPI
 import uvicorn
-from rest_api import api_router
-import rest_api.api_v1.api_config as api_config
 from types import SimpleNamespace
 
 import tkinter
@@ -176,8 +174,6 @@ if __name__ == "__main__":
         print("Machine-Type - NON-WINDOWS")
         source_path = script_path
 
-    #Configure REST API
-    api_config.set_source_path(source_path)
 
     num_cores = os.cpu_count()
     print(f"Num cores identified as {num_cores}")
@@ -207,6 +203,13 @@ if __name__ == "__main__":
 
     except Exception as e:
         logger.exception(f"[LVP Main  ] Failed to load settings. {e}")
+
+    #REST API imports
+    from rest_api import api_router
+    import rest_api.api_v1.api_config as api_config
+
+    #Configure REST API
+    api_config.set_source_path(source_path)
 
     import modules.profiling_utils as profiling_utils
 
