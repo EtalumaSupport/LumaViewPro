@@ -69,12 +69,14 @@ class Lumascope():
             self.led = LEDBoard()
 
         except:
+            self.led = None
             logger.exception('[SCOPE API ] LED Board Not Initialized')
 
         # Motion Control Board
         try:
             self.motion = MotorBoard()
         except:
+            self.motion = None
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
 
         # Camera
@@ -82,6 +84,7 @@ class Lumascope():
         try:
             self.camera = PylonCamera()
         except:
+            self.camera = None
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
         # Initialize scope status booleans
@@ -602,7 +605,7 @@ class Lumascope():
 
         metadata = {
             'camera_make': 'Etaluma',
-            'microscope': self._microscope or '',
+            'microscope': self.get_microscope_model(),
             'software': f'LumaViewPro {version}',
             'channel': color,
             'datetime': datetime.datetime.now().strftime("%Y:%m:%d %H:%M:%S"),      # Format for metadata
@@ -864,7 +867,9 @@ class Lumascope():
         if not self.camera.active:
             return False
 
-        return True
+        return self.camera.is_connected()
+
+        #return True
 
     def get_camera_temps(self) -> dict:
         """CAMERA FUNCTIONS

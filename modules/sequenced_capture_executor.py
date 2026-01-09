@@ -1124,6 +1124,7 @@ class SequencedCaptureExecutor:
 
                     ctypes.windll.winmm.timeEndPeriod(1)
                     self._stim_stop_event.set()
+                    self._stim_start_event.clear()  # Reset start event for next step
 
                     for stim_thread in stim_threads:
                         stim_thread.join()
@@ -1564,9 +1565,16 @@ class SequencedCaptureExecutor:
             start_epoch = time.perf_counter()
             
             start_event.wait()
+            logger.info(f"[STIMULATOR] stim_start_event set for {color}")
+
+            end_reason = "pulse_count_reached"
+
+            pulses_executed = 0
 
             for i in range(pulse_count):
                 if stop_event.is_set():
+                    logger.info(f"[STIMULATOR] {color} stop event set, ending stimulation.")
+                    end_reason = "stop_event_set"
                     break
 
                 # Target times for this pulse
@@ -1587,6 +1595,8 @@ class SequencedCaptureExecutor:
                         pass
 
                 led_on_fast()
+
+                pulses_executed += 1
 
                 # Sleep/spin until off_time
                 while True:
@@ -1618,9 +1628,9 @@ class SequencedCaptureExecutor:
                     ctypes.windll.winmm.timeEndPeriod(1)
                 except Exception:
                     pass
-                finally:
-                    logger.info(f"[STIMULATOR] {color} Ended")
-                    
+            
+            logger.info(f"[STIMULATOR] {color} stimulation ended after executing {pulses_executed} pulses.")
+            logger.info(f"[STIMULATOR] {color} Ended due to {end_reason}")
             # Ensure LED off at the end
             try:
                 if hasattr(self._scope, 'led_off_fast'):

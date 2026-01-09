@@ -1,0 +1,54 @@
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+	<!-- These variables can be overridden via -d command line arguments -->
+  <?ifndef ProductName ?>
+  	<?define ProductName = "LumaViewPro 3.0.0-beta" ?>
+  <?endif ?>
+  <?ifndef ProductVersion ?>
+  	<?define ProductVersion = "3.0.0" ?>
+  <?endif ?>
+  <?ifndef Manufacturer ?>
+  	<?define Manufacturer = "Etaluma" ?>
+  <?endif ?>
+  <?ifndef LVPInstallFolderDir ?>
+  	<?define LVPInstallFolderDir = "path" ?>
+  <?endif ?>
+  <?ifndef LVPMsiDir ?>
+  	<?define LVPMsiDir = "LumaViewPro.msi" ?>
+  <?endif ?>
+  <?ifndef CorretoMsiDir ?>
+  	<?define CorretoMsiDir = "amazon-corretto-8.442.06.1-windows-x64-jdk.msi" ?>
+  <?endif ?>
+  <?ifndef PylonDriverDir ?>
+  	<?define PylonDriverDir = "pylon_USB_Camera_Driver.msi" ?>
+  <?endif ?>
+	
+  <Bundle Name="$(var.ProductName)"
+		  Manufacturer="$(var.Manufacturer)"
+		  Version="$(var.ProductVersion)"
+		  UpgradeCode="c483d86a-624f-4279-8a06-b6b4039a6fff"
+		  IconSourceFile="$(var.LVPInstallFolderDir)\data\icons\icon.ico"
+		  SplashScreenSourceFile="$(var.LVPInstallFolderDir)\data\icons\icon.ico">
+	  
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication 
+          LicenseUrl="https://etaluma.com/terms-of-use/" 
+          LogoSideFile="$(var.LVPInstallFolderDir)\data\icons\installer_side_logo.png"
+          Theme="hyperlinkSidebarLicense" 
+          LogoFile="$(var.LVPInstallFolderDir)\data\icons\icon.png" />
+    </BootstrapperApplication>
+
+    <Chain>
+		<MsiPackage Id="LVP"
+					SourceFile="$(var.LVPMsiDir)"  
+					Vital="yes"/>
+		
+		<MsiPackage Id="PylonDriver"
+					Permanent="yes"
+					SourceFile="$(var.PylonDriverDir)"/>
+
+		<MsiPackage Id="AmazonCorretto8"
+					SourceFile="$(var.CorretoMsiDir)"
+					Vital="yes"/>
+    </Chain>
+  </Bundle>
+</Wix>
