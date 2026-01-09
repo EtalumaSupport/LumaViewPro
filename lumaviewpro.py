@@ -60,6 +60,7 @@ import userpaths
 import queue
 import threading
 from types import SimpleNamespace
+# import faulthandler
 
 import tkinter
 from tkinter import filedialog, Tk
@@ -67,6 +68,8 @@ from plyer import filechooser
 
 
 if __name__ == "__main__":
+    # Enable faulthandler to catch segfaults and native crashes
+    # faulthandler.enable()
 
     disable_homing = False
 

@@ -367,6 +367,9 @@ class Lumascope():
         # Else, will return last captured image from buffer array
         """
 
+        if not self.camera:
+            return False
+
         tmp_buffer = []
         for idx in range(sum_count):
             start_time = datetime.datetime.now()
@@ -457,6 +460,9 @@ class Lumascope():
         self,
         force_to_8bit: bool = True
         ):
+        if not self.camera:
+            return False
+            
         grab_status, grab_image_ts = self.camera.grab()
         if grab_status == True:
             tmp = self.camera.array.copy()
