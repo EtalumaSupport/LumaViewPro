@@ -1,7 +1,53 @@
 from camera.idscamera import IDSCamera
+import unittest
 
-camera = IDSCamera()
+class TestIDS(unittest.TestCase):
+    def setUp(self):
+        self.camera = IDSCamera()
 
-print([value for value in camera.remote_nodemap.FindNode("BinningHorizontal").ValidValues()])
+    def tearDown(self):
+        self.camera.disconnect()
 
-camera.disconnect()
+    def test_connect_disconnect(self):
+        self.assertTrue(self.camera.disconnect())
+        self.assertTrue(self.camera.connect())
+
+    def test_grab(self):
+        self.assertTrue(self.camera.is_grabbing())
+        self.camera.stop_grabbing()
+        self.assertFalse(self.camera.is_grabbing())
+
+    def test_frame_size(self):
+        #Test valid
+        self.camera.set_frame_size(1920,1528)
+        self.assertDictEqual(self.camera.get_frame_size(),{'width':1920,'height':1528})
+        
+        #Test out of bounds
+        self.camera.set_frame_size(1919,1529)
+        self.assertDictEqual(self.camera.get_frame_size(),{'width':1872,'height':1528})
+
+        #Test incorrect increment
+        self.camera.set_frame_size(1480,906)
+        self.assertDictEqual(self.camera.get_frame_size(),{'width':1440,'height':904})
+
+    def test_pixel_format(self):
+        formats = self.camera.get_supported_pixel_formats()
+        self.camera.set_pixel_format(formats[0])
+        self.assertTrue(self.camera.get_pixel_format() in formats)
+
+    def test_exposure_t(self):
+        self.camera.exposure_t(15)
+        self.assertAlmostEqual(self.camera.get_exposure_t(),15.0,delta=0.01)
+
+    def test_binning_size(self):
+        self.assertTrue(self.camera.set_binning_size(1))
+        self.assertEqual(self.camera.get_binning_size(), 1)
+        self.assertTrue(self.camera.set_binning_size(2))
+        self.assertEqual(self.camera.get_binning_size(), 2)
+        self.assertFalse(self.camera.set_binning_size(3))
+        self.assertEqual(self.camera.get_binning_size(), 2)
+        self.assertFalse(self.camera.set_binning_size(0))
+        self.assertEqual(self.camera.get_binning_size(), 2)
+
+if __name__ == '__main__':
+    unittest.main()

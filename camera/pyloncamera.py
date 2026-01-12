@@ -56,7 +56,7 @@ class PylonCamera(Camera):
 
         super().__init__()
 
-    def disconnect(self):
+    def disconnect(self) -> bool:
         logger.info('[CAM Class ] Disconnecting from camera...')
         try:
             if self.active is not None:
@@ -68,10 +68,12 @@ class PylonCamera(Camera):
                 self.active.Close()
                 self.active = None
                 logger.info('[CAM Class ] PylonCamera.disconnect() succeeded')
+                return True
             else:
                 logger.info('[CAM Class ] PylonCamera.disconnect() failed: Camera not connected')
         except Exception as e:
             logger.exception(f'[CAM Class ] PylonCamera.disconnect() failed: {e}')
+        return False
 
     def __delete__(self):
         try:
@@ -100,7 +102,7 @@ class PylonCamera(Camera):
     def is_grabbing(self):
         return self.active.IsGrabbing()
 
-    def connect(self):
+    def connect(self) -> bool:
         """ Try to connect to the first available basler camera"""
         try:
             p_device = pylon.TlFactory.GetInstance().CreateFirstDevice()
@@ -181,6 +183,7 @@ class PylonCamera(Camera):
 
             self.error_report_count = 0
             logger.info('[CAM Class ] PylonCamera.connect() succeeded')
+            return True
         
         except genicam.RuntimeException as ex:
             # Handles when the device is already open in another application
@@ -191,6 +194,8 @@ class PylonCamera(Camera):
             logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.active = False
             self.error_report_count += 1
+
+        return False
 
     def find_model_name(self):
         if not self.active:

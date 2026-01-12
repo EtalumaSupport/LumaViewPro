@@ -15,7 +15,7 @@ class IDSCamera(Camera):
 
         super().__init__()
 
-    def connect(self):
+    def connect(self) -> bool:
         try:
             #Initialize device manager
             ids_peak.Library.Initialize()
@@ -50,13 +50,16 @@ class IDSCamera(Camera):
 
             self.error_report_count = 0
             logger.info('[CAM Class ] IDSCamera.connect() succeeded')    
+            return True
 
         except ConnectionError as er:
             logger.warning(f'[CAM Class ] IDSCamera.connect() failed -> {er}')
         except Exception as ex:
             logger.exception(f'[CAM Class ] IDSCamera.connect() failed -> {ex}')
 
-    def disconnect(self):
+        return False
+
+    def disconnect(self) -> bool:
         logger.info('[CAM Class ] Disconnecting from camera...')
         try:
             if self.active:
@@ -68,10 +71,12 @@ class IDSCamera(Camera):
                 self.device_manager = None
                 self.active = None
                 logger.info('[CAM Class ] IDSCamera.disconnect() succeeded')
+                return True
             else:
                 logger.info('[CAM Class ] IDSCamera.disconnect() failed: Camera not connected')
         except Exception as e:
             logger.exception(f'[CAM Class ] IDSCamera.disconnect() failed: {e}')
+        return False
 
     def init_camera_config(self):
         if not self.active:
@@ -81,7 +86,7 @@ class IDSCamera(Camera):
             self.remote_nodemap.FindNode("UserSetSelector").SetCurrentEntry("Default")
             self.remote_nodemap.FindNode("UserSetLoad").Execute()
             self.remote_nodemap.FindNode("UserSetLoad").WaitUntilDone()
-            self.set_pixel_format("Mono10g40IDS") #NOTE: Should be converted to Mono8 on for Pixel Format Destination
+            self.set_pixel_format("Mono10g40IDS") #NOTE: Should be converted to Mono8 for Pixel Format Destination
             #TODO: auto gain
             self.remote_nodemap.FindNode("ReverseX").SetValue(True)
             self.exposure_t(10)
@@ -110,9 +115,15 @@ class IDSCamera(Camera):
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
     def set_frame_size(self, w, h):
-        #TODO: update input sizes to closest valid size
-        self.remote_nodemap.FindNode("Width").SetValue(w)
-        self.remote_nodemap.FindNode("Height").SetValue(h)
+        mins = self.get_min_frame_size()
+        maxs = self.get_max_frame_size()
+
+        #Convert w and h to closest valid values
+        width = int(max(mins['width'], min(maxs['width'], w)) / 48) * 48
+        height = int(max(mins['height'], min(maxs['height'], h)) / 4) * 4
+
+        self.remote_nodemap.FindNode("Width").SetValue(width)
+        self.remote_nodemap.FindNode("Height").SetValue(height)
 
     def get_min_frame_size(self) -> dict:
         if not self.active:
@@ -223,11 +234,11 @@ class IDSCamera(Camera):
         logger.debug(f"Binning size before update: {self.get_binning_size()}")
         logger.debug(f"Frame size size before update: {self.get_frame_size()}")
         with self.update_camera_config():
-            self.remote_nodemap.FindNode("BinningSelector").SetCurrentEntry("Region0")
+            # self.remote_nodemap.FindNode("BinningSelector").SetCurrentEntry("Region0")
             self.remote_nodemap.FindNode("BinningVertical").SetValue(size)
-            self.remote_nodemap.FindNode("BinningVerticalMode").SetCurrentEntry("Sum")
+            # self.remote_nodemap.FindNode("BinningVerticalMode").SetCurrentEntry("Sum")
             self.remote_nodemap.FindNode("BinningHorizontal").SetValue(size)
-            self.remote_nodemap.FindNode("BinningHorizontalMode").SetCurrentEntry("Sum")
+            # self.remote_nodemap.FindNode("BinningHorizontalMode").SetCurrentEntry("Sum")
 
         logger.debug(f"Binning size after update: {self.get_binning_size()}")
         logger.debug(f"Frame size size after update: {self.get_frame_size()}")
