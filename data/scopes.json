@@ -21,5 +21,11 @@
         "Focus": true,
         "XYStage": true,
         "Turret": true
+    },
+    "LS850-0": {
+        "Fl channels": 0,
+        "Focus": true,
+        "XYStage": true,
+        "Turret": false
     }
 }

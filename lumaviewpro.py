@@ -7941,6 +7941,15 @@ class MicroscopeSettings(BoxLayout):
         image_settings.set_lumi_layer_control_visibility(visible=is_lumi_scope)
         image_settings.set_fluoresence_layer_controls_visibility(visible=not is_lumi_scope)
 
+        # disable Fluorescence if number of channels is less than 0
+        if selected_scope_config.get('Fl channels', 0) < 1:
+            image_settings.set_fluoresence_layer_controls_visibility(visible=False)
+
+        # enable only BF channel for a BF-only device
+        if settings['microscope'] == 'LS850-0':
+            image_settings.set_df_layer_control_visibility(visible=False)
+            image_settings.set_lumi_layer_control_visibility(visible=False)
+
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
         protocol_settings.set_show_protocol_step_locations_visibility(visible=selected_scope_config['XYStage'])
