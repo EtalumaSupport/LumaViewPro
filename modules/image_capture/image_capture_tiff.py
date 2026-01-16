@@ -54,19 +54,20 @@ class ImageCapture_Tiff(ImageCaptureFormatBase):
             color_channel=color_channel,
         )
 
-        """tiff_metadata={
-            "CameraMake": metadata['camera_make'],
-            "ExposureTime": metadata['exposure_time_ms'],           
-            "ISOSpeed": metadata['gain_db'],
-            "DateTime": metadata['datetime'],
-            "Software": metadata['software'],
-            "XPosition": metadata['x_pos'],             
-            "YPosition": metadata['y_pos'],
-            "SubjectDistance": metadata['z_pos_um'],
-            "SubSecTime": metadata['sub_sec_time'],
-            "Channel": metadata['channel'],
-            "BrightnessValue": metadata['illumination_ma']
-        }"""
+        # tiff_metadata = {}
+        # """tiff_metadata={
+        #     "CameraMake": metadata['camera_make'],
+        #     "ExposureTime": metadata['exposure_time_ms'],           
+        #     "ISOSpeed": metadata['gain_db'],
+        #     "DateTime": metadata['datetime'],
+        #     "Software": metadata['software'],
+        #     "XPosition": metadata['x_pos'],             
+        #     "YPosition": metadata['y_pos'],
+        #     "SubjectDistance": metadata['z_pos_um'],
+        #     "SubSecTime": metadata['sub_sec_time'],
+        #     "Channel": metadata['channel'],
+        #     "BrightnessValue": metadata['illumination_ma']
+        # }"""
 
         tiff_metadata={
             'axes': axes,
@@ -177,8 +178,8 @@ class ImageCapture_Tiff(ImageCaptureFormatBase):
             maxworkers=1,
         )
 
-        if image_data.dtype == np.uint8:
-            options['tile'] = (128, 128)
+        # if image_data.dtype == np.uint8:
+        #     options['tile'] = (128, 128)
 
         resolution = (1 / metadata['pixel_size_um'], 1 / metadata['pixel_size_um'])
 
@@ -198,10 +199,11 @@ class ImageCapture_Tiff(ImageCaptureFormatBase):
         color_channel: str,
     ):
         kwargs = {}
-        if image_utils.is_color_image(image_data):
+        if (image_data.dtype == np.uint16) and (image_utils.is_color_image(image_data)):
             # For now, prevent 16-bit color images from being converted to ImageJ type
             # such as composite (or bullseye). Could allow this once proper support is added.
             pass
+        # else: #if image_data.dtype == np.uint16:
         elif image_data.dtype == np.uint16:
             kwargs['imagej'] = True
 
@@ -236,6 +238,7 @@ class ImageCapture_Tiff(ImageCaptureFormatBase):
                     colormap_array = None
                 elif (image_data.dtype == np.uint8) and (colormap_type == image_utils.LvpColormap.GRAY):
                     # Note: tifffile doesn't support colormaps with 8-bit image and photometric is 'minisblack', so just disable
+                    # support_data['extratags'].append((320, image_utils.tifffile_dtypes['SHORT'], 0, colormap_array.tobytes(), True))
                     colormap_array = None
 
                 tif.write(

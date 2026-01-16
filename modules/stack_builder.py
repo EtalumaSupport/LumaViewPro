@@ -180,9 +180,9 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         options=dict(
             photometric=photometric,
             tile=(128, 128),
-            compression='lzw',
+            compression='deflate',
             resolutionunit=tf.RESUNIT.MICROMETER,
-            maxworkers=2
+            maxworkers=1
         )
         
         resolution = (1 / pixel_size_um, 1 / pixel_size_um)

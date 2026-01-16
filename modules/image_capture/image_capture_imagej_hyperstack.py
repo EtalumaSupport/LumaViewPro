@@ -123,11 +123,11 @@ class ImageCapture_ImageJHyperstack(ImageCaptureFormatBase):
         color_channel: str,
     ):
         kwargs = {}
-        if image_utils.is_color_image(image_data):
+        if (image_data.dtype == np.uint16) and (image_utils.is_color_image(image_data)):
             # For now, prevent 16-bit color images from being converted to ImageJ type
             # such as composite (or bullseye). Could allow this once proper support is added.
             pass
-        elif image_data.dtype == np.uint16:
+        else: #lif image_data.dtype == np.uint16:
             kwargs['imagej'] = True
 
         support_data = self._generate_support_data(

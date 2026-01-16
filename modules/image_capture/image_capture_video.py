@@ -76,9 +76,9 @@ class ImageCapture_Video(ImageCaptureFormatBase):
         # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
         options=dict(
             photometric=photometric,
-            compression='lzw',
+            compression='deflate',
             resolutionunit=tf.RESUNIT.MICROMETER,
-            maxworkers=2
+            maxworkers=1
         )
 
         if image_data.dtype == np.uint8:
@@ -99,11 +99,11 @@ class ImageCapture_Video(ImageCaptureFormatBase):
         color_channel: str,
     ):
         kwargs = {}
-        if image_utils.is_color_image(image_data):
+        if (image_data.dtype == np.uint16) and (image_utils.is_color_image(image_data)):
             # For now, prevent 16-bit color images from being converted to ImageJ type
             # such as composite (or bullseye). Could allow this once proper support is added.
             pass
-        elif image_data.dtype == np.uint16:
+        else: #if image_data.dtype == np.uint16:
             kwargs['imagej'] = True
 
 

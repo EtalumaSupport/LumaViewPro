@@ -242,7 +242,8 @@ class ZProjector(ProtocolPostProcessingExecutor):
         tf.imwrite(
             output_file_loc_abs,
             data=result['image'],
-            compression='lzw',
+            compression='deflate',
+            maxworkers=1,
         )
 
         del result['image']
