@@ -2,24 +2,61 @@
     "Lumi": {
         "Focus": true,
         "XYStage": false,
-        "Turret": false
+        "Turret": false,
+        "Layers": {
+            "Lumi": true,
+            "Flourescence": false,
+            "Darkfield": false
+        }
     },
     "LS820": {
-        "Fl channels": 3,
         "Focus": true,
         "XYStage": false,
-        "Turret": false
+        "Turret": false,
+        "Layers": {
+            "Lumi": false,
+            "Flourescence": true,
+            "Darkfield": true
+        }
     },
     "LS850": {
-        "Fl channels": 3,
         "Focus": true,
         "XYStage": true,
-        "Turret": false
+        "Turret": false,
+        "Layers": {
+            "Lumi": false,
+            "Flourescence": true,
+            "Darkfield": true
+        }
+    },
+    "LS850-0": {
+        "Focus": true,
+        "XYStage": true,
+        "Turret": false,
+        "Layers": {
+            "Lumi": false,
+            "Flourescence": false,
+            "Darkfield": false
+        }
     },
     "LS850T": {
-        "Fl channels": 3,
         "Focus": true,
         "XYStage": true,
-        "Turret": true
+        "Turret": true,
+        "Layers": {
+            "Lumi": false,
+            "Flourescence": true,
+            "Darkfield": true
+        }
+    },
+    "LS850T-0": {
+        "Focus": true,
+        "XYStage": true,
+        "Turret": true,
+        "Layers": {
+            "Lumi": false,
+            "Flourescence": false,
+            "Darkfield": false
+        }
     }
 }
