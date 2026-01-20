@@ -1,5 +1,6 @@
 from camera.idscamera import IDSCamera
 import unittest
+import time
 
 class TestIDS(unittest.TestCase):
     def setUp(self):
@@ -7,6 +8,7 @@ class TestIDS(unittest.TestCase):
 
     def tearDown(self):
         self.camera.disconnect()
+        time.sleep(1)
 
     def test_connect_disconnect(self):
         self.assertTrue(self.camera.disconnect())
@@ -49,5 +51,27 @@ class TestIDS(unittest.TestCase):
         self.assertFalse(self.camera.set_binning_size(0))
         self.assertEqual(self.camera.get_binning_size(), 2)
 
+    def test_grab(self):
+        time.sleep(1)  # Allow some time for the camera to start grabbing
+        result, timestamp = self.camera.grab()
+        self.assertTrue(result)
+        self.assertTrue(len(self.camera.array) == 1528)
+        self.assertIsNotNone(timestamp)
+
 if __name__ == '__main__':
     unittest.main()
+    # import time
+    # camera = IDSCamera()
+    # time.sleep(1)
+    # print("-----IDS Camera Test-----")
+    # print(camera.grab())
+    # print(camera.array)
+    # print(len(camera.array))
+
+    # from camera.pyloncamera import PylonCamera
+    # camera = PylonCamera()
+    # time.sleep(1)
+    # print("-----Pylon Camera Test-----")
+    # print(camera.grab())
+    # print(camera.array)
+    # print(len(camera.array))

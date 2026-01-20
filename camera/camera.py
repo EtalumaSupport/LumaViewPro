@@ -136,3 +136,7 @@ class Camera(ABC):
     @abstractmethod
     def get_binning_size(self) -> int:
         pass
+
+    @abstractmethod
+    def grab(self):
+        pass

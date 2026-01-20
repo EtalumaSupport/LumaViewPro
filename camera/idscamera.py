@@ -1,8 +1,11 @@
+import datetime
 from ids_peak import ids_peak
 from ids_peak import ids_peak_ipl_extension
+import ids_peak_ipl
 
 from lvp_logger import logger
 from camera.camera import Camera
+import threading
 
 
 class IDSCamera(Camera):
@@ -48,6 +51,9 @@ class IDSCamera(Camera):
 
             super().connect()        
 
+            self.cam_image_handler = ImageHandler(self.data_stream)
+            self.cam_image_handler.start()
+
             self.error_report_count = 0
             logger.info('[CAM Class ] IDSCamera.connect() succeeded')    
             return True
@@ -63,6 +69,8 @@ class IDSCamera(Camera):
         logger.info('[CAM Class ] Disconnecting from camera...')
         try:
             if self.active:
+                if self.cam_image_handler:
+                    self.cam_image_handler.stop()
                 if self.is_grabbing():
                     self.stop_grabbing()
                 ids_peak.Library.Close()
@@ -256,3 +264,56 @@ class IDSCamera(Camera):
             logger.exception(f"[CAM Class ] Binning mismatch detected between horizontal ({horiz_bin}) and vertical ({vert_bin})")
         
         return vert_bin
+    
+    def grab(self):
+        if not self.cam_image_handler:
+            return False, None
+        
+        try:
+            result, image, image_ts = self.cam_image_handler.get_last_image()
+            if result is False:
+                return False, None
+            
+            self.array = image
+            return True, image_ts
+
+        except Exception as ex:
+            logger.exception(f"Failed to grab image: {ex}")
+            return False, None
+
+class ImageHandler:
+    def __init__(self, data_stream: ids_peak.DataStream):
+        self.data_stream = data_stream
+        self.last_result = False
+        self.last_img = None
+        self.last_img_ts = None
+        self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
+        self._stop_event = threading.Event()
+
+    def start(self):
+        self._stop_event.clear()
+        self._grab_thread.start()
+
+    def stop(self):
+        self._stop_event.set()
+        self._grab_thread.join()
+
+    def _grab_loop(self):
+        while not self._stop_event.is_set():
+            try:
+                buffer = self.data_stream.WaitForFinishedBuffer(1000)
+                self.last_result = not buffer.IsIncomplete()
+                if self.last_result:
+                    img = ids_peak_ipl_extension.BufferToImage(buffer)
+                    img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
+                    self.last_img = img.get_numpy()
+                    self.last_img_ts = datetime.datetime.now()
+            except Exception as e:
+                logger.exception(f'[CAM Class ] ImageHandler grab loop exception: {e}')
+
+    def get_last_image(self):
+        if not self.last_result:
+            return False, None, None
+        
+        return self.last_result, self.last_img.copy(), self.last_img_ts
+                    
