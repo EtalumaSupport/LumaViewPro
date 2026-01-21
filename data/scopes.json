@@ -6,7 +6,9 @@
         "Layers": {
             "Lumi": true,
             "Flourescence": false,
-            "Darkfield": false
+            "Darkfield": false,
+            "Brightfield": true,
+            "PhaseContrast": true
         }
     },
     "LS820": {
@@ -16,7 +18,9 @@
         "Layers": {
             "Lumi": false,
             "Flourescence": true,
-            "Darkfield": true
+            "Darkfield": true,
+            "Brightfield": true,
+            "PhaseContrast": true
         }
     },
     "LS850": {
@@ -26,7 +30,9 @@
         "Layers": {
             "Lumi": false,
             "Flourescence": true,
-            "Darkfield": true
+            "Darkfield": true,
+            "Brightfield": true,
+            "PhaseContrast": true
         }
     },
     "LS850-0": {
@@ -36,7 +42,9 @@
         "Layers": {
             "Lumi": false,
             "Flourescence": false,
-            "Darkfield": false
+            "Darkfield": false,
+            "Brightfield": true,
+            "PhaseContrast": false
         }
     },
     "LS850T": {
@@ -46,7 +54,9 @@
         "Layers": {
             "Lumi": false,
             "Flourescence": true,
-            "Darkfield": true
+            "Darkfield": true,
+            "Brightfield": true,
+            "PhaseContrast": true
         }
     },
     "LS850T-0": {
@@ -56,7 +66,9 @@
         "Layers": {
             "Lumi": false,
             "Flourescence": false,
-            "Darkfield": false
+            "Darkfield": false,
+            "Brightfield": true,
+            "PhaseContrast": true
         }
     }
 }
