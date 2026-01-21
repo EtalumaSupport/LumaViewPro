@@ -40,8 +40,9 @@ import pathlib
 import threading
 import time
 
-import cv2
+# import cv2
 import numpy as np
+import numba as nb
 
 # Import Lumascope Hardware files
 from motorboard import MotorBoard
@@ -63,6 +64,7 @@ class Lumascope():
         """Initialize Microscope"""
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()
+        self.focus_function = focus_vollath4
 
         # LED Control Board
         try:
@@ -461,7 +463,7 @@ class Lumascope():
         ):
         if not self.camera:
             return False
-            
+
         grab_status, grab_image_ts = self.camera.grab()
         if grab_status == True:
             tmp = self.camera.array.copy()
@@ -871,7 +873,7 @@ class Lumascope():
 
         if not self.camera.active:
             return False
-        
+
         return self.camera.is_connected()
 
         #return True
@@ -1336,50 +1338,6 @@ class Lumascope():
             done=True
         return done
 
-    # Algorithms for estimating the quality of the focus
-    def focus_function(self, image, algorithm = 'vollath4', include_logging: bool = True):
-        """INTEGRATED SCOPE FUNCTIONS
-        assess focus value at specific position for autofocus function"""
-
-        if include_logging:
-            logger.info('[SCOPE API ] Lumascope.focus_function()')
-
-        w = image.shape[0]
-        h = image.shape[1]
-
-        # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
-        if algorithm == 'vollath4': # pg 266
-            image = np.double(image)
-            sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
-            sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            if include_logging:
-                logger.info('[SCOPE API ] Focus Score Vollath: ' + str(sum_one - sum_two))
-            return sum_one - sum_two
-
-        elif algorithm == 'skew':
-            hist = np.histogram(image, bins=256,range=(0,256))
-            hist = np.asarray(hist[0], dtype='int')
-            max_index = hist.argmax()
-
-            edges = np.histogram_bin_edges(image, bins=1)
-            white_edge = edges[1]
-
-            skew = white_edge-max_index
-            if include_logging:
-                logger.info('[SCOPE API ] Focus Score Skew: ' + str(skew))
-            return skew
-
-        elif algorithm == 'pixel_variation':
-            sum = np.sum(image)
-            ssq = np.sum(np.square(image))
-            var = ssq*w*h-sum**2
-            if include_logging:
-                logger.info('[SCOPE API ] Focus Score Pixel Variation: ' + str(var))
-            return var
-
-        else:
-            return 0
-
     def focus_best(self, positions, values, algorithm='direct'):
         """INTEGRATED SCOPE FUNCTIONS
         select best focus position for autofocus function"""
@@ -1645,3 +1603,61 @@ class Lumascope():
         return file_loc
 
 
+#--------------------------------------------------------------------------------------
+# focus estimators
+#--------------------------------------------------------------------------------------
+
+# 5000 iterations on 1000x1000 uint16: 20s
+# 96 well plate center focus takes 6m
+def focus_vollath4_original(image: np.ndarray) -> float:
+    # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
+    # TODO the w/h seem swapped, but this is how the original code was written.
+    # Needs further investigation to clarify.
+    image = image.astype(np.float64, copy=False)
+    w, h = image.shape
+
+    sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
+    sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
+    return sum_one - sum_two
+
+# 5000 iterations on 1000x1000 uint16: 0.375307 seconds
+# 96 well plate center focus takes 5m
+@nb.njit(fastmath=True)
+def focus_vollath4_numba(image: np.ndarray) -> float:
+    w, h = image.shape
+    s1 = 0.0
+    s2 = 0.0
+    for i in range(w - 1):
+        for j in range(h):
+            s1 += image[i, j] * image[i+1, j]
+    for i in range(w - 2):
+        for j in range(h):
+            s2 += image[i, j] * image[i+2, j]
+    return s1 - s2
+
+focus_vollath4 = focus_vollath4_numba
+
+def focus_skew(image: np.ndarray) -> float:
+    # TODO the w/h seem swapped, but this is how the original code was written.
+    # Needs further investigation to clarify.
+    w, h = image.shape
+
+    hist = np.histogram(image, bins=256,range=(0,256))
+    hist = np.asarray(hist[0], dtype='int')
+    max_index = hist.argmax()
+
+    edges = np.histogram_bin_edges(image, bins=1)
+    white_edge = edges[1]
+
+    skew = white_edge-max_index
+    return skew
+
+def focus_pixel_variation(image: np.ndarray) -> float:
+    # TODO the w/h seem swapped, but this is how the original code was written.
+    # Needs further investigation to clarify.
+    w, h = image.shape
+
+    sum = np.sum(image)
+    ssq = np.sum(np.square(image))
+    var = ssq*w*h-sum**2
+    return var

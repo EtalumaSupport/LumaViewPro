@@ -1550,10 +1550,7 @@ class ScopeDisplay(Image):
             if debug_counter % 10 == 0:
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
-                af_score = lumaview.scope.focus_function(
-                    image=image,
-                    include_logging=False
-                )
+                af_score = lumaview.scope.focus_function(image=image)
 
                 open_layer = None
                 for layer in common_utils.get_layers():
