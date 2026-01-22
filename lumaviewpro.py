@@ -7936,10 +7936,12 @@ class MicroscopeSettings(BoxLayout):
         motion_settings.set_tiling_control_visibility(visible=selected_scope_config['XYStage'])
 
         image_settings = lumaview.ids['imagesettings_id']
-        is_lumi_scope = True if settings['microscope'] == 'Lumi' else False
-        image_settings.set_df_layer_control_visibility(visible=not is_lumi_scope)
-        image_settings.set_lumi_layer_control_visibility(visible=is_lumi_scope)
-        image_settings.set_fluoresence_layer_controls_visibility(visible=not is_lumi_scope)
+        layers_config = selected_scope_config['Layers']
+        image_settings.set_df_layer_control_visibility(visible=layers_config['Darkfield'])
+        image_settings.set_lumi_layer_control_visibility(visible=layers_config['Lumi'])
+        image_settings.set_fluoresence_layer_controls_visibility(visible=layers_config['Flourescence'])
+        # image_settings.set_bf_layer_control_visibility(visible=layers_config['Brightfield']) # TODO: add UI support
+        # image_settings.set_pc_layer_control_visibility(visible=layers_config['PhaseContrast']) # TODO: add UI support
 
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
