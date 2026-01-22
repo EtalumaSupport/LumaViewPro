@@ -98,6 +98,10 @@ class Camera(ABC):
         pass
 
     @abstractmethod
+    def auto_exposure_t(self, state = True):
+        pass
+
+    @abstractmethod
     def find_model_name(self):
         pass
 
@@ -139,4 +143,56 @@ class Camera(ABC):
 
     @abstractmethod
     def grab(self):
+        pass
+
+    @abstractmethod
+    def grab_new_capture(self, timeout: float):
+        pass
+
+    @abstractmethod
+    def init_auto_gain_focus(self,
+                             auto_target_brightness: float=0.5,
+                             min_gain: float | None = None,
+                             max_gain: float | None = None,
+                             ):
+        pass
+
+    @abstractmethod
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
+        pass
+
+    @abstractmethod
+    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None):
+        pass
+
+    @abstractmethod
+    def get_gain(self):
+        pass
+
+    @abstractmethod
+    def gain(self, gain):
+        pass
+
+    @abstractmethod
+    def auto_gain(
+        self,
+        state = True,
+        target_brightness: float = 0.5,
+        min_gain: float | None = None,
+        max_gain: float | None = None
+    ):
+        pass
+
+    @abstractmethod
+    def auto_gain_once(
+        self,
+        state = True,
+        target_brightness: float = 0.5,
+        min_gain: float | None = None,
+        max_gain: float | None = None
+    ):
+        pass
+
+    @abstractmethod
+    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
         pass

@@ -60,18 +60,3 @@ class TestIDS(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-    # import time
-    # camera = IDSCamera()
-    # time.sleep(1)
-    # print("-----IDS Camera Test-----")
-    # print(camera.grab())
-    # print(camera.array)
-    # print(len(camera.array))
-
-    # from camera.pyloncamera import PylonCamera
-    # camera = PylonCamera()
-    # time.sleep(1)
-    # print("-----Pylon Camera Test-----")
-    # print(camera.grab())
-    # print(camera.array)
-    # print(len(camera.array))

@@ -85,6 +85,10 @@ class IDSCamera(Camera):
         except Exception as e:
             logger.exception(f'[CAM Class ] IDSCamera.disconnect() failed: {e}')
         return False
+    
+    def __delete__(self):
+        if self.active:
+            self.disconnect()
 
     def init_camera_config(self):
         if not self.active:
@@ -209,6 +213,10 @@ class IDSCamera(Camera):
         millisec = microsec/1000 # convert exposure time to millisec
         return millisec
     
+    def auto_exposure_t(self, state = True):
+        #TODO: Implement
+        pass
+    
     def find_model_name(self):
         if not self.active:
             logger.warning('[CAM Class ] find_model_name(): inactive camera')
@@ -280,6 +288,75 @@ class IDSCamera(Camera):
         except Exception as ex:
             logger.exception(f"Failed to grab image: {ex}")
             return False, None
+        
+    def grab_new_capture(self, timeout):
+        if not self.cam_image_handler:
+            return False, None
+        
+        try:
+            buffer = self.data_stream.WaitForFinishedBuffer(timeout)
+            result = not buffer.IsIncomplete()
+            if not result:
+                self.data_stream.QueueBuffer(buffer)
+                return False, None
+            img = ids_peak_ipl_extension.BufferToImage(buffer)
+            img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
+            img = img.get_numpy().copy()
+            img_ts = datetime.datetime.now()
+            self.data_stream.QueueBuffer(buffer)
+            self.array = img
+            return True, img_ts
+            
+        except Exception as e:
+            return False, None
+        
+    def init_auto_gain_focus(self,
+                             auto_target_brightness: float=0.5,
+                             min_gain: float | None = None,
+                             max_gain: float | None = None,
+                             ):
+        #TODO: Implement
+        pass
+
+    def update_auto_gain_target_brightness(self, auto_target_brightness: float):
+        #TODO: Implement
+        pass
+
+    def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None):
+        #TODO: Implement
+        pass
+
+    def get_gain(self):
+        #TODO: Implement
+        pass
+
+    def gain(self, gain):
+        #TODO: Implement
+        pass
+
+    def auto_gain(
+        self,
+        state = True,
+        target_brightness: float = 0.5,
+        min_gain: float | None = None,
+        max_gain: float | None = None
+    ):
+        #TODO: Implement
+        pass
+
+    def auto_gain_once(
+        self,
+        state = True,
+        target_brightness: float = 0.5,
+        min_gain: float | None = None,
+        max_gain: float | None = None
+    ):
+        #TODO: Implement
+        pass
+
+    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
+        #TODO: Implement
+        pass
 
 class ImageHandler:
     def __init__(self, data_stream: ids_peak.DataStream):
@@ -308,7 +385,9 @@ class ImageHandler:
                     img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
                     self.last_img = img.get_numpy()
                     self.last_img_ts = datetime.datetime.now()
+                self.data_stream.QueueBuffer(buffer)
             except Exception as e:
+                self.last_result = False
                 logger.exception(f'[CAM Class ] ImageHandler grab loop exception: {e}')
 
     def get_last_image(self):
