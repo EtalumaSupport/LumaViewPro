@@ -47,6 +47,8 @@ import numpy as np
 from motorboard import MotorBoard
 from ledboard import LEDBoard
 from camera.pyloncamera import PylonCamera
+from camera.idscamera import IDSCamera
+from camera.camera import Camera
 
 # Import additional libraries
 from lvp_logger import logger, version
@@ -59,7 +61,7 @@ from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
 class Lumascope():
 
-    def __init__(self):
+    def __init__(self, camera_type: str = "pylon"):
         """Initialize Microscope"""
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()
@@ -80,7 +82,10 @@ class Lumascope():
         # Camera
         self.image_buffer = None
         try:
-            self.camera = PylonCamera()
+            if camera_type == "ids":
+                self.camera:Camera = IDSCamera()
+            else: #Default to pylon unless specified as ids
+                self.camera:Camera = PylonCamera()
         except:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
@@ -764,28 +769,28 @@ class Lumascope():
         Grab the max pixel width of camera
         """
         if (not self.camera) or (not self.camera.active): return 0
-        return self.camera.active.Width.Max
+        return self.camera.get_max_frame_size()['width']
 
     def get_max_height(self):
         """CAMERA FUNCTIONS
         Grab the max pixel height of camera
         """
         if (not self.camera) or (not self.camera.active): return 0
-        return self.camera.active.Height.Max
+        return self.camera.get_max_frame_size()['height']
 
     def get_width(self):
         """CAMERA FUNCTIONS
         Grab the current pixel width setting of camera
         """
         if not self.camera: return 0
-        return self.camera.active.Width.GetValue()
+        return self.camera.get_frame_size()['width']
 
     def get_height(self):
         """CAMERA FUNCTIONS
         Grab the current pixel height setting of camera
         """
         if not self.camera: return 0
-        return self.camera.active.Height.GetValue()
+        return self.camera.get_frame_size()['height']
 
     def set_frame_size(self, w, h):
         """CAMERA FUNCTIONS

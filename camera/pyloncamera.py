@@ -179,7 +179,8 @@ class PylonCamera(Camera):
             except Exception:
                 pass
 
-            super().connect()
+            self.init_camera_config()
+            self.start_grabbing()
 
             self.error_report_count = 0
             logger.info('[CAM Class ] PylonCamera.connect() succeeded')

@@ -26,11 +26,14 @@ class Camera(ABC):
 
     @abstractmethod
     def connect(self) -> bool:
-        self.init_camera_config()
-        self.start_grabbing()
+        pass
 
     @abstractmethod
     def disconnect(self) -> bool:
+        pass
+
+    @abstractmethod
+    def is_connected(self) -> bool:
         pass
 
     @contextlib.contextmanager

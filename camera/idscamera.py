@@ -34,11 +34,6 @@ class IDSCamera(Camera):
             self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
             self._device_removed = False
 
-            #Allocate buffers
-            payload_size = self.remote_nodemap.FindNode("PayloadSize").Value()
-            for _ in range(self.data_stream.NumBuffersAnnouncedMinRequired()):
-                buffer = self.data_stream.AllocAndAnnounceBuffer(payload_size)
-                self.data_stream.QueueBuffer(buffer)
 
             try:
                 self.model_name = self.active.ModelName()
@@ -49,10 +44,10 @@ class IDSCamera(Camera):
             except:
                 logger.warning(f'[CAM CLASS ] Could not read all camera information')
 
-            super().connect()        
+            self.init_camera_config()      
+            self.start_grabbing() 
 
             self.cam_image_handler = ImageHandler(self.data_stream)
-            self.cam_image_handler.start()
 
             self.error_report_count = 0
             logger.info('[CAM Class ] IDSCamera.connect() succeeded')    
@@ -69,8 +64,6 @@ class IDSCamera(Camera):
         logger.info('[CAM Class ] Disconnecting from camera...')
         try:
             if self.active:
-                if self.cam_image_handler:
-                    self.cam_image_handler.stop()
                 if self.is_grabbing():
                     self.stop_grabbing()
                 ids_peak.Library.Close()
@@ -85,6 +78,14 @@ class IDSCamera(Camera):
         except Exception as e:
             logger.exception(f'[CAM Class ] IDSCamera.disconnect() failed: {e}')
         return False
+    
+    def is_connected(self) -> bool:
+        if self.active in (False, None):
+            self._device_removed = True
+            return False
+        if self._device_removed:
+            return False
+        return True
     
     def __delete__(self):
         if self.active:
@@ -112,17 +113,42 @@ class IDSCamera(Camera):
 
     def stop_grabbing(self):
         try:
+            if self.cam_image_handler:
+                self.cam_image_handler.stop()
+
             self.remote_nodemap.FindNode("AcquisitionStop").Execute()
             self.remote_nodemap.FindNode("AcquisitionStop").WaitUntilDone()
             self.data_stream.StopAcquisition()
+
+            # self.data_stream.KillWait()
+            self.data_stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
+            for buffer in self.data_stream.AnnouncedBuffers():
+                self.data_stream.RevokeBuffer(buffer)
+
+            # self.remote_nodemap.FindNode("TLParamsLocked").SetValue(0)
         except Exception as e:
             logger.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
     def start_grabbing(self):
         try:
+            # self.remote_nodemap.FindNode("TLParamsLocked").SetValue(1)
+
+            # self.data_stream.FlushPendingKillWaits()
+
+            #Allocate buffers
+            payload_size = self.remote_nodemap.FindNode("PayloadSize").Value()
+            for _ in range(self.data_stream.NumBuffersAnnouncedMinRequired()):
+                buffer = self.data_stream.AllocAndAnnounceBuffer(payload_size)
+                self.data_stream.QueueBuffer(buffer)
+
             self.data_stream.StartAcquisition()
             self.remote_nodemap.FindNode("AcquisitionStart").Execute()
             self.remote_nodemap.FindNode("AcquisitionStart").WaitUntilDone()
+
+            if self.cam_image_handler:
+                self.cam_image_handler.start()
+
+            logger.info('[CAM Class ] start_grabbing succeeded')
         except Exception as e:
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
@@ -134,8 +160,9 @@ class IDSCamera(Camera):
         width = int(max(mins['width'], min(maxs['width'], w)) / 48) * 48
         height = int(max(mins['height'], min(maxs['height'], h)) / 4) * 4
 
-        self.remote_nodemap.FindNode("Width").SetValue(width)
-        self.remote_nodemap.FindNode("Height").SetValue(height)
+        with self.update_camera_config():
+            self.remote_nodemap.FindNode("Width").SetValue(width)
+            self.remote_nodemap.FindNode("Height").SetValue(height)
 
     def get_min_frame_size(self) -> dict:
         if not self.active:
@@ -199,7 +226,8 @@ class IDSCamera(Camera):
         
         # IDS takes time in microseconds, so pass t*1000 to convert to us
         try:
-            self.remote_nodemap.FindNode("ExposureTime").SetValue(float(t)*1000)
+            with self.update_camera_config():
+                self.remote_nodemap.FindNode("ExposureTime").SetValue(float(t)*1000)
             logger.info('[CAM Class ] IDSCamera.exposure_t('+str(t)+')'+': succeeded')
         except Exception as e:
             logger.error('[CAM class ] IDSCamera.exposure_t(FAILED; Exposure likely out of bounds) {e}')
@@ -234,10 +262,11 @@ class IDSCamera(Camera):
             logger.warning('[CAM Class ] set_max_acquisition_frame_rate(): inactive camera')
             return
         
-        self.remote_nodemap.FindNode("AcquisitionFrameRateTargetEnable").SetValue(enabled)
+        with self.update_camera_config():
+            self.remote_nodemap.FindNode("AcquisitionFrameRateTargetEnable").SetValue(enabled)
 
-        if enabled:
-            self.remote_nodemap.FindNode("AcquisitionFrameRateTarget").SetValue(fps)
+            if enabled:
+                self.remote_nodemap.FindNode("AcquisitionFrameRateTarget").SetValue(fps)
 
     def set_binning_size(self, size: int) -> bool:
         if not self.active:
@@ -299,11 +328,13 @@ class IDSCamera(Camera):
             if not result:
                 self.data_stream.QueueBuffer(buffer)
                 return False, None
+            
             img = ids_peak_ipl_extension.BufferToImage(buffer)
             img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
             img = img.get_numpy().copy()
             img_ts = datetime.datetime.now()
             self.data_stream.QueueBuffer(buffer)
+
             self.array = img
             return True, img_ts
             
@@ -328,7 +359,7 @@ class IDSCamera(Camera):
 
     def get_gain(self):
         #TODO: Implement
-        pass
+        return -1
 
     def gain(self, gain):
         #TODO: Implement
@@ -364,16 +395,20 @@ class ImageHandler:
         self.last_result = False
         self.last_img = None
         self.last_img_ts = None
-        self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
+        self._grab_thread = None
         self._stop_event = threading.Event()
 
     def start(self):
-        self._stop_event.clear()
-        self._grab_thread.start()
+        if self._grab_thread is None:
+            self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
+            self._stop_event.clear()
+            self._grab_thread.start()
 
     def stop(self):
-        self._stop_event.set()
-        self._grab_thread.join()
+        if self._grab_thread is not None:
+            self._stop_event.set()
+            self._grab_thread.join()
+            self._grab_thread = None
 
     def _grab_loop(self):
         while not self._stop_event.is_set():
@@ -383,7 +418,7 @@ class ImageHandler:
                 if self.last_result:
                     img = ids_peak_ipl_extension.BufferToImage(buffer)
                     img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
-                    self.last_img = img.get_numpy()
+                    self.last_img = img.get_numpy().copy()
                     self.last_img_ts = datetime.datetime.now()
                 self.data_stream.QueueBuffer(buffer)
             except Exception as e:
@@ -394,5 +429,5 @@ class ImageHandler:
         if not self.last_result:
             return False, None, None
         
-        return self.last_result, self.last_img.copy(), self.last_img_ts
+        return self.last_result, self.last_img, self.last_img_ts
                     
