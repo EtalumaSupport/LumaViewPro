@@ -1300,6 +1300,20 @@ def live_histo_reverse():
         lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = True
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
 
+        
+def log_system_metrics():
+    metrics = common_utils.system_metrics()
+    free_space = common_utils.check_disk_space()
+
+    if free_space < 1024: # Less than 1 GB
+        logger.error(f"Low disk space: {free_space} MB remaining", extra={'force_error': True})
+
+    logger.info(f"[SYSTEM METRICS] CPU Usage: {metrics['cpu_percent_total']}% | RAM Available: {metrics['ram_available_gb']} GB | RAM Usage: {metrics['ram_percent_total']}%", extra={'force_error': True})
+    logger.info(f"[DISK METRICS] Disk Free: {metrics['disk_free_gb']} GB | Disk Usage: {metrics['disk_used_percent']}%", extra={'force_error': True})
+    logger.info(f"[PROCESS METRICS] Process CPU Usage: {metrics['cpu_percent_python']}% | Process RAM Usage: {metrics['ram_used_python_percent']}%", extra={'force_error': True})
+
+    
+
 # -------------------------------------------------------------------------
 # SCOPE DISPLAY Image representing the microscope camera
 # -------------------------------------------------------------------------
@@ -1998,6 +2012,7 @@ class CompositeCapture(FloatLayout):
         #     sum_count=settings[initial_layer]['sum']
         #     sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
 
+
 # -------------------------------------------------------------------------
 # MAIN DISPLAY of LumaViewPro App
 # -------------------------------------------------------------------------
@@ -2009,7 +2024,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.camera_temps_event = None
 
         if self.scope.camera_is_connected():
-            self.camera_temps_event = Clock.schedule_interval(lambda dt: self.log_camera_temps(), 21600)  # Log every 6 hours
+            self.camera_temps_event = Clock.schedule_interval(lambda dt: self.log_camera_temps(), 7200)  # Log every 2 hours
         self.recording = False
         self.led_on_before_pause = False
 
@@ -9359,6 +9374,8 @@ class LumaViewProApp(App):
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
         layer_obj.apply_settings()
         Clock.schedule_once(layer_obj.apply_settings, 5)
+
+        Clock.schedule_once(functools.partial(log_system_metrics), 7200)    # Log metrics every 2 hours
 
         camera_executor.put(IOTask(scope_leds_off))
 
