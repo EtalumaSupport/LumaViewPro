@@ -687,6 +687,9 @@ class Lumascope():
         save image (as array) to file
         """
 
+        if (common_utils.check_disk_space() < 1024):  # Check for at least 1 GB of free space
+            logger.error(f"[SCOPE API ] Disk space < 1 GB. Image unlikely to save correctly.")
+
         image_data = self.prepare_image_for_saving(
             array=array,
             save_folder=save_folder,
@@ -749,6 +752,10 @@ class Lumascope():
         """CAMERA FUNCTIONS
         Grab the current live image and save to file
         """
+
+        if (common_utils.check_disk_space() < 1024):  # Check for at least 1 GB of free space
+            logger.error(f"[SCOPE API ] Disk space < 1 GB. Image unlikely to save correctly.")
+            
         array = self.get_image(
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,
