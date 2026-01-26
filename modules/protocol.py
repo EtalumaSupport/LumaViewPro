@@ -103,24 +103,31 @@ class Protocol:
         else:
             duration_hours = round(self.duration().total_seconds() / 3600.0, 2)
 
-        with open(file_path, 'w') as fp:
-            csvwriter = csv.writer(fp, delimiter='\t', lineterminator='\n') # access the file using the CSV library
+        try:
+            with open(file_path, 'w') as fp:
+                csvwriter = csv.writer(fp, delimiter='\t', lineterminator='\n') # access the file using the CSV library
 
-            csvwriter.writerow(['LumaViewPro Protocol'])
-            csvwriter.writerow(['Version', self._config['version']])
-            csvwriter.writerow(['Period', period_minutes])
-            csvwriter.writerow(['Duration', duration_hours])
-            csvwriter.writerow(['Labware', self._config['labware_id']])
-            csvwriter.writerow(['Capture Root', self.capture_root() if self.capture_root() is not None or self.capture_root() != '' else ''])
-            
-            fp.write('\nSteps\n')
+                csvwriter.writerow(['LumaViewPro Protocol'])
+                csvwriter.writerow(['Version', self._config['version']])
+                csvwriter.writerow(['Period', period_minutes])
+                csvwriter.writerow(['Duration', duration_hours])
+                csvwriter.writerow(['Labware', self._config['labware_id']])
+                csvwriter.writerow(['Capture Root', self.capture_root() if self.capture_root() is not None or self.capture_root() != '' else ''])
+                
+                fp.write('\nSteps\n')
 
-            protocol_table_str = self.steps().to_csv(
-                sep='\t',
-                lineterminator='\n',
-                index=False
-            )
-            fp.write(protocol_table_str)
+                protocol_table_str = self.steps().to_csv(
+                    sep='\t',
+                    lineterminator='\n',
+                    index=False
+                )
+                fp.write(protocol_table_str)
+        except Exception as e:
+            logger.error(f"[Protocol] Error saving protocol to file {file_path}. File may be open in another window: {e}")
+            return f"[Protocol] Error saving protocol to file {file_path}. File may be open in another window: {e}"
+        
+        return None
+
 
 
     def optimize_step_ordering(self):

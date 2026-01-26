@@ -5708,9 +5708,12 @@ class ProtocolSettings(CompositeCapture):
         if (type(filepath) == str) and (filepath[-4:].lower() != '.tsv'):
             filepath = filepath+'.tsv'
 
-        self._protocol.to_file(
+        result = self._protocol.to_file(
             file_path=filepath
         )
+
+        if result: # Had an error saving
+            show_notification_popup(title="Protocol Saving Error", message=result)
 
         self.ids['protocol_filename'].text = os.path.basename(filepath)
 
