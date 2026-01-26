@@ -757,7 +757,7 @@ class Lumascope():
 
         if (common_utils.check_disk_space() < 1024):  # Check for at least 1 GB of free space
             logger.error(f"[SCOPE API ] Disk space < 1 GB. Image unlikely to save correctly.")
-            
+
         array = self.get_image(
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,
@@ -1296,6 +1296,7 @@ class Lumascope():
         try:
             current = self.get_current_position('Z')
             focus = self.focus_function(image)
+            logger.info('[SCOPE API ] Focus Score: %s', focus)
             next_target = self.get_target_position('Z') + self.resolution
         except:
             logger.exception('[SCOPE API ] Error talking to motion controller.')
