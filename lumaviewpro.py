@@ -1301,16 +1301,16 @@ def live_histo_reverse():
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
 
         
-def log_system_metrics():
+def log_system_metrics(dt=None):
     metrics = common_utils.system_metrics()
     free_space = common_utils.check_disk_space()
 
     if free_space < 1024: # Less than 1 GB
-        logger.error(f"Low disk space: {free_space} MB remaining", extra={'force_error': True})
+        logger.error(f"Low disk space: {free_space:.1f} MB remaining", extra={'force_error': True})
 
-    logger.info(f"[SYSTEM METRICS] CPU Usage: {metrics['cpu_percent_total']}% | RAM Available: {metrics['ram_available_gb']} GB | RAM Usage: {metrics['ram_percent_total']}%", extra={'force_error': True})
-    logger.info(f"[DISK METRICS] Disk Free: {metrics['disk_free_gb']} GB | Disk Usage: {metrics['disk_used_percent']}%", extra={'force_error': True})
-    logger.info(f"[PROCESS METRICS] Process CPU Usage: {metrics['cpu_percent_python']}% | Process RAM Usage: {metrics['ram_used_python_percent']}%", extra={'force_error': True})
+    logger.info(f"[SYSTEM METRICS] CPU Usage: {metrics['cpu_percent_total']:.1f}% | RAM Available: {metrics['ram_available_gb']:.1f} GB | RAM Usage: {metrics['ram_percent_total']:.1f}%", extra={'force_error': True})
+    logger.info(f"[DISK METRICS] Disk Free: {metrics['disk_free_gb']:.1f} GB | Disk Usage: {metrics['disk_used_percent']:.1f}%", extra={'force_error': True})
+    logger.info(f"[PROCESS METRICS] Process CPU Usage: {metrics['cpu_percent_python']:.1f}% | Process RAM Usage: {metrics['ram_used_python_mb']:.1f} MB, {metrics['ram_used_python_percent']:.1f}%", extra={'force_error': True})
 
     
 
@@ -9369,7 +9369,7 @@ class LumaViewProApp(App):
                     "axis": 'T',
                     "pos": turret_position,
                     "wait_until_complete": True
-                }
+                } 
             ))
             #thread_pool.submit(move_absolute_position, axis='T', pos=turret_position, wait_until_complete=True)
             #move_absolute_position(axis='T', pos=turret_position, wait_until_complete=True)
@@ -9378,7 +9378,9 @@ class LumaViewProApp(App):
         layer_obj.apply_settings()
         Clock.schedule_once(layer_obj.apply_settings, 5)
 
-        Clock.schedule_once(functools.partial(log_system_metrics), 7200)    # Log metrics every 2 hours
+        log_system_metrics()
+
+        Clock.schedule_once(functools.partial(log_system_metrics), 7200)   # Log metrics every 2 hours
 
         camera_executor.put(IOTask(scope_leds_off))
 

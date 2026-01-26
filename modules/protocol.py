@@ -124,7 +124,7 @@ class Protocol:
                 fp.write(protocol_table_str)
         except Exception as e:
             logger.error(f"[Protocol] Error saving protocol to file {file_path}. File may be open in another window: {e}")
-            return f"[Protocol] Error saving protocol to file {file_path}. File may be open in another window: {e}"
+            return f"Error saving protocol to file {file_path}.\n File may be open in another window.\n"
         
         return None
 
