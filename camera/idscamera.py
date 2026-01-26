@@ -358,12 +358,30 @@ class IDSCamera(Camera):
         pass
 
     def get_gain(self):
-        #TODO: Implement
-        return -1
+        if self.active == False:
+            logger.warning('[CAM Class ] idscamera.get_gain(): inactive camera')
+            return -1
+        
+        try:
+            value = self.remote_nodemap.FindNode("Gain").Value()
+            return float(value)
+        except Exception as e:
+            logger.error(f'[CAM class ] idscamera.get_gain(FAILED) {e}')
+            return -1
 
     def gain(self, gain):
-        #TODO: Implement
-        pass
+        if self.active == False:
+            logger.warning('[CAM Class ] idscamera.gain('+str(gain)+')'+': inactive camera')
+            return
+
+        try:
+            self.remote_nodemap.FindNode("GainSelector").SetCurrentEntry("AnalogAll")
+            self.remote_nodemap.FindNode("Gain").SetValue(gain)
+            logger.info('[CAM Class ] idscamera.gain('+str(gain)+')'+': succeeded')
+        except Exception as e:
+            logger.error(f'[CAM class ] idscamera.gain(FAILED; Gain likely out of bounds) {e}')
+            return
+            
 
     def auto_gain(
         self,

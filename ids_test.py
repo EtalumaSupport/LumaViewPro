@@ -58,5 +58,9 @@ class TestIDS(unittest.TestCase):
         self.assertTrue(len(self.camera.array) == 1528)
         self.assertIsNotNone(timestamp)
 
+    def test_gain(self):
+        self.camera.gain(10)
+        self.assertAlmostEqual(self.camera.get_gain(),10.0,delta=0.1)
+
 if __name__ == '__main__':
     unittest.main()
