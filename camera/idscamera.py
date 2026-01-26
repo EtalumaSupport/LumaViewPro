@@ -242,8 +242,8 @@ class IDSCamera(Camera):
         return millisec
     
     def auto_exposure_t(self, state = True):
-        #TODO: Implement
-        pass
+        #TODO: Implement for IDS cameras that support auto exposure
+        return self.remote_nodemap.HasNode("ExposureAuto")
     
     def find_model_name(self):
         if not self.active:
@@ -255,7 +255,7 @@ class IDSCamera(Camera):
         return
     
     def get_all_temperatures(self):
-        return {} #NOTE: Device does not support temperature reading
+        return {} #TODO: Implement for IDS cameras that support temperature readings
     
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
         if not self.active:
@@ -341,21 +341,13 @@ class IDSCamera(Camera):
         except Exception as e:
             return False, None
         
-    def init_auto_gain_focus(self,
-                             auto_target_brightness: float=0.5,
-                             min_gain: float | None = None,
-                             max_gain: float | None = None,
-                             ):
-        #TODO: Implement
-        pass
-
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
-        #TODO: Implement
-        pass
+        #TODO: Implement for IDS cameras that support auto gain
+        return self.remote_nodemap.HasNode("GainAuto") # Return False if IDS camera does not support auto gain
 
     def update_auto_gain_min_max(self, min_gain: float | None, max_gain: float | None):
-        #TODO: Implement
-        pass
+        #TODO: Implement for IDS cameras that support auto gain
+        return self.remote_nodemap.HasNode("GainAuto") # Return False if IDS camera does not support auto gain
 
     def get_gain(self):
         if self.active == False:
@@ -390,8 +382,8 @@ class IDSCamera(Camera):
         min_gain: float | None = None,
         max_gain: float | None = None
     ):
-        #TODO: Implement
-        pass
+        #TODO: Implement functionality for IDS cameras that support auto gain
+        return self.remote_nodemap.HasNode("GainAuto") # Return False if IDS camera does not support auto gain
 
     def auto_gain_once(
         self,
@@ -400,8 +392,8 @@ class IDSCamera(Camera):
         min_gain: float | None = None,
         max_gain: float | None = None
     ):
-        #TODO: Implement
-        pass
+        #TODO: Implement functionality for IDS cameras that support auto gain
+        return self.remote_nodemap.HasNode("GainAuto") # Return False if IDS camera does not support auto gain
 
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
         #TODO: Implement

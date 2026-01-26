@@ -153,14 +153,6 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def init_auto_gain_focus(self,
-                             auto_target_brightness: float=0.5,
-                             min_gain: float | None = None,
-                             max_gain: float | None = None,
-                             ):
-        pass
-
-    @abstractmethod
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
         pass
 
