@@ -12,25 +12,29 @@ def enable_af_score_logging(enable: bool) -> None:
     _enable_af_score_logging = enable
 
 
-def focus_function(
-    image: np.ndarray,
-    algorithm: str = 'vollath4_numba',
-    skip_score_logging: bool = False,
-) -> float:
-    
+def set_autofocus_algorithm(algorithm: str) -> None:
+    global _focus_function
+
     if algorithm in ('vollath4', 'vollath4_numba'):
-        score = focus_vollath4_numba(image=image)
+        _focus_function = focus_vollath4_numba
     elif algorithm == 'vollath4_original':
-        score = focus_vollath4_original(image=image)
+        _focus_function = focus_vollath4_original
     elif algorithm == 'skew':
-        score = focus_skew(image=image)
+        _focus_function = focus_skew
     elif algorithm == 'pixel_variation':
-        score = focus_pixel_variation(image=image)
+        _focus_function = focus_pixel_variation
     else:
         raise NotImplementedError(f"Focus algorithm {algorithm} not implemented.")
+
+
+def focus_function(
+    image: np.ndarray,
+    skip_score_logging: bool = False,
+) -> float:
+    score = _focus_function(image=image)
     
     if (True == _enable_af_score_logging) and (False == skip_score_logging):
-        logger.info(f'[SCOPE API ] Focus Score {algorithm}: {score}')
+        logger.info(f'[SCOPE API ] Focus Score: {score}')
 
     return score
 
@@ -90,3 +94,6 @@ def focus_pixel_variation(image: np.ndarray) -> float:
     ssq = np.sum(np.square(image))
     var = ssq*w*h-sum**2
     return var
+
+
+_focus_function = focus_vollath4_numba
