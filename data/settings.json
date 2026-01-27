@@ -180,7 +180,8 @@
     "logging": {
         "default": {
             "level": "INFO"
-        }
+        },
+        "autofocus": false
     },
     "mode": "normal",
     "debug_mode": false,
