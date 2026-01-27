@@ -40,7 +40,6 @@ import pathlib
 import threading
 import time
 
-import cv2
 import numpy as np
 
 # Import Lumascope Hardware files
@@ -50,6 +49,7 @@ from pyloncamera import PylonCamera
 
 # Import additional libraries
 from lvp_logger import logger, version
+import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
@@ -113,6 +113,7 @@ class Lumascope():
         self._scale_bar = {
             'enabled': False
         }
+
 
     def disconnect(self):
         logger.info('[SCOPE API ] Disconnecting from microscope...')
@@ -461,7 +462,7 @@ class Lumascope():
         ):
         if not self.camera:
             return False
-            
+
         grab_status, grab_image_ts = self.camera.grab()
         if grab_status == True:
             tmp = self.camera.array.copy()
@@ -878,7 +879,7 @@ class Lumascope():
 
         if not self.camera.active:
             return False
-        
+
         return self.camera.is_connected()
 
         #return True
@@ -1293,7 +1294,7 @@ class Lumascope():
         # calculate the position and focus measure
         try:
             current = self.get_current_position('Z')
-            focus = self.focus_function(image)
+            focus = autofocus_functions.focus_function(image=image)
             next_target = self.get_target_position('Z') + self.resolution
         except:
             logger.exception('[SCOPE API ] Error talking to motion controller.')
@@ -1342,50 +1343,6 @@ class Lumascope():
             # Stop thread image when autofocus is complete
             done=True
         return done
-
-    # Algorithms for estimating the quality of the focus
-    def focus_function(self, image, algorithm = 'vollath4', include_logging: bool = True):
-        """INTEGRATED SCOPE FUNCTIONS
-        assess focus value at specific position for autofocus function"""
-
-        if include_logging:
-            logger.info('[SCOPE API ] Lumascope.focus_function()')
-
-        w = image.shape[0]
-        h = image.shape[1]
-
-        # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
-        if algorithm == 'vollath4': # pg 266
-            image = np.double(image)
-            sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
-            sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            if include_logging:
-                logger.info('[SCOPE API ] Focus Score Vollath: ' + str(sum_one - sum_two))
-            return sum_one - sum_two
-
-        elif algorithm == 'skew':
-            hist = np.histogram(image, bins=256,range=(0,256))
-            hist = np.asarray(hist[0], dtype='int')
-            max_index = hist.argmax()
-
-            edges = np.histogram_bin_edges(image, bins=1)
-            white_edge = edges[1]
-
-            skew = white_edge-max_index
-            if include_logging:
-                logger.info('[SCOPE API ] Focus Score Skew: ' + str(skew))
-            return skew
-
-        elif algorithm == 'pixel_variation':
-            sum = np.sum(image)
-            ssq = np.sum(np.square(image))
-            var = ssq*w*h-sum**2
-            if include_logging:
-                logger.info('[SCOPE API ] Focus Score Pixel Variation: ' + str(var))
-            return var
-
-        else:
-            return 0
 
     def focus_best(self, positions, values, algorithm='direct'):
         """INTEGRATED SCOPE FUNCTIONS
@@ -1650,5 +1607,3 @@ class Lumascope():
             raise Exception(f"Unable to save image to {file_loc}")
 
         return file_loc
-
-

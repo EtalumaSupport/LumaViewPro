@@ -16,6 +16,7 @@ import pandas as pd
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
 import lumascope_api
+import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 from modules.objectives_loader import ObjectiveLoader
 
@@ -49,7 +50,7 @@ class AutofocusExecutor:
 
         if self._use_kivy_clock:
             self._kivy_clock_module = importlib.import_module('kivy.clock')
-            
+
         self._objective_loader = ObjectiveLoader()
         self._reset_state()
 
@@ -76,8 +77,8 @@ class AutofocusExecutor:
             return self._kivy_clock_module.Clock.schedule_interval(wrapper, interval_sec)
         else:
             raise NotImplementedError(f"Not implemented for support outside Kivy")
-        
-    
+
+
     def _unschedule_func(
         self,
         func: typing.Callable,
@@ -87,10 +88,10 @@ class AutofocusExecutor:
         else:
             raise NotImplementedError(f"Not implemented for support outside Kivy")
 
-    
+
     def _calculate_params(self):
         center = self._scope.get_current_position('Z')
-        
+
         range = self._objective['AF_range']
 
         z_min = max(0, center-range)
@@ -118,7 +119,7 @@ class AutofocusExecutor:
     ):
         if self._af_in_progress.is_set():
             return
-        
+
         #logger.error(f"AF RUN")
         self._reset_state()
         self._callbacks = callbacks
@@ -128,7 +129,7 @@ class AutofocusExecutor:
 
         if save_results_to_file and results_dir is None:
             raise Exception(f"Cannot save autofocus results to file if results_dir is None")
-        
+
         self._save_results_to_file = save_results_to_file
         self._results_dir = results_dir
         self._is_focusing = True
@@ -147,7 +148,7 @@ class AutofocusExecutor:
     def _autofocus_loop(self):
         """Main autofocus loop - runs continuously until AF completes or is cancelled"""
         last_gc_time = time.monotonic()
-        
+
         while self._af_in_progress.is_set() and self._is_focusing:
             try:
                 # Periodic maintenance: GC every 60 seconds
@@ -155,20 +156,20 @@ class AutofocusExecutor:
                     import gc
                     gc.collect()
                     last_gc_time = time.monotonic()
-                    
+
                     # Log queue depths for monitoring
                     try:
                         af_queue_size = self._autofocus_executor.protocol_queue_size()
                         logger.debug(f"[AF Watchdog] AF protocol queue: {af_queue_size}")
                     except Exception:
                         pass
-                
+
                 # Run one iteration
                 self._iterate()
-                
+
                 # Small delay to prevent CPU throttling
                 time.sleep(0.01)
-                
+
             except Exception as ex:
                 # Any unexpected AF error: cleanup so UI is not stuck
                 self._autofocus_executor.protocol_end()
@@ -203,20 +204,20 @@ class AutofocusExecutor:
 
             if not self._is_focusing:
                 return
-            
+
             if not self._af_in_progress.is_set():
                 return
 
             if not self._scope.get_target_status('Z'):
                 return
-            
+
             if self._scope.get_overshoot():
                 return
-            
+
             if not self._autofocus_executor.is_protocol_running():
                 self._is_focusing = False
                 return
-            
+
             # Sleep for at least 75ms to ensure that the camera is ready for the next capture
             #time.sleep(max(self._params['exposure']/1000, 0.075))
 
@@ -231,17 +232,17 @@ class AutofocusExecutor:
 
                 if count >= num_retries:
                     raise Exception(f"Unable to grab image for autofocusing after max retries")
-                
+
             height, width = image.shape
 
             if not self._autofocus_executor.is_protocol_running():
                 self._is_focusing = False
                 return
-            
+
             # Use center quarter of image for focusing
             image = image[int(height/4):int(3*height/4),int(width/4):int(3*width/4)]
-            
-            focus = self.focus_function(image=image)
+
+            focus_score = autofocus_functions.focus_function(image=image)
             current_pos = round(self._scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
 
             self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=current_pos), 0)
@@ -249,14 +250,14 @@ class AutofocusExecutor:
             self._af_data_pass.append(
                 {
                     'position': current_pos,
-                    'score': focus,
+                    'score': focus_score,
                 }
             )
 
             if not self._autofocus_executor.is_protocol_running():
                 self._is_focusing = False
                 return
-            
+
             resolution = self._params['resolution']
             next_target = self._scope.get_target_position('Z') + resolution
 
@@ -269,7 +270,7 @@ class AutofocusExecutor:
             if next_target <= self._params['z_max']:
                 self._move_relative_position(pos=resolution)
                 return
-            
+
             # Pass is complete
 
             # Adjust the resolution
@@ -293,7 +294,7 @@ class AutofocusExecutor:
                     self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
                 except Exception:
                     pass
-                
+
                 # Move just underneath focus position to ensure we move UP to final position
                 self._move_absolute_position(pos=(best_focus_position-self._params['resolution']))
 
@@ -341,30 +342,30 @@ class AutofocusExecutor:
         # Don't queue if AF is done or stopped
         if not self._af_in_progress.is_set() or not self._is_focusing:
             return
-        
+
         # Guard against queue buildup
         try:
             if hasattr(self._autofocus_executor, 'protocol_queue_size') and self._autofocus_executor.protocol_queue_size() > 3:
                 return
         except Exception:
             pass
-        
+
         # Periodic maintenance: GC and watchdog logging every 60 seconds
         if not hasattr(self, '_last_gc_time'):
             self._last_gc_time = time.monotonic()
-        
+
         if time.monotonic() - self._last_gc_time > 60:
             import gc
             gc.collect()
             self._last_gc_time = time.monotonic()
-            
+
             # Log queue depths for monitoring
             try:
                 af_queue_size = self._autofocus_executor.protocol_queue_size()
                 logger.debug(f"[AF Watchdog] AF protocol queue: {af_queue_size}")
             except Exception:
                 pass
-        
+
         # Queue next iteration with callback to continue the loop
         self._autofocus_executor.protocol_put(IOTask(
             action=self._iterate,
@@ -373,14 +374,14 @@ class AutofocusExecutor:
 
     def best_focus_position(self) -> float | None:
         return self._best_focus_position
-    
+
 
     def _move_absolute_position(self, pos):
         self._scope.move_absolute_position('Z', pos)
         if 'move_position' in self._callbacks:
             self._callbacks['move_position']('Z')
 
-    
+
     def _move_relative_position(self, pos):
         self._scope.move_relative_position('Z', pos)
         if 'move_position' in self._callbacks:
@@ -389,20 +390,20 @@ class AutofocusExecutor:
 
     def in_progress(self) -> bool:
         return self._is_focusing
-    
+
 
     def complete(self) -> bool:
         return self._is_complete
 
-        
+
     def _save_autofocus_data(self):
         if len(self._af_data_full) == 0:
             # No data to save
             return
-        
+
         ts = self._init_results_dir_and_ts(results_dir=self._results_dir)
         results_file_loc = self._results_dir / f"autofocus_data_{ts}.csv"
-        
+
         df = pd.DataFrame(self._af_data_full)
         df.to_csv(results_file_loc, header=True, index=False)
 
@@ -412,7 +413,7 @@ class AutofocusExecutor:
         fig = Figure(figsize=(12, 12))
         axs = fig.add_subplot(111)
         df.reset_index().plot.scatter(x="position", y="score", ax=axs)
-        
+
         axs.set_title(f"""
             Autofocus Characterization
             {plot_filename}
@@ -434,43 +435,6 @@ class AutofocusExecutor:
         max_score_idx = df['score'].idxmax()
         max_position = df['position'].loc[max_score_idx]
         return max_position
-
-
-    def focus_function(
-        self,
-        image: np.ndarray,
-        algorithm: str = 'vollath4',
-    ):
-        # TODO the w/h seem swapped, but this is how the original code was written.
-        # Needs further investigation to clarify.
-        w, h = image.shape
-
-        # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
-        if algorithm == 'vollath4': # pg 266
-            image = np.double(image)
-            sum_one = np.sum(np.multiply(image[:w-1,:h], image[1:w,:h])) # g(i, j).g(i+1, j)
-            sum_two = np.sum(np.multiply(image[:w-2,:h], image[2:w,:h])) # g(i, j).g(i+2, j)
-            return sum_one - sum_two
-
-        elif algorithm == 'skew':
-            hist = np.histogram(image, bins=256,range=(0,256))
-            hist = np.asarray(hist[0], dtype='int')
-            max_index = hist.argmax()
-
-            edges = np.histogram_bin_edges(image, bins=1)
-            white_edge = edges[1]
-
-            skew = white_edge-max_index
-            return skew
-
-        elif algorithm == 'pixel_variation':
-            sum = np.sum(image)
-            ssq = np.sum(np.square(image))
-            var = ssq*w*h-sum**2
-            return var
-      
-        else:
-            return 0
 
 
     def _reset_state(self):
@@ -498,4 +462,4 @@ class AutofocusExecutor:
         results_dir.mkdir(exist_ok=True, parents=True)
         now = datetime.datetime.now()
         return now.strftime("%Y%m%d_%H%M%S")
-    
+

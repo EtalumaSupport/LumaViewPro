@@ -212,6 +212,7 @@ if __name__ == "__main__":
 
     import labware
     from modules.autofocus_executor import AutofocusExecutor
+    import modules.autofocus_functions as autofocus_functions
     from modules.stitcher import Stitcher
     import modules.binning as binning
     from modules.composite_generation import CompositeGeneration
@@ -1564,10 +1565,7 @@ class ScopeDisplay(Image):
             if debug_counter % 10 == 0:
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
-                af_score = lumaview.scope.focus_function(
-                    image=image,
-                    include_logging=False
-                )
+                af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)
 
                 open_layer = None
                 for layer in common_utils.get_layers():
@@ -9223,6 +9221,23 @@ def load_log_level():
                 pass
 
 
+def load_autofocus_log_enable():
+    global autofocus_executor
+    for settings_file in ("./data/current.json", "./data/settings.json"):
+        if not os.path.exists(settings_file):
+            continue
+
+        with open(settings_file, 'r') as fp:
+            data = json.load(fp)
+
+            try:
+                if True == data['logging']['autofocus']:
+                    autofocus_functions.enable_af_score_logging(enable=True)
+                return
+            except:
+                pass
+
+
 def load_mode():
     global ENGINEERING_MODE
     for settings_file in ("./data/current.json", "./data/settings.json"):
@@ -9342,6 +9357,7 @@ class LumaViewProApp(App):
 
 
         load_log_level()
+        load_autofocus_log_enable()
         load_mode()
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
