@@ -671,15 +671,13 @@ class ImageHandler(pylon.ImageEventHandler):
         self._last_img_ts = None
         self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
-        self._thread_name_set = False
         
     
     def OnImageGrabbed(self, camera, grabResult):
         try:
-            # Set thread name for better logging (only once)
-            if not self._thread_name_set:
+            # Set thread name for dummy threads
+            if "Dummy" in threading.current_thread().name:
                 threading.current_thread().name = "PylonImageGrab"
-                self._thread_name_set = True
             
             # Check if parent camera was removed before processing
             if self._parent._device_removed:
