@@ -1533,7 +1533,21 @@ class SequencedCaptureExecutor:
             except Exception:
                 time_period_set = False
 
+        # DEBUG: Profiling timing data for led_on and led_off
+        led_on_timings = []
+        led_off_timings = []
+        profiling_enabled = True
+        start_epoch = None  # Will be set after start_event
+        pulses_executed = 0
+        end_reason = "not_started"
+
         try:
+            # Validate frequency to prevent division by zero
+            if frequency <= 0:
+                logger.error(f"[STIMULATOR] Invalid frequency {frequency} Hz for {color}. Must be > 0.")
+                end_reason = "invalid_frequency"
+                return
+            
             period_s = 1.0 / float(frequency)
             pulse_s = float(pulse_width) / 1000.0
 
@@ -1550,30 +1564,48 @@ class SequencedCaptureExecutor:
             # Use fast path LED toggles if available via API
             def led_on_fast():
                 #logger.info(f"[STIMULATOR] {color} LED ON")
+                if profiling_enabled and start_epoch is not None:
+                    t_start = time.perf_counter()
                 if hasattr(self._scope, 'led_on_fast'):
                     self._scope.led_on_fast(channel=self._scope.color2ch(color=color), mA=illumination)
                 else:
                     self._scope.led_on(channel=self._scope.color2ch(color=color), mA=illumination)
+                if profiling_enabled and start_epoch is not None:
+                    t_end = time.perf_counter()
+                    # Store: (absolute timestamp in ms, duration in ms, relative time since start in ms)
+                    led_on_timings.append({
+                        'start_time': (t_start - start_epoch) * 1000.0,
+                        'end_time': (t_end - start_epoch) * 1000.0,
+                        'duration': (t_end - t_start) * 1000.0
+                    })
 
             def led_off_fast():
                 #logger.info(f"[STIMULATOR] {color} LED OFF")
+                if profiling_enabled and start_epoch is not None:
+                    t_start = time.perf_counter()
                 if hasattr(self._scope, 'led_off_fast'):
                     self._scope.led_off_fast(channel=self._scope.color2ch(color=color))
                 else:
                     self._scope.led_off(channel=self._scope.color2ch(color=color))
+                if profiling_enabled and start_epoch is not None:
+                    t_end = time.perf_counter()
+                    # Store: (absolute timestamp in ms, duration in ms, relative time since start in ms)
+                    led_off_timings.append({
+                        'start_time': (t_start - start_epoch) * 1000.0,
+                        'end_time': (t_end - start_epoch) * 1000.0,
+                        'duration': (t_end - t_start) * 1000.0
+                    })
 
-            start_epoch = time.perf_counter()
-            
             start_event.wait()
-            logger.info(f"[STIMULATOR] stim_start_event set for {color}")
+            start_epoch = time.perf_counter()
+            logger.info(f"[STIMULATOR] stim_start_event set for {color} at t=0.000 ms")
 
             end_reason = "pulse_count_reached"
 
-            pulses_executed = 0
-
             for i in range(pulse_count):
                 if stop_event.is_set():
-                    logger.info(f"[STIMULATOR] {color} stop event set, ending stimulation.")
+                    elapsed = (time.perf_counter() - start_epoch) * 1000.0
+                    logger.info(f"[STIMULATOR] {color} stop event set at t={elapsed:.3f} ms, ending stimulation.")
                     end_reason = "stop_event_set"
                     break
 
@@ -1629,7 +1661,8 @@ class SequencedCaptureExecutor:
                 except Exception:
                     pass
             
-            logger.info(f"[STIMULATOR] {color} stimulation ended after executing {pulses_executed} pulses.")
+            elapsed_time = (time.perf_counter() - start_epoch) * 1000.0 if start_epoch is not None else 0.0
+            logger.info(f"[STIMULATOR] {color} stimulation ended after executing {pulses_executed} pulses. Elapsed: {elapsed_time:.3f} ms")
             logger.info(f"[STIMULATOR] {color} Ended due to {end_reason}")
             # Ensure LED off at the end
             try:
@@ -1639,3 +1672,103 @@ class SequencedCaptureExecutor:
                     self._scope.led_off(channel=self._scope.color2ch(color=color))
             except Exception:
                 pass
+
+            # DEBUG: Save profiling statistics
+            if profiling_enabled and (led_on_timings or led_off_timings) and self._run_dir is not None:
+                try:
+                    profile_dir = self._run_dir / "stimulation_profile"
+                    profile_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                    profile_file = profile_dir / f"stimulation_profile_{color}_{timestamp}.txt"
+                    
+                    with open(profile_file, 'w') as f:
+                        f.write(f"Stimulation Profiling Report - {color}\n")
+                        f.write(f"Timestamp: {datetime.datetime.now().isoformat()}\n")
+                        f.write(f"Frequency: {frequency} Hz\n")
+                        f.write(f"Pulse Width: {pulse_width} ms\n")
+                        f.write(f"Pulses Executed: {pulses_executed}\n")
+                        f.write(f"End Reason: {end_reason}\n")
+                        f.write("=" * 60 + "\n\n")
+                        
+                        if led_on_timings:
+                            f.write("LED ON TIMINGS (ms):\n")
+                            f.write("-" * 60 + "\n")
+                            durations = [t['duration'] for t in led_on_timings]
+                            on_array = np.array(durations)
+                            on_mean = np.mean(on_array)
+                            on_std = np.std(on_array)
+                            on_min = np.min(on_array)
+                            on_max = np.max(on_array)
+                            
+                            f.write(f"Count:            {len(led_on_timings)}\n")
+                            f.write(f"Mean:             {on_mean:.6f} ms\n")
+                            f.write(f"Std Dev:          {on_std:.6f} ms\n")
+                            f.write(f"Min:              {on_min:.6f} ms\n")
+                            f.write(f"Max:              {on_max:.6f} ms\n")
+                            
+                            # Detect outliers using 3-sigma rule
+                            outlier_threshold = on_mean + 3 * on_std
+                            outliers = [t for t in durations if t > outlier_threshold]
+                            f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(led_on_timings)*100:.2f}%)\n")
+                            if outliers:
+                                f.write(f"Outlier values:   {[f'{o:.6f}' for o in sorted(outliers)]}\n")
+                            
+                            f.write("\nIndividual LED ON Events (timestamps relative to start):\n")
+                            for idx, timing in enumerate(led_on_timings):
+                                f.write(f"  Pulse {idx}: Start={timing['start_time']:.6f} ms, End={timing['end_time']:.6f} ms, Duration={timing['duration']:.6f} ms\n")
+                            f.write("\n")
+                        
+                        if led_off_timings:
+                            f.write("LED OFF TIMINGS (ms):\n")
+                            f.write("-" * 60 + "\n")
+                            durations = [t['duration'] for t in led_off_timings]
+                            off_array = np.array(durations)
+                            off_mean = np.mean(off_array)
+                            off_std = np.std(off_array)
+                            off_min = np.min(off_array)
+                            off_max = np.max(off_array)
+                            
+                            f.write(f"Count:            {len(led_off_timings)}\n")
+                            f.write(f"Mean:             {off_mean:.6f} ms\n")
+                            f.write(f"Std Dev:          {off_std:.6f} ms\n")
+                            f.write(f"Min:              {off_min:.6f} ms\n")
+                            f.write(f"Max:              {off_max:.6f} ms\n")
+                            
+                            # Detect outliers using 3-sigma rule
+                            outlier_threshold = off_mean + 3 * off_std
+                            outliers = [t for t in durations if t > outlier_threshold]
+                            f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(led_off_timings)*100:.2f}%)\n")
+                            if outliers:
+                                f.write(f"Outlier values:   {[f'{o:.6f}' for o in sorted(outliers)]}\n")
+                            
+                            f.write("\nIndividual LED OFF Events (timestamps relative to start):\n")
+                            for idx, timing in enumerate(led_off_timings):
+                                f.write(f"  Pulse {idx}: Start={timing['start_time']:.6f} ms, End={timing['end_time']:.6f} ms, Duration={timing['duration']:.6f} ms\n")
+                            f.write("\n")
+                    
+                    logger.info(f"[STIMULATOR] Profiling data saved to {profile_file}")
+                except Exception as e:
+                    logger.error(f"[STIMULATOR] Failed to save profiling data: {e}")
+                    # Failsafe: Output profiling data to logger if file writing fails
+                    try:
+                        logger.info(f"[STIMULATOR] PROFILING DATA FOR {color}:")
+                        logger.info(f"[STIMULATOR] Frequency: {frequency} Hz, Pulse Width: {pulse_width} ms, Pulses: {pulses_executed}")
+                        
+                        if led_on_timings:
+                            durations = [t['duration'] for t in led_on_timings]
+                            on_mean = np.mean(durations)
+                            on_std = np.std(durations)
+                            logger.info(f"[STIMULATOR] LED ON - Mean: {on_mean:.6f} ms, Std: {on_std:.6f} ms, Min: {np.min(durations):.6f} ms, Max: {np.max(durations):.6f} ms")
+                            for idx, timing in enumerate(led_on_timings):
+                                logger.info(f"[STIMULATOR] LED ON Pulse {idx}: Start={timing['start_time']:.6f} ms, End={timing['end_time']:.6f} ms, Duration={timing['duration']:.6f} ms")
+                        
+                        if led_off_timings:
+                            durations = [t['duration'] for t in led_off_timings]
+                            off_mean = np.mean(durations)
+                            off_std = np.std(durations)
+                            logger.info(f"[STIMULATOR] LED OFF - Mean: {off_mean:.6f} ms, Std: {off_std:.6f} ms, Min: {np.min(durations):.6f} ms, Max: {np.max(durations):.6f} ms")
+                            for idx, timing in enumerate(led_off_timings):
+                                logger.info(f"[STIMULATOR] LED OFF Pulse {idx}: Start={timing['start_time']:.6f} ms, End={timing['end_time']:.6f} ms, Duration={timing['duration']:.6f} ms")
+                    except Exception as log_error:
+                        logger.error(f"[STIMULATOR] Failed to log profiling data: {log_error}")
