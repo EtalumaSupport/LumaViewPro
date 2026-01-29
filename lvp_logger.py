@@ -181,7 +181,7 @@ logger.info("Info message that should also go to errors file", extra={'force_err
 class ErrorOrForcedFilter(logging.Filter):
     """Allows records that are ERROR/CRITICAL or explicitly marked via extra={'force_error': True}."""
     def filter(self, record):
-        if record.levelno >= logging.ERROR:
+        if record.levelno >= logging.WARNING:
             return True
         return bool(getattr(record, 'force_error', False))
 

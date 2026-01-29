@@ -272,3 +272,42 @@ def max_decimal_precision(parameter: str) -> int:
     }
 
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
+
+
+
+import os
+import psutil
+
+def system_metrics():
+    proc = psutil.Process(os.getpid())
+    disk = psutil.disk_usage("/")
+
+    return {
+        # CPU
+        "cpu_percent_total": psutil.cpu_percent(),
+        "cpu_percent_python": proc.cpu_percent(),
+        "cpu_cores_logical": psutil.cpu_count(logical=True),
+        "cpu_cores_physical": psutil.cpu_count(logical=False),
+
+        # RAM
+        "ram_available_gb": psutil.virtual_memory().available / 1e9,
+        "ram_percent_total": psutil.virtual_memory().percent,
+        "ram_used_python_percent": proc.memory_percent(),
+        "ram_used_python_mb": proc.memory_info().rss / 1e6,
+        "ram_used_total_mb": psutil.virtual_memory().used / 1e6,
+
+        # Disk
+        "disk_free_gb": disk.free / 1024**3,
+        "disk_used_percent": disk.percent,
+    }
+
+
+
+def check_disk_space() -> float:
+    """
+    Returns free disk space in MB
+    """ 
+    
+    disk = psutil.disk_usage("/")
+    free_space_mb = disk.free / (1024**2)
+    return free_space_mb

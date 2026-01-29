@@ -34,6 +34,7 @@ Gerard Decker, The Earthineering Company
 import contextlib
 import datetime
 import os
+import threading
 
 import numpy as np
 from pypylon import pylon, genicam
@@ -207,7 +208,7 @@ class PylonCamera:
         
         except genicam.RuntimeException as ex:
             # Handles when the device is already open in another application
-            logger.error(f'[CAM Class ] PylonCamera.connect() failed -> {ex}')
+            logger.error(f'[CAM Class ] PylonCamera.connect() failed (may be open in another application) -> {ex}')
             self.active = False
             self.error_report_count += 1
         except:
@@ -409,6 +410,13 @@ class PylonCamera:
         returns True if successful
         returns False if unsuccessful
         access the image using camera.array where camera is the instance of the class"""
+        # Check if camera is still active before attempting grab
+        if self.active in (False, None):
+            return False, None
+            
+        if self._device_removed:
+            return False, None
+            
         if not self.cam_image_handler:
             return False, None
         
@@ -516,21 +524,23 @@ class PylonCamera:
         Uses internal removal flag and, if available, the SDK's device-removed query.
         Avoids transport-layer enumeration to reduce risk of native-side instability.
         """
+        if self._device_removed:
+            self.active = None
+            return False
         if self.active in (False, None):
             self._device_removed = True
             return False
-        if self._device_removed:
-            return False
-        if getattr(self, "_use_camera_emulation", False):
-            return True
-        try:
-            if hasattr(self.active, "IsCameraDeviceRemoved"):
-                if self.active.IsCameraDeviceRemoved():
-                    self._device_removed = True
-                    logger.warning('[CAM Class ] Camera device removed')
-                    return False
-        except Exception:
-            return False
+        # if getattr(self, "_use_camera_emulation", False):
+        #     return True
+        # try:
+        #     if self.active:
+        #         if hasattr(self.active, "IsCameraDeviceRemoved"):
+        #             if self.active.IsCameraDeviceRemoved():
+        #                 self._device_removed = True
+        #                 logger.warning('[CAM Class ] Camera device removed')
+        #                 return False
+        # except Exception:
+        #     return False
         return True
 
 
@@ -665,17 +675,46 @@ class ImageHandler(pylon.ImageEventHandler):
     
     def OnImageGrabbed(self, camera, grabResult):
         try:
+            # Set thread name for dummy threads
+            if "Dummy" in threading.current_thread().name:
+                threading.current_thread().name = "PylonImageGrab"
+            
+            # Check if parent camera was removed before processing
+            if self._parent._device_removed:
+                logger.debug('[CAM Class ] OnImageGrabbed called but device already marked as removed, ignoring')
+                return
+            
+            # Check if parent camera is still active
+            if self._parent.active in (False, None):
+                logger.debug('[CAM Class ] OnImageGrabbed called but camera is inactive, ignoring')
+                self._parent._device_removed = True
+                return
+            
             if not self._frame_queue.empty():
                 try:
                     self._frame_queue.get_nowait()
                 except queue.Empty:
                     pass
-            self.last_result = grabResult.GrabSucceeded()
+            
+            # Safely check grab result - this can throw native exceptions
+            try:
+                self.last_result = grabResult.GrabSucceeded()
+            except Exception as e:
+                logger.warning(f'[CAM Class ] GrabSucceeded() failed: {e}, assuming device removed')
+                self._parent._device_removed = True
+                return
+            
             if self.last_result:
-                self.last_img = grabResult.GetArray()
-                self._last_img_ts = datetime.datetime.now()
-                self._frame_queue.put((self.last_result, self.last_img, self._last_img_ts))
-                self._failed_grabs = 0
+                try:
+                    # GetArray() can cause native crash if device is disconnected
+                    self.last_img = grabResult.GetArray()
+                    self._last_img_ts = datetime.datetime.now()
+                    self._frame_queue.put((self.last_result, self.last_img, self._last_img_ts))
+                    self._failed_grabs = 0
+                except Exception as e:
+                    logger.warning(f'[CAM Class ] GetArray() failed: {e}, marking device as removed')
+                    self._parent._device_removed = True
+                    self.last_result = False
             else:
                 self._failed_grabs += 1
                 # Rate-limit noisy grab failure logs
@@ -708,10 +747,25 @@ class ImageHandler(pylon.ImageEventHandler):
             pass
 
     def GetLastImage(self):
+        # Check if parent camera is still valid before returning image
+        try:
+            if self._parent._device_removed:
+                return False, None, None
+            
+            if self._parent.active in (False, None):
+                return False, None, None
+        except Exception:
+            return False, None, None
+        
         if self.last_result is False:
             return False, None, None
         
-        return self.last_result, self.last_img.copy(), self._last_img_ts
+        # Safely copy the image - could fail if camera disconnected mid-operation
+        try:
+            return self.last_result, self.last_img.copy(), self._last_img_ts
+        except Exception as e:
+            logger.warning(f'[CAM Class ] GetLastImage copy failed: {e}')
+            return False, None, None
     
     
 
@@ -772,10 +826,10 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
         self._parent = parent_cam
 
     def OnCameraDeviceRemoved(self, camera):
-        # Avoid doing anything heavy here; just mark state silently
-        try:
-            self._parent._device_removed = True
-            self._parent.active = False
-            logger.info('[CAM Class ] Camera device removed detected by removal handler')
-        except Exception:
-            pass
+        # CRITICAL: This runs in a native Pylon SDK thread during device removal.
+        # RACE CONDITION: Do NOT modify self._parent.active here!
+        # Other Python threads may be accessing it simultaneously, causing crashes.
+        # ONLY set the boolean flag - Python's boolean assignment is atomic.
+        self._parent._device_removed = True
+        # Note: We do NOT set self._parent.active = False here to avoid race conditions.
+        # The is_connected() checks will see _device_removed and handle cleanup safely.
