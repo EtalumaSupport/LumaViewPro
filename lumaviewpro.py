@@ -207,6 +207,7 @@ if __name__ == "__main__":
 
     #Configure REST API
     api_config.set_source_path(source_path)
+    api_config.set_settings(settings)
 
     import modules.profiling_utils as profiling_utils
 
@@ -9494,6 +9495,20 @@ class LumaViewProApp(App):
             #Window.bind(on_resize=self._on_resize)
             Window.bind(on_request_close=self.on_request_close)
             lumaview = MainDisplay()
+            #Configure REST API
+            api_config.set_view(lumaview)
+            api_config.set_protocol_callbacks({
+                'move_position': _handle_ui_update_for_axis,
+                'leds_off': _handle_ui_for_leds_off,
+                'led_state': _handle_ui_for_led,
+                'update_step_number': _update_step_number_callback,
+                'go_to_step': go_to_step,
+                'update_scope_display': lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay,
+                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+                'set_recording_title': set_recording_title,
+                'set_writing_title': set_writing_title,
+                'reset_title': reset_title,
+            })
             cell_count_content = CellCountControls()
             graphing_controls = GraphingControls()
             #Window.maximize()
@@ -9569,6 +9584,9 @@ class LumaViewProApp(App):
             z_ui_update_func=_handle_autofocus_ui,
             cpu_pool=cpu_pool if use_multiprocessing else None
         )
+
+        #Configure REST API
+        api_config.set_sequenced_capture_executor(sequenced_capture_executor)
 
 
         # Creates and manages Tooltips
@@ -9914,6 +9932,18 @@ def dummy_function(PID: int):
         print(f"DUMMY FUNCTION {PID}")
     return
 
+def start_kivy_app(loop: AbstractEventLoop):
+    app = LumaViewProApp()
+    # api_config.set_view(lumaview)
+    loop.run_until_complete(app.async_run(async_lib='asyncio'))
+
+def start_uvicorn_server(loop: AbstractEventLoop):
+    api = FastAPI()
+    api.include_router(api_router)
+    config = uvicorn.Config(api, loop=loop)
+    server = uvicorn.Server(config)
+    loop.create_task(server.serve())
+
 if __name__ == "__main__":
 
     original_setslicemethod = ObservableReferenceList.__setslice__
@@ -9925,6 +9955,5 @@ if __name__ == "__main__":
     if initialized_settings['rest_api_enabled']:
         start_uvicorn_server(loop)
     start_kivy_app(loop)
-    LumaViewProApp().run()
 
 #endregion
