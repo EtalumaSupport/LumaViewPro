@@ -123,10 +123,69 @@ class SequencedCaptureExecutor:
 
         self.debug_counter = 0
         
+        # Global running averages for LED command latency compensation
+        # Shared across all colors and protocol runs for better accuracy
+        self._avg_led_on_latency = 0.0  # seconds
+        self._avg_led_off_latency = 0.0  # seconds
+        self._led_latency_lock = threading.Lock()  # Thread-safe updates
+        self._latency_ema_alpha = 0.2  # EMA smoothing factor
+        
+        # Process priority management for protocol execution
+        self._original_process_priority = None
+        self._process_priority_elevated = False
+        
+        # Test configuration for systematic timing optimization testing
+        self._current_test_case = None  # Set by test executor
+        
         #self.sleep_time = 0.02
 
     def set_scope(self, scope: Lumascope):
         self._scope = scope
+    
+    def _elevate_process_priority(self):
+        """Elevate process priority to HIGH for better timing during protocols."""
+        if not sys.platform.startswith('win'):
+            return
+        
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            process_handle = kernel32.GetCurrentProcess()
+            
+            # Get current priority to restore later
+            # PROCESS_QUERY_INFORMATION = 0x0400
+            self._original_process_priority = kernel32.GetPriorityClass(process_handle)
+            
+            # HIGH_PRIORITY_CLASS = 0x00000080
+            # REALTIME_PRIORITY_CLASS = 0x00000100 (too aggressive, can freeze system)
+            HIGH_PRIORITY_CLASS = 0x00000080
+            
+            if kernel32.SetPriorityClass(process_handle, HIGH_PRIORITY_CLASS):
+                self._process_priority_elevated = True
+                logger.info("[Protocol] Process priority elevated to HIGH for better timing consistency")
+            else:
+                logger.warning("[Protocol] Failed to elevate process priority")
+        except Exception as e:
+            logger.warning(f"[Protocol] Could not elevate process priority: {e}")
+    
+    def _restore_process_priority(self):
+        """Restore process priority to original value after protocol completes."""
+        if not sys.platform.startswith('win') or not self._process_priority_elevated:
+            return
+        
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            process_handle = kernel32.GetCurrentProcess()
+            
+            if self._original_process_priority is not None:
+                if kernel32.SetPriorityClass(process_handle, self._original_process_priority):
+                    logger.info("[Protocol] Process priority restored to normal")
+                    self._process_priority_elevated = False
+                else:
+                    logger.warning("[Protocol] Failed to restore process priority")
+        except Exception as e:
+            logger.warning(f"[Protocol] Could not restore process priority: {e}")
 
     def _reset_vars(
         self
@@ -378,6 +437,10 @@ class SequencedCaptureExecutor:
         
         self._run_trigger_source = run_trigger_source
         self._run_in_progress = True
+        
+        # Elevate process priority for better timing consistency
+        self._elevate_process_priority()
+        
         self.camera_executor.disable()
         self.protocol_executor.protocol_start()
         self._io_executor.protocol_start()
@@ -662,6 +725,7 @@ class SequencedCaptureExecutor:
                 if step['Acquire'] == 'video':
                     self._video_write_finished.clear()
 
+                step_start_time = time.time()
                 capture_result = self._capture(
                     save_folder=save_folder,
                     step=step,
@@ -671,6 +735,22 @@ class SequencedCaptureExecutor:
                 )
 
                 self._stim_stop_event.set()
+                
+                # For videos, wait for write to complete before reporting step completion
+                if step['Acquire'] == 'video':
+                    logger.info(f"[SeqCapExec] Waiting for video write to complete...")
+                    self._video_write_finished.wait(timeout=60)  # Wait up to 60s for write
+                
+                # Calculate total step time including write
+                total_step_time = time.time() - step_start_time
+                
+                # Notify step completion for progress tracking
+                if 'step_complete' in self._callbacks:
+                    self._callbacks['step_complete'](
+                        step_idx=self._curr_step,
+                        step_name=step['Name'],
+                        duration_seconds=total_step_time
+                    )
 
 
                 # Protocol record creation and adding is handled in capture method
@@ -898,6 +978,11 @@ class SequencedCaptureExecutor:
                 action=self._protocol_execution_record.complete
             ))
             #self._protocol_execution_record.complete()
+            
+            # Aggregate stimulation profiling data if any exists
+            self.file_io_executor.protocol_put(IOTask(
+                action=self._aggregate_stimulation_profiling_data
+            ))
 
         if self._return_to_position is not None:
             self._default_move(
@@ -912,6 +997,9 @@ class SequencedCaptureExecutor:
 
         self._stim_start_event.clear()
         self._stim_stop_event.set()
+        
+        # Restore normal process priority
+        self._restore_process_priority()
 
         self._io_executor.protocol_end()
         self.file_io_executor.protocol_finish_then_end()
@@ -1524,6 +1612,9 @@ class SequencedCaptureExecutor:
         pulse_width = stim_config['pulse_width']
         pulse_count = stim_config['pulse_count']
 
+        # Check if we're running in test mode with specific configuration
+        test_case = getattr(self, '_current_test_case', None)
+        
         # Optional: reduce Windows timer quantum to 1 ms during stimulation
         time_period_set = False
         if sys.platform.startswith('win'):
@@ -1532,6 +1623,25 @@ class SequencedCaptureExecutor:
                 time_period_set = True
             except Exception:
                 time_period_set = False
+            
+            # Set thread priority based on test configuration or default
+            use_realtime_priority = True
+            if test_case and not test_case.thread_priority_realtime:
+                use_realtime_priority = False
+                logger.info(f"[STIMULATOR] {color} test disables realtime thread priority")
+            
+            if use_realtime_priority:
+                # Set thread to real-time priority for best timing accuracy
+                try:
+                    kernel32 = ctypes.windll.kernel32
+                    thread_handle = kernel32.GetCurrentThread()
+                    # THREAD_PRIORITY_TIME_CRITICAL = 15
+                    if kernel32.SetThreadPriority(thread_handle, 15):
+                        logger.info(f"[STIMULATOR] {color} thread set to real-time priority")
+                    else:
+                        logger.warning(f"[STIMULATOR] {color} failed to set real-time priority")
+                except Exception as e:
+                    logger.warning(f"[STIMULATOR] {color} could not set thread priority: {e}")
 
         # DEBUG: Profiling timing data for led_on and led_off
         led_on_timings = []
@@ -1551,54 +1661,110 @@ class SequencedCaptureExecutor:
             period_s = 1.0 / float(frequency)
             pulse_s = float(pulse_width) / 1000.0
 
-            # # Measure approximate command latency to compensate in scheduling
-            # # Keep this minimal to avoid warm-up effects
-            # t0 = time.perf_counter()
-            # self._led_on(color=color, illumination=illumination)
-            # t1 = time.perf_counter()
-            # self._led_off(color=color)
-            # t2 = time.perf_counter()
-            # on_latency = max(0.0, t1 - t0)
-            # off_latency = max(0.0, t2 - t1)
+            # Read flush setting - from test case if available, otherwise from settings
+            if test_case:
+                flush_enabled = test_case.led_flush_enabled
+                logger.info(f"[STIMULATOR] {color} using test case flush setting: {flush_enabled}")
+            else:
+                flush_enabled = settings.get('led_flush_enabled', True)
 
             # Use fast path LED toggles if available via API
             def led_on_fast():
                 #logger.info(f"[STIMULATOR] {color} LED ON")
+                t_start = time.perf_counter()
                 if profiling_enabled and start_epoch is not None:
-                    t_start = time.perf_counter()
+                    prof_start = t_start
                 if hasattr(self._scope, 'led_on_fast'):
-                    self._scope.led_on_fast(channel=self._scope.color2ch(color=color), mA=illumination)
+                    self._scope.led_on_fast(channel=self._scope.color2ch(color=color), mA=illumination, flush=flush_enabled)
                 else:
                     self._scope.led_on(channel=self._scope.color2ch(color=color), mA=illumination)
+                t_end = time.perf_counter()
                 if profiling_enabled and start_epoch is not None:
-                    t_end = time.perf_counter()
                     # Store: (absolute timestamp in ms, duration in ms, relative time since start in ms)
                     led_on_timings.append({
-                        'start_time': (t_start - start_epoch) * 1000.0,
+                        'start_time': (prof_start - start_epoch) * 1000.0,
                         'end_time': (t_end - start_epoch) * 1000.0,
-                        'duration': (t_end - t_start) * 1000.0
+                        'duration': (t_end - prof_start) * 1000.0
                     })
+                return t_end - t_start  # Return measured latency
 
             def led_off_fast():
                 #logger.info(f"[STIMULATOR] {color} LED OFF")
+                t_start = time.perf_counter()
                 if profiling_enabled and start_epoch is not None:
-                    t_start = time.perf_counter()
+                    prof_start = t_start
                 if hasattr(self._scope, 'led_off_fast'):
-                    self._scope.led_off_fast(channel=self._scope.color2ch(color=color))
+                    self._scope.led_off_fast(channel=self._scope.color2ch(color=color), flush=flush_enabled)
                 else:
                     self._scope.led_off(channel=self._scope.color2ch(color=color))
+                t_end = time.perf_counter()
                 if profiling_enabled and start_epoch is not None:
-                    t_end = time.perf_counter()
                     # Store: (absolute timestamp in ms, duration in ms, relative time since start in ms)
                     led_off_timings.append({
-                        'start_time': (t_start - start_epoch) * 1000.0,
+                        'start_time': (prof_start - start_epoch) * 1000.0,
                         'end_time': (t_end - start_epoch) * 1000.0,
-                        'duration': (t_end - t_start) * 1000.0
+                        'duration': (t_end - prof_start) * 1000.0
                     })
+                return t_end - t_start  # Return measured latency
+            
+            def update_global_on_latency(measured: float):
+                """Thread-safe update of global ON latency average"""
+                with self._led_latency_lock:
+                    self._avg_led_on_latency = (self._latency_ema_alpha * measured + 
+                                                 (1 - self._latency_ema_alpha) * self._avg_led_on_latency)
+            
+            def update_global_off_latency(measured: float):
+                """Thread-safe update of global OFF latency average"""
+                with self._led_latency_lock:
+                    self._avg_led_off_latency = (self._latency_ema_alpha * measured + 
+                                                  (1 - self._latency_ema_alpha) * self._avg_led_off_latency)
+            
+            def get_avg_on_latency() -> float:
+                """Thread-safe read of global ON latency average"""
+                with self._led_latency_lock:
+                    return self._avg_led_on_latency
+            
+            def get_avg_off_latency() -> float:
+                """Thread-safe read of global OFF latency average"""
+                with self._led_latency_lock:
+                    return self._avg_led_off_latency
 
             start_event.wait()
             start_epoch = time.perf_counter()
             logger.info(f"[STIMULATOR] stim_start_event set for {color} at t=0.000 ms")
+            
+            # Apply compensations based on test case configuration
+            use_pulse_width_compensation = True
+            use_conservative_off = True
+            use_on_compensation = True
+            use_off_compensation = True
+            
+            if test_case:
+                use_pulse_width_compensation = test_case.use_pulse_width_compensation
+                use_conservative_off = test_case.use_conservative_off_estimate
+                use_on_compensation = test_case.use_on_latency_compensation
+                use_off_compensation = test_case.use_off_latency_compensation
+                logger.info(f"[STIMULATOR] {color} test case compensations: "
+                           f"pulse_width={use_pulse_width_compensation}, "
+                           f"conservative_off={use_conservative_off}, "
+                           f"on_comp={use_on_compensation}, "
+                           f"off_comp={use_off_compensation}")
+            
+            # Compensate pulse width for OFF command latency
+            # This ensures the LED is on for the correct duration
+            compensated_pulse_s = pulse_s
+            if use_pulse_width_compensation:
+                initial_off_latency = get_avg_off_latency()
+                if use_conservative_off:
+                    # Use 2x average OFF latency for safety
+                    initial_off_latency = initial_off_latency * 2.0
+                compensated_pulse_s = pulse_s - initial_off_latency
+                if compensated_pulse_s < 0:
+                    logger.warning(f"[STIMULATOR] {color} OFF latency ({initial_off_latency*1000:.3f}ms) exceeds pulse width ({pulse_width}ms)!")
+                    compensated_pulse_s = pulse_s * 0.5  # Use 50% of target as fallback
+                logger.info(f"[STIMULATOR] {color} pulse width compensation: target={pulse_width}ms, OFF_latency={initial_off_latency*1000:.3f}ms, compensated={compensated_pulse_s*1000:.3f}ms")
+            else:
+                logger.info(f"[STIMULATOR] {color} pulse width compensation disabled by test case")
 
             end_reason = "pulse_count_reached"
 
@@ -1611,13 +1777,24 @@ class SequencedCaptureExecutor:
 
                 # Target times for this pulse
                 on_time = start_epoch + i * period_s
-                off_time = on_time + pulse_s
                 next_period_time = start_epoch + (i + 1) * period_s
 
-                # Sleep until on_time (coarse) then spin
+                # Compensate for expected ON command latency - fire early (if enabled)
+                compensated_on_time = on_time
+                if use_on_compensation:
+                    avg_on_latency = get_avg_on_latency()
+                    compensated_on_time = on_time - avg_on_latency
+                    
+                    # Diagnostic: Check if compensation is causing issues
+                    if compensated_on_time < (time.perf_counter() if i > 0 else start_epoch):
+                        logger.warning(f"[STIMULATOR] {color} Pulse {i}: Compensated ON time is in the past! (compensation={avg_on_latency*1000:.3f}ms)")
+                else:
+                    compensated_on_time = on_time
+
+                # Sleep until compensated on_time (coarse) then spin
                 while True:
                     now = time.perf_counter()
-                    remaining = on_time - now
+                    remaining = compensated_on_time - now
                     if remaining <= 0:
                         break
                     if remaining > 0.003:
@@ -1626,14 +1803,84 @@ class SequencedCaptureExecutor:
                         # short busy-wait to reduce jitter
                         pass
 
-                led_on_fast()
+                measured_on_latency = led_on_fast()
+                
+                # Base OFF timing on when ON actually completed (after flush)
+                # Use compensated pulse width that accounts for OFF latency
+                actual_on_complete_time = time.perf_counter()
+                
+                # Calculate absolute target OFF time (from ON start, not ON complete)
+                # This ensures we never exceed the target pulse width
+                absolute_target_off_time = on_time + pulse_s
+                
+                # Calculate ideal OFF time based on compensations (if enabled)
+                if use_off_compensation and use_pulse_width_compensation:
+                    # Get OFF latency estimate - be conservative to prevent overshooting
+                    avg_off_latency = get_avg_off_latency()
+                    
+                    # Use conservative estimate if enabled
+                    conservative_off_latency = avg_off_latency
+                    if use_conservative_off:
+                        conservative_off_latency = avg_off_latency * 2.0  # 2x is conservative
+                    if conservative_off_latency < 0.001:  # At least 1ms buffer
+                        conservative_off_latency = 0.001
+                    
+                    current_compensated_pulse_s = pulse_s - conservative_off_latency
+                    if current_compensated_pulse_s < 0:
+                        logger.warning(f"[STIMULATOR] {color} Pulse {i}: Conservative OFF latency ({conservative_off_latency*1000:.3f}ms) > pulse width ({pulse_width}ms)!")
+                        current_compensated_pulse_s = pulse_s * 0.3  # Very conservative fallback
+                    
+                    # Calculate ideal OFF time from ON completion
+                    ideal_off_time = actual_on_complete_time + current_compensated_pulse_s
+                    
+                    # SAFETY: Use whichever is sooner - ideal time or absolute max time
+                    # This prevents overshooting pulse width if ON took too long
+                    target_off_time = min(ideal_off_time, absolute_target_off_time)
+                    
+                    # Additional safety: ensure we leave enough time for OFF latency
+                    # Even in worst case, LED shouldn't be on longer than target + conservative margin
+                    worst_case_off_complete = target_off_time + conservative_off_latency
+                    if worst_case_off_complete > absolute_target_off_time:
+                        # Fire OFF even earlier to account for potential high latency
+                        adjustment = worst_case_off_complete - absolute_target_off_time
+                        target_off_time -= adjustment
+                        if target_off_time < actual_on_complete_time:
+                            target_off_time = actual_on_complete_time  # Can't fire before ON completes
+                else:
+                    # No compensation - just use target pulse width from ON complete
+                    target_off_time = actual_on_complete_time + pulse_s
+                
+                # Check if we're already past the absolute target
+                now = time.perf_counter()
+                if now >= absolute_target_off_time:
+                    logger.warning(f"[STIMULATOR] {color} Pulse {i}: Already {(now-absolute_target_off_time)*1000:.3f}ms past target OFF time due to ON latency!")
+                    target_off_time = now  # Fire immediately
+                
+                # Compensate for expected OFF command latency - fire early
+                compensated_off_time = target_off_time
+                
+                # Compensate for ON command latency in the next period
+                # If ON took longer than expected, start next pulse earlier to maintain frequency
+                on_latency = actual_on_complete_time - on_time
+                next_period_time = start_epoch + (i + 1) * period_s - on_latency
+                
+                # Diagnostic: Check if we're violating period constraints
+                if i > 0:
+                    actual_period = actual_on_complete_time - (start_epoch + (i - 1) * period_s)
+                    expected_period = period_s
+                    if abs(actual_period - expected_period) > 0.001:  # More than 1ms off
+                        logger.warning(f"[STIMULATOR] {color} Pulse {i}: Period deviation: expected={expected_period*1000:.3f}ms, actual={actual_period*1000:.3f}ms, error={abs(actual_period-expected_period)*1000:.3f}ms")
 
                 pulses_executed += 1
 
-                # Sleep/spin until off_time
+                # Sleep/spin until compensated off_time
+                remaining_before_off = compensated_off_time - time.perf_counter()
+                if remaining_before_off < -0.001:  # More than 1ms late
+                    logger.warning(f"[STIMULATOR] {color} Pulse {i}: OFF command is {abs(remaining_before_off)*1000:.3f}ms late!")
+                
                 while True:
                     now = time.perf_counter()
-                    remaining = off_time - now
+                    remaining = compensated_off_time - now
                     if remaining <= 0:
                         break
                     if remaining > 0.003:
@@ -1641,9 +1888,18 @@ class SequencedCaptureExecutor:
                     else:
                         pass
 
-                led_off_fast()
+                measured_off_latency = led_off_fast()
+                
+                # Diagnostic: Check if OFF latency is significantly different from ON
+                if abs(measured_off_latency - measured_on_latency) > 0.001:  # More than 1ms difference
+                    logger.info(f"[STIMULATOR] {color} Pulse {i}: Latency difference: ON={measured_on_latency*1000:.3f}ms, OFF={measured_off_latency*1000:.3f}ms, diff={abs(measured_off_latency-measured_on_latency)*1000:.3f}ms")
 
-                # Maintain period; wait until next_period_time
+                # Update global running averages during the inter-pulse wait period
+                # This is the least time-critical section, so lock acquisition won't affect timing
+                update_global_on_latency(measured_on_latency)
+                update_global_off_latency(measured_off_latency)
+
+                # Maintain period with latency compensation; wait until next_period_time
                 while True:
                     now = time.perf_counter()
                     remaining = next_period_time - now
@@ -1682,12 +1938,13 @@ class SequencedCaptureExecutor:
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
                     profile_file = profile_dir / f"stimulation_profile_{color}_{timestamp}.txt"
                     
-                    with open(profile_file, 'w') as f:
+                    with open(profile_file, 'w', encoding='utf-8') as f:
                         f.write(f"Stimulation Profiling Report - {color}\n")
                         f.write(f"Timestamp: {datetime.datetime.now().isoformat()}\n")
                         f.write(f"Frequency: {frequency} Hz\n")
                         f.write(f"Pulse Width: {pulse_width} ms\n")
                         f.write(f"Pulses Executed: {pulses_executed}\n")
+                        f.write(f"LED Flush Enabled: {flush_enabled}\n")
                         f.write(f"End Reason: {end_reason}\n")
                         f.write("=" * 60 + "\n\n")
                         
@@ -1710,7 +1967,7 @@ class SequencedCaptureExecutor:
                             # Detect outliers using 3-sigma rule
                             outlier_threshold = on_mean + 3 * on_std
                             outliers = [t for t in durations if t > outlier_threshold]
-                            f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(led_on_timings)*100:.2f}%)\n")
+                            f.write(f"Outliers (>3stddev):   {len(outliers)} ({len(outliers)/len(led_on_timings)*100:.2f}%)\n")
                             if outliers:
                                 f.write(f"Outlier values:   {[f'{o:.6f}' for o in sorted(outliers)]}\n")
                             
@@ -1738,13 +1995,92 @@ class SequencedCaptureExecutor:
                             # Detect outliers using 3-sigma rule
                             outlier_threshold = off_mean + 3 * off_std
                             outliers = [t for t in durations if t > outlier_threshold]
-                            f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(led_off_timings)*100:.2f}%)\n")
+                            f.write(f"Outliers (>3stddev):   {len(outliers)} ({len(outliers)/len(led_off_timings)*100:.2f}%)\n")
                             if outliers:
                                 f.write(f"Outlier values:   {[f'{o:.6f}' for o in sorted(outliers)]}\n")
                             
                             f.write("\nIndividual LED OFF Events (timestamps relative to start):\n")
                             for idx, timing in enumerate(led_off_timings):
                                 f.write(f"  Pulse {idx}: Start={timing['start_time']:.6f} ms, End={timing['end_time']:.6f} ms, Duration={timing['duration']:.6f} ms\n")
+                            f.write("\n")
+                        
+                        # Calculate actual LED on time (from end of led_on command to end of led_off command)
+                        # This represents when ON flush completes to when OFF flush completes
+                        if led_on_timings and led_off_timings and len(led_on_timings) == len(led_off_timings):
+                            f.write("ACTUAL LED ON TIME (from Windows side):\n")
+                            f.write("-" * 60 + "\n")
+                            actual_on_times = []
+                            for idx in range(len(led_on_timings)):
+                                actual_on = led_off_timings[idx]['end_time'] - led_on_timings[idx]['end_time']
+                                actual_on_times.append(actual_on)
+                            
+                            actual_array = np.array(actual_on_times)
+                            actual_mean = np.mean(actual_array)
+                            actual_std = np.std(actual_array)
+                            actual_min = np.min(actual_array)
+                            actual_max = np.max(actual_array)
+                            
+                            f.write(f"Count:            {len(actual_on_times)}\n")
+                            f.write(f"Mean:             {actual_mean:.6f} ms\n")
+                            f.write(f"Std Dev:          {actual_std:.6f} ms\n")
+                            f.write(f"Min:              {actual_min:.6f} ms\n")
+                            f.write(f"Max:              {actual_max:.6f} ms\n")
+                            f.write(f"Target:           {pulse_width} ms\n")
+                            f.write(f"Deviation:        {actual_mean - pulse_width:.6f} ms\n")
+                            
+                            # Detect outliers using 3-sigma rule
+                            outlier_threshold = actual_mean + 3 * actual_std
+                            outliers = [t for t in actual_on_times if t > outlier_threshold]
+                            f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(actual_on_times)*100:.2f}%)\n")
+                            if outliers:
+                                f.write(f"Outlier values:   {[f'{o:.6f}' for o in sorted(outliers)]}\n")
+                            
+                            f.write("\nIndividual Actual LED ON Times:\n")
+                            for idx, actual_on in enumerate(actual_on_times):
+                                f.write(f"  Pulse {idx}: {actual_on:.6f} ms (Target: {pulse_width} ms, Deviation: {actual_on - pulse_width:.6f} ms)\n")
+                            f.write("\n")
+                        
+                        # Calculate frequency accuracy (time between consecutive LED ON start times)
+                        if led_on_timings and len(led_on_timings) > 1:
+                            f.write("FREQUENCY ACCURACY:\n")
+                            f.write("-" * 60 + "\n")
+                            periods = []
+                            actual_frequencies = []
+                            target_period_ms = 1000.0 / frequency  # Convert Hz to ms
+                            
+                            for idx in range(1, len(led_on_timings)):
+                                period = led_on_timings[idx]['start_time'] - led_on_timings[idx-1]['start_time']
+                                periods.append(period)
+                                actual_freq = 1000.0 / period  # Convert ms to Hz
+                                actual_frequencies.append(actual_freq)
+                            
+                            period_array = np.array(periods)
+                            freq_array = np.array(actual_frequencies)
+                            
+                            period_mean = np.mean(period_array)
+                            period_std = np.std(period_array)
+                            freq_mean = np.mean(freq_array)
+                            freq_std = np.std(freq_array)
+                            
+                            f.write(f"Count:            {len(periods)}\n")
+                            f.write(f"Target Frequency: {frequency} Hz (Period: {target_period_ms:.6f} ms)\n")
+                            f.write(f"Actual Frequency: {freq_mean:.6f} Hz (Period: {period_mean:.6f} ms)\n")
+                            f.write(f"Frequency Std:    {freq_std:.6f} Hz\n")
+                            f.write(f"Period Std:       {period_std:.6f} ms\n")
+                            f.write(f"Frequency Error:  {freq_mean - frequency:.6f} Hz ({(freq_mean - frequency)/frequency*100:.3f}%)\n")
+                            f.write(f"Period Min:       {np.min(period_array):.6f} ms\n")
+                            f.write(f"Period Max:       {np.max(period_array):.6f} ms\n")
+                            
+                            # Detect outliers in period timing
+                            outlier_threshold = period_mean + 3 * period_std
+                            outliers = [p for p in periods if p > outlier_threshold or p < period_mean - 3 * period_std]
+                            f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(periods)*100:.2f}%)\n")
+                            if outliers:
+                                f.write(f"Outlier periods:  {[f'{o:.6f}' for o in sorted(outliers)]}\n")
+                            
+                            f.write("\nIndividual Period Measurements:\n")
+                            for idx, (period, freq) in enumerate(zip(periods, actual_frequencies)):
+                                f.write(f"  Period {idx}: {period:.6f} ms ({freq:.6f} Hz, Error: {freq - frequency:.6f} Hz)\n")
                             f.write("\n")
                     
                     logger.info(f"[STIMULATOR] Profiling data saved to {profile_file}")
@@ -1770,5 +2106,314 @@ class SequencedCaptureExecutor:
                             logger.info(f"[STIMULATOR] LED OFF - Mean: {off_mean:.6f} ms, Std: {off_std:.6f} ms, Min: {np.min(durations):.6f} ms, Max: {np.max(durations):.6f} ms")
                             for idx, timing in enumerate(led_off_timings):
                                 logger.info(f"[STIMULATOR] LED OFF Pulse {idx}: Start={timing['start_time']:.6f} ms, End={timing['end_time']:.6f} ms, Duration={timing['duration']:.6f} ms")
+                        
+                        # Actual LED on time
+                        if led_on_timings and led_off_timings and len(led_on_timings) == len(led_off_timings):
+                            actual_on_times = [led_off_timings[i]['start_time'] - led_on_timings[i]['end_time'] for i in range(len(led_on_timings))]
+                            actual_mean = np.mean(actual_on_times)
+                            actual_std = np.std(actual_on_times)
+                            logger.info(f"[STIMULATOR] ACTUAL LED ON TIME - Mean: {actual_mean:.6f} ms, Std: {actual_std:.6f} ms, Target: {pulse_width} ms, Deviation: {actual_mean - pulse_width:.6f} ms")
+                            for idx, actual_on in enumerate(actual_on_times):
+                                logger.info(f"[STIMULATOR] ACTUAL Pulse {idx}: {actual_on:.6f} ms (Deviation: {actual_on - pulse_width:.6f} ms)")
                     except Exception as log_error:
                         logger.error(f"[STIMULATOR] Failed to log profiling data: {log_error}")
+
+
+    def _aggregate_stimulation_profiling_data(self):
+        """Aggregate all stimulation profiling data from individual color files into a global summary."""
+        try:
+            if self._run_dir is None:
+                return
+            
+            profile_dir = self._run_dir / "stimulation_profile"
+            if not profile_dir.exists():
+                return
+            
+            # Find all individual profiling files
+            profile_files = list(profile_dir.glob("stimulation_profile_*.txt"))
+            if not profile_files:
+                return
+            
+            logger.info(f"[STIMULATOR] Aggregating {len(profile_files)} stimulation profile files...")
+            
+            # Parse all profile files
+            all_data = {}
+            for profile_file in profile_files:
+                try:
+                    color = self._parse_profile_file(profile_file, all_data)
+                except Exception as e:
+                    logger.error(f"[STIMULATOR] Failed to parse {profile_file.name}: {e}")
+                    continue
+            
+            if not all_data:
+                logger.warning("[STIMULATOR] No valid profiling data found to aggregate")
+                return
+            
+            # Generate aggregate summary report
+            summary_file = profile_dir / "stimulation_summary.txt"
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write("STIMULATION PROFILING SUMMARY - ALL COLORS\n")
+                f.write(f"Timestamp: {datetime.datetime.now().isoformat()}\n")
+                f.write(f"Total Profile Files: {len(profile_files)}\n")
+                f.write("=" * 80 + "\n\n")
+                
+                # Summary for each color
+                for color, data in sorted(all_data.items()):
+                    f.write(f"\n{'='*80}\n")
+                    f.write(f"COLOR: {color}\n")
+                    f.write(f"{'='*80}\n\n")
+                    
+                    f.write(f"Frequency: {data['frequency']} Hz\n")
+                    f.write(f"Target Pulse Width: {data['pulse_width']} ms\n")
+                    f.write(f"Total Pulses Executed: {data['total_pulses']}\n")
+                    f.write(f"Total Files: {data['file_count']}\n")
+                    
+                    # Show flush enabled state
+                    if data['flush_enabled_files']:
+                        flush_enabled_count = sum(1 for v in data['flush_enabled_files'] if v.lower() == 'true')
+                        flush_disabled_count = len(data['flush_enabled_files']) - flush_enabled_count
+                        f.write(f"LED Flush Enabled: {flush_enabled_count}/{data['file_count']} files")
+                        if flush_disabled_count > 0:
+                            f.write(f" ({flush_disabled_count} files with flush disabled)")
+                        f.write("\n")
+                    f.write("\n")
+                    
+                    # LED ON command timing
+                    if data['led_on_durations']:
+                        f.write("LED ON COMMAND TIMINGS:\n")
+                        f.write("-" * 80 + "\n")
+                        on_array = np.array(data['led_on_durations'])
+                        on_mean = np.mean(on_array)
+                        on_std = np.std(on_array)
+                        on_min = np.min(on_array)
+                        on_max = np.max(on_array)
+                        
+                        f.write(f"Count:            {len(on_array)}\n")
+                        f.write(f"Mean:             {on_mean:.6f} ms\n")
+                        f.write(f"Std Dev:          {on_std:.6f} ms\n")
+                        f.write(f"Min:              {on_min:.6f} ms\n")
+                        f.write(f"Max:              {on_max:.6f} ms\n")
+                        
+                        outlier_threshold = on_mean + 3 * on_std
+                        outliers = [t for t in data['led_on_durations'] if t > outlier_threshold]
+                        f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(on_array)*100:.2f}%)\n")
+                        if outliers:
+                            f.write(f"Outlier values:   {[f'{o:.6f}' for o in sorted(outliers)]}\n")
+                        f.write("\n")
+                    
+                    # LED OFF command timing
+                    if data['led_off_durations']:
+                        f.write("LED OFF COMMAND TIMINGS:\n")
+                        f.write("-" * 80 + "\n")
+                        off_array = np.array(data['led_off_durations'])
+                        off_mean = np.mean(off_array)
+                        off_std = np.std(off_array)
+                        off_min = np.min(off_array)
+                        off_max = np.max(off_array)
+                        
+                        f.write(f"Count:            {len(off_array)}\n")
+                        f.write(f"Mean:             {off_mean:.6f} ms\n")
+                        f.write(f"Std Dev:          {off_std:.6f} ms\n")
+                        f.write(f"Min:              {off_min:.6f} ms\n")
+                        f.write(f"Max:              {off_max:.6f} ms\n")
+                        
+                        outlier_threshold = off_mean + 3 * off_std
+                        outliers = [t for t in data['led_off_durations'] if t > outlier_threshold]
+                        f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(off_array)*100:.2f}%)\n")
+                        if outliers:
+                            f.write(f"Outlier values:   {[f'{o:.6f}' for o in sorted(outliers)]}\n")
+                        f.write("\n")
+                    
+                    # Actual LED on time (from Windows side)
+                    if data['actual_on_times']:
+                        f.write("ACTUAL LED ON TIME (from Windows side):\n")
+                        f.write("-" * 80 + "\n")
+                        actual_array = np.array(data['actual_on_times'])
+                        actual_mean = np.mean(actual_array)
+                        actual_std = np.std(actual_array)
+                        actual_min = np.min(actual_array)
+                        actual_max = np.max(actual_array)
+                        
+                        f.write(f"Count:            {len(actual_array)}\n")
+                        f.write(f"Mean:             {actual_mean:.6f} ms\n")
+                        f.write(f"Std Dev:          {actual_std:.6f} ms\n")
+                        f.write(f"Min:              {actual_min:.6f} ms\n")
+                        f.write(f"Max:              {actual_max:.6f} ms\n")
+                        f.write(f"Target:           {data['pulse_width']} ms\n")
+                        f.write(f"Deviation:        {actual_mean - data['pulse_width']:.6f} ms\n")
+                        
+                        outlier_threshold = actual_mean + 3 * actual_std
+                        outliers = [t for t in data['actual_on_times'] if t > outlier_threshold]
+                        f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(actual_array)*100:.2f}%)\n")
+                        if outliers:
+                            f.write(f"Outlier values:   {[f'{o:.6f}' for o in sorted(outliers)]}\n")
+                        f.write("\n")
+                    
+                    # Frequency accuracy
+                    if data['frequency_periods']:
+                        f.write("FREQUENCY ACCURACY:\n")
+                        f.write("-" * 80 + "\n")
+                        period_array = np.array(data['frequency_periods'])
+                        freq_array = 1000.0 / period_array  # Convert periods (ms) to frequencies (Hz)
+                        
+                        period_mean = np.mean(period_array)
+                        period_std = np.std(period_array)
+                        freq_mean = np.mean(freq_array)
+                        freq_std = np.std(freq_array)
+                        target_period_ms = 1000.0 / data['frequency']
+                        
+                        f.write(f"Count:            {len(period_array)}\n")
+                        f.write(f"Target Frequency: {data['frequency']} Hz (Period: {target_period_ms:.6f} ms)\n")
+                        f.write(f"Actual Frequency: {freq_mean:.6f} Hz (Period: {period_mean:.6f} ms)\n")
+                        f.write(f"Frequency Std:    {freq_std:.6f} Hz\n")
+                        f.write(f"Period Std:       {period_std:.6f} ms\n")
+                        f.write(f"Frequency Error:  {freq_mean - data['frequency']:.6f} Hz ({(freq_mean - data['frequency'])/data['frequency']*100:.3f}%)\n")
+                        f.write(f"Period Min:       {np.min(period_array):.6f} ms\n")
+                        f.write(f"Period Max:       {np.max(period_array):.6f} ms\n")
+                        
+                        outlier_threshold_high = period_mean + 3 * period_std
+                        outlier_threshold_low = period_mean - 3 * period_std
+                        outliers = [p for p in data['frequency_periods'] if p > outlier_threshold_high or p < outlier_threshold_low]
+                        f.write(f"Outliers (>3σ):   {len(outliers)} ({len(outliers)/len(period_array)*100:.2f}%)\n")
+                        if outliers:
+                            f.write(f"Outlier periods:  {[f'{o:.6f}' for o in sorted(outliers)]}\n")
+                        f.write("\n")
+                
+                # Global statistics across all colors
+                f.write(f"\n{'='*80}\n")
+                f.write("GLOBAL STATISTICS (ALL COLORS COMBINED)\n")
+                f.write(f"{'='*80}\n\n")
+                
+                all_led_on = []
+                all_led_off = []
+                all_actual = []
+                all_periods = []
+                
+                for color, data in all_data.items():
+                    all_led_on.extend(data['led_on_durations'])
+                    all_led_off.extend(data['led_off_durations'])
+                    all_actual.extend(data['actual_on_times'])
+                    all_periods.extend(data['frequency_periods'])
+                
+                if all_led_on:
+                    f.write("ALL LED ON COMMANDS:\n")
+                    on_array = np.array(all_led_on)
+                    f.write(f"  Total Count:    {len(on_array)}\n")
+                    f.write(f"  Mean:           {np.mean(on_array):.6f} ms\n")
+                    f.write(f"  Std Dev:        {np.std(on_array):.6f} ms\n")
+                    f.write(f"  Min:            {np.min(on_array):.6f} ms\n")
+                    f.write(f"  Max:            {np.max(on_array):.6f} ms\n\n")
+                
+                if all_led_off:
+                    f.write("ALL LED OFF COMMANDS:\n")
+                    off_array = np.array(all_led_off)
+                    f.write(f"  Total Count:    {len(off_array)}\n")
+                    f.write(f"  Mean:           {np.mean(off_array):.6f} ms\n")
+                    f.write(f"  Std Dev:        {np.std(off_array):.6f} ms\n")
+                    f.write(f"  Min:            {np.min(off_array):.6f} ms\n")
+                    f.write(f"  Max:            {np.max(off_array):.6f} ms\n\n")
+                
+                if all_actual:
+                    f.write("ALL ACTUAL LED ON TIMES:\n")
+                    actual_array = np.array(all_actual)
+                    f.write(f"  Total Count:    {len(actual_array)}\n")
+                    f.write(f"  Mean:           {np.mean(actual_array):.6f} ms\n")
+                    f.write(f"  Std Dev:        {np.std(actual_array):.6f} ms\n")
+                    f.write(f"  Min:            {np.min(actual_array):.6f} ms\n")
+                    f.write(f"  Max:            {np.max(actual_array):.6f} ms\n\n")
+                
+                if all_periods:
+                    f.write("ALL FREQUENCY PERIODS:\n")
+                    period_array = np.array(all_periods)
+                    mean_period = np.mean(period_array)
+                    # Calculate actual frequency from period (period in ms, so *1000 for Hz)
+                    actual_freq = 1000.0 / mean_period if mean_period > 0 else 0
+                    f.write(f"  Total Count:    {len(period_array)}\n")
+                    f.write(f"  Mean Period:    {mean_period:.6f} ms\n")
+                    f.write(f"  Actual Freq:    {actual_freq:.6f} Hz\n")
+                    f.write(f"  Std Dev:        {np.std(period_array):.6f} ms\n")
+                    f.write(f"  Min Period:     {np.min(period_array):.6f} ms\n")
+                    f.write(f"  Max Period:     {np.max(period_array):.6f} ms\n")
+            
+            logger.info(f"[STIMULATOR] Aggregated profiling summary saved to {summary_file}")
+            
+        except Exception as e:
+            logger.error(f"[STIMULATOR] Failed to aggregate stimulation profiling data: {e}")
+
+
+    def _parse_profile_file(self, profile_file: pathlib.Path, all_data: dict) -> str:
+        """Parse a single stimulation profile file and add data to all_data dict."""
+        # Extract color from filename: stimulation_profile_Red_20260128_123456_789.txt
+        filename_parts = profile_file.stem.split('_')
+        if len(filename_parts) < 3:
+            return None
+        color = filename_parts[2]
+        
+        # Initialize color data structure if needed
+        if color not in all_data:
+            all_data[color] = {
+                'frequency': 0,
+                'pulse_width': 0,
+                'total_pulses': 0,
+                'file_count': 0,
+                'led_on_durations': [],
+                'led_off_durations': [],
+                'actual_on_times': [],
+                'frequency_periods': [],
+                'flush_enabled_files': [],  # Track which files had flush enabled
+            }
+        
+        with open(profile_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Parse metadata and data by tracking which section we're in
+        current_section = None
+        for line in content.split('\n'):
+            # Track which section we're in
+            if 'Individual LED ON Events' in line:
+                current_section = 'led_on'
+            elif 'Individual LED OFF Events' in line:
+                current_section = 'led_off'
+            elif 'Individual Actual LED ON Times' in line:
+                current_section = 'actual'
+            elif 'Individual Period Measurements' in line:
+                current_section = 'frequency'
+            
+            # Parse metadata
+            if line.startswith('Frequency:'):
+                all_data[color]['frequency'] = float(line.split(':')[1].strip().split()[0])
+            elif line.startswith('Pulse Width:'):
+                all_data[color]['pulse_width'] = float(line.split(':')[1].strip().split()[0])
+            elif line.startswith('Pulses Executed:'):
+                all_data[color]['total_pulses'] += int(line.split(':')[1].strip())
+            elif line.startswith('LED Flush Enabled:'):
+                flush_value = line.split(':')[1].strip()
+                all_data[color]['flush_enabled_files'].append(flush_value)
+            
+            # Parse timing data based on current section
+            elif 'Duration=' in line and 'Pulse' in line:
+                # Extract duration from lines like: "  Pulse 0: Start=10.123 ms, End=10.456 ms, Duration=0.333 ms"
+                duration_part = line.split('Duration=')[1].split('ms')[0].strip()
+                duration = float(duration_part)
+                
+                if current_section == 'led_on':
+                    all_data[color]['led_on_durations'].append(duration)
+                elif current_section == 'led_off':
+                    all_data[color]['led_off_durations'].append(duration)
+            
+            elif 'Pulse' in line and '(Target:' in line and 'Deviation:' in line:
+                # Extract actual on time from lines like: "  Pulse 0: 10.123 ms (Target: 10 ms, Deviation: 0.123 ms)"
+                if current_section == 'actual':
+                    actual_part = line.split(':')[1].split('ms')[0].strip()
+                    actual = float(actual_part)
+                    all_data[color]['actual_on_times'].append(actual)
+            
+            elif 'Period' in line and 'Hz' in line and 'Error:' in line:
+                # Extract period from lines like: "  Period 0: 333.333 ms (3.000 Hz, Error: 0.000 Hz)"
+                if current_section == 'frequency':
+                    period_part = line.split(':')[1].split('ms')[0].strip()
+                    period = float(period_part)
+                    all_data[color]['frequency_periods'].append(period)
+        
+        all_data[color]['file_count'] += 1
+        return color

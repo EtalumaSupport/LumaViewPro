@@ -6252,6 +6252,238 @@ class ProtocolSettings(CompositeCapture):
             callbacks=callbacks,
         )
 
+    def run_stimulation_timing_tests(self):
+        """Run systematic LED timing tests on the current protocol."""
+        logger.info('[LVP Main  ] ProtocolSettings.run_stimulation_timing_tests()')
+        
+        # Check if protocol is valid
+        if not self._is_protocol_valid():
+            logger.warning("Cannot run timing tests: invalid protocol")
+            return
+        
+        # Check if protocol has LED stimulation enabled
+        has_stimulation = False
+        steps_df = self._protocol.steps()
+        for idx, row in steps_df.iterrows():
+            stim_config = row.get('Stim_Config', {})
+            if stim_config and any(cfg.get('enabled', False) for cfg in stim_config.values()):
+                has_stimulation = True
+                break
+        
+        if not has_stimulation:
+            from kivy.uix.popup import Popup
+            from kivy.uix.label import Label
+            popup = Popup(
+                title='No LED Stimulation',
+                content=Label(text='Current protocol does not have LED stimulation enabled.\nPlease enable stimulation on at least one step.'),
+                size_hint=(0.6, 0.3)
+            )
+            popup.open()
+            logger.warning("Cannot run timing tests: no LED stimulation in protocol")
+            return
+        
+        # Import test executor
+        from modules.stim_timing_test_executor import StimTimingTestExecutor
+        from modules.stim_timing_test_config import generate_test_cases, get_quick_test_cases
+        
+        # Get test type from UI
+        test_type = self.ids.get('stim_test_type_spinner')
+        if test_type and 'Single' in test_type.text:
+            # Run just the current default configuration for quick testing
+            test_cases = [generate_test_cases()[5]]  # Conservative current (index 5)
+            logger.info(f"Running single test: {test_cases[0].name}")
+        elif test_type and 'Quick' in test_type.text:
+            test_cases = get_quick_test_cases()
+            logger.info(f"Running quick test suite ({len(test_cases)} tests)")
+        else:
+            test_cases = generate_test_cases()
+            logger.info(f"Running full test suite ({len(test_cases)} tests)")
+        
+        # Create test executor
+        test_executor = StimTimingTestExecutor(
+            protocol=self._protocol,
+            protocol_settings=self,
+            test_cases=test_cases
+        )
+        
+        # Disable UI buttons during test
+        self.ids['run_stim_test_btn'].disabled = True
+        self.ids['run_protocol_btn'].disabled = True
+        self.ids['run_scan_btn'].disabled = True
+        
+        # Run tests in background thread to avoid blocking UI
+        import threading
+        def run_tests_thread():
+            try:
+                results_file = test_executor.start_test_suite()
+                
+                # Schedule UI updates on main thread
+                Clock.schedule_once(lambda dt: self._show_test_results(results_file), 0)
+            except Exception as e:
+                logger.exception("Error running timing tests")
+                error_msg = str(e)
+                Clock.schedule_once(lambda dt: self._show_test_error(error_msg), 0)
+            finally:
+                # Re-enable buttons
+                Clock.schedule_once(lambda dt: self._enable_test_buttons(), 0)
+        
+        # Set up progress callbacks
+        test_executor.on_test_start = self._on_test_start
+        test_executor.on_test_progress = self._on_test_progress
+        test_executor.on_test_complete = self._on_test_complete
+        
+        thread = threading.Thread(target=run_tests_thread, daemon=True)
+        thread.start()
+        
+        # Show progress popup with initial message
+        from kivy.uix.popup import Popup
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.label import Label
+        from kivy.uix.progressbar import ProgressBar
+        
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        
+        self._test_progress_label = Label(
+            text=f'Preparing to run {len(test_cases)} test(s)...',
+            size_hint_y=0.6
+        )
+        content.add_widget(self._test_progress_label)
+        
+        self._test_progress_bar = ProgressBar(
+            max=len(test_cases),
+            value=0,
+            size_hint_y=0.2
+        )
+        content.add_widget(self._test_progress_bar)
+        
+        self._test_time_label = Label(
+            text='Calculating estimate...',
+            size_hint_y=0.2,
+            font_size='11sp'
+        )
+        content.add_widget(self._test_time_label)
+        
+        self._test_progress_popup = Popup(
+            title='Running LED Timing Tests',
+            content=content,
+            size_hint=(0.6, 0.35),
+            auto_dismiss=False
+        )
+        self._test_progress_popup.open()
+    
+    def _on_test_start(self, test_idx, total_tests, test_name):
+        """Called when a test starts"""
+        def update_ui(dt):
+            if hasattr(self, '_test_progress_label'):
+                self._test_progress_label.text = f'Test {test_idx + 1}/{total_tests}: {test_name}\nStarting...'
+                self._test_progress_bar.value = test_idx
+        Clock.schedule_once(update_ui, 0)
+    
+    def _on_test_progress(self, test_idx, total_tests, test_name, status, est_remaining_seconds=0):
+        """Called during test execution"""
+        logger.info(f"[STIM TEST UI] Progress callback: test={test_idx+1}/{total_tests}, status='{status}', est_remaining={est_remaining_seconds:.1f}s")
+        def update_ui(dt):
+            if hasattr(self, '_test_progress_label'):
+                self._test_progress_label.text = f'Test {test_idx + 1}/{total_tests}: {test_name}\n{status}'
+            
+            # Always update time estimate
+            if hasattr(self, '_test_time_label'):
+                if est_remaining_seconds >= 2:  # At least 2 seconds to show
+                    minutes = int(est_remaining_seconds // 60)
+                    seconds = int(est_remaining_seconds % 60)
+                    time_str = f'Estimated time remaining: ~{minutes}m {seconds}s'
+                    self._test_time_label.text = time_str
+                    logger.info(f"[STIM TEST UI] Set label text to: '{time_str}'")
+                elif est_remaining_seconds > 0:
+                    self._test_time_label.text = f'Estimated time remaining: ~{int(est_remaining_seconds)}s'
+                    logger.info(f"[STIM TEST UI] Set label text to: 'Estimated time remaining: ~{int(est_remaining_seconds)}s'")
+                else:
+                    self._test_time_label.text = 'Calculating estimate...'
+                    logger.info(f"[STIM TEST UI] Set label text to: 'Calculating estimate...'")
+        Clock.schedule_once(update_ui, 0)
+    
+    def _on_test_complete(self, test_idx, total_tests, test_name, duration_seconds):
+        """Called when a test completes"""
+        # Store average duration for time estimation
+        if not hasattr(self, '_test_durations'):
+            self._test_durations = []
+        self._test_durations.append(duration_seconds)
+        self._avg_test_duration = sum(self._test_durations) / len(self._test_durations)
+        
+        def update_ui(dt):
+            if hasattr(self, '_test_progress_bar'):
+                self._test_progress_bar.value = test_idx + 1
+            
+            # Calculate estimated time remaining
+            remaining_tests = total_tests - (test_idx + 1)
+            if remaining_tests > 0:
+                estimated_remaining = self._avg_test_duration * remaining_tests
+                minutes = int(estimated_remaining // 60)
+                seconds = int(estimated_remaining % 60)
+                if hasattr(self, '_test_time_label'):
+                    self._test_time_label.text = f'Estimated time remaining: ~{minutes}m {seconds}s'
+            else:
+                if hasattr(self, '_test_time_label'):
+                    self._test_time_label.text = 'Finalizing results...'
+        
+        Clock.schedule_once(update_ui, 0)
+    
+    def _enable_test_buttons(self):
+        """Re-enable test buttons after test completion."""
+        self.ids['run_stim_test_btn'].disabled = False
+        self.ids['run_protocol_btn'].disabled = False
+        self.ids['run_scan_btn'].disabled = False
+        if hasattr(self, '_test_progress_popup'):
+            self._test_progress_popup.dismiss()
+    
+    def _show_test_results(self, results_file):
+        """Show test results to user."""
+        from kivy.uix.popup import Popup
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.label import Label
+        from kivy.uix.button import Button
+        import subprocess
+        
+        content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+        content.add_widget(Label(
+            text=f'LED Timing Tests Complete!\n\nResults saved to:\n{results_file}\n\nOpen results folder?',
+            size_hint_y=0.7
+        ))
+        
+        button_box = BoxLayout(orientation='horizontal', size_hint_y=0.3, spacing=10)
+        
+        def open_folder(instance):
+            results_dir = results_file.parent
+            subprocess.Popen(f'explorer "{results_dir}"')
+            popup.dismiss()
+        
+        def close_popup(instance):
+            popup.dismiss()
+        
+        open_btn = Button(text='Open Folder', on_release=open_folder)
+        close_btn = Button(text='Close', on_release=close_popup)
+        button_box.add_widget(open_btn)
+        button_box.add_widget(close_btn)
+        content.add_widget(button_box)
+        
+        popup = Popup(
+            title='Test Results',
+            content=content,
+            size_hint=(0.7, 0.4)
+        )
+        popup.open()
+    
+    def _show_test_error(self, error_msg):
+        """Show error message to user."""
+        from kivy.uix.popup import Popup
+        from kivy.uix.label import Label
+        popup = Popup(
+            title='Test Error',
+            content=Label(text=f'Error running tests:\n{error_msg}'),
+            size_hint=(0.6, 0.3)
+        )
+        popup.open()
+
     def reset_autofocus_ui(self, **kwargs):
         for layer in common_utils.get_layers():
             layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
@@ -6301,6 +6533,7 @@ class ProtocolSettings(CompositeCapture):
         callbacks: dict[str, typing.Callable],
         disable_saving_artifacts: bool = False,
         return_to_position: dict | None = None,
+        parent_dir: pathlib.Path | None = None,
     ):
         live_histo_off()
 
@@ -6321,7 +6554,8 @@ class ProtocolSettings(CompositeCapture):
             }
         )
 
-        parent_dir = pathlib.Path(settings['live_folder']).resolve() / "ProtocolData"
+        if parent_dir is None:
+            parent_dir = pathlib.Path(settings['live_folder']).resolve() / "ProtocolData"
 
         sequence_name = self.ids['protocol_filename'].text
 
@@ -7468,6 +7702,17 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['enable_full_pixel_depth_btn'].state = 'normal'
             self.update_full_pixel_depth_state()
 
+            if 'led_flush_enabled' in settings:
+                if settings['led_flush_enabled'] == True:
+                    self.ids['enable_led_flush_btn'].state = 'down'
+                else:
+                    self.ids['enable_led_flush_btn'].state = 'normal'
+            else:
+                # Default to enabled if not in settings
+                self.ids['enable_led_flush_btn'].state = 'down'
+                settings['led_flush_enabled'] = True
+            self.update_led_flush_state()
+
             if 'separate_folder_per_channel' in settings:
                 if settings['separate_folder_per_channel'] == True:
                     self.ids['separate_folder_per_channel_id'].state = 'down'
@@ -7791,6 +8036,15 @@ class MicroscopeSettings(BoxLayout):
             lumaview.scope.camera.set_pixel_format('Mono8')
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
+
+
+    def update_led_flush_state(self):
+        global settings
+
+        if self.ids['enable_led_flush_btn'].state == 'down':
+            settings['led_flush_enabled'] = True
+        else:
+            settings['led_flush_enabled'] = False
 
 
     def select_live_image_output_format(self):

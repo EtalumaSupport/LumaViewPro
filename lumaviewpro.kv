@@ -1356,6 +1356,34 @@
 				on_release: root.run_protocol_from_ui()
 				background_down: 'atlas://data/images/defaulttheme/button_pressed'
 
+			# Stimulation Timing Test
+			Label:
+				text: 'LED Timing Test'
+				font_size: '14sp'
+				size_hint_y: None
+				height: '25dp'
+				spacing: '5dp'
+				color: [255/255, 165/255, 0/255, 1]
+
+			Spinner:
+				id: stim_test_type_spinner
+				tooltip_text: 'Select test suite to run'
+				text: 'Single Test'
+				values: ['Single Test', 'Quick Tests (4)', 'All Tests (10)']
+				font_size: '12dp'
+				option_cls: "SpinnerOption0"
+				size_hint_y: None
+				height: '30dp'
+
+			Button:
+				id: run_stim_test_btn
+				text: 'Run LED Timing Tests'
+				tooltip_text: 'Run systematic tests of LED timing optimizations'
+				size_hint_y: None
+				height: '40dp'
+				font_size: '12sp'
+				on_release: root.run_stimulation_timing_tests()
+
 			# Engineering mode option
 			BoxLayout:
 				id: protocol_disable_image_saving_box_id
@@ -2011,6 +2039,28 @@
 					background_normal: './data/icons/ToggleL.png'
 					background_down: './data/icons/ToggleRW.png'
 					on_release: root.update_full_pixel_depth_state()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Enable LED Flush'
+					tooltip_text: 'Force immediate serial transmission for LED commands\n(reduces latency but may affect timing consistency)'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: enable_led_flush_btn
+					tooltip_text: 'Enable driver.flush() for LED commands'
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_led_flush_state()
 
 			BoxLayout:
 				orientation: 'horizontal'

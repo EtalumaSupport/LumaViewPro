@@ -164,13 +164,15 @@ class LEDBoard:
                 except:
                     return
     
-    def _write_command_fast(self, command: str):
+    def _write_command_fast(self, command: str, flush: bool = True):
         """Write-only fast path: send command without sleeps or reading a response."""
         stream = command.encode('utf-8')+b"\n"
         if self.driver != False:
             try:
                 with self.com_lock:
                     self.driver.write(stream)
+                    if flush:
+                        self.driver.flush()  # Force immediate transmission to reduce latency
             except:
                 # Suppress to keep this path fast and non-blocking
                 pass
@@ -181,6 +183,8 @@ class LEDBoard:
                 if self.driver:
                     with self.com_lock:
                         self.driver.write(stream)
+                        if flush:
+                            self.driver.flush()  # Force immediate transmission
             except:
                 pass
       
@@ -309,19 +313,19 @@ class LEDBoard:
         command = 'LED' + str(int(channel)) + '_OFF'
         self.exchange_command(command)
 
-    def led_on_fast(self, channel, mA):
+    def led_on_fast(self, channel, mA, flush=True):
         """Fast write-only version of led_on for time-critical toggling."""
         color = self.ch2color(channel=channel)
         self.led_ma[color] = mA
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
-        self._write_command_fast(command)
+        self._write_command_fast(command, flush=flush)
 
-    def led_off_fast(self, channel):
+    def led_off_fast(self, channel, flush=True):
         """Fast write-only version of led_off for time-critical toggling."""
         color = self.ch2color(channel=channel)
         self.led_ma[color] = -1
         command = 'LED' + str(int(channel)) + '_OFF'
-        self._write_command_fast(command)
+        self._write_command_fast(command, flush=flush)
 
     def leds_off(self):
         """ Turn off all LEDs """

@@ -282,21 +282,21 @@ class Lumascope():
 
         self.led.led_off(channel)
 
-    def led_on_fast(self, channel, mA):
+    def led_on_fast(self, channel, mA, flush=True):
         """ LED BOARD FUNCTIONS
         Fast write-only LED on for time-critical pulses """
         if not self.led: return
         if type(channel) == str:
             channel = self.color2ch(color=channel)
-        self.led.led_on_fast(channel, mA)
+        self.led.led_on_fast(channel, mA, flush=flush)
 
-    def led_off_fast(self, channel):
+    def led_off_fast(self, channel, flush=True):
         """ LED BOARD FUNCTIONS
         Fast write-only LED off for time-critical pulses """
         if not self.led: return
         if type(channel) == str:
             channel = self.color2ch(color=channel)
-        self.led.led_off_fast(channel)
+        self.led.led_off_fast(channel, flush=flush)
 
     def leds_off_fast(self):
         """ LED BOARD FUNCTIONS
