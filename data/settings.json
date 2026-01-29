@@ -86,6 +86,13 @@
         "video_config": {
             "duration": 5
         },
+        "stim_config": {
+            "enabled": false,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 100
+        },
         "composite_brightness_threshold": 50
     },
     "Green": {
@@ -102,6 +109,13 @@
         "video_config": {
             "duration": 5
         },
+        "stim_config": {
+            "enabled": false,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 100
+        },
         "composite_brightness_threshold": 50
     },
     "Red": {
@@ -117,6 +131,13 @@
         "acquire": null,
         "video_config": {
             "duration": 5
+        },
+        "stim_config": {
+            "enabled": false,
+            "illumination": 100,
+            "frequency": 1,
+            "pulse_width": 10,
+            "pulse_count": 100
         },
         "composite_brightness_threshold": 50
     },
@@ -159,7 +180,8 @@
     "logging": {
         "default": {
             "level": "INFO"
-        }
+        },
+        "autofocus": false
     },
     "mode": "normal",
     "debug_mode": false,
@@ -181,5 +203,7 @@
     "show_tooltips": false,
     "live_view_fps": 30,
     "protocol_led_on": false,
-    "rest_api_enabled": false
+    "rest_api_enabled": false,
+    "stimulation_enabled": false,
+    "disable_protocol_accordions": true
 }
