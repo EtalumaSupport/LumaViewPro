@@ -1,19 +1,4 @@
 {
-    "Empty": {
-      "description": "No Objective Selected",
-      "magnification": 1,
-      "focal_length": 1,
-      "aperture": 1,
-      "DOF": 1,
-      "working_distance": 1,
-      "AF_min": 1,
-      "AF_max": 1,
-      "AF_range": 1,
-      "z_fine": 1,
-      "z_coarse": 1,
-      "xy_fine": 1,
-      "xy_coarse": 1
-    },
     "1.25x Oly": {
       "description": "1.25x Plan Apochromat Olympus",
       "magnification": 1.25,

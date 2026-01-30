@@ -2679,6 +2679,8 @@ class MotionSettings(BoxLayout):
 
         vert_control.ids['set_turret_objective_btn'].disabled = not visible
         vert_control.ids['set_turret_objective_btn'].opacity = 1 if visible else 0
+        vert_control.ids['reset_turret_objective_btn'].disabled = not visible
+        vert_control.ids['reset_turret_objective_btn'].opacity = 1 if visible else 0
 
 
     def set_tiling_control_visibility(self, visible: bool) -> None:
@@ -4866,6 +4868,31 @@ class VerticalControl(BoxLayout):
 
         except Exception as e:
             logger.exception(f"SetTurretObjective] Error: {e}")
+            return
+        
+    def reset_turret_objective(self):
+        global settings
+
+        selected_turret = None
+        for position in range(1,5):
+            if self.ids[f"turret_pos_{position}_btn"].state == 'down':
+                selected_turret = position
+
+        if selected_turret == None:
+            logger.error("VerticalControl] ResetTurretObjective] No turret button selected")
+            return
+        
+        try:
+            selected_turret_id = self.ids[f"turret_pos_{selected_turret}_btn"]
+
+            # Change turret text
+            selected_turret_id.text = str(selected_turret)
+
+            # Update settings
+            settings["turret_objectives"][selected_turret] = None
+
+        except Exception as e:
+            logger.exception(f"ResetTurretObjective] Error: {e}")
             return
 
 
