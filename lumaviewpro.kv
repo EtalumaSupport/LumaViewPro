@@ -487,6 +487,14 @@
 		height: '30dp'
 		font_size: '12dp'
         on_release: root.set_turret_objective()
+
+	Button:
+		id: reset_turret_objective_btn
+		text: 'Reset Turret Objective'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12dp'
+		on_release: root.reset_turret_objective()
             
 	ZStack:
 		id: zstack_id
