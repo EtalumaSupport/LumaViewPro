@@ -23,9 +23,11 @@ class VideoWriter:
         output_file_loc: pathlib.Path,
         fps: float,
         include_timestamp_overlay: bool,
+        codec: str = 'mp4v',
     ):
         self._output_file_loc = output_file_loc
-        self._codec = self.CODECS[1] # mp4v
+        # Use provided codec if valid, otherwise default to mp4v
+        self._codec = codec if codec in self.CODECS else self.CODECS[1]
         self._fourcc = self._get_fourcc_code(codec=self._codec)
         self._fps = fps
         self._include_timestamp_overlay = include_timestamp_overlay
@@ -124,8 +126,11 @@ class VideoWriter:
 
     
     def finish(self):
-        cv2.destroyAllWindows()
-        self._video.release()
+        if self._video is not None:
+            cv2.destroyAllWindows()
+            self._video.release()
+        else:
+            logger.warning("VideoWriter.finish() called without adding any frames. No video file was created.")
 
     def test_video(self, filename):
         logger.info(f"VideoWriter: Testing video {filename}")
