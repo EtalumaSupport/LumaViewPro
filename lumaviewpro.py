@@ -5351,13 +5351,16 @@ class ProtocolSettings(CompositeCapture):
 
 
     def step_name_validation(self, text: str):
-        self.ids['step_name_input'].text = Protocol.sanitize_step_name(input=text)
+        cleaned_str = Protocol.sanitize_step_name(input=text)
 
-        if hasattr(self, '_protocol') and (self._protocol is not None):
+        if hasattr(self, '_protocol') and (self._protocol is not None) and (self._protocol.num_steps() > 0 and self.curr_step >= 0):
             self._protocol.modify_name(
                 step_idx=self.curr_step,
-                step_name=self.ids['step_name_input'].text
+                step_name=cleaned_str
             )
+            self.ids['step_name_input'].text = cleaned_str
+        else:
+            self.ids['step_name_input'].text = ""
 
     def update_capture_root(self, text: str):
         # Sanitize and store capture root on protocol to avoid invalid path chars
@@ -5770,6 +5773,13 @@ class ProtocolSettings(CompositeCapture):
         try:
             val = int(obj.text)
         except:
+            num_steps = self._protocol.num_steps()
+            if num_steps < 1:
+                val = 0
+            else:
+                val = 1
+
+            obj.text = f"{val}"
             return
 
         num_steps = self._protocol.num_steps()
@@ -5928,7 +5938,7 @@ class ProtocolSettings(CompositeCapture):
         if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
             error_msg = f"Cannot add step to protocol. Please set objective for current turret position."
             logger.error(error_msg)
-            show_notification_popup(title="Protocol Add Step Error", message=error_msg)
+            Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Add Step Error", message=error_msg), 0)
             return
 
         if after_current_step:
