@@ -1088,7 +1088,7 @@ class Lumascope():
         #if not self.motion: return True
 
         # Handle case where we want to know if turret has reached its target, but there is no turret
-        if (axis == 'T') and (self.motion.has_turret == False):
+        if (axis == 'T') and (self.motion.has_turret() == False):
             return True
 
         try:
@@ -1099,7 +1099,7 @@ class Lumascope():
             return False
 
     def get_target_pos(self, axis):
-        if (axis == 'T') and (self.motion.has_turret == False):
+        if (axis == 'T') and (self.motion.has_turret() == False):
             return -1
 
         try:
