@@ -6403,7 +6403,10 @@ class ProtocolSettings(CompositeCapture):
 
 
         if not autofocus_scan:
-            create_hyperstacks_if_needed()
+            try:
+                create_hyperstacks_if_needed()
+            except Exception as e:
+                logger.error(f"Error occurred while creating hyperstacks: {e}", exc_info=True)
 
     def cancel_all_protocols(self):
         logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')

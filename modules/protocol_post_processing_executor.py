@@ -84,6 +84,12 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         **kwargs: dict,
     ) -> dict:
         start_ts = datetime.datetime.now()
+        if not path:
+            return {
+                'status': False,
+                'message': 'Invalid path provided'
+            }
+        
         selected_path = pathlib.Path(path)
         results = self._post_processing_helper.load_folder(
             path=selected_path,
