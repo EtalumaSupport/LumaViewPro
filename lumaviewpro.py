@@ -2023,8 +2023,19 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         if self.scope.camera_is_connected():
             self.camera_temps_event = Clock.schedule_interval(lambda dt: self.log_camera_temps(), 7200)  # Log every 2 hours
-        self.recording = False
+        self.recording_event = threading.Event()  # Thread-safe: clear = not recording, set = recording
+        self.recording_event.clear()  # Initially not recording
+        self.recording_initializing_event = threading.Event()  # Thread-safe: clear = not initializing, set = initializing
+        self.recording_initializing_event.clear()  # Initially not initializing
+        self.recording_initializing_timestamp = 0  # Track when initialization started
+        self.recording_button_lock = threading.Lock()  # Lock for atomic record button operations
+        self.last_record_button_press = 0  # Track last button press for debouncing
         self.led_on_before_pause = False
+        # Video writing tracking: use set + lock as single source of truth
+        self.video_writing_memmap_paths = set()  # Track ALL memmap files currently being written from
+        self.video_writing_memmap_lock = threading.Lock()  # Lock for memmap path set operations
+        self.video_writing_progress = 0  # Track video writing progress (0-100)
+        self.video_writing_total_frames = 0  # Total frames to write
 
     def log_camera_temps(self):
         if self.scope.camera_is_connected():
@@ -2060,105 +2071,474 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             scope_display.play = True
             scope_display.start()
 
+    def _get_active_write_count(self):
+        """Thread-safe method to get count of videos currently being written."""
+        with self.video_writing_memmap_lock:
+            return len(self.video_writing_memmap_paths)
+    
+    def _has_active_writes(self):
+        """Thread-safe method to check if any videos are being written."""
+        return self._get_active_write_count() > 0
+
     def record_button(self):
-        if self.recording:
+        current_time = time.time()
+        
+        # DEBOUNCING: Ignore button presses within 500ms of each other
+        if current_time - self.last_record_button_press < 0.5:
+            logger.info("Manual-Video] Button press ignored (debounce)")
             return
-        camera_executor.put(IOTask(self.record_init))
+        
+        self.last_record_button_press = current_time
+        
+        # Use lock to make this entire check-and-set atomic
+        with self.recording_button_lock:
+            # AGGRESSIVE AUTO-RECOVERY: If stuck for > 1 second, force reset
+            if self.recording_initializing_event.is_set():
+                time_stuck = current_time - self.recording_initializing_timestamp
+                if time_stuck > 1.0:
+                    logger.error(f"Manual-Video] Recording stuck for {time_stuck:.1f}s - forcing reset")
+                    # Force reset everything
+                    self.recording_initializing_event.clear()
+                    self.recording_event.clear()
+                    try:
+                        Clock.unschedule(self.recording_check)
+                        Clock.unschedule(self.recording_frames_event)
+                        Clock.unschedule(self.recording_title_update)
+                    except:
+                        pass
+                    try:
+                        self.ids['record_btn'].state = 'normal'
+                    except:
+                        pass
+                    Window.set_title(f"Lumaview Pro {version}")
+                    logger.info("Manual-Video] State forcefully reset, ready for new recording")
+            
+            # Prevent queueing if already recording or initializing
+            if self.recording_event.is_set():
+                logger.info("Manual-Video] Already recording, button press ignored")
+                return
+                
+            if self.recording_initializing_event.is_set():
+                logger.info("Manual-Video] Already initializing, button press ignored")
+                return
+            
+            # All checks passed - perform quick pre-validation before queuing
+            # Check concurrent recording limit
+            active_writes_count = self._get_active_write_count()
+            if active_writes_count >= 3:
+                error_msg = f"Maximum concurrent recordings reached (3).\n\nPlease wait for current videos to finish writing before starting a new recording."
+                logger.error(f"Manual-Video] Cannot start recording - already {active_writes_count} videos being written")
+                try:
+                    self.ids['record_btn'].state = 'normal'
+                except:
+                    pass
+                Clock.schedule_once(lambda dt: show_notification_popup(
+                    title="Recording Limit Reached",
+                    message=error_msg
+                ), 0)
+                return
+            
+            # Start new recording
+            self.recording_initializing_event.set()
+            self.recording_initializing_timestamp = current_time
+            camera_executor.put(IOTask(self.record_init))
+            logger.info("Manual-Video] Recording initialization queued")
 
     def open_save_folder_button(self):
         open_last_save_folder()
 
     def record_init(self):
         logger.info('[LVP Main  ] MainDisplay.record()')
-        if self.scope.camera.active == False:
-            return
+        
+        initialization_successful = False
+        
+        try:
+            # Double-check we're not already recording (in case of race condition)
+            if self.recording_event.is_set():
+                logger.warning("Manual-Video] Recording already in progress, ignoring duplicate request")
+                try:
+                    self.ids['record_btn'].state = 'normal'
+                except:
+                    pass
+                return
+            
+            # Clean up any lingering progress updates from previous recordings
+            # BUT only if no video is currently being written
+            if hasattr(self, 'writing_progress_update') and not self._has_active_writes():
+                try:
+                    Clock.unschedule(self.writing_progress_update)
+                except:
+                    pass  # Already unscheduled or doesn't exist
+            
+            if self.scope.camera.active == False:
+                try:
+                    self.ids['record_btn'].state = 'normal'
+                except:
+                    pass
+                return
 
-        self.video_as_frames = settings['video_as_frames']
+            self.video_as_frames = settings['video_as_frames']
 
-        color = None
+            color = None
 
-        for layer in common_utils.get_layers():
-            layer_accordion_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
-            layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-            if layer_accordion_obj.collapse == False:
+            for layer in common_utils.get_layers():
+                layer_accordion_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
+                if layer_accordion_obj.collapse == False:
 
-                if layer_obj.ids['false_color'].active:
-                    color = layer
+                    if layer_obj.ids['false_color'].active:
+                        color = layer
 
-                break
+                    break
 
-        if color is not None:
-            self.video_false_color = color
-        else:
-            self.video_false_color = None
+            if color is not None:
+                self.video_false_color = color
+            else:
+                self.video_false_color = None
 
-        if "manual_video" in settings:
-            max_fps = settings["manual_video"]["max_fps"]
-            max_duration = settings["manual_video"]["max_duration"]
-        else:
-            max_fps = 40
-            max_duration = 30
+            if "manual_video" in settings:
+                max_fps = settings["manual_video"]["max_fps"]
+                max_duration = settings["manual_video"]["max_duration"]
+            else:
+                max_fps = 40
+                max_duration = 30
 
-        # Clamp the FPS to be no faster than the exposure rate
-        frame_size = self.scope.camera.get_frame_size()
-        exposure = self.scope.camera.get_exposure_t()
-        exposure_freq = 1.0 / (exposure / 1000)
-        video_fps = min(exposure_freq, max_fps)
+            # Clamp the FPS to be no faster than the exposure rate
+            frame_size = self.scope.camera.get_frame_size()
+            exposure = self.scope.camera.get_exposure_t()
+            exposure_freq = 1.0 / (exposure / 1000)
+            video_fps = min(exposure_freq, max_fps)
 
-        max_frames = math.ceil(video_fps * max_duration)
+            max_frames = math.ceil(video_fps * max_duration)
 
-        start_time = datetime.datetime.now()
-        self.start_time_str = start_time.strftime("%Y-%m-%d_%H.%M.%S")
+            start_time = datetime.datetime.now()
+            self.start_time_str = start_time.strftime("%Y-%m-%d_%H.%M.%S")
 
-        if self.video_as_frames:
-            save_folder = pathlib.Path(settings['live_folder']) / "Manual" / f"Video_{self.start_time_str}"
-        else:
-            save_folder = pathlib.Path(settings['live_folder']) / "Manual"
+            if self.video_as_frames:
+                save_folder = pathlib.Path(settings['live_folder']) / "Manual" / f"Video_{self.start_time_str}"
+            else:
+                save_folder = pathlib.Path(settings['live_folder']) / "Manual"
 
-        self.video_save_folder = save_folder
+            self.video_save_folder = save_folder
 
-        self.start_ts = time.time()
-        self.stop_ts = self.start_ts + max_duration
-        seconds_per_frame = 1.0 / video_fps
+            self.start_ts = time.time()
+            self.stop_ts = self.start_ts + max_duration
+            seconds_per_frame = 1.0 / video_fps
 
+            if settings['use_full_pixel_depth'] == False or settings['video_as_frames'] == False:
+                dtype = 'uint8'
+            else:
+                dtype = 'uint16'
 
-        self.memmap_location = settings['live_folder'] + "/" + "recording_temp.dat"
+            # Calculate required memmap shape
+            if (color is None) or (dtype == 'uint16'):
+                required_shape = (max_frames, frame_size["height"], frame_size["width"])
+            else:
+                required_shape = (max_frames, frame_size["height"], frame_size["width"], 3)
 
-        if os.path.exists(self.memmap_location):
-            os.remove(self.memmap_location)
+            # Calculate required disk space for memmap
+            bytes_per_element = 1 if dtype == 'uint8' else 2
+            # Use int64 to prevent overflow with large shapes
+            required_bytes = int(np.prod(required_shape, dtype=np.int64)) * bytes_per_element
+            required_gb = required_bytes / (1024**3)
+            
+            # logger.info(f"Manual-Video] Memmap requirements: shape={required_shape}, dtype={dtype}, size={required_gb:.2f} GB ({max_frames} frames @ {frame_size['width']}x{frame_size['height']})")
+            
+            # Note: Concurrent recording limit check now done in record_button() before queuing
+            # This prevents duplicate error popups when button is spammed
+            
+            # Check if we can reuse existing memmap BEFORE checking disk space
+            # If we can reuse, we don't need additional disk space
+            can_reuse = False
+            reusable_file_path = None
+            
+            # First, check if we can reuse the current in-memory memmap
+            if not self._has_active_writes():
+                if hasattr(self, 'current_video_frames') and self.current_video_frames is not None:
+                    try:
+                        if (self.current_video_frames.shape == required_shape and 
+                            self.current_video_frames.dtype == dtype):
+                            logger.info("Manual-Video] Reusing existing memmap in memory - no additional disk space needed")
+                            can_reuse = True
+                        else:
+                            logger.info("Manual-Video] Memmap shape/dtype changed, need to create new one")
+                            del self.current_video_frames
+                            self.current_video_frames = None
+                    except Exception as e:
+                        logger.warning(f"Manual-Video] Could not check memmap reuse: {e}")
+                        self.current_video_frames = None
+            
+            # If can't reuse in-memory memmap, check for reusable files on disk
+            if not can_reuse:
+                base_memmap_name = "recording_temp.dat"
+                check_path = pathlib.Path(settings['live_folder']) / base_memmap_name
+                
+                # Check up to 10 possible memmap files
+                for attempt in range(11):
+                    if attempt > 0:
+                        check_path = pathlib.Path(settings['live_folder']) / f"recording_temp_{attempt}.dat"
+                    
+                    # Skip if file is currently being written
+                    with self.video_writing_memmap_lock:
+                        is_being_written = check_path in self.video_writing_memmap_paths
+                    
+                    if is_being_written:
+                        continue
+                    
+                    # Check if file exists and has correct size
+                    if check_path.exists():
+                        try:
+                            expected_size = required_bytes
+                            actual_size = check_path.stat().st_size
+                            if actual_size == expected_size:
+                                logger.info(f"Manual-Video] Found reusable memmap file on disk: {check_path.name} - no additional disk space needed")
+                                reusable_file_path = check_path
+                                can_reuse = True
+                                break
+                        except Exception as e:
+                            logger.debug(f"Manual-Video] Could not check {check_path.name}: {e}")
+                            continue
+            
+            if not can_reuse and not reusable_file_path:
+                logger.info("Manual-Video] No reusable memmap found, will need to allocate new file")
+            
+            # Only check disk space if we can't reuse existing memmap
+            if not can_reuse:
+                # Check available disk space (add 10% buffer for safety)
+                try:
+                    import shutil
+                    live_folder_path = pathlib.Path(settings['live_folder'])
+                    disk_usage = shutil.disk_usage(live_folder_path)
+                    available_gb = disk_usage.free / (1024**3)
+                    
+                    if disk_usage.free < required_bytes * 1.1:  # 10% safety buffer
+                        # Check if insufficient space is likely due to existing recordings being written
+                        active_writes = self._get_active_write_count()
+                        if active_writes > 0:
+                            error_msg = f"Cannot start recording - insufficient disk space.\n\nRequired: {required_gb:.2f} GB\nAvailable: {available_gb:.2f} GB\n\n{active_writes} video(s) currently being written. Please wait for them to finish, which will free up space."
+                        else:
+                            error_msg = f"Insufficient disk space for recording.\n\nRequired: {required_gb:.2f} GB\nAvailable: {available_gb:.2f} GB\n\nPlease free up space and try again."
+                        logger.error(f"Manual-Video] {error_msg.replace(chr(10), ' ')}")
+                        try:
+                            self.ids['record_btn'].state = 'normal'
+                        except:
+                            pass
+                        Clock.schedule_once(lambda dt: show_notification_popup(
+                            title="Insufficient Disk Space",
+                            message=error_msg
+                        ), 0)
+                        return
+                    else:
+                        logger.info(f"Manual-Video] Disk space check passed: {available_gb:.2f} GB available, {required_gb:.2f} GB required")
+                except Exception as e:
+                    logger.warning(f"Manual-Video] Could not check disk space: {e}")
+                    # Continue anyway - don't block recording if check fails
 
-        if settings['use_full_pixel_depth'] == False or settings['video_as_frames'] == False:
-            dtype = 'uint8'
-        else:
-            dtype = 'uint16'
+            # Create or reuse memmap
+            if can_reuse and reusable_file_path:
+                # We found a reusable file on disk during pre-scan
+                self.memmap_location = reusable_file_path
+                logger.info(f"Manual-Video] Using pre-identified reusable file: {self.memmap_location.name}")
+                try:
+                    self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode="r+", shape=required_shape)
+                except Exception as e:
+                    logger.error(f"Manual-Video] Failed to open reusable memmap: {e}")
+                    raise
+            elif can_reuse:
+                # Reusing in-memory memmap (self.current_video_frames already set and valid)
+                logger.info("Manual-Video] Using existing in-memory memmap")
+            else:
+                # Need to find or create a memmap file
+                    base_memmap_name = "recording_temp.dat"
+                    self.memmap_location = pathlib.Path(settings['live_folder']) / base_memmap_name
+                    
+                    # If file exists and is locked, try incrementing filename
+                    attempt = 0
+                    while True:
+                        # CRITICAL: Skip this file if it's currently being written from (check all active writes)
+                        with self.video_writing_memmap_lock:
+                            is_being_written = self.memmap_location in self.video_writing_memmap_paths
+                        
+                        if is_being_written:
+                            attempt += 1
+                            self.memmap_location = pathlib.Path(settings['live_folder']) / f"recording_temp_{attempt}.dat"
+                            logger.info(f"Manual-Video] File is active, trying: {self.memmap_location.name}")
+                            continue
+                        
+                        try:
+                            # Try to open memmap in r+ mode (doesn't truncate, allows reuse)
+                            if self.memmap_location.exists():
+                                # Check if file has correct size
+                                actual_size = self.memmap_location.stat().st_size
+                                expected_size = required_bytes
+                                if actual_size == expected_size:
+                                    logger.info(f"Manual-Video] Reusing existing memmap file: {self.memmap_location.name}")
+                                    self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode="r+", shape=required_shape)
+                                    break
+                                else:
+                                    logger.info(f"Manual-Video] File exists but wrong size ({actual_size} vs {expected_size}), trying next")
+                                    attempt += 1
+                                    if attempt > 10:
+                                        logger.error(f"Manual-Video] Cannot find available memmap file after {attempt} attempts")
+                                        error_msg = "Cannot start recording. Multiple videos are still being written. Please wait a moment and try again."
+                                        try:
+                                            self.ids['record_btn'].state = 'normal'
+                                        except:
+                                            pass
+                                        Clock.schedule_once(lambda dt: show_notification_popup(
+                                            title="Recording Unavailable",
+                                            message=error_msg
+                                        ), 0)
+                                        raise RuntimeError(error_msg)
+                                    self.memmap_location = pathlib.Path(settings['live_folder']) / f"recording_temp_{attempt}.dat"
+                                    continue
+                            else:
+                                logger.info(f"Manual-Video] Creating new memmap: {self.memmap_location.name}")
+                                # Double-check disk space right before creation
+                                try:
+                                    disk_usage = shutil.disk_usage(self.memmap_location.parent)
+                                    if disk_usage.free < required_bytes * 1.1:
+                                        available_gb = disk_usage.free / (1024**3)
+                                        # Check if insufficient space is likely due to existing recordings being written
+                                        active_writes = self._get_active_write_count()
+                                        if active_writes > 0:
+                                            error_msg = f"Cannot start recording - insufficient disk space.\n\nRequired: {required_gb:.2f} GB\nAvailable: {available_gb:.2f} GB\n\n{active_writes} video(s) currently being written. Please wait for them to finish, which will free up space."
+                                        else:
+                                            error_msg = f"Insufficient disk space for recording.\n\nRequired: {required_gb:.2f} GB\nAvailable: {available_gb:.2f} GB\n\nPlease free up space and try again."
+                                        logger.error(f"Manual-Video] {error_msg.replace(chr(10), ' ')}")
+                                        try:
+                                            self.ids['record_btn'].state = 'normal'
+                                        except:
+                                            pass
+                                        Clock.schedule_once(lambda dt: show_notification_popup(
+                                            title="Insufficient Disk Space",
+                                            message=error_msg
+                                        ), 0)
+                                        raise RuntimeError("Insufficient disk space")
+                                except RuntimeError:
+                                    raise  # Re-raise our own RuntimeError
+                                except Exception as space_check_error:
+                                    logger.warning(f"Manual-Video] Could not recheck disk space: {space_check_error}")
+                                
+                                # Create the memmap file
+                                self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode="w+", shape=required_shape)
+                            break  # Success!
+                        except OSError as e:
+                            # Handle disk full or file locked errors
+                            if "No space left" in str(e) or "Errno 28" in str(e):
+                                error_msg = f"Out of disk space!\n\nCannot create recording file ({required_gb:.2f} GB needed).\n\nPlease free up disk space and try again."
+                                logger.error(f"Manual-Video] Disk full when creating memmap: {e}")
+                                try:
+                                    self.ids['record_btn'].state = 'normal'
+                                except:
+                                    pass
+                                Clock.schedule_once(lambda dt: show_notification_popup(
+                                    title="Disk Full",
+                                    message=error_msg
+                                ), 0)
+                                # Don't raise - just return to abort recording gracefully
+                                return
+                            else:
+                                # File exists but wrong size or locked, try next filename
+                                attempt += 1
+                                if attempt > 10:
+                                    logger.error(f"Manual-Video] Cannot find available memmap file after {attempt} attempts")
+                                    error_msg = "Cannot start recording. Multiple videos are still being written. Please wait a moment and try again."
+                                    try:
+                                        self.ids['record_btn'].state = 'normal'
+                                    except:
+                                        pass
+                                    Clock.schedule_once(lambda dt: show_notification_popup(
+                                    title="Recording Unavailable",
+                                    message=error_msg
+                                ), 0)
+                                raise RuntimeError(error_msg)
+                            self.memmap_location = pathlib.Path(settings['live_folder']) / f"recording_temp_{attempt}.dat"
+                            logger.info(f"Manual-Video] Trying alternate memmap: {self.memmap_location.name}")
 
-        # Currently 16-bit captures don't use false coloring, so it is equivalent to single channel
-        if (color is None) or (dtype == 'uint16'):
-            self.current_video_frames = np.memmap(self.memmap_location, dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
-        else:
-            self.current_video_frames = np.memmap(self.memmap_location, dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
+            self.current_captured_frames = 0
+            self.timestamps = []
 
-        self.current_captured_frames = 0
-        self.timestamps = []
+            logger.info(f"Manual-Video] Capturing video...")
 
-        logger.info(f"Manual-Video] Capturing video...")
-
-        self.recording = True
-        self.recording_check = Clock.schedule_interval(self.check_recording_state, seconds_per_frame)
-        self.recording_event = Clock.schedule_interval(self._enqueue_recording_frame, seconds_per_frame)
+            # Mark initialization as successful before setting recording state
+            initialization_successful = True
+            
+            # Atomically transition state: set recording, clear initializing
+            self.recording_event.set()
+            
+            # Schedule title updates to show recording progress
+            self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)
+            
+            self.recording_check = Clock.schedule_interval(self.check_recording_state, seconds_per_frame)
+            self.recording_frames_event = Clock.schedule_interval(self._enqueue_recording_frame, seconds_per_frame)
+        
+        except Exception as e:
+            logger.exception(f"Manual-Video] Error during record_init: {e}")
+            self.recording_event.clear()
+            # Reset button state on error
+            try:
+                self.ids['record_btn'].state = 'normal'
+            except:
+                pass
+            # Only reset window title if no other video is being written
+            if not self._has_active_writes():
+                # No active writes, safe to reset title
+                Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}"), 0)
+            else:
+                # Another video is still writing, don't touch the title
+                logger.info("Manual-Video] Not resetting title - another video is being written")
+            # Capture error message before creating lambda (to avoid scope issues)
+            error_str = str(e)
+            # Show notification to user
+            if "wait" in error_str.lower() or "busy" in error_str.lower() or "unavailable" in error_str.lower() or "disk full" in error_str.lower() or "disk space" in error_str.lower():
+                # Error message already shown via notification popup, don't show again
+                pass
+            else:
+                Clock.schedule_once(lambda dt: show_notification_popup(
+                    title="Recording Error",
+                    message=f"Failed to start recording: {error_str}"
+                ), 0)
+        finally:
+            # ALWAYS clear the initializing event when leaving record_init
+            # This ensures the button can be pressed again even if errors occurred
+            self.recording_initializing_event.clear()
 
     def _enqueue_recording_frame(self, dt=None):
         """Enqueue a recording frame task without creating closure."""
         camera_executor.put(IOTask(self.record_helper))
 
+    def update_recording_title(self, dt=None):
+        """Update window title with recording elapsed time."""
+        if self.recording_event.is_set():
+            elapsed = time.time() - self.start_ts
+            Window.set_title(f"Lumaview Pro {version}   |   Recording Manual Video: {elapsed:.1f}s")
+
+    def update_writing_progress(self, dt=None):
+        """Update window title with video writing progress percentage."""
+        if self.video_writing_total_frames > 0:
+            progress_pct = (self.video_writing_progress / self.video_writing_total_frames) * 100
+            Window.set_title(f"Lumaview Pro {version}   |   Writing Manual Video: {progress_pct:.0f}%")
+
     def check_recording_state(self, dt=None):
+        """Check if recording should stop (max duration or button click)."""
+        # Defensive check: only proceed if actually recording
+        if not self.recording_event.is_set():
+            return
+        
         # Over the max duration, stop video
         if time.time() >= self.stop_ts:
             Clock.unschedule(self.recording_check)
-            Clock.unschedule(self.recording_event)
+            Clock.unschedule(self.recording_frames_event)
+            if hasattr(self, 'recording_title_update'):
+                Clock.unschedule(self.recording_title_update)
             self.video_duration = time.time() - self.start_ts
             self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
-            self.ids['record_btn'].state = 'normal'
+            try:
+                self.ids['record_btn'].state = 'normal'
+            except:
+                pass  # Button may not exist
+            return
 
         # Button not clicked yet, keep recording
         if self.ids['record_btn'].state == 'down':
@@ -2166,62 +2546,236 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         # Button clicked, stop recording
         Clock.unschedule(self.recording_check)
-        Clock.unschedule(self.recording_event)
+        Clock.unschedule(self.recording_frames_event)
+        if hasattr(self, 'recording_title_update'):
+            Clock.unschedule(self.recording_title_update)
         self.video_duration = time.time() - self.start_ts
         self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
 
     def _enqueue_recording_complete(self, dt=None):
-        """Enqueue recording complete task without creating closure."""
-        camera_executor.put(IOTask(self.recording_complete))
+        """Enqueue recording finalization task."""
+        # Capture UI state on Main Thread (safe here, unsafe in background thread)
+        try:
+            color, active_layer_config = get_active_layer_config()
+            image_capture_config = None
+            # Only get image capture config if needed (avoids potential UI queries)
+            if hasattr(self, 'video_as_frames') and self.video_as_frames:
+                try:
+                    image_capture_config = get_image_capture_config_from_ui()
+                except:
+                    logger.warning("Manual-Video] Could not get image capture config")
+            
+            # Helper to get objective safely
+            try:
+                _, objective = get_current_objective_info()
+            except:
+                objective = None
+                
+            try:
+                binning = get_binning_from_ui()
+            except:
+                binning = 1
 
-    def recording_complete(self, dt=None):
-        if self.recording == False:
-            return
+            ui_config = {
+                'active_layer_color': color,
+                'active_layer_config': active_layer_config,
+                'image_capture_config': image_capture_config,
+                'objective_info': objective,
+                'binning': binning
+            }
+        except Exception as e:
+            logger.error(f"Manual-Video] Failed to capture UI config: {e}")
+            ui_config = {}
 
-        self.recording = False
+        # Reset and start tracking progress (Estimate for UI)
+        captured_est = self.current_captured_frames if hasattr(self, 'current_captured_frames') else 0
+        self.video_writing_progress = 0
+        self.video_writing_total_frames = max(1, captured_est)
+        # Schedule periodic progress updates
+        self.writing_progress_update = Clock.schedule_interval(self.update_writing_progress, 0.1)
+        
+        # Dispatch to camera executor to capture final state serialized with recording operations
+        # This prevents race condition where frames are added after we capture state
+        camera_executor.put(IOTask(self._finalize_recording_state, kwargs={'ui_config': ui_config}))
 
-        calculated_fps = self.current_captured_frames//self.video_duration
+    def _finalize_recording_state(self, dt=None, ui_config=None):
+        """Run on camera executor: Capture final state and hand off to file writer."""
+        try:
+            logger.info("Manual-Video] Finalizing recording state...")
+            
+            # 1. Capture State (Atomic wrt camera thread, as we are ON camera thread)
+            captured_frames = self.current_captured_frames if hasattr(self, 'current_captured_frames') else 0
+            timestamps = self.timestamps[:] if hasattr(self, 'timestamps') else []
+            video_frames = self.current_video_frames if hasattr(self, 'current_video_frames') else None # Reference to memmap
+            video_duration = self.video_duration if hasattr(self, 'video_duration') else 0
+            video_save_folder = self.video_save_folder if hasattr(self, 'video_save_folder') else None
+            start_time_str = self.start_time_str if hasattr(self, 'start_time_str') else ""
+            video_as_frames = self.video_as_frames if hasattr(self, 'video_as_frames') else False
+            video_false_color = self.video_false_color if hasattr(self, 'video_false_color') else None
+            memmap_path = self.memmap_location if hasattr(self, 'memmap_location') else None
 
-        logger.info(f"Manual-Video] Images present in video array: {len(self.current_video_frames) > 0 if self.current_video_frames is not None else 0}")
-        logger.info(f"Manual-Video] Captured Frames: {self.current_captured_frames}")
+            # 2. Mark memmap as active write (Thread-safe) - DO THIS FIRST
+            # This prevents record_init from reusing this file if it runs immediately after
+            if memmap_path:
+                with self.video_writing_memmap_lock:
+                    self.video_writing_memmap_paths.add(memmap_path)
+                    logger.info(f"Manual-Video] Added {memmap_path.name} to active writes (Finalize).")
+
+            # 3. Clear recording event
+            # This allows future checks to see we are done
+            self.recording_event.clear()
+
+            # 4. Prepare args for file IO
+            kwargs = {
+                'captured_frames': captured_frames,
+                'timestamps': timestamps,
+                'video_frames': video_frames,
+                'video_duration': video_duration,
+                'video_save_folder': video_save_folder,
+                'start_time_str': start_time_str,
+                'video_as_frames': video_as_frames,
+                'memmap_path': memmap_path,
+                'video_false_color': video_false_color,
+                'ui_config': ui_config
+            }
+
+            # 5. Hand off to file IO executor
+            file_io_executor.put(IOTask(self.recording_complete, kwargs=kwargs, callback=self._enqueue_recording_cleanup, pass_result=True))
+            
+        except Exception as e:
+            logger.exception(f"Manual-Video] Error in finalize_recording: {e}")
+            # Ensure cleanup happens even if error
+            self._enqueue_recording_cleanup(result=memmap_path if 'memmap_path' in locals() else None)
+
+
+
+    def _enqueue_recording_cleanup(self, dt=None, result=None, exception=None):
+        """Enqueue cleanup on file_io_executor to avoid blocking GUI."""
+        # result contains the memmap_path from recording_complete
+        memmap_path = result
+        file_io_executor.put(IOTask(self.recording_cleanup_background, kwargs={'memmap_path': memmap_path}, callback=self.recording_cleanup_gui, pass_result=True))
+
+    def recording_complete(self, dt=None, **kwargs):
+        # Retrieve captured State passed from _finalize_recording_state
+        captured_frames = kwargs.get('captured_frames', 0)
+        timestamps = kwargs.get('timestamps', [])
+        video_frames = kwargs.get('video_frames', None)
+        video_duration = kwargs.get('video_duration', 0)
+        video_save_folder = kwargs.get('video_save_folder', None)
+        start_time_str = kwargs.get('start_time_str', "")
+        video_as_frames = kwargs.get('video_as_frames', False)
+        memmap_path_for_this_write = kwargs.get('memmap_path', None)
+        video_false_color = kwargs.get('video_false_color', None)
+        
+        # Retrieve captured UI Config (from main thread)
+        ui_config = kwargs.get('ui_config', {})
+        active_layer_config = ui_config.get('active_layer_config', None)
+        color = ui_config.get('active_layer_color', None)
+        image_capture_config = ui_config.get('image_capture_config', None)
+        objective_info = ui_config.get('objective_info', None)
+        binning_info = ui_config.get('binning', 1)
+
+        # Defensive check
+        if video_frames is None:
+            logger.error("Manual-Video] recording_complete called with no video frames")
+            return memmap_path_for_this_write
+
+        # Prevent division by zero
+        if video_duration <= 0:
+            video_duration = 0.1
+            logger.warning("Manual-Video] Video duration was 0, using 0.1s")
+        
+        if captured_frames == 0:
+            logger.error("Manual-Video] No frames captured, aborting video write")
+            return memmap_path_for_this_write
+
+        calculated_fps = captured_frames//video_duration
+
+        logger.info(f"Manual-Video] Images present in video array: {len(video_frames) > 0 if video_frames is not None else 0}")
+        logger.info(f"Manual-Video] Captured Frames: {captured_frames}")
         logger.info(f"Manual-Video] Video FPS: {calculated_fps}")
         logger.info("Manual-Video] Writing video...")
-
-        color, active_layer_config = get_active_layer_config()
-
+        
+        # Fallback for config if somehow missing (mostly for legacy safety)
+        if active_layer_config is None and color is None:
+            try:
+                # Warning: calling this on background thread is risky but better than failing
+                color, active_layer_config = get_active_layer_config()
+            except:
+                pass
 
         include_hyperstack_generation = False
 
-        if self.video_as_frames:
+        if video_as_frames:
 
-            image_capture_config = get_image_capture_config_from_ui()
+            if image_capture_config is None:
+                 try:
+                     image_capture_config = get_image_capture_config_from_ui()
+                 except:
+                     # Default to simple image output if config retrieval fails
+                     image_capture_config = {'output_format': {'sequenced': 'Single Image'}}
 
-            if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+            if image_capture_config.get('output_format', {}).get('sequenced') == 'ImageJ Hyperstack':
                 include_hyperstack_generation = True
-                _, objective = get_current_objective_info()
-                stack_builder = StackBuilder(
-                    has_turret=lumaview.scope.has_turret(),
-                )
+                
+                objective = objective_info
+                if objective is None:
+                    try:
+                        _, objective = get_current_objective_info()
+                    except:
+                        pass
+                
+                try:
+                    stack_builder = StackBuilder(
+                        has_turret=lumaview.scope.has_turret(),
+                    )
+                except:
+                    stack_builder = None
+                    include_hyperstack_generation = False
+                    
                 frame_metadata = []
 
+            save_folder = video_save_folder
+            if save_folder and not save_folder.exists():
+                try:
+                    save_folder.mkdir(exist_ok=True, parents=True)
+                except Exception as e:
+                    logger.error(f"Manual-Video] Failed to create save folder: {e}")
 
+            # Lower thread priority to reduce CPU contention and improve GUI responsiveness
+            try:
+                import psutil
+                p = psutil.Process()
+                p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if windows_machine else 10)
+                logger.info("Manual-Video] Lowered thread priority for video writing")
+            except:
+                pass  # Not critical if this fails
 
-            save_folder = self.video_save_folder
+            for frame_num in range(captured_frames):
 
-            if not save_folder.exists():
-                save_folder.mkdir(exist_ok=True, parents=True)
+                # Yield to other threads every frame to maximize UI responsiveness
+                time.sleep(0.001)  # 1ms yield every frame
 
-            for frame_num in range(self.current_captured_frames):
+                # Update progress for UI
+                self.video_writing_progress = frame_num + 1
 
-                image = self.current_video_frames[frame_num]
-                ts = self.timestamps[frame_num]
+                image = video_frames[frame_num]
+                
+                if frame_num < len(timestamps):
+                    ts = timestamps[frame_num]
+                else:
+                    ts = datetime.datetime.now()
+                    
                 ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
                 image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
 
                 frame_name = f"ManualVideo_Frame_{frame_num:04}"
 
-                output_file_loc = save_folder / f"{frame_name}.tiff"
+                if save_folder:
+                    output_file_loc = save_folder / f"{frame_name}.tiff"
+                else:
+                    continue 
 
                 metadata = {
                             "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
@@ -2230,7 +2784,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                         }
 
                 if include_hyperstack_generation == True:
-                    current_position = lumaview.scope.get_current_position()
+                    try:
+                        current_position = lumaview.scope.get_current_position()
+                    except:
+                        current_position = {'X':0, 'Y':0, 'Z':0}
+                        
                     frame_metadata.append(
                         {
                             'Filepath': output_file_loc.name,
@@ -2253,58 +2811,137 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                         color=color
                     )
                 except Exception as e:
-                    logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
-
-                frame_num += 1
+                    logger.exception(f"Manual-Video] Failed to write frame {frame_num}: {e}")
 
             logger.info("Manual-Video] Video frames written to disk.")
 
 
-            if include_hyperstack_generation == True:
+            if include_hyperstack_generation == True and stack_builder:
                 logger.info("Manual-Video] Creating hyperstack...")
 
-                _, objective = get_current_objective_info()
                 frame_metadata_df = pd.DataFrame(frame_metadata)
-                stack_builder.create_single_recording_stack(
-                    df=frame_metadata_df,
-                    path=save_folder,
-                    output_file_loc=save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff",
-                    focal_length=objective['focal_length'],
-                    binning_size=get_binning_from_ui(),
-                )
+                focal_length = objective['focal_length'] if objective else 0
+                
+                try:
+                    stack_builder.create_single_recording_stack(
+                        df=frame_metadata_df,
+                        path=save_folder,
+                        output_file_loc=save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff",
+                        focal_length=focal_length,
+                        binning_size=binning_info,
+                    )
 
-                logger.info(f"Manual-Video] Hyperstack created at {save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff'}")
+                    logger.info(f"Manual-Video] Hyperstack created at {save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff'}")
+                except Exception as e:
+                    logger.error(f"Manual-Video] Failed to create hyperstack: {e}")
 
         else:
-            if not self.video_save_folder.exists():
-                self.video_save_folder.mkdir(exist_ok=True, parents=True)
-
-            output_file_loc = self.video_save_folder / f"Video_{self.start_time_str}.mp4v"
-
-            video_writer = VideoWriter(
-                output_file_loc=output_file_loc,
-                fps=calculated_fps,
-                include_timestamp_overlay=True
-            )
-
-            for frame_num in range(self.current_captured_frames):
+            if video_save_folder and not video_save_folder.exists():
                 try:
-                    video_writer.add_frame(image=self.current_video_frames[frame_num], timestamp=self.timestamps[frame_num])
+                    video_save_folder.mkdir(exist_ok=True, parents=True)
                 except:
-                    logger.exception("Manual-Video] FAILED TO WRITE FRAME")
+                    pass
 
-            video_writer.finish()
-            logger.info(f"Manual-Video] Mp4 written to {output_file_loc}")
+            # Lower thread priority to reduce CPU contention and improve GUI responsiveness
+            try:
+                import psutil
+                p = psutil.Process()
+                p.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if windows_machine else 10)
+                logger.info("Manual-Video] Lowered thread priority for video writing")
+            except:
+                pass  # Not critical if this fails
+
+            output_file_loc = video_save_folder / f"Video_{start_time_str}.mp4v"
+
+            try:
+                video_writer = VideoWriter(
+                    output_file_loc=output_file_loc,
+                    fps=calculated_fps,
+                    include_timestamp_overlay=True,
+                    codec='mjpg'  # Use MJPEG for faster encoding and better UI responsiveness
+                )
+
+                for frame_num in range(captured_frames):
+                    # Yield to other threads every frame to maximize UI responsiveness
+                    time.sleep(0.001)  # 1ms yield every frame
+                    
+                    # Update progress for UI
+                    self.video_writing_progress = frame_num + 1
+                    
+                    try:
+                        ts = timestamps[frame_num] if frame_num < len(timestamps) else datetime.datetime.now()
+                        video_writer.add_frame(image=video_frames[frame_num], timestamp=ts)
+                    except:
+                        logger.exception("Manual-Video] FAILED TO WRITE FRAME")
+
+                video_writer.finish()
+                logger.info(f"Manual-Video] Mp4 written to {output_file_loc}")
+            except Exception as e:
+                logger.error(f"Manual-Video] Failed to write mp4: {e}")
 
         logger.info("Manual-Video] Video writing finished.")
-        self.current_video_frames.flush()
-        self.current_video_frames = None
+        
+        # Unschedule progress updates now that writing is complete
+        if hasattr(self, 'writing_progress_update'):
+            Clock.unschedule(self.writing_progress_update)
+        
+        # Return the memmap path so cleanup can remove it from the active set
+        return memmap_path_for_this_write
 
-        if os.path.exists(self.memmap_location):
-            os.remove(self.memmap_location)
+        logger.info("Manual-Video] Video writing finished.")
+        
+        # Unschedule progress updates now that writing is complete
+        if hasattr(self, 'writing_progress_update'):
+            Clock.unschedule(self.writing_progress_update)
+        
+        # Return the memmap path so cleanup can remove it from the active set
+        return memmap_path_for_this_write
 
-        set_last_save_folder(self.video_save_folder)
-        Clock.unschedule(self.recording_complete_event)
+    def recording_cleanup_background(self, dt=None, memmap_path=None):
+        """Minimal cleanup - memmap is reused, not deleted."""
+        # Note: We no longer flush or delete the memmap - it will be reused
+        # This prevents system freezes from deleting multi-GB files
+        logger.info("Manual-Video] Recording cleanup started")
+        # Pass memmap_path to GUI cleanup
+        return memmap_path
+
+    def recording_cleanup_gui(self, dt=None, memmap_path=None, result=None, exception=None):
+        """Finish cleanup on GUI thread - only light operations."""
+        # result contains the memmap_path from recording_cleanup_background
+        if result is not None:
+            memmap_path = result
+        try:
+            # Remove this memmap from active writes (thread-safe)
+            if memmap_path:
+                with self.video_writing_memmap_lock:
+                    self.video_writing_memmap_paths.discard(memmap_path)
+                    logger.info(f"Manual-Video] Removed {memmap_path.name} from active writes. Remaining active: {len(self.video_writing_memmap_paths)}")
+            else:
+                # Safety: If memmap_path wasn't passed, log this for debugging
+                logger.warning("Manual-Video] recording_cleanup_gui called without memmap_path")
+            
+            # Unschedule progress updates first
+            if hasattr(self, 'writing_progress_update'):
+                try:
+                    Clock.unschedule(self.writing_progress_update)
+                except:
+                    pass  # Already unscheduled
+            
+            if hasattr(self, 'video_save_folder'):
+                set_last_save_folder(self.video_save_folder)
+            if hasattr(self, 'recording_complete_event'):
+                Clock.unschedule(self.recording_complete_event)
+            # Reset window title only if no other videos are being written
+            if not self._has_active_writes():
+                Window.set_title(f"Lumaview Pro {version}")
+                logger.info("Manual-Video] Reset window title - no active writes")
+            else:
+                remaining_writes = self._get_active_write_count()
+                logger.info(f"Manual-Video] Preserving window title - {remaining_writes} active writes remaining")
+        except Exception as e:
+            logger.exception(f"Manual-Video] Error during GUI cleanup: {e}")
+        finally:
+            logger.info("Manual-Video] Recording cleanup complete")
 
     def record_helper(self, dt=None):
 
@@ -9648,6 +10285,31 @@ class LumaViewProApp(App):
         lumaview.scope.leds_off()
 
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].save_settings("./data/current.json")
+
+
+        # Clean up temporary memmap files used for video recording
+        try:
+            # First, close any open memmap to release file handle
+            if hasattr(lumaview, 'current_video_frames') and lumaview.current_video_frames is not None:
+                try:
+                    del lumaview.current_video_frames
+                    lumaview.current_video_frames = None
+                    logger.info('[LVP Main  ] Closed memmap reference')
+                except Exception as e:
+                    logger.warning(f'[LVP Main  ] Error closing memmap: {e}')
+            
+            logger.info('[LVP Main  ] Cleaning up manual video temporary memmap files...')
+            live_folder = pathlib.Path(settings['live_folder'])
+            if live_folder.exists():
+                # Delete all recording_temp*.dat files
+                for memmap_file in live_folder.glob('recording_temp*.dat'):
+                    try:
+                        memmap_file.unlink()
+                        logger.info(f'[LVP Main  ] Cleaned up memmap file: {memmap_file.name}')
+                    except Exception as e:
+                        logger.warning(f'[LVP Main  ] Could not delete memmap file {memmap_file.name}: {e}')
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Error during memmap cleanup: {e}')
 
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 
