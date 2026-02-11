@@ -37,6 +37,7 @@ import time
 from requests.structures import CaseInsensitiveDict
 import serial
 import serial.tools.list_ports as list_ports
+import lvp_logger
 from lvp_logger import logger
 
 import threading
@@ -101,6 +102,7 @@ class MotorBoard:
         self.write_timeout=None # seconds
         self.driver = None
         self._fullinfo = None
+        self._connect_fails = 0
         try:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
@@ -129,6 +131,10 @@ class MotorBoard:
                 #print([comport.device for comport in serial.tools.list_ports.comports()])
                 self.driver.open()
 
+                self._connect_fails = 0
+                if lvp_logger.is_thread_paused():
+                    lvp_logger.unpause_thread()
+                    logger.info(f'[XYZ Class ] MotorBoard.connect() unpausing thread logs after successful connection')
                 logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
 
                 # After powering on the scope, the first command seems to be ignored.
@@ -141,6 +147,10 @@ class MotorBoard:
                 self._fullinfo = self.fullinfo()
             except Exception as e:
                 self.driver = None
+                self._connect_fails += 1
+                if self._connect_fails >= 10:
+                    logger.critical(f'[XYZ Class ] MotorBoard.connect() failed 10 times, pausing thread logs')
+                    lvp_logger.pause_thread()
                 logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
 
     def disconnect(self):

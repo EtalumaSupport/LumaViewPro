@@ -40,10 +40,14 @@ import os
 import sys
 import ctypes
 import userpaths
+import threading
 
 global windows_machine 
 
 windows_machine = False
+
+# Thread-local storage for tracking paused threads
+_paused_threads = threading.local()
 
 if os.name == "nt":
     windows_machine = True
@@ -119,6 +123,24 @@ def minimize_logger_window():
         except Exception as e:
             logger.error(f"[Logger  ] Failed to minimize console window: {e}")
 
+def pause_thread():
+    """Pause logging for the current thread. Logs will not be recorded until unpause_thread is called."""
+    _paused_threads.paused = True
+
+def unpause_thread():
+    """Resume logging for the current thread."""
+    _paused_threads.paused = False
+
+def is_thread_paused():
+    """Check if logging is paused for the current thread."""
+    return getattr(_paused_threads, 'paused', False)
+
+class ThreadPauseFilter(logging.Filter):
+    """Filter that prevents logging from paused threads."""
+    def filter(self, record):
+        # Allow the log if the thread is not paused
+        return not getattr(_paused_threads, 'paused', False)
+
 #TODO Separate crash logs into a separate file that contains any other info we might need to debug (settings.json maybe) besides stacktrace
 
 # Log traceback if we have a crash to tell us more info on what happened
@@ -153,6 +175,7 @@ file_handler = RotatingFileHandler(
 )
 file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 file_handler.setFormatter(CustomFormatter())
+file_handler.addFilter(ThreadPauseFilter())
 
 # Additional rotating file handler for errors and critical logs only
 error_file_handler = RotatingFileHandler(
@@ -166,6 +189,7 @@ error_file_handler = RotatingFileHandler(
 # keep the same filename pattern for rotations
 error_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 error_file_handler.setFormatter(CustomFormatter())
+error_file_handler.addFilter(ThreadPauseFilter())
 
 # Accept all levels on the handler but filter to ERROR+ or forced records
 error_file_handler.setLevel(logging.NOTSET)

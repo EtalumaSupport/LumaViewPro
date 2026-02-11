@@ -423,7 +423,7 @@ class AutofocusExecutor:
         axs.set_ylabel("Focus Score")
         axs.grid()
 
-        fig.savefig(str(plot_outfile_loc))
+        fig.savefig(str(plot_outfile_loc), backend='agg')
         try:
             fig.clear()
         except Exception:
