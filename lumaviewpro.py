@@ -2157,31 +2157,40 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         self.memmap_location = pathlib.Path(settings['live_folder']) / "recording_temp.dat"
 
-        if self.memmap_location.exists():
-            try:
-                self.memmap_location.unlink()
-                logger.info('[LVP Main  ] Removed existing memmap file')
-            except (OSError, PermissionError) as e:
-                logger.warning(f'[LVP Main  ] Could not remove memmap file (may be in use): {e}')
-                # Try to rename it to .old as backup - helps with crash recovery
-                try:
-                    backup_path = self.memmap_location.with_suffix('.dat.old')
-                    if backup_path.exists():
-                        backup_path.unlink()  # Remove old backup
-                    self.memmap_location.rename(backup_path)
-                    logger.info('[LVP Main  ] Renamed old memmap file to .old')
-                except (OSError, PermissionError) as e2:
-                    logger.error(f'[LVP Main  ] Could not rename memmap file: {e2}')
-                    # Last resort: mode="w+" should truncate, but if it fails we'll get an error
-                    # which is better than silently corrupting data
-
         if settings['use_full_pixel_depth'] == False or settings['video_as_frames'] == False:
             dtype = 'uint8'
         else:
             dtype = 'uint16'
 
-        # Currently 16-bit captures don't use false coloring, so it is equivalent to single channel
+        # Calculate expected file size and shape
+        if (color is None) or (dtype == 'uint16'):
+            required_shape = (max_frames, frame_size["height"], frame_size["width"])
+        else:
+            required_shape = (max_frames, frame_size["height"], frame_size["width"], 3)
+
+        bytes_per_element = 1 if dtype == 'uint8' else 2
+        expected_size = int(np.prod(required_shape, dtype=np.int64)) * bytes_per_element
+
+        # Try to reuse existing file if it has the correct size (fast path - no deletion)
+        if self.memmap_location.exists():
+            try:
+                actual_size = self.memmap_location.stat().st_size
+                if actual_size == expected_size:
+                    logger.info('[LVP Main  ] Reusing existing memmap file (same size)')
+                    # File will be overwritten by mode="w+" below
+                else:
+                    logger.info(f'[LVP Main  ] Memmap size changed ({actual_size} -> {expected_size}), recreating')
+                    # Try to delete old file, but don't block if it fails
+                    try:
+                        self.memmap_location.unlink()
+                    except (OSError, PermissionError) as e:
+                        logger.warning(f'[LVP Main  ] Could not remove old memmap: {e}, will overwrite')
+            except Exception as e:
+                logger.warning(f'[LVP Main  ] Could not check memmap file: {e}')
+
+        # Create or reuse memmap
         try:
+            # mode="w+" will truncate/overwrite if file exists, or create if it doesn't
             if (color is None) or (dtype == 'uint16'):
                 self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
             else:
@@ -2474,20 +2483,12 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             except Exception as e:
                 logger.warning(f'[LVP Main  ] Error closing memmap: {e}')
 
-        # Longer delay to ensure file handle is released (Windows file locking)
-        import time
-        time.sleep(0.5)  # Increased from 0.1 to 0.5 seconds
-
-        if memmap_path:
-            try:
-                # Convert to Path if string
-                if isinstance(memmap_path, str):
-                    memmap_path = pathlib.Path(memmap_path)
-                if memmap_path.exists():
-                    memmap_path.unlink()
-            except (OSError, PermissionError) as e:
-                logger.warning(f'[LVP Main  ] Could not remove memmap file after recording: {e}')
-                # Not critical - file will be overwritten on next recording
+        # NOTE: We intentionally do NOT delete the memmap file here because:
+        # 1. Windows file deletion can block for several seconds even after closing
+        # 2. This causes "Not Responding" freezes in the application
+        # 3. The file will be automatically reused on the next recording (see record_init)
+        # 4. Reusing the file is actually faster than creating a new one
+        logger.info('[LVP Main  ] Memmap file closed and ready for reuse')
 
         # Return memmap_path so cleanup callback knows which path to remove from tracking
         return memmap_path
