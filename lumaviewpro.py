@@ -2155,15 +2155,25 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.stop_ts = self.start_ts + max_duration
         seconds_per_frame = 1.0 / video_fps
 
+        self.memmap_location = pathlib.Path(settings['live_folder']) / "recording_temp.dat"
 
-        self.memmap_location = settings['live_folder'] + "/" + "recording_temp.dat"
-
-        if os.path.exists(self.memmap_location):
+        if self.memmap_location.exists():
             try:
-                os.remove(self.memmap_location)
+                self.memmap_location.unlink()
+                logger.info('[LVP Main  ] Removed existing memmap file')
             except (OSError, PermissionError) as e:
                 logger.warning(f'[LVP Main  ] Could not remove memmap file (may be in use): {e}')
-                # File will be overwritten when memmap is created with mode="w+"
+                # Try to rename it to .old as backup - helps with crash recovery
+                try:
+                    backup_path = self.memmap_location.with_suffix('.dat.old')
+                    if backup_path.exists():
+                        backup_path.unlink()  # Remove old backup
+                    self.memmap_location.rename(backup_path)
+                    logger.info('[LVP Main  ] Renamed old memmap file to .old')
+                except (OSError, PermissionError) as e2:
+                    logger.error(f'[LVP Main  ] Could not rename memmap file: {e2}')
+                    # Last resort: mode="w+" should truncate, but if it fails we'll get an error
+                    # which is better than silently corrupting data
 
         if settings['use_full_pixel_depth'] == False or settings['video_as_frames'] == False:
             dtype = 'uint8'
@@ -2171,10 +2181,20 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             dtype = 'uint16'
 
         # Currently 16-bit captures don't use false coloring, so it is equivalent to single channel
-        if (color is None) or (dtype == 'uint16'):
-            self.current_video_frames = np.memmap(self.memmap_location, dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
-        else:
-            self.current_video_frames = np.memmap(self.memmap_location, dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
+        try:
+            if (color is None) or (dtype == 'uint16'):
+                self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
+            else:
+                self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
+        except (OSError, IOError) as e:
+            logger.error(f'[LVP Main  ] Failed to create memmap file: {e}')
+            logger.error(f'[LVP Main  ] If this persists, manually delete: {self.memmap_location}')
+            Clock.schedule_once(lambda dt: show_notification_popup(
+                title="Recording Failed",
+                message=f"Could not create recording file. The file may be locked from a previous crash.\n\nTry manually deleting:\n{self.memmap_location.name}",
+                popup_level="error"
+            ), 0)
+            raise
 
         self.current_captured_frames = 0
         self.timestamps = []
@@ -2246,6 +2266,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             video_as_frames = self.video_as_frames if hasattr(self, 'video_as_frames') else False
             video_false_color = self.video_false_color if hasattr(self, 'video_false_color') else None
             memmap_path = self.memmap_location if hasattr(self, 'memmap_location') else None
+
+            # Release memmap reference from MainDisplay so file_io_executor has exclusive ownership
+            self.current_video_frames = None
 
             # Clear recording event immediately - camera is now free
             if not self.recording.is_set():
@@ -2450,9 +2473,13 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         import time
         time.sleep(0.1)
 
-        if memmap_path and os.path.exists(memmap_path):
+        if memmap_path:
             try:
-                os.remove(memmap_path)
+                # Convert to Path if string
+                if isinstance(memmap_path, str):
+                    memmap_path = pathlib.Path(memmap_path)
+                if memmap_path.exists():
+                    memmap_path.unlink()
             except (OSError, PermissionError) as e:
                 logger.warning(f'[LVP Main  ] Could not remove memmap file after recording: {e}')
                 # Not critical - file will be overwritten on next recording
