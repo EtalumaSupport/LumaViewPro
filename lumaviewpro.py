@@ -5444,6 +5444,9 @@ class ProtocolSettings(CompositeCapture):
         # Create trigger for debounced UI updates to prevent memory leaks
         self._update_step_ui_trigger = Clock.create_trigger(self._do_update_step_ui, 0.05)
 
+        # Thread-safe flag to prevent duplicate file completion handlers
+        self._scan_files_completed_event = threading.Event()
+
         os.chdir(source_path)
         try:
             read_file = open('./data/labware.json', "r")
@@ -6382,6 +6385,9 @@ class ProtocolSettings(CompositeCapture):
     def _scan_run_complete(self, **kwargs):
         # Don't reset protocol_running_global yet - keep it True until files complete
 
+        # Reset completion event for this scan (thread-safe)
+        self._scan_files_completed_event.clear()
+
         # Check if files are still being written
         if file_io_executor.is_protocol_queue_active():
             # Schedule periodic update to show remaining file count
@@ -6391,6 +6397,7 @@ class ProtocolSettings(CompositeCapture):
             )
             # Initial button state
             queue_size = file_io_executor.protocol_queue_size()
+            self.ids['run_scan_btn'].state = 'normal'  # Reset to normal state
             self.ids['run_scan_btn'].text = f'Writing Files... ({queue_size})'
             self.ids['run_scan_btn'].disabled = True
             # Update window title with custom message
@@ -6413,14 +6420,21 @@ class ProtocolSettings(CompositeCapture):
             queue_size = file_io_executor.protocol_queue_size()
             self.ids['run_scan_btn'].text = f'Writing Files... ({queue_size})'
         else:
-            # Queue is empty - cancel this scheduled update
-            if hasattr(self, '_file_write_status_event'):
+            # Queue is empty - cancel this scheduled update and trigger completion
+            if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
                 Clock.unschedule(self._file_write_status_event)
                 self._file_write_status_event = None
+                # Trigger completion directly since queue is done
+                self._scan_files_complete()
 
 
     def _scan_files_complete(self, **kwargs):
         """Called when ALL files are written to disk (deferred callback)."""
+        # Guard against multiple calls using thread-safe event
+        if self._scan_files_completed_event.is_set():
+            return
+        self._scan_files_completed_event.set()
+
         # Cancel status update if still scheduled
         if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
             Clock.unschedule(self._file_write_status_event)

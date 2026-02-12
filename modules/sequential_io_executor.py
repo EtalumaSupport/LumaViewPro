@@ -511,7 +511,12 @@ class SequentialIOExecutor:
         return self.queue.qsize()
 
     def protocol_queue_size(self) -> int:
-        return self.protocol_queue.qsize()
+        """Returns the number of pending protocol tasks, including any currently running task."""
+        queue_count = self.protocol_queue.qsize()
+        # Add 1 if there's a currently running protocol task
+        if self.running_task is not None and getattr(self.running_task, 'protocol', False):
+            queue_count += 1
+        return queue_count
 
     def seconds_since_last_task(self) -> float:
         return time.monotonic() - self.last_task_done_monotonic
