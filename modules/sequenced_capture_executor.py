@@ -328,7 +328,12 @@ class SequencedCaptureExecutor:
         if self._run_in_progress:
             logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
             return
-        
+
+        # Check if file_io_executor still has pending writes
+        if self.file_io_executor.is_protocol_queue_active():
+            logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, file writing still in progress")
+            return
+
         if leds_state_at_end not in ("off", "return_to_original",):
             raise ValueError(f"Unsupported value for leds_state_at_end: {leds_state_at_end}")
         
@@ -914,7 +919,6 @@ class SequencedCaptureExecutor:
         self._stim_stop_event.set()
 
         self._io_executor.protocol_end()
-        self.file_io_executor.protocol_finish_then_end()
         self.protocol_executor.protocol_end()
         self.autofocus_io_executor.protocol_end()
         self.camera_executor.enable()
@@ -924,9 +928,26 @@ class SequencedCaptureExecutor:
 
         self._run_in_progress = False
 
+        # Handle file queue completion with deferred callback
+        if self.file_io_executor.is_protocol_queue_active():
+            # Queue has pending work - call run_complete now for UI update,
+            # but also register a deferred callback for final completion
+            if 'run_complete' in self._callbacks:
+                self._callbacks['run_complete'](protocol=self._protocol)
 
-        if 'run_complete' in self._callbacks:
-            self._callbacks['run_complete'](protocol=self._protocol)
+            # Register deferred callback for when queue actually drains
+            if 'files_complete' in self._callbacks:
+                self.file_io_executor.set_protocol_complete_callback(
+                    callback=lambda: self._callbacks['files_complete'](protocol=self._protocol)
+                )
+            self.file_io_executor.protocol_finish_then_end()
+        else:
+            # No pending work - call both callbacks immediately
+            if 'run_complete' in self._callbacks:
+                self._callbacks['run_complete'](protocol=self._protocol)
+            if 'files_complete' in self._callbacks:
+                self._callbacks['files_complete'](protocol=self._protocol)
+            self.file_io_executor.protocol_finish_then_end()
 
 
     def _capture(

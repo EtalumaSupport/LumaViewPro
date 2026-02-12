@@ -5723,6 +5723,15 @@ class ProtocolSettings(CompositeCapture):
     def new_protocol(self):
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
+        # Check if file writing is in progress
+        if file_io_executor.is_protocol_queue_active():
+            logger.warning('[LVP Main  ] Cannot create new protocol - files still being written')
+            show_notification_popup(
+                title="Operation Blocked",
+                message="Please wait - files are still being written to disk from the previous scan."
+            )
+            return
+
         config = get_sequenced_capture_config_from_ui()
         protocol = Protocol.from_config(
             input_config=config,
@@ -6283,6 +6292,17 @@ class ProtocolSettings(CompositeCapture):
         live_histo_off()
         stage.set_motion_capability(False)
 
+        # Check if file writing is in progress
+        if file_io_executor.is_protocol_queue_active():
+            run_not_started_func()
+            live_histo_reverse()
+            logger.warning(f"Cannot start autofocus scan - files still being written to disk")
+            show_notification_popup(
+                title="Operation Blocked",
+                message="Please wait - files are still being written to disk."
+            )
+            return
+
         if self.ids['run_autofocus_btn'].state == 'normal' or (sequenced_capture_executor.run_in_progress() and run_trigger_source == trigger_source):
             self._cleanup_at_end_of_protocol(autofocus_scan=True)
             return
@@ -6357,14 +6377,65 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _scan_run_complete(self, **kwargs):
+        # Don't reset protocol_running_global yet - keep it True until files complete
+
+        # Check if files are still being written
+        if file_io_executor.is_protocol_queue_active():
+            # Schedule periodic update to show remaining file count
+            self._file_write_status_event = Clock.schedule_interval(
+                self._update_file_write_status,
+                0.5  # Update every 500ms
+            )
+            # Initial button state
+            queue_size = file_io_executor.protocol_queue_size()
+            self.ids['run_scan_btn'].text = f'Writing Files... ({queue_size})'
+            self.ids['run_scan_btn'].disabled = True
+            # Update window title with custom message
+            Window.set_title(f"Lumaview Pro {version}   |   Writing protocol scan files to disk...")
+        else:
+            # No files pending - proceed with normal reset
+            global protocol_running_global
+            protocol_running_global = False
+            self._reset_run_scan_button()
+            create_hyperstacks_if_needed()
+            live_histo_reverse()
+            reset_acquire_ui()
+            self.reset_autofocus_ui()
+            stage.set_motion_capability(True)
+
+
+    def _update_file_write_status(self, dt):
+        """Update UI to show file writing progress."""
+        if file_io_executor.is_protocol_queue_active():
+            queue_size = file_io_executor.protocol_queue_size()
+            self.ids['run_scan_btn'].text = f'Writing Files... ({queue_size})'
+        else:
+            # Queue is empty - cancel this scheduled update
+            if hasattr(self, '_file_write_status_event'):
+                Clock.unschedule(self._file_write_status_event)
+                self._file_write_status_event = None
+
+
+    def _scan_files_complete(self, **kwargs):
+        """Called when ALL files are written to disk (deferred callback)."""
+        # Cancel status update if still scheduled
+        if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
+            Clock.unschedule(self._file_write_status_event)
+            self._file_write_status_event = None
+
         global protocol_running_global
         protocol_running_global = False
+
+        # Now actually reset the button
         self._reset_run_scan_button()
+
+        # Complete remaining cleanup
         create_hyperstacks_if_needed()
         live_histo_reverse()
         reset_acquire_ui()
         self.reset_autofocus_ui()
         stage.set_motion_capability(True)
+        reset_title()
 
 
     def run_scan_from_ui(self):
@@ -6409,6 +6480,7 @@ class ProtocolSettings(CompositeCapture):
             'autofocus_complete': self._autofocus_complete_callback,
             'scan_iterate_post': run_not_started_func,
             'run_complete': run_complete_func,
+            'files_complete': self._scan_files_complete,
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
             'pause_live_ui': lambda: (
@@ -6450,6 +6522,16 @@ class ProtocolSettings(CompositeCapture):
         protocol_running_global = True
 
         stage.set_motion_capability(False)
+
+        # Check if file writing is in progress
+        if file_io_executor.is_protocol_queue_active():
+            run_not_started_func()
+            logger.warning(f"Cannot start protocol run - files still being written to disk")
+            show_notification_popup(
+                title="Operation Blocked",
+                message="Please wait - files are still being written to disk."
+            )
+            return
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
 
