@@ -2023,7 +2023,17 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         if self.scope.camera_is_connected():
             self.camera_temps_event = Clock.schedule_interval(lambda dt: self.log_camera_temps(), 7200)  # Log every 2 hours
-        self.recording = False
+        self.recording = threading.Event()
+        self.recording.clear()
+        self.video_writing = threading.Event()  # Track if video is being written
+        self.video_writing.clear()
+        self.recording_check = None
+        self.recording_event = None
+        self.recording_complete_event = None
+        self.recording_title_update = None
+        self.writing_progress_update = None
+        self.video_writing_progress = 0
+        self.video_writing_total_frames = 0
         self.led_on_before_pause = False
 
     def log_camera_temps(self):
@@ -2061,8 +2071,23 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             scope_display.start()
 
     def record_button(self):
-        if self.recording:
+        if self.recording.is_set():
             return
+
+        # Check if video is currently being written
+        if self.video_writing.is_set():
+            logger.warning('[LVP Main  ] Cannot start recording - video is being written')
+            Clock.schedule_once(lambda dt: show_notification_popup(
+                title="Video Being Written",
+                message="Please wait for the current video to finish writing before starting a new recording."
+            ), 0)
+            # Reset button state
+            try:
+                self.ids['record_btn'].state = 'normal'
+            except:
+                pass
+            return
+
         camera_executor.put(IOTask(self.record_init))
 
     def open_save_folder_button(self):
@@ -2070,8 +2095,17 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def record_init(self):
         logger.info('[LVP Main  ] MainDisplay.record()')
+
+        # Guard against race condition: if another record_init() already started, abort
+        if self.recording.is_set():
+            logger.warning('[LVP Main  ] Recording already in progress, ignoring duplicate record_init()')
+            return
+
         if self.scope.camera.active == False:
             return
+
+        # Atomically claim the recording operation
+        self.recording.set()
 
         self.video_as_frames = settings['video_as_frames']
 
@@ -2125,7 +2159,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.memmap_location = settings['live_folder'] + "/" + "recording_temp.dat"
 
         if os.path.exists(self.memmap_location):
-            os.remove(self.memmap_location)
+            try:
+                os.remove(self.memmap_location)
+            except (OSError, PermissionError) as e:
+                logger.warning(f'[LVP Main  ] Could not remove memmap file (may be in use): {e}')
+                # File will be overwritten when memmap is created with mode="w+"
 
         if settings['use_full_pixel_depth'] == False or settings['video_as_frames'] == False:
             dtype = 'uint8'
@@ -2143,7 +2181,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         logger.info(f"Manual-Video] Capturing video...")
 
-        self.recording = True
+        # Schedule title updates to show recording progress
+        self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)  # Update every 100ms
         self.recording_check = Clock.schedule_interval(self.check_recording_state, seconds_per_frame)
         self.recording_event = Clock.schedule_interval(self._enqueue_recording_frame, seconds_per_frame)
 
@@ -2156,6 +2195,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         if time.time() >= self.stop_ts:
             Clock.unschedule(self.recording_check)
             Clock.unschedule(self.recording_event)
+            if hasattr(self, 'recording_title_update') and self.recording_title_update:
+                Clock.unschedule(self.recording_title_update)
             self.video_duration = time.time() - self.start_ts
             self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
             self.ids['record_btn'].state = 'normal'
@@ -2167,18 +2208,45 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         # Button clicked, stop recording
         Clock.unschedule(self.recording_check)
         Clock.unschedule(self.recording_event)
+        if hasattr(self, 'recording_title_update') and self.recording_title_update:
+            Clock.unschedule(self.recording_title_update)
         self.video_duration = time.time() - self.start_ts
         self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
+
+    def update_recording_title(self, dt=None):
+        """Update window title with recording elapsed time."""
+        if self.recording.is_set():
+            elapsed = time.time() - self.start_ts
+            from kivy.core.window import Window
+            Window.set_title(f"Lumaview Pro {version}   |   Recording Manual Video: {elapsed:.1f}s")
+
+    def update_writing_progress(self, dt=None):
+        """Update window title with video writing progress percentage."""
+        if self.video_writing_total_frames > 0:
+            progress_pct = (self.video_writing_progress / self.video_writing_total_frames) * 100
+            from kivy.core.window import Window
+            Window.set_title(f"Lumaview Pro {version}   |   Writing Manual Video: {progress_pct:.0f}%")
 
     def _enqueue_recording_complete(self, dt=None):
         """Enqueue recording complete task without creating closure."""
         camera_executor.put(IOTask(self.recording_complete))
 
     def recording_complete(self, dt=None):
-        if self.recording == False:
+        if not self.recording.is_set():
             return
 
-        self.recording = False
+        # Clear recording event
+        self.recording.clear()
+
+        # Set video writing event to block new recordings
+        self.video_writing.set()
+
+        # Initialize progress tracking
+        self.video_writing_progress = 0
+        self.video_writing_total_frames = max(1, self.current_captured_frames)
+
+        # Schedule progress updates
+        self.writing_progress_update = Clock.schedule_interval(self.update_writing_progress, 0.1)
 
         calculated_fps = self.current_captured_frames//self.video_duration
 
@@ -2255,7 +2323,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 except Exception as e:
                     logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
 
-                frame_num += 1
+                # Update progress after writing each frame
+                self.video_writing_progress = frame_num + 1
 
             logger.info("Manual-Video] Video frames written to disk.")
 
@@ -2293,18 +2362,42 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 except:
                     logger.exception("Manual-Video] FAILED TO WRITE FRAME")
 
+                # Update progress after adding each frame
+                self.video_writing_progress = frame_num + 1
+
             video_writer.finish()
             logger.info(f"Manual-Video] Mp4 written to {output_file_loc}")
 
         logger.info("Manual-Video] Video writing finished.")
-        self.current_video_frames.flush()
-        self.current_video_frames = None
+        if self.current_video_frames is not None:
+            self.current_video_frames.flush()
+            del self.current_video_frames  # Explicit delete to close file handle
+            self.current_video_frames = None
+
+        # Small delay to ensure file handle is released (Windows file locking)
+        import time
+        time.sleep(0.1)
 
         if os.path.exists(self.memmap_location):
-            os.remove(self.memmap_location)
+            try:
+                os.remove(self.memmap_location)
+            except (OSError, PermissionError) as e:
+                logger.warning(f'[LVP Main  ] Could not remove memmap file after recording: {e}')
+                # Not critical - file will be overwritten on next recording
 
         set_last_save_folder(self.video_save_folder)
         Clock.unschedule(self.recording_complete_event)
+
+        # Unschedule progress updates
+        if hasattr(self, 'writing_progress_update') and self.writing_progress_update:
+            Clock.unschedule(self.writing_progress_update)
+
+        # Clear video writing state - new recordings can now start
+        self.video_writing.clear()
+
+        # Reset window title
+        from kivy.core.window import Window
+        Window.set_title(f"Lumaview Pro {version}")
 
     def record_helper(self, dt=None):
 
