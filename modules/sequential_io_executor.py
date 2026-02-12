@@ -185,6 +185,11 @@ class SequentialIOExecutor:
         self.blocker = threading.Event()
         self.last_task_done_monotonic = time.monotonic()
 
+        # Protocol completion callback support
+        self.protocol_complete_callback = None
+        self.protocol_complete_cb_args = ()
+        self.protocol_complete_cb_kwargs = {}
+
 
     def start(self):
         # Start internal dispatcher
@@ -246,6 +251,10 @@ class SequentialIOExecutor:
     def protocol_end(self):
 
         self.protocol_running.clear()
+        # Clear completion callback when protocol ends prematurely
+        self.protocol_complete_callback = None
+        self.protocol_complete_cb_args = ()
+        self.protocol_complete_cb_kwargs = {}
         logger.info(f"{self.name} Protocol Ended")
 
     def protocol_finish_then_end(self):
@@ -254,6 +263,18 @@ class SequentialIOExecutor:
 
     def is_protocol_running(self):
         return self.protocol_running.is_set()
+
+    def set_protocol_complete_callback(self, callback, cb_args=None, cb_kwargs=None):
+        """Register callback to be invoked when protocol queue is fully drained."""
+        self.protocol_complete_callback = callback
+        self.protocol_complete_cb_args = cb_args if cb_args is not None else ()
+        self.protocol_complete_cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
+
+    def is_protocol_queue_active(self) -> bool:
+        """Returns True if protocol queue has pending tasks or is draining."""
+        return (self.protocol_finish.is_set() or
+                not self.protocol_queue.empty() or
+                (self.running_task is not None and getattr(self.running_task, 'protocol', False)))
 
     def wait_for_task(self, task: IOTask, timeout: float):
         if task not in self.caller_futures:
@@ -291,6 +312,19 @@ class SequentialIOExecutor:
                     if self.protocol_finish.is_set():
                         self.protocol_end()
                         self.protocol_finish.clear()
+                        # Trigger completion callback if registered
+                        if self.protocol_complete_callback is not None:
+                            Clock.schedule_once(
+                                lambda dt: self.protocol_complete_callback(
+                                    *self.protocol_complete_cb_args,
+                                    **self.protocol_complete_cb_kwargs
+                                ),
+                                0
+                            )
+                            # Clear callback after invoking
+                            self.protocol_complete_callback = None
+                            self.protocol_complete_cb_args = ()
+                            self.protocol_complete_cb_kwargs = {}
                     continue
                 if self.protocol_running.is_set() or self.protocol_finish.is_set():
                     if self.pending_shutdown:
@@ -477,7 +511,12 @@ class SequentialIOExecutor:
         return self.queue.qsize()
 
     def protocol_queue_size(self) -> int:
-        return self.protocol_queue.qsize()
+        """Returns the number of pending protocol tasks, including any currently running task."""
+        queue_count = self.protocol_queue.qsize()
+        # Add 1 if there's a currently running protocol task
+        if self.running_task is not None and getattr(self.running_task, 'protocol', False):
+            queue_count += 1
+        return queue_count
 
     def seconds_since_last_task(self) -> float:
         return time.monotonic() - self.last_task_done_monotonic
