@@ -2191,8 +2191,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             logger.error(f'[LVP Main  ] If this persists, manually delete: {self.memmap_location}')
             Clock.schedule_once(lambda dt: show_notification_popup(
                 title="Recording Failed",
-                message=f"Could not create recording file. The file may be locked from a previous crash.\n\nTry manually deleting:\n{self.memmap_location.name}",
-                popup_level="error"
+                message=f"Could not create recording file. The file may be locked from a previous crash.\n\nTry manually deleting:\n{self.memmap_location.name}"
             ), 0)
             raise
 
@@ -2464,14 +2463,20 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         logger.info("Manual-Video] Video writing finished.")
 
-        # Cleanup memmap
+        # Cleanup memmap - must explicitly close the underlying mmap object
         if video_frames is not None:
-            video_frames.flush()
-            del video_frames  # Explicit delete to close file handle
+            try:
+                video_frames.flush()
+                # Explicitly close the memory-mapped file
+                if hasattr(video_frames, '_mmap') and video_frames._mmap is not None:
+                    video_frames._mmap.close()
+                del video_frames  # Delete the reference
+            except Exception as e:
+                logger.warning(f'[LVP Main  ] Error closing memmap: {e}')
 
-        # Small delay to ensure file handle is released (Windows file locking)
+        # Longer delay to ensure file handle is released (Windows file locking)
         import time
-        time.sleep(0.1)
+        time.sleep(0.5)  # Increased from 0.1 to 0.5 seconds
 
         if memmap_path:
             try:
