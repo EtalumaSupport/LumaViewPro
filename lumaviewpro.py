@@ -2171,13 +2171,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         bytes_per_element = 1 if dtype == 'uint8' else 2
         expected_size = int(np.prod(required_shape, dtype=np.int64)) * bytes_per_element
 
-        # Try to reuse existing file if it has the correct size (fast path - no deletion)
+        # Check if we can reuse existing file (fast path - no truncation needed)
+        reuse_existing = False
         if self.memmap_location.exists():
             try:
                 actual_size = self.memmap_location.stat().st_size
                 if actual_size == expected_size:
                     logger.info('[LVP Main  ] Reusing existing memmap file (same size)')
-                    # File will be overwritten by mode="w+" below
+                    reuse_existing = True
                 else:
                     logger.info(f'[LVP Main  ] Memmap size changed ({actual_size} -> {expected_size}), recreating')
                     # Try to delete old file, but don't block if it fails
@@ -2190,11 +2191,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         # Create or reuse memmap
         try:
-            # mode="w+" will truncate/overwrite if file exists, or create if it doesn't
+            # Use mode="r+" to reuse existing file without truncation (fast)
+            # Use mode="w+" only when creating new file or size changed (requires truncation)
+            memmap_mode = "r+" if reuse_existing else "w+"
+
             if (color is None) or (dtype == 'uint16'):
-                self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"]))
+                self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode=memmap_mode, shape=(max_frames, frame_size["height"], frame_size["width"]))
             else:
-                self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode="w+", shape=(max_frames, frame_size["height"], frame_size["width"], 3))
+                self.current_video_frames = np.memmap(str(self.memmap_location), dtype=dtype, mode=memmap_mode, shape=(max_frames, frame_size["height"], frame_size["width"], 3))
         except (OSError, IOError) as e:
             logger.error(f'[LVP Main  ] Failed to create memmap file: {e}')
             logger.error(f'[LVP Main  ] If this persists, manually delete: {self.memmap_location}')
@@ -2338,157 +2342,160 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         memmap_path = kwargs.get('memmap_path', None)
         video_false_color = kwargs.get('video_false_color', None)
 
-        # Defensive check
-        if video_frames is None:
-            logger.error("Manual-Video] recording_complete called with no video frames")
-            return memmap_path
+        try:
+            # Defensive check
+            if video_frames is None:
+                logger.error("Manual-Video] recording_complete called with no video frames")
+                return memmap_path
 
-        # Prevent division by zero
-        if video_duration <= 0:
-            video_duration = 0.1
-            logger.warning("Manual-Video] Video duration was 0, using 0.1s")
+            # Prevent division by zero
+            if video_duration <= 0:
+                video_duration = 0.1
+                logger.warning("Manual-Video] Video duration was 0, using 0.1s")
 
-        if captured_frames == 0:
-            logger.error("Manual-Video] No frames captured, aborting video write")
-            return memmap_path
+            if captured_frames == 0:
+                logger.error("Manual-Video] No frames captured, aborting video write")
+                return memmap_path
 
-        calculated_fps = captured_frames // video_duration
+            calculated_fps = captured_frames // video_duration
 
-        logger.info(f"Manual-Video] Images present in video array: {len(video_frames) > 0 if video_frames is not None else 0}")
-        logger.info(f"Manual-Video] Captured Frames: {captured_frames}")
-        logger.info(f"Manual-Video] Video FPS: {calculated_fps}")
-        logger.info("Manual-Video] Writing video...")
+            logger.info(f"Manual-Video] Images present in video array: {len(video_frames) > 0 if video_frames is not None else 0}")
+            logger.info(f"Manual-Video] Captured Frames: {captured_frames}")
+            logger.info(f"Manual-Video] Video FPS: {calculated_fps}")
+            logger.info("Manual-Video] Writing video...")
 
-        color, active_layer_config = get_active_layer_config()
+            color, active_layer_config = get_active_layer_config()
 
-        include_hyperstack_generation = False
+            include_hyperstack_generation = False
 
-        if video_as_frames:
+            if video_as_frames:
 
-            image_capture_config = get_image_capture_config_from_ui()
+                image_capture_config = get_image_capture_config_from_ui()
 
-            if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
-                include_hyperstack_generation = True
-                _, objective = get_current_objective_info()
-                stack_builder = StackBuilder(
-                    has_turret=lumaview.scope.has_turret(),
-                )
-                frame_metadata = []
+                if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+                    include_hyperstack_generation = True
+                    _, objective = get_current_objective_info()
+                    stack_builder = StackBuilder(
+                        has_turret=lumaview.scope.has_turret(),
+                    )
+                    frame_metadata = []
 
-            save_folder = video_save_folder
+                save_folder = video_save_folder
 
-            if not save_folder.exists():
-                save_folder.mkdir(exist_ok=True, parents=True)
+                if not save_folder.exists():
+                    save_folder.mkdir(exist_ok=True, parents=True)
 
-            for frame_num in range(captured_frames):
+                for frame_num in range(captured_frames):
 
-                image = video_frames[frame_num]
-                ts = timestamps[frame_num] if frame_num < len(timestamps) else datetime.datetime.now()
-                ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    image = video_frames[frame_num]
+                    ts = timestamps[frame_num] if frame_num < len(timestamps) else datetime.datetime.now()
+                    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
-                image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
+                    image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
 
-                frame_name = f"ManualVideo_Frame_{frame_num:04}"
+                    frame_name = f"ManualVideo_Frame_{frame_num:04}"
 
-                output_file_loc = save_folder / f"{frame_name}.tiff"
+                    output_file_loc = save_folder / f"{frame_name}.tiff"
 
-                metadata = {
-                            "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
-                            "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
-                            "frame_num": frame_num
-                        }
+                    metadata = {
+                                "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
+                                "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
+                                "frame_num": frame_num
+                            }
+
+                    if include_hyperstack_generation == True:
+                        current_position = lumaview.scope.get_current_position()
+                        frame_metadata.append(
+                            {
+                                'Filepath': output_file_loc.name,
+                                'Scan Count': frame_num,
+                                'Color': color,
+                                'Z-Slice': 0,
+                                'X': current_position['X'],
+                                'Y': current_position['Y'],
+                                'Z': current_position['Z'],
+                            }
+                        )
+
+                    try:
+                        image_utils.write_tiff(
+                            data=image,
+                            metadata=metadata,
+                            file_loc=output_file_loc,
+                            video_frame=True,
+                            ome=False,
+                            color=color
+                        )
+                    except Exception as e:
+                        logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
+
+                    # Update progress after writing each frame
+                    self.video_writing_progress = frame_num + 1
+
+                logger.info("Manual-Video] Video frames written to disk.")
+
 
                 if include_hyperstack_generation == True:
-                    current_position = lumaview.scope.get_current_position()
-                    frame_metadata.append(
-                        {
-                            'Filepath': output_file_loc.name,
-                            'Scan Count': frame_num,
-                            'Color': color,
-                            'Z-Slice': 0,
-                            'X': current_position['X'],
-                            'Y': current_position['Y'],
-                            'Z': current_position['Z'],
-                        }
+                    logger.info("Manual-Video] Creating hyperstack...")
+
+                    _, objective = get_current_objective_info()
+                    frame_metadata_df = pd.DataFrame(frame_metadata)
+                    stack_builder.create_single_recording_stack(
+                        df=frame_metadata_df,
+                        path=save_folder,
+                        output_file_loc=save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff",
+                        focal_length=objective['focal_length'],
+                        binning_size=get_binning_from_ui(),
                     )
 
-                try:
-                    image_utils.write_tiff(
-                        data=image,
-                        metadata=metadata,
-                        file_loc=output_file_loc,
-                        video_frame=True,
-                        ome=False,
-                        color=color
-                    )
-                except Exception as e:
-                    logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
+                    logger.info(f"Manual-Video] Hyperstack created at {save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff'}")
 
-                # Update progress after writing each frame
-                self.video_writing_progress = frame_num + 1
+            else:
+                if not video_save_folder.exists():
+                    video_save_folder.mkdir(exist_ok=True, parents=True)
 
-            logger.info("Manual-Video] Video frames written to disk.")
+                output_file_loc = video_save_folder / f"Video_{start_time_str}.mp4v"
 
-
-            if include_hyperstack_generation == True:
-                logger.info("Manual-Video] Creating hyperstack...")
-
-                _, objective = get_current_objective_info()
-                frame_metadata_df = pd.DataFrame(frame_metadata)
-                stack_builder.create_single_recording_stack(
-                    df=frame_metadata_df,
-                    path=save_folder,
-                    output_file_loc=save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff",
-                    focal_length=objective['focal_length'],
-                    binning_size=get_binning_from_ui(),
+                video_writer = VideoWriter(
+                    output_file_loc=output_file_loc,
+                    fps=calculated_fps,
+                    include_timestamp_overlay=True
                 )
 
-                logger.info(f"Manual-Video] Hyperstack created at {save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff'}")
+                for frame_num in range(captured_frames):
+                    try:
+                        ts = timestamps[frame_num] if frame_num < len(timestamps) else datetime.datetime.now()
+                        video_writer.add_frame(image=video_frames[frame_num], timestamp=ts)
+                    except:
+                        logger.exception("Manual-Video] FAILED TO WRITE FRAME")
 
-        else:
-            if not video_save_folder.exists():
-                video_save_folder.mkdir(exist_ok=True, parents=True)
+                    # Update progress after adding each frame
+                    self.video_writing_progress = frame_num + 1
 
-            output_file_loc = video_save_folder / f"Video_{start_time_str}.mp4v"
+                video_writer.finish()
+                logger.info(f"Manual-Video] Mp4 written to {output_file_loc}")
 
-            video_writer = VideoWriter(
-                output_file_loc=output_file_loc,
-                fps=calculated_fps,
-                include_timestamp_overlay=True
-            )
+            logger.info("Manual-Video] Video writing finished.")
 
-            for frame_num in range(captured_frames):
+        finally:
+            # Cleanup memmap - must explicitly close the underlying mmap object
+            # This MUST run even if we return early (e.g., no frames captured)
+            if video_frames is not None:
                 try:
-                    ts = timestamps[frame_num] if frame_num < len(timestamps) else datetime.datetime.now()
-                    video_writer.add_frame(image=video_frames[frame_num], timestamp=ts)
-                except:
-                    logger.exception("Manual-Video] FAILED TO WRITE FRAME")
+                    # Explicitly close the memory-mapped file
+                    # Note: No need to flush() before close - close() handles any pending writes
+                    if hasattr(video_frames, '_mmap') and video_frames._mmap is not None:
+                        video_frames._mmap.close()
+                    del video_frames  # Delete the reference
+                except Exception as e:
+                    logger.warning(f'[LVP Main  ] Error closing memmap: {e}')
 
-                # Update progress after adding each frame
-                self.video_writing_progress = frame_num + 1
-
-            video_writer.finish()
-            logger.info(f"Manual-Video] Mp4 written to {output_file_loc}")
-
-        logger.info("Manual-Video] Video writing finished.")
-
-        # Cleanup memmap - must explicitly close the underlying mmap object
-        if video_frames is not None:
-            try:
-                video_frames.flush()
-                # Explicitly close the memory-mapped file
-                if hasattr(video_frames, '_mmap') and video_frames._mmap is not None:
-                    video_frames._mmap.close()
-                del video_frames  # Delete the reference
-            except Exception as e:
-                logger.warning(f'[LVP Main  ] Error closing memmap: {e}')
-
-        # NOTE: We intentionally do NOT delete the memmap file here because:
-        # 1. Windows file deletion can block for several seconds even after closing
-        # 2. This causes "Not Responding" freezes in the application
-        # 3. The file will be automatically reused on the next recording (see record_init)
-        # 4. Reusing the file is actually faster than creating a new one
-        logger.info('[LVP Main  ] Memmap file closed and ready for reuse')
+            # NOTE: We intentionally do NOT delete the memmap file here because:
+            # 1. Windows file deletion can block for several seconds even after closing
+            # 2. This causes "Not Responding" freezes in the application
+            # 3. The file will be automatically reused on the next recording (see record_init)
+            # 4. Reusing the file is actually faster than creating a new one
+            logger.info('[LVP Main  ] Memmap file closed and ready for reuse')
 
         # Return memmap_path so cleanup callback knows which path to remove from tracking
         return memmap_path
