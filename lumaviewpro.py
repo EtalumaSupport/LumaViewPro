@@ -6242,6 +6242,7 @@ class ProtocolSettings(CompositeCapture):
 
         self.ids['run_autofocus_btn'].state = 'normal'
         self.ids['run_autofocus_btn'].text = 'Autofocus All Steps'
+        self.ids['run_autofocus_btn'].disabled = False
         stage.set_motion_capability(True)
 
 
@@ -6250,6 +6251,7 @@ class ProtocolSettings(CompositeCapture):
         protocol_running_global = False
         self.ids['run_scan_btn'].state = 'normal'
         self.ids['run_scan_btn'].text = 'Run One Scan'
+        self.ids['run_scan_btn'].disabled = False
         stage.set_motion_capability(True)
 
 
@@ -6258,6 +6260,7 @@ class ProtocolSettings(CompositeCapture):
         protocol_running_global = False
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
+        self.ids['run_protocol_btn'].disabled = False
         self.ids['run_protocol_btn'].background_down = 'atlas://data/images/defaulttheme/button_pressed'
         stage.set_motion_capability(True)
 
