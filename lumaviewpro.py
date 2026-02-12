@@ -6364,8 +6364,8 @@ class ProtocolSettings(CompositeCapture):
         live_histo_off()
         stage.set_motion_capability(False)
 
-        # Check if file writing is in progress
-        if file_io_executor.is_protocol_queue_active():
+        # Only block if starting NEW autofocus scan (button is 'down'), not if aborting (button is 'normal')
+        if self.ids['run_autofocus_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
             run_not_started_func()
             live_histo_reverse()
             logger.warning(f"Cannot start autofocus scan - files still being written to disk")
@@ -6537,9 +6537,14 @@ class ProtocolSettings(CompositeCapture):
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
 
-        # Block if files are still being written
-        if file_io_executor.is_protocol_queue_active():
+        # Only block if starting NEW scan (button is 'down'), not if aborting (button is 'normal')
+        if self.ids['run_scan_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
+            run_not_started_func()
             logger.warning(f"Cannot start scan - files still being written to disk")
+            show_notification_popup(
+                title="Operation Blocked",
+                message="Please wait - files are still being written to disk from the previous scan."
+            )
             return
 
         global protocol_running_global
@@ -6692,8 +6697,8 @@ class ProtocolSettings(CompositeCapture):
 
         stage.set_motion_capability(False)
 
-        # Check if file writing is in progress
-        if file_io_executor.is_protocol_queue_active():
+        # Only block if starting NEW protocol run (button is 'down'), not if aborting (button is 'normal')
+        if self.ids['run_protocol_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
             run_not_started_func()
             logger.warning(f"Cannot start protocol run - files still being written to disk")
             show_notification_popup(
