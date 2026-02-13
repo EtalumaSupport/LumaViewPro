@@ -41,6 +41,7 @@ class IDSCamera(Camera):
                 logger.info(f'[CAM Class ] Camera Model: {self.model_name}')
                 logger.info(f'[CAM Class ] Camera Serial Number: {self._device_serial}')
                 logger.info(f'[CAM Class ] Camera Firmware Version: {self.remote_nodemap.FindNode('DeviceFirmwareVersion').Value()}')
+                # logger.info(f'[CAM Class ] Camera Firmware Version: {self.remote_nodemap.FindNode("DeviceFirmwareVersion").Value()}')
             except:
                 logger.warning(f'[CAM CLASS ] Could not read all camera information')
 
