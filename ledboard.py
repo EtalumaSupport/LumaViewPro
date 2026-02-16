@@ -167,7 +167,7 @@ class LEDBoard:
     def _write_command_fast(self, command: str):
         """Write-only fast path: send command without sleeps or reading a response."""
         stream = command.encode('utf-8')+b"\n"
-        if self.driver != False:
+        if self.driver is not None:
             try:
                 with self.com_lock:
                     self.driver.write(stream)
