@@ -2020,9 +2020,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         super(MainDisplay,self).__init__(**kwargs)
         self.scope = lumascope_api.Lumascope()
         self.camera_temps_event = None
-
-        if self.scope.camera_is_connected():
-            self.camera_temps_event = Clock.schedule_interval(lambda dt: self.log_camera_temps(), 7200)  # Log every 2 hours
         self.recording = threading.Event()
         self.recording.clear()
         self.video_writing = threading.Event()  # Track if video is being written
@@ -9911,9 +9908,13 @@ class LumaViewProApp(App):
         layer_obj.apply_settings()
         Clock.schedule_once(layer_obj.apply_settings, 5)
 
-        log_system_metrics()
+        log_system_metrics() # Log once on startup
 
-        Clock.schedule_once(functools.partial(log_system_metrics), 7200)   # Log metrics every 2 hours
+        Clock.schedule_interval(functools.partial(log_system_metrics), 14400)   # Log metrics every 4 hours
+
+        if lumaview.scope.camera_is_connected():
+            lumaview.log_camera_temps()  # Log once on startup
+            lumaview.camera_temps_event = Clock.schedule_interval(lambda dt: lumaview.log_camera_temps(), 14400)  # Log every 4 hours
 
         camera_executor.put(IOTask(scope_leds_off))
 
