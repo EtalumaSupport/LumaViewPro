@@ -450,7 +450,7 @@ class SequencedCaptureExecutor:
                 end_scan_time = datetime.datetime.now()
                 scan_duration = end_scan_time - start_scan_time
 
-                logger.info(f"Protocol scan {self._scan_count} completed in {scan_duration.total_seconds():.2f} seconds", extra={"force_error": True})
+                logger.info(f"Protocol scan {self._scan_count} completed in {scan_duration.total_seconds():.2f} seconds")
                 
                 # Scan completed - increment counter
                 self._scan_count += 1
