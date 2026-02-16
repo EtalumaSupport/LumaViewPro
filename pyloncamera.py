@@ -48,7 +48,7 @@ class PylonCamera:
 
     def __init__(self, **kwargs):
         logger.info('[CAM Class ] PylonCamera.__init__()')
-        self.active = False
+        self.active = None
         self.error_report_count = 0
         self.array = np.array([])
         self.cam_image_handler = None
@@ -209,11 +209,11 @@ class PylonCamera:
         except genicam.RuntimeException as ex:
             # Handles when the device is already open in another application
             logger.error(f'[CAM Class ] PylonCamera.connect() failed (may be open in another application) -> {ex}')
-            self.active = False
+            self.active = None
             self.error_report_count += 1
         except:
             logger.exception('[CAM Class ] PylonCamera.connect() failed')
-            self.active = False
+            self.active = None
             self.error_report_count += 1
 
     def find_model_name(self):
@@ -283,7 +283,7 @@ class PylonCamera:
     
     def init_camera_config(self):
         camera = self.active
-        if camera == False:
+        if camera is None:
             return
         
         with self.update_camera_config():
@@ -411,7 +411,7 @@ class PylonCamera:
         returns False if unsuccessful
         access the image using camera.array where camera is the instance of the class"""
         # Check if camera is still active before attempting grab
-        if self.active in (False, None):
+        if self.active is None:
             return False, None
             
         if self._device_removed:
@@ -460,7 +460,7 @@ class PylonCamera:
     def set_frame_size(self, w, h):
         """ Set camera frame size to w by h and keep centered """
         camera = self.active
-        if camera == False:
+        if camera is None:
             logger.warning('[CAM Class ] PylonCamera.set_frame_size('+str(w)+','+str(h)+')'+'; inactive')
             return
 
@@ -478,7 +478,7 @@ class PylonCamera:
     
     def get_min_frame_size(self) -> dict:
         camera = self.active
-        if camera == False:
+        if camera is None:
             return {}
         
         return {
@@ -489,7 +489,7 @@ class PylonCamera:
 
     def get_max_frame_size(self) -> dict:
         camera = self.active
-        if camera == False:
+        if camera is None:
             return {}
         
         return {
@@ -500,7 +500,7 @@ class PylonCamera:
 
     def get_frame_size(self):
         camera = self.active
-        if camera == False:
+        if camera is None:
             return
         
         width = camera.Width.GetValue()
@@ -513,7 +513,7 @@ class PylonCamera:
     
 
     def get_gain(self):
-        if self.active == False:
+        if self.active is None:
             logger.warning('[CAM Class ] PylonCamera.get_gain(): inactive camera')
             return -1
         
@@ -527,7 +527,7 @@ class PylonCamera:
         if self._device_removed:
             self.active = None
             return False
-        if self.active in (False, None):
+        if self.active is None:
             self._device_removed = True
             return False
         # if getattr(self, "_use_camera_emulation", False):
@@ -546,7 +546,7 @@ class PylonCamera:
 
     def gain(self, gain):
         """ Set gain value in the camera hardware"""
-        if self.active == False:
+        if self.active is None:
             logger.warning('[CAM Class ] PylonCamera.gain('+str(gain)+')'+': inactive camera')
             return
 
@@ -564,7 +564,7 @@ class PylonCamera:
         """ Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
-        if self.active == False:
+        if self.active is None:
             logger.warning('[CAM Class ] PylonCamera.auto_gain('+str(state)+')'+': inactive camera')
             return
 
@@ -588,7 +588,7 @@ class PylonCamera:
         """ Enable / Disable camera auto_gain with the value of 'state'
         Auto Gain/Exposure executed one time """
 
-        if self.active == False:
+        if self.active is None:
             logger.warning('[CAM Class ] PylonCamera.auto_gain_once('+str(state)+')'+': inactive camera')
             return
 
@@ -605,7 +605,7 @@ class PylonCamera:
             
     def exposure_t(self, t):
         """ Set exposure time in the camera hardware t (msec)"""
-        if self.active == False:
+        if self.active is None:
             logger.warning('[CAM Class ] PylonCamera.exposure_t('+str(t)+')'+': inactive camera')
             return
         
@@ -625,7 +625,7 @@ class PylonCamera:
         """ Get exposure time in the camera hardware
          Returns t (msec), or -1 if the camera is inactive"""
 
-        if self.active == False:
+        if self.active is None:
             logger.warning('[CAM Class ] PylonCamera.get_exposure_t(): inactive camera')
             return -1
 
@@ -638,7 +638,7 @@ class PylonCamera:
         """ Enable / Disable camera auto_exposure with the value of 'state'
         It will be continueously updating based on the current image """
 
-        if self.active == False:
+        if self.active is None:
             logger.warning('[CAM Class ] PylonCamera.auto_exposure_t('+str(state)+')'+': inactive camera')
             return
         
@@ -651,7 +651,7 @@ class PylonCamera:
 
 
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
-        if self.active == False:
+        if self.active is None:
             return
         
         #if not enabled:
@@ -685,7 +685,7 @@ class ImageHandler(pylon.ImageEventHandler):
                 return
             
             # Check if parent camera is still active
-            if self._parent.active in (False, None):
+            if self._parent.active is None:
                 logger.debug('[CAM Class ] OnImageGrabbed called but camera is inactive, ignoring')
                 self._parent._device_removed = True
                 return
@@ -751,8 +751,8 @@ class ImageHandler(pylon.ImageEventHandler):
         try:
             if self._parent._device_removed:
                 return False, None, None
-            
-            if self._parent.active in (False, None):
+
+            if self._parent.active is None:
                 return False, None, None
         except Exception:
             return False, None, None
