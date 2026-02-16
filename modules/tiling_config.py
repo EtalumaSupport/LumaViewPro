@@ -3,6 +3,8 @@ import itertools
 import json
 import pathlib
 
+from lvp_logger import logger
+
 import modules.common_utils as common_utils
 
 class TilingConfig:
@@ -50,7 +52,9 @@ class TilingConfig:
         m = len(label_letters)
         n = len(label_numbers)
         if m != n:
-            raise Exception(f"Tiling configuration requires equal dimensions, but found {m}x{n}")
+            logger.warning(f"TilingConfig] Tiling configuration found as non-symmetric ({m}x{n}). Protocol tiling label will be innacurate.")
+            return None
+            # raise Exception(f"Tiling configuration requires equal dimensions, but found {m}x{n}")
         
         return self.get_label_from_mxn_size(m=m, n=n)
 
