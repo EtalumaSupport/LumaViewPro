@@ -217,7 +217,7 @@ class Lumascope():
             logger.exception(f"[SCOPE API ] Error setting binning size: {ex}")
 
     def get_binning_size(self) -> int:
-        if not self.camera:
+        if not self.camera or not self.camera.active:
             return 1
 
         return self.camera.get_binning_size()
@@ -367,7 +367,7 @@ class Lumascope():
         # Else, will return last captured image from buffer array
         """
 
-        if not self.camera:
+        if not self.camera or not self.camera.active:
             return False
 
         tmp_buffer = []
@@ -460,7 +460,7 @@ class Lumascope():
         self,
         force_to_8bit: bool = True
         ):
-        if not self.camera:
+        if not self.camera or not self.camera.active:
             return False
 
         grab_status, grab_image_ts = self.camera.grab()
@@ -809,7 +809,7 @@ class Lumascope():
         Set frame size (pixel width by pixel height
         of camera to w by h"""
 
-        if not self.camera: return
+        if not self.camera or not self.camera.active: return
         self.camera.set_frame_size(w, h)
 
     def get_frame_size(self):
@@ -817,7 +817,7 @@ class Lumascope():
         Get frame size (pixel width by pixel height
         of camera to w by h"""
 
-        if not self.camera: return
+        if not self.camera or not self.camera.active: return
         return self.camera.get_frame_size()
 
 
@@ -825,14 +825,14 @@ class Lumascope():
         """CAMERA FUNCTIONS
         Get camera gain"""
 
-        if not self.camera: return -1
+        if not self.camera or not self.camera.active: return -1
         return self.camera.get_gain()
 
     def set_gain(self, gain):
         """CAMERA FUNCTIONS
         Set camera gain"""
 
-        if not self.camera: return
+        if not self.camera or not self.camera.active: return
         self.camera.gain(gain)
 
     def set_auto_gain(self, state: bool, settings: dict):
@@ -840,7 +840,7 @@ class Lumascope():
         Enable / Disable camera auto_gain with the value of 'state'
         It will be continueously updating based on the current image """
 
-        if not self.camera: return
+        if not self.camera or not self.camera.active: return
         self.camera.auto_gain(
             state,
             target_brightness=settings['target_brightness'],
@@ -852,7 +852,7 @@ class Lumascope():
         """CAMERA FUNCTIONS
          Set exposure time in the camera hardware t (msec)"""
 
-        if not self.camera: return
+        if not self.camera or not self.camera.active: return
         self.camera.exposure_t(t)
 
     def get_exposure_time(self):
@@ -860,7 +860,7 @@ class Lumascope():
          Get exposure time in the camera hardware
          Returns t (msec), or -1 if the camera is inactive"""
 
-        if not self.camera: return 0
+        if not self.camera or not self.camera.active: return 0
         exposure = self.camera.get_exposure_t()
         return exposure
 
@@ -869,15 +869,12 @@ class Lumascope():
          Enable / Disable camera auto_exposure with the value of 'state'
         It will be continueously updating based on the current image """
 
-        if not self.camera: return
+        if not self.camera or not self.camera.active: return
         self.camera.auto_exposure_t(state)
 
 
     def camera_is_connected(self) -> bool:
-        if not self.camera:
-            return False
-
-        if not self.camera.active:
+        if not self.camera or not self.camera.active:
             return False
 
         return self.camera.is_connected()
@@ -890,7 +887,7 @@ class Lumascope():
          Returns dict with key val pairs 'source' : temperature in Celsius
         """
 
-        if not self.camera:
+        if not self.camera or not self.camera.active:
             return {}
 
         return self.camera.get_all_temperatures()
@@ -1191,7 +1188,7 @@ class Lumascope():
         Capture image with illumination"""
 
         if not self.led: return
-        if not self.camera: return
+        if not self.camera or not self.camera.active: return
 
         # Set capture states
         self.is_capturing = True
@@ -1212,7 +1209,7 @@ class Lumascope():
 
     def capture_blocking(self):
         if not self.led: return
-        if not self.camera: return
+        if not self.camera or not self.camera.active: return
 
         wait_time = 2*self.get_exposure_time()/1000+0.2
         time.sleep(wait_time)
@@ -1236,7 +1233,7 @@ class Lumascope():
         # Check if hardware is actively responding
         if self.led.driver is False: return
         if self.motion.driver is False: return
-        if self.camera.active is False: return
+        if not self.camera.active: return
 
         # Set autofocus states
         self.is_focusing = True          # Is the microscope currently attempting autofocus
