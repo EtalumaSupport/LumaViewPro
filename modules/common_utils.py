@@ -278,9 +278,9 @@ def max_decimal_precision(parameter: str) -> int:
 import os
 import psutil
 
-def system_metrics():
+def system_metrics(path="/"):
     proc = psutil.Process(os.getpid())
-    disk = psutil.disk_usage("/")
+    disk = psutil.disk_usage(path)
 
     return {
         # CPU
@@ -303,11 +303,11 @@ def system_metrics():
 
 
 
-def check_disk_space() -> float:
+def check_disk_space(path="/") -> float:
     """
     Returns free disk space in MB
     """ 
     
-    disk = psutil.disk_usage("/")
+    disk = psutil.disk_usage(path)
     free_space_mb = disk.free / (1024**2)
     return free_space_mb

@@ -1303,8 +1303,8 @@ def live_histo_reverse():
 
         
 def log_system_metrics(dt=None):
-    metrics = common_utils.system_metrics()
-    free_space = common_utils.check_disk_space()
+    metrics = common_utils.system_metrics(path=settings['live_folder'])
+    free_space = common_utils.check_disk_space(path=settings['live_folder'])
 
     if free_space < 1024: # Less than 1 GB
         logger.error(f"Low disk space: {free_space:.1f} MB remaining", extra={'force_error': True})
