@@ -311,3 +311,43 @@ def check_disk_space(path="/") -> float:
     disk = psutil.disk_usage(path)
     free_space_mb = disk.free / (1024**2)
     return free_space_mb
+
+
+def get_extra_disks_info(exclude_path: str = "/") -> str | None:
+    """
+    Returns formatted disk information for extra disks (excluding the disk containing exclude_path).
+    Returns None if only the excluded disk exists or no extra disks are found.
+    Returns formatted string like: "D: 250.5 GB free (15.2% used) | E: 100.3 GB free (8.5% used)"
+    """
+    try:
+        import psutil
+        disk_partitions = psutil.disk_partitions(all=False)
+        
+        # Find which partition contains the exclude_path
+        excluded_device = None
+        try:
+            for partition in disk_partitions:
+                if exclude_path.startswith(partition.mountpoint):
+                    excluded_device = partition.device
+                    break
+        except Exception:
+            pass
+        
+        disk_info_list = []
+        for partition in disk_partitions:
+            # Skip the excluded device/path
+            if excluded_device and partition.device == excluded_device:
+                continue
+            
+            try:
+                usage = psutil.disk_usage(partition.mountpoint)
+                disk_info_list.append(
+                    f"{partition.device}: {usage.free / (1024**3):.1f} GB free ({usage.percent:.1f}% used)"
+                )
+            except (PermissionError, OSError):
+                continue
+        
+        return ' | '.join(disk_info_list) if disk_info_list else None
+    
+    except Exception:
+        return None

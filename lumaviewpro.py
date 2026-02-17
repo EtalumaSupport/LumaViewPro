@@ -1313,6 +1313,10 @@ def log_system_metrics(dt=None):
     logger.info(f"[DISK METRICS] Disk Free: {metrics['disk_free_gb']:.1f} GB | Disk Usage: {metrics['disk_used_percent']:.1f}%", extra={'force_error': True})
     logger.info(f"[PROCESS METRICS] Process CPU Usage: {metrics['cpu_percent_python']:.1f}% | Process RAM Usage: {metrics['ram_used_python_mb']:.1f} MB, {metrics['ram_used_python_percent']:.1f}%", extra={'force_error': True})
 
+    extra_disks = common_utils.get_extra_disks_info(exclude_path=settings['live_folder'])
+    if extra_disks:
+        logger.info(f"[EXTRA DISKS] {extra_disks}", extra={'force_error': True})
+
     
 
 # -------------------------------------------------------------------------
