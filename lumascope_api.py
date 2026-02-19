@@ -898,10 +898,10 @@ class Lumascope():
     @contextlib.contextmanager
     def reference_position_logger(self):
         before = self.get_limit_switch_status_all_axes()
-        logger.info(f"Limit switch status before homing: {before}")
+        logger.info(f"Limit switch status before homing: {before}", extra={'force_error': True})
         yield
         after = self.get_limit_switch_status_all_axes()
-        logger.info(f"Limit switch status after homing: {after}")
+        logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
 
     def get_axes_config(self):
         """MOTION CONTROL FUNCTIONS
@@ -959,14 +959,14 @@ class Lumascope():
     @contextlib.contextmanager
     def safe_turret_mover(self):
         # Save off current Z position before moving Z to 0
-        logger.info('[SCOPE API ] Moving Z to 0')
+        logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_current_position(axis='Z')
         self.move_absolute_position('Z', pos=0, wait_until_complete=True)
         self.is_turreting = True
         yield
         self.is_turreting = False
         # Restore Z position
-        logger.info(f'[SCOPE API ] Restoring Z to {initial_z}')
+        logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
         self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
 
 

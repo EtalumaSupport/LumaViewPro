@@ -230,7 +230,7 @@ class MotorBoard:
 
     def fullinfo(self):
         info = self.exchange_command("FULLINFO")
-        logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info)
+        logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info, extra={'force_error': True})
         info = info.split()
         model = info[info.index("Model:")+1]
         if model[-1] == "T":
@@ -412,7 +412,7 @@ class MotorBoard:
     def xyhome(self):
         """ Home the stage which also homes the objective first """
         resp = self.exchange_command('HOME')
-        logger.info(f'[XYZ Class ] MotorBoard.xyhome() -> {resp}')
+        logger.info(f'[XYZ Class ] MotorBoard.xyhome() -> {resp}', extra={'force_error': True})
         if (resp is not None) and ('XYZ home complete' in resp):
             self.initial_homing_complete = True
 
@@ -447,7 +447,7 @@ class MotorBoard:
     def thome(self):
         """ Home the turret, need to test if functional in hardware"""
         resp = self.exchange_command('THOME')
-        logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}')
+        logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}', extra={'force_error': True})
         if (resp is not None) and ('T home successful' in resp):
             self.initial_t_homing_complete = True
     
