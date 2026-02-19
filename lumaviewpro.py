@@ -1795,7 +1795,7 @@ class CompositeCapture(FloatLayout):
 
         live_histo_off()
 
-        if lumaview.scope.camera.active == False:
+        if lumaview.scope.camera.active is None:
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
@@ -2049,7 +2049,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
     def cam_toggle(self):
         logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        if self.scope.camera.active == False:
+        if self.scope.camera.active is None:
             return
 
         if scope_display.play == True:
@@ -2102,7 +2102,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             logger.warning('[LVP Main  ] Recording already in progress, ignoring duplicate record_init()')
             return
 
-        if self.scope.camera.active == False:
+        if self.scope.camera.active is None:
             return
 
         # Atomically claim the recording operation
@@ -2557,14 +2557,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def fit_image(self):
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
-        if self.scope.camera.active == False:
+        if self.scope.camera.active is None:
             return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0,0)
 
     def one2one_image(self):
         logger.info('[LVP Main  ] MainDisplay.one2one_image()')
-        if self.scope.camera.active == False:
+        if self.scope.camera.active is None:
             return
         w = self.width
         h = self.height
@@ -4537,7 +4537,7 @@ class Histogram(Widget):
         global lumaview
         bins = 128
 
-        if lumaview.scope.camera != False and lumaview.scope.camera.active != False:
+        if lumaview.scope.camera is not None and lumaview.scope.camera.active is not None:
             image = lumaview.scope.get_image_from_buffer(force_to_8bit=True)
             if image is None or image is False:
                 return
