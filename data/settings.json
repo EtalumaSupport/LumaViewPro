@@ -204,5 +204,6 @@
     "live_view_fps": 30,
     "protocol_led_on": false,
     "stimulation_enabled": false,
-    "disable_protocol_accordions": true
+    "disable_protocol_accordions": true,
+    "lvp_lock_port": 43101
 }
