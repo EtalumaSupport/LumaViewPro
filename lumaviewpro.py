@@ -219,6 +219,7 @@ if __name__ == "__main__":
     from modules.contrast_stretcher import ContrastStretcher
     import modules.coord_transformations as coord_transformations
     import modules.labware_loader as labware_loader
+    import modules.lvp_lock as lvp_lock
     import modules.objectives_loader as objectives_loader
     from modules.protocol import Protocol, ProtocolFormatError
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
@@ -9739,6 +9740,23 @@ def load_log_level():
                 pass
 
 
+def get_lvp_lock_port() -> int:
+    DEFAULT_LVP_LOCK_PORT = 43101
+    for settings_file in ("./data/current.json", "./data/settings.json"):
+        if not os.path.exists(settings_file):
+            continue
+
+        with open(settings_file, 'r') as fp:
+            data = json.load(fp)
+
+            try:
+                return data['lvp_lock_port']
+            except:
+                pass
+        
+    return DEFAULT_LVP_LOCK_PORT
+
+
 def load_autofocus_log_enable():
     global autofocus_executor
     for settings_file in ("./data/current.json", "./data/settings.json"):
@@ -9976,6 +9994,10 @@ class LumaViewProApp(App):
         logger.info('[LVP Main  ] Code Compiled On: %s', current_time)
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         logger.info('[LVP Main  ] -----------------------------------------')
+
+        self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port())
+        if not self._lvp_lock.lock():
+            sys.exit(1)
 
         global Window
         global lumaview
