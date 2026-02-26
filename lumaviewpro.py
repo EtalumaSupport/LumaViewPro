@@ -305,7 +305,7 @@ if __name__ == "__main__":
     # User Interface Custom Widgets
     from custom_widgets.range_slider import RangeSlider
     from custom_widgets.progress_popup import show_popup
-    from custom_widgets.notification_popup import show_notification_popup, show_confirmation_popup
+    from custom_widgets.notification_popup import show_notification_popup, show_confirmation_popup, show_confirmation_w_ack_popup
 
 
     import image_utils_kivy
@@ -9997,8 +9997,14 @@ class LumaViewProApp(App):
 
         self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port())
         if not self._lvp_lock.lock():
+            error_msg = "Another instance of LVP may already be running. Exiting."
+            logger.error(f'[LVP Lock ] {error_msg}')
+            tkinter.messagebox.showerror(
+                "LumaViewPro Error",
+                error_msg
+            )
             sys.exit(1)
-
+        
         global Window
         global lumaview
         global cell_count_content

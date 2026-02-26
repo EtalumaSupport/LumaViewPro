@@ -1,4 +1,6 @@
 
+import typing
+
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.boxlayout import BoxLayout
@@ -12,6 +14,28 @@ def show_notification_popup(title: str, message: str):
         size_hint=(0.6, 0.3),
     )
     popup.open()
+
+
+def show_confirmation_w_ack_popup(title: str, message: str, ack_button_text: str, on_ack: typing.Callable):
+    content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+    content.add_widget(Label(text=message))
+
+    button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
+    ack_button = Button(text=ack_button_text)
+
+    button_layout.add_widget(ack_button)
+    content.add_widget(button_layout)
+
+    popup = Popup(
+        title=title,
+        content=content,
+        size_hint=(0.6, 0.3),
+    )
+
+    ack_button.bind(on_release=lambda *args: (on_ack(), popup.dismiss()))
+
+    popup.open()
+
 
 def show_confirmation_popup(title: str, message: str, confirm_text: str, cancel_text: str, on_confirm):
     content = BoxLayout(orientation='vertical', padding=10, spacing=10)

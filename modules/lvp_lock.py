@@ -2,9 +2,6 @@
 
 import socket
 
-from lvp_logger import logger
-
-
 class LvpLock:
 
     def __init__(self, lock_port: int):
@@ -17,5 +14,4 @@ class LvpLock:
             self._lock_socket.bind(("127.0.0.1", self._lock_port))
             return True
         except (socket.error, OSError) as e:
-            logger.error('[LVP Lock ] Another instance of LVP may be already running?')
             return False
