@@ -551,6 +551,9 @@ class SequencedCaptureExecutor:
         if not self._grease_redistribution_done:
             return
         
+        if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
+            return
+        
         if self._z_ui_update_func is not None:
             Clock.schedule_once(lambda dt: self._z_ui_update_func(float(step['Z'])), 0)
 
