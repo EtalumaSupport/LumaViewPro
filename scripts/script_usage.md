@@ -2,6 +2,14 @@
 
 This guide provides complete instructions for creating Windows installers (MSI and Bundle/EXE) for LumaViewPro using the automated build script.
 
+## Important
+
+`build_win_release.ps1` does **not** install Python dependencies automatically. Install all dependencies from `requirements.txt` before running the script:
+
+```powershell
+pip install -r requirements.txt
+```
+
 ## Table of Contents
 1. [Prerequisites](#prerequisites)
 2. [Initial Configuration](#initial-configuration)
@@ -13,7 +21,7 @@ This guide provides complete instructions for creating Windows installers (MSI a
 
 ## Prerequisites
 
-### 1. WiX Toolset v4
+### 1. WiX Toolset v6
 WiX Toolset is required to build MSI and Bundle installers.
 
 **Check if installed:**
@@ -30,7 +38,7 @@ dotnet tool install --global wix
 ```powershell
 wix --version
 ```
-Expected output: `v4.x.x` or similar
+Expected output: `v6.x.x` or similar
 
 **Note about WiX BAL extension:**
 The WiX Bootstrapper Application Library (BAL) extension required for Bundle creation is **automatically included** in the `scripts/build_exe/deps/` folder. The build script will use this bundled extension automatically. No manual installation is required.
@@ -137,7 +145,7 @@ The script will prompt you for:
 
 ### What the Script Does
 
-1. ✓ Verifies WiX Toolset v4 is installed
+1. ✓ Verifies WiX Toolset v6 is installed
 2. ✓ Clones the specified branch from GitHub
 3. ✓ Validates version matches `version.txt` in repository
 4. ✓ Copies license files to top level
@@ -194,7 +202,7 @@ scripts/
 
 **Solution:** Run the script from a directory without spaces or special characters in the path.
 
-### Error: "WiX Toolset v4 not found"
+### Error: "WiX Toolset v6 not found"
 **Solution:** 
 ```powershell
 dotnet tool install --global wix
@@ -224,7 +232,7 @@ Then restart your PowerShell session.
 
 **Solution:** 
 1. Verify `scripts/build_exe/deps/WixToolset.BootstrapperApplications.wixext.dll` exists
-2. If missing, re-download or copy from a working WiX 5.0.1 installation
+2. If missing, re-download or copy from a working WiX 6.x installation
 3. Alternatively, specify a custom extension path in `config/build_dependencies.json`:
    ```json
    {

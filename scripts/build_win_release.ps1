@@ -79,8 +79,8 @@ Pylon MSI:        $pylon_msi
 Corretto MSI:     $corretto_msi
 "@
 
-# Verify WiX Toolset v4 is installed
-Write-Host "Verifying WiX Toolset v4 installation..."
+# Verify WiX Toolset v6 is installed
+Write-Host "Verifying WiX Toolset v6 installation..."
 try {
     $wix_version = & wix --version 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -88,17 +88,17 @@ try {
     }
     Write-Host "WiX Toolset found: $wix_version"
     
-    # Check if it's v4.x
-    if ($wix_version -notmatch "v4\.\d+") {
-        Write-Host "Warning: Expected WiX Toolset v4.x but found: $wix_version"
+    # Check if it's v6.x
+    if ($wix_version -notmatch "^v?6\.\d+") {
+        Write-Host "Warning: Expected WiX Toolset v6.x but found: $wix_version"
         $continue = Read-Host "Continue anyway? (y/n)"
         if ($continue -ne "y") {
             Exit 1
         }
     }
 } catch {
-    Write-Host "Error: WiX Toolset v4 not found or not in PATH"
-    Write-Host "Please install WiX Toolset v4 from: https://wixtoolset.org/docs/intro/"
+    Write-Host "Error: WiX Toolset v6 not found or not in PATH"
+    Write-Host "Please install WiX Toolset v6 from: https://wixtoolset.org/docs/intro/"
     Exit 1
 }
 
