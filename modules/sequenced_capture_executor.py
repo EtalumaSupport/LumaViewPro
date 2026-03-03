@@ -325,6 +325,7 @@ class SequencedCaptureExecutor:
         leds_state_at_end: str = "off",
         video_as_frames: bool = False,
     ):
+        self._dbg_count = 0
         if self._run_in_progress:
             logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
             return
@@ -555,6 +556,10 @@ class SequencedCaptureExecutor:
             return
         
         if self._z_ui_update_func is not None:
+            self._dbg_count += 1
+            if self._dbg_count > 1:
+                logger.error("[Scan] _scan_iterate -> Updating Z UI more than once!")
+            logger.info(f"[Scan] _scan_iterate update Z UI to: {float(step['Z'])}")
             Clock.schedule_once(lambda dt: self._z_ui_update_func(float(step['Z'])), 0)
 
         # Set camera settings

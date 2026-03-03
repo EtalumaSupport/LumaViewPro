@@ -245,6 +245,7 @@ class AutofocusExecutor:
             focus_score = autofocus_functions.focus_function(image=image)
             current_pos = round(self._scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
 
+            logger.info(f"[AF] _iterate scheduling ui update to: {current_pos}")
             self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=current_pos), 0)
 
             self._af_data_pass.append(
@@ -304,6 +305,7 @@ class AutofocusExecutor:
                 logger.info(f"[AF] Autofocus complete. Best focus position: {best_focus_position} um")
 
                 self._move_absolute_position(pos=best_focus_position)
+                logger.info(f"[AF] _iterate last_pass scheduling ui update to: {float(best_focus_position)}")
                 self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
 
                 if self._save_results_to_file:
