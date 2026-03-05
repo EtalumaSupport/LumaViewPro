@@ -6350,7 +6350,7 @@ class ProtocolSettings(CompositeCapture):
         # Complete remaining cleanup
         live_histo_reverse()
         reset_acquire_ui()
-        reset_title()
+        Clock.schedule_once(lambda dt: reset_title(), 0)
 
 
     def debug_func(self):
