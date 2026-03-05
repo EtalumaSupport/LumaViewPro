@@ -9,3 +9,4 @@ class ColorChannel(enum.Enum):
     BF = 3
     PC = 4
     DF = 5
+    Lumi = 6

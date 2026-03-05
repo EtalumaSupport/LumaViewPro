@@ -159,6 +159,7 @@ def color_channel_to_colormap_type(color_channel: str | ColorChannel) -> LvpColo
         color_channel = ColorChannel[color_channel]
 
     lut = {
+        ColorChannel.Lumi: LvpColormap.BLUE,
         ColorChannel.Blue: LvpColormap.BLUE,
         ColorChannel.Green: LvpColormap.GREEN,
         ColorChannel.Red: LvpColormap.RED,
@@ -323,7 +324,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     elif color in ('BF', 'PC', 'DF'):
         photometric = tf.PHOTOMETRIC.MINISBLACK
         modality = color
-    elif color in ('Red', 'Green', 'Blue'):
+    elif color in ('Red', 'Green', 'Blue', 'Lumi'):
         photometric = tf.PHOTOMETRIC.PALETTE
         modality = 'MIF'
     else:
