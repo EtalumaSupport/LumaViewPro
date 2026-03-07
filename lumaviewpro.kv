@@ -112,13 +112,11 @@
             pos: self.pos
             size: self.size
             radius: [dp(6)]
-        # Dropdown indicator line on right edge
+        # Down arrow indicator on right edge
         Color:
-            rgba: 0.45, 0.48, 0.52, 1
-        RoundedRectangle:
-            pos: self.right - dp(24), self.y + dp(4)
-            size: dp(1), self.height - dp(8)
-            radius: [dp(1)]
+            rgba: 0.6, 0.63, 0.67, 1
+        Triangle:
+            points: [self.right - dp(20), self.center_y + dp(3), self.right - dp(10), self.center_y + dp(3), self.right - dp(15), self.center_y - dp(3)]
 
 # -----------------------
 # MAIN DISPLAY
@@ -2334,6 +2332,7 @@
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
 					value_track: True
 					#value_track_color: root.bg_color
 					value_track_width: 5
@@ -2397,29 +2396,6 @@
 					background_normal: './data/icons/ToggleL.png'
 					background_down: './data/icons/ToggleRW.png'
 					on_release: root.update_stimulation_settings()
-					state: 'normal'
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					font_size: '12sp'
-					text: 'Disable Protocol Accordions'
-					tooltip_text: 'Prevent layer accordions from expanding/collapsing\nduring protocol execution (reduces memory usage)'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				ToggleButton:
-					id: disable_protocol_accordions_btn
-					size_hint: None, None
-					tooltip_text: 'Prevent layer accordions from expanding/collapsing\nduring protocol execution (reduces memory usage)'
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_disable_protocol_accordions()
 					state: 'normal'
 
 			BoxLayout:
@@ -2573,6 +2549,7 @@
 					step: 1.
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
@@ -2679,6 +2656,7 @@
 					step: 0.25
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
@@ -2723,6 +2701,7 @@
 					step: 1.
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
@@ -2768,6 +2747,7 @@
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
@@ -2861,6 +2841,7 @@
 					step: 0.1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
@@ -3106,6 +3087,7 @@
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5
@@ -3231,6 +3213,7 @@
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
+					track_width: 5
 					value_track: True
 					value_track_color: root.bg_color
 					value_track_width: 5

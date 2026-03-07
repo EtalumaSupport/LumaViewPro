@@ -768,8 +768,8 @@ def go_to_step_update_ui(step):
     lumaview.ids['imagesettings_id'].ids['toggle_imagesettings'].state = 'down'
     lumaview.ids['imagesettings_id'].toggle_settings()
 
-    # set accordion item to corresponding channel (unless disabled during protocol)
-    if not (protocol_running_global.is_set() and settings.get("disable_protocol_accordions", False)):
+    # set accordion item to corresponding channel (skip during protocol to prevent memory leaks)
+    if not protocol_running_global.is_set():
         accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=color)
         accordion_item_obj.collapse = False
 
@@ -4241,11 +4241,11 @@ class ImageSettings(BoxLayout):
         """
         Expand the specified layer accordion and collapse all others.
         Cleans up ScrollView viewport textures on collapse to prevent memory accumulation.
-        Respects the disable_protocol_accordions setting during protocol execution.
+        Accordion toggling is always disabled during protocol execution to prevent memory leaks.
         """
 
-        # Check if accordion updates are disabled during protocol execution
-        if protocol_running_global.is_set() and settings.get("disable_protocol_accordions", False):
+        # Skip accordion toggling during protocol execution to prevent memory leaks
+        if protocol_running_global.is_set():
             return
 
         for a_layer in common_utils.get_layers():
@@ -8129,14 +8129,8 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['stimulation_settings_btn'].state = 'normal'
                 settings["stimulation_enabled"] = False
 
-            if "disable_protocol_accordions" in settings:
-                if settings["disable_protocol_accordions"] == True:
-                    self.ids['disable_protocol_accordions_btn'].state = 'down'
-                else:
-                    self.ids['disable_protocol_accordions_btn'].state = 'normal'
-            else:
-                self.ids['disable_protocol_accordions_btn'].state = 'normal'
-                settings["disable_protocol_accordions"] = False
+            # Protocol accordions are permanently disabled (no longer a setting)
+            settings.pop("disable_protocol_accordions", None)
 
             for layer in common_utils.get_layers():
 
@@ -8381,14 +8375,6 @@ class MicroscopeSettings(BoxLayout):
                         # Disable stim_config
                         if 'stim_config' in settings[layer]:
                             settings[layer]['stim_config']['enabled'] = False
-
-    def update_disable_protocol_accordions(self):
-        """Toggle whether layer accordions are disabled during protocol execution."""
-        if self.ids['disable_protocol_accordions_btn'].state == 'down':
-            settings["disable_protocol_accordions"] = True
-        else:
-            settings["disable_protocol_accordions"] = False
-
 
     # Save settings to JSON file
     def save_settings(self, file="./data/current.json"):
