@@ -26,12 +26,16 @@ class SimulatedCamera(Camera):
     # Supported pixel formats
     PIXEL_FORMATS = ('Mono8', 'Mono10', 'Mono12')
 
+    TIMING_FAST = {'grab_delay': 0.0}
+    TIMING_REALISTIC = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
+
     def __init__(
         self,
         width: int = 1920,
         height: int = 1200,
-        grab_delay: float = 0.001,
+        grab_delay: float = 0.0,
         z_position_func: Callable[[], float] | None = None,
+        timing: str = 'fast',
     ):
         self._width = width
         self._height = height
@@ -66,8 +70,22 @@ class SimulatedCamera(Camera):
         self._focus_target_cache = None
         self._focus_target_cache_key = None
 
+        # Apply timing preset (overrides grab_delay if preset given)
+        self.set_timing_mode(timing)
+
         # Let the base class call connect()
         super().__init__()
+
+    def set_timing_mode(self, mode: str):
+        """Switch timing mode: 'fast' or 'realistic'."""
+        if mode == 'realistic':
+            preset = self.TIMING_REALISTIC
+        elif mode == 'fast':
+            preset = self.TIMING_FAST
+        else:
+            raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
+        self._grab_delay = preset['grab_delay']
+        self._timing_mode = mode
 
     # ------------------------------------------------------------------
     # Connection

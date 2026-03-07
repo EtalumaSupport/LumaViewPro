@@ -3,6 +3,10 @@ Simulated Motor Board — drop-in replacement for MotorBoard.
 
 No serial hardware required. Tracks axis positions, simulates homing
 and movement, and supports configurable delays.
+
+Timing modes:
+  'fast'      — instant movement, zero delays (for tests)
+  'realistic' — serial delays and speed-limited movement matching real hardware
 """
 
 import threading
@@ -17,8 +21,36 @@ class SimulatedMotorBoard:
     XY_USTEP_PER_MM = 20157
     T_USTEP_PER_DEG = 80000.0 / 90.0
 
+    # Axis speeds in usteps/sec (realistic values for Etaluma hardware)
+    AXIS_SPEEDS = {
+        'X': 20157 * 50,   # ~50 mm/s
+        'Y': 20157 * 50,   # ~50 mm/s
+        'Z': 170667 * 5,   # ~5 mm/s
+        'T': 80000,         # ~90 deg/s
+    }
+
+    # Homing durations in seconds (realistic)
+    HOMING_DURATIONS = {
+        'XYZ': 3.0,
+        'Z': 1.5,
+        'T': 1.0,
+    }
+
+    # Timing presets
+    TIMING_FAST = {
+        'cmd_delay': 0.0,
+        'move_delay': 0.0,
+        'simulate_move_duration': False,
+    }
+    TIMING_REALISTIC = {
+        'cmd_delay': 0.003,       # ~3ms serial round-trip
+        'move_delay': 0.0,        # homing uses HOMING_DURATIONS instead
+        'simulate_move_duration': True,
+    }
+
     def __init__(self, model: str = 'LS720T', serial_number: str = 'SIM-001',
-                 move_delay: float = 0.01, cmd_delay: float = 0.001, **kwargs):
+                 move_delay: float = 0.0, cmd_delay: float = 0.0,
+                 timing: str = 'fast', **kwargs):
         logger.info('[XYZ Sim   ] SimulatedMotorBoard.__init__()')
 
         self.found = True
@@ -34,11 +66,18 @@ class SimulatedMotorBoard:
         self._connect_fails = 0
         self._cmd_delay = cmd_delay
         self._move_delay = move_delay
+        self._simulate_move_duration = False
+
+        # Apply timing preset (overrides cmd_delay/move_delay if preset given)
+        self.set_timing_mode(timing)
 
         # Internal position state (in usteps)
         self._actual = {'X': 0, 'Y': 0, 'Z': 0, 'T': 0}
         self._target = {'X': 0, 'Y': 0, 'Z': 0, 'T': 0}
         self._homed = {'X': False, 'Y': False, 'Z': False, 'T': False}
+
+        # Move completion times (for realistic timing)
+        self._move_end_time = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
 
         self.axes_config = {
             'Z': {
@@ -57,6 +96,19 @@ class SimulatedMotorBoard:
                 'move_func': self.t_pos2ustep
             }
         }
+
+    def set_timing_mode(self, mode: str):
+        """Switch timing mode: 'fast' or 'realistic'."""
+        if mode == 'realistic':
+            preset = self.TIMING_REALISTIC
+        elif mode == 'fast':
+            preset = self.TIMING_FAST
+        else:
+            raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
+        self._cmd_delay = preset['cmd_delay']
+        self._move_delay = preset['move_delay']
+        self._simulate_move_duration = preset['simulate_move_duration']
+        self._timing_mode = mode
 
     # ------------------------------------------------------------------
     # Connection
@@ -144,8 +196,17 @@ class SimulatedMotorBoard:
             value = int(cmd[9:])
             if value >= 0x80000000:
                 value -= 0x100000000
+            old_target = self._actual[axis]
             self._target[axis] = value
-            self._actual[axis] = value  # instant move in simulation
+
+            if self._simulate_move_duration:
+                distance = abs(value - old_target)
+                speed = self.AXIS_SPEEDS.get(axis, self.AXIS_SPEEDS['X'])
+                duration = distance / speed if speed > 0 else 0
+                self._move_end_time[axis] = time.monotonic() + duration
+            else:
+                self._actual[axis] = value  # instant move
+                self._move_end_time[axis] = 0.0
             return str(value)
 
         # TARGET_R<axis>
@@ -156,11 +217,13 @@ class SimulatedMotorBoard:
         # ACTUAL_R<axis>
         if cmd.startswith('ACTUAL_R'):
             axis = cmd[8]
+            self._update_actual(axis)
             return str(self._actual.get(axis, 0))
 
         # STATUS_R<axis>
         if cmd.startswith('STATUS_R'):
             axis = cmd[8]
+            self._update_actual(axis)
             return str(self._make_status(axis))
 
         # SPI<axis>0x<addr><payload>
@@ -173,13 +236,27 @@ class SimulatedMotorBoard:
 
         return f'ERROR: unknown command {cmd}'
 
+    def _update_actual(self, axis):
+        """Update actual position based on elapsed time (realistic mode only)."""
+        if not self._simulate_move_duration:
+            return
+        now = time.monotonic()
+        end = self._move_end_time.get(axis, 0.0)
+        if now >= end:
+            self._actual[axis] = self._target[axis]
+
     def _do_home(self, *axes):
-        if self._move_delay > 0:
+        if self._simulate_move_duration:
+            key = ''.join(sorted(axes))
+            duration = self.HOMING_DURATIONS.get(key, self.HOMING_DURATIONS.get('XYZ', 3.0))
+            time.sleep(duration)
+        elif self._move_delay > 0:
             time.sleep(self._move_delay)
         for axis in axes:
             self._actual[axis] = 0
             self._target[axis] = 0
             self._homed[axis] = True
+            self._move_end_time[axis] = 0.0
 
     def _make_status(self, axis):
         status = 0

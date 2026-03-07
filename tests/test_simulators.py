@@ -748,3 +748,87 @@ class TestSimulatedCamera:
         assert not np.array_equal(sharp, blurred)
         # Blurred image should have lower variance (smoother)
         assert blurred.astype(float).std() < sharp.astype(float).std()
+
+    # -- Timing modes --
+
+    def test_timing_mode_fast(self):
+        cam = SimulatedCamera(timing='fast')
+        assert cam._grab_delay == 0.0
+
+    def test_timing_mode_realistic(self):
+        cam = SimulatedCamera(timing='realistic')
+        assert cam._grab_delay > 0
+
+    def test_timing_mode_switch(self):
+        cam = SimulatedCamera(timing='fast')
+        cam.set_timing_mode('realistic')
+        assert cam._grab_delay > 0
+        cam.set_timing_mode('fast')
+        assert cam._grab_delay == 0.0
+
+
+class TestTimingModes:
+    """Verify timing mode switching across all simulators."""
+
+    def test_motor_fast_mode(self):
+        m = SimulatedMotorBoard(timing='fast')
+        assert m._cmd_delay == 0.0
+        assert m._simulate_move_duration is False
+
+    def test_motor_realistic_mode(self):
+        m = SimulatedMotorBoard(timing='realistic')
+        assert m._cmd_delay > 0
+        assert m._simulate_move_duration is True
+
+    def test_motor_switch_mode(self):
+        m = SimulatedMotorBoard(timing='fast')
+        m.set_timing_mode('realistic')
+        assert m._simulate_move_duration is True
+        m.set_timing_mode('fast')
+        assert m._simulate_move_duration is False
+
+    def test_motor_realistic_move_not_instant(self):
+        """In realistic mode, target_status returns False during move."""
+        m = SimulatedMotorBoard(timing='realistic')
+        m._homed['Z'] = True
+        # Move Z a significant distance
+        m.move_abs_pos('Z', 10000.0)
+        # Should not have arrived yet
+        assert m.target_status('Z') is False
+        # Wait for move to complete
+        deadline = time.monotonic() + 5.0
+        while not m.target_status('Z'):
+            time.sleep(0.01)
+            if time.monotonic() > deadline:
+                raise TimeoutError("Motor never reached target")
+        assert m.current_pos('Z') == pytest.approx(10000.0, abs=1.0)
+
+    def test_motor_fast_move_instant(self):
+        """In fast mode, move is instant."""
+        m = SimulatedMotorBoard(timing='fast')
+        m.move_abs_pos('Z', 10000.0)
+        assert m.target_status('Z') is True
+        assert m.current_pos('Z') == pytest.approx(10000.0, abs=1.0)
+
+    def test_led_fast_mode(self):
+        led = SimulatedLEDBoard(timing='fast')
+        assert led._delay == 0.0
+
+    def test_led_realistic_mode(self):
+        led = SimulatedLEDBoard(timing='realistic')
+        assert led._delay > 0
+
+    def test_led_switch_mode(self):
+        led = SimulatedLEDBoard(timing='fast')
+        led.set_timing_mode('realistic')
+        assert led._delay > 0
+        led.set_timing_mode('fast')
+        assert led._delay == 0.0
+
+    def test_invalid_mode_raises(self):
+        with pytest.raises(ValueError):
+            SimulatedMotorBoard(timing='turbo')
+        with pytest.raises(ValueError):
+            SimulatedLEDBoard(timing='turbo')
+        with pytest.raises(ValueError):
+            SimulatedCamera(timing='turbo')

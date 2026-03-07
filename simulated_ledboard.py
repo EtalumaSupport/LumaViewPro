@@ -3,6 +3,10 @@ Simulated LED Board — drop-in replacement for LEDBoard.
 
 No serial hardware required. Tracks LED state, returns realistic responses,
 and supports configurable delays to simulate real timing.
+
+Timing modes:
+  'fast'      — zero delays (for tests)
+  'realistic' — serial delays matching real hardware (~12ms per command)
 """
 
 import threading
@@ -12,7 +16,10 @@ from lvp_logger import logger
 
 class SimulatedLEDBoard:
 
-    def __init__(self, delay: float = 0.001, **kwargs):
+    TIMING_FAST = {'delay': 0.0}
+    TIMING_REALISTIC = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
+
+    def __init__(self, delay: float = 0.0, timing: str = 'fast', **kwargs):
         logger.info('[LED Sim   ] SimulatedLEDBoard.__init__()')
         self.found = True
         self._lock = threading.RLock()
@@ -20,6 +27,9 @@ class SimulatedLEDBoard:
         self.baudrate = 115200
         self.driver = True  # truthy sentinel — not a real serial port
         self._delay = delay
+
+        # Apply timing preset (overrides delay if preset given)
+        self.set_timing_mode(timing)
         self.led_ma = {
             'BF': -1,
             'PC': -1,
@@ -30,6 +40,17 @@ class SimulatedLEDBoard:
         }
         self._enabled = True
         self._channel_states = {i: 0 for i in range(6)}  # channel -> mA
+
+    def set_timing_mode(self, mode: str):
+        """Switch timing mode: 'fast' or 'realistic'."""
+        if mode == 'realistic':
+            preset = self.TIMING_REALISTIC
+        elif mode == 'fast':
+            preset = self.TIMING_FAST
+        else:
+            raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
+        self._delay = preset['delay']
+        self._timing_mode = mode
 
     # ------------------------------------------------------------------
     # Connection
