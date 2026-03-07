@@ -1132,3 +1132,436 @@ class TestImageJHyperstackFormat:
         completed, _ = _run_and_wait(executor, protocol, tmp_path,
                                       image_capture_config=config)
         assert completed
+
+
+# ===========================================================================
+# Tier 3: Edge Cases and Error Handling
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Cancellation / reset mid-run
+# ---------------------------------------------------------------------------
+
+class TestCancellationMidRun:
+    """Verify that reset() stops execution cleanly."""
+
+    def test_reset_during_multi_scan(self, executor, scope, tmp_path):
+        """Start a long protocol and cancel it — should not hang."""
+        protocol = _make_single_step_protocol(color='BF')
+        protocol.period.return_value = datetime.timedelta(seconds=0.1)
+        protocol.duration.return_value = datetime.timedelta(seconds=60)
+
+        done = threading.Event()
+        result_holder = {}
+
+        def on_complete(**kwargs):
+            result_holder.update(kwargs)
+            done.set()
+
+        callbacks = {
+            'run_complete': on_complete,
+            'go_to_step': lambda **kw: None,
+            'move_position': lambda axis: None,
+        }
+
+        executor.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            sequence_name='test_cancel',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=100,
+            callbacks=callbacks,
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+
+        # Let it run briefly then cancel
+        time.sleep(1.0)
+        executor.reset()
+
+        completed = done.wait(timeout=COMPLETION_TIMEOUT)
+        assert completed, "Protocol did not complete after reset()"
+
+    def test_reset_before_first_scan_completes(self, executor, scope, tmp_path):
+        """Reset immediately — should still invoke run_complete."""
+        steps = _make_tile_grid_steps(rows=3, cols=5)  # 15 steps
+        protocol = _make_multi_step_protocol(steps)
+
+        done = threading.Event()
+
+        def on_complete(**kwargs):
+            done.set()
+
+        callbacks = {
+            'run_complete': on_complete,
+            'go_to_step': lambda **kw: None,
+            'move_position': lambda axis: None,
+        }
+
+        executor.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='test_early_cancel',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks=callbacks,
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+
+        # Cancel almost immediately
+        time.sleep(0.2)
+        executor.reset()
+
+        completed = done.wait(timeout=COMPLETION_TIMEOUT)
+        assert completed, "Protocol did not complete after early reset()"
+
+
+class TestResetWhenNotRunning:
+    """reset() when no protocol is active should be a no-op."""
+
+    def test_reset_no_crash(self, executor, scope, tmp_path):
+        executor.reset()  # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# Back-to-back runs
+# ---------------------------------------------------------------------------
+
+class TestBackToBackRuns:
+    """Run a protocol, wait for completion, then immediately run another.
+
+    NOTE: There is a real timing gap between run_complete callback and the
+    file_io_executor fully draining its protocol_finish flag (~0.2s).
+    The second run() will abort if is_protocol_queue_active() is still True.
+    We wait for that flag to clear before starting the next run.
+    """
+
+    @staticmethod
+    def _wait_for_file_queue(executor, timeout=5.0):
+        """Wait until file_io_executor is ready for a new protocol."""
+        deadline = time.monotonic() + timeout
+        while executor.file_io_executor.is_protocol_queue_active():
+            if time.monotonic() > deadline:
+                raise TimeoutError("file_io_executor did not drain in time")
+            time.sleep(0.05)
+
+    def test_two_sequential_runs(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF')
+
+        completed1, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed1, "First run did not complete"
+
+        self._wait_for_file_queue(executor)
+
+        # Second run — uses a fresh tmp subdir to avoid directory collision
+        completed2, _ = _run_and_wait(executor, protocol, tmp_path / 'run2')
+        assert completed2, "Second run did not complete"
+
+    def test_three_sequential_runs_different_configs(self, executor, scope, tmp_path):
+        for i, color in enumerate(['BF', 'Red', 'Green']):
+            protocol = _make_single_step_protocol(color=color)
+            completed, _ = _run_and_wait(executor, protocol, tmp_path / f'run{i}')
+            assert completed, f"Run {i} ({color}) did not complete"
+            self._wait_for_file_queue(executor)
+
+
+# ---------------------------------------------------------------------------
+# Disconnected hardware
+# ---------------------------------------------------------------------------
+
+class TestDisconnectedScope:
+    """Protocol should not start if scope reports disconnected."""
+
+    def test_run_aborts_when_not_connected(self, executor, scope, tmp_path):
+        scope.are_all_connected.return_value = False
+        protocol = _make_single_step_protocol(color='BF')
+
+        done = threading.Event()
+
+        def on_complete(**kwargs):
+            done.set()
+
+        callbacks = {
+            'run_complete': on_complete,
+            'go_to_step': lambda **kw: None,
+            'move_position': lambda axis: None,
+        }
+
+        executor.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='test_disconnected',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks=callbacks,
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+
+        # Should NOT have started — run_complete should NOT fire
+        started = done.wait(timeout=2.0)
+        assert not started, "Protocol should not have started with disconnected scope"
+        assert not executor.run_in_progress()
+
+
+# ---------------------------------------------------------------------------
+# Boundary values
+# ---------------------------------------------------------------------------
+
+class TestZeroExposure:
+    """Zero exposure — tests floor behavior in timing paths."""
+
+    def test_zero_exposure_completes(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF', exposure=0.0)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+class TestZeroIllumination:
+    """Zero illumination — LED should still be called."""
+
+    def test_zero_illumination_completes(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF', illumination=0.0)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        scope.led_on.assert_called()
+
+
+class TestMinimalGain:
+    """Gain of 0."""
+
+    def test_zero_gain_completes(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF', gain=0.0)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+class TestLargeSum:
+    """Large sum count to stress frame averaging."""
+
+    def test_sum_16_completes(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF', sum_count=16)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Large step counts
+# ---------------------------------------------------------------------------
+
+class TestLargeProtocol:
+    """Protocol with many steps — verifies no accumulation bugs."""
+
+    def test_50_step_single_scan(self, executor, scope, tmp_path):
+        steps = [{'color': 'BF', 'x': float(i), 'y': 0.0} for i in range(50)]
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_all_50_steps_visited(self, executor, scope, tmp_path):
+        steps = [{'color': 'BF', 'x': float(i), 'y': 0.0} for i in range(50)]
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        step_indices = {c.kwargs.get('idx', c.args[0] if c.args else None)
+                        for c in protocol.step.call_args_list}
+        assert set(range(50)) <= step_indices
+
+
+# ---------------------------------------------------------------------------
+# Kitchen sink: all features at once
+# ---------------------------------------------------------------------------
+
+class TestAllFeaturesEnabled:
+    """Protocol exercising many features simultaneously."""
+
+    def test_tiling_zstack_autogain_falsecolor_sum(self, executor, scope, tmp_path):
+        """2x2 tiles, 3 z-slices, auto-gain, false color, sum=2."""
+        steps = []
+        tile_group = 0
+        for r in range(2):
+            for c in range(2):
+                tile_group += 1
+                for z_idx in range(3):
+                    steps.append({
+                        'color': 'Red',
+                        'x': 10.0 + c * 1.0,
+                        'y': 20.0 + r * 1.0,
+                        'z': 4000.0 + z_idx * 100.0,
+                        'tile': f'R{r}C{c}',
+                        'z_slice': z_idx,
+                        'tile_group_id': tile_group,
+                        'zstack_group_id': tile_group,
+                        'auto_gain': True,
+                        'false_color': True,
+                        'sum_count': 2,
+                    })
+        protocol = _make_multi_step_protocol(steps)
+        assert protocol.num_steps() == 12
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_multi_well_multi_channel_tiling_separate_folders(self, executor, scope, tmp_path):
+        """2 wells, BF+Red channels, 1x3 tiles, separate folders."""
+        steps = []
+        for well, wx, wy in [('A1', 10.0, 20.0), ('B1', 10.0, 40.0)]:
+            for color in ['BF', 'Red']:
+                for c in range(3):
+                    steps.append({
+                        'color': color,
+                        'well': well,
+                        'x': wx + c * 0.5,
+                        'y': wy,
+                        'tile': f'R0C{c}',
+                        'tile_group_id': 1,
+                    })
+        protocol = _make_multi_step_protocol(steps)
+        assert protocol.num_steps() == 12  # 2 wells * 2 colors * 3 tiles
+        completed, _ = _run_and_wait(executor, protocol, tmp_path,
+                                      separate_folder_per_channel=True)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Saving edge cases
+# ---------------------------------------------------------------------------
+
+class TestSavingWithNoneParentDir:
+    """When parent_dir is None, saving should be auto-disabled."""
+
+    def test_none_parent_dir_completes(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF')
+
+        done = threading.Event()
+        result_holder = {}
+
+        def on_complete(**kwargs):
+            result_holder.update(kwargs)
+            done.set()
+
+        callbacks = {
+            'run_complete': on_complete,
+            'go_to_step': lambda **kw: None,
+            'move_position': lambda axis: None,
+        }
+
+        executor.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='test_no_parent',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=None,
+            max_scans=1,
+            callbacks=callbacks,
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+
+        completed = done.wait(timeout=COMPLETION_TIMEOUT)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Turret support
+# ---------------------------------------------------------------------------
+
+class TestWithTurret:
+    """Scope with turret enabled — objective name included in filenames."""
+
+    def test_turret_protocol_completes(self, executor, scope, tmp_path):
+        scope.has_turret.return_value = True
+        scope.get_objective_info.return_value = {
+            'short_name': '20x',
+            'magnification': 20,
+        }
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Callback edge cases
+# ---------------------------------------------------------------------------
+
+class TestMinimalCallbacks:
+    """Run with only the required run_complete callback — no optional ones."""
+
+    def test_completes_with_minimal_callbacks(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF')
+
+        done = threading.Event()
+
+        def on_complete(**kwargs):
+            done.set()
+
+        # Only provide run_complete — no go_to_step or move_position.
+        # This forces _go_to_step to use _default_move (which we've mocked).
+        executor.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='test_minimal_cb',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks={'run_complete': on_complete},
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+
+        completed = done.wait(timeout=COMPLETION_TIMEOUT)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Video edge cases
+# ---------------------------------------------------------------------------
+
+class TestVideoEdgeCases:
+    """Edge cases for video capture."""
+
+    def test_very_short_video(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(
+            color='BF',
+            acquire='video',
+            video_config={'duration': 0.1, 'fps': 10},
+        )
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_video_low_fps(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(
+            color='BF',
+            acquire='video',
+            video_config={'duration': 0.5, 'fps': 1},
+        )
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
