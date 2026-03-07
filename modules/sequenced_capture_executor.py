@@ -298,10 +298,13 @@ class SequencedCaptureExecutor:
     def protocol_interval(self):
         return self._protocol.period()
     
-    def get_initial_autofocus_states(self):
+    def get_initial_autofocus_states(self, layer_configs: dict | None = None):
         states = {}
         for layer in common_utils.get_layers():
-            states[layer] = settings[layer]["autofocus"]
+            if layer_configs and layer in layer_configs:
+                states[layer] = layer_configs[layer].get('autofocus', False)
+            else:
+                states[layer] = settings[layer]["autofocus"]
         return states
 
 
@@ -324,6 +327,7 @@ class SequencedCaptureExecutor:
         update_z_pos_from_autofocus: bool = False,
         leds_state_at_end: str = "off",
         video_as_frames: bool = False,
+        initial_autofocus_states: dict | None = None,
     ):
         if self._run_in_progress:
             logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
@@ -348,7 +352,10 @@ class SequencedCaptureExecutor:
         
         # Not IO
         self._original_led_states = self._scope.get_led_states()
-        self._original_autofocus_states = self.get_initial_autofocus_states()
+        if initial_autofocus_states is not None:
+            self._original_autofocus_states = initial_autofocus_states
+        else:
+            self._original_autofocus_states = self.get_initial_autofocus_states()
 
         self._protocol = protocol
         self._run_mode = run_mode
@@ -893,10 +900,14 @@ class SequencedCaptureExecutor:
         else:
             raise NotImplementedError(f"Unsupported LEDs state at end value: {self._leds_state_at_end}")
         
-        # Always return autofocus states to intial
+        # Always return autofocus states to initial
         for layer, layer_data in self._original_autofocus_states.items():
-            settings[layer]["autofocus"] = layer_data
-            if self._callbacks['reset_autofocus_btns']:
+            # Restore via callback if available, otherwise write directly
+            if 'restore_autofocus_state' in self._callbacks:
+                self._callbacks['restore_autofocus_state'](layer=layer, value=layer_data)
+            else:
+                settings[layer]["autofocus"] = layer_data
+            if self._callbacks.get('reset_autofocus_btns'):
                 # Updates autofocus buttons to their prior states
                 Clock.schedule_once(lambda dt: self._callbacks['reset_autofocus_btns'](), 0)
 

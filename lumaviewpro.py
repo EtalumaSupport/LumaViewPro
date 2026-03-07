@@ -6687,6 +6687,7 @@ class ProtocolSettings(CompositeCapture):
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,
                 'reset_title': reset_title,
+                'restore_autofocus_state': lambda layer, value: settings[layer].__setitem__('autofocus', value),
             }
         )
 
@@ -6696,6 +6697,9 @@ class ProtocolSettings(CompositeCapture):
 
         image_capture_config = get_image_capture_config_from_ui()
         autogain_settings = get_auto_gain_settings()
+
+        # Snapshot autofocus states from settings on the UI thread before passing to protocol thread
+        initial_autofocus_states = {layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()}
 
         sequenced_capture_executor.run(
             protocol=self._protocol,
@@ -6712,7 +6716,8 @@ class ProtocolSettings(CompositeCapture):
             disable_saving_artifacts=disable_saving_artifacts,
             return_to_position=return_to_position,
             leds_state_at_end="off",
-            video_as_frames=settings['video_as_frames']
+            video_as_frames=settings['video_as_frames'],
+            initial_autofocus_states=initial_autofocus_states,
         )
 
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())

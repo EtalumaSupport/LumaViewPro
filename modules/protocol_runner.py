@@ -204,6 +204,20 @@ class ProtocolRunner:
 
         merged_callbacks['run_complete'] = _on_complete
 
+        # Restore autofocus via settings dict (safe: called on protocol thread completion)
+        settings = self.session.settings
+        merged_callbacks.setdefault(
+            'restore_autofocus_state',
+            lambda layer, value: settings[layer].__setitem__('autofocus', value),
+        )
+
+        # Snapshot autofocus states before handing off to the protocol thread
+        initial_autofocus_states = {
+            layer: settings[layer]['autofocus']
+            for layer in common_utils.get_layers()
+            if layer in settings
+        }
+
         self.session.protocol_running.set()
 
         self._executor.run(
@@ -220,6 +234,7 @@ class ProtocolRunner:
             return_to_position=return_to_position,
             leds_state_at_end="off",
             video_as_frames=self.session.settings.get('video_as_frames', False),
+            initial_autofocus_states=initial_autofocus_states,
         )
 
     # ------------------------------------------------------------------
