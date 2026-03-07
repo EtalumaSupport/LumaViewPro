@@ -232,6 +232,7 @@ if __name__ == "__main__":
     from modules.video_writer import VideoWriter
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
     import modules.config_helpers as config_helpers
+    import modules.scope_commands as scope_commands
 
     import cv2
     import skimage
@@ -597,20 +598,11 @@ def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
 
 
 def scope_leds_off(no_callback: bool = False):
-    global lumaview
-
     if protocol_running_global.is_set():
         return
 
-    if not lumaview.scope.led:
-        logger.warning('[LVP Main  ] LED controller not available.')
-        return
-
-    if no_callback:
-        io_executor.put(IOTask(action=lumaview.scope.leds_off))
-    else:
-        io_executor.put(IOTask(action=lumaview.scope.leds_off, callback=_handle_ui_for_leds_off))
-    logger.info('[LVP Main  ] lumaview.scope.leds_off()')
+    callback = None if no_callback else _handle_ui_for_leds_off
+    scope_commands.leds_off(lumaview.scope, io_executor, callback=callback)
 
 
 def is_image_saving_enabled() -> bool:
@@ -730,7 +722,7 @@ def go_to_step(
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
         if not called_from_protocol and settings['protocol_led_on']:
-            io_executor.put(IOTask(action=lumaview.scope.led_on, args=(color, step['Illumination'])))
+            scope_commands.led_on(lumaview.scope, io_executor, color, step['Illumination'])
             Clock.schedule_once(lambda dt: temp(), 0)
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
@@ -1097,87 +1089,54 @@ def move_absolute_position(
         put_func = io_executor.put
 
     if axis == 'T':
+        # Turret moves go through the GUI widget which manages homing and objective settings
         if not protocol:
             io_executor.put(IOTask(
                 action=lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select,
-                kwargs={
-                    "selected_position":pos
-                },
+                kwargs={'selected_position': pos},
                 callback=_handle_ui_update_for_axis,
-                cb_kwargs={
-                    "axis":axis,
-                    "vertical_control":vertical_control
-                }
+                cb_kwargs={'axis': axis, 'vertical_control': vertical_control},
             ))
         else:
             lumaview.ids['motionsettings_id'].ids['verticalcontrol_id'].turret_select(selected_position=pos, protocol=True)
     else:
         if not protocol:
-            io_executor.put(IOTask(
-                action=lumaview.scope.move_absolute_position,
-                kwargs={
-                    "axis":axis,
-                    "pos":pos,
-                    "wait_until_complete":wait_until_complete,
-                    "overshoot_enabled":overshoot_enabled
-                },
+            scope_commands.move_absolute(
+                lumaview.scope, io_executor, axis, pos,
+                wait_until_complete=wait_until_complete,
+                overshoot_enabled=overshoot_enabled,
                 callback=_handle_ui_update_for_axis,
-                cb_kwargs={
-                    "axis":axis
-                }
-            ))
+                cb_kwargs={'axis': axis},
+            )
         else:
             lumaview.scope.move_absolute_position(
-                axis=axis,
-                pos=pos,
+                axis=axis, pos=pos,
                 wait_until_complete=wait_until_complete,
-                overshoot_enabled=overshoot_enabled
+                overshoot_enabled=overshoot_enabled,
             )
 
         Clock.schedule_once(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
 
-# Wrapper function when moving to update UI position
 def move_relative_position(
     axis: str,
     um: float,
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True
 ):
-    io_executor.put(IOTask(
-        action=lumaview.scope.move_relative_position,
-        kwargs={
-            "axis":axis,
-            "um":um,
-            "wait_until_complete":wait_until_complete,
-            "overshoot_enabled":overshoot_enabled
-        },
+    scope_commands.move_relative(
+        lumaview.scope, io_executor, axis, um,
+        wait_until_complete=wait_until_complete,
+        overshoot_enabled=overshoot_enabled,
         callback=_handle_ui_update_for_axis,
-        cb_kwargs={
-            "axis":axis
-        }
-    ))
-    # lumaview.scope.move_relative_position(
-    #     axis=axis,
-    #     um=um,
-    #     wait_until_complete=wait_until_complete,
-    #     overshoot_enabled=overshoot_enabled
-    # )
-
-   # _handle_ui_update_for_axis(axis=axis)
+        cb_kwargs={'axis': axis},
+    )
 
 
 def move_home(axis: str):
-    global version
     axis = axis.upper()
-
     Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}   |   Homing, please wait..."), 0)
-    if axis == 'Z':
-        io_executor.put(IOTask(action=lumaview.scope.zhome, callback=move_home_cb, cb_args=(axis)))
-    elif axis == 'XY':
-        io_executor.put(IOTask(action=lumaview.scope.xyhome, callback=move_home_cb, cb_args=(axis)))
-    elif axis == 'T':
-        io_executor.put(IOTask(action=lumaview.scope.thome, callback=move_home_cb, cb_args=(axis)))
+    scope_commands.move_home(lumaview.scope, io_executor, axis, callback=move_home_cb, cb_args=(axis))
 
 # Should only be called from main thread
 def set_recording_title(progress=None):
@@ -1730,15 +1689,10 @@ class CompositeCapture(FloatLayout):
                 illumination = settings[trans_layer]['ill']
 
                 # Transmitted channel capture — route LED through io_executor
-                if lumaview.scope.led:
-                    task = IOTask(action=lumaview.scope.led_on,
-                                  args=(lumaview.scope.color2ch(trans_layer), illumination))
-                    fut = io_executor.put(task, return_future=True)
-                    if fut:
-                        fut.result(timeout=5)
-                    logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
-                else:
-                    logger.warning('LED controller not available.')
+                scope_commands.led_on_sync(
+                    lumaview.scope, io_executor,
+                    lumaview.scope.color2ch(trans_layer), illumination,
+                )
 
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
@@ -1802,15 +1756,10 @@ class CompositeCapture(FloatLayout):
                 # Fluorescence capture — route LED through io_executor
                 # Check to make sure we are not capturing from a luminescence layer which doesn't use an LED
                 if layer not in common_utils.get_transmitted_layers():
-                    if lumaview.scope.led:
-                        task = IOTask(action=lumaview.scope.led_on,
-                                      args=(lumaview.scope.color2ch(layer), illumination))
-                        fut = io_executor.put(task, return_future=True)
-                        if fut:
-                            fut.result(timeout=5)
-                        logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
-                    else:
-                        logger.warning('LED controller not available.')
+                    scope_commands.led_on_sync(
+                        lumaview.scope, io_executor,
+                        lumaview.scope.color2ch(layer), illumination,
+                    )
 
                 # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
                 time.sleep(2*exposure/1000+0.2)
@@ -1963,8 +1912,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             if self.scope.led:
                 # TODO: Update UI to reflect
                 self.led_on_before_pause = self.scope.get_led_state(color=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))['enabled']
-                io_executor.put(IOTask(action=self.scope.leds_off))
-                logger.info('[LVP Main  ] self.scope.leds_off()')
+                scope_commands.leds_off(self.scope, io_executor)
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))
                 layer_obj.update_led_toggle_ui()
         else:
@@ -9033,16 +8981,12 @@ class LayerControl(BoxLayout):
 
 
     def set_led_state(self, enabled: bool, illumination: float):
-        if not lumaview.scope.led:
-            logger.warning('[LVP Main  ] LED controller not available.')
-            return
-
-        channel=lumaview.scope.color2ch(self.layer)
+        channel = lumaview.scope.color2ch(self.layer)
         if not enabled:
-            io_executor.put(IOTask(action=lumaview.scope.led_off, kwargs={'channel': channel}))
+            scope_commands.led_off(lumaview.scope, io_executor, channel)
         else:
             logger.info(f'[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch({self.layer}), {illumination})')
-            io_executor.put(IOTask(action=lumaview.scope.led_on, kwargs={'channel': channel, 'mA': illumination}))
+            scope_commands.led_on(lumaview.scope, io_executor, channel, illumination)
 
     def update_led_toggle_ui(self):
         if lumaview.scope.led:
