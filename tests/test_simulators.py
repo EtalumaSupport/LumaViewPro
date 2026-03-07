@@ -628,3 +628,123 @@ class TestSimulatedCamera:
             t.join(timeout=10)
 
         assert not errors
+
+    # -- Z-dependent focus simulation --
+
+    def test_focus_target_pattern(self):
+        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.set_test_pattern(enabled=True, pattern='focus_target')
+        cam.grab()
+        # Focus target should have features — not uniform
+        assert cam.array.std() > 5
+
+    def test_set_get_z_position(self):
+        cam = SimulatedCamera(grab_delay=0)
+        cam.set_z_position(3000.0)
+        assert cam.get_z_position() == 3000.0
+
+    def test_set_get_focal_z(self):
+        cam = SimulatedCamera(grab_delay=0)
+        cam.set_focal_z(7000.0)
+        assert cam.get_focal_z() == 7000.0
+
+    def test_focus_score_peaks_at_focal_z(self):
+        """Vollath F4 focus score should be highest at the focal point."""
+        from modules.autofocus_functions import focus_vollath4_original
+
+        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.set_test_pattern(enabled=True, pattern='focus_target')
+        cam.set_focal_z(5000.0)
+        cam.set_blur_per_um(0.01)
+
+        scores = {}
+        for z in [3000, 4000, 4500, 4800, 5000, 5200, 5500, 6000, 7000]:
+            cam.set_z_position(float(z))
+            cam.grab()
+            scores[z] = focus_vollath4_original(image=cam.array)
+
+        # Best score should be at z=5000 (focal point)
+        best_z = max(scores, key=scores.get)
+        assert best_z == 5000, f"Expected best focus at 5000, got {best_z}. Scores: {scores}"
+
+    def test_focus_score_decreases_with_defocus(self):
+        """Focus score should decrease as we move away from focal point."""
+        from modules.autofocus_functions import focus_vollath4_original
+
+        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.set_test_pattern(enabled=True, pattern='focus_target')
+        cam.set_focal_z(5000.0)
+        cam.set_blur_per_um(0.01)
+
+        # Get scores at increasing distances from focus
+        cam.set_z_position(5000.0)
+        cam.grab()
+        score_at_focus = focus_vollath4_original(image=cam.array)
+
+        cam.set_z_position(5500.0)
+        cam.grab()
+        score_near = focus_vollath4_original(image=cam.array)
+
+        cam.set_z_position(6500.0)
+        cam.grab()
+        score_far = focus_vollath4_original(image=cam.array)
+
+        assert score_at_focus > score_near > score_far, \
+            f"Scores should decrease: focus={score_at_focus}, near={score_near}, far={score_far}"
+
+    def test_focus_curve_is_symmetric(self):
+        """Focus scores should be roughly symmetric around focal point."""
+        from modules.autofocus_functions import focus_vollath4_original
+
+        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.set_test_pattern(enabled=True, pattern='focus_target')
+        cam.set_focal_z(5000.0)
+        cam.set_blur_per_um(0.01)
+
+        cam.set_z_position(4000.0)
+        cam.grab()
+        score_below = focus_vollath4_original(image=cam.array)
+
+        cam.set_z_position(6000.0)
+        cam.grab()
+        score_above = focus_vollath4_original(image=cam.array)
+
+        # Within 20% of each other (both 1000um from focus)
+        ratio = score_below / score_above if score_above != 0 else float('inf')
+        assert 0.8 < ratio < 1.2, f"Asymmetric: below={score_below}, above={score_above}"
+
+    def test_z_position_func_callback(self):
+        """Camera auto-queries Z from callback when generating focus_target."""
+        z_val = [5000.0]
+        cam = SimulatedCamera(width=480, height=300, grab_delay=0,
+                              z_position_func=lambda: z_val[0])
+        cam.set_test_pattern(enabled=True, pattern='focus_target')
+        cam.set_focal_z(5000.0)
+
+        # At focus
+        cam.grab()
+        assert cam.get_z_position() == 5000.0
+
+        # Move via callback
+        z_val[0] = 3000.0
+        cam.grab()
+        assert cam.get_z_position() == 3000.0
+
+    def test_no_blur_at_focal_point(self):
+        """Image at focal point should be identical to unblurred target."""
+        cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.set_test_pattern(enabled=True, pattern='focus_target')
+        cam.set_focal_z(5000.0)
+
+        cam.set_z_position(5000.0)
+        cam.grab()
+        sharp = cam.array.copy()
+
+        # Defocused image should differ
+        cam.set_z_position(7000.0)
+        cam.grab()
+        blurred = cam.array
+
+        assert not np.array_equal(sharp, blurred)
+        # Blurred image should have lower variance (smoother)
+        assert blurred.astype(float).std() < sharp.astype(float).std()

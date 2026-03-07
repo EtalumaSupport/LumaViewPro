@@ -9,8 +9,10 @@ supports the full Camera ABC interface.
 import datetime
 import threading
 import time
+from typing import Callable
 
 import numpy as np
+from scipy.ndimage import uniform_filter
 
 from lvp_logger import logger
 from camera.camera import Camera
@@ -29,6 +31,7 @@ class SimulatedCamera(Camera):
         width: int = 1920,
         height: int = 1200,
         grab_delay: float = 0.001,
+        z_position_func: Callable[[], float] | None = None,
     ):
         self._width = width
         self._height = height
@@ -51,7 +54,17 @@ class SimulatedCamera(Camera):
         self._last_grab_ts = None
 
         # Synthetic image state — can be set externally for test scenarios
-        self._test_pattern = 'gradient'  # 'gradient', 'black', 'white', 'noise'
+        self._test_pattern = 'gradient'  # 'gradient', 'black', 'white', 'noise', 'focus_target'
+
+        # Z-dependent focus simulation
+        self._z_position = 5000.0       # Current Z position (um)
+        self._focal_z = 5000.0          # Z position of perfect focus (um)
+        self._blur_per_um = 0.01        # Blur sigma increase per um of defocus
+        self._z_position_func = z_position_func  # Optional: auto-query Z from motor
+
+        # Pre-generated focus target (lazily created)
+        self._focus_target_cache = None
+        self._focus_target_cache_key = None
 
         # Let the base class call connect()
         super().__init__()
@@ -215,8 +228,92 @@ class SimulatedCamera(Camera):
         return self._binning
 
     # ------------------------------------------------------------------
+    # Z-dependent focus simulation
+    # ------------------------------------------------------------------
+    def set_z_position(self, z: float):
+        """Set current Z position (um) for focus simulation."""
+        self._z_position = float(z)
+
+    def get_z_position(self) -> float:
+        return self._z_position
+
+    def set_focal_z(self, z: float):
+        """Set the Z position (um) where focus is perfect."""
+        self._focal_z = float(z)
+
+    def get_focal_z(self) -> float:
+        return self._focal_z
+
+    def set_blur_per_um(self, value: float):
+        """Set blur rate: uniform filter size increases by this per um of defocus."""
+        self._blur_per_um = float(value)
+
+    # ------------------------------------------------------------------
     # Image generation
     # ------------------------------------------------------------------
+    def _make_focus_target(self, h: int, w: int, max_val: int) -> np.ndarray:
+        """Generate a sharp focus target with multi-scale features.
+
+        Creates a pattern with edges at multiple spatial frequencies so that
+        Vollath F4 (and other focus metrics) produce a smooth, peaked response
+        curve when the image is progressively blurred.
+        """
+        cache_key = (h, w, max_val)
+        if self._focus_target_cache_key == cache_key and self._focus_target_cache is not None:
+            return self._focus_target_cache
+
+        img = np.zeros((h, w), dtype=np.float32)
+
+        # Grid of fine lines (high frequency — most sensitive to defocus)
+        grid_spacing = 8
+        img[::grid_spacing, :] = max_val * 0.4
+        img[:, ::grid_spacing] = max_val * 0.4
+
+        # Scattered bright spots (simulates point-like features)
+        rng = np.random.RandomState(42)  # deterministic
+        n_spots = max(20, (h * w) // 5000)
+        ys = rng.randint(0, h, n_spots)
+        xs = rng.randint(0, w, n_spots)
+        for y, x in zip(ys, xs):
+            y0 = max(0, y - 2)
+            y1 = min(h, y + 3)
+            x0 = max(0, x - 2)
+            x1 = min(w, x + 3)
+            img[y0:y1, x0:x1] = max_val * 0.8
+
+        # Medium-frequency checkerboard (16px blocks)
+        block = 16
+        yy = np.arange(h) // block
+        xx = np.arange(w) // block
+        checker = (yy[:, None] + xx[None, :]) % 2
+        img += checker * max_val * 0.2
+
+        self._focus_target_cache = img
+        self._focus_target_cache_key = cache_key
+        return img
+
+    def _apply_defocus_blur(self, img: np.ndarray, max_val: int) -> np.ndarray:
+        """Apply blur based on distance from focal Z position."""
+        # Query Z position from motor if callback is wired
+        if self._z_position_func is not None:
+            try:
+                self._z_position = self._z_position_func()
+            except Exception:
+                pass
+
+        defocus = abs(self._z_position - self._focal_z)
+        if defocus < 1.0:
+            return img
+
+        # uniform_filter size must be odd integer >= 1
+        filter_size = int(defocus * self._blur_per_um * 2) * 2 + 1
+        filter_size = min(filter_size, min(img.shape) // 2)
+        if filter_size < 3:
+            return img
+
+        blurred = uniform_filter(img.astype(np.float32), size=filter_size)
+        return np.clip(blurred, 0, max_val)
+
     def _generate_image(self) -> np.ndarray:
         """Generate a synthetic image based on current settings."""
         h = self._height // self._binning
@@ -238,8 +335,12 @@ class SimulatedCamera(Camera):
             img = np.full((h, w), max_val, dtype=dtype)
         elif self._test_pattern == 'noise':
             img = np.random.randint(0, int(max_val * brightness) + 1, (h, w), dtype=dtype)
+        elif self._test_pattern == 'focus_target':
+            base = self._make_focus_target(h, w, max_val)
+            img = self._apply_defocus_blur(base * brightness, max_val)
+            img = img.astype(dtype)
         else:
-            # Default: horizontal gradient scaled by brightness
+            # Default gradient — also apply defocus blur if Z tracking is active
             row = np.linspace(0, max_val * brightness, w, dtype=np.float32)
             img = np.tile(row, (h, 1)).astype(dtype)
 
