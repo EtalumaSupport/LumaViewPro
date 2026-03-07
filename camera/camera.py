@@ -7,7 +7,6 @@ default_max_exposure = 1_000 # in ms
 
 class Camera(ABC):
     def __init__(self):
-        logger.info('[CAM Class ] Camera.__init__()')
         self.active = False
         self.error_report_count = 0
         self.array = np.array([])

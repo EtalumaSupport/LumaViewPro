@@ -10,7 +10,6 @@ import threading
 
 class IDSCamera(Camera):
     def __init__(self):
-        logger.info('[CAM Class ] IDSCamera.__init__()')
         
         self.device_manager = None
         self.data_stream = None
@@ -43,7 +42,7 @@ class IDSCamera(Camera):
                 logger.info(f'[CAM Class ] Camera Firmware Version: {self.remote_nodemap.FindNode('DeviceFirmwareVersion').Value()}')
                 # logger.info(f'[CAM Class ] Camera Firmware Version: {self.remote_nodemap.FindNode("DeviceFirmwareVersion").Value()}')
             except:
-                logger.warning(f'[CAM CLASS ] Could not read all camera information')
+                logger.warning('[CAM Class ] Could not read all IDS camera information')
 
             # Set max exposure based on detected model
             if self.model_name:
@@ -55,18 +54,17 @@ class IDSCamera(Camera):
             self.cam_image_handler = ImageHandler(self.data_stream)
 
             self.error_report_count = 0
-            logger.info('[CAM Class ] IDSCamera.connect() succeeded')    
+            logger.info('[CAM Class ] Connected to IDS camera')
             return True
 
         except ConnectionError as er:
-            logger.warning(f'[CAM Class ] IDSCamera.connect() failed -> {er}')
+            logger.warning(f'[CAM Class ] IDS camera connect failed: {er}')
         except Exception as ex:
-            logger.exception(f'[CAM Class ] IDSCamera.connect() failed -> {ex}')
+            logger.exception(f'[CAM Class ] IDS camera connect failed: {ex}')
 
         return False
 
     def disconnect(self) -> bool:
-        logger.info('[CAM Class ] Disconnecting from camera...')
         try:
             if self.active:
                 if self.is_grabbing():
@@ -76,12 +74,12 @@ class IDSCamera(Camera):
                 self.data_stream = None
                 self.device_manager = None
                 self.active = None
-                logger.info('[CAM Class ] IDSCamera.disconnect() succeeded')
+                logger.info('[CAM Class ] Disconnected from IDS camera')
                 return True
             else:
-                logger.info('[CAM Class ] IDSCamera.disconnect() failed: Camera not connected')
+                logger.info('[CAM Class ] IDS camera not connected')
         except Exception as e:
-            logger.exception(f'[CAM Class ] IDSCamera.disconnect() failed: {e}')
+            logger.exception(f'[CAM Class ] IDS camera disconnect failed: {e}')
         return False
     
     def is_connected(self) -> bool:
@@ -222,24 +220,24 @@ class IDSCamera(Camera):
     
     def exposure_t(self, t):
         if self.active == False:
-            logger.warning('[CAM Class ] IDSCamera.exposure_t('+str(t)+')'+': inactive camera')
+            logger.warning(f'[CAM Class ] Cannot set exposure {t}ms: camera inactive')
             return
-        
+
         if t > self.max_exposure:
-            logger.warning(f'[CAM Class ] IDSCamera.exposure_t(Exposure of {t}ms > camera maximum ({self.max_exposure}ms))')
+            logger.warning(f'[CAM Class ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
             return
-        
+
         # IDS takes time in microseconds, so pass t*1000 to convert to us
         try:
             with self.update_camera_config():
                 self.remote_nodemap.FindNode("ExposureTime").SetValue(float(t)*1000)
-            logger.info('[CAM Class ] IDSCamera.exposure_t('+str(t)+')'+': succeeded')
+            logger.info(f'[CAM Class ] Exposure set to {t}ms')
         except Exception as e:
-            logger.error('[CAM class ] IDSCamera.exposure_t(FAILED; Exposure likely out of bounds) {e}')
+            logger.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
 
     def get_exposure_t(self):
         if self.active == False:
-            logger.warning('[CAM Class ] IDSCamera.get_exposure_t(): inactive camera')
+            logger.warning('[CAM Class ] Cannot read exposure: camera inactive')
             return -1
 
         microsec = self.remote_nodemap.FindNode("ExposureTime").Value() # get current exposure time in microsec
@@ -252,12 +250,11 @@ class IDSCamera(Camera):
     
     def find_model_name(self):
         if not self.active:
-            logger.warning('[CAM Class ] find_model_name(): inactive camera')
+            logger.warning('[CAM Class ] Cannot read model name: camera inactive')
             return
 
         self.model_name = self.active.ModelName()
-        logger.info(f'[CAM Class ] Connected camera model detected as "{self.model_name}"')
-        return
+        logger.info(f'[CAM Class ] Camera model: {self.model_name}')
     
     def get_all_temperatures(self):
         return {} #TODO: Implement for IDS cameras that support temperature readings
@@ -281,17 +278,12 @@ class IDSCamera(Camera):
             logger.exception(f"[CAM Class ] Unsupported bin size: {size}")
             return False
         
-        logger.debug(f"Binning size before update: {self.get_binning_size()}")
-        logger.debug(f"Frame size size before update: {self.get_frame_size()}")
+        logger.debug(f"[CAM Class ] Binning {self.get_binning_size()} -> {size}, frame {self.get_frame_size()}")
         with self.update_camera_config():
-            # self.remote_nodemap.FindNode("BinningSelector").SetCurrentEntry("Region0")
             self.remote_nodemap.FindNode("BinningVertical").SetValue(size)
-            # self.remote_nodemap.FindNode("BinningVerticalMode").SetCurrentEntry("Sum")
             self.remote_nodemap.FindNode("BinningHorizontal").SetValue(size)
-            # self.remote_nodemap.FindNode("BinningHorizontalMode").SetCurrentEntry("Sum")
 
-        logger.debug(f"Binning size after update: {self.get_binning_size()}")
-        logger.debug(f"Frame size size after update: {self.get_frame_size()}")
+        logger.debug(f"[CAM Class ] Binning set to {self.get_binning_size()}, frame now {self.get_frame_size()}")
                 
         return True
     
@@ -356,27 +348,27 @@ class IDSCamera(Camera):
 
     def get_gain(self):
         if self.active == False:
-            logger.warning('[CAM Class ] idscamera.get_gain(): inactive camera')
+            logger.warning('[CAM Class ] Cannot read gain: camera inactive')
             return -1
-        
+
         try:
             value = self.remote_nodemap.FindNode("Gain").Value()
             return float(value)
         except Exception as e:
-            logger.error(f'[CAM class ] idscamera.get_gain(FAILED) {e}')
+            logger.error(f'[CAM Class ] Read gain failed: {e}')
             return -1
 
     def gain(self, gain):
         if self.active == False:
-            logger.warning('[CAM Class ] idscamera.gain('+str(gain)+')'+': inactive camera')
+            logger.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
             return
 
         try:
             self.remote_nodemap.FindNode("GainSelector").SetCurrentEntry("AnalogAll")
             self.remote_nodemap.FindNode("Gain").SetValue(gain)
-            logger.info('[CAM Class ] idscamera.gain('+str(gain)+')'+': succeeded')
+            logger.info(f'[CAM Class ] Gain set to {gain}')
         except Exception as e:
-            logger.error(f'[CAM class ] idscamera.gain(FAILED; Gain likely out of bounds) {e}')
+            logger.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return
             
 
