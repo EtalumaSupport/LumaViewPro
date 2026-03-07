@@ -329,7 +329,7 @@ if __name__ == "__main__":
     show_tooltips = False
 
 
-    protocol_running_global = False
+    protocol_running_global = threading.Event()  # thread-safe protocol state
 
     # global autofocus_executor
     # autofocus_executor = None
@@ -616,7 +616,7 @@ def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
 def scope_leds_off(no_callback: bool = False):
     global lumaview
 
-    if protocol_running_global:
+    if protocol_running_global.is_set():
         return
 
     if not lumaview.scope.led:
@@ -767,7 +767,6 @@ def go_to_step(
 
 
 def go_to_step_update_ui(step):
-    global protocol_running_global
 
     color = step['Color']
     layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=color)
@@ -777,7 +776,7 @@ def go_to_step_update_ui(step):
     lumaview.ids['imagesettings_id'].toggle_settings()
 
     # set accordion item to corresponding channel (unless disabled during protocol)
-    if not (protocol_running_global and settings.get("disable_protocol_accordions", False)):
+    if not (protocol_running_global.is_set() and settings.get("disable_protocol_accordions", False)):
         accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=color)
         accordion_item_obj.collapse = False
 
@@ -877,7 +876,7 @@ def go_to_step_update_ui(step):
         layer_obj.ids['enable_led_btn'].state = 'down'
 
     if settings['protocol_led_on']:
-        if not protocol_running_global:
+        if not protocol_running_global.is_set():
             camera_executor.put(IOTask(action=Clock.schedule_once(lambda dt: temp())))
 
 
@@ -4254,10 +4253,9 @@ class ImageSettings(BoxLayout):
         Cleans up ScrollView viewport textures on collapse to prevent memory accumulation.
         Respects the disable_protocol_accordions setting during protocol execution.
         """
-        global protocol_running_global
 
         # Check if accordion updates are disabled during protocol execution
-        if protocol_running_global and settings.get("disable_protocol_accordions", False):
+        if protocol_running_global.is_set() and settings.get("disable_protocol_accordions", False):
             return
 
         for a_layer in common_utils.get_layers():
@@ -4409,7 +4407,7 @@ class ImageSettings(BoxLayout):
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
-        if not protocol_running_global:
+        if not protocol_running_global.is_set():
             self.update_transmitted()
         logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
         global lumaview
@@ -4715,7 +4713,7 @@ class VerticalControl(BoxLayout):
 
 
     def set_position(self, pos):
-        if protocol_running_global:
+        if protocol_running_global.is_set():
             return
 
         logger.info('[LVP Main  ] VerticalControl.set_position()')
@@ -6245,8 +6243,7 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _reset_run_autofocus_scan_button(self, **kwargs):
-        global protocol_running_global
-        protocol_running_global = False
+        protocol_running_global.clear()
 
         self.ids['run_autofocus_btn'].state = 'normal'
         self.ids['run_autofocus_btn'].text = 'Autofocus All Steps'
@@ -6255,8 +6252,7 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _reset_run_scan_button(self, **kwargs):
-        global protocol_running_global
-        protocol_running_global = False
+        protocol_running_global.clear()
         self.ids['run_scan_btn'].state = 'normal'
         self.ids['run_scan_btn'].text = 'Run One Scan'
         self.ids['run_scan_btn'].disabled = False
@@ -6264,8 +6260,7 @@ class ProtocolSettings(CompositeCapture):
 
 
     def _reset_run_protocol_button(self, **kwargs):
-        global protocol_running_global
-        protocol_running_global = False
+        protocol_running_global.clear()
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
         self.ids['run_protocol_btn'].disabled = False
@@ -6482,8 +6477,7 @@ class ProtocolSettings(CompositeCapture):
             Window.set_title(f"Lumaview Pro {version}   |   Writing protocol scan files to disk...")
         else:
             # No files pending - proceed with normal reset
-            global protocol_running_global
-            protocol_running_global = False
+            protocol_running_global.clear()
             self._reset_run_scan_button()
             create_hyperstacks_if_needed()
             live_histo_reverse()
@@ -6518,8 +6512,7 @@ class ProtocolSettings(CompositeCapture):
             Clock.unschedule(self._file_write_status_event)
             self._file_write_status_event = None
 
-        global protocol_running_global
-        protocol_running_global = False
+        protocol_running_global.clear()
 
         # Now actually reset the button
         self._reset_run_scan_button()
@@ -6553,8 +6546,7 @@ class ProtocolSettings(CompositeCapture):
             )
             return
 
-        global protocol_running_global
-        protocol_running_global = True
+        protocol_running_global.set()
 
         # Disable ability for user to move stage manually
         stage.set_motion_capability(False)
@@ -6638,8 +6630,7 @@ class ProtocolSettings(CompositeCapture):
             Window.set_title(f"Lumaview Pro {version}   |   Writing protocol scan files to disk...")
         else:
             # No files pending - proceed with normal reset
-            global protocol_running_global
-            protocol_running_global = False
+            protocol_running_global.clear()
             self._reset_run_protocol_button()
             live_histo_reverse()
             create_hyperstacks_if_needed()
@@ -6674,8 +6665,7 @@ class ProtocolSettings(CompositeCapture):
             Clock.unschedule(self._file_write_status_event)
             self._file_write_status_event = None
 
-        global protocol_running_global
-        protocol_running_global = False
+        protocol_running_global.clear()
 
         # Reset the protocol button
         self._reset_run_protocol_button()
@@ -6699,8 +6689,7 @@ class ProtocolSettings(CompositeCapture):
         run_complete_func = self._protocol_run_complete
         run_not_started_func = self._reset_run_protocol_button
 
-        global protocol_running_global
-        protocol_running_global = True
+        protocol_running_global.set()
 
         stage.set_motion_capability(False)
 
@@ -6781,7 +6770,7 @@ class ProtocolSettings(CompositeCapture):
         self,
         **kwargs,
     ):
-        if not protocol_running_global:
+        if not protocol_running_global.is_set():
             return
 
         remaining_scans = kwargs['remaining_scans']
@@ -8709,7 +8698,7 @@ class LayerControl(BoxLayout):
         self.ids['acquire_none'].active = True
 
     def ill_slider(self):
-        if protocol_running_global:
+        if protocol_running_global.is_set():
             return
         if not self._initializing:
             logger.info('[LVP Main  ] LayerControl.ill_slider()')
@@ -8863,7 +8852,7 @@ class LayerControl(BoxLayout):
             return
 
     def gain_slider(self):
-        if protocol_running_global:
+        if protocol_running_global.is_set():
             return
         if not self._initializing:
             logger.info('[LVP Main  ] LayerControl.gain_slider()')
@@ -8915,7 +8904,7 @@ class LayerControl(BoxLayout):
         self.ids['composite_threshold_text'].text = str(composite_threshold)
 
     def exp_slider(self):
-        if protocol_running_global:
+        if protocol_running_global.is_set():
             return
         if not self._initializing:
             logger.info('[LVP Main  ] LayerControl.exp_slider()')
@@ -9192,7 +9181,7 @@ class LayerControl(BoxLayout):
 
 
 
-        if protocol or protocol_running_global:
+        if protocol or protocol_running_global.is_set():
             Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
             return
@@ -9207,7 +9196,7 @@ class LayerControl(BoxLayout):
 
         # Queue IO task and update UI after completing IO
         if update_led:
-            if not protocol_running_global:
+            if not protocol_running_global.is_set():
                 self.update_led_state(apply_settings=False)
 
 
@@ -9223,7 +9212,7 @@ class LayerControl(BoxLayout):
         exposure = settings[self.layer]['exp']
         gain = settings[self.layer]['gain']
 
-        if not protocol_running_global:
+        if not protocol_running_global.is_set():
             camera_executor.put(IOTask(action=lumaview.scope.set_gain, args=(gain)))
             camera_executor.put(IOTask(action=lumaview.scope.set_exposure_time, args=(exposure)))
         #lumaview.scope.set_gain(gain)
@@ -9234,7 +9223,7 @@ class LayerControl(BoxLayout):
         auto_gain_enabled = settings[self.layer]['auto_gain']
 
         if not ignore_auto_gain:
-            if not protocol_running_global:
+            if not protocol_running_global.is_set():
                 autogain_settings = get_auto_gain_settings()
                 camera_executor.put(IOTask(
                     action=lumaview.scope.set_auto_gain,
@@ -10131,9 +10120,8 @@ class LumaViewProApp(App):
 
     def on_request_close(self, *args):
         """Handle window close request - show confirmation if protocol is running."""
-        global protocol_running_global
 
-        if protocol_running_global:
+        if protocol_running_global.is_set():
             Clock.schedule_once(lambda dt: (
                 show_confirmation_popup(
                 title='Confirm Exit',
