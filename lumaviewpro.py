@@ -342,12 +342,10 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------
     def cleanup_scrollview_viewport(scrollview):
         """
-        Aggressively clean up ScrollView viewport textures to prevent memory accumulation.
+        Clean up ScrollView viewport textures to prevent memory accumulation.
         This is called after accordion collapse events to release viewport resources.
         """
         try:
-            import gc
-
             if not isinstance(scrollview, ScrollView):
                 return
 
@@ -364,9 +362,6 @@ if __name__ == "__main__":
             # Clear viewport texture reference
             if hasattr(scrollview, '_viewport_texture'):
                 scrollview._viewport_texture = None
-
-            # Force garbage collection to reclaim memory immediately
-            gc.collect()
 
             logger.debug('[LVP Main  ] ScrollView viewport cleanup completed')
         except Exception as e:
@@ -1357,7 +1352,7 @@ class ScopeDisplay(Image):
         # Create a small black image (will be stretched to fit)
         black_image = np.zeros((100, 100), dtype=np.uint8)
         texture = Texture.create(size=(black_image.shape[1], black_image.shape[0]), colorfmt='luminance')
-        texture.blit_buffer(black_image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
+        texture.blit_buffer(black_image.tobytes(), colorfmt='luminance', bufferfmt='ubyte')
         self.texture = texture
 
     def start(self, fps = None):
@@ -1598,14 +1593,18 @@ class ScopeDisplay(Image):
             lumaview.live_capture()
 
     def create_and_set_bullseye_texture(self, image):
-        texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='rgb')
-        texture.blit_buffer(image.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
-        self.texture = texture
+        size = (image.shape[1], image.shape[0])
+        if not hasattr(self, '_bullseye_texture') or self._bullseye_texture is None or self._bullseye_texture.size != size:
+            self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
+        self._bullseye_texture.blit_buffer(image.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+        self.texture = self._bullseye_texture
 
     def create_and_set_texture(self, image):
-        texture = Texture.create(size=(image.shape[1],image.shape[0]), colorfmt='luminance')
-        texture.blit_buffer(image.flatten(), colorfmt='luminance', bufferfmt='ubyte')
-        self.texture = texture
+        size = (image.shape[1], image.shape[0])
+        if not hasattr(self, '_mono_texture') or self._mono_texture is None or self._mono_texture.size != size:
+            self._mono_texture = Texture.create(size=size, colorfmt='luminance')
+        self._mono_texture.blit_buffer(image.tobytes(), colorfmt='luminance', bufferfmt='ubyte')
+        self.texture = self._mono_texture
 
 
 
