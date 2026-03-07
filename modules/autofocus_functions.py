@@ -27,12 +27,25 @@ def set_autofocus_algorithm(algorithm: str) -> None:
         raise NotImplementedError(f"Focus algorithm {algorithm} not implemented.")
 
 
+def _mask_saturated(image: np.ndarray, margin: int = 1) -> np.ndarray:
+    """Zero out saturated pixels so they don't dominate focus scores.
+    Pixels within `margin` of the dtype max are considered saturated."""
+    max_val = np.iinfo(image.dtype).max
+    threshold = max_val - margin
+    mask = image >= threshold
+    if np.any(mask):
+        image = image.copy()
+        image[mask] = 0
+    return image
+
+
 def focus_function(
     image: np.ndarray,
     skip_score_logging: bool = False,
 ) -> float:
+    image = _mask_saturated(image)
     score = _focus_function(image=image)
-    
+
     if (True == _enable_af_score_logging) and (False == skip_score_logging):
         logger.info(f'[SCOPE API ] Focus Score: {score}')
 
