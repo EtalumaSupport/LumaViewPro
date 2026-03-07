@@ -35,6 +35,92 @@
 #-------------------------------------------------------------------------------
 
 # -----------------------
+# GLOBAL WIDGET STYLES
+# -----------------------
+# Rounded button — use in place of Button for text buttons
+<RoundedButton@Button>:
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(6)]
+
+# Rounded toggle button — use in place of ToggleButton for text toggle buttons
+<RoundedToggleButton@ToggleButton>:
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.2, 0.55, 0.82, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(6)]
+
+# Rounded style for file/folder chooser buttons (extend Button in Python)
+<FileChooseBTN>:
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(6)]
+
+<FileSaveBTN>:
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(6)]
+
+<FolderChooseBTN>:
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(6)]
+
+# Rounded Spinner (dropdown) — darker than buttons with a separator line
+<Spinner>:
+    background_normal: ''
+    background_down: ''
+    background_color: 0, 0, 0, 0
+    canvas.before:
+        Color:
+            rgba: (0.22, 0.24, 0.28, 1) if self.state == 'normal' else (0.18, 0.20, 0.24, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [dp(6)]
+        # Dropdown indicator line on right edge
+        Color:
+            rgba: 0.45, 0.48, 0.52, 1
+        RoundedRectangle:
+            pos: self.right - dp(24), self.y + dp(4)
+            size: dp(1), self.height - dp(8)
+            radius: [dp(1)]
+
+# -----------------------
 # MAIN DISPLAY
 # -----------------------
 <MainDisplay>:
@@ -85,6 +171,7 @@
             id: live_folder_btn
 			tooltip_text: 'Set destination folder for image & video files'
             border: 0, 0, 0, 0
+            background_color: 1, 1, 1, 1
             background_normal: './data/icons/folder.png' # Press to Select Folder
             background_down: './data/icons/folder_down.png'
             size_hint: None, None
@@ -379,7 +466,7 @@
 				padding: '0dp'
 				spacing: '5dp'
 
-				Button:
+				RoundedButton:
 					id: home_id
 					tooltip_text: 'Lower focus completely'
 					size_hint_y: None
@@ -387,21 +474,21 @@
 					font_size: '12sp'
 					text: 'Home'
 					on_release: root.home()
-				Button:
+				RoundedButton:
 					text: 'Set Z'
 					tooltip_text: 'Store Z-value\nfor current channel'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.set_bookmark()
-				Button:
+				RoundedButton:
 					text: 'Set All Z'
 					tooltip_text: 'Store Z-value\nfor all channels'
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.set_all_bookmarks()
-			Button:
+			RoundedButton:
 				text: 'Go to Set Z'
 				tooltip_text: 'Go to stored Z-value'
 				size_hint_y: None
@@ -409,7 +496,7 @@
 				font_size: '12sp'
 				on_release: root.goto_bookmark()
 
-    		ToggleButton:
+    		RoundedToggleButton:
     			id: autofocus_id
 				tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
     		    size_hint_y: None
@@ -439,23 +526,23 @@
 		disabled: not self.visible
 		visible: True
 
-		ToggleButton:
+		RoundedToggleButton:
 			id: turret_pos_1_btn
 			text: '1'
 			tooltip_text: 'Select turret position 1'
 			state: 'down'
             on_release: root.turret_select(1)
-		ToggleButton:
+		RoundedToggleButton:
 			id: turret_pos_2_btn
 			text: '2'
 			tooltip_text: 'Select turret position 2'
             on_release: root.turret_select(2)
-		ToggleButton:
+		RoundedToggleButton:
 			id: turret_pos_3_btn
 			text: '3'
 			tooltip_text: 'Select turret position 3'
             on_release: root.turret_select(3)
-		ToggleButton:
+		RoundedToggleButton:
 			id: turret_pos_4_btn
 			text: '4'
 			tooltip_text: 'Select turret position 4'
@@ -480,7 +567,7 @@
 	        on_release: root.load_objectives()
 	        on_text: root.select_objective()
 
-	Button:
+	RoundedButton:
 		id: set_turret_objective_btn
 		text: 'Set Turret Objective'
 		size_hint_y: None
@@ -488,7 +575,7 @@
 		font_size: '12dp'
         on_release: root.set_turret_objective()
 
-	Button:
+	RoundedButton:
 		id: reset_turret_objective_btn
 		text: 'Reset Turret Objective'
 		size_hint_y: None
@@ -588,7 +675,7 @@
 			on_text: root.set_position()
 			# values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 
-		ToggleButton:
+		RoundedToggleButton:
 			id: zstack_aqr_btn
 			size_hint_y: None
 			height: '30dp'
@@ -619,7 +706,7 @@
 		spacing: '5dp'
 
 		# HOME STAGE
-		Button: 
+		RoundedButton: 
 			id: home_id
 			tooltip_text: 'Home microscope to upper left corner (A1)'
 			font_size: '12sp'
@@ -668,7 +755,7 @@
 				on_focus: if not self.focus: root.set_xposition(self.text)
 			
 			# Set X Bookmark
-			Button:
+			RoundedButton:
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
@@ -677,7 +764,7 @@
 				on_release: root.set_xbookmark()
 
 			# Goto X Bookmark
-			Button:
+			RoundedButton:
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
@@ -756,7 +843,7 @@
 				on_focus: if not self.focus: root.set_yposition(self.text)
 
 			# Set Y Bookmark
-			Button:
+			RoundedButton:
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
@@ -765,7 +852,7 @@
 				on_release: root.set_ybookmark()
 
 			# Goto Y Bookmark
-			Button:
+			RoundedButton:
 				size_hint_y: None
 				height: '30dp'
 				font_size: '12sp'
@@ -942,7 +1029,7 @@
 				height: '30dp'
 				spacing: '5dp'
 
-				Button:
+				RoundedButton:
 					text: 'New'
 					tooltip_text: 'Create a New Protocol with the existing current Labware, Objective, and Channels set to acquire'
 					size_hint_y: None
@@ -958,7 +1045,7 @@
 					font_size: '12sp'
 					on_release: self.choose('load_protocol')
 
-				Button:
+				RoundedButton:
 					text: 'Save'
 					tooltip_text: 'Save Protocol'
 					size_hint_y: None
@@ -1132,7 +1219,7 @@
 				size_hint_y: None
 				height: '30dp'
 				spacing: '5dp'
-				Button:
+				RoundedButton:
 					id: delete_step_btn
 					tooltip_text: 'Delete current Step'
 					text: 'Delete'
@@ -1140,7 +1227,7 @@
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.delete_step()
-				Button:
+				RoundedButton:
 					id: change_step_btn
 					tooltip_text: 'Update settings for current Step including XYZ location,AF,AG/AE,Channel,turret position, and Step label'
 					text: 'Change'
@@ -1148,7 +1235,7 @@
 					height: '30dp'
 					font_size: '12sp'
 					on_release: root.modify_step()
-				Button:
+				RoundedButton:
 					id: add_step_btn
 					tooltip_text: 'Add Step after current Step'
 					text: 'Add'
@@ -1191,7 +1278,7 @@
 					values: ''
 					on_text: root.update_tiling_selection()
 
-				Button:
+				RoundedButton:
 					id: tiling_size_apply_id
 					text: 'Apply'
 					tooltip_text: 'Create tiles around untiled Steps'
@@ -1223,7 +1310,7 @@
 
 				Label:
 
-				Button:
+				RoundedButton:
 					id: protocol_zstacking_apply_id
 					text: 'Apply'
 					tooltip_text: 'Create Z-stack around unstacked Steps'
@@ -1325,7 +1412,7 @@
 			#         background_down: './data/icons/R_down.png'
 			#         on_release: root.exposures_up_button()
 					
-			ToggleButton:
+			RoundedToggleButton:
 				id: run_autofocus_btn
 				text: 'Autofocus All Steps'
 				tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
@@ -1344,7 +1431,7 @@
 				spacing: '5dp'
 				color: [51/255, 181/255, 229/255, 1]
 
-			ToggleButton:
+			RoundedToggleButton:
 				id: run_scan_btn
 				text: 'Run One Scan'
 				tooltip_text: 'Acquire one Interval of data'
@@ -1353,7 +1440,7 @@
 				font_size: '12sp'
 				on_release: root.run_scan_from_ui()
 
-			ToggleButton:
+			RoundedToggleButton:
 				id: run_protocol_btn
 				text: 'Run Full Protocol'
 				tooltip_text: 'Initiate complete Protocol for the full Duration'
@@ -1669,7 +1756,7 @@
 					size_hint_y: None
 					height: '30dp'
 
-				Button:
+				RoundedButton:
 					text:'Analyze'
 					size_hint_y: None
 					height: '30dp'
@@ -1682,7 +1769,7 @@
 					size_hint_y: None
 					height: '5dp'
 
-				Button:
+				RoundedButton:
 					text: 'Plot'
 					size_hint_y: None
 					height: '30dp'
@@ -2764,7 +2851,7 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '50dp'
+					width: '95dp'
 					text_size: self.size
 				ModSlider:
 					id: gain_slider # 0 to 48, default 0, based on camera limits
@@ -2809,7 +2896,7 @@
 					valign: 'middle'
 					font_size: '12sp'
 					size_hint_x: None
-					width: '80dp'
+					width: '95dp'
 					text_size: self.size
 				ModSlider:
 					id: exp_slider
@@ -2917,14 +3004,14 @@
 				disabled: False if self.visible else True
 				visible: True if root.show_camera_controls else False
 
-				Button:
+				RoundedButton:
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
 					text: 'Save Focus'
 					tooltip_text: 'Save current focus to use in Protocol and Manual Composite Acquisition'
 					on_release: root.save_focus()
-				Button:
+				RoundedButton:
 					size_hint_y: None
 					height: '30dp'
 					font_size: '12sp'
@@ -3289,8 +3376,6 @@
 		FileChooseBTN:
 			markup: True
 			text: '[b]Load Object-Analysis Data[/b]'
-			background_normal: ""
-			background_color: [0.306, 0.341, 0.380, 1]
 			size_hint_x: 0.97
 			size_hint_y: None
 			height: '40dp'
@@ -3487,8 +3572,6 @@
 		FileSaveBTN:
 			markup: True
 			text: '[b]Save Graph as PNG[/b]'
-			background_normal: ""
-			background_color: [0.306, 0.341, 0.380, 1]
 			size_hint_y: None
 			height: '40dp'
 			font_size: '16sp'
@@ -3783,7 +3866,7 @@
 			size_hint_y: None
 			height: '30dp'
 			
-		Button:
+		RoundedButton:
 			text: 'Apply Method to Preview'
 			tooltip_text: 'Re-analyze image with new settings'
 			size_hint_y: None
