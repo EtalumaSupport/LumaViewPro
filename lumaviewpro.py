@@ -279,7 +279,7 @@ if __name__ == "__main__":
     from kivy.clock import Clock
     from kivy.metrics import dp
     #from kivy.animation import Animation
-    from kivy.graphics import Line, Color, Rectangle, Ellipse
+    from kivy.graphics import Line, Color, Rectangle, Ellipse, Mesh
     from kivy_garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
 
     # User Interface
@@ -4527,7 +4527,6 @@ class Histogram(Widget):
 
 
     def histogram(self, *args):
-        # logger.info('[LVP Main  ] Histogram.histogram()')
         global lumaview
         bins = 128
 
@@ -4536,52 +4535,56 @@ class Histogram(Widget):
             if image is None or image is False:
                 return
 
-            hist = np.histogram(image, bins=bins,range=(0,256))
-            '''
-            if self.hist_range_set:
-                edges = self.edges
-            else:
-                edges = np.histogram_bin_edges(image, bins=1)
-                edges[0] = self.stablize*self.edges[0] + (1 - self.stablize)*edges[0]
-                edges[1] = self.stablize*self.edges[1] + (1 - self.stablize)*edges[1]
-            '''
-            # mean = np.mean(hist[1],hist[0])
-            lumaview.ids['viewer_id'].black = 0.0 # float(edges[0])/255.
-            lumaview.ids['viewer_id'].white = 1.0 # float(edges[1])/255.
+            # Subsample image for faster histogram (~16x fewer pixels)
+            sampled = image[::4, ::4]
+            counts, _ = np.histogram(sampled, bins=bins, range=(0, 256))
 
-            # UPDATE SHADER
+            lumaview.ids['viewer_id'].black = 0.0
+            lumaview.ids['viewer_id'].white = 1.0
+
+            # Compute bar heights with vectorized numpy
+            layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=self.layer)
+            use_log = layer_obj.ids['logHistogram_id'].active
+
+            if use_log:
+                heights = np.log(counts.astype(np.float64) + 1)
+            else:
+                heights = counts.astype(np.float64)
+
+            max_height = heights.max()
+            if max_height <= 0:
+                self.canvas.clear()
+                return
+
+            x = self.x
+            y = self.y
+            w = self.width
+            h = self.height
+            bin_size = w / bins
+            scale = h / max_height
+            heights = heights * scale
+
+            # Build triangle strip vertices: 2 triangles per bar (bottom-left, top-left, bottom-right, top-right)
+            # Each vertex: (x, y, u, v) where u,v are texture coords (unused but required by Mesh)
+            vertices = []
+            for i in range(bins):
+                bx = x + i * bin_size
+                bar_h = heights[i]
+                vertices.extend([bx, y, 0, 0, bx, y + bar_h, 0, 0,
+                                 bx + bin_size, y, 0, 0, bx + bin_size, y + bar_h, 0, 0])
+
+            # Build indices for individual triangle strips per bar
+            indices = []
+            for i in range(bins):
+                base = i * 4
+                indices.extend([base, base + 1, base + 2, base + 1, base + 2, base + 3])
+
             self.canvas.clear()
             r, b, g, a = self.bg_color
-            self.hist = hist
-            #self.edges = edges
+            self.hist = (counts, None)
             with self.canvas:
-                x = self.x
-                y = self.y
-                w = self.width
-                h = self.height
-                #Color(r, b, g, a/12)
-                #Rectangle(pos=(x, y), size=(256, h))
-                #Color(r, b, g, a/4)
-                #Rectangle(pos=(x + edges[0], y), size=(edges[1]-edges[0], h))
-                Color(r, b, g, a/2)
-                #self.color = Color(rgba=self.color)
-                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=self.layer)
-                logHistogram = layer_obj.ids['logHistogram_id'].active
-                if logHistogram:
-                    maxheight = np.log(np.max(hist[0])+1)
-                else:
-                    maxheight = np.max(hist[0])
-                if maxheight > 0:
-                    scale=h/maxheight
-                    for i in range(len(hist[0])):
-                        if logHistogram:
-                            counts = scale*np.log(hist[0][i] + 1)
-                        else:
-                            counts = np.ceil(scale*hist[0][i])
-                        self.pos = self.pos
-                        bin_size= self.width/bins
-                        Rectangle(pos=(x+max(i*bin_size-1, 1), y), size=(bin_size, counts))
-                        #self.line = Line(points=(x+i, y, x+i, y+counts), width=1)
+                Color(r, b, g, a / 2)
+                Mesh(vertices=vertices, indices=indices, mode='triangles')
 
 
 class VerticalControl(BoxLayout):
