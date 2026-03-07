@@ -205,5 +205,6 @@
     "protocol_led_on": false,
     "stimulation_enabled": false,
     "disable_protocol_accordions": true,
-    "lvp_lock_port": 43101
+    "lvp_lock_port": 43101,
+    "camera_type": "pylon"
 }

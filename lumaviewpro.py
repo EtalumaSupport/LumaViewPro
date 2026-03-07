@@ -1879,7 +1879,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def __init__(self, **kwargs):
         super(MainDisplay,self).__init__(**kwargs)
-        self.scope = lumascope_api.Lumascope()
+        self.scope = lumascope_api.Lumascope(camera_type=initialized_settings['camera_type'])
         self.camera_temps_event = None
         self.recording = threading.Event()
         self.recording.clear()
@@ -7696,7 +7696,7 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope.disconnect()
         lumaview.scope = None
         # Reinitialize the scope object (connects motorboard, ledboard, camera)
-        lumaview.scope = lumascope_api.Lumascope()
+        lumaview.scope = lumascope_api.Lumascope(camera_type=initialized_settings['camera_type'])
         labware_id, labware = get_selected_labware()
 
         # Set all variables that were already set at init
@@ -8158,7 +8158,7 @@ class MicroscopeSettings(BoxLayout):
         if use_full_pixel_depth:
             lumaview.scope.camera.set_pixel_format('Mono12')
         else:
-            lumaview.scope.camera.set_pixel_format('Mono8')
+            lumaview.scope.camera.set_pixel_format('Mono8') #TODO: Dynamically set based on camera capabilities
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
 

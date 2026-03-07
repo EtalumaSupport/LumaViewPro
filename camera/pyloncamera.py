@@ -31,7 +31,6 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 '''
 
-import contextlib
 import datetime
 import os
 import threading
@@ -42,25 +41,13 @@ from lvp_logger import logger
 
 import queue
 
-default_max_exposure = 1_000 # in ms
+from camera.camera import Camera
 
-class PylonCamera:
+
+class PylonCamera(Camera):
 
     def __init__(self, **kwargs):
         logger.info('[CAM Class ] PylonCamera.__init__()')
-        self.active = None
-        self.error_report_count = 0
-        self.array = np.array([])
-        self.cam_image_handler = None
-        self.model_name = None
-        self.max_exposure = 100 # in ms
-        self._device_removed = False
-        self._device_serial = None
-
-        self.max_exposure_dict = {
-            "daA3840-45um": 1_000,
-            "a2A3536-31umBAS": 10_000
-        }
 
         if os.getenv("PYLON_CAMEMU", None) != None:
             logger.info('[CAM Class ] PylonCamera.connect() detected request to use camera emulation')
@@ -68,44 +55,32 @@ class PylonCamera:
         else:
             self._use_camera_emulation = False
 
-        self.connect()
+        super().__init__()
 
-    def disconnect(self):
+    def disconnect(self) -> bool:
         logger.info('[CAM Class ] Disconnecting from camera...')
         try:
             if self.active is not None:
                 try:
-                    if self.active.IsGrabbing():
+                    if self.is_grabbing():
                         self.stop_grabbing()
                 except Exception:
                     pass
                 self.active.Close()
                 self.active = None
                 logger.info('[CAM Class ] PylonCamera.disconnect() succeeded')
+                return True
             else:
                 logger.info('[CAM Class ] PylonCamera.disconnect() failed: Camera not connected')
         except Exception as e:
             logger.exception(f'[CAM Class ] PylonCamera.disconnect() failed: {e}')
+        return False
 
     def __delete__(self):
         try:
             self.active.close()
         except Exception:
             logger.exception('[CAM Class ] exception')
-
-    @contextlib.contextmanager
-    def update_camera_config(self):
-        camera = self.active
-        was_grabbing = camera.IsGrabbing()
-
-        if was_grabbing:
-            self.stop_grabbing()
-
-        yield
-
-        if was_grabbing:
-            self.start_grabbing()
-
 
     def stop_grabbing(self):
         camera = self.active
@@ -125,7 +100,10 @@ class PylonCamera:
         except Exception as e:
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
-    def connect(self):
+    def is_grabbing(self):
+        return self.active.IsGrabbing()
+
+    def connect(self) -> bool:
         """ Try to connect to the first available basler camera"""
         try:
             p_device = pylon.TlFactory.GetInstance().CreateFirstDevice()
@@ -195,16 +173,19 @@ class PylonCamera:
             except Exception:
                 self.model_name = None
                 self._device_serial = None
-            self.init_camera_config()
+
             # Ensure no stale queued frames or state
             try:
                 self.cam_image_handler.reset()
             except Exception:
                 pass
+
+            self.init_camera_config()
             self.start_grabbing()
 
             self.error_report_count = 0
             logger.info('[CAM Class ] PylonCamera.connect() succeeded')
+            return True
         
         except genicam.RuntimeException as ex:
             # Handles when the device is already open in another application
@@ -215,6 +196,8 @@ class PylonCamera:
             logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.active = None
             self.error_report_count += 1
+
+        return False
 
     def find_model_name(self):
         if not self.active:
@@ -270,25 +253,22 @@ class PylonCamera:
             logger.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
             return {}
 
-    def get_model_name(self):
-        return self.model_name
-    
-    def set_max_exposure_time(self):
-        found_key = None
-        for key in self.max_exposure_dict.keys():
-            if self.model_name in key:
-                found_key = key
-                break
-        
-        if found_key is None:
-            self.max_exposure = default_max_exposure
-            return
-        
-        self.max_exposure = self.max_exposure_dict[found_key]
-        logger.info(f"[CAM Class ] Max exposure set to {self.max_exposure} ms")
+        temps: dict[str, float] = {}
 
-    def get_max_exposure(self):
-        return self.max_exposure
+        # Iterate all available selector entries
+        for entry in selector.GetEntries():
+
+            name = entry.GetSymbolic()       # e.g. "FpgaCore"
+            value = entry.GetValue()         # enum integer value
+
+            # Select this temperature source
+            selector.SetIntValue(value)
+
+            # Read temperature
+            if genicam.IsReadable(temp):
+                temps[name] = temp.GetValue()
+
+        return temps
     
     def init_camera_config(self):
         camera = self.active
@@ -871,7 +851,7 @@ class ImageHandler(pylon.ImageEventHandler):
                 if self._failed_grabs >= 128:
                     try:
                         logger.error('[CAM Class ] Too many grab failures; stopping acquisition')
-                        if self._parent.active and self._parent.active.IsGrabbing():
+                        if self._parent.active and self._parent.is_grabbing():
                             self._parent.stop_grabbing()
                         self._parent._device_removed = True
                     except Exception:
