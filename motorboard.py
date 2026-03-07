@@ -265,13 +265,18 @@ class MotorBoard:
     def fullinfo(self):
         info = self.exchange_command("FULLINFO")
         logger.info('[XYZ Class ] MotorBoard.fullinfo(): %s', info, extra={'force_error': True})
-        info = info.split()
-        model = info[info.index("Model:")+1]
-        if model[-1] == "T":
-            self._has_turret = True
-
-        serial_number = info[info.index("Serial:")+1]
-
+        if info is None:
+            logger.error('[XYZ Class ] FULLINFO returned None — board disconnected?')
+            return {"model": "unknown", "serial_number": "unknown"}
+        try:
+            parts = info.split()
+            model = parts[parts.index("Model:") + 1]
+            if model[-1] == "T":
+                self._has_turret = True
+            serial_number = parts[parts.index("Serial:") + 1]
+        except (ValueError, IndexError) as e:
+            logger.error(f'[XYZ Class ] Failed to parse FULLINFO response: {info!r} ({e})')
+            return {"model": "unknown", "serial_number": "unknown"}
         return {
             "model": model,
             "serial_number": serial_number
@@ -639,7 +644,7 @@ class MotorBoard:
             response = self.exchange_command(payload)
             #logger.warning(f"Response: {response}")
             if response is None:
-                raise
+                raise ValueError("STATUS_R returned None")
             data = int( response )
             bits = format(data, 'b').zfill(32)
 

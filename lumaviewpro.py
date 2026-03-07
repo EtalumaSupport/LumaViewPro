@@ -5345,16 +5345,14 @@ class ProtocolSettings(CompositeCapture):
 
         os.chdir(source_path)
         try:
-            read_file = open('./data/labware.json', "r")
+            with open('./data/labware.json', "r") as read_file:
+                self.labware = json.load(read_file)
         except Exception:
             logger.exception("[LVP Main  ] Error reading labware definition file 'data/labware.json'")
             if not os.path.isdir('./data'):
                 raise FileNotFoundError("Couldn't find 'data' directory.")
             else:
                 raise
-        else:
-            self.labware = json.load(read_file)
-            read_file.close()
 
         self.curr_step = -1
 
