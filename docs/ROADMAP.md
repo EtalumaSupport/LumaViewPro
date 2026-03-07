@@ -2,11 +2,11 @@
 
 ## Testing Improvements
 
-### Z-Dependent Blur for Autofocus Testing
-- Add Z-position-dependent blur to `SimulatedCamera` image generation
-- Generate images with varying sharpness based on distance from a focal point
-- Allows Vollath F4 autofocus algorithm to converge in simulation
-- Enables true autofocus integration tests without hardware
+### Z-Dependent Blur for Autofocus Testing (DONE)
+- SimulatedCamera generates focus-target images with Z-dependent blur
+- Vollath F4 scores peak correctly at the configurable focal Z position
+- `z_position_func` callback wired to motor board in simulate mode
+- 8 tests verify focus curve shape, symmetry, and peak location
 
 ### Real Lumascope Integration Tests
 - Replace mock-based protocol execution tests with tests using `Lumascope(simulate=True)`
@@ -42,6 +42,38 @@
 
 Testing approach: Drive GUI actions against `Lumascope(simulate=True)` and verify hardware state changes through simulator introspection.
 
+## Serial Communication
+
+### Unified Serial Protocol
+- Align LED and motor board serial communication patterns (see `docs/SERIAL_ANALYSIS.md`)
+- Create shared `SerialBoard` base class used by both `LEDBoard` and `MotorBoard`
+- Remove `RE:` echo from LED firmware (Phase 2 — requires firmware update)
+- Maintain backwards compatibility: new host tolerates both echo and no-echo firmware
+- Hardware timing benchmarks to validate optimized serial code is reliable
+
+### Error Logging
+- Ensure all firmware-reported errors (homing failures, SPI errors, etc.) are captured in the error log
+- Motor board `exchange_command` errors should propagate to the UI or log, not silently fail
+- LED board errors (overcurrent, board max exceeded) should be logged and surfaced
+
+## Engineering Mode
+
+### Turret Position in Filenames
+- When engineering mode is active, append turret position (T1, T2, T3, T4) to captured image filenames
+- Helps track which objective was used for each capture during testing
+
+### Engineering Mode Testing
+- Audit all features that engineering mode enables/changes
+- Build test coverage for engineering-mode-specific behavior
+- Verify engineering mode toggle doesn't affect normal operation
+
+## Simulate Mode UX
+
+### Auto-Detect and Prompt
+- When `Lumascope.__init__` fails to find any hardware (LED, motor, camera all missing), prompt user: "No hardware detected. Run in simulator mode?"
+- Kivy popup dialog with Yes/No
+- If Yes, restart initialization with `simulate=True`
+
 ## Cross-Platform Support
 
 ### README Update
@@ -65,3 +97,7 @@ Testing approach: Drive GUI actions against `Lumascope(simulate=True)` and verif
 - **Protocol serial safety** (analyzed): Safe by design — protocol thread serialized, `protocol_running_global` blocks UI, serial drivers have `RLock()`
 - **ctypes.windll crash on non-Windows** (fixed): Platform guard added to `sequenced_capture_executor.py`
 - **Composite capture serial race** (fixed): LED commands routed through `io_executor`
+- **LED serial 11ms overhead** (fixed): Removed unnecessary `flushInput()`, `flush()`, and two `sleep()` calls from `exchange_command`. Now reads both echo and result lines.
+- **LED host never read actual response** (fixed): Old code only read the `RE:` echo line; actual firmware result was discarded by `flushInput()`. Now reads and returns the result line.
+- **Simulator API parity** (audited): LED and motor simulators are 100% API-compatible. Camera simulator was missing only `init_auto_gain_focus()` — now added.
+- **Simulator timing modes** (added): All three simulators support `set_timing_mode('fast'|'realistic')` for test speed vs realistic behavior.
