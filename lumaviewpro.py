@@ -4621,7 +4621,7 @@ class VerticalControl(BoxLayout):
                 pass_result=True
             ))
         else:
-            Clock.schedule_once(lambda dt: self.update_text_only)
+            Clock.schedule_once(lambda dt: self.update_text_only(), 0)
 
     def update_autofocus_gui(self, pos=None):
         if pos is None:
@@ -6410,6 +6410,7 @@ class ProtocolSettings(CompositeCapture):
             ),
             'resume_live_ui': lambda: (
                 lumaview.ids['viewer_id'].ids['scope_display_id'].start(),
+                Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui),
                 Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1)
             ),
             'run_scan_pre': self._run_scan_pre_callback,
@@ -6597,6 +6598,7 @@ class ProtocolSettings(CompositeCapture):
             ),
             'resume_live_ui': lambda: (
                 lumaview.ids['viewer_id'].ids['scope_display_id'].start(),
+                Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui),
                 Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1)
             ),
         }
@@ -6752,6 +6754,7 @@ class ProtocolSettings(CompositeCapture):
             ),
             'resume_live_ui': lambda: (
                 lumaview.ids['viewer_id'].ids['scope_display_id'].start(),
+                Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui),
                 Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1)
             ),
         }
@@ -9426,6 +9429,7 @@ class ZStack(CompositeCapture):
             ),
             'resume_live_ui': lambda: (
                 lumaview.ids['viewer_id'].ids['scope_display_id'].start(),
+                Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui),
                 Clock.schedule_interval(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui, 0.1)
             ),
         }
@@ -10149,6 +10153,13 @@ class LumaViewProApp(App):
         global lumaview
 
         logger.info('[LVP Main  ] LumaViewProApp.on_stop()')
+
+        # Unschedule all recurring interval callbacks to prevent orphaned events
+        try:
+            Clock.unschedule(stage.draw_labware)
+            Clock.unschedule(lumaview.ids['motionsettings_id'].update_xy_stage_control_gui)
+        except Exception:
+            pass
 
         lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].cancel_all_protocols()
 
