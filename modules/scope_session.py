@@ -200,6 +200,19 @@ class ScopeSession:
         )
 
     # ------------------------------------------------------------------
+    # Protocol runner
+    # ------------------------------------------------------------------
+
+    def create_protocol_runner(self, **kwargs):
+        """Create a ProtocolRunner bound to this session.
+
+        Returns a ProtocolRunner that can run scans and protocols
+        using this session's scope, settings, and executors.
+        """
+        from modules.protocol_runner import ProtocolRunner
+        return ProtocolRunner(session=self, **kwargs)
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
@@ -208,7 +221,7 @@ class ScopeSession:
         self.io_executor.start()
         self.camera_executor.start()
 
-    def stop_executors(self):
-        """Stop the IO and camera executors."""
-        self.io_executor.stop()
-        self.camera_executor.stop()
+    def shutdown_executors(self):
+        """Shut down the IO and camera executors."""
+        self.io_executor.shutdown()
+        self.camera_executor.shutdown()
