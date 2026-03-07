@@ -4917,7 +4917,15 @@ class VerticalControl(BoxLayout):
 
 
     def turret_home(self):
-        lumaview.scope.thome()
+        def _on_turret_homed():
+            Clock.schedule_once(lambda dt: self._reset_turret_buttons(), 0)
+
+        io_executor.put(IOTask(
+            action=lumaview.scope.thome,
+            callback=_on_turret_homed,
+        ))
+
+    def _reset_turret_buttons(self):
         self.ids['turret_pos_1_btn'].state = 'normal'
         self.ids['turret_pos_2_btn'].state = 'normal'
         self.ids['turret_pos_3_btn'].state = 'normal'
