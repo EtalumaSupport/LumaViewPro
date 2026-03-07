@@ -101,7 +101,8 @@ def _make_mock_scope():
     scope.get_led_states = MagicMock(return_value={})
     scope.led_on = MagicMock()
     scope.leds_off = MagicMock()
-    scope.color2ch = MagicMock(side_effect=lambda c: {'BF': 0, 'PC': 1, 'DF': 2, 'Red': 3, 'Green': 4, 'Blue': 5, 'Lumi': 6}.get(c, 0))
+    _ch_map = {'BF': 0, 'PC': 1, 'DF': 2, 'Red': 3, 'Green': 4, 'Blue': 5, 'Lumi': 6}
+    scope.color2ch = MagicMock(side_effect=lambda c=None, color=None: _ch_map.get(c or color, 0))
 
     # Motion — always report "at target" so scan doesn't stall
     scope.get_target_status = MagicMock(return_value=True)
@@ -239,6 +240,8 @@ def _make_multi_step_protocol(steps_config):
         'illumination': 50.0, 'false_color': False, 'sum_count': 1,
         'video_config': {'duration': 1, 'fps': 5}, 'stim_config': {},
         'x': 10.0, 'y': 20.0, 'z': 5000.0, 'well': 'A1', 'name': None,
+        'tile': '', 'z_slice': 0, 'tile_group_id': 0, 'zstack_group_id': 0,
+        'objective': '10x',
     }
 
     rows = []
@@ -258,13 +261,13 @@ def _make_multi_step_protocol(steps_config):
             'Auto_Gain': merged['auto_gain'],
             'Exposure': merged['exposure'],
             'Sum': merged['sum_count'],
-            'Objective': '10x',
+            'Objective': merged['objective'],
             'Well': merged['well'],
-            'Tile': '',
-            'Z-Slice': 0,
+            'Tile': merged['tile'],
+            'Z-Slice': merged['z_slice'],
             'Custom Step': True,
-            'Tile Group ID': 0,
-            'Z-Stack Group ID': 0,
+            'Tile Group ID': merged['tile_group_id'],
+            'Z-Stack Group ID': merged['zstack_group_id'],
             'Acquire': merged['acquire'],
             'Video Config': merged['video_config'],
             'Stim_Config': merged['stim_config'],
@@ -670,4 +673,462 @@ class TestSeparateFolderPerChannel:
         ])
         completed, _ = _run_and_wait(executor, protocol, tmp_path,
                                       separate_folder_per_channel=True)
+        assert completed
+
+
+# ===========================================================================
+# Tier 2: Feature Combinations
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Helpers for generating tiling / z-stack step configs
+# ---------------------------------------------------------------------------
+
+def _make_tile_grid_steps(rows, cols, color='BF', well='A1', spacing=1.0, **extra):
+    """Generate step configs for an rows x cols tile grid.
+
+    Each tile gets a unique (x, y) offset and a tile label like 'R0C0'.
+    All tiles share the same tile_group_id so they're logically grouped.
+    """
+    steps = []
+    base_x, base_y = 10.0, 20.0
+    for r in range(rows):
+        for c in range(cols):
+            steps.append({
+                'color': color,
+                'well': well,
+                'x': base_x + c * spacing,
+                'y': base_y + r * spacing,
+                'tile': f'R{r}C{c}',
+                'tile_group_id': 1,
+                **extra,
+            })
+    return steps
+
+
+def _make_zstack_steps(num_slices, color='BF', well='A1', z_start=4000.0, z_step=100.0, **extra):
+    """Generate step configs for a z-stack with num_slices slices."""
+    steps = []
+    for i in range(num_slices):
+        steps.append({
+            'color': color,
+            'well': well,
+            'z': z_start + i * z_step,
+            'z_slice': i,
+            'zstack_group_id': 1,
+            **extra,
+        })
+    return steps
+
+
+# ---------------------------------------------------------------------------
+# Tiling tests
+# ---------------------------------------------------------------------------
+
+class TestTiling2x2:
+    """2x2 tile grid — simplest tiling case."""
+
+    def test_completes(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=2, cols=2)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_all_tiles_visited(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=2, cols=2)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        step_indices = {c.kwargs.get('idx', c.args[0] if c.args else None)
+                        for c in protocol.step.call_args_list}
+        assert {0, 1, 2, 3} <= step_indices
+
+
+class TestTilingAsymmetric1x3:
+    """1x3 tile grid — single row, three columns."""
+
+    def test_completes(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=1, cols=3)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_all_tiles_visited(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=1, cols=3)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        step_indices = {c.kwargs.get('idx', c.args[0] if c.args else None)
+                        for c in protocol.step.call_args_list}
+        assert {0, 1, 2} <= step_indices
+
+
+class TestTilingAsymmetric3x1:
+    """3x1 tile grid — three rows, single column."""
+
+    def test_completes(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=3, cols=1)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+class TestTilingAsymmetric3x5:
+    """3x5 tile grid — 15 total tiles."""
+
+    def test_completes(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=3, cols=5)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_correct_step_count(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=3, cols=5)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        assert protocol.num_steps() == 15
+
+
+class TestTilingMultiChannel:
+    """Tiling with multiple color channels per tile position."""
+
+    def test_2x2_bf_and_red(self, executor, scope, tmp_path):
+        bf_tiles = _make_tile_grid_steps(rows=2, cols=2, color='BF')
+        red_tiles = _make_tile_grid_steps(rows=2, cols=2, color='Red')
+        steps = bf_tiles + red_tiles
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        assert protocol.num_steps() == 8
+
+
+# ---------------------------------------------------------------------------
+# Z-stack tests
+# ---------------------------------------------------------------------------
+
+class TestZStack:
+    """Z-stack execution — multiple z-slices at one position."""
+
+    def test_3_slice_zstack(self, executor, scope, tmp_path):
+        steps = _make_zstack_steps(num_slices=3)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_10_slice_zstack(self, executor, scope, tmp_path):
+        steps = _make_zstack_steps(num_slices=10)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_all_slices_visited(self, executor, scope, tmp_path):
+        steps = _make_zstack_steps(num_slices=5)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        step_indices = {c.kwargs.get('idx', c.args[0] if c.args else None)
+                        for c in protocol.step.call_args_list}
+        assert {0, 1, 2, 3, 4} <= step_indices
+
+
+class TestZStackWithAutoFocus:
+    """Z-stack combined with autofocus."""
+
+    def test_completes(self, executor, scope, tmp_path):
+        steps = _make_zstack_steps(num_slices=3, auto_focus=True)
+        protocol = _make_multi_step_protocol(steps)
+
+        af = executor._autofocus_executor
+        af.complete.return_value = True
+        af.in_progress.return_value = False
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Tiling + Z-stack combined
+# ---------------------------------------------------------------------------
+
+class TestTilingWithZStack:
+    """Tile grid where each tile position has a z-stack."""
+
+    def test_2x2_tiles_3_zslices(self, executor, scope, tmp_path):
+        steps = []
+        base_x, base_y = 10.0, 20.0
+        tile_group = 0
+        for r in range(2):
+            for c in range(2):
+                tile_group += 1
+                for z_idx in range(3):
+                    steps.append({
+                        'color': 'BF',
+                        'x': base_x + c * 1.0,
+                        'y': base_y + r * 1.0,
+                        'z': 4000.0 + z_idx * 100.0,
+                        'tile': f'R{r}C{c}',
+                        'z_slice': z_idx,
+                        'tile_group_id': tile_group,
+                        'zstack_group_id': tile_group,
+                    })
+        protocol = _make_multi_step_protocol(steps)
+        assert protocol.num_steps() == 12  # 4 tiles * 3 slices
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Multi-well protocols
+# ---------------------------------------------------------------------------
+
+class TestMultiWell:
+    """Protocol spanning multiple wells."""
+
+    def test_two_wells(self, executor, scope, tmp_path):
+        protocol = _make_multi_step_protocol([
+            {'color': 'BF', 'well': 'A1', 'x': 10.0, 'y': 20.0},
+            {'color': 'BF', 'well': 'A2', 'x': 30.0, 'y': 20.0},
+        ])
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_six_wells_multi_channel(self, executor, scope, tmp_path):
+        wells = [('A1', 10, 20), ('A2', 30, 20), ('A3', 50, 20),
+                 ('B1', 10, 40), ('B2', 30, 40), ('B3', 50, 40)]
+        steps = []
+        for well, x, y in wells:
+            steps.append({'color': 'BF', 'well': well, 'x': float(x), 'y': float(y)})
+            steps.append({'color': 'Red', 'well': well, 'x': float(x), 'y': float(y)})
+        protocol = _make_multi_step_protocol(steps)
+        assert protocol.num_steps() == 12
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_multi_well_with_tiling(self, executor, scope, tmp_path):
+        steps = []
+        for well, wx, wy in [('A1', 10.0, 20.0), ('A2', 30.0, 20.0)]:
+            for r in range(2):
+                for c in range(2):
+                    steps.append({
+                        'color': 'BF',
+                        'well': well,
+                        'x': wx + c * 0.5,
+                        'y': wy + r * 0.5,
+                        'tile': f'R{r}C{c}',
+                        'tile_group_id': 1,
+                    })
+        protocol = _make_multi_step_protocol(steps)
+        assert protocol.num_steps() == 8  # 2 wells * 4 tiles
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Run mode variants
+# ---------------------------------------------------------------------------
+
+class TestRunModeSingleZStack:
+    """SINGLE_ZSTACK run mode."""
+
+    def test_completes(self, executor, scope, tmp_path):
+        steps = _make_zstack_steps(num_slices=5)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(
+            executor, protocol, tmp_path,
+            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
+            max_scans=1,
+        )
+        assert completed
+
+
+class TestRunModeSingleAutofocusScan:
+    """SINGLE_AUTOFOCUS_SCAN run mode."""
+
+    def test_completes(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
+
+        af = executor._autofocus_executor
+        af.complete.return_value = True
+        af.in_progress.return_value = False
+
+        completed, _ = _run_and_wait(
+            executor, protocol, tmp_path,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+            max_scans=1,
+        )
+        assert completed
+
+
+class TestRunModeSingleAutofocus:
+    """SINGLE_AUTOFOCUS run mode."""
+
+    def test_completes(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
+
+        af = executor._autofocus_executor
+        af.complete.return_value = True
+        af.in_progress.return_value = False
+
+        completed, _ = _run_and_wait(
+            executor, protocol, tmp_path,
+            run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
+            max_scans=1,
+        )
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Full protocol multi-scan with tiling
+# ---------------------------------------------------------------------------
+
+class TestFullProtocolWithTiling:
+    """FULL_PROTOCOL mode running multiple scans over a tile grid."""
+
+    def test_2_scans_2x2_tiles(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=2, cols=2)
+        protocol = _make_multi_step_protocol(steps)
+        protocol.period.return_value = datetime.timedelta(seconds=0.1)
+        protocol.duration.return_value = datetime.timedelta(seconds=1)
+
+        completed, _ = _run_and_wait(
+            executor, protocol, tmp_path,
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            max_scans=2,
+        )
+        assert completed
+
+
+class TestFullProtocolMultiScanMultiChannel:
+    """FULL_PROTOCOL with multiple scans, multi-channel steps."""
+
+    def test_3_scans_bf_and_red(self, executor, scope, tmp_path):
+        protocol = _make_multi_step_protocol([
+            {'color': 'BF'},
+            {'color': 'Red'},
+        ])
+        protocol.period.return_value = datetime.timedelta(seconds=0.1)
+        protocol.duration.return_value = datetime.timedelta(seconds=1)
+
+        completed, _ = _run_and_wait(
+            executor, protocol, tmp_path,
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            max_scans=3,
+        )
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Stimulation during video
+# ---------------------------------------------------------------------------
+
+class TestVideoWithStimulation:
+    """Video capture with LED stimulation config."""
+
+    def test_completes_with_stim(self, executor, scope, tmp_path):
+        stim_config = {
+            'Blue': {
+                'enabled': True,
+                'illumination': 100,
+                'frequency': 10,
+                'pulse_width': 50,
+                'pulse_count': 3,
+            }
+        }
+        protocol = _make_single_step_protocol(
+            color='BF',
+            acquire='video',
+            video_config={'duration': 0.5, 'fps': 5},
+            stim_config=stim_config,
+        )
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+    def test_completes_with_disabled_stim(self, executor, scope, tmp_path):
+        stim_config = {
+            'Blue': {
+                'enabled': False,
+                'illumination': 100,
+                'frequency': 10,
+                'pulse_width': 50,
+                'pulse_count': 3,
+            }
+        }
+        protocol = _make_single_step_protocol(
+            color='BF',
+            acquire='video',
+            video_config={'duration': 0.5, 'fps': 5},
+            stim_config=stim_config,
+        )
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# Combined feature tests
+# ---------------------------------------------------------------------------
+
+class TestAutoGainWithTiling:
+    """Auto-gain across a tile grid."""
+
+    def test_1x3_tiles_with_auto_gain(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=1, cols=3, auto_gain=True)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+class TestAutoFocusWithTiling:
+    """Auto-focus across a tile grid."""
+
+    def test_2x2_tiles_with_auto_focus(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=2, cols=2, auto_focus=True)
+        protocol = _make_multi_step_protocol(steps)
+
+        af = executor._autofocus_executor
+        af.complete.return_value = True
+        af.in_progress.return_value = False
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+class TestFalseColorWithTiling:
+    """False color across a fluorescence tile grid."""
+
+    def test_1x3_red_false_color(self, executor, scope, tmp_path):
+        steps = _make_tile_grid_steps(rows=1, cols=3, color='Red', false_color=True)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+class TestSumWithZStack:
+    """Sum averaging combined with z-stack."""
+
+    def test_3_slices_sum_4(self, executor, scope, tmp_path):
+        steps = _make_zstack_steps(num_slices=3, sum_count=4)
+        protocol = _make_multi_step_protocol(steps)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+class TestHighExposure:
+    """High exposure value to exercise timing paths."""
+
+    def test_500ms_exposure(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF', exposure=500.0)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+class TestImageJHyperstackFormat:
+    """ImageJ Hyperstack output format (converted to TIFF internally)."""
+
+    def test_completes_with_hyperstack_format(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF')
+        config = _make_image_capture_config()
+        config['output_format']['sequenced'] = 'ImageJ Hyperstack'
+        completed, _ = _run_and_wait(executor, protocol, tmp_path,
+                                      image_capture_config=config)
         assert completed
