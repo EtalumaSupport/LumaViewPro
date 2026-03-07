@@ -50,7 +50,6 @@ class MotorBoard:
     # Initialize connection through microcontroller
     #----------------------------------------------------------
     def __init__(self, **kwargs):
-        logger.info('[XYZ Class ] MotorBoard.__init__()')
         ports = list_ports.comports(include_links = True)
         self.found = False
         self.overshoot = False
@@ -89,9 +88,9 @@ class MotorBoard:
 
         for port in ports:
             if (port.vid == 0x2E8A) and (port.pid == 0x0005):
-                logger.info(f'[XYZ Class ] Motor Controller at {port.device}')
                 self.port = port.device
                 self.found = True
+                logger.info(f'[XYZ Class ] Found motor controller at {port.device}')
                 break
 
         self.baudrate=115200
@@ -104,10 +103,9 @@ class MotorBoard:
         self._fullinfo = None
         self._connect_fails = 0
         try:
-            logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
         except Exception:
-            logger.error('[XYZ Class ] Found motor controller but unable to establish connection.')
+            logger.error('[XYZ Class ] Failed to connect to motor controller')
             raise
 
     def connect(self):
@@ -115,36 +113,30 @@ class MotorBoard:
         # Lock to ensure mutex
         with self.thread_lock:
             try:
-                logger.info('[XYZ Class ] Found motor controller and about to create driver.')
-                if self.port is not None:
-                    self.driver = serial.Serial(port=self.port,
-                                                baudrate=self.baudrate,
-                                                bytesize=self.bytesize,
-                                                parity=self.parity,
-                                                stopbits=self.stopbits,
-                                                timeout=self.timeout,
-                                                write_timeout=self.write_timeout)
-                else:
+                if self.port is None:
                     raise ValueError("No port found for motor controller")
-                
+
+                self.driver = serial.Serial(port=self.port,
+                                            baudrate=self.baudrate,
+                                            bytesize=self.bytesize,
+                                            parity=self.parity,
+                                            stopbits=self.stopbits,
+                                            timeout=self.timeout,
+                                            write_timeout=self.write_timeout)
+
                 self.driver.close()
-                #print([comport.device for comport in serial.tools.list_ports.comports()])
                 self.driver.open()
 
                 self._connect_fails = 0
                 if lvp_logger.is_thread_paused():
                     lvp_logger.unpause_thread()
-                    logger.info(f'[XYZ Class ] MotorBoard.connect() unpausing thread logs after successful connection')
-                logger.info('[XYZ Class ] MotorBoard.connect() succeeded')
 
-                # After powering on the scope, the first command seems to be ignored.
-                # This is to ensure the following commands are followed
-                # Dev 2023-MAY-16 the above 2 comments are suspect - doesn't seem to matter
-                #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains
+                # Reset firmware in case of stale buffer state
                 self.driver.write(b'\x04\n')
-                logger.debug('[XYZ Class ] MotorBoard.connect() port initial state: %r'%self.driver.readline())
-                # Fullinfo checks to see if it has a turret, so call that here
+                logger.debug('[XYZ Class ] Port initial state: %r' % self.driver.readline())
+
                 self._fullinfo = self.fullinfo()
+                logger.info('[XYZ Class ] Connected to motor controller')
             except Exception as e:
                 self._close_driver()
                 self._connect_fails += 1

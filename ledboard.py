@@ -45,7 +45,6 @@ class LEDBoard:
     # Initialize connection through microcontroller
     #----------------------------------------------------------
     def __init__(self, **kwargs):
-        logger.info('[LED Class ] LEDBoard.__init__()')
         ports = list_ports.comports(include_links = True)
         self.found = False
         self._lock = threading.RLock()  # single lock for ALL serial access
@@ -53,9 +52,9 @@ class LEDBoard:
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
-                logger.info(f'[LED Class ] LED Controller at {port.device}')
                 self.port = port.device
                 self.found = True
+                logger.info(f'[LED Class ] Found LED controller at {port.device}')
                 break
 
         self.baudrate=115200
@@ -75,10 +74,9 @@ class LEDBoard:
         }
 
         try:
-            logger.info('[LED Class ] Found LED controller and about to establish connection.')
             self.connect()
         except Exception:
-            logger.error('[LED Class ] Found LED controller but unable to establish connection.')
+            logger.error('[LED Class ] Failed to connect to LED controller')
             raise
 
 
@@ -86,27 +84,21 @@ class LEDBoard:
         """ Try to connect to the LED controller based on the known VID/PID"""
         with self._lock:
             try:
-                logger.info('[LED Class ] Found LED controller and about to create driver.')
-                if self.port is not None:
-                    self.driver = serial.Serial(port=self.port,
-                                                baudrate=self.baudrate,
-                                                bytesize=self.bytesize,
-                                                parity=self.parity,
-                                                stopbits=self.stopbits,
-                                                timeout=self.timeout,
-                                                write_timeout=self.write_timeout)
-                else:
+                if self.port is None:
                     raise ValueError("No port found for LED controller")
 
-                # self.driver.close()
-                # self.driver.open()
+                self.driver = serial.Serial(port=self.port,
+                                            baudrate=self.baudrate,
+                                            bytesize=self.bytesize,
+                                            parity=self.parity,
+                                            stopbits=self.stopbits,
+                                            timeout=self.timeout,
+                                            write_timeout=self.write_timeout)
 
-                # self.exchange_command('import main.py')
-                # self.exchange_command('import main.py')
-                logger.info('[LED Class ] LEDBoard.connect() succeeded')
-                #Sometimes the firmware fails to start (or the port has a \x00 left in the buffer), this forces MicroPython to reset, and the normal firmware just complains 
+                # Reset firmware in case of stale buffer state
                 self.driver.write(b'\x04\n')
-                logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
+                logger.debug('[LED Class ] Port initial state: %r' % self.driver.readline())
+                logger.info('[LED Class ] Connected to LED controller')
             except Exception as e:
                 self._close_driver()
                 logger.error(f'[LED Class ] LEDBoard.connect() failed: {e}')
