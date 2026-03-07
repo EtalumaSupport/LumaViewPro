@@ -1821,9 +1821,13 @@ class CompositeCapture(FloatLayout):
                 # update illumination to currently selected settings
                 illumination = settings[trans_layer]['ill']
 
-                # Florescent capture
+                # Transmitted channel capture — route LED through io_executor
                 if lumaview.scope.led:
-                    lumaview.scope.led_on(lumaview.scope.color2ch(trans_layer), illumination)
+                    task = IOTask(action=lumaview.scope.led_on,
+                                  args=(lumaview.scope.color2ch(trans_layer), illumination))
+                    fut = io_executor.put(task, return_future=True)
+                    if fut:
+                        fut.result(timeout=5)
                     logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
                 else:
                     logger.warning('LED controller not available.')
@@ -1887,11 +1891,15 @@ class CompositeCapture(FloatLayout):
                 # update illumination to currently selected settings
                 illumination = settings[layer]['ill']
 
-                # Florescent capture
+                # Fluorescence capture — route LED through io_executor
                 # Check to make sure we are not capturing from a luminescence layer which doesn't use an LED
                 if layer not in common_utils.get_transmitted_layers():
                     if lumaview.scope.led:
-                        lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)
+                        task = IOTask(action=lumaview.scope.led_on,
+                                      args=(lumaview.scope.color2ch(layer), illumination))
+                        fut = io_executor.put(task, return_future=True)
+                        if fut:
+                            fut.result(timeout=5)
                         logger.info('[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch(layer), illumination)')
                     else:
                         logger.warning('LED controller not available.')
@@ -1905,7 +1913,7 @@ class CompositeCapture(FloatLayout):
                     sum_delay_s=exposure/1000,
                     sum_iteration_callback=sum_iteration_callback,
                 )
-                lumaview.scope.leds_off()
+                scope_leds_off(no_callback=True)
 
                 img_gray = np.array(img_gray)
 
