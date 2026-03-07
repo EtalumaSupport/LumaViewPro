@@ -233,6 +233,7 @@ if __name__ == "__main__":
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
     import modules.config_helpers as config_helpers
     import modules.scope_commands as scope_commands
+    from modules.scope_session import ScopeSession
 
     import cv2
     import skimage
@@ -399,6 +400,8 @@ if __name__ == "__main__":
     stage_executor = io_executor    # consolidated: all motor serial I/O through one executor
     turret_executor = io_executor   # consolidated: prevents concurrent motor board access
     reset_executor = SequentialIOExecutor(name="RESET")
+
+    scope_session = None  # initialized in LumaViewProApp.build() after scope is created
 
     if use_multiprocessing:
         import multiprocessing
@@ -9867,6 +9870,20 @@ class LumaViewProApp(App):
         coordinate_transformer = coord_transformations.CoordinateTransformer()
 
         objective_helper = objectives_loader.ObjectiveLoader()
+
+        # Create the GUI-independent scope session
+        global scope_session
+        scope_session = ScopeSession(
+            settings=settings,
+            scope=lumaview.scope,
+            io_executor=io_executor,
+            camera_executor=camera_executor,
+            wellplate_loader=wellplate_loader,
+            coordinate_transformer=coordinate_transformer,
+            objective_helper=objective_helper,
+            source_path=source_path,
+        )
+        scope_session.protocol_running = protocol_running_global
 
         io_executor.start()
         camera_executor.start()
