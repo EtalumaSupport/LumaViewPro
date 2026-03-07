@@ -619,12 +619,10 @@ def scope_leds_off(no_callback: bool = False):
         return
 
     if no_callback:
-        camera_executor.put(IOTask(action=lumaview.scope.leds_off))
+        io_executor.put(IOTask(action=lumaview.scope.leds_off))
     else:
-        camera_executor.put(IOTask(action=lumaview.scope.leds_off, callback=_handle_ui_for_leds_off))
-    #lumaview.scope.leds_off()
+        io_executor.put(IOTask(action=lumaview.scope.leds_off, callback=_handle_ui_for_leds_off))
     logger.info('[LVP Main  ] lumaview.scope.leds_off()')
-    #_handle_ui_for_leds_off()
 
 
 def is_image_saving_enabled() -> bool:
@@ -7878,7 +7876,7 @@ class MicroscopeSettings(BoxLayout):
         layer_obj.apply_settings()
         Clock.schedule_once(layer_obj.apply_settings, 5)
 
-        camera_executor.put(IOTask(scope_leds_off))
+        scope_leds_off()
 
         logger.info("[LVP Main  ] Reconnection complete.")
 
@@ -9929,8 +9927,7 @@ class LumaViewProApp(App):
             lumaview.log_camera_temps()  # Log once on startup
             lumaview.camera_temps_event = Clock.schedule_interval(lambda dt: lumaview.log_camera_temps(), 14400)  # Log every 4 hours
 
-        camera_executor.put(IOTask(scope_leds_off))
-
+        scope_leds_off()
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
