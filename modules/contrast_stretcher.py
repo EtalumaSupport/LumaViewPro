@@ -18,12 +18,15 @@ class ContrastStretcher:
             'range': [255],
         }
 
-    
+
     def update(self, image: np.ndarray) -> np.ndarray:
 
+        # Subsample for faster percentile calculation (~16x fewer pixels)
+        sampled = image[::4, ::4]
+
         # Calculate bottom % and top % of pixel values to use for contrast stretching
-        min_val = np.percentile(image, self._bottom_pct)
-        max_val = np.percentile(image, 100-self._top_pct)
+        min_val = np.percentile(sampled, self._bottom_pct)
+        max_val = np.percentile(sampled, 100-self._top_pct)
         range_diff = max_val - min_val
 
         # Save the values to a list for calculating rolling averages

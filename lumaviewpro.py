@@ -1454,47 +1454,40 @@ class ScopeDisplay(Image):
         return image
 
 
+    # Pre-built 256-entry LUT for bullseye color mapping (built once, used every frame)
+    _bullseye_lut = None
+
+    @staticmethod
+    def _build_bullseye_lut():
+        """Build a 256x3 uint8 lookup table for the bullseye color map."""
+        lut = np.zeros((256, 3), dtype=np.uint8)
+        # Pattern: 10-pixel-wide bands alternating black/green,
+        # with blue at 125-135 and red at 245-255
+        color_bands = [
+            # (start_exclusive, end_inclusive, R, G, B)
+            (  5,  15,   0, 255,   0),
+            ( 25,  35,   0, 255,   0),
+            ( 45,  55,   0, 255,   0),
+            ( 65,  75,   0, 255,   0),
+            ( 85,  95,   0, 255,   0),
+            (105, 115,   0, 255,   0),
+            (125, 135,   0,   0, 255),
+            (145, 155,   0, 255,   0),
+            (165, 175,   0, 255,   0),
+            (185, 195,   0, 255,   0),
+            (205, 215,   0, 255,   0),
+            (225, 235,   0, 255,   0),
+            (245, 255, 255,   0,   0),
+        ]
+        for start, end, r, g, b in color_bands:
+            lut[start + 1 : end + 1] = [r, g, b]
+        return lut
+
     @staticmethod
     def transform_to_bullseye(image):
-        image_bullseye = np.zeros((*image.shape, 3), dtype=np.uint8)
-
-        # The range is defined by (start_value, end_value]
-        # key: [start_value, end_value, RGB Value]
-        color_map = {
-            0:  [ -1,   5,   0,   0,   0],
-            1:  [  5,  15,   0, 255,   0],
-            2:  [ 15,  25,   0,   0,   0],
-            3:  [ 25,  35,   0, 255,   0],
-            4:  [ 35,  45,   0,   0,   0],
-            5:  [ 45,  55,   0, 255,   0],
-            6:  [ 55,  65,   0,   0,   0],
-            7:  [ 65,  75,   0, 255,   0],
-            8:  [ 75,  85,   0,   0,   0],
-            9:  [ 85,  95,   0, 255,   0],
-            10: [ 95, 105,   0,   0,   0],
-            11: [105, 115,   0, 255,   0],
-            12: [115, 125,   0,   0,   0],
-            13: [125, 135,   0,   0, 255],
-            14: [135, 145,   0,   0,   0],
-            15: [145, 155,   0, 255,   0],
-            16: [155, 165,   0,   0,   0],
-            17: [165, 175,   0, 255,   0],
-            18: [175, 185,   0,   0,   0],
-            19: [185, 195,   0, 255,   0],
-            20: [195, 205,   0,   0,   0],
-            21: [205, 215,   0, 255,   0],
-            22: [215, 225,   0,   0,   0],
-            23: [225, 235,   0, 255,   0],
-            24: [235, 245,   0,   0,   0],
-            25: [245, 255, 255,   0,   0]
-        }
-
-        for key in color_map.keys():
-            start, end, *_rgb = color_map[key]
-            boolean_array = np.logical_and(image > start, image <= end)
-            image_bullseye[boolean_array] = _rgb
-
-        return image_bullseye
+        if ScopeDisplay._bullseye_lut is None:
+            ScopeDisplay._bullseye_lut = ScopeDisplay._build_bullseye_lut()
+        return ScopeDisplay._bullseye_lut[image]
 
 
     def update_scopedisplay(self, dt=0):
