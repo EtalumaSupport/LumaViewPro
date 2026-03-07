@@ -39,9 +39,7 @@ from lvp_logger import logger
 import time
 import threading
 
-import threading
-
-class LEDBoard:    
+class LEDBoard:
 
     #----------------------------------------------------------
     # Initialize connection through microcontroller
@@ -50,10 +48,8 @@ class LEDBoard:
         logger.info('[LED Class ] LEDBoard.__init__()')
         ports = list_ports.comports(include_links = True)
         self.found = False
-        self.thread_lock = threading.RLock()
+        self._lock = threading.RLock()  # single lock for ALL serial access
         self.port = None
-
-        self.com_lock = threading.RLock()
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
@@ -88,7 +84,7 @@ class LEDBoard:
 
     def connect(self):
         """ Try to connect to the LED controller based on the known VID/PID"""
-        with self.thread_lock:
+        with self._lock:
             try:
                 logger.info('[LED Class ] Found LED controller and about to create driver.')
                 if self.port is not None:
@@ -112,22 +108,23 @@ class LEDBoard:
                 self.driver.write(b'\x04\n')
                 logger.debug('[LED Class ] LEDBOARD.connect() port initial state: %r'%self.driver.readline())
             except Exception as e:
-                self.driver = None
+                self._close_driver()
                 logger.error(f'[LED Class ] LEDBoard.connect() failed: {e}')
 
     def disconnect(self):
         logger.info('[LED Class ] Disconnecting from LED controller...')
-        try:
-            if self.driver is not None:
-                self.driver.close()
+        with self._lock:
+            try:
+                if self.driver is not None:
+                    self.driver.close()
+                    self.driver = None
+                    self.port = None
+                    logger.info('[LED Class ] LEDBoard.disconnect() succeeded')
+                else:
+                    logger.info('[LED Class ] LEDBoard.disconnect(): not connected')
+            except Exception as e:
                 self.driver = None
-                self.port = None
-                logger.info('[LED Class ] LEDBoard.disconnect() succeeded')
-            else:
-                logger.info('[LED Class ] LEDBoard.disconnect() failed: LED controller not connected')
-
-        except Exception as e:
-            logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
+                logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
 
     def is_connected(self) -> bool:
         return self.driver is not None
@@ -135,54 +132,67 @@ class LEDBoard:
     def exchange_command(self, command):
         """ Exchange command through serial to LED board
         This should NOT be used in a script. It is intended for other functions to access"""
-        with self.thread_lock:
-            stream = command.encode('utf-8')+b"\n"
-
-            if self.driver is not None:
+        with self._lock:
+            if self.driver is None:
                 try:
-                    self.driver.flushInput()
-                    self.driver.flush()
-                    time.sleep(0.001)
-                    self.driver.write(stream)
-                    time.sleep(0.01)
-                    response = self.driver.readline()
-                    response = response.decode("utf-8","ignore")
-
-                    logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
-                    return response[:-2]
-                
-                except serial.SerialTimeoutException:
-                    self.driver = None
-                    logger.error('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
-
+                    self.connect()
                 except:
-                    self.driver = None
+                    return None
 
-            else:
+            if self.driver is None:
+                return None
+
+            stream = command.encode('utf-8')+b"\n"
+            try:
+                self.driver.flushInput()
+                self.driver.flush()
+                time.sleep(0.001)
+                self.driver.write(stream)
+                time.sleep(0.01)
+                response = self.driver.readline()
+                response = response.decode("utf-8","ignore")
+
+                logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
+                return response[:-2]
+
+            except serial.SerialTimeoutException:
+                logger.error('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+                self._close_driver()
+
+            except Exception as e:
+                logger.error(f'[LED Class ] LEDBoard.exchange_command({command}) failed: {e}')
+                self._close_driver()
+
+            return None
+    
+    def _close_driver(self):
+        """Safely close and clear the serial driver."""
+        try:
+            if self.driver is not None:
+                self.driver.close()
+        except Exception:
+            pass
+        self.driver = None
+
+    def _write_command_fast(self, command: str):
+        """Write-only fast path: send command without sleeps or reading a response.
+        Uses the same lock as exchange_command to prevent interleaved writes."""
+        with self._lock:
+            if self.driver is None:
                 try:
                     self.connect()
                 except:
                     return
-    
-    def _write_command_fast(self, command: str):
-        """Write-only fast path: send command without sleeps or reading a response."""
-        stream = command.encode('utf-8')+b"\n"
-        if self.driver is not None:
+
+            if self.driver is None:
+                return
+
+            stream = command.encode('utf-8')+b"\n"
             try:
-                with self.com_lock:
-                    self.driver.write(stream)
-            except:
-                # Suppress to keep this path fast and non-blocking
-                pass
-        else:
-            # If not connected, attempt to connect quickly; if it fails, just return
-            try:
-                self.connect()
-                if self.driver:
-                    with self.com_lock:
-                        self.driver.write(stream)
-            except:
-                pass
+                self.driver.write(stream)
+            except Exception as e:
+                logger.error(f'[LED Class ] LEDBoard._write_command_fast({command}) failed: {e}')
+                self._close_driver()
       
     def color2ch(self, color):
         """ Convert color name to numerical channel """

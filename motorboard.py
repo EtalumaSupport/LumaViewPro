@@ -98,8 +98,8 @@ class MotorBoard:
         self.bytesize=serial.EIGHTBITS
         self.parity=serial.PARITY_NONE
         self.stopbits=serial.STOPBITS_ONE
-        self.timeout=None # seconds
-        self.write_timeout=None # seconds
+        self.timeout=30 # seconds — prevents host hang if firmware locks up during homing
+        self.write_timeout=5 # seconds
         self.driver = None
         self._fullinfo = None
         self._connect_fails = 0
@@ -146,7 +146,7 @@ class MotorBoard:
                 # Fullinfo checks to see if it has a turret, so call that here
                 self._fullinfo = self.fullinfo()
             except Exception as e:
-                self.driver = None
+                self._close_driver()
                 self._connect_fails += 1
                 if self._connect_fails >= 10:
                     logger.critical(f'[XYZ Class ] MotorBoard.connect() failed 10 times, pausing thread logs')
@@ -155,15 +155,17 @@ class MotorBoard:
 
     def disconnect(self):
         logger.info('[XYZ Class ] Disconnecting from motor controller...')
-        try:
-            if self.driver is not None:
-                self.driver.close()
+        with self.thread_lock:
+            try:
+                if self.driver is not None:
+                    self.driver.close()
+                    self.driver = None
+                    logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
+                else:
+                    logger.info('[XYZ Class ] MotorBoard.disconnect(): not connected')
+            except Exception as e:
                 self.driver = None
-                logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
-            else:
-                logger.info('[XYZ Class ] MotorBoard.disconnect() failed: Motor controller not connected')
-        except Exception as e:
-            logger.error(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
+                logger.error(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
 
     def is_connected(self) -> bool:
         return self.driver is not None
@@ -171,23 +173,31 @@ class MotorBoard:
     #----------------------------------------------------------
     # Define Communication
     #----------------------------------------------------------
+    def _close_driver(self):
+        """Safely close and clear the serial driver."""
+        try:
+            if self.driver is not None:
+                self.driver.close()
+        except Exception:
+            pass
+        self.driver = None
+
     def exchange_command(self, command, response_numlines=1):
         """ Exchange command through serial to SPI to the motor boards
         This should NOT be used in a script. It is intended for other functions to access"""
         with self.thread_lock:
-            stream = command.encode('utf-8')+b"\n"
-            #print(stream)
-
-            if not self.driver:
+            if self.driver is None:
                 try:
                     self.connect()
                 except:
-                    return
+                    return None
+
+            if self.driver is None:
+                return None
+
+            stream = command.encode('utf-8')+b"\n"
             try:
                 self.driver.write(stream)
-                #if (command)=='HOME': # ESW to increase homing reliability
-                #    CRLF = command.encode('utf-8')+b"\r\n"
-                #    self.driver.write(CRLF)
                 resp_lines = [self.driver.readline() for _ in range(response_numlines)]
                 response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
                 if response_numlines == 1:
@@ -197,15 +207,15 @@ class MotorBoard:
                 logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
 
             except serial.SerialTimeoutException:
-                self.driver = None
                 logger.error('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
+                self._close_driver()
                 response = None
 
-            except:
-                self.driver = None
-                logger.error('[XYZ Class ] MotorBoard.exchange_command('+command+') failed')
+            except Exception as e:
+                logger.error(f'[XYZ Class ] MotorBoard.exchange_command({command}) failed: {e}')
+                self._close_driver()
                 response = None
-            
+
             return response
 
 
