@@ -1660,6 +1660,33 @@ class CompositeCapture(FloatLayout):
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         use_full_pixel_depth = scope_display.use_full_pixel_depth
 
+        # Run hardware-blocking work on a background thread to avoid freezing UI
+        t = threading.Thread(
+            target=self._composite_capture_worker,
+            kwargs={
+                'z_stage_present': z_stage_present,
+                'initial_layer': initial_layer,
+                'led_restore_state': led_restore_state,
+                'use_full_pixel_depth': use_full_pixel_depth,
+            },
+            daemon=True,
+            name='CompositeCapture',
+        )
+        t.start()
+
+    def _composite_capture_worker(
+        self,
+        z_stage_present,
+        initial_layer,
+        led_restore_state,
+        use_full_pixel_depth,
+    ):
+        """Runs on background thread — performs hardware I/O without blocking UI."""
+        global lumaview
+
+        acquired_channel_count = 0
+        most_recent_aq_channel = None
+
         if use_full_pixel_depth:
             dtype = np.uint16
         else:
@@ -1815,13 +1842,10 @@ class CompositeCapture(FloatLayout):
 
             scope_leds_off(no_callback=True)
 
-            Clock.unschedule(layer_obj.ids['histo_id'].histogram)
+            Clock.schedule_once(lambda dt, lo=layer_obj: Clock.unschedule(lo.ids['histo_id'].histogram), 0)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
-
-
-        lumaview.ids['composite_btn'].state = 'normal'
-
+        # File saving can run on this thread (no UI dependency)
         append = f'{self.get_well_label()}'
 
         save_folder = pathlib.Path(settings['live_folder']) / "Manual"
@@ -1851,17 +1875,18 @@ class CompositeCapture(FloatLayout):
         else:
             logger.info("[Composite Capture  ] No image saved as no channels were selected")
 
-        live_histo_reverse()
+        # UI updates must happen on the main thread
+        def _restore_ui(dt):
+            lumaview.ids['composite_btn'].state = 'normal'
+            live_histo_reverse()
+            opened_layer_obj = common_utils.get_opened_layer_obj(lumaview.ids['imagesettings_id'])
+            if led_restore_state:
+                opened_layer_obj.ids['enable_led_btn'].state = 'down'
+            else:
+                opened_layer_obj.ids['enable_led_btn'].state = 'normal'
+            opened_layer_obj.apply_settings(update_led=True)
 
-        opened_layer_obj = common_utils.get_opened_layer_obj(lumaview.ids['imagesettings_id'])
-
-
-        if led_restore_state:
-            opened_layer_obj.ids['enable_led_btn'].state = 'down'
-        else:
-            opened_layer_obj.ids['enable_led_btn'].state = 'normal'
-
-        opened_layer_obj.apply_settings(update_led=True)
+        Clock.schedule_once(_restore_ui, 0)
         # # Reverse to settings of the channel that were originally selected
         # if initial_layer is not None:
         #     gain = settings[initial_layer]['gain']

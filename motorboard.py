@@ -152,13 +152,12 @@ class MotorBoard:
         with self.thread_lock:
             try:
                 if self.driver is not None:
-                    self.driver.close()
-                    self.driver = None
+                    self._close_driver()
                     logger.info('[XYZ Class ] MotorBoard.disconnect() succeeded')
                 else:
                     logger.info('[XYZ Class ] MotorBoard.disconnect(): not connected')
             except Exception as e:
-                self.driver = None
+                self._close_driver()
                 logger.error(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
 
     def is_connected(self) -> bool:

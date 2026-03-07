@@ -112,14 +112,13 @@ class LEDBoard:
         with self._lock:
             try:
                 if self.driver is not None:
-                    self.driver.close()
-                    self.driver = None
+                    self._close_driver()
                     self.port = None
                     logger.info('[LED Class ] LEDBoard.disconnect() succeeded')
                 else:
                     logger.info('[LED Class ] LEDBoard.disconnect(): not connected')
             except Exception as e:
-                self.driver = None
+                self._close_driver()
                 logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
 
     def is_connected(self) -> bool:

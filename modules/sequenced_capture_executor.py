@@ -139,7 +139,7 @@ class SequencedCaptureExecutor:
         self._scan_count = 0
         self._scan_in_progress.clear()
         self._autofocus_count = 0
-        self._autogain_countdown = 0
+        self._auto_gain_deadline = 0.0
         self._grease_redistribution_done = True
         self._captures_taken = 0
         self._target_x_pos = -1
@@ -448,7 +448,7 @@ class SequencedCaptureExecutor:
                 
                 self._go_to_step(step_idx=self._curr_step)
                 self._scan_in_progress.set()
-                self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
+                self._auto_gain_deadline = time.monotonic() + self._autogain_settings['max_duration'].total_seconds()
                 
                 start_scan_time = datetime.datetime.now()
                 # Run the scan loop - this will block until scan completes
@@ -597,9 +597,6 @@ class SequencedCaptureExecutor:
                 return
             self._scope.set_exposure_time(step['Exposure'])
 
-        if step['Auto_Gain'] and self._auto_gain_countdown > 0:
-            self._auto_gain_countdown -= 0.1
-        
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
         if step['Auto_Focus'] and not self._autofocus_executor.complete() and not self._autofocus_executor.in_progress():
 
@@ -635,11 +632,11 @@ class SequencedCaptureExecutor:
         #     self._leds_off()
         
         # Check if autogain has time-finished after auto-focus so that they can run in parallel
-        if step['Auto_Gain'] and self._auto_gain_countdown > 0:
+        if step['Auto_Gain'] and time.monotonic() < self._auto_gain_deadline:
             return
-        
-        # Reset the autogain countdown
-        self._auto_gain_countdown = self._autogain_settings['max_duration'].total_seconds()
+
+        # Reset the autogain deadline for next step
+        self._auto_gain_deadline = time.monotonic() + self._autogain_settings['max_duration'].total_seconds()
         
         # Update the Z position with autofocus results
         if step['Auto_Focus'] and self._update_z_pos_from_autofocus:
