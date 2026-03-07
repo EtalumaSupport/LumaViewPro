@@ -231,6 +231,7 @@ if __name__ == "__main__":
     import modules.zprojector as zprojector
     from modules.video_writer import VideoWriter
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+    import modules.config_helpers as config_helpers
 
     import cv2
     import skimage
@@ -570,20 +571,7 @@ def set_last_save_folder(dir: pathlib.Path | None):
 
 def focus_log(positions, values):
     global focus_round
-    if False:
-        os.chdir(source_path)
-        try:
-            file = open('./logs/focus_log.txt', 'a')
-        except Exception:
-            if not os.path.isdir('./logs'):
-                raise FileNotFoundError("Couldn't find 'logs' directory.")
-            else:
-                raise
-        for i, p in enumerate(positions):
-            mssg = str(focus_round) + '\t' + str(p) + '\t' + str(values[i]) + '\n'
-            file.write(mssg)
-        file.close()
-        focus_round += 1
+    focus_round = config_helpers.focus_log(positions, values, focus_round, source_path)
 
 def update_autofocus_selection_after_protocol():
     for layer in common_utils.get_layers():
@@ -639,13 +627,7 @@ def _update_step_number_callback(step_num: int):
     Clock.schedule_once(lambda dt: protocol_settings.update_step_ui(), 0)
 
 def find_nearest_step(x: float, y: float, protocol: Protocol) -> int:
-    # Given a position, find the nearest step in the protocol
-    if protocol is None or protocol.num_steps() <= 0:
-        return -1
-
-    steps_df = protocol.steps()
-    idx = (steps_df[['X','Y']].sub([x, y]).pow(2).sum(1)).idxmin()
-    return idx
+    return config_helpers.find_nearest_step(x, y, protocol)
 
 def go_to_step(
     protocol: Protocol,
@@ -918,53 +900,7 @@ def get_zstack_positions() -> tuple[bool, dict]:
 def get_layer_configs(
     specific_layers: list | None = None,
 ) -> dict[dict]:
-    layer_configs = {}
-    for layer in common_utils.get_layers():
-
-        if (specific_layers is not None) and (layer not in specific_layers):
-            continue
-
-        layer_configs[layer] = {}
-        layer_settings = settings[layer]
-
-        acquire = layer_settings['acquire']
-        video_config = layer_settings['video_config']
-
-        if 'stim_config' in layer_settings:
-            # Force an update to keep stim_config.illumination in sync with layer illumination
-            settings[layer]['stim_config']['illumination'] = layer_settings['ill']
-            stim_config = layer_settings['stim_config']
-        else:
-            stim_config = None
-
-        autofocus = layer_settings['autofocus']
-        false_color = layer_settings['false_color']
-        illumination = round(layer_settings['ill'], common_utils.max_decimal_precision('illumination'))
-        sum = layer_settings['sum']
-        gain = round(layer_settings['gain'], common_utils.max_decimal_precision('gain'))
-        auto_gain = common_utils.to_bool(layer_settings['auto_gain'])
-        exposure = round(layer_settings['exp'], common_utils.max_decimal_precision('exposure'))
-        focus = layer_settings['focus']
-
-        # Final check to ensure consistent stim_config.illumination
-        if stim_config is not None:
-            stim_config['illumination'] = illumination
-
-        layer_configs[layer] = {
-            'acquire': acquire,
-            'video_config': video_config,
-            'stim_config': stim_config,
-            'autofocus': autofocus,
-            'false_color': false_color,
-            'illumination': illumination,
-            'gain': gain,
-            'auto_gain': auto_gain,
-            'exposure': exposure,
-            'sum': sum,
-            'focus': focus
-        }
-
-    return layer_configs
+    return config_helpers.get_layer_configs(settings, specific_layers)
 
 
 def get_active_layer_config() -> tuple[str, dict]:
@@ -985,21 +921,10 @@ def get_active_layer_config() -> tuple[str, dict]:
     return c_layer, layer_configs[c_layer]
 
 def get_stim_configs() -> dict:
-    # Build per-layer stim configs, forcing illumination to match current layer illumination
-    stim_configs = {}
-    layer_configs = get_layer_configs()
-    for layer in layer_configs:
-        if layer_configs[layer]['stim_config'] is not None:
-            stim_configs[layer] = layer_configs[layer]['stim_config']
-    return stim_configs
+    return config_helpers.get_stim_configs(settings)
 
 def get_enabled_stim_configs() -> dict:
-    stim_configs = get_stim_configs()
-    enabled_stim_configs = {}
-    for layer in stim_configs:
-        if stim_configs[layer]['enabled']:
-            enabled_stim_configs[layer] = stim_configs[layer]
-    return enabled_stim_configs
+    return config_helpers.get_enabled_stim_configs(settings)
 
 
 def get_current_plate_position():
@@ -1124,10 +1049,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
 
 
 def get_auto_gain_settings() -> dict:
-    autogain_settings = settings['protocol']['autogain'].copy()
-    autogain_settings['max_duration'] = datetime.timedelta(seconds=autogain_settings['max_duration_seconds'])
-    del autogain_settings['max_duration_seconds']
-    return autogain_settings
+    return config_helpers.get_auto_gain_settings(settings)
 
 
 def create_hyperstacks_if_needed():
@@ -1146,9 +1068,7 @@ def create_hyperstacks_if_needed():
 
 
 def get_current_objective_info() -> tuple[str, dict]:
-    objective_id = settings['objective_id']
-    objective = objective_helper.get_objective_info(objective_id=objective_id)
-    return objective_id, objective
+    return config_helpers.get_current_objective_info(settings, objective_helper)
 
 
 def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
@@ -1295,19 +1215,7 @@ def live_histo_reverse():
 
         
 def log_system_metrics(dt=None):
-    metrics = common_utils.system_metrics(path=settings['live_folder'])
-    free_space = common_utils.check_disk_space(path=settings['live_folder'])
-
-    if free_space < 1024: # Less than 1 GB
-        logger.error(f"Low disk space: {free_space:.1f} MB remaining", extra={'force_error': True})
-
-    logger.info(f"[SYSTEM METRICS] CPU Usage: {metrics['cpu_percent_total']:.1f}% | RAM Available: {metrics['ram_available_gb']:.1f} GB | RAM Usage: {metrics['ram_percent_total']:.1f}%", extra={'force_error': True})
-    logger.info(f"[DISK METRICS] Disk Free: {metrics['disk_free_gb']:.1f} GB | Disk Usage: {metrics['disk_used_percent']:.1f}%", extra={'force_error': True})
-    logger.info(f"[PROCESS METRICS] Process CPU Usage: {metrics['cpu_percent_python']:.1f}% | Process RAM Usage: {metrics['ram_used_python_mb']:.1f} MB, {metrics['ram_used_python_percent']:.1f}%", extra={'force_error': True})
-
-    extra_disks = common_utils.get_extra_disks_info(exclude_path=settings['live_folder'])
-    if extra_disks:
-        logger.info(f"[EXTRA DISKS] {extra_disks}", extra={'force_error': True})
+    config_helpers.log_system_metrics(settings)
 
     
 
@@ -9779,15 +9687,7 @@ def load_mode():
 
 
 def block_wait_for_threads(futures: list, log_loc="LVP") -> None:
-    for future in futures:
-            try:
-                result = future.result()
-                continue
-            except Exception as e:
-                logger.error(f"{log_loc} ] Thread Error: {e}")
-
-    # All threads finished
-    return
+    config_helpers.block_wait_for_threads(futures, log_loc)
 
 def init_ij():
     import imagej.doctor
