@@ -57,6 +57,12 @@ class PylonCamera(Camera):
 
         super().__init__()
 
+    def _get_max_exposure_models(self) -> dict:
+        return {
+            "daA3840-45um": 1_000,
+            "a2A3536-31umBAS": 10_000,
+        }
+
     def disconnect(self) -> bool:
         logger.info('[CAM Class ] Disconnecting from camera...')
         try:

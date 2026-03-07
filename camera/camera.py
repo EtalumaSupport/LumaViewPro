@@ -17,10 +17,7 @@ class Camera(ABC):
         self._device_removed = False
         self._device_serial = None
 
-        self.max_exposure_dict = {
-            "daA3840-45um": 1_000,
-            "a2A3536-31umBAS": 10_000
-        }
+        self.max_exposure_dict = self._get_max_exposure_models()
 
         self.connect()
 
@@ -131,7 +128,14 @@ class Camera(ABC):
 
     def get_max_exposure(self):
         return self.max_exposure
-    
+
+    def _get_max_exposure_models(self) -> dict:
+        """Return a dict mapping model name substrings to max exposure (ms).
+
+        Subclasses should override to register their known models.
+        """
+        return {}
+
     @abstractmethod
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
         pass
