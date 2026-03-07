@@ -290,3 +290,656 @@ class TestMotorBoardSafety:
 
         # After disconnect, driver should be None
         assert board.driver is None
+
+
+# ---------------------------------------------------------------------------
+# LEDBoard Command Formatting
+# ---------------------------------------------------------------------------
+
+class TestLEDBoardCommands:
+    """Verify LEDBoard sends correctly formatted serial commands."""
+
+    def _make_board(self):
+        board = LEDBoard.__new__(LEDBoard)
+        board.found = False
+        board._lock = threading.RLock()
+        board.port = '/dev/fake'
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 0.1
+        board.write_timeout = 0.1
+        board.driver = _make_mock_serial()
+        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        return board
+
+    def test_led_on_sends_correct_command(self):
+        """led_on(0, 100) should send 'LED0_100\\n'."""
+        board = self._make_board()
+        board.led_on(channel=0, mA=100)
+        board.driver.write.assert_called_with(b'LED0_100\n')
+
+    def test_led_on_channel_3(self):
+        """led_on(3, 250) should send 'LED3_250\\n'."""
+        board = self._make_board()
+        board.led_on(channel=3, mA=250)
+        board.driver.write.assert_called_with(b'LED3_250\n')
+
+    def test_led_off_sends_correct_command(self):
+        """led_off(2) should send 'LED2_OFF\\n'."""
+        board = self._make_board()
+        board.led_off(channel=2)
+        board.driver.write.assert_called_with(b'LED2_OFF\n')
+
+    def test_leds_off_sends_correct_command(self):
+        """leds_off() should send 'LEDS_OFF\\n'."""
+        board = self._make_board()
+        board.leds_off()
+        board.driver.write.assert_called_with(b'LEDS_OFF\n')
+
+    def test_leds_enable_sends_correct_command(self):
+        """leds_enable() should send 'LEDS_ENT\\n'."""
+        board = self._make_board()
+        board.leds_enable()
+        board.driver.write.assert_called_with(b'LEDS_ENT\n')
+
+    def test_leds_disable_sends_correct_command(self):
+        """leds_disable() should send 'LEDS_ENF\\n'."""
+        board = self._make_board()
+        board.leds_disable()
+        board.driver.write.assert_called_with(b'LEDS_ENF\n')
+
+    def test_led_on_fast_sends_correct_command(self):
+        """led_on_fast uses write-only path with correct command."""
+        board = self._make_board()
+        board.led_on_fast(channel=1, mA=50)
+        board.driver.write.assert_called_with(b'LED1_50\n')
+
+    def test_led_off_fast_sends_correct_command(self):
+        """led_off_fast uses write-only path with correct command."""
+        board = self._make_board()
+        board.led_off_fast(channel=4)
+        board.driver.write.assert_called_with(b'LED4_OFF\n')
+
+    def test_leds_off_fast_sends_correct_command(self):
+        """leds_off_fast uses write-only path with correct command."""
+        board = self._make_board()
+        board.leds_off_fast()
+        board.driver.write.assert_called_with(b'LEDS_OFF\n')
+
+    def test_get_status_sends_status(self):
+        """get_status() should send 'STATUS\\n'."""
+        board = self._make_board()
+        board.get_status()
+        board.driver.write.assert_called_with(b'STATUS\n')
+
+
+# ---------------------------------------------------------------------------
+# LEDBoard State Tracking
+# ---------------------------------------------------------------------------
+
+class TestLEDBoardState:
+    """Verify LEDBoard tracks LED on/off state correctly."""
+
+    def _make_board(self):
+        board = LEDBoard.__new__(LEDBoard)
+        board.found = False
+        board._lock = threading.RLock()
+        board.port = '/dev/fake'
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 0.1
+        board.write_timeout = 0.1
+        board.driver = _make_mock_serial()
+        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        return board
+
+    def test_led_on_updates_state(self):
+        """led_on should update led_ma for the correct color."""
+        board = self._make_board()
+        board.led_on(channel=0, mA=100)
+        assert board.get_led_ma('Blue') == 100
+        assert board.is_led_on('Blue') is True
+
+    def test_led_off_clears_state(self):
+        """led_off should set led_ma to -1."""
+        board = self._make_board()
+        board.led_on(channel=0, mA=100)
+        board.led_off(channel=0)
+        assert board.get_led_ma('Blue') == -1
+        assert board.is_led_on('Blue') is False
+
+    def test_leds_off_clears_all(self):
+        """leds_off should clear all channels."""
+        board = self._make_board()
+        board.led_on(channel=0, mA=100)
+        board.led_on(channel=1, mA=200)
+        board.led_on(channel=2, mA=300)
+        board.leds_off()
+        for color in board.led_ma:
+            assert board.get_led_ma(color) == -1
+
+    def test_leds_disable_clears_all(self):
+        """leds_disable should clear all channels."""
+        board = self._make_board()
+        board.led_on(channel=0, mA=100)
+        board.led_on(channel=3, mA=50)
+        board.leds_disable()
+        for color in board.led_ma:
+            assert board.get_led_ma(color) == -1
+
+    def test_led_on_fast_updates_state(self):
+        """led_on_fast should track state the same as led_on."""
+        board = self._make_board()
+        board.led_on_fast(channel=2, mA=75)
+        assert board.get_led_ma('Red') == 75
+        assert board.is_led_on('Red') is True
+
+    def test_led_off_fast_clears_state(self):
+        """led_off_fast should clear state."""
+        board = self._make_board()
+        board.led_on_fast(channel=2, mA=75)
+        board.led_off_fast(channel=2)
+        assert board.get_led_ma('Red') == -1
+
+    def test_leds_off_fast_clears_all(self):
+        """leds_off_fast should clear all channels."""
+        board = self._make_board()
+        board.led_on_fast(channel=0, mA=100)
+        board.led_on_fast(channel=1, mA=200)
+        board.leds_off_fast()
+        for color in board.led_ma:
+            assert board.get_led_ma(color) == -1
+
+    def test_get_led_state_dict(self):
+        """get_led_state should return dict with enabled and illumination."""
+        board = self._make_board()
+        board.led_on(channel=3, mA=50)
+        state = board.get_led_state('BF')
+        assert state == {'enabled': True, 'illumination': 50}
+
+    def test_get_led_states_all(self):
+        """get_led_states should return state for all channels."""
+        board = self._make_board()
+        board.led_on(channel=0, mA=100)
+        states = board.get_led_states()
+        assert states['Blue']['enabled'] is True
+        assert states['Blue']['illumination'] == 100
+        assert states['Red']['enabled'] is False
+        assert states['Red']['illumination'] == -1
+
+    def test_multiple_channels_independent(self):
+        """Turning on one channel should not affect others."""
+        board = self._make_board()
+        board.led_on(channel=0, mA=100)
+        board.led_on(channel=2, mA=200)
+        assert board.get_led_ma('Blue') == 100
+        assert board.get_led_ma('Red') == 200
+        assert board.get_led_ma('Green') == -1
+
+        board.led_off(channel=0)
+        assert board.get_led_ma('Blue') == -1
+        assert board.get_led_ma('Red') == 200
+
+
+# ---------------------------------------------------------------------------
+# LEDBoard Color/Channel Conversion
+# ---------------------------------------------------------------------------
+
+class TestLEDBoardConversion:
+    """Verify color-to-channel and channel-to-color mappings."""
+
+    def test_color2ch_all(self):
+        board = LEDBoard.__new__(LEDBoard)
+        assert board.color2ch('Blue') == 0
+        assert board.color2ch('Green') == 1
+        assert board.color2ch('Red') == 2
+        assert board.color2ch('BF') == 3
+        assert board.color2ch('PC') == 4
+        assert board.color2ch('DF') == 5
+
+    def test_ch2color_all(self):
+        board = LEDBoard.__new__(LEDBoard)
+        assert board.ch2color(0) == 'Blue'
+        assert board.ch2color(1) == 'Green'
+        assert board.ch2color(2) == 'Red'
+        assert board.ch2color(3) == 'BF'
+        assert board.ch2color(4) == 'PC'
+        assert board.ch2color(5) == 'DF'
+
+    def test_color2ch_unknown_defaults_bf(self):
+        board = LEDBoard.__new__(LEDBoard)
+        assert board.color2ch('Unknown') == 3
+
+    def test_ch2color_unknown_defaults_bf(self):
+        board = LEDBoard.__new__(LEDBoard)
+        assert board.ch2color(99) == 'BF'
+
+    def test_roundtrip_all_channels(self):
+        """color2ch -> ch2color should roundtrip for all valid channels."""
+        board = LEDBoard.__new__(LEDBoard)
+        for color in ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF'):
+            ch = board.color2ch(color)
+            assert board.ch2color(ch) == color
+
+
+# ---------------------------------------------------------------------------
+# MotorBoard Command Formatting
+# ---------------------------------------------------------------------------
+
+class TestMotorBoardCommands:
+    """Verify MotorBoard sends correctly formatted serial commands."""
+
+    def _make_board(self):
+        board = MotorBoard.__new__(MotorBoard)
+        board.found = True
+        board.overshoot = False
+        board.backlash = 25
+        board._has_turret = False
+        board.initial_homing_complete = False
+        board.initial_t_homing_complete = False
+        board.port = '/dev/fake'
+        board.thread_lock = threading.RLock()
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 30
+        board.write_timeout = 5
+        board.driver = _make_mock_serial()
+        board._fullinfo = None
+        board._connect_fails = 0
+        board.axes_config = {
+            'Z': {'limits': {'min': 0., 'max': 14000.}, 'move_func': board.z_um2ustep},
+            'X': {'limits': {'min': 0., 'max': 120000.}, 'move_func': board.xy_um2ustep},
+            'Y': {'limits': {'min': 0., 'max': 80000.}, 'move_func': board.xy_um2ustep},
+            'T': {'move_func': board.t_pos2ustep},
+        }
+        return board
+
+    def test_move_sends_target_write(self):
+        """move('Z', 1000) should send 'TARGET_WZ1000\\n'."""
+        board = self._make_board()
+        board.move('Z', 1000)
+        board.driver.write.assert_called_with(b'TARGET_WZ1000\n')
+
+    def test_move_negative_twos_complement(self):
+        """Negative steps should be converted to twos complement."""
+        board = self._make_board()
+        board.move('Z', -100)
+        expected = -100 + 0x100000000
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected}\n'.encode('utf-8'))
+
+    def test_zhome_sends_zhome(self):
+        """zhome() should send 'ZHOME\\n'."""
+        board = self._make_board()
+        board.zhome()
+        board.driver.write.assert_called_with(b'ZHOME\n')
+
+    def test_xyhome_sends_home(self):
+        """xyhome() should send 'HOME\\n'."""
+        board = self._make_board()
+        board.xyhome()
+        board.driver.write.assert_called_with(b'HOME\n')
+
+    def test_thome_sends_thome(self):
+        """thome() should send 'THOME\\n'."""
+        board = self._make_board()
+        board.thome()
+        board.driver.write.assert_called_with(b'THOME\n')
+
+    def test_xycenter_sends_center(self):
+        """xycenter() should send 'CENTER\\n'."""
+        board = self._make_board()
+        board.xycenter()
+        board.driver.write.assert_called_with(b'CENTER\n')
+
+    def test_current_pos_sends_actual_read(self):
+        """current_pos('Z') should send 'ACTUAL_RZ\\n'."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"0\n"
+        board.current_pos('Z')
+        board.driver.write.assert_called_with(b'ACTUAL_RZ\n')
+
+    def test_target_pos_sends_target_read(self):
+        """target_pos('X') should send 'TARGET_RX\\n'."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"0\n"
+        board.target_pos('X')
+        board.driver.write.assert_called_with(b'TARGET_RX\n')
+
+    def test_target_status_sends_status_read(self):
+        """target_status('Z') should send 'STATUS_RZ\\n'."""
+        board = self._make_board()
+        # bit 9 (position_reached) set
+        board.driver.readline.return_value = b"512\n"
+        board.target_status('Z')
+        board.driver.write.assert_called_with(b'STATUS_RZ\n')
+
+    def test_spi_read_sends_correct_format(self):
+        """spi_read('X', 0x6F) should send 'SPIX0x6f00\\n'."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"0x00000000\n"
+        board.spi_read('X', 0x6F)
+        board.driver.write.assert_called_with(b'SPIX0x6f00\n')
+
+
+# ---------------------------------------------------------------------------
+# MotorBoard Homing State
+# ---------------------------------------------------------------------------
+
+class TestMotorBoardHoming:
+    """Verify homing flag tracking."""
+
+    def _make_board(self):
+        board = MotorBoard.__new__(MotorBoard)
+        board.found = True
+        board.overshoot = False
+        board.backlash = 25
+        board._has_turret = False
+        board.initial_homing_complete = False
+        board.initial_t_homing_complete = False
+        board.port = '/dev/fake'
+        board.thread_lock = threading.RLock()
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 30
+        board.write_timeout = 5
+        board.driver = _make_mock_serial()
+        board._fullinfo = None
+        board._connect_fails = 0
+        board.axes_config = {}
+        return board
+
+    def test_initial_homing_false(self):
+        """Board starts with homing not complete."""
+        board = self._make_board()
+        assert board.has_xyhomed() is False
+        assert board.has_thomed() is False
+
+    def test_xyhome_sets_flag_on_success(self):
+        """xyhome() should set initial_homing_complete when firmware confirms."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"XYZ home complete\n"
+        board.xyhome()
+        assert board.has_xyhomed() is True
+
+    def test_xyhome_no_flag_on_failure(self):
+        """xyhome() should not set flag if response doesn't contain expected text."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"ERROR: timeout\n"
+        board.xyhome()
+        assert board.has_xyhomed() is False
+
+    def test_xyhome_no_flag_on_none(self):
+        """xyhome() should not set flag if response is None (disconnected)."""
+        board = self._make_board()
+        board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+        board.xyhome()
+        assert board.has_xyhomed() is False
+
+    def test_thome_sets_flag_on_success(self):
+        """thome() should set initial_t_homing_complete when firmware confirms."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"T home successful\n"
+        board.thome()
+        assert board.has_thomed() is True
+
+    def test_thome_no_flag_on_failure(self):
+        """thome() should not set flag if response doesn't match."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"ERROR\n"
+        board.thome()
+        assert board.has_thomed() is False
+
+    def test_has_thomed_true_after_xyhome(self):
+        """has_thomed() should return True if XY homing completed (it homes T too)."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"XYZ home complete\n"
+        board.xyhome()
+        assert board.has_thomed() is True
+
+
+# ---------------------------------------------------------------------------
+# MotorBoard Fullinfo Parsing
+# ---------------------------------------------------------------------------
+
+class TestMotorBoardFullinfo:
+    """Verify fullinfo() parses firmware response correctly."""
+
+    def _make_board(self):
+        board = MotorBoard.__new__(MotorBoard)
+        board.found = True
+        board.overshoot = False
+        board.backlash = 25
+        board._has_turret = False
+        board.initial_homing_complete = False
+        board.initial_t_homing_complete = False
+        board.port = '/dev/fake'
+        board.thread_lock = threading.RLock()
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 30
+        board.write_timeout = 5
+        board.driver = _make_mock_serial()
+        board._fullinfo = None
+        board._connect_fails = 0
+        board.axes_config = {}
+        return board
+
+    def test_fullinfo_parses_model_and_serial(self):
+        """fullinfo() should extract model and serial_number."""
+        board = self._make_board()
+        board.driver.readline.return_value = (
+            b"EL-0940-02 Integrated Mainboard Firmware: 2024-09-10 "
+            b"Model: LS850 Serial: 12062 X homed: False\n"
+        )
+        info = board.fullinfo()
+        assert info['model'] == 'LS850'
+        assert info['serial_number'] == '12062'
+
+    def test_fullinfo_detects_turret_model(self):
+        """fullinfo() should set _has_turret for models ending in 'T'."""
+        board = self._make_board()
+        board.driver.readline.return_value = (
+            b"EL-0940-02 Integrated Mainboard Firmware: 2024-09-10 "
+            b"Model: LS720T Serial: 99999 X homed: False\n"
+        )
+        board.fullinfo()
+        assert board._has_turret is True
+        assert board.has_turret() is True
+
+    def test_fullinfo_no_turret(self):
+        """fullinfo() should not set _has_turret for non-T models."""
+        board = self._make_board()
+        board.driver.readline.return_value = (
+            b"EL-0940-02 Integrated Mainboard Firmware: 2024-09-10 "
+            b"Model: LS850 Serial: 12062 X homed: False\n"
+        )
+        board.fullinfo()
+        assert board._has_turret is False
+        assert board.has_turret() is False
+
+    def test_get_microscope_model(self):
+        """get_microscope_model() should return model from cached fullinfo."""
+        board = self._make_board()
+        board._fullinfo = {'model': 'LS850', 'serial_number': '12062'}
+        assert board.get_microscope_model() == 'LS850'
+
+
+# ---------------------------------------------------------------------------
+# MotorBoard Unit Conversions
+# ---------------------------------------------------------------------------
+
+class TestMotorBoardConversions:
+    """Verify unit conversion math for Z, XY, and turret."""
+
+    def _make_board(self):
+        board = MotorBoard.__new__(MotorBoard)
+        return board
+
+    def test_z_roundtrip(self):
+        """z_um2ustep -> z_ustep2um should roundtrip closely."""
+        board = self._make_board()
+        for um in (0, 100, 5000, 14000):
+            ustep = board.z_um2ustep(um)
+            um_back = board.z_ustep2um(ustep)
+            assert abs(um - um_back) < 0.01, f"Z roundtrip failed for {um}: got {um_back}"
+
+    def test_xy_roundtrip(self):
+        """xy_um2ustep -> xy_ustep2um should roundtrip closely."""
+        board = self._make_board()
+        for um in (0, 1000, 60000, 120000):
+            ustep = board.xy_um2ustep(um)
+            um_back = board.xy_ustep2um(ustep)
+            assert abs(um - um_back) < 0.1, f"XY roundtrip failed for {um}: got {um_back}"
+
+    def test_turret_roundtrip(self):
+        """t_pos2ustep -> t_ustep2pos should roundtrip for positions 1-4."""
+        board = self._make_board()
+        for pos in (1, 2, 3, 4):
+            ustep = board.t_pos2ustep(pos)
+            pos_back = board.t_ustep2pos(ustep)
+            assert pos == pos_back, f"Turret roundtrip failed for pos {pos}: got {pos_back}"
+
+    def test_z_known_values(self):
+        """Spot check Z conversion against known ratio (170667 ustep/mm)."""
+        board = self._make_board()
+        # 1mm = 1000um -> 170667 usteps
+        assert board.z_um2ustep(1000) == 170667
+        # 170667 usteps -> 1000um
+        assert abs(board.z_ustep2um(170667) - 1000) < 0.01
+
+    def test_xy_known_values(self):
+        """Spot check XY conversion against known ratio (20157 ustep/mm)."""
+        board = self._make_board()
+        # 1mm = 1000um -> 20157 usteps
+        assert board.xy_um2ustep(1000) == 20157
+
+    def test_turret_degrees(self):
+        """Position 1 = 0 deg, position 2 = 90 deg, etc."""
+        board = self._make_board()
+        assert board.t_pos2ustep(1) == 0
+        assert board.t_pos2ustep(2) == 80000
+
+
+# ---------------------------------------------------------------------------
+# MotorBoard Movement Logic
+# ---------------------------------------------------------------------------
+
+class TestMotorBoardMovement:
+    """Verify move_abs_pos limit clamping and overshoot logic."""
+
+    def _make_board(self):
+        board = MotorBoard.__new__(MotorBoard)
+        board.found = True
+        board.overshoot = False
+        board.backlash = 25
+        board._has_turret = False
+        board.initial_homing_complete = False
+        board.initial_t_homing_complete = False
+        board.port = '/dev/fake'
+        board.thread_lock = threading.RLock()
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 30
+        board.write_timeout = 5
+        board.driver = _make_mock_serial()
+        board._fullinfo = None
+        board._connect_fails = 0
+        board.axes_config = {
+            'Z': {'limits': {'min': 0., 'max': 14000.}, 'move_func': board.z_um2ustep},
+            'X': {'limits': {'min': 0., 'max': 120000.}, 'move_func': board.xy_um2ustep},
+            'Y': {'limits': {'min': 0., 'max': 80000.}, 'move_func': board.xy_um2ustep},
+            'T': {'move_func': board.t_pos2ustep},
+        }
+        return board
+
+    def test_z_clamped_to_max(self):
+        """move_abs_pos('Z', 99999) should clamp to Z max (14000um)."""
+        board = self._make_board()
+        board.move_abs_pos('Z', 99999, overshoot_enabled=False)
+        expected_ustep = board.z_um2ustep(14000)
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode('utf-8'))
+
+    def test_z_clamped_to_min(self):
+        """move_abs_pos('Z', -100) should clamp to Z min (0um)."""
+        board = self._make_board()
+        board.move_abs_pos('Z', -100, overshoot_enabled=False)
+        expected_ustep = board.z_um2ustep(0)
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode('utf-8'))
+
+    def test_x_clamped_to_max(self):
+        """move_abs_pos('X', 200000) should clamp to X max (120000um)."""
+        board = self._make_board()
+        board.move_abs_pos('X', 200000, overshoot_enabled=False)
+        expected_ustep = board.xy_um2ustep(120000)
+        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode('utf-8'))
+
+    def test_ignore_limits(self):
+        """move_abs_pos with ignore_limits=True should not clamp."""
+        board = self._make_board()
+        board.move_abs_pos('Z', 99999, overshoot_enabled=False, ignore_limits=True)
+        expected_ustep = board.z_um2ustep(99999)
+        board.driver.write.assert_called_with(f'TARGET_WZ{expected_ustep}\n'.encode('utf-8'))
+
+    def test_unsupported_axis_raises(self):
+        """move_abs_pos with unknown axis should raise."""
+        board = self._make_board()
+        with pytest.raises(Exception, match="Unsupported axis"):
+            board.move_abs_pos('Q', 100, overshoot_enabled=False)
+
+    def test_move_rel_pos(self):
+        """move_rel_pos should add relative distance to current target."""
+        board = self._make_board()
+        # target_pos reads TARGET_R, return 50000um in usteps
+        target_ustep = board.xy_um2ustep(50000)
+        board.driver.readline.return_value = f"{target_ustep}\n".encode('utf-8')
+        board.move_rel_pos('X', 10000, overshoot_enabled=False)
+        # Should move to 60000um
+        expected_ustep = board.xy_um2ustep(60000)
+        board.driver.write.assert_called_with(f'TARGET_WX{expected_ustep}\n'.encode('utf-8'))
+
+    def test_target_status_position_reached(self):
+        """target_status should return True when position_reached bit is set."""
+        board = self._make_board()
+        # bit 9 (from LSB) = 0x200 = 512
+        board.driver.readline.return_value = b"512\n"
+        assert board.target_status('Z') is True
+
+    def test_target_status_not_reached(self):
+        """target_status should return False when position_reached bit is clear."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"0\n"
+        assert board.target_status('Z') is False
+
+    def test_get_axis_limits(self):
+        """get_axis_limits should return the configured limits."""
+        board = self._make_board()
+        limits = board.get_axis_limits('Z')
+        assert limits['min'] == 0.
+        assert limits['max'] == 14000.
+
+    def test_get_axis_limits_unsupported(self):
+        """get_axis_limits with unknown axis should raise."""
+        board = self._make_board()
+        with pytest.raises(Exception, match="Unsupported axis"):
+            board.get_axis_limits('Q')
+
+    def test_get_axes_config_has_all_axes(self):
+        """get_axes_config should return all 4 axes."""
+        board = self._make_board()
+        config = board.get_axes_config()
+        assert 'X' in config
+        assert 'Y' in config
+        assert 'Z' in config
+        assert 'T' in config
