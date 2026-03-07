@@ -62,7 +62,7 @@ class SimulatedLEDBoard:
             if self.driver is None:
                 try:
                     self.connect()
-                except:
+                except Exception:
                     return None
             if self.driver is None:
                 return None
@@ -77,7 +77,7 @@ class SimulatedLEDBoard:
             if self.driver is None:
                 try:
                     self.connect()
-                except:
+                except Exception:
                     return
             if self.driver is None:
                 return

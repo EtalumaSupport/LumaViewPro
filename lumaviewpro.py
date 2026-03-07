@@ -124,7 +124,7 @@ if __name__ == "__main__":
     try:
         with open("version.txt") as f:
             version = f.readlines()[0].strip()
-    except:
+    except Exception:
         pass
 
     PROTOCOL_DATA_DIR_NAME = "ProtocolData"
@@ -132,7 +132,7 @@ if __name__ == "__main__":
     try:
         with open("marker.lvpinstalled") as f:
             lvp_installed = True
-    except:
+    except Exception:
         lvp_installed = False
 
     if windows_machine and (lvp_installed == True):
@@ -579,7 +579,7 @@ def focus_log(positions, values):
         os.chdir(source_path)
         try:
             file = open('./logs/focus_log.txt', 'a')
-        except:
+        except Exception:
             if not os.path.isdir('./logs'):
                 raise FileNotFoundError("Couldn't find 'logs' directory.")
             else:
@@ -886,7 +886,7 @@ def go_to_step_update_ui(step):
 def get_binning_from_ui() -> int:
     try:
         return int(lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['binning_spinner'].text)
-    except:
+    except Exception:
         return 1
 
 
@@ -1040,7 +1040,7 @@ def get_current_frame_dimensions() -> dict:
     try:
         frame_width = int(microscope_settings.ids['frame_width_id'].text)
         frame_height = int(microscope_settings.ids['frame_height_id'].text)
-    except:
+    except Exception:
         raise ValueError(f"Invalid value for frame width/height")
 
     frame = {
@@ -1054,13 +1054,13 @@ def get_protocol_time_params() -> dict:
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
     try:
         period = float(protocol_settings.ids['capture_period'].text)
-    except:
+    except Exception:
         period = 1
 
     period = datetime.timedelta(minutes=period)
     try:
         duration = float(protocol_settings.ids['capture_dur'].text)
-    except:
+    except Exception:
         duration = 1
 
     duration = datetime.timedelta(hours=duration)
@@ -1646,7 +1646,7 @@ class CompositeCapture(FloatLayout):
         try:
             x_target = lumaview.scope.get_target_position('X')
             y_target = lumaview.scope.get_target_position('Y')
-        except:
+        except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             raise
 
@@ -2089,7 +2089,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             # Reset button state
             try:
                 self.ids['record_btn'].state = 'normal'
-            except:
+            except Exception:
                 pass
             return
 
@@ -2471,7 +2471,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     try:
                         ts = timestamps[frame_num] if frame_num < len(timestamps) else datetime.datetime.now()
                         video_writer.add_frame(image=video_frames[frame_num], timestamp=ts)
-                    except:
+                    except Exception:
                         logger.exception("Manual-Video] FAILED TO WRITE FRAME")
 
                     # Update progress after adding each frame
@@ -3233,7 +3233,7 @@ class VideoCreationControls(BoxLayout):
 
         try:
             fps = int(self.ids['video_gen_fps_id'].text)
-        except:
+        except Exception:
             fps = 5
             logger.error(f"Could not retrieve valid FPS for video generation. Using {fps} fps.")
 
@@ -3949,7 +3949,7 @@ class CellCountControls(BoxLayout):
         def _validate(value_str):
             try:
                 value = float(value_str)
-            except:
+            except Exception:
                 return False, -1
 
             if value <= 0:
@@ -4721,7 +4721,7 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.set_position()')
         try:
             self._next_pos = float(pos)
-        except:
+        except Exception:
             return
         self.queue_slider_position_trigger()
         #move_absolute_position('Z', pos)
@@ -5205,7 +5205,7 @@ class XYStageControl(BoxLayout):
             x_target = np.clip(x_target, 0, 120000) # prevents crosshairs from leaving the stage area
             y_target = lumaview.scope.get_target_position('Y')  # Get target value in um
             y_target = np.clip(y_target, 0, 80000) # prevents crosshairs from leaving the stage area
-        except:
+        except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None
 
@@ -5290,7 +5290,7 @@ class XYStageControl(BoxLayout):
         global lumaview
         try:
             x_pos = float(x_pos)
-        except:
+        except Exception:
             return
 
         # x_pos is the the plate position in mm
@@ -5315,7 +5315,7 @@ class XYStageControl(BoxLayout):
 
         try:
             y_pos = float(y_pos)
-        except:
+        except Exception:
             return
 
         # y_pos is the the plate position in mm
@@ -5455,7 +5455,7 @@ class ProtocolSettings(CompositeCapture):
         os.chdir(source_path)
         try:
             read_file = open('./data/labware.json', "r")
-        except:
+        except Exception:
             logger.exception("[LVP Main  ] Error reading labware definition file 'data/labware.json'")
             if not os.path.isdir('./data'):
                 raise FileNotFoundError("Couldn't find 'data' directory.")
@@ -5554,7 +5554,7 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.update_period()')
         try:
             settings['protocol']['period'] = float(self.ids['capture_period'].text)
-        except:
+        except Exception:
             logger.exception('[LVP Main  ] Update Period is not an acceptable value')
 
         time_params = get_protocol_time_params()
@@ -5568,7 +5568,7 @@ class ProtocolSettings(CompositeCapture):
         logger.info('[LVP Main  ] ProtocolSettings.update_duration()')
         try:
             settings['protocol']['duration'] = float(self.ids['capture_dur'].text)
-        except:
+        except Exception:
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
 
         time_params = get_protocol_time_params()
@@ -6009,7 +6009,7 @@ class ProtocolSettings(CompositeCapture):
         obj = self.ids['step_number_input']
         try:
             val = int(obj.text)
-        except:
+        except Exception:
             num_steps = self._protocol.num_steps()
             if num_steps < 1:
                 val = 0
@@ -7310,7 +7310,7 @@ class Stage(Widget):
                 x_current = np.clip(lumaview.scope.get_current_position('X'), 0, 120000) # prevents crosshairs from leaving the stage area
                 y_current = np.clip(lumaview.scope.get_current_position('Y'), 0, 80000) # prevents crosshairs from leaving the stage area
                 position_available = True
-        except:
+        except Exception:
             # If we can't get positions (not homed yet), we'll still draw the labware
             logger.debug('[Stage     ] Position not available yet, drawing labware only')
             position_available = False
@@ -7716,7 +7716,7 @@ class Stage(Widget):
         try:
             target_stage_x = lumaview.scope.get_target_position('X')
             target_stage_y = lumaview.scope.get_target_position('Y')
-        except:
+        except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None
 
@@ -7777,7 +7777,7 @@ class Stage(Widget):
             x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
             y_current = lumaview.scope.get_current_position('Y')
             y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
-        except:
+        except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None
 
@@ -7818,7 +7818,7 @@ class MicroscopeSettings(BoxLayout):
             os.chdir(source_path)
             with open('./data/scopes.json', "r") as read_file:
                 self.scopes = json.load(read_file)
-        except:
+        except Exception:
             logger.exception('[LVP Main  ] Unable to read scopes.json.')
             raise
 
@@ -7826,7 +7826,7 @@ class MicroscopeSettings(BoxLayout):
         #     os.chdir(source_path)
         #     with open('./data/objectives.json', "r") as read_file:
         #         self.objectives = json.load(read_file)
-        # except:
+        # except Exception:
         #     logger.exception('[LVP Main  ] Unable to open objectives.json.')
         #     raise
 
@@ -7917,7 +7917,7 @@ class MicroscopeSettings(BoxLayout):
         acc_max = self.ids['acceleration_pct_slider'].max
         try:
             acc_val = int(self.ids['acceleration_pct_text'].text)
-        except:
+        except Exception:
             return
 
         acc_val = int(np.clip(acc_val, acc_min, acc_max))
@@ -8238,7 +8238,7 @@ class MicroscopeSettings(BoxLayout):
 
                     layer_obj.update_stim_controls_visibility()
 
-        except:
+        except Exception:
             logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
 
         self.set_ui_features_for_scope()
@@ -8559,7 +8559,7 @@ class MicroscopeSettings(BoxLayout):
             max_frame_size = lumaview.scope.camera.get_max_frame_size()
             width = min(width, max_frame_size['width'])
             height = min(height, max_frame_size['height'])
-        except:
+        except Exception:
             pass
 
         settings['frame']['width'] = width
@@ -8736,7 +8736,7 @@ class LayerControl(BoxLayout):
             ill_max = self.ids['ill_slider'].max
         try:
             ill_val = float(self.ids['ill_text'].text)
-        except:
+        except Exception:
             return
 
         illumination = float(np.clip(ill_val, ill_min, ill_max))
@@ -8764,7 +8764,7 @@ class LayerControl(BoxLayout):
         sum_max = self.ids['sum_slider'].max
         try:
             sum_val = int(self.ids['sum_text'].text)
-        except:
+        except Exception:
             return
 
         sum = int(np.clip(sum_val, sum_min, sum_max))
@@ -8788,7 +8788,7 @@ class LayerControl(BoxLayout):
         duration_max = self.ids['video_duration_slider'].max
         try:
             duration_val = int(self.ids['video_duration_text'].text)
-        except:
+        except Exception:
             return
 
         duration = int(np.clip(duration_val, duration_min, duration_max))
@@ -8883,7 +8883,7 @@ class LayerControl(BoxLayout):
         gain_max = self.ids['gain_slider'].max
         try:
             gain_val = float(self.ids['gain_text'].text)
-        except:
+        except Exception:
             return
 
         gain = float(np.clip(gain_val, gain_min, gain_max))
@@ -8905,7 +8905,7 @@ class LayerControl(BoxLayout):
         composite_threshold_max = self.ids['composite_threshold_slider'].max
         try:
             composite_threshold_val = float(self.ids['composite_threshold_text'].text)
-        except:
+        except Exception:
             return
 
         composite_threshold = float(np.clip(composite_threshold_val, composite_threshold_min, composite_threshold_max))
@@ -8940,7 +8940,7 @@ class LayerControl(BoxLayout):
 
         try:
             exp_val = float(self.ids['exp_text'].text)
-        except:
+        except Exception:
             return
 
         exposure = float(np.clip(exp_val, exp_min, exp_max))
@@ -9290,7 +9290,7 @@ class ZStack(CompositeCapture):
             if step_size < 0:
                 step_size = 0
                 self.ids['zstack_stepsize_id'].text = str(step_size)
-        except:
+        except Exception:
             step_size = 0
             self.ids['zstack_stepsize_id'].text = str(step_size)
         finally:
@@ -9301,7 +9301,7 @@ class ZStack(CompositeCapture):
             if step_range < 0:
                 step_range = 0
                 self.ids['zstack_range_id'].text = str(step_range)
-        except:
+        except Exception:
             step_range = 0
             self.ids['zstack_range_id'].text = str(step_range)
         finally:
@@ -9743,7 +9743,7 @@ def load_log_level():
                 log_level = logging.getLevelName(data['logging']['default']['level'])
                 logger.setLevel(level=log_level)
                 return
-            except:
+            except Exception:
                 pass
 
 
@@ -9758,7 +9758,7 @@ def get_lvp_lock_port() -> int:
 
             try:
                 return data['lvp_lock_port']
-            except:
+            except Exception:
                 pass
         
     return DEFAULT_LVP_LOCK_PORT
@@ -9777,7 +9777,7 @@ def load_autofocus_log_enable():
                 if True == data['logging']['autofocus']:
                     autofocus_functions.enable_af_score_logging(enable=True)
                 return
-            except:
+            except Exception:
                 pass
 
 
@@ -9796,7 +9796,7 @@ def load_mode():
                     logger.info(f"Enabling engineering mode")
                     ENGINEERING_MODE = True
                     return
-            except:
+            except Exception:
                 pass
 
         ENGINEERING_MODE = False
@@ -10039,7 +10039,7 @@ class LumaViewProApp(App):
             cell_count_content = CellCountControls()
             graphing_controls = GraphingControls()
             #Window.maximize()
-        except:
+        except Exception:
             logger.exception('[LVP Main  ] Cannot open main display.')
             raise
 

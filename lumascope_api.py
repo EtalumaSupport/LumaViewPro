@@ -78,7 +78,7 @@ class Lumascope():
                 logger.info('[SCOPE API ] Using SIMULATED LED Board')
             else:
                 self.led = LEDBoard()
-        except:
+        except Exception:
             self.led = None
             logger.exception('[SCOPE API ] LED Board Not Initialized')
 
@@ -89,7 +89,7 @@ class Lumascope():
                 logger.info('[SCOPE API ] Using SIMULATED Motor Board')
             else:
                 self.motion = MotorBoard()
-        except:
+        except Exception:
             self.motion = None
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
 
@@ -101,7 +101,7 @@ class Lumascope():
                 logger.info('[SCOPE API ] Camera skipped in simulation mode')
             else:
                 self.camera = PylonCamera()
-        except:
+        except Exception:
             self.camera = None
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
@@ -571,7 +571,7 @@ class Lumascope():
         try:
             x_target = self.get_target_position('X')
             y_target = self.get_target_position('Y')
-        except:
+        except Exception:
             logger.exception('[LVP API  ] Error getting target position.')
             raise
 
@@ -742,7 +742,7 @@ class Lumascope():
             )
 
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
-        except:
+        except Exception:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
 
         return file_loc
@@ -1311,7 +1311,7 @@ class Lumascope():
             current = self.get_current_position('Z')
             focus = autofocus_functions.focus_function(image=image)
             next_target = self.get_target_position('Z') + self.resolution
-        except:
+        except Exception:
             logger.exception('[SCOPE API ] Error talking to motion controller.')
 
         # append to positions and focus measures
@@ -1617,7 +1617,7 @@ class Lumascope():
             )
 
             print(f'[SCOPE API ] Saving Image to {file_loc}')
-        except:
+        except Exception:
             print(f"[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist? {file_loc}")
             raise Exception(f"Unable to save image to {file_loc}")
 

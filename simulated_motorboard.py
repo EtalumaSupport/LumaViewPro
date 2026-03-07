@@ -90,7 +90,7 @@ class SimulatedMotorBoard:
             if self.driver is None:
                 try:
                     self.connect()
-                except:
+                except Exception:
                     return None
             if self.driver is None:
                 return None
@@ -279,7 +279,7 @@ class SimulatedMotorBoard:
         try:
             response = self.exchange_command(f'TARGET_R{axis}')
             position = int(response)
-        except:
+        except Exception:
             position = 0
 
         if axis == 'Z':
@@ -294,7 +294,7 @@ class SimulatedMotorBoard:
         try:
             response = self.exchange_command(f'ACTUAL_R{axis}')
             position = int(response)
-        except:
+        except Exception:
             position = 0
 
         if axis == 'Z':
@@ -342,7 +342,7 @@ class SimulatedMotorBoard:
             data = int(self.exchange_command(f'STATUS_R{axis}'))
             bits = format(data, 'b').zfill(32)
             return bits[31] == '1'
-        except:
+        except Exception:
             return False
 
     def target_status(self, axis):
@@ -350,13 +350,13 @@ class SimulatedMotorBoard:
             data = int(self.exchange_command(f'STATUS_R{axis}'))
             bits = format(data, 'b').zfill(32)
             return bits[22] == '1'
-        except:
+        except Exception:
             return False
 
     def reference_status(self, axis):
         try:
             return int(self.exchange_command(f'STATUS_R{axis}'))
-        except:
+        except Exception:
             return 0
 
     def limit_switch_status(self, axis):
@@ -364,7 +364,7 @@ class SimulatedMotorBoard:
             resp = self.reference_status(axis)
             left = 1 if (resp & (1 << 0)) else 0
             right = 1 if (resp & (1 << 1)) else 0
-        except:
+        except Exception:
             left, right = -1, -1
         return left, right
 

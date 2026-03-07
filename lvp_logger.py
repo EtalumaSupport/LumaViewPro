@@ -62,13 +62,13 @@ version = ""
 try:
     with open("version.txt") as f:
         version = f.readlines()[0].strip()
-except:
+except Exception:
     pass
 
 try:
     with open("marker.lvpinstalled") as f:
         lvp_installed = True
-except:
+except Exception:
     lvp_installed = False
 
 if windows_machine and (lvp_installed == True):
@@ -84,7 +84,7 @@ else:
 from settings_init import load_debug_setting
 try:
     debug = load_debug_setting(lvp_appdata)
-except:
+except Exception:
     debug = False
 
 

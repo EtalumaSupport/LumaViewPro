@@ -90,7 +90,7 @@ class PylonCamera:
     def __delete__(self):
         try:
             self.active.close()
-        except:
+        except Exception:
             logger.exception('[CAM Class ] exception')
 
     @contextlib.contextmanager
@@ -211,7 +211,7 @@ class PylonCamera:
             logger.error(f'[CAM Class ] PylonCamera.connect() failed (may be open in another application) -> {ex}')
             self.active = None
             self.error_report_count += 1
-        except:
+        except Exception:
             logger.exception('[CAM Class ] PylonCamera.connect() failed')
             self.active = None
             self.error_report_count += 1

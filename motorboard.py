@@ -106,7 +106,7 @@ class MotorBoard:
         try:
             logger.info('[XYZ Class ] Found motor controller and about to establish connection.')
             self.connect()
-        except:
+        except Exception:
             logger.error('[XYZ Class ] Found motor controller but unable to establish connection.')
             raise
 
@@ -168,7 +168,8 @@ class MotorBoard:
                 logger.error(f'[XYZ Class ] MotorBoard.disconnect() failed: {e}')
 
     def is_connected(self) -> bool:
-        return self.driver is not None
+        with self.thread_lock:
+            return self.driver is not None
 
     #----------------------------------------------------------
     # Define Communication
@@ -189,7 +190,7 @@ class MotorBoard:
             if self.driver is None:
                 try:
                     self.connect()
-                except:
+                except Exception:
                     return None
 
             if self.driver is None:
@@ -287,7 +288,7 @@ class MotorBoard:
             if not resp.isdigit():
                 raise
 
-        except:
+        except Exception:
             resp = DEFAULT_ACCELERATION_LIMIT
             using_default = True
 
@@ -499,7 +500,7 @@ class MotorBoard:
         try:
             response = self.exchange_command('TARGET_R' + axis)
             position = int(response)
-        except:
+        except Exception:
             position = 0
 
         if axis == 'Z':
@@ -520,7 +521,7 @@ class MotorBoard:
         try:
             response = self.exchange_command('ACTUAL_R' + axis)
             position = int(response)
-        except:
+        except Exception:
             position = 0
 
         if axis == 'Z':
@@ -599,7 +600,7 @@ class MotorBoard:
                 return True
             else:
                 return False
-        except:
+        except Exception:
             logger.error('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')
             raise
 
@@ -624,7 +625,7 @@ class MotorBoard:
             else:
                 return False
   
-        except:
+        except Exception:
             logger.error('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
             raise
             #return False
@@ -647,7 +648,7 @@ class MotorBoard:
             '''
             # logger.info(data)
             return data
-        except:
+        except Exception:
             logger.error('[XYZ Class ] MotorBoard.reference_status('+axis+') inactive')
             raise
 
@@ -665,7 +666,7 @@ class MotorBoard:
             else:
                 right = 0
 
-        except:
+        except Exception:
             left, right = -1, -1
 
         return left, right
@@ -729,7 +730,7 @@ class MotorBoard:
                 logger.info(f'[XYZ Class] Succesfully upload firmware file {file_name} to Motorboard')
 
             return True
-        except:
+        except Exception:
             logger.error(f'[XYZ Class] Failed to upload new Firmware files to Motorboard')
             raise
 

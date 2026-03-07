@@ -77,7 +77,7 @@ class LEDBoard:
         try:
             logger.info('[LED Class ] Found LED controller and about to establish connection.')
             self.connect()
-        except:
+        except Exception:
             logger.error('[LED Class ] Found LED controller but unable to establish connection.')
             raise
 
@@ -127,7 +127,8 @@ class LEDBoard:
                 logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
 
     def is_connected(self) -> bool:
-        return self.driver is not None
+        with self._lock:
+            return self.driver is not None
 
     def exchange_command(self, command):
         """ Exchange command through serial to LED board
@@ -136,7 +137,7 @@ class LEDBoard:
             if self.driver is None:
                 try:
                     self.connect()
-                except:
+                except Exception:
                     return None
 
             if self.driver is None:
@@ -181,7 +182,7 @@ class LEDBoard:
             if self.driver is None:
                 try:
                     self.connect()
-                except:
+                except Exception:
                     return
 
             if self.driver is None:

@@ -263,7 +263,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                     layer = row['Color']
                     try:
                         layer_index = color_index_map[layer]
-                    except:
+                    except Exception:
                         # If color not flourescent, skip this image
                         continue
 

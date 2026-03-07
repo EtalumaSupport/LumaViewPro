@@ -124,7 +124,7 @@ class ObjectiveLoader:
                     logger.error(f"No close match found for objective ID {objective_id}")
                     return None
 
-        except:
+        except Exception:
             raise Exception(f"Unable to retrieve information for objective {objective_id}")
         
         return objective_info

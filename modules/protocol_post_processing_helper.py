@@ -90,7 +90,7 @@ class ProtocolPostProcessingHelper:
         try:
             if not path.is_dir():
                 path = path.parent
-        except:
+        except Exception:
             return None
 
         loc_data = {}
@@ -107,7 +107,7 @@ class ProtocolPostProcessingHelper:
                     protocol_root_dir = path.parent
                 else:
                     return None
-            except:
+            except Exception:
                 return None
             
         loc_data['protocol_root_dir'] = protocol_root_dir
@@ -300,7 +300,7 @@ class ProtocolPostProcessingHelper:
                     file_path=protocol_tsvs['protocol_post_record'],
                 )
                 logger.info(f"Loaded existing protocol post record {protocol_tsvs['protocol_post_record']}")
-            except:
+            except Exception:
                 logger.error(f"Unable to load the protocol post record file {protocol_tsvs['protocol_post_record']}. Creating new record.")
 
         if protocol_post_record is None:

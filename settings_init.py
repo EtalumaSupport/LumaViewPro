@@ -14,7 +14,7 @@ def load_settings(logger, filename, lvp_appdata):
         try:
             os.chdir(lvp_appdata)
             read_file = open(filename, "r")
-        except:
+        except Exception:
             logger.exception('[LVP Main  ] Unable to open file '+filename)
             raise
             
@@ -22,7 +22,7 @@ def load_settings(logger, filename, lvp_appdata):
             try:
                 settings = json.load(read_file)
                 read_file.close()
-            except:
+            except Exception:
                 logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
 
 def load_lvp_settings(logger, lvp_appdata):

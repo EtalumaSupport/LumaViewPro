@@ -9,7 +9,7 @@ except ImportError:
             if callable(func):
                 try:
                     func(0)  # Call with dummy dt=0
-                except:
+                except Exception:
                     pass
         
         @staticmethod
@@ -118,17 +118,23 @@ class IOTask:
         def on_complete(self, result, exception):
             if self.callback is None:
                 return
-                
+
+            def _safe_callback(dt):
+                try:
+                    self.callback(*cb_args, **cb_kwargs)
+                except Exception:
+                    logger.error(f"[IOTask    ] Callback {self.callback} raised exception", exc_info=True)
+
             if self.pass_result:
                 # Only copy when we need to mutate
-                final_kwargs = dict(self.cb_kwargs)
-                final_kwargs['result'] = result
-                final_kwargs['exception'] = exception
-                # Lambda wrapper to consume dt parameter that Clock always passes
-                Clock.schedule_once(lambda dt: self.callback(*self.cb_args, **final_kwargs), 0)
+                cb_kwargs = dict(self.cb_kwargs)
+                cb_kwargs['result'] = result
+                cb_kwargs['exception'] = exception
             else:
-                # Use reference directly - lambda consumes the dt from Clock
-                Clock.schedule_once(lambda dt: self.callback(*self.cb_args, **self.cb_kwargs), 0)
+                cb_kwargs = self.cb_kwargs
+
+            cb_args = self.cb_args
+            Clock.schedule_once(_safe_callback, 0)
 
         def set_name(self, name):
             self.name = name
@@ -376,7 +382,7 @@ class SequentialIOExecutor:
                 fut._result = None
                 fut._exception = None
                 del fut  # Explicitly delete to free memory immediately
-            except:
+            except Exception:
                 pass
 
 
@@ -462,7 +468,7 @@ class SequentialIOExecutor:
                         fut._result = None
                         fut._exception = None
                         del fut
-                    except:
+                    except Exception:
                         pass
                 cleared_count += 1
                 # Balance out get_nowait with a task_done
@@ -491,7 +497,7 @@ class SequentialIOExecutor:
                         fut._result = None
                         fut._exception = None
                         del fut
-                    except:
+                    except Exception:
                         pass
                 cleared_count += 1
                 # Balance out get_nowait with a task_done

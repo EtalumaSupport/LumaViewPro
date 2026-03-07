@@ -103,7 +103,7 @@ def image_stitcher(images_folder,
             
         if post_process:
             stitched_img = zoom_frame(stitched_img)
-    except:
+    except Exception:
         logger.error(f"Failed to stitched image.")
     
     try:
@@ -111,7 +111,7 @@ def image_stitcher(images_folder,
             logger.info(f"[LVP Stitch] image_stitcher() saved file {save_name}")
         else:
             logger.error(f"[LVP stitch] did not save stitched image {save_name}.")
-    except:
+    except Exception:
         logger.error(f"Failed to save stitched image {save_name}.")
 
     if display_image:
@@ -137,7 +137,7 @@ def feature_stitcher(images_folder, ext = 'tiff', n_results = 5):
                 results.append(stitched_img)
                 #display_img(stitched_img)
         assert results, "error: failed to stich images, likely insufficient matching keypoints detected, error code:"+str(error)+" "+error_codes[error]
-    except:
+    except Exception:
         logger.error(f"Failed to stich images, likely insufficient matching keypoints detected.")
         return
 
@@ -262,7 +262,7 @@ def grab_images(images_folder="",image_list=[],ext = 'tiff',to_sort = True):
         try:
             image_paths = glob.glob(os.path.join(images_folder,'*.'+ext))
             assert image_paths,"Could not find any images with extension "+ext+". Please check the directory and extension."
-        except:
+        except Exception:
             logger.error(f"Could not find any images with extension {ext}. Please check the directory and extension.")
             return
             
