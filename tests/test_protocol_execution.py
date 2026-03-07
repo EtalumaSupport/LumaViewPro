@@ -8,7 +8,6 @@ expected sequence of hardware calls.
 Uses fully mocked scope/camera objects — no hardware or Kivy needed.
 """
 
-import ctypes
 import datetime
 import pathlib
 import sys
@@ -495,13 +494,6 @@ class TestSingleScanFluorescence:
 
 class TestSingleScanVideo:
     """Test 6: Single scan with video capture."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_windll(self):
-        """Patch ctypes.windll (Windows-only) so video capture works on macOS/Linux."""
-        mock_windll = MagicMock()
-        with patch.object(ctypes, 'windll', mock_windll, create=True):
-            yield
 
     def test_completes_with_video(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(

@@ -1117,7 +1117,11 @@ class SequencedCaptureExecutor:
                     logger.info(f"Protocol-Video] Capturing video...")
 
                     progress = 0
-                    ctypes.windll.winmm.timeBeginPeriod(1)
+                    if sys.platform.startswith('win'):
+                        try:
+                            ctypes.windll.winmm.timeBeginPeriod(1)
+                        except Exception:
+                            pass
                     self._stim_stop_event.clear()
                     self._stim_start_event.set()
 
@@ -1157,7 +1161,11 @@ class SequencedCaptureExecutor:
                         # Some process is slowing the video-process down (getting fewer frames than expected if delay of seconds_per_frame), so a shorter sleep time can be used
                         time.sleep(seconds_per_frame*0.9)
 
-                    ctypes.windll.winmm.timeEndPeriod(1)
+                    if sys.platform.startswith('win'):
+                        try:
+                            ctypes.windll.winmm.timeEndPeriod(1)
+                        except Exception:
+                            pass
                     self._stim_stop_event.set()
                     self._stim_start_event.clear()  # Reset start event for next step
 
