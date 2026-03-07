@@ -45,6 +45,10 @@ class IDSCamera(Camera):
             except:
                 logger.warning(f'[CAM CLASS ] Could not read all camera information')
 
+            # Set max exposure based on detected model
+            if self.model_name:
+                self.set_max_exposure_time()
+
             self.init_camera_config()      
             self.start_grabbing() 
 

@@ -174,6 +174,10 @@ class PylonCamera(Camera):
                 self.model_name = None
                 self._device_serial = None
 
+            # Set max exposure based on detected model
+            if self.model_name:
+                self.set_max_exposure_time()
+
             # Ensure no stale queued frames or state
             try:
                 self.cam_image_handler.reset()
@@ -253,23 +257,6 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
             return {}
 
-        temps: dict[str, float] = {}
-
-        # Iterate all available selector entries
-        for entry in selector.GetEntries():
-
-            name = entry.GetSymbolic()       # e.g. "FpgaCore"
-            value = entry.GetValue()         # enum integer value
-
-            # Select this temperature source
-            selector.SetIntValue(value)
-
-            # Read temperature
-            if genicam.IsReadable(temp):
-                temps[name] = temp.GetValue()
-
-        return temps
-    
     def init_camera_config(self):
         camera = self.active
         if camera is None:

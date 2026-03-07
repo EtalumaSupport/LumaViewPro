@@ -7858,8 +7858,8 @@ class MicroscopeSettings(BoxLayout):
             self.select_sequenced_image_output_format()
 
             try:
-                lumaview.scope.camera.find_model_name()
-                lumaview.scope.camera.set_max_exposure_time()
+                # Model name and max exposure are now set during camera connect().
+                # Just read the already-computed max exposure here.
                 max_exposure = lumaview.scope.camera.get_max_exposure()
             except Exception as e:
                 logger.error(f"Error getting camera information (Camera may not be connected): {e}")
