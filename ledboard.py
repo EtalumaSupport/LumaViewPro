@@ -137,19 +137,24 @@ class LEDBoard:
 
             stream = command.encode('utf-8')+b"\n"
             try:
-                self.driver.flushInput()
-                self.driver.flush()
-                time.sleep(0.001)
                 self.driver.write(stream)
-                time.sleep(0.01)
-                response = self.driver.readline()
-                response = response.decode("utf-8","ignore")
 
-                logger.info('[LED Class ] LEDBoard.exchange_command('+command+') succeeded: %r'%response)
-                return response[:-2]
+                # Firmware sends an echo line ("RE: <cmd>\r\n") then a result
+                # line. Read the echo, then read the actual result.
+                echo = self.driver.readline().decode("utf-8", "ignore").strip()
+
+                if echo.startswith('RE:'):
+                    # New behavior: drain echo, read actual result
+                    response = self.driver.readline().decode("utf-8", "ignore").strip()
+                else:
+                    # Future firmware without echo, or unexpected response
+                    response = echo
+
+                logger.debug(f'[LED Class ] LEDBoard.exchange_command({command}) -> {response!r}')
+                return response
 
             except serial.SerialTimeoutException:
-                logger.error('[LED Class ] LEDBoard.exchange_command('+command+') Serial Timeout Occurred')
+                logger.error(f'[LED Class ] LEDBoard.exchange_command({command}) Serial Timeout')
                 self._close_driver()
 
             except Exception as e:

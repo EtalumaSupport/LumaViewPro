@@ -192,15 +192,13 @@ class MotorBoard:
             try:
                 self.driver.write(stream)
                 resp_lines = [self.driver.readline() for _ in range(response_numlines)]
-                response = [r.decode("utf-8","ignore").strip() for r in resp_lines]
+                response = [r.decode("utf-8", "ignore").strip() for r in resp_lines]
                 if response_numlines == 1:
-                    if '\r' in response[0].strip():
-                        response[0] = response[0].rsplit('\r')[-1]
                     response = response[0]
-                logger.debug('[XYZ Class ] MotorBoard.exchange_command('+command+') %r'%response)
+                logger.debug(f'[XYZ Class ] MotorBoard.exchange_command({command}) -> {response!r}')
 
             except serial.SerialTimeoutException:
-                logger.error('[XYZ Class ] MotorBoard.exchange_command('+command+') Serial Timeout Occurred')
+                logger.error(f'[XYZ Class ] MotorBoard.exchange_command({command}) Serial Timeout')
                 self._close_driver()
                 response = None
 
