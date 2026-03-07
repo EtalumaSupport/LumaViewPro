@@ -46,6 +46,8 @@ import numpy as np
 from motorboard import MotorBoard
 from ledboard import LEDBoard
 from pyloncamera import PylonCamera
+from simulated_motorboard import SimulatedMotorBoard
+from simulated_ledboard import SimulatedLEDBoard
 
 # Import additional libraries
 from lvp_logger import logger, version
@@ -59,22 +61,34 @@ from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
 class Lumascope():
 
-    def __init__(self):
-        """Initialize Microscope"""
+    def __init__(self, simulate: bool = False):
+        """Initialize Microscope.
+
+        Args:
+            simulate: If True, use simulated hardware (no USB devices needed).
+        """
+        self._simulated = simulate
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()
 
         # LED Control Board
         try:
-            self.led = LEDBoard()
-
+            if simulate:
+                self.led = SimulatedLEDBoard()
+                logger.info('[SCOPE API ] Using SIMULATED LED Board')
+            else:
+                self.led = LEDBoard()
         except:
             self.led = None
             logger.exception('[SCOPE API ] LED Board Not Initialized')
 
         # Motion Control Board
         try:
-            self.motion = MotorBoard()
+            if simulate:
+                self.motion = SimulatedMotorBoard()
+                logger.info('[SCOPE API ] Using SIMULATED Motor Board')
+            else:
+                self.motion = MotorBoard()
         except:
             self.motion = None
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
@@ -82,7 +96,11 @@ class Lumascope():
         # Camera
         self.image_buffer = None
         try:
-            self.camera = PylonCamera()
+            if simulate:
+                self.camera = None
+                logger.info('[SCOPE API ] Camera skipped in simulation mode')
+            else:
+                self.camera = PylonCamera()
         except:
             self.camera = None
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
