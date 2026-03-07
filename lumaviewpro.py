@@ -204,7 +204,6 @@ if __name__ == "__main__":
     from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
     #post processing
-    from image_stitcher import image_stitcher
     from modules.video_builder import VideoBuilder
 
     from modules.tiling_config import TilingConfig
