@@ -154,6 +154,9 @@ class LEDBoard:
                     response = echo
 
                 logger.debug(f'[LED Class ] LEDBoard.exchange_command({command}) -> {response!r}')
+                # Log firmware-reported errors
+                if response and ('ERROR' in response or 'exceeds safe' in response or 'FAIL' in response):
+                    logger.warning(f'[LED Class ] Firmware error for {command}: {response}')
                 return response
 
             except serial.SerialTimeoutException:
@@ -381,5 +384,34 @@ class LEDBoard:
             self.led_ma[color] = -1
         command = 'LEDS_OFF'
         self._write_command_fast(command)
+
+    def read_led_current(self, channel):
+        """Read measured LED current (mA) from ADC feedback. Requires v2.0+ firmware in engineering mode.
+        Returns measured current in mA, or None on error/unsupported."""
+        if not self.is_v2:
+            return None
+        with self._lock:
+            if self.driver is None:
+                return None
+            command = f'LEDREAD{int(channel)}'
+            try:
+                self.driver.write((command + '\n').encode('utf-8'))
+                # Firmware sends: echo, I_SENS line, LED_K line
+                lines = []
+                for _ in range(4):  # echo + up to 2 data lines + margin
+                    line = self.driver.readline().decode('utf-8', 'ignore').strip()
+                    if not line:
+                        break
+                    lines.append(line)
+                # Parse I_SENS line: "LED0 I_SENS  (AIN14): 1.2800V  ->   200.1 mA"
+                for line in lines:
+                    if 'I_SENS' in line and 'mA' in line:
+                        import re
+                        m = re.search(r'([\d.]+)\s*mA', line)
+                        if m:
+                            return float(m.group(1))
+            except Exception as e:
+                logger.error(f'[LED Class ] read_led_current({channel}) failed: {e}')
+            return None
 
 

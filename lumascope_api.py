@@ -112,6 +112,16 @@ class Lumascope():
         except Exception:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
+        # Track whether any real hardware was found
+        self._no_hardware = (
+            not simulate
+            and self.led is None
+            and self.motion is None
+            and not hasattr(self, 'camera')
+        )
+        if self._no_hardware:
+            logger.warning('[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)')
+
         # Initialize scope status booleans
         self.is_homing = False           # Is the microscope currently moving to home position
 
@@ -130,6 +140,7 @@ class Lumascope():
         self._turret_config = {}          # The objectives loaded into the turret (if present)
         self._stage_offset = None         # The stage offset for the microscope
         self._last_turret_position = None # Stores the last known turret position
+        self.engineering_mode = False      # Set by UI to enable engineering features
         if self.camera:
             self._binning_size = self.camera.get_binning_size()
         else:
@@ -155,6 +166,11 @@ class Lumascope():
             self.camera = None
 
         logger.info('[SCOPE API ] Microscope disconnected')
+
+    @property
+    def no_hardware(self):
+        """True if no real hardware was detected (LED, motor, and camera all missing)."""
+        return self._no_hardware
 
     # def reconnect(self):
     #     logger.info('[SCOPE API ] Attempting to reconnect to microscope...')
@@ -546,6 +562,10 @@ class Lumascope():
 
         if file_root is None:
             file_root = ""
+
+        # Append turret position in engineering mode
+        if self.engineering_mode and self._last_turret_position is not None:
+            append = f"{append}_T{self._last_turret_position}"
 
         if output_format == 'OME-TIFF':
             file_extension = ".ome.tiff"

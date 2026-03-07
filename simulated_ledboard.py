@@ -209,3 +209,12 @@ class SimulatedLEDBoard:
         for ch in self._channel_states:
             self._channel_states[ch] = 0
         self._write_command_fast('LEDS_OFF')
+
+    def read_led_current(self, channel):
+        """Simulated ADC feedback — returns the set current for the channel, or None if not v2."""
+        if not self.is_v2:
+            return None
+        ch = int(channel)
+        if ch in self._channel_states:
+            return float(self._channel_states[ch])
+        return 0.0

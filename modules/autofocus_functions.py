@@ -110,3 +110,14 @@ def focus_pixel_variation(image: np.ndarray) -> float:
 
 
 _focus_function = focus_vollath4_numba
+
+
+def warmup_jit():
+    """Pre-compile numba JIT functions with a tiny array to avoid first-use lag."""
+    try:
+        dummy = np.zeros((4, 4), dtype=np.uint16)
+        focus_vollath4_numba(dummy)
+    except Exception:
+        pass
+
+warmup_jit()

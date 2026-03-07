@@ -229,6 +229,10 @@ class MotorBoard:
                 if response_numlines == 1:
                     response = response[0]
                 logger.debug(f'[XYZ Class ] MotorBoard.exchange_command({command}) -> {response!r}')
+                # Log firmware-reported errors
+                resp_str = str(response)
+                if 'ERROR' in resp_str or 'FAIL' in resp_str:
+                    logger.warning(f'[XYZ Class ] Firmware error for {command}: {response}')
 
             except serial.SerialTimeoutException:
                 logger.error(f'[XYZ Class ] MotorBoard.exchange_command({command}) Serial Timeout')
