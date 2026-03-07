@@ -48,6 +48,7 @@ from ledboard import LEDBoard
 from camera.pyloncamera import PylonCamera
 from camera.idscamera import IDSCamera
 from camera.camera import Camera
+from camera.simulated_camera import SimulatedCamera
 from simulated_motorboard import SimulatedMotorBoard
 from simulated_ledboard import SimulatedLEDBoard
 
@@ -100,8 +101,8 @@ class Lumascope():
         self.image_buffer = None
         try:
             if simulate:
-                self.camera = None
-                logger.info('[SCOPE API ] Camera skipped in simulation mode')
+                self.camera: Camera = SimulatedCamera()
+                logger.info('[SCOPE API ] Using SIMULATED Camera')
             elif camera_type == "ids":
                 self.camera: Camera = IDSCamera()
             else:
