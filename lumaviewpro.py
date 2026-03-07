@@ -400,8 +400,8 @@ if __name__ == "__main__":
     file_io_executor = SequentialIOExecutor(name="FILE")
     autofocus_thread_executor = SequentialIOExecutor(name="AUTOFOCUS")
     scope_display_thread_executor = SequentialIOExecutor(name="SCOPEDISPLAY")
-    stage_executor = SequentialIOExecutor(name="STAGE")
-    turret_executor = SequentialIOExecutor(name="TURRET")
+    stage_executor = io_executor    # consolidated: all motor serial I/O through one executor
+    turret_executor = io_executor   # consolidated: prevents concurrent motor board access
     reset_executor = SequentialIOExecutor(name="RESET")
 
     if use_multiprocessing:
@@ -2059,14 +2059,18 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             if self.scope.led:
                 # TODO: Update UI to reflect
                 self.led_on_before_pause = self.scope.get_led_state(color=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))['enabled']
-                self.scope.leds_off()
+                io_executor.put(IOTask(action=self.scope.leds_off))
                 logger.info('[LVP Main  ] self.scope.leds_off()')
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))
                 layer_obj.update_led_toggle_ui()
         else:
             if self.led_on_before_pause:
-                self.scope.led_on(channel=self.scope.color2ch(common_utils.get_opened_layer(lumaview.ids['imagesettings_id'])), mA=settings[common_utils.get_opened_layer(lumaview.ids['imagesettings_id'])]['ill'])
-                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))
+                opened_layer = common_utils.get_opened_layer(lumaview.ids['imagesettings_id'])
+                io_executor.put(IOTask(
+                    action=self.scope.led_on,
+                    kwargs={'channel': self.scope.color2ch(opened_layer), 'mA': settings[opened_layer]['ill']}
+                ))
+                layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=opened_layer)
                 layer_obj.update_led_toggle_ui()
 
             scope_display.play = True
@@ -9149,10 +9153,10 @@ class LayerControl(BoxLayout):
 
         channel=lumaview.scope.color2ch(self.layer)
         if not enabled:
-            lumaview.scope.led_off(channel=channel)
+            io_executor.put(IOTask(action=lumaview.scope.led_off, kwargs={'channel': channel}))
         else:
             logger.info(f'[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch({self.layer}), {illumination})')
-            lumaview.scope.led_on(channel=channel, mA=illumination)
+            io_executor.put(IOTask(action=lumaview.scope.led_on, kwargs={'channel': channel, 'mA': illumination}))
 
     def update_led_toggle_ui(self):
         if lumaview.scope.led:
@@ -9861,8 +9865,8 @@ class LumaViewProApp(App):
                 file_q = file_io_executor.queue_size() if hasattr(file_io_executor, 'protocol_queue_size') else -1
                 af_q = autofocus_thread_executor.queue_size() if hasattr(autofocus_thread_executor, 'protocol_queue_size') else -1
                 sd_q = scope_display_thread_executor.queue_size() if hasattr(scope_display_thread_executor, 'queue_size') else -1
-                stage_q = stage_executor.queue_size() if hasattr(stage_executor, 'queue_size') else -1
-                turret_q = turret_executor.queue_size() if hasattr(turret_executor, 'queue_size') else -1
+                stage_q = 0   # consolidated into io_executor
+                turret_q = 0  # consolidated into io_executor
                 reset_q = reset_executor.queue_size() if hasattr(reset_executor, 'queue_size') else -1
                 io_pq = io_executor.protocol_queue_size() if hasattr(io_executor, 'protocol_queue_size') else -1
                 cam_pq = camera_executor.protocol_queue_size() if hasattr(camera_executor, 'protocol_queue_size') else -1
@@ -9870,8 +9874,8 @@ class LumaViewProApp(App):
                 file_pq = file_io_executor.protocol_queue_size() if hasattr(file_io_executor, 'protocol_queue_size') else -1
                 af_pq = autofocus_thread_executor.protocol_queue_size() if hasattr(autofocus_thread_executor, 'protocol_queue_size') else -1
                 sd_pq = scope_display_thread_executor.protocol_queue_size() if hasattr(scope_display_thread_executor, 'protocol_queue_size') else -1
-                stage_pq = stage_executor.protocol_queue_size() if hasattr(stage_executor, 'protocol_queue_size') else -1
-                turret_pq = turret_executor.protocol_queue_size() if hasattr(turret_executor, 'protocol_queue_size') else -1
+                stage_pq = 0  # consolidated into io_executor
+                turret_pq = 0 # consolidated into io_executor
                 reset_pq = reset_executor.protocol_queue_size() if hasattr(reset_executor, 'protocol_queue_size') else -1
 
                 logger.error(f"[Watchdog] Queues - IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q} SD:{sd_q} STAGE:{stage_q} TURRET:{turret_q} RESET:{reset_q}")
@@ -9971,11 +9975,7 @@ class LumaViewProApp(App):
         if scope_display_thread_executor is not None:
             scope_display_thread_executor.shutdown(wait=False)
 
-        if stage_executor is not None:
-            stage_executor.shutdown(wait=False)
-
-        if turret_executor is not None:
-            turret_executor.shutdown(wait=False)
+        # stage_executor and turret_executor are aliases for io_executor (already shut down above)
 
         if cpu_pool is not None:
             cpu_pool.shutdown(wait=True)
@@ -10053,8 +10053,7 @@ class LumaViewProApp(App):
         file_io_executor.start()
         autofocus_thread_executor.start()
         scope_display_thread_executor.start()
-        stage_executor.start()
-        turret_executor.start()
+        # stage_executor and turret_executor are aliases for io_executor (already started above)
         reset_executor.start()
         #ij_helper = imagej_helper.ImageJHelper()
 
