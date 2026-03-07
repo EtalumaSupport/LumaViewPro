@@ -409,6 +409,21 @@ class SimulatedCamera(Camera):
             self._gain = float(gain)
             logger.info(f'[CAM Sim   ] Gain set to {gain}')
 
+    def init_auto_gain_focus(
+        self,
+        auto_target_brightness: float = 0.5,
+        min_gain: float | None = None,
+        max_gain: float | None = None,
+    ):
+        """Initialize auto-gain ROI and parameters (no-op in simulation)."""
+        with self._lock:
+            self._auto_gain_target_brightness = auto_target_brightness
+            if min_gain is not None:
+                self._auto_gain_min = min_gain
+            if max_gain is not None:
+                self._auto_gain_max = max_gain
+        return True
+
     def auto_gain(
         self,
         state=True,

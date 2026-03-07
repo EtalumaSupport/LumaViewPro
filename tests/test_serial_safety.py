@@ -50,16 +50,43 @@ from motorboard import MotorBoard
 # ---------------------------------------------------------------------------
 
 def _make_mock_serial(**overrides):
-    """Create a mock serial.Serial that behaves like a connected port."""
+    """Create a mock serial.Serial that behaves like a connected port.
+
+    LED firmware sends two lines per command:
+      1. Echo:  "RE: <CMD>\\r\\n"
+      2. Result: "<result text>\\r\\n"
+    Motor firmware sends one line:
+      1. Result: "<result text>\\r\\n"
+
+    Default readline returns echo-style responses. Use side_effect for
+    multi-line sequences.
+    """
     mock = MagicMock(spec=serial.Serial)
-    mock.readline.return_value = b"RE: OK\r\n"
+    mock.readline.return_value = b"OK\r\n"
     mock.write.return_value = None
-    mock.flushInput.return_value = None
-    mock.flush.return_value = None
     mock.close.return_value = None
     for k, v in overrides.items():
         setattr(mock, k, v)
     return mock
+
+
+def _make_led_readline(*result_lines):
+    """Build a readline side_effect for LED board: echo + result per command.
+
+    Each call to exchange_command reads two lines:
+      readline() -> b"RE: <cmd>\\r\\n"  (echo)
+      readline() -> b"<result>\\r\\n"   (actual result)
+
+    Pass result strings (without \\r\\n) and a cycling side_effect is returned.
+    """
+    responses = []
+    for result in result_lines:
+        responses.append(b"RE: CMD\r\n")  # echo (content doesn't matter, starts with RE:)
+        responses.append(result.encode('utf-8') + b"\r\n")
+    # Cycle so multiple exchange_command calls work
+    import itertools
+    cycle = itertools.cycle(responses)
+    return lambda: next(cycle)
 
 
 # ---------------------------------------------------------------------------
@@ -97,12 +124,33 @@ class TestLEDBoardLocking:
         assert isinstance(board._lock, type(threading.RLock()))
 
     def test_exchange_command_returns_response(self):
-        """exchange_command should return the decoded response."""
+        """exchange_command should return the actual result (not the echo)."""
         board = self._make_board()
-        board.driver.readline.return_value = b"RE: LED0_100\r\n"
+        # Firmware sends echo, then result
+        board.driver.readline.side_effect = [
+            b"RE: LED0_100\r\n",       # echo line
+            b"LED 0 set to 100 mA.\r\n",  # result line
+        ]
         resp = board.exchange_command('LED0_100')
         assert resp is not None
-        assert 'LED0_100' in resp
+        assert 'LED 0 set to 100 mA.' == resp
+
+    def test_exchange_command_reads_past_echo(self):
+        """exchange_command should skip the RE: echo and return the result."""
+        board = self._make_board()
+        board.driver.readline.side_effect = [
+            b"RE: LEDS_OFF\r\n",          # echo
+            b"All LEDs turned off\r\n",     # result
+        ]
+        resp = board.exchange_command('LEDS_OFF')
+        assert resp == 'All LEDs turned off'
+
+    def test_exchange_command_no_echo_firmware(self):
+        """If firmware doesn't send RE: echo, first line IS the result."""
+        board = self._make_board()
+        board.driver.readline.return_value = b"LED 0 set to 100 mA.\r\n"
+        resp = board.exchange_command('LED0_100')
+        assert resp == 'LED 0 set to 100 mA.'
 
     def test_exchange_command_none_on_timeout(self):
         """exchange_command should return None on SerialTimeoutException."""
