@@ -7746,7 +7746,6 @@ class MicroscopeSettings(BoxLayout):
         lumaview.ids['imagesettings_id'].set_layer_exposure_ranges()
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
         layer_obj.apply_settings()
-        Clock.schedule_once(layer_obj.apply_settings, 5)
 
         scope_leds_off()
 
@@ -9763,7 +9762,6 @@ class LumaViewProApp(App):
 
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer='BF')
         layer_obj.apply_settings()
-        Clock.schedule_once(layer_obj.apply_settings, 5)
 
         log_system_metrics() # Log once on startup
 
