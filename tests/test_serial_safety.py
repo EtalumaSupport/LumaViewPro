@@ -110,6 +110,7 @@ class TestLEDBoardLocking:
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board.firmware_version = None
         return board
 
     def test_no_com_lock_attribute(self):
@@ -272,6 +273,7 @@ class TestMotorBoardSafety:
         board._fullinfo = None
         board._connect_fails = 0
         board.axes_config = {}
+        board.firmware_version = None
         return board
 
     def test_timeout_is_set(self):
@@ -991,3 +993,178 @@ class TestMotorBoardMovement:
         assert 'Y' in config
         assert 'Z' in config
         assert 'T' in config
+
+
+# ---------------------------------------------------------------------------
+# Firmware Version Detection Tests
+# ---------------------------------------------------------------------------
+
+class TestLEDFirmwareVersion:
+    """Test LED board firmware version detection and is_v2 property."""
+
+    def _make_board(self):
+        board = LEDBoard.__new__(LEDBoard)
+        board.found = False
+        board._lock = threading.RLock()
+        board.port = '/dev/fake'
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 0.1
+        board.write_timeout = 0.1
+        board.driver = _make_mock_serial()
+        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board.firmware_version = None
+        return board
+
+    def test_detect_v2_firmware(self):
+        """Should parse v2.0.1 from INFO response."""
+        board = self._make_board()
+        # INFO command reads two lines (echo + result)
+        board.driver.readline.side_effect = [
+            b"RE: INFO\r\n",
+            b"Firmware:     2026-03-06 v2.0.1\r\n",
+        ]
+        board._detect_firmware_version()
+        assert board.firmware_version == '2.0.1'
+        assert board.is_v2 is True
+
+    def test_detect_legacy_firmware(self):
+        """Legacy firmware has no version string."""
+        board = self._make_board()
+        board.driver.readline.side_effect = [
+            b"RE: INFO\r\n",
+            b"EL-0925 Gen3 LED Controller\r\n",
+        ]
+        board._detect_firmware_version()
+        assert board.firmware_version is None
+        assert board.is_v2 is False
+
+    def test_detect_v2_0_0(self):
+        """Should parse v2.0.0."""
+        board = self._make_board()
+        board.driver.readline.side_effect = [
+            b"RE: INFO\r\n",
+            b"Firmware:     2026-01-15 v2.0.0\r\n",
+        ]
+        board._detect_firmware_version()
+        assert board.firmware_version == '2.0.0'
+        assert board.is_v2 is True
+
+    def test_detect_v1_firmware(self):
+        """Hypothetical v1.x firmware should not be is_v2."""
+        board = self._make_board()
+        board.driver.readline.side_effect = [
+            b"RE: INFO\r\n",
+            b"Firmware: v1.5.0\r\n",
+        ]
+        board._detect_firmware_version()
+        assert board.firmware_version == '1.5.0'
+        assert board.is_v2 is False
+
+    def test_detect_no_echo_firmware(self):
+        """Future firmware without RE: echo should still parse version."""
+        board = self._make_board()
+        board.driver.readline.side_effect = [
+            b"Firmware:     2027-01-01 v3.0.0\r\n",
+        ]
+        board._detect_firmware_version()
+        assert board.firmware_version == '3.0.0'
+        assert board.is_v2 is True
+
+    def test_detect_timeout(self):
+        """If INFO times out, version should be None."""
+        board = self._make_board()
+        board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
+        board._detect_firmware_version()
+        assert board.firmware_version is None
+        assert board.is_v2 is False
+
+
+class TestMotorFirmwareVersion:
+    """Test motor board firmware version detection and is_v2 property."""
+
+    def _make_board(self):
+        board = MotorBoard.__new__(MotorBoard)
+        board.found = True
+        board.overshoot = False
+        board.backlash = 25
+        board._has_turret = False
+        board.initial_homing_complete = False
+        board.initial_t_homing_complete = False
+        board.port = '/dev/fake'
+        board.thread_lock = threading.RLock()
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 30
+        board.write_timeout = 5
+        board.driver = _make_mock_serial()
+        board._fullinfo = None
+        board._connect_fails = 0
+        board.axes_config = {}
+        board.firmware_version = None
+        return board
+
+    def test_detect_v2_firmware(self):
+        """Should parse v2.0.1 from motor INFO response."""
+        board = self._make_board()
+        board.driver.readline.return_value = \
+            b"EL-0940 Integrated Mainboard Firmware:     2026-03-06 v2.0.1\r\n"
+        board._detect_firmware_version()
+        assert board.firmware_version == '2.0.1'
+        assert board.is_v2 is True
+
+    def test_detect_legacy_firmware(self):
+        """Legacy motor firmware has no version string."""
+        board = self._make_board()
+        board.driver.readline.return_value = \
+            b"Etaluma Motor Controller Board EL-0923 Firmware:     2024-09-10\r\n"
+        board._detect_firmware_version()
+        assert board.firmware_version is None
+        assert board.is_v2 is False
+
+    def test_detect_v2_0_0(self):
+        """Should parse v2.0.0."""
+        board = self._make_board()
+        board.driver.readline.return_value = \
+            b"EL-0940 Integrated Mainboard Firmware:     2026-01-15 v2.0.0\r\n"
+        board._detect_firmware_version()
+        assert board.firmware_version == '2.0.0'
+        assert board.is_v2 is True
+
+
+class TestSimulatorFirmwareVersion:
+    """Test that simulators expose firmware_version and is_v2."""
+
+    def test_led_simulator_default_v2(self):
+        from simulated_ledboard import SimulatedLEDBoard
+        board = SimulatedLEDBoard()
+        assert board.firmware_version == '2.0.1'
+        assert board.is_v2 is True
+
+    def test_led_simulator_legacy(self):
+        from simulated_ledboard import SimulatedLEDBoard
+        board = SimulatedLEDBoard(firmware_version=None)
+        assert board.firmware_version is None
+        assert board.is_v2 is False
+
+    def test_led_simulator_custom_version(self):
+        from simulated_ledboard import SimulatedLEDBoard
+        board = SimulatedLEDBoard(firmware_version='1.0.0')
+        assert board.firmware_version == '1.0.0'
+        assert board.is_v2 is False
+
+    def test_motor_simulator_default_v2(self):
+        from simulated_motorboard import SimulatedMotorBoard
+        board = SimulatedMotorBoard()
+        assert board.firmware_version == '2.0.1'
+        assert board.is_v2 is True
+
+    def test_motor_simulator_legacy(self):
+        from simulated_motorboard import SimulatedMotorBoard
+        board = SimulatedMotorBoard(firmware_version=None)
+        assert board.firmware_version is None
+        assert board.is_v2 is False

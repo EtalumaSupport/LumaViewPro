@@ -50,7 +50,8 @@ class SimulatedMotorBoard:
 
     def __init__(self, model: str = 'LS720T', serial_number: str = 'SIM-001',
                  move_delay: float = 0.0, cmd_delay: float = 0.0,
-                 timing: str = 'fast', **kwargs):
+                 timing: str = 'fast', firmware_version: str = '2.0.1',
+                 **kwargs):
         logger.info('[XYZ Sim   ] SimulatedMotorBoard.__init__()')
 
         self.found = True
@@ -67,6 +68,7 @@ class SimulatedMotorBoard:
         self._cmd_delay = cmd_delay
         self._move_delay = move_delay
         self._simulate_move_duration = False
+        self.firmware_version = firmware_version  # Configurable for testing old firmware paths
 
         # Apply timing preset (overrides cmd_delay/move_delay if preset given)
         self.set_timing_mode(timing)
@@ -109,6 +111,17 @@ class SimulatedMotorBoard:
         self._move_delay = preset['move_delay']
         self._simulate_move_duration = preset['simulate_move_duration']
         self._timing_mode = mode
+
+    @property
+    def is_v2(self) -> bool:
+        """True if firmware is v2.0 or later."""
+        if self.firmware_version is None:
+            return False
+        try:
+            major = int(self.firmware_version.split('.')[0])
+            return major >= 2
+        except (ValueError, IndexError):
+            return False
 
     # ------------------------------------------------------------------
     # Connection

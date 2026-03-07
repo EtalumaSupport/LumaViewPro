@@ -57,6 +57,7 @@ class MotorBoard:
         self._has_turret = False
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
+        self.firmware_version = None  # Detected on connect (e.g. '2.0.1' or None for legacy)
         self.port = None
         self.thread_lock = threading.RLock()
         self.axes_config = {
@@ -135,6 +136,7 @@ class MotorBoard:
                 self.driver.write(b'\x04\n')
                 logger.debug('[XYZ Class ] Port initial state: %r' % self.driver.readline())
 
+                self._detect_firmware_version()
                 self._fullinfo = self.fullinfo()
                 logger.info('[XYZ Class ] Connected to motor controller')
             except Exception as e:
@@ -166,6 +168,38 @@ class MotorBoard:
     #----------------------------------------------------------
     # Define Communication
     #----------------------------------------------------------
+    def _detect_firmware_version(self):
+        """Query INFO and parse firmware version string.
+
+        v2.0+ firmware responds with:
+            EL-0940 Integrated Mainboard Firmware:     2026-03-06 v2.0.1
+        Legacy firmware has no 'v' version string.
+        """
+        try:
+            resp = self.exchange_command('INFO')
+            if resp and ' v' in resp:
+                import re
+                match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
+                if match:
+                    self.firmware_version = match.group(1)
+                    logger.info(f'[XYZ Class ] Firmware version: {self.firmware_version}')
+                    return
+            self.firmware_version = None
+            logger.info(f'[XYZ Class ] Legacy firmware (no version string)')
+        except Exception:
+            self.firmware_version = None
+
+    @property
+    def is_v2(self) -> bool:
+        """True if firmware is v2.0 or later."""
+        if self.firmware_version is None:
+            return False
+        try:
+            major = int(self.firmware_version.split('.')[0])
+            return major >= 2
+        except (ValueError, IndexError):
+            return False
+
     def _close_driver(self):
         """Safely close and clear the serial driver."""
         try:

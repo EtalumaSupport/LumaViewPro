@@ -19,7 +19,8 @@ class SimulatedLEDBoard:
     TIMING_FAST = {'delay': 0.0}
     TIMING_REALISTIC = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
-    def __init__(self, delay: float = 0.0, timing: str = 'fast', **kwargs):
+    def __init__(self, delay: float = 0.0, timing: str = 'fast',
+                 firmware_version: str = '2.0.1', **kwargs):
         logger.info('[LED Sim   ] SimulatedLEDBoard.__init__()')
         self.found = True
         self._lock = threading.RLock()
@@ -27,6 +28,7 @@ class SimulatedLEDBoard:
         self.baudrate = 115200
         self.driver = True  # truthy sentinel — not a real serial port
         self._delay = delay
+        self.firmware_version = firmware_version  # Configurable for testing old firmware paths
 
         # Apply timing preset (overrides delay if preset given)
         self.set_timing_mode(timing)
@@ -51,6 +53,17 @@ class SimulatedLEDBoard:
             raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
         self._delay = preset['delay']
         self._timing_mode = mode
+
+    @property
+    def is_v2(self) -> bool:
+        """True if firmware is v2.0 or later."""
+        if self.firmware_version is None:
+            return False
+        try:
+            major = int(self.firmware_version.split('.')[0])
+            return major >= 2
+        except (ValueError, IndexError):
+            return False
 
     # ------------------------------------------------------------------
     # Connection

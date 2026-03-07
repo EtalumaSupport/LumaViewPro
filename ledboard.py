@@ -49,6 +49,7 @@ class LEDBoard:
         self.found = False
         self._lock = threading.RLock()  # single lock for ALL serial access
         self.port = None
+        self.firmware_version = None  # Detected on connect (e.g. '2.0.1' or None for legacy)
 
         for port in ports:
             if (port.vid == 0x0424) and (port.pid == 0x704C):
@@ -99,6 +100,9 @@ class LEDBoard:
                 self.driver.write(b'\x04\n')
                 logger.debug('[LED Class ] Port initial state: %r' % self.driver.readline())
                 logger.info('[LED Class ] Connected to LED controller')
+
+                # Detect firmware version
+                self._detect_firmware_version()
             except Exception as e:
                 self._close_driver()
                 logger.error(f'[LED Class ] LEDBoard.connect() failed: {e}')
@@ -163,6 +167,39 @@ class LEDBoard:
 
             return None
     
+    def _detect_firmware_version(self):
+        """Query INFO and parse firmware version string.
+
+        v2.0+ firmware responds with lines like:
+            Firmware:     2026-03-06 v2.0.1
+        Legacy firmware has no 'v' version string.
+        """
+        try:
+            resp = self.exchange_command('INFO')
+            if resp and ' v' in resp:
+                # Parse version from "... v2.0.1" or "Firmware: ... v2.0.1"
+                import re
+                match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
+                if match:
+                    self.firmware_version = match.group(1)
+                    logger.info(f'[LED Class ] Firmware version: {self.firmware_version}')
+                    return
+            self.firmware_version = None
+            logger.info(f'[LED Class ] Legacy firmware (no version string)')
+        except Exception:
+            self.firmware_version = None
+
+    @property
+    def is_v2(self) -> bool:
+        """True if firmware is v2.0 or later."""
+        if self.firmware_version is None:
+            return False
+        try:
+            major = int(self.firmware_version.split('.')[0])
+            return major >= 2
+        except (ValueError, IndexError):
+            return False
+
     def _close_driver(self):
         """Safely close and clear the serial driver."""
         try:
