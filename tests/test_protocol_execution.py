@@ -458,6 +458,36 @@ class TestSingleScanAutoFocus:
         assert completed
 
 
+class TestSingleScanAutoFocusNoneResult:
+    """C2 fix: autofocus returns None — protocol must not crash."""
+
+    def test_completes_when_autofocus_returns_none(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
+
+        af = executor._autofocus_executor
+        af.complete.return_value = True
+        af.in_progress.return_value = False
+        af.best_focus_position.return_value = None  # autofocus failed
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed, "Protocol should complete even when autofocus returns None"
+
+    def test_z_height_not_modified_when_autofocus_returns_none(self, executor, scope, tmp_path):
+        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
+
+        af = executor._autofocus_executor
+        af.complete.return_value = True
+        af.in_progress.return_value = False
+        af.best_focus_position.return_value = None
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        # modify_step_z_height should NOT have been called with None
+        for call in protocol.modify_step_z_height.call_args_list:
+            assert call.kwargs.get('z') is not None, \
+                "modify_step_z_height should not be called with z=None"
+
+
 class TestSingleScanAutoGainAndAutoFocus:
     """Test 4: Single scan with both auto-gain and auto-focus."""
 

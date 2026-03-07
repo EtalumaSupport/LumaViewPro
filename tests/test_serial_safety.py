@@ -1168,3 +1168,74 @@ class TestSimulatorFirmwareVersion:
         board = SimulatedMotorBoard(firmware_version=None)
         assert board.firmware_version is None
         assert board.is_v2 is False
+
+
+# ---------------------------------------------------------------------------
+# C1: exchange_command None handling (led_on block, wait_until_on)
+# ---------------------------------------------------------------------------
+
+class TestLEDNoneHandling:
+    """Verify LED methods handle None from exchange_command without crashing."""
+
+    def _make_board(self):
+        board = LEDBoard.__new__(LEDBoard)
+        board.found = False
+        board._lock = threading.RLock()
+        board.port = '/dev/fake'
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 0.1
+        board.write_timeout = 0.1
+        board.driver = _make_mock_serial()
+        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board.firmware_version = None
+        return board
+
+    def test_led_on_block_with_none_then_success(self):
+        """led_on(block=True) should retry when exchange_command returns None."""
+        board = self._make_board()
+        # First call: echo + None-inducing timeout, second call: echo + valid response
+        call_count = [0]
+        def mock_readline():
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                # First exchange_command: echo then timeout (empty = None after strip)
+                if call_count[0] == 1:
+                    return b"RE: LED3_100\r\n"
+                return b"\r\n"  # empty result -> stripped to ''
+            elif call_count[0] == 3:
+                return b"RE: LED3_100\r\n"
+            else:
+                return b"LED 3 set to 100 mA. LED3_100\r\n"
+        board.driver.readline = mock_readline
+        # Should not crash — first response is empty string (not None), second succeeds
+        board.led_on(channel=3, mA=100, block=True)
+        assert board.led_ma['BF'] == 100
+
+    def test_led_on_block_none_response_no_crash(self):
+        """led_on(block=True) must not crash when exchange_command returns None."""
+        board = self._make_board()
+        call_count = [0]
+        def mock_exchange(cmd):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return None  # simulate disconnect
+            return f"LED3_100 {cmd}"  # valid on retry
+        board.exchange_command = mock_exchange
+        board.led_on(channel=3, mA=100, block=True)
+        assert call_count[0] == 2
+
+    def test_wait_until_on_none_response_no_crash(self):
+        """wait_until_on must not crash when get_status returns None."""
+        board = self._make_board()
+        call_count = [0]
+        def mock_exchange(cmd):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return None
+            return "RE: STATUS LED3:100mA"
+        board.exchange_command = mock_exchange
+        board.wait_until_on()
+        assert call_count[0] == 2

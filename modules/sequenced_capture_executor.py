@@ -644,10 +644,13 @@ class SequencedCaptureExecutor:
         # Update the Z position with autofocus results
         if step['Auto_Focus'] and self._update_z_pos_from_autofocus:
             new_z_pos = self._autofocus_executor.best_focus_position()
-            self._protocol.modify_step_z_height(
-                step_idx=self._curr_step,
-                z=new_z_pos,
-            )
+            if new_z_pos is not None:
+                self._protocol.modify_step_z_height(
+                    step_idx=self._curr_step,
+                    z=new_z_pos,
+                )
+            else:
+                logger.warning('[Capture   ] Autofocus returned no position — keeping current Z')
 
         # reset the is_complete flag on autofocus
         if 'autofocus_complete' in self._callbacks:

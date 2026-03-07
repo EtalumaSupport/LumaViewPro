@@ -291,7 +291,7 @@ class LEDBoard:
         # Waits in loop until ledboard confirms that an LED is on (not turned off)
 
         status = self.get_status()
-        while "STATUS" not in status:
+        while status is None or "STATUS" not in status:
             status = self.get_status()
 
     def get_led_ma(self, color):
@@ -340,9 +340,9 @@ class LEDBoard:
                 if sub_str not in result:
                     return False
             return True
-        
+
         if block:
-            while command not in response and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response):
+            while response is None or (command not in response and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response)):
                 response = self.exchange_command(command)
 
 
