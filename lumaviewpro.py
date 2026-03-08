@@ -1494,6 +1494,8 @@ class ScopeDisplay(Image):
 # -------------------------------------------------------------------------
 class CompositeCapture(FloatLayout):
 
+    _capturing = False  # Guard against rapid double-clicks
+
     def __init__(self, **kwargs):
         super(CompositeCapture,self).__init__(**kwargs)
 
@@ -1520,6 +1522,16 @@ class CompositeCapture(FloatLayout):
 
 
     def live_capture(self):
+        if CompositeCapture._capturing:
+            logger.warning('[LVP Main  ] Capture already in progress, ignoring')
+            return
+        CompositeCapture._capturing = True
+        try:
+            self._live_capture_impl()
+        finally:
+            CompositeCapture._capturing = False
+
+    def _live_capture_impl(self):
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
         global lumaview
 
@@ -1636,6 +1648,10 @@ class CompositeCapture(FloatLayout):
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
+        if CompositeCapture._capturing:
+            logger.warning('[LVP Main  ] Composite capture already in progress, ignoring')
+            return
+        CompositeCapture._capturing = True
 
         z_stage_present = not disable_homing
 
@@ -1880,6 +1896,7 @@ class CompositeCapture(FloatLayout):
                 opened_layer_obj.ids['enable_led_btn'].state = 'normal'
             opened_layer_obj.apply_settings(update_led=True)
 
+        CompositeCapture._capturing = False
         Clock.schedule_once(_restore_ui, 0)
         # # Reverse to settings of the channel that were originally selected
         # if initial_layer is not None:
@@ -4536,6 +4553,8 @@ class VerticalControl(BoxLayout):
 
 
     def coarse_up(self, overshoot_enabled: bool = False):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
         _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
@@ -4546,10 +4565,10 @@ class VerticalControl(BoxLayout):
                 "overshoot_enabled": overshoot_enabled
             }
         ))
-        #move_relative_position('Z', coarse, overshoot_enabled=overshoot_enabled)
-
 
     def fine_up(self, overshoot_enabled: bool = False):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
         _, objective = get_current_objective_info()
         fine = objective['z_fine']
@@ -4560,10 +4579,10 @@ class VerticalControl(BoxLayout):
                 "overshoot_enabled": overshoot_enabled
             }
         ))
-        #move_relative_position('Z', fine, overshoot_enabled=overshoot_enabled)
-
 
     def fine_down(self, overshoot_enabled: bool = False):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
         _, objective = get_current_objective_info()
         fine = objective['z_fine']
@@ -4574,10 +4593,10 @@ class VerticalControl(BoxLayout):
                 "overshoot_enabled": overshoot_enabled
             }
         ))
-        #move_relative_position('Z', -fine, overshoot_enabled=overshoot_enabled)
-
 
     def coarse_down(self, overshoot_enabled: bool = False):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
         _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
@@ -4588,7 +4607,6 @@ class VerticalControl(BoxLayout):
                 "overshoot_enabled": overshoot_enabled
             }
         ))
-        #move_relative_position('Z', -coarse, overshoot_enabled=overshoot_enabled)
 
 
     def set_position(self, pos):
@@ -5123,54 +5141,72 @@ class XYStageControl(BoxLayout):
                     self.ids['y_pos_id'].text = new_y_text # Update y position text box
 
     def fine_left(self):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
         _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        move_relative_position('X', -fine)  # Move LEFT fine step
+        stage_executor.put(IOTask(action=move_relative_position, args=('X', -fine)))
 
     def fine_right(self):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.fine_right()')
         _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        move_relative_position('X', fine)  # Move RIGHT fine step
+        stage_executor.put(IOTask(action=move_relative_position, args=('X', fine)))
 
     def coarse_left(self):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.coarse_left()')
         _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        move_relative_position('X', -coarse)  # Move LEFT coarse step
+        stage_executor.put(IOTask(action=move_relative_position, args=('X', -coarse)))
 
     def coarse_right(self):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.coarse_right()')
         _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        move_relative_position('X', coarse)  # Move RIGHT
+        stage_executor.put(IOTask(action=move_relative_position, args=('X', coarse)))
 
     def fine_back(self):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.fine_back()')
         _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        move_relative_position('Y', -fine)  # Move BACK
+        stage_executor.put(IOTask(action=move_relative_position, args=('Y', -fine)))
 
     def fine_fwd(self):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.fine_fwd()')
         _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        move_relative_position('Y', fine)  # Move FORWARD
+        stage_executor.put(IOTask(action=move_relative_position, args=('Y', fine)))
 
     def coarse_back(self):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.coarse_back()')
         _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        move_relative_position('Y', -coarse)  # Move BACK
+        stage_executor.put(IOTask(action=move_relative_position, args=('Y', -coarse)))
 
     def coarse_fwd(self):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.coarse_fwd()')
         _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        move_relative_position('Y', coarse)  # Move FORWARD
+        stage_executor.put(IOTask(action=move_relative_position, args=('Y', coarse)))
 
     def set_xposition(self, x_pos):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.set_xposition()')
         global lumaview
         try:
@@ -5191,10 +5227,12 @@ class XYStageControl(BoxLayout):
         logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
-        move_absolute_position('X', stage_x)  # position in text is in mm
+        stage_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
 
 
     def set_yposition(self, y_pos):
+        if protocol_running_global.is_set():
+            return
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
         global lumaview
 
@@ -5214,7 +5252,7 @@ class XYStageControl(BoxLayout):
         )
 
         # Move to y-position
-        move_absolute_position('Y', stage_y)  # position in text is in mm
+        stage_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y)))
 
 
     def set_xbookmark(self):

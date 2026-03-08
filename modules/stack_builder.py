@@ -3,10 +3,27 @@ import pathlib
 
 import numpy as np
 import pandas as pd
+import psutil
 import tifffile as tf
 # from ome_types.model import OME, Image, Pixels, UnitsTime, UnitsLength, Channel
 
 import image_utils
+
+import logging
+logger = logging.getLogger('lvp_logger')
+
+
+def _check_hyperstack_memory(num_t, num_z, num_c, h, w, dtype):
+    """Raise MemoryError if hyperstack would exceed 80% of available RAM."""
+    bytes_per_element = np.dtype(dtype).itemsize
+    required_bytes = num_t * num_z * num_c * h * w * bytes_per_element
+    available_bytes = psutil.virtual_memory().available
+    if required_bytes > available_bytes * 0.8:
+        raise MemoryError(
+            f"Hyperstack requires {required_bytes / 1e9:.1f} GB but only "
+            f"{available_bytes / 1e9:.1f} GB available. Reduce Z-slices, "
+            f"timepoints, or channels."
+        )
 
 import modules.common_utils as common_utils
 from modules.protocol_post_processing_functions import PostFunction
@@ -338,6 +355,7 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         sample_image_shape = sample_image.shape
         h, w = sample_image_shape[0], sample_image_shape[1]
 
+        _check_hyperstack_memory(num_t, num_z, num_c, h, w, sample_image.dtype)
         stacked_image = np.zeros(
             shape=(num_t, num_z, num_c, h, w), # Hyperstack order TZCYX
             dtype=sample_image.dtype,
@@ -414,7 +432,7 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         tf.imwrite(
             output_file_loc_abs,
             data=stacked_image,
-            bigtiff=False, #True,
+            bigtiff=stacked_image.nbytes > 3.8 * 1024 * 1024 * 1024,
             ome=True,
             imagej=True,
             metadata=ome_info['metadata'],
@@ -469,6 +487,7 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         
         h, w = sample_image_shape[0], sample_image_shape[1]
 
+        _check_hyperstack_memory(num_t, num_z, num_c, h, w, sample_image.dtype)
         stacked_image = np.zeros(
             shape=(num_t, num_z, num_c, h, w), # Hyperstack order TZCYX
             dtype=sample_image.dtype,
@@ -517,7 +536,7 @@ class StackBuilder(ProtocolPostProcessingExecutor):
         tf.imwrite(
             output_file_loc_abs,
             data=stacked_image,
-            bigtiff=False, #True,
+            bigtiff=stacked_image.nbytes > 3.8 * 1024 * 1024 * 1024,
             ome=True,
             imagej=True,
             metadata=ome_info['metadata'],

@@ -127,8 +127,7 @@ def convert_12bit_to_8bit(image):
     if image.dtype == 'uint8':
         return image
 
-    new_image = image.copy()
-    return (new_image // 16).astype(np.uint8)
+    return np.clip(image.astype(np.float32) / 4095 * 255, 0, 255).astype(np.uint8)
 
 
 def convert_12bit_to_16bit(image):
@@ -210,9 +209,12 @@ def write_tiff(
 ):
 
     kwargs = {}
+    # Enable BigTIFF for datasets >3.8 GB to prevent silent corruption at 4 GB boundary
+    data_size_bytes = data.nbytes
+    use_bigtiff = data_size_bytes > 3.8 * 1024 * 1024 * 1024
     if True == ome:
         kwargs = {
-            'bigtiff': False,
+            'bigtiff': use_bigtiff,
         }
     elif False == video_frame:
         if is_color_image(data):
