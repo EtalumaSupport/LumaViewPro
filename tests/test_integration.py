@@ -130,7 +130,7 @@ def _make_protocol(steps_config):
         'video_config': {'duration': 1, 'fps': 5}, 'stim_config': {},
         'x': 10.0, 'y': 20.0, 'z': 5000.0, 'well': 'A1', 'name': None,
         'tile': '', 'z_slice': 0, 'tile_group_id': 0, 'zstack_group_id': 0,
-        'objective': '10x',
+        'objective': '10x Oly',
     }
 
     rows = []
