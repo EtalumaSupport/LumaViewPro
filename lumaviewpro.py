@@ -296,8 +296,9 @@ if __name__ == "__main__":
     # Matplotlib-to-Kivy bridge (replaces kivy-garden.matplotlib)
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from kivy.graphics.texture import Texture as KivyTexture
+    from kivy.uix.image import Image as KivyImage
 
-    class FigureCanvasKivyAgg(Image):
+    class FigureCanvasKivyAgg(KivyImage):
         """Render a matplotlib figure as a Kivy Image widget using the Agg backend."""
 
         def __init__(self, figure, **kwargs):
