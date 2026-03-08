@@ -205,8 +205,10 @@ def write_tiff(
         ome: bool,
         color: str,
         video_frame: bool = False,
-        extratags: list = [],
+        extratags: list = None,
 ):
+    if extratags is None:
+        extratags = []
 
     kwargs = {}
     # Enable BigTIFF for datasets >3.8 GB to prevent silent corruption at 4 GB boundary
