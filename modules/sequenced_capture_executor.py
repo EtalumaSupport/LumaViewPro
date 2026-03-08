@@ -1030,7 +1030,6 @@ class SequencedCaptureExecutor:
         # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
 
-        earliest_image_ts = datetime.datetime.now()
         # if 'update_scope_display' in self._callbacks:
         #     Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
         #     sum_iteration_callback=lambda: Clock.schedule_once(lambda dt: self._callbacks['update_scope_display'](), 0)
@@ -1054,10 +1053,9 @@ class SequencedCaptureExecutor:
             # if abs(real_exp - step['Exposure']) > accepted_exp_range:
             #     self._scope.set_exposure_time(step['Exposure'])
 
-            # Wait for camera to produce a frame under current settings
-            time.sleep(max(step['Exposure']/1000, 0.05))
-
             if is_video:
+                # Settle time for auto-gain first frame (static captures use frame validity)
+                time.sleep(max(step['Exposure']/1000, 0.05))
                 # Disable autogain and then reenable it only for the first frame
                 if step["Auto_Gain"]:
                     self._scope.set_auto_gain(state=False, settings=self._autogain_settings)
@@ -1270,17 +1268,14 @@ class SequencedCaptureExecutor:
 
 
             else:
-                #time.sleep(self.sleep_time)
-                captured_image = self._scope.get_image(
+                # Frame validity drains stale frames, then grabs a valid one
+                captured_image = self._scope.capture_and_wait(
                     force_to_8bit=not use_full_pixel_depth,
-                    earliest_image_ts=earliest_image_ts,
-                    timeout=datetime.timedelta(seconds=1.0),
                     all_ones_check=True,
+                    timeout=datetime.timedelta(seconds=1.0),
                     sum_count=sum_count,
                     sum_delay_s=step["Exposure"]/1000,
                     sum_iteration_callback=sum_iteration_callback,
-                    force_new_capture=True,
-                    new_capture_timeout=1
                 )
 
 

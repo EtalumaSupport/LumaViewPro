@@ -60,6 +60,7 @@ import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
 import image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
+from modules.frame_validity import FrameValidity
 
 
 class Lumascope():
@@ -141,6 +142,7 @@ class Lumascope():
         self._stage_offset = None         # The stage offset for the microscope
         self._last_turret_position = None # Stores the last known turret position
         self.engineering_mode = False      # Set by UI to enable engineering features
+        self.frame_validity = FrameValidity()
         if self.camera:
             self._binning_size = self.camera.get_binning_size()
         else:
@@ -313,6 +315,7 @@ class Lumascope():
             channel = self.color2ch(color=channel)
 
         self.led.led_on(channel, mA, block=block)
+        self.frame_validity.invalidate('led')
 
     def led_off(self, channel):
         """ LED BOARD FUNCTIONS
@@ -323,6 +326,7 @@ class Lumascope():
             channel = self.color2ch(color=channel)
 
         self.led.led_off(channel)
+        self.frame_validity.invalidate('led')
 
     def led_on_fast(self, channel, mA):
         """ LED BOARD FUNCTIONS
@@ -331,6 +335,7 @@ class Lumascope():
         if type(channel) == str:
             channel = self.color2ch(color=channel)
         self.led.led_on_fast(channel, mA)
+        self.frame_validity.invalidate('led')
 
     def led_off_fast(self, channel):
         """ LED BOARD FUNCTIONS
@@ -339,18 +344,21 @@ class Lumascope():
         if type(channel) == str:
             channel = self.color2ch(color=channel)
         self.led.led_off_fast(channel)
+        self.frame_validity.invalidate('led')
 
     def leds_off_fast(self):
         """ LED BOARD FUNCTIONS
         Fast write-only LEDs off for time-critical pulses """
         if not self.led: return
         self.led.leds_off_fast()
+        self.frame_validity.invalidate('led')
 
     def leds_off(self):
         """ LED BOARD FUNCTIONS
         Turn off all LEDs """
         if not self.led: return
         self.led.leds_off()
+        self.frame_validity.invalidate('led')
 
     def get_led_status(self):
         if not self.led: return
@@ -424,6 +432,7 @@ class Lumascope():
                     grab_status, grab_image_ts = self.camera.grab()
 
                 if grab_status == True:
+                    self.frame_validity.count_frame()
                     tmp = self.camera.array.copy()
 
                     if all_ones_check == True:
@@ -879,6 +888,7 @@ class Lumascope():
 
         if not self.camera or not self.camera.active: return
         self.camera.gain(gain)
+        self.frame_validity.invalidate('gain')
 
     def set_auto_gain(self, state: bool, settings: dict):
         """CAMERA FUNCTIONS
@@ -892,6 +902,7 @@ class Lumascope():
             min_gain=settings['min_gain'],
             max_gain=settings['max_gain'],
         )
+        self.frame_validity.invalidate('gain')
 
     def set_exposure_time(self, t):
         """CAMERA FUNCTIONS
@@ -899,6 +910,7 @@ class Lumascope():
 
         if not self.camera or not self.camera.active: return
         self.camera.exposure_t(t)
+        self.frame_validity.invalidate('exposure')
 
     def get_exposure_time(self):
         """CAMERA FUNCTIONS
@@ -916,6 +928,7 @@ class Lumascope():
 
         if not self.camera or not self.camera.active: return
         self.camera.auto_exposure_t(state)
+        self.frame_validity.invalidate('exposure')
 
 
     def camera_is_connected(self) -> bool:
@@ -1095,6 +1108,7 @@ class Lumascope():
 
         #if not self.motion: return
         self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
+        self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
@@ -1106,6 +1120,7 @@ class Lumascope():
 
         #if not self.motion: return
         self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+        self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
@@ -1260,28 +1275,55 @@ class Lumascope():
         time.sleep(wait_time)
         return self.get_image()
 
-    def capture_and_wait(self, force_to_8bit=True, sum_count=1, sum_delay_s=0,
+    def capture_and_wait(self, force_to_8bit=True, *, exclude_sources=(),
+                         all_ones_check=False,
+                         timeout=datetime.timedelta(seconds=0),
+                         sum_count=1, sum_delay_s=0,
                          sum_iteration_callback=None):
-        """Capture a fresh image after current settings take effect.
+        """Capture a frame guaranteed to reflect the current hardware state.
 
-        Waits one exposure period for LED/gain/exposure to settle, then uses
-        grab_new_capture to get a frame that was exposed under the new settings.
-        Much faster than the legacy 2*exposure+200ms sleep pattern.
+        Uses frame-based settling: drains stale frames from the camera pipeline
+        until frame_validity confirms all pending state changes (LED, gain,
+        exposure, motion) have settled. Then grabs a fresh valid frame.
+
+        Frame-based settling automatically adapts to the camera's frame rate —
+        fast exposures drain quickly, slow exposures drain slowly, matching
+        the actual camera pipeline depth.
+
+        Args:
+            force_to_8bit: Convert to 8-bit output.
+            exclude_sources: Sources to ignore for validity (e.g. ('z_move',)
+                for autofocus where Z motion doesn't need to fully settle).
+            all_ones_check: Reject all-max-value frames (camera hardware issue).
+            timeout: Timeout for the final get_image call.
+            sum_count: Number of frames to sum for noise reduction.
+            sum_delay_s: Delay between summed frames.
+            sum_iteration_callback: Called after each summed frame.
         """
         if not self.camera or not self.camera.active:
             return False
 
         exposure_s = self.get_exposure_time() / 1000
-        # Wait for settings to take effect: one exposure + small LED settling margin
-        time.sleep(max(exposure_s, 0.05))
+        grab_timeout = max(exposure_s * 3, 1.0)
+
+        # Drain stale frames until all pending state changes have settled
+        while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
+            status, _ = self.camera.grab_new_capture(timeout=grab_timeout)
+            if status:
+                self.frame_validity.count_frame()
+            else:
+                logger.warning('[SCOPE API ] capture_and_wait: frame drain failed')
+                return False
 
         return self.get_image(
             force_to_8bit=force_to_8bit,
-            force_new_capture=True,
-            new_capture_timeout=max(exposure_s * 3, 1.0),
+            all_ones_check=all_ones_check,
+            timeout=timeout,
             sum_count=sum_count,
             sum_delay_s=sum_delay_s,
             sum_iteration_callback=sum_iteration_callback,
+            force_new_capture=True,
+            new_capture_timeout=grab_timeout,
         )
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
