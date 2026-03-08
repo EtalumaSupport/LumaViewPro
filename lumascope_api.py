@@ -1260,6 +1260,30 @@ class Lumascope():
         time.sleep(wait_time)
         return self.get_image()
 
+    def capture_and_wait(self, force_to_8bit=True, sum_count=1, sum_delay_s=0,
+                         sum_iteration_callback=None):
+        """Capture a fresh image after current settings take effect.
+
+        Waits one exposure period for LED/gain/exposure to settle, then uses
+        grab_new_capture to get a frame that was exposed under the new settings.
+        Much faster than the legacy 2*exposure+200ms sleep pattern.
+        """
+        if not self.camera or not self.camera.active:
+            return False
+
+        exposure_s = self.get_exposure_time() / 1000
+        # Wait for settings to take effect: one exposure + small LED settling margin
+        time.sleep(max(exposure_s, 0.05))
+
+        return self.get_image(
+            force_to_8bit=force_to_8bit,
+            force_new_capture=True,
+            new_capture_timeout=max(exposure_s * 3, 1.0),
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
+        )
+
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # AUTOFOCUS Functionality
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -1724,10 +1724,7 @@ class CompositeCapture(FloatLayout):
                     lumaview.scope.color2ch(trans_layer), illumination,
                 )
 
-                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
-                time.sleep(2*exposure/1000+0.2)
-
-                transmitted_channel = lumaview.scope.get_image(force_to_8bit=not use_full_pixel_depth)
+                transmitted_channel = lumaview.scope.capture_and_wait(force_to_8bit=not use_full_pixel_depth)
                 scope_leds_off()
 
                 img = np.array(transmitted_channel, dtype=dtype)
@@ -1791,10 +1788,7 @@ class CompositeCapture(FloatLayout):
                         lumaview.scope.color2ch(layer), illumination,
                     )
 
-                # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
-                time.sleep(2*exposure/1000+0.2)
-
-                img_gray = lumaview.scope.get_image(
+                img_gray = lumaview.scope.capture_and_wait(
                     force_to_8bit=not use_full_pixel_depth,
                     sum_count=sum_count,
                     sum_delay_s=exposure/1000,
