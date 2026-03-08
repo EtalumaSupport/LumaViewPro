@@ -9760,7 +9760,14 @@ class LumaViewProApp(App):
         load_log_level()
         load_autofocus_log_enable()
         load_mode()
+        lumaview.scope.engineering_mode = ENGINEERING_MODE
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
+
+        if lumaview.scope.no_hardware:
+            Clock.schedule_once(lambda dt: show_notification_popup(
+                title="Hardware Connection Failed",
+                message="No hardware detected. Please connect LED board, motor board, and camera."
+            ), 0)
 
         if not disable_homing:
             # Note: If the scope has a turret, this also performs a T homing
