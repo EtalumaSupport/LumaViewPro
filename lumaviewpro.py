@@ -290,7 +290,7 @@ if __name__ == "__main__":
     from kivy.clock import Clock
     from kivy.metrics import dp
     #from kivy.animation import Animation
-    from kivy.graphics import Line, Color, Rectangle, Ellipse, Mesh
+    from kivy.graphics import Line, Color, Rectangle, Ellipse, Mesh, InstructionGroup
     # Matplotlib-to-Kivy bridge (replaces kivy-garden.matplotlib)
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from kivy.graphics.texture import Texture as KivyTexture
@@ -1247,6 +1247,12 @@ class ScopeDisplay(Image):
 
         self.use_full_pixel_depth = False
 
+        # Crosshair canvas overlay (drawn on top of texture, not into pixels)
+        self._crosshair_group = InstructionGroup()
+        self.canvas.after.add(self._crosshair_group)
+        self._crosshair_visible = False
+        self.bind(size=self._on_size_changed, pos=self._on_size_changed, texture=self._on_size_changed)
+
         # Create a black texture to avoid white flash on startup
         self._create_default_black_texture()
 
@@ -1259,6 +1265,67 @@ class ScopeDisplay(Image):
         texture = Texture.create(size=(black_image.shape[1], black_image.shape[0]), colorfmt='luminance')
         texture.blit_buffer(black_image.tobytes(), colorfmt='luminance', bufferfmt='ubyte')
         self.texture = texture
+
+    def _on_size_changed(self, *args):
+        """Rebuild crosshair overlay when widget size or position changes."""
+        if self._crosshair_visible:
+            self._build_crosshair_overlay()
+
+    def _get_displayed_image_bounds(self):
+        """Compute the actual displayed image rectangle within the widget.
+
+        With fit_mode='contain', the image is scaled to fit while maintaining
+        aspect ratio. Returns (cx, cy, img_w, img_h) where cx/cy is the center
+        and img_w/img_h is the displayed size in widget pixels.
+        """
+        norm_w, norm_h = self.norm_image_size
+        cx = self.center_x
+        cy = self.center_y
+        return cx, cy, norm_w, norm_h
+
+    def _build_crosshair_overlay(self):
+        """Rebuild the crosshair canvas instructions to match current layout."""
+        self._crosshair_group.clear()
+
+        cx, cy, img_w, img_h = self._get_displayed_image_bounds()
+        if img_w < 1 or img_h < 1:
+            return
+
+        min_dim = min(img_w, img_h)
+        line_width = dp(1)
+
+        # Semi-transparent white
+        self._crosshair_group.add(Color(1, 1, 1, 0.6))
+
+        # Vertical center line (full height of displayed image)
+        self._crosshair_group.add(Line(
+            points=[cx, cy - img_h / 2, cx, cy + img_h / 2],
+            width=line_width,
+        ))
+
+        # Horizontal center line (full width of displayed image)
+        self._crosshair_group.add(Line(
+            points=[cx - img_w / 2, cy, cx + img_w / 2, cy],
+            width=line_width,
+        ))
+
+        # 4 radiating circles, evenly spaced across half the minimum dimension
+        num_circles = 4
+        circle_spacing = min_dim / 2 / num_circles
+        for i in range(num_circles):
+            radius = (i + 1) * circle_spacing
+            self._crosshair_group.add(Line(
+                circle=(cx, cy, radius),
+                width=line_width,
+            ))
+
+    def show_crosshairs(self, show):
+        """Show or hide the crosshair overlay."""
+        self._crosshair_visible = show
+        if show:
+            self._build_crosshair_overlay()
+        else:
+            self._crosshair_group.clear()
 
     def start(self, fps = None):
         logger.info('[LVP Main  ] ScopeDisplay.start()')
@@ -1487,18 +1554,12 @@ class ScopeDisplay(Image):
                 if self.use_bullseye:
                     image_bullseye = self.transform_to_bullseye(image=image)
 
-                    if self.use_crosshairs:
-                        image_bullseye = self.add_crosshairs(image=image_bullseye)
-
                     Clock.schedule_once(lambda dt: self.create_and_set_bullseye_texture(image_bullseye), 0)
 
         if not self.use_bullseye:
             if self.use_live_image_histogram_equalization:
                 image = self._contrast_stretcher.update(image)
                 # image=cv2.normalize(src=image, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-
-            if self.use_crosshairs:
-                image = self.add_crosshairs(image=image)
 
             # Convert to texture for display (using OpenGL)
             Clock.schedule_once(lambda dt: self.create_and_set_texture(image), 0)
@@ -1793,7 +1854,7 @@ class CompositeCapture(FloatLayout):
 
                 # Init mask to keep track of changed pixels
                 # Set all values in the mask for changed to False
-                mask_transmitted_changed = img == None
+                mask_transmitted_changed = np.zeros(img.shape[:2], dtype=bool)
 
                 # Prep transmitted channel to have 3 channels for RGB value manipulation
                 img = np.repeat(transmitted_channel[:, :, None], 3, axis=2)
@@ -8399,10 +8460,13 @@ class MicroscopeSettings(BoxLayout):
         settings['scale_bar']['enabled'] = enabled
 
     def update_crosshairs_state(self):
+        scope_display = lumaview.ids['viewer_id'].ids['scope_display_id']
         if self.ids['enable_crosshairs_btn'].state == 'down':
-            lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs = True
+            scope_display.use_crosshairs = True
+            scope_display.show_crosshairs(True)
         else:
-            lumaview.ids['viewer_id'].ids['scope_display_id'].use_crosshairs = False
+            scope_display.use_crosshairs = False
+            scope_display.show_crosshairs(False)
 
 
     def update_live_image_histogram_equalization(self):
