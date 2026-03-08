@@ -46,7 +46,10 @@ import numpy as np
 from motorboard import MotorBoard
 from ledboard import LEDBoard
 from camera.pyloncamera import PylonCamera
-from camera.idscamera import IDSCamera
+try:
+    from camera.idscamera import IDSCamera
+except ImportError:
+    IDSCamera = None
 from camera.camera import Camera
 from camera.simulated_camera import SimulatedCamera
 from simulated_motorboard import SimulatedMotorBoard
