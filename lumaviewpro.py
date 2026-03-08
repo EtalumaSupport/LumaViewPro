@@ -72,6 +72,8 @@ if __name__ == "__main__":
 
     disable_homing = False
     simulate_mode = '--simulate' in sys.argv
+    if simulate_mode:
+        sys.argv.remove('--simulate')
 
     ############################################################################
     #---------------------Directory Initialization-----------------------------#
