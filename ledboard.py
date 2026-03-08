@@ -33,38 +33,19 @@ Anna Iwaniec Hickerson, Keck Graduate Institute
 Gerard Decker, The Earthineering Company
 '''
 
-import serial
-import serial.tools.list_ports as list_ports
+import re
 from lvp_logger import logger
-import time
-import threading
+from serialboard import SerialBoard
 
-class LEDBoard:
+
+class LEDBoard(SerialBoard):
 
     #----------------------------------------------------------
     # Initialize connection through microcontroller
     #----------------------------------------------------------
     def __init__(self, **kwargs):
-        ports = list_ports.comports(include_links = True)
-        self.found = False
-        self._lock = threading.RLock()  # single lock for ALL serial access
-        self.port = None
-        self.firmware_version = None  # Detected on connect (e.g. '2.0.1' or None for legacy)
+        super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]')
 
-        for port in ports:
-            if (port.vid == 0x0424) and (port.pid == 0x704C):
-                self.port = port.device
-                self.found = True
-                logger.info(f'[LED Class ] Found LED controller at {port.device}')
-                break
-
-        self.baudrate=115200
-        self.bytesize=serial.EIGHTBITS
-        self.parity=serial.PARITY_NONE
-        self.stopbits=serial.STOPBITS_ONE
-        self.timeout=0.1 # seconds
-        self.write_timeout=0.1 # seconds
-        self.driver = None
         self.led_ma = {
             'BF': -1,
             'PC': -1,
@@ -80,157 +61,6 @@ class LEDBoard:
             logger.error('[LED Class ] Failed to connect to LED controller')
             raise
 
-
-    def connect(self):
-        """ Try to connect to the LED controller based on the known VID/PID"""
-        with self._lock:
-            try:
-                if self.port is None:
-                    raise ValueError("No port found for LED controller")
-
-                self.driver = serial.Serial(port=self.port,
-                                            baudrate=self.baudrate,
-                                            bytesize=self.bytesize,
-                                            parity=self.parity,
-                                            stopbits=self.stopbits,
-                                            timeout=self.timeout,
-                                            write_timeout=self.write_timeout)
-
-                # Reset firmware in case of stale buffer state
-                self.driver.write(b'\x04\n')
-                logger.debug('[LED Class ] Port initial state: %r' % self.driver.readline())
-                logger.info('[LED Class ] Connected to LED controller')
-
-                # Detect firmware version
-                self._detect_firmware_version()
-            except Exception as e:
-                self._close_driver()
-                logger.error(f'[LED Class ] LEDBoard.connect() failed: {e}')
-
-    def disconnect(self):
-        logger.info('[LED Class ] Disconnecting from LED controller...')
-        with self._lock:
-            try:
-                if self.driver is not None:
-                    self._close_driver()
-                    self.port = None
-                    logger.info('[LED Class ] LEDBoard.disconnect() succeeded')
-                else:
-                    logger.info('[LED Class ] LEDBoard.disconnect(): not connected')
-            except Exception as e:
-                self._close_driver()
-                logger.error(f'[LED Class ] LEDBoard.disconnect() failed: {e}')
-
-    def is_connected(self) -> bool:
-        with self._lock:
-            return self.driver is not None
-
-    def exchange_command(self, command):
-        """ Exchange command through serial to LED board
-        This should NOT be used in a script. It is intended for other functions to access"""
-        with self._lock:
-            if self.driver is None:
-                try:
-                    self.connect()
-                except Exception:
-                    return None
-
-            if self.driver is None:
-                return None
-
-            stream = command.encode('utf-8')+b"\n"
-            try:
-                self.driver.write(stream)
-
-                # Firmware sends an echo line ("RE: <cmd>\r\n") then a result
-                # line. Read the echo, then read the actual result.
-                echo = self.driver.readline().decode("utf-8", "ignore").strip()
-
-                if echo.startswith('RE:'):
-                    # New behavior: drain echo, read actual result
-                    response = self.driver.readline().decode("utf-8", "ignore").strip()
-                else:
-                    # Future firmware without echo, or unexpected response
-                    response = echo
-
-                logger.debug(f'[LED Class ] LEDBoard.exchange_command({command}) -> {response!r}')
-                # Log firmware-reported errors
-                if response and ('ERROR' in response or 'exceeds safe' in response or 'FAIL' in response):
-                    logger.warning(f'[LED Class ] Firmware error for {command}: {response}')
-                return response
-
-            except serial.SerialTimeoutException:
-                logger.error(f'[LED Class ] LEDBoard.exchange_command({command}) Serial Timeout')
-                self._close_driver()
-
-            except Exception as e:
-                logger.error(f'[LED Class ] LEDBoard.exchange_command({command}) failed: {e}')
-                self._close_driver()
-
-            return None
-    
-    def _detect_firmware_version(self):
-        """Query INFO and parse firmware version string.
-
-        v2.0+ firmware responds with lines like:
-            Firmware:     2026-03-06 v2.0.1
-        Legacy firmware has no 'v' version string.
-        """
-        try:
-            resp = self.exchange_command('INFO')
-            if resp and ' v' in resp:
-                # Parse version from "... v2.0.1" or "Firmware: ... v2.0.1"
-                import re
-                match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
-                if match:
-                    self.firmware_version = match.group(1)
-                    logger.info(f'[LED Class ] Firmware version: {self.firmware_version}')
-                    return
-            self.firmware_version = None
-            logger.info(f'[LED Class ] Legacy firmware (no version string)')
-        except Exception:
-            self.firmware_version = None
-
-    @property
-    def is_v2(self) -> bool:
-        """True if firmware is v2.0 or later."""
-        if self.firmware_version is None:
-            return False
-        try:
-            major = int(self.firmware_version.split('.')[0])
-            return major >= 2
-        except (ValueError, IndexError):
-            return False
-
-    def _close_driver(self):
-        """Safely close and clear the serial driver."""
-        try:
-            if self.driver is not None:
-                self.driver.close()
-        except Exception:
-            pass
-        self.driver = None
-
-    def _write_command_fast(self, command: str):
-        """Write-only fast path: send command without sleeps or reading a response.
-        Uses the same lock as exchange_command to prevent interleaved writes."""
-        with self._lock:
-            if self.driver is None:
-                try:
-                    self.connect()
-                except Exception:
-                    return
-
-            if self.driver is None:
-                return
-
-            stream = command.encode('utf-8')+b"\n"
-            try:
-                self.driver.write(stream)
-            except Exception as e:
-                logger.error(f'[LED Class ] LEDBoard._write_command_fast({command}) failed: {e}')
-                self._close_driver()
-      
     def color2ch(self, color):
         """ Convert color name to numerical channel """
         if color == 'Blue':
@@ -288,7 +118,7 @@ class LEDBoard:
     def get_status(self):
         command = 'STATUS'
         return self.exchange_command(command)
-    
+
     def wait_until_on(self):
         # Waits in loop until ledboard confirms that an LED is on (not turned off)
 
@@ -298,7 +128,7 @@ class LEDBoard:
 
     def get_led_ma(self, color):
         return self.led_ma.get(color, -1)
-    
+
 
     def is_led_on(self, color) -> bool:
         mA = self.led_ma[color]
@@ -306,8 +136,8 @@ class LEDBoard:
             return True
         else:
             return False
-        
-    
+
+
     def get_led_state(self, color) -> dict:
         enabled = self.is_led_on(color=color)
         mA = self.get_led_ma(color=color)
@@ -316,7 +146,7 @@ class LEDBoard:
             'enabled': enabled,
             'illumination': mA,
         }
-    
+
 
     def get_led_states(self) -> dict:
         states = {}
@@ -324,11 +154,11 @@ class LEDBoard:
             states[color] = self.get_led_state(color=color)
 
         return states
-        
-    
+
+
     def led_on(self, channel, mA, block=False):
-        """ 
-        Turn on LED at channel number at mA power 
+        """
+        Turn on LED at channel number at mA power
         If block=True, verify correct callback before returning
         """
         color = self.ch2color(channel=channel)
@@ -406,12 +236,9 @@ class LEDBoard:
                 # Parse I_SENS line: "LED0 I_SENS  (AIN14): 1.2800V  ->   200.1 mA"
                 for line in lines:
                     if 'I_SENS' in line and 'mA' in line:
-                        import re
                         m = re.search(r'([\d.]+)\s*mA', line)
                         if m:
                             return float(m.group(1))
             except Exception as e:
                 logger.error(f'[LED Class ] read_led_current({channel}) failed: {e}')
             return None
-
-

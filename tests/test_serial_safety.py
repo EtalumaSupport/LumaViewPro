@@ -101,6 +101,7 @@ class TestLEDBoardLocking:
         board = LEDBoard.__new__(LEDBoard)
         board.found = False
         board._lock = threading.RLock()
+        board._label = '[LED Class ]'
         board.port = '/dev/fake'
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
@@ -262,7 +263,9 @@ class TestMotorBoardSafety:
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
         board.port = '/dev/fake'
-        board.thread_lock = threading.RLock()
+        board._lock = threading.RLock()
+        board._label = '[XYZ Class ]'
+        board.thread_lock = board._lock
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
         board.parity = serial.PARITY_NONE
@@ -353,6 +356,7 @@ class TestLEDBoardCommands:
         board = LEDBoard.__new__(LEDBoard)
         board.found = False
         board._lock = threading.RLock()
+        board._label = '[LED Class ]'
         board.port = '/dev/fake'
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
@@ -436,6 +440,7 @@ class TestLEDBoardState:
         board = LEDBoard.__new__(LEDBoard)
         board.found = False
         board._lock = threading.RLock()
+        board._label = '[LED Class ]'
         board.port = '/dev/fake'
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
@@ -592,7 +597,9 @@ class TestMotorBoardCommands:
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
         board.port = '/dev/fake'
-        board.thread_lock = threading.RLock()
+        board._lock = threading.RLock()
+        board._label = '[XYZ Class ]'
+        board.thread_lock = board._lock
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
         board.parity = serial.PARITY_NONE
@@ -693,7 +700,9 @@ class TestMotorBoardHoming:
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
         board.port = '/dev/fake'
-        board.thread_lock = threading.RLock()
+        board._lock = threading.RLock()
+        board._label = '[XYZ Class ]'
+        board.thread_lock = board._lock
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
         board.parity = serial.PARITY_NONE
@@ -771,7 +780,9 @@ class TestMotorBoardFullinfo:
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
         board.port = '/dev/fake'
-        board.thread_lock = threading.RLock()
+        board._lock = threading.RLock()
+        board._label = '[XYZ Class ]'
+        board.thread_lock = board._lock
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
         board.parity = serial.PARITY_NONE
@@ -896,7 +907,9 @@ class TestMotorBoardMovement:
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
         board.port = '/dev/fake'
-        board.thread_lock = threading.RLock()
+        board._lock = threading.RLock()
+        board._label = '[XYZ Class ]'
+        board.thread_lock = board._lock
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
         board.parity = serial.PARITY_NONE
@@ -1006,6 +1019,7 @@ class TestLEDFirmwareVersion:
         board = LEDBoard.__new__(LEDBoard)
         board.found = False
         board._lock = threading.RLock()
+        board._label = '[LED Class ]'
         board.port = '/dev/fake'
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
@@ -1094,7 +1108,9 @@ class TestMotorFirmwareVersion:
         board.initial_homing_complete = False
         board.initial_t_homing_complete = False
         board.port = '/dev/fake'
-        board.thread_lock = threading.RLock()
+        board._lock = threading.RLock()
+        board._label = '[XYZ Class ]'
+        board.thread_lock = board._lock
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
         board.parity = serial.PARITY_NONE
@@ -1181,6 +1197,7 @@ class TestLEDNoneHandling:
         board = LEDBoard.__new__(LEDBoard)
         board.found = False
         board._lock = threading.RLock()
+        board._label = '[LED Class ]'
         board.port = '/dev/fake'
         board.baudrate = 115200
         board.bytesize = serial.EIGHTBITS
