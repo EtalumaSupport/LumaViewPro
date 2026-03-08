@@ -406,10 +406,7 @@ class SequencedCaptureExecutor:
         This loop runs until all scans are complete.
         """
         last_maintenance_time = time.monotonic()
-        
-        # Initial delay before first iteration
-        time.sleep(0.1)
-        
+
         while self._run_in_progress and not self._protocol_ended.is_set():
             try:
                 # Check if we've completed all scans
@@ -479,10 +476,7 @@ class SequencedCaptureExecutor:
         Returns when the scan is complete (all steps executed).
         """
         last_maintenance_time = time.monotonic()
-        
-        # Initial delay before first iteration
-        time.sleep(0.1)
-        
+
         while self._scan_in_progress.is_set() and not self._protocol_ended.is_set():
             try:
                 # Periodic cleanup and watchdog logging for long runs
@@ -506,7 +500,7 @@ class SequencedCaptureExecutor:
                 self._scan_iterate()
                 
                 # Small delay to prevent CPU throttling
-                time.sleep(0.01)
+                time.sleep(0.001)
                 
             except Exception as ex:
                 logger.error(f"[Scan] Error during scan loop: {ex}", exc_info=True)
