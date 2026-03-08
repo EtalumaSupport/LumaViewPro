@@ -112,6 +112,8 @@ class TestLEDBoardLocking:
         board.driver = _make_mock_serial()
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
         board.firmware_version = None
+        board._last_error_log_time = 0.0
+        board._error_log_interval = 2.0
         return board
 
     def test_no_com_lock_attribute(self):
@@ -1030,6 +1032,8 @@ class TestLEDFirmwareVersion:
         board.driver = _make_mock_serial()
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
         board.firmware_version = None
+        board._last_error_log_time = 0.0
+        board._error_log_interval = 2.0
         return board
 
     def test_detect_v2_firmware(self):
@@ -1208,6 +1212,8 @@ class TestLEDNoneHandling:
         board.driver = _make_mock_serial()
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
         board.firmware_version = None
+        board._last_error_log_time = 0.0
+        board._error_log_interval = 2.0
         return board
 
     def test_led_on_block_with_none_then_success(self):

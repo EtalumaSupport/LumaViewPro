@@ -179,14 +179,18 @@ class SerialBoard:
 
             except serial.SerialTimeoutException:
                 now = time.monotonic()
-                if now - self._last_error_log_time >= self._error_log_interval:
+                last = getattr(self, '_last_error_log_time', 0.0)
+                interval = getattr(self, '_error_log_interval', 2.0)
+                if now - last >= interval:
                     logger.error(f'{self._label} exchange_command({command}) Serial Timeout')
                     self._last_error_log_time = now
                 self._close_driver()
 
             except Exception as e:
                 now = time.monotonic()
-                if now - self._last_error_log_time >= self._error_log_interval:
+                last = getattr(self, '_last_error_log_time', 0.0)
+                interval = getattr(self, '_error_log_interval', 2.0)
+                if now - last >= interval:
                     logger.error(f'{self._label} exchange_command({command}) failed: {e}')
                     self._last_error_log_time = now
                 self._close_driver()
@@ -210,7 +214,9 @@ class SerialBoard:
                 self.driver.write(stream)
             except Exception as e:
                 now = time.monotonic()
-                if now - self._last_error_log_time >= self._error_log_interval:
+                last = getattr(self, '_last_error_log_time', 0.0)
+                interval = getattr(self, '_error_log_interval', 2.0)
+                if now - last >= interval:
                     logger.error(f'{self._label} _write_command_fast({command}) failed: {e}')
                     self._last_error_log_time = now
                 self._close_driver()
