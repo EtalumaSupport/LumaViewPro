@@ -59,7 +59,6 @@ import shutil
 import userpaths
 import queue
 import threading
-from types import SimpleNamespace
 # import faulthandler
 
 import tkinter
@@ -91,7 +90,7 @@ if __name__ == "__main__":
     global cpu_pool
     global motorboard_lock, ledboard_lock, camera_lock
     global ij_helper
-    global live_view_fps, show_fps_monitor, fps_context
+    global live_view_fps
 
     global use_multiprocessing
 
@@ -99,7 +98,6 @@ if __name__ == "__main__":
     use_multiprocessing = False
 
     live_view_fps = 10
-    fps_context = None
 
     ij_helper = None
 
@@ -302,7 +300,6 @@ if __name__ == "__main__":
     # Video Related
     from kivy.graphics.texture import Texture
 
-    from kivy.modules import monitor as fps_monitor
 
     # User Interface Custom Widgets
     from custom_widgets.range_slider import RangeSlider
@@ -1202,6 +1199,11 @@ class ScopeDisplay(Image):
         self.use_live_image_histogram_equalization = False
         self.camera_disconnected_display_set = False
 
+        # FPS tracking
+        self._fps_frame_count = 0
+        self._fps_last_time = time.monotonic()
+        self._fps_value = 0.0
+
         self._contrast_stretcher = ContrastStretcher(
             window_len=3,
             bottom_pct=0.3,
@@ -1406,6 +1408,15 @@ class ScopeDisplay(Image):
         #image = lumaview.scope.image_buffer
         if (image is False) or (image.size == 0) :
             return
+
+        # FPS tracking
+        self._fps_frame_count += 1
+        now = time.monotonic()
+        elapsed = now - self._fps_last_time
+        if elapsed >= 1.0:
+            self._fps_value = self._fps_frame_count / elapsed
+            self._fps_frame_count = 0
+            self._fps_last_time = now
 
         if display_update_counter % 10 == 0:
             display_update_counter = 0
@@ -2560,6 +2571,14 @@ void main (void) {
         self._track_keys = ['ctrl', 'shift']
         self._active_key_presses = set()
 
+        # Status bar: mouse position tracking (throttled to ~5 Hz)
+        self._status_bar_trigger = Clock.create_trigger(self._update_status_bar, 0.2, interval=True)
+        self._status_bar_trigger()
+        self._mouse_pixel_x = -1
+        self._mouse_pixel_y = -1
+        self._mouse_over_image = False
+        Window.bind(mouse_pos=self._on_mouse_pos)
+
 
     def _key_up(self, *args):
         if len(args) < 5: # No modifiers present
@@ -2619,6 +2638,85 @@ void main (void) {
         # If some other kind of "touch": Fall back on Scatter's behavior
         else:
             super(ShaderViewer, self).on_touch_down(touch)
+
+
+    def _on_mouse_pos(self, window, pos):
+        """Convert window mouse position to image pixel coordinates."""
+        scope_display = self.ids.get('scope_display_id')
+        if scope_display is None or scope_display.texture is None:
+            self._mouse_over_image = False
+            return
+
+        # Convert window coords to ShaderViewer (Scatter) local coords
+        local_x, local_y = self.to_local(*pos)
+
+        # Get the ScopeDisplay's rendered image bounds within the widget
+        norm_w, norm_h = scope_display.norm_image_size
+        img_x_min = scope_display.center_x - norm_w / 2
+        img_y_min = scope_display.center_y - norm_h / 2
+        img_x_max = scope_display.center_x + norm_w / 2
+        img_y_max = scope_display.center_y + norm_h / 2
+
+        if img_x_min <= local_x <= img_x_max and img_y_min <= local_y <= img_y_max:
+            tex_w, tex_h = scope_display.texture_size
+            self._mouse_pixel_x = int((local_x - img_x_min) * tex_w / norm_w)
+            # Kivy Y is bottom-up, image Y is top-down
+            self._mouse_pixel_y = tex_h - 1 - int((local_y - img_y_min) * tex_h / norm_h)
+            self._mouse_pixel_x = max(0, min(self._mouse_pixel_x, tex_w - 1))
+            self._mouse_pixel_y = max(0, min(self._mouse_pixel_y, tex_h - 1))
+            self._mouse_over_image = True
+        else:
+            self._mouse_over_image = False
+
+
+    def _update_status_bar(self, dt):
+        """Periodic status bar update (~5 Hz)."""
+        try:
+            status_label = lumaview.ids.get('status_bar_id')
+            if status_label is None:
+                return
+
+            scope_display = self.ids.get('scope_display_id')
+            fps = scope_display._fps_value if scope_display else 0
+
+            parts = [f'FPS: {fps:.1f}']
+
+            if self._mouse_over_image:
+                parts.append(f'Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})')
+
+                # Convert pixel offset from image center to plate coordinates
+                try:
+                    _, objective = get_current_objective_info()
+                    pixel_size_um = common_utils.get_pixel_size(
+                        focal_length=objective['focal_length'],
+                        binning_size=get_binning_from_ui(),
+                    )
+                    tex_w, tex_h = scope_display.texture_size
+                    # Pixel distance from center
+                    dx_px = self._mouse_pixel_x - tex_w / 2
+                    dy_px = self._mouse_pixel_y - tex_h / 2
+                    dx_um = dx_px * pixel_size_um
+                    dy_um = dy_px * pixel_size_um
+
+                    if lumaview.scope.motion.driver:
+                        pos = lumaview.scope.get_current_position(axis=None)
+                        # Stage coords of the cursor point
+                        cursor_sx = pos['X'] + dx_um
+                        cursor_sy = pos['Y'] - dy_um  # image Y is inverted vs stage Y
+                        _, labware = get_selected_labware()
+                        px, py = coordinate_transformer.stage_to_plate(
+                            labware=labware,
+                            stage_offset=settings['stage_offset'],
+                            sx=cursor_sx,
+                            sy=cursor_sy,
+                        )
+                        parts.append(f'Plate: ({px:.2f}, {py:.2f}) mm')
+                except Exception:
+                    pass
+
+            status_label.text = '  |  '.join(parts)
+        except Exception:
+            pass
 
 
     def current_false_color(self) -> str:
@@ -2730,8 +2828,6 @@ class MotionSettings(BoxLayout):
 
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].height = '30dp'
             lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_bullseye_box_id'].opacity = 1
-            #lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].height = '30dp'
-            #lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].ids['enable_fps_monitor_box_id'].opacity = 1
 
     def accordion_collapse(self):
         logger.info('[LVP Main  ] MotionSettings.accordion_collapse()')
@@ -7936,13 +8032,6 @@ class MicroscopeSettings(BoxLayout):
 
             self.select_video_recording_format()
 
-            global show_fps_monitor
-
-            if "show_fps_monitor" in settings:
-                show_fps_monitor = settings['show_fps_monitor']
-            else:
-                show_fps_monitor = False
-
             global live_view_fps
 
             if "live_view_fps" in settings:
@@ -8181,32 +8270,6 @@ class MicroscopeSettings(BoxLayout):
                     break
 
             lumaview.ids['viewer_id'].ids['scope_display_id'].use_bullseye = False
-
-    def update_fps_monitor_state(self):
-        global show_fps_monitor, settings, fps_context
-
-        if self.ids['enable_fps_monitor_btn_id'].state == 'down':
-            try:
-                if not fps_context:
-                    fps_context = SimpleNamespace()
-
-                show_fps_monitor = True
-                fps_monitor.start(Window, fps_context)
-            except Exception as e:
-                logger.error(f'[LVP Main  ] Failed to start FPS Monitor: {e}')
-                self.ids['enable_fps_monitor_btn_id'].state = 'normal'
-                show_fps_monitor = False
-        else:
-            try:
-                show_fps_monitor = False
-                settings['show_fps_monitor'] = False
-                if fps_context:
-                    fps_monitor.stop(Window, fps_context)
-                    fps_context = None
-            except Exception as e:
-                logger.error(f'[LVP Main  ] Failed to stop FPS Monitor: {e}')
-                self.ids['enable_fps_monitor_btn_id'].state = 'down'
-                show_fps_monitor = True
 
     def update_full_pixel_depth_state(self):
         global settings
@@ -9977,25 +10040,6 @@ class LumaViewProApp(App):
 
         # load settings file
         lumaview.ids['motionsettings_id'].ids['microscope_settings_id'].load_settings("./data/current.json")
-        global fps_context
-
-        if not fps_context:
-            fps_context = SimpleNamespace()
-
-        if show_fps_monitor:
-            try:
-                logger.info('[LVP Main  ] Starting FPS Monitor')
-
-                fps_monitor.start(Window, fps_context)
-            except Exception as e:
-                logger.error(f'[LVP Main  ] Failed to start FPS Monitor: {e}')
-        else:
-            # try:
-            #     fps_monitor.stop(Window, fps_context)
-            # except Exception as e:
-            #     pass
-            pass
-
 
         autofocus_executor = AutofocusExecutor(
             scope=lumaview.scope,
