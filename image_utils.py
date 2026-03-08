@@ -154,7 +154,7 @@ class LvpColormap(enum.Enum):
 
 
 def color_channel_to_colormap_type(color_channel: str | ColorChannel) -> LvpColormap:
-    if type(color_channel) == str:
+    if isinstance(color_channel, str):
         color_channel = ColorChannel[color_channel]
 
     lut = {
@@ -214,11 +214,11 @@ def write_tiff(
     # Enable BigTIFF for datasets >3.8 GB to prevent silent corruption at 4 GB boundary
     data_size_bytes = data.nbytes
     use_bigtiff = data_size_bytes > 3.8 * 1024 * 1024 * 1024
-    if True == ome:
+    if ome:
         kwargs = {
             'bigtiff': use_bigtiff,
         }
-    elif False == video_frame:
+    elif not video_frame:
         if is_color_image(data):
             # For now, prevent 16-bit color images from being converted to ImageJ type
             # such as composite (or bullseye). Could allow this once proper support is added.
@@ -230,15 +230,15 @@ def write_tiff(
         type_count = 0
         image_type = None
 
-        if True == ome:
+        if ome:
             type_count += 1
             image_type = 'ome'
 
-        if kwargs.get('imagej', False) == True:
+        if kwargs.get('imagej', False):
             type_count += 1
             image_type = 'imagej'
 
-        if True == video_frame:
+        if video_frame:
             type_count += 1
             image_type = 'video_frame'
 
@@ -266,7 +266,7 @@ def write_tiff(
                 **support_data['options'],
             )
 
-        elif (image_type == None) and (True == is_color_image(image=data)):
+        elif (image_type is None) and is_color_image(image=data):
             # Handles case where an actual color image is provided (such as the bullseye in engineering mode)
             tif.write(
                 data,
@@ -277,7 +277,7 @@ def write_tiff(
                 **support_data['options'],
             )
 
-        elif (image_type == 'ome') and (True == is_color_image(image=data)):
+        elif (image_type == 'ome') and is_color_image(image=data):
 
             tif.write(
                 data,
@@ -321,7 +321,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     axes = 'YX'
 
     modality = ''
-    if (True == is_color_image(data)):
+    if is_color_image(data):
         # Handles case where an actual color image is provided (such as composite or bullseye in engineering mode)
         photometric = tf.PHOTOMETRIC.RGB
         modality = 'RGB'
@@ -456,22 +456,6 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         }
 
     elif image_type == 'video_frame':
-        # Add further parameters in the future if testing goes well
-
-        """date_time_data = metadata['timestamp'].strftime("%Y:%m:%d %H:%M:%S")
-        sub_sec_time = f"{metadata['timestamp'].microsecond // 1000:03d}"
-
-        tiff_extratags = [
-        # Tag 306: DateTime (ASCII)
-        (306, 'ascii', len(date_time_data) + 1, date_time_data, False),
-
-        # Tag 37520: SubSecTime (ASCII)
-        (37520, 'ascii', len(sub_sec_time) + 1, sub_sec_time, False),
-
-        # Tag 37393: ImageNumber (long)
-        (37393, 'long', 1, metadata['frame_num'], False)
-
-        ]"""
         tiff_extratags = []
         tiff_metadata = metadata
 
@@ -495,20 +479,6 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         }
 
     else:
-        """tiff_metadata={
-            "CameraMake": metadata['camera_make'],
-            "ExposureTime": metadata['exposure_time_ms'],
-            "ISOSpeed": metadata['gain_db'],
-            "DateTime": metadata['datetime'],
-            "Software": metadata['software'],
-            "XPosition": metadata['x_pos'],
-            "YPosition": metadata['y_pos'],
-            "SubjectDistance": metadata['z_pos_um'],
-            "SubSecTime": metadata['sub_sec_time'],
-            "Channel": metadata['channel'],
-            "BrightnessValue": metadata['illumination_ma']
-        }"""
-
         tiff_metadata={
             'axes': axes,
             'SignificantBits': data.itemsize*8,
@@ -533,72 +503,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
                 'IlluminationUnit': 'mA'
             }
         }
-        # extratags:
-        # Additional tags to write. A list of tuples with 5 items:
-        #
-        # 0. code (int): Tag Id.
-        #
-        # 1. dtype (:py:class:`DATATYPE`):
-        #    Data type of items in `value`.
-        #
-        # 2. count (int): Number of data values.
-        #    Not used for string or bytes values.
-        #
-        # 3. value (Sequence[Any]): `count` values compatible with
-        #   `dtype`. Bytes must contain count values of dtype packed
-        #    as binary data.
-        #
-        # 4. writeonce (bool): If *True*, write tag to first page
-        #    of a series only.
-        #
-        # Duplicate and select tags in TIFF.TAG_FILTERED are not written
-        # if the extratag is specified by integer code.
-        #
-        # Extratags cannot be used to write IFD type tags.
-        #
-        # Format: (tag_number, datatype, count, value, write_ifd)
-        # For rational number values: (numerator, denominator)
         tiff_extratags = []
-        """tiff_extratags = [
-        # CameraMake: Tag ID 271, 'ASCII'
-        (271, dtype['ASCII'], len(metadata['camera_make']) + 1, metadata['camera_make'], False),
-
-
-        # ExposureTime: Tag ID 33434, 'RATIONAL'
-        (33434, dtype['RATIONAL'], 1, ms_exposure_to_rational(metadata['exposure_time_ms']), False),
-
-
-        # ISOSpeed: Tag ID 34867, 'double'
-        # Using in place of GainControl (Improper use of GainControl)
-        (34867, dtype['DOUBLE'], 1, metadata['gain_db'], False),
-
-        # DateTime: Tag ID 306, 'ASCII'
-        (306, dtype['ASCII'], len(metadata['datetime']) + 1, metadata['datetime'], False),
-
-        # SubjectDistance: Tag ID 37386, 'RATIONAL'
-        (37386, dtype['RATIONAL'], 1, subject_dist_to_rational(metadata['z_pos_um']), False),
-
-        # SubSecTime: Tag ID 37520, 'ASCII'
-        (37520, dtype['ASCII'], len(metadata['sub_sec_time']) + 1, metadata['sub_sec_time'], False),
-
-        # Channel: Tag ID 65001, 'ASCII'  **CUSTOM**
-        (65001, dtype['ASCII'], len(metadata['channel']) + 1, metadata['channel'], False),
-
-        # BrightnessValue: Tag ID 37393, 'SRATIONAL'
-        (37393, dtype['SRATIONAL'], 1, (metadata['illumination_ma'], 1), False)]"""
-
-        """
-        # XPosition: Tag ID 65001, 'RATIONAL'
-        # Need to double check units
-        (286, dtype['RATIONAL'], 1, (metadata['x_pos'], 1), False),]
-
-
-        # YPosition: Custom Tag ID 65002, 'RATIONAL'
-        # Need to double check units
-        (287, dtype['RATIONAL'], 1, (metadata['y_pos'], 1), False),
-
-
-        """
         # 2025-10-03:
         # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
         # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images

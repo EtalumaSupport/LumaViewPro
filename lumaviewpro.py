@@ -59,7 +59,6 @@ import sys
 import typing
 import shutil
 import userpaths
-import queue
 import threading
 # import faulthandler
 
@@ -90,7 +89,7 @@ if __name__ == "__main__":
     global coordinate_transformer, sequenced_capture_executor
     global show_tooltips, protocol_running_global, live_histo_setting
     global last_save_folder, stage, ENGINEERING_MODE, debug_counter
-    global display_update_counter, start_str, focus_round
+    global display_update_counter, focus_round
     global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor, stage_executor, turret_executor, reset_executor
     global cpu_pool
     global motorboard_lock, ledboard_lock, camera_lock
@@ -146,7 +145,7 @@ if __name__ == "__main__":
     except Exception:
         lvp_installed = False
 
-    if windows_machine and (lvp_installed == True):
+    if windows_machine and lvp_installed:
         print("Machine-Type - WINDOWS")
         documents_folder = userpaths.get_my_documents()
         os.chdir(documents_folder)
@@ -172,7 +171,7 @@ if __name__ == "__main__":
         else:
             shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
 
-    elif windows_machine and (lvp_installed == False):
+    elif windows_machine and not lvp_installed:
         print("Machine-Type - WINDOWS (not installed)")
         source_path = script_path
     else:
@@ -410,8 +409,6 @@ if __name__ == "__main__":
 
     display_update_counter = 0
 
-    start_str = time.strftime("%Y %m %d %H_%M_%S")
-    start_str = str(int(round(time.time() * 1000)))
 
     focus_round = 0
 
@@ -565,34 +562,6 @@ else:
 
 
 
-def test_worker_isolation():
-    """Test function to verify worker process isolation."""
-    import sys
-    import os
-
-    print(f"[Worker {os.getpid()}] Testing worker isolation...")
-
-    # Check if Kivy modules are imported
-    kivy_modules = [name for name in sys.modules.keys() if name.startswith('kivy')]
-    if kivy_modules:
-        print(f"[Worker {os.getpid()}] WARNING: Kivy modules detected: {kivy_modules}")
-        return False
-    else:
-        print(f"[Worker {os.getpid()}] SUCCESS: No Kivy modules detected")
-        return True
-
-# Test worker process isolation
-def test_process_isolation():
-    """Test that worker processes are properly isolated from Kivy."""
-    logger.info("Testing process isolation...")
-    future = cpu_pool.submit(test_worker_isolation)
-    result = future.result(timeout=10)
-    if result:
-        logger.info("SUCCESS: Worker processes are isolated from Kivy")
-    else:
-        logger.warning("WARNING: Worker processes may have Kivy dependencies")
-    return result
-
 def set_last_save_folder(dir: pathlib.Path | None):
     if dir is None:
         return
@@ -637,7 +606,7 @@ def scope_leds_off(no_callback: bool = False):
 
 
 def is_image_saving_enabled() -> bool:
-    if ENGINEERING_MODE == True:
+    if ENGINEERING_MODE:
         if lumaview.ids['motionsettings_id'].ids['protocol_settings_id'].ids['protocol_disable_image_saving_id'].active:
             return False
 
@@ -930,7 +899,7 @@ def get_active_layer_config() -> tuple[str, dict]:
     c_layer = None
     for layer in common_utils.get_layers():
         accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
-        if accordion_item_obj.collapse == False:
+        if not accordion_item_obj.collapse:
             c_layer = layer
             break
 
@@ -1198,12 +1167,12 @@ def move_home_cb(axis):
     Window.set_title(f"Lumaview Pro {version}")
 
 def live_histo_off():
-    if live_histo_setting == True and lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization == True:
+    if live_histo_setting and lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization:
         lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = False
         logger.info('[LVP Main  ] Live Histogram Equalization] False')
 
 def live_histo_reverse():
-    if live_histo_setting == True and lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization == False:
+    if live_histo_setting and not lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization:
         lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = True
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
 
@@ -1464,7 +1433,27 @@ class ScopeDisplay(Image):
                 return
         except Exception:
             pass
-        scope_display_thread_executor.put(IOTask(self.update_scopedisplay_thread))
+
+        # Capture widget state on the main thread (Kivy widgets are not thread-safe)
+        active_layer = None
+        active_layer_config = None
+        open_layer = None
+        try:
+            active_layer, active_layer_config = get_active_layer_config()
+        except Exception:
+            pass
+
+        if ENGINEERING_MODE:
+            for layer in common_utils.get_layers():
+                accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
+                if not accordion_item_obj.collapse:
+                    open_layer = layer
+                    break
+
+        scope_display_thread_executor.put(IOTask(
+            self.update_scopedisplay_thread,
+            args=(active_layer, active_layer_config, open_layer),
+        ))
 
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         open_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=open_layer)
@@ -1488,14 +1477,14 @@ class ScopeDisplay(Image):
         self.camera_disconnected_display_set = False
         return
 
-    def update_scopedisplay_thread(self):
+    def update_scopedisplay_thread(self, active_layer, active_layer_config, open_layer):
         global lumaview
         global debug_counter
         global display_update_counter
 
         display_update_counter += 1
 
-        if lumaview.scope.camera_is_connected() == False:
+        if not lumaview.scope.camera_is_connected():
             if self.camera_disconnected_display_set:
                 return
 
@@ -1523,13 +1512,11 @@ class ScopeDisplay(Image):
         if display_update_counter % 10 == 0:
             display_update_counter = 0
 
-            layer, layer_config = get_active_layer_config()
-
-            if True == layer_config['auto_gain']:
-                camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(layer)))
+            if active_layer_config is not None and active_layer_config['auto_gain']:
+                camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(active_layer)))
 
 
-        if ENGINEERING_MODE == True:
+        if ENGINEERING_MODE:
             debug_counter += 1
             if debug_counter == 30:
                 debug_counter = 0
@@ -1538,14 +1525,6 @@ class ScopeDisplay(Image):
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
                 af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)
-
-                open_layer = None
-                for layer in common_utils.get_layers():
-                    accordion_item_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
-                    if accordion_item_obj.collapse == False:
-                        open_layer = layer
-                        break
-
 
                 if open_layer is not None:
                     Clock.schedule_once(lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0)
@@ -1564,7 +1543,7 @@ class ScopeDisplay(Image):
             # Convert to texture for display (using OpenGL)
             Clock.schedule_once(lambda dt: self.create_and_set_texture(image), 0)
 
-        if self.record == True:
+        if self.record:
             lumaview.live_capture()
 
     def create_and_set_bullseye_texture(self, image):
@@ -1652,7 +1631,7 @@ class CompositeCapture(FloatLayout):
         for layer in common_utils.get_layers():
             layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
             accordion_item_obj =  lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
-            if accordion_item_obj.collapse == False:
+            if not accordion_item_obj.collapse:
                 append = f'{well_label}_{layer}'
                 if layer_obj.ids['false_color'].active:
                     color = layer
@@ -2052,7 +2031,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         if self.scope.camera.active is None:
             return
 
-        if scope_display.play == True:
+        if scope_display.play:
             scope_display.play = False
             scope_display.stop()
             if self.scope.led:
@@ -2118,7 +2097,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         for layer in common_utils.get_layers():
             layer_accordion_obj = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
             layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-            if layer_accordion_obj.collapse == False:
+            if not layer_accordion_obj.collapse:
 
                 if layer_obj.ids['false_color'].active:
                     color = layer
@@ -2161,7 +2140,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         self.memmap_location = pathlib.Path(settings['live_folder']) / "recording_temp.dat"
 
-        if settings['use_full_pixel_depth'] == False or settings['video_as_frames'] == False:
+        if not settings['use_full_pixel_depth'] or not settings['video_as_frames']:
             dtype = 'uint8'
         else:
             dtype = 'uint16'
@@ -2407,7 +2386,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                                 "frame_num": frame_num
                             }
 
-                    if include_hyperstack_generation == True:
+                    if include_hyperstack_generation:
                         current_position = lumaview.scope.get_current_position()
                         frame_metadata.append(
                             {
@@ -2439,7 +2418,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 logger.info("Manual-Video] Video frames written to disk.")
 
 
-                if include_hyperstack_generation == True:
+                if include_hyperstack_generation:
                     logger.info("Manual-Video] Creating hyperstack...")
 
                     _, objective = get_current_objective_info()
@@ -2532,14 +2511,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def record_helper(self, dt=None):
 
-        if settings['use_full_pixel_depth'] == False or settings['video_as_frames'] == False:
+        if not settings['use_full_pixel_depth'] or not settings['video_as_frames']:
             force_to_8bit = True
         else:
             force_to_8bit = False
 
         image = self.scope.get_image(force_to_8bit=force_to_8bit)
 
-        if type(image) == np.ndarray:
+        if isinstance(image, np.ndarray):
 
             if image.dtype == np.uint16:
                 image = image_utils.convert_12bit_to_16bit(image)
@@ -2961,7 +2940,7 @@ class MotionSettings(BoxLayout):
 
 
     def enable_ui_features_for_engineering_mode(self):
-        if ENGINEERING_MODE == True:
+        if ENGINEERING_MODE:
             # for layer in common_utils.get_layers():
             ps = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
             ps.ids['protocol_disable_image_saving_box_id'].opacity = 1
@@ -4158,7 +4137,7 @@ class PostProcessingAccordion(BoxLayout):
 
     @staticmethod
     def accordion_item_state(accordion_item):
-        if accordion_item.collapse == True:
+        if accordion_item.collapse:
             return 'closed'
         return 'open'
 
@@ -4325,7 +4304,7 @@ void main (void) {
     # Hide (and unhide) Shader settings
     def toggle_editor(self):
         logger.info('[LVP Main  ] ShaderEditor.toggle_editor()')
-        if self.hide_editor == False:
+        if not self.hide_editor:
             self.hide_editor = True
             self.pos = -285, 0
         else:
@@ -4498,7 +4477,7 @@ class ImageSettings(BoxLayout):
 
     def enable_image_stats_if_needed(self):
         global ENGINEERING_MODE
-        if ENGINEERING_MODE == True:
+        if ENGINEERING_MODE:
             for layer in common_utils.get_layers():
                 layer_obj = self.layer_lookup(layer=layer)
                 layer_obj.ids['image_stats_mean_id'].height = '30dp'
@@ -4987,7 +4966,7 @@ class VerticalControl(BoxLayout):
     def run_autofocus_from_ui(self):
         logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
 
-        if ENGINEERING_MODE == True:
+        if ENGINEERING_MODE:
             save_autofocus_data = True
             parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Autofocus Characterization"
         else:
@@ -5217,7 +5196,7 @@ class VerticalControl(BoxLayout):
             if self.ids[f"turret_pos_{position}_btn"].state == 'down':
                 selected_turret = position
 
-        if selected_turret == None:
+        if selected_turret is None:
             logger.error("VerticalControl] SetTurretObjective] No turret button selected")
             return
 
@@ -5246,7 +5225,7 @@ class VerticalControl(BoxLayout):
             if self.ids[f"turret_pos_{position}_btn"].state == 'down':
                 selected_turret = position
 
-        if selected_turret == None:
+        if selected_turret is None:
             logger.error("VerticalControl] ResetTurretObjective] No turret button selected")
             return
         
@@ -5265,7 +5244,7 @@ class VerticalControl(BoxLayout):
 
 
     def turret_select(self, selected_position, protocol=False):
-        if False == lumaview.scope.has_thomed():
+        if not lumaview.scope.has_thomed():
             if not protocol:
                 io_executor.put(IOTask(lumaview.scope.thome))
             else:
@@ -5870,7 +5849,7 @@ class ProtocolSettings(CompositeCapture):
             if step['Name'] == '':
                 new_text = step["Name"]
                 new_hint = self.get_default_name_for_curr_step()
-            elif (step['Custom Step'] == True) and (step["Name"].startswith("custom")):
+            elif step['Custom Step'] and step["Name"].startswith("custom"):
                 # For custom added steps where the user did not change the default name (i.e. custom####)
                 new_text = ""
                 new_hint = self.get_default_name_for_curr_step()
@@ -5915,14 +5894,14 @@ class ProtocolSettings(CompositeCapture):
         ))
 
     def new_protocol_ex(self, protocol):
-        if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
+        if (lumaview.scope.has_turret()) and (not lumaview.scope.is_current_turret_position_objective_set()):
             error_msg = f"Cannot create new protocol. Please set objective for current turret position."
             logger.error(error_msg)
 
             Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Creation Error", message=error_msg), 0)
             return
 
-        if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
+        if not self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
             error_msg = f"Cannot create new protocol. Not all objectives are in turret config."
             logger.error(error_msg)
             Clock.schedule_once(lambda dt:
@@ -6019,7 +5998,7 @@ class ProtocolSettings(CompositeCapture):
             logger.error(f"Unable to load protocol at {filepath}")
             return
 
-        if False == self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
+        if not self._validate_objectives_in_protocol(protocol_df=protocol.steps()):
             error_msg = f"Cannot load protocol. Not all objectives are in turret config."
             logger.error(error_msg)
             show_notification_popup(title="Protocol Loading Error", message=error_msg)
@@ -6044,7 +6023,7 @@ class ProtocolSettings(CompositeCapture):
         selected_scope_config = scope_configs[settings['microscope']]
 
         # If the scope has no XY stage, then don't allow the protocol to modify the labware
-        if selected_scope_config['XYStage'] == False:
+        if not selected_scope_config['XYStage']:
             labware = "Center Plate"
 
         self.ids['capture_period'].text = str(period)
@@ -6116,7 +6095,7 @@ class ProtocolSettings(CompositeCapture):
             duration=time_params['duration']
         )
 
-        if (type(filepath) == str) and len(filepath)==0:
+        if (isinstance(filepath, str)) and len(filepath)==0:
             # If there is no current file path, "save" button will act as "save as"
             if len(settings['protocol']['filepath']) == 0:
                 FileSaveBTN_instance=FileSaveBTN()
@@ -6125,13 +6104,13 @@ class ProtocolSettings(CompositeCapture):
             filepath = settings['protocol']['filepath']
         else:
 
-            if (type(filepath) == str) and (filepath[-4:].lower() != '.tsv'):
+            if (isinstance(filepath, str)) and (filepath[-4:].lower() != '.tsv'):
                 filepath = filepath+'.tsv'
 
             if update_protocol_filepath:
                 settings['protocol']['filepath'] = filepath
 
-        if (type(filepath) == str) and (filepath[-4:].lower() != '.tsv'):
+        if (isinstance(filepath, str)) and (filepath[-4:].lower() != '.tsv'):
             filepath = filepath+'.tsv'
 
         result = self._protocol.to_file(
@@ -6285,7 +6264,7 @@ class ProtocolSettings(CompositeCapture):
 
         #logger.error(f"CURRENT Z POSITION IN UM {plate_position['z']}")
 
-        if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
+        if (lumaview.scope.has_turret()) and (not lumaview.scope.is_current_turret_position_objective_set()):
             error_msg = f"Cannot modify protocol step. Please set objective for current turret position."
             logger.error(error_msg)
             show_notification_popup(title="Protocol Step Modification Error", message=error_msg)
@@ -6333,7 +6312,7 @@ class ProtocolSettings(CompositeCapture):
         plate_position = get_current_plate_position()
         objective_id, _ = get_current_objective_info()
 
-        if (lumaview.scope.has_turret()) and (False == lumaview.scope.is_current_turret_position_objective_set()):
+        if (lumaview.scope.has_turret()) and (not lumaview.scope.is_current_turret_position_objective_set()):
             error_msg = f"Cannot add step to protocol. Please set objective for current turret position."
             logger.error(error_msg)
             Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Add Step Error", message=error_msg), 0)
@@ -6348,7 +6327,7 @@ class ProtocolSettings(CompositeCapture):
 
         layer_configs = get_layer_configs()
         for layer, layer_config in layer_configs.items():
-            if layer_config['acquire'] == None:
+            if layer_config['acquire'] is None:
                 continue
 
             _ = self._protocol.insert_step(
@@ -6385,7 +6364,7 @@ class ProtocolSettings(CompositeCapture):
     def determine_and_set_run_autofocus_scan_allow(self):
         tiling = self.ids['tiling_size_spinner'].text
         zstack = self.ids['acquire_zstack_id'].active
-        if (zstack == True) and (tiling != '1x1'):
+        if zstack and (tiling != '1x1'):
             self.set_run_autofocus_scan_allow(allow=False)
         else:
             self.set_run_autofocus_scan_allow(allow=True)
@@ -6927,7 +6906,7 @@ class ProtocolSettings(CompositeCapture):
     def reset_autofocus_ui(self, **kwargs):
         for layer in common_utils.get_layers():
             layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-            layer_obj.ids["autofocus"].state = "down" if settings[layer]["autofocus"] == True else "normal"
+            layer_obj.ids["autofocus"].state = "down" if settings[layer]["autofocus"] else "normal"
 
     def _update_protocol_run_button_status(
         self,
@@ -8059,7 +8038,7 @@ class MicroscopeSettings(BoxLayout):
         scope_configs = self.scopes
         selected_scope_config = scope_configs[settings['microscope']]
 
-        if selected_scope_config['XYStage'] == False:
+        if not selected_scope_config['XYStage']:
             return
 
         logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_slider()')
@@ -8141,14 +8120,14 @@ class MicroscopeSettings(BoxLayout):
                 logger.info(f'[LVP Main  ] Using scope selection from {filename}')
                 self.ids['scope_spinner'].text = settings['microscope']
 
-            if settings['use_full_pixel_depth'] == True:
+            if settings['use_full_pixel_depth']:
                 self.ids['enable_full_pixel_depth_btn'].state = 'down'
             else:
                 self.ids['enable_full_pixel_depth_btn'].state = 'normal'
             self.update_full_pixel_depth_state()
 
             if 'separate_folder_per_channel' in settings:
-                if settings['separate_folder_per_channel'] == True:
+                if settings['separate_folder_per_channel']:
                     self.ids['separate_folder_per_channel_id'].state = 'down'
                 else:
                     self.ids['separate_folder_per_channel_id'].state = 'normal'
@@ -8169,7 +8148,7 @@ class MicroscopeSettings(BoxLayout):
                 logger.warning(f"Maximum Exposure defaulted to 1000 ms")
                 max_exposure = 1000
 
-            if settings['video_as_frames'] == False:
+            if not settings['video_as_frames']:
                 self.ids['video_recording_format_spinner'].text = 'mp4'
             else:
                 self.ids['video_recording_format_spinner'].text = 'Frames'
@@ -8238,7 +8217,7 @@ class MicroscopeSettings(BoxLayout):
 
                 vertical_control_id.ids[f"turret_pos_{turret_pos}_btn"].text = button_text
 
-            if settings['scale_bar']['enabled'] == True:
+            if settings['scale_bar']['enabled']:
                 self.ids['enable_scale_bar_btn'].state = 'down'
             else:
                 self.ids['enable_scale_bar_btn'].state = 'normal'
@@ -8268,7 +8247,7 @@ class MicroscopeSettings(BoxLayout):
             global show_tooltips
 
             if "show_tooltips" in settings:
-                if settings["show_tooltips"] == True:
+                if settings["show_tooltips"]:
                     self.ids['show_tooltips_btn'].state = 'down'
                     show_tooltips = True
                 else:
@@ -8277,7 +8256,7 @@ class MicroscopeSettings(BoxLayout):
 
 
             if "protocol_led_on" in settings:
-                if settings["protocol_led_on"] == True:
+                if settings["protocol_led_on"]:
                     self.ids['protocol_led_on_btn'].state = 'down'
                 else:
                     self.ids['protocol_led_on_btn'].state = 'normal'
@@ -8286,7 +8265,7 @@ class MicroscopeSettings(BoxLayout):
                 settings["protocol_led_on"] = False
 
             if "stimulation_enabled" in settings:
-                if settings["stimulation_enabled"] == True:
+                if settings["stimulation_enabled"]:
                     self.ids['stimulation_settings_btn'].state = 'down'
                 else:
                     self.ids['stimulation_settings_btn'].state = 'normal'
@@ -8407,7 +8386,7 @@ class MicroscopeSettings(BoxLayout):
             for layer in common_utils.get_layers():
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
                 accordion_item = lumaview.ids['imagesettings_id'].accordion_item_lookup(layer=layer)
-                if accordion_item.collapse == False:
+                if not accordion_item.collapse:
                     if layer_obj.ids['false_color'].active:
                         lumaview.ids['viewer_id'].update_shader(false_color=layer)
 
@@ -8525,7 +8504,7 @@ class MicroscopeSettings(BoxLayout):
         logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
         global settings
 
-        if (type(file) == str) and (file[-5:].lower() != '.json'):
+        if isinstance(file, str) and (file[-5:].lower() != '.json'):
                 file = file+'.json'
 
         os.chdir(source_path)
@@ -8780,7 +8759,7 @@ class LayerControl(BoxLayout):
 
     def _init_ui(self, dt=0):
 
-        if self.layer in ['Red', 'Green', 'Blue'] and settings['stimulation_enabled'] == True:
+        if self.layer in ['Red', 'Green', 'Blue'] and settings['stimulation_enabled']:
             self.stimulation_support = True
             self.show_stim_controls = True
         else:
@@ -8963,7 +8942,7 @@ class LayerControl(BoxLayout):
             # print(f"init: {init}    state: {state}")
             # print(f"Gain: {gain}    Exp: {exp}")
 
-            if (False == init) and (False == state):
+            if (not init) and (not state):
                 settings[self.layer]['gain'] = gain
                 settings[self.layer]['exp'] = exp
 
@@ -9211,7 +9190,7 @@ class LayerControl(BoxLayout):
         self.update_stim_controls_visibility()
 
     def init_autofocus(self):
-        if settings[self.layer]['autofocus'] == False:
+        if not settings[self.layer]['autofocus']:
             self.ids['autofocus'].state = 'normal'
         else:
             self.ids['autofocus'].state = 'down'
@@ -9882,7 +9861,7 @@ def load_autofocus_log_enable():
             data = json.load(fp)
 
             try:
-                if True == data['logging']['autofocus']:
+                if data['logging']['autofocus']:
                     autofocus_functions.enable_af_score_logging(enable=True)
                 return
             except Exception:

@@ -61,39 +61,20 @@ class LEDBoard(SerialBoard):
             logger.error('[LED Class ] Failed to connect to LED controller')
             raise
 
+    _COLOR_TO_CH = {
+        'Blue': 0, 'Green': 1, 'Red': 2,
+        'BF': 3, 'PC': 4, 'DF': 5,
+    }
+
+    _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+
     def color2ch(self, color):
         """ Convert color name to numerical channel """
-        if color == 'Blue':
-            return 0
-        elif color == 'Green':
-            return 1
-        elif color == 'Red':
-            return 2
-        elif color == 'BF':
-            return 3
-        elif color == 'PC':
-            return 4
-        elif color == 'DF':
-            return 5
-        else: # BF
-            return 3
+        return self._COLOR_TO_CH.get(color, 3)
 
     def ch2color(self, channel):
         """ Convert numerical channel to color name """
-        if channel == 0:
-            return 'Blue'
-        elif channel == 1:
-            return 'Green'
-        elif channel == 2:
-            return 'Red'
-        elif channel == 3:
-            return 'BF'
-        elif channel == 4:
-            return 'PC'
-        elif channel == 5:
-            return 'DF'
-        else:
-            return 'BF'
+        return self._CH_TO_COLOR.get(channel, 'BF')
 
     # interperet commands
     # ------------------------------------------
@@ -131,11 +112,7 @@ class LEDBoard(SerialBoard):
 
 
     def is_led_on(self, color) -> bool:
-        mA = self.led_ma[color]
-        if mA > 0:
-            return True
-        else:
-            return False
+        return self.led_ma[color] > 0
 
 
     def get_led_state(self, color) -> dict:
@@ -167,8 +144,8 @@ class LEDBoard(SerialBoard):
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         response = self.exchange_command(command)
 
-        def check_each_substr(list, result):
-            for sub_str in list:
+        def check_each_substr(substrings, result):
+            for sub_str in substrings:
                 if sub_str not in result:
                     return False
             return True

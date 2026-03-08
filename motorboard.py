@@ -447,7 +447,7 @@ class MotorBoard(SerialBoard):
 
         axis_config = AXES_CONFIG[axis]
 
-        if ('limits' in axis_config) and (ignore_limits == False):
+        if ('limits' in axis_config) and (not ignore_limits):
             axis_limits = axis_config['limits']
             pos = max(pos, axis_limits['min'])
             pos = min(pos, axis_limits['max'])
@@ -497,10 +497,7 @@ class MotorBoard(SerialBoard):
             data = int( self.exchange_command('STATUS_R' + axis) )
             bits = format(data, 'b').zfill(32)
 
-            if bits[31] == '1':
-                return True
-            else:
-                return False
+            return bits[31] == '1'
         except Exception:
             logger.error('[XYZ Class ] MotorBoard.home_status('+axis+') inactive')
             raise
@@ -511,25 +508,18 @@ class MotorBoard(SerialBoard):
 
         # logger.info('[XYZ Class ] MotorBoard.target_status('+axis+')')
         try:
-            #logger.warning(f"AXIS PARAM: ====={axis}=====")
             payload = 'STATUS_R' + axis
-            #logger.warning(f"Sending payload to motorboard: {payload}=====")
             response = self.exchange_command(payload)
-            #logger.warning(f"Response: {response}")
             if response is None:
                 raise ValueError("STATUS_R returned None")
             data = int( response )
             bits = format(data, 'b').zfill(32)
 
-            if bits[22] == '1':
-                return True
-            else:
-                return False
+            return bits[22] == '1'
 
         except Exception:
             logger.error('[XYZ Class ] MotorBoard.get_limit_status('+axis+') inactive')
             raise
-            #return False
 
 
     # Get all reference status register bits as 32 character string (32-> 0)
@@ -601,16 +591,3 @@ class MotorBoard(SerialBoard):
             raise Exception(f"Axis {axis} does not have defined limits")
 
         return axis_config['limits']
-
-'''
-# signed 32 bit hex to dec
-if value >=  0x80000000:
-    value -= 0x10000000
-logger.info(int(value))
-
-# signed dec to 32 bit hex
-value = -200000
-if value < 0:
-    value = 4294967296+value
-logger.info(hex(value))
-'''
