@@ -267,6 +267,12 @@
         size: root.width, root.height
 		fit_mode: 'contain'
 		on_touch_down: self.touch(args[0], args[1]) # 0 is Widget, 1 is MotionEvent
+        canvas.before:
+            Color:
+                rgba: 0.15, 0.15, 0.15, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
 
 # ShaderEditor - view and edit shader code
 # ------------------------------------------
@@ -350,19 +356,23 @@
 			PostProcessingAccordion:
                 id: post_processing_id
 
-    ToggleButton:
-        id: toggle_motionsettings
-        size_hint: None, 1
-        width: '40dp'
-        background_normal: ''
-        background_down: ''
-        background_color: 0.25, 0.25, 0.25, 0.6
-        on_press: root.toggle_settings()
-        Image:
-            source: './data/icons/right_arrow_right_arc.png' if toggle_motionsettings.state == 'normal' else './data/icons/left_arrow_right_arc.png'
-            size_hint: None, None
-            size: '40dp', '80dp'
-            center: toggle_motionsettings.center
+    RelativeLayout:
+        size_hint: None, None
+        width: dp(60)
+        height: dp(120)
+        pos_hint: {'center_y': 0.5}
+        ToggleButton:
+            id: toggle_motionsettings
+            size_hint: 1, 1
+            background_normal: ''
+            background_down: ''
+            background_color: 0, 0, 0, 0
+            on_press: root.toggle_settings()
+            Image:
+                source: './data/icons/right_arrow_right_arc.png' if toggle_motionsettings.state == 'normal' else './data/icons/left_arrow_right_arc.png'
+                size_hint: None, None
+                size: dp(40), dp(60)
+                center: toggle_motionsettings.center
 
 <VerticalControl>:
 	orientation: 'vertical'
@@ -1869,19 +1879,23 @@
 # ------------------------------------------
 <ImageSettings>:
     orientation: 'horizontal'
-    ToggleButton:
-        id: toggle_imagesettings
-        size_hint: None, 1
-        width: '40dp'
-        background_normal: ''
-        background_down: ''
-        background_color: 0.25, 0.25, 0.25, 0.6
-        on_press: root.toggle_settings()
-        Image:
-            source: './data/icons/left_arrow_left_arc.png' if toggle_imagesettings.state == 'normal' else './data/icons/right_arrow_left_arc.png'
-            size_hint: None, None
-            size: '40dp', '80dp'
-            center: toggle_imagesettings.center
+    RelativeLayout:
+        size_hint: None, None
+        width: dp(60)
+        height: dp(120)
+        pos_hint: {'center_y': 0.5}
+        ToggleButton:
+            id: toggle_imagesettings
+            size_hint: 1, 1
+            background_normal: ''
+            background_down: ''
+            background_color: 0, 0, 0, 0
+            on_press: root.toggle_settings()
+            Image:
+                source: './data/icons/left_arrow_left_arc.png' if toggle_imagesettings.state == 'normal' else './data/icons/right_arrow_left_arc.png'
+                size_hint: None, None
+                size: dp(40), dp(60)
+                center: toggle_imagesettings.center
 
     Accordion:
         orientation: 'vertical'

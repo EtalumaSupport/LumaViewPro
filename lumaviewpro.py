@@ -46,6 +46,8 @@ import functools
 import math
 import os
 import pathlib
+import matplotlib
+matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conflict
 import matplotlib.pyplot as plt
 from matplotlib.dates import ConciseDateFormatter
 import numpy as np
@@ -2883,7 +2885,7 @@ class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
 
 class MotionSettings(BoxLayout):
     settings_width = dp(300)
-    tab_width = dp(40)
+    tab_width = dp(60)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -4271,7 +4273,7 @@ void main (void) {
 
 class ImageSettings(BoxLayout):
     settings_width = dp(300)
-    tab_width = dp(40)
+    tab_width = dp(60)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -181,6 +181,104 @@ class Protocol:
         return df
     
 
+    # Valid values for field validation
+    VALID_COLORS = {c.name for c in color_channels.ColorChannel}
+    VALID_ACQUIRE_MODES = {'image', 'video'}
+
+    def validate_steps(self, objectives_file: str = None) -> list:
+        """Validate all step fields and return a list of error strings.
+
+        Returns an empty list if all steps are valid.
+        """
+        errors = []
+        steps = self.steps()
+        if steps is None or len(steps) == 0:
+            return errors
+
+        # Load valid objectives
+        valid_objectives = set()
+        try:
+            obj_loader = ObjectiveLoader()
+            valid_objectives = set(obj_loader.get_objectives_list())
+        except Exception:
+            pass  # skip objective validation if loader fails
+
+        for idx, step in steps.iterrows():
+            label = f"Step {idx + 1} ({step.get('Name', '?')})"
+
+            # Color
+            color = step.get('Color', '')
+            if color not in self.VALID_COLORS:
+                errors.append(
+                    f"{label}: Color '{color}' is not valid. "
+                    f"Must be one of: {', '.join(sorted(self.VALID_COLORS))}")
+
+            # Objective
+            obj = step.get('Objective', '')
+            if valid_objectives and obj not in valid_objectives:
+                errors.append(
+                    f"{label}: Objective '{obj}' not found in objectives.json")
+
+            # Exposure
+            try:
+                exposure = float(step.get('Exposure', 0))
+                if exposure <= 0:
+                    errors.append(f"{label}: Exposure must be > 0, got {exposure}")
+            except (ValueError, TypeError):
+                errors.append(f"{label}: Exposure is not a valid number")
+
+            # Illumination
+            try:
+                illum = float(step.get('Illumination', 0))
+                if illum < 0 or illum > 1000:
+                    errors.append(
+                        f"{label}: Illumination must be 0–1000 mA, got {illum}")
+            except (ValueError, TypeError):
+                errors.append(f"{label}: Illumination is not a valid number")
+
+            # Gain
+            try:
+                gain = float(step.get('Gain', 0))
+                if gain < 0:
+                    errors.append(f"{label}: Gain must be >= 0, got {gain}")
+            except (ValueError, TypeError):
+                errors.append(f"{label}: Gain is not a valid number")
+
+            # Sum
+            try:
+                sum_count = int(step.get('Sum', 1))
+                if sum_count < 1:
+                    errors.append(f"{label}: Sum must be >= 1, got {sum_count}")
+            except (ValueError, TypeError):
+                errors.append(f"{label}: Sum is not a valid integer")
+
+            # Acquire mode
+            acquire = step.get('Acquire', 'image')
+            if acquire not in self.VALID_ACQUIRE_MODES:
+                errors.append(
+                    f"{label}: Acquire must be 'image' or 'video', got '{acquire}'")
+
+            # Video Config (only validate if acquire == 'video')
+            if acquire == 'video':
+                vc = step.get('Video Config', {})
+                if isinstance(vc, dict):
+                    fps = vc.get('fps', 0)
+                    duration = vc.get('duration', 0)
+                    if not isinstance(fps, (int, float)) or fps <= 0:
+                        errors.append(f"{label}: Video Config fps must be > 0")
+                    if not isinstance(duration, (int, float)) or duration <= 0:
+                        errors.append(f"{label}: Video Config duration must be > 0")
+                else:
+                    errors.append(f"{label}: Video Config is not a valid dict")
+
+            # Name length
+            name = step.get('Name', '')
+            if len(str(name)) > 200:
+                errors.append(
+                    f"{label}: Name exceeds 200 characters ({len(str(name))})")
+
+        return errors
+
     def num_steps(self) -> int:
         return len(self._config['steps'])
     
@@ -824,11 +922,19 @@ class Protocol:
 
         config['steps'] = steps_df
 
-        return cls(
+        protocol = cls(
             tiling_configs_file_loc=tiling_configs_file_loc,
             config=config
         )
-    
+
+        # Validate step fields and log warnings
+        validation_errors = protocol.validate_steps()
+        if validation_errors:
+            for err in validation_errors:
+                logger.warning(f"Protocol validation: {err}")
+
+        return protocol
+
 
     @classmethod
     def create_empty(
