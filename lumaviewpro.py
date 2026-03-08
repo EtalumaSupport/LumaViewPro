@@ -118,6 +118,14 @@ if __name__ == "__main__":
         windows_machine = True
 
 
+    # Python version check
+    if sys.version_info < (3, 10):
+        print(f"ERROR: LumaViewPro requires Python 3.10 or later. You are running {sys.version}")
+        sys.exit(1)
+    if sys.version_info >= (3, 13):
+        print(f"WARNING: Python {sys.version_info.major}.{sys.version_info.minor} has not been tested with LumaViewPro. "
+              f"Recommended: Python 3.10-3.12.")
+
     version = ""
     try:
         with open("version.txt") as f:
@@ -9991,12 +9999,13 @@ class LumaViewProApp(App):
 
         try:
             from kivy.core.window import Window
-            #Window.bind(on_resize=self._on_resize)
+            Window.minimum_width = dp(1024)
+            Window.minimum_height = dp(600)
+            Window.bind(on_resize=self._on_resize)
             Window.bind(on_request_close=self.on_request_close)
             lumaview = MainDisplay()
             cell_count_content = CellCountControls()
             graphing_controls = GraphingControls()
-            #Window.maximize()
         except Exception:
             logger.exception('[LVP Main  ] Cannot open main display.')
             raise
@@ -10078,9 +10087,8 @@ class LumaViewProApp(App):
         return lumaview
 
     def _on_resize(self, window, w, h):
-        pass
-        #Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
-        #Clock.schedule_once(lumaview.ids['imagesettings_id'].check_settings, 0.1)
+        Clock.schedule_once(lumaview.ids['motionsettings_id'].check_settings, 0.1)
+        Clock.schedule_once(lumaview.ids['imagesettings_id'].check_settings, 0.1)
 
     def on_request_close(self, *args):
         """Handle window close request - show confirmation if protocol is running."""
