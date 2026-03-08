@@ -138,13 +138,13 @@
         id: motionsettings_id
         size_hint: None, None
         size: self.settings_width, root.height
-        pos: -self.settings_width+30, 0
+        pos: -self.settings_width+self.tab_width, 0
 
     ImageSettings:
         id: imagesettings_id
         size_hint: None, None
         size: self.settings_width, root.height
-        pos: root.width-30, 0
+        pos: root.width-self.tab_width, 0
 
 
     # Camera Controls
@@ -153,7 +153,7 @@
         orientation: 'horizontal'
         padding: '5dp'
         spacing: '5dp'
-        pos: (root.width-9*40)/2, 0
+        pos: (root.width - 9*dp(40))/2, 0
 
 		Button:
 			id: open_last_save_folder
@@ -352,13 +352,17 @@
 
     ToggleButton:
         id: toggle_motionsettings
-        size_hint: None, None
-        size: 30, 60
-        pos_hint: {"x":0, "y":0.5}
-        border: 0, 0, 0, 0
-        background_normal: './data/icons/right_arrow_right_arc.png' # right pointing (press to open)
-        background_down: './data/icons/left_arrow_right_arc.png' # left pointing (press to close)
+        size_hint: None, 1
+        width: '40dp'
+        background_normal: ''
+        background_down: ''
+        background_color: 0.25, 0.25, 0.25, 0.6
         on_press: root.toggle_settings()
+        Image:
+            source: './data/icons/right_arrow_right_arc.png' if toggle_motionsettings.state == 'normal' else './data/icons/left_arrow_right_arc.png'
+            size_hint: None, None
+            size: '40dp', '80dp'
+            center: toggle_motionsettings.center
 
 <VerticalControl>:
 	orientation: 'vertical'
@@ -1867,13 +1871,17 @@
     orientation: 'horizontal'
     ToggleButton:
         id: toggle_imagesettings
-        size_hint: None, None
-        size: 30, 60
-        pos_hint: {"x":0, "y":0.5}
-        border: 0, 0, 0, 0
-        background_normal: './data/icons/left_arrow_left_arc.png' # left pointing (press to open)
-        background_down: './data/icons/right_arrow_left_arc.png' # right pointing (press to close)
+        size_hint: None, 1
+        width: '40dp'
+        background_normal: ''
+        background_down: ''
+        background_color: 0.25, 0.25, 0.25, 0.6
         on_press: root.toggle_settings()
+        Image:
+            source: './data/icons/left_arrow_left_arc.png' if toggle_imagesettings.state == 'normal' else './data/icons/right_arrow_left_arc.png'
+            size_hint: None, None
+            size: '40dp', '80dp'
+            center: toggle_imagesettings.center
 
     Accordion:
         orientation: 'vertical'

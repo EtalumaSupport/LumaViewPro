@@ -273,11 +273,7 @@ if __name__ == "__main__":
     Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
     Config.set('kivy', 'exit_on_escape', '0')
 
-    # if fixed size at launch
-    #Config.set('graphics', 'width', '1920')
-    #Config.set('graphics', 'height', '1080')
-
-    # if maximized at launch
+    # Maximized at launch — works correctly on macOS, Windows, and Linux
     Config.set('graphics', 'window_state', 'maximized')
 
     import kivy
@@ -2700,6 +2696,11 @@ void main (void) {
                         self.scale = max(1, self.scale * 0.8)
         # If some other kind of "touch": Fall back on Scatter's behavior
         else:
+            # Let side panels handle touches that land on them
+            for w in ZOOM_BLOCKERS:
+                lx, ly = w.to_widget(x, y)
+                if w.collide_point(lx, ly):
+                    return w.on_touch_down(touch)
             super(ShaderViewer, self).on_touch_down(touch)
 
 
@@ -2882,6 +2883,7 @@ class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
 
 class MotionSettings(BoxLayout):
     settings_width = dp(300)
+    tab_width = dp(40)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -3003,7 +3005,7 @@ class MotionSettings(BoxLayout):
 
         # move position of motion control
         if self.ids['toggle_motionsettings'].state == 'normal':
-            self.pos = -self.settings_width+30, 0
+            self.pos = -self.settings_width + self.tab_width, 0
         else:
             self.pos = 0, 0
 
@@ -3018,7 +3020,7 @@ class MotionSettings(BoxLayout):
     def check_settings(self, *args):
         logger.info('[LVP Main  ] MotionSettings.check_settings()')
         if self.ids['toggle_motionsettings'].state == 'normal':
-            self.pos = -self.settings_width+30, 0
+            self.pos = -self.settings_width + self.tab_width, 0
         else:
             self.pos = 0, 0
 
@@ -4269,6 +4271,7 @@ void main (void) {
 
 class ImageSettings(BoxLayout):
     settings_width = dp(300)
+    tab_width = dp(40)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -4484,7 +4487,7 @@ class ImageSettings(BoxLayout):
 
         # move position of settings and stop histogram if main settings are collapsed
         if self.ids['toggle_imagesettings'].state == 'normal':
-            self.pos = lumaview.width - 30, 0
+            self.pos = lumaview.width - self.tab_width, 0
 
             for layer in common_utils.get_layers():
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
@@ -4562,7 +4565,7 @@ class ImageSettings(BoxLayout):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')
         global lumaview
         if self.ids['toggle_imagesettings'].state == 'normal':
-            self.pos = lumaview.width - 30, 0
+            self.pos = lumaview.width - self.tab_width, 0
         else:
             self.pos = lumaview.width - self.settings_width, 0
 
@@ -10069,8 +10072,9 @@ class LumaViewProApp(App):
 
         try:
             from kivy.core.window import Window
-            Window.minimum_width = dp(1024)
-            Window.minimum_height = dp(600)
+            # Window min size uses SDL point coordinates — do NOT use dp()
+            Window.minimum_width = 1024
+            Window.minimum_height = 600
             Window.bind(on_resize=self._on_resize)
             Window.bind(on_request_close=self.on_request_close)
             lumaview = MainDisplay()
