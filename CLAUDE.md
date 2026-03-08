@@ -83,7 +83,9 @@ scope.disconnect()               # Disconnect all hardware
 
 ### LED Control
 
-Channels: `Blue` (0), `Green` (1), `Red` (2), `BF` (3), `PC` (4), `DF` (5), `Lumi` (6)
+Channels: `Blue` (0), `Green` (1), `Red` (2), `BF` (3), `PC` (4), `DF` (5)
+
+**Luminescence** (`Lumi`, channel 6): Not an LED channel. In luminescence mode, all LEDs must be fully off — the image captures emitted light only with no excitation.
 
 ```python
 scope.leds_enable()              # Enable LED driver
@@ -159,14 +161,7 @@ scope.get_axis_limits('Z')       # {'min': 0, 'max': 14000}
 scope.get_axes_config()          # All axes with limits and conversion functions
 ```
 
-**Axis limits** (µm):
-
-| Axis | Min | Max | Notes |
-|------|-----|-----|-------|
-| X | 0 | 120,000 | 120 mm travel |
-| Y | 0 | 80,000 | 80 mm travel |
-| Z | 0 | 14,000 | 14 mm focus travel |
-| T | 1 | 4 | Turret positions |
+**Axis limits**: Axis ranges are defined in `motorconfig.json` and vary by hardware model. Use `scope.get_axis_limits('Z')` or `scope.get_axes_config()` to query limits at runtime. Turret positions are typically 1–4.
 
 **Z overshoot**: When moving Z downward, the firmware first moves below the target then approaches from below. This eliminates backlash for consistent focus. Controlled by `overshoot_enabled` parameter.
 
@@ -341,13 +336,7 @@ Communication with the RP2040 controllers is over USB CDC serial. Each board has
 
 **Axes**: `X`, `Y`, `Z`, `T`
 
-**Position conversion** (µsteps ↔ µm):
-
-| Axis | Scale | Formula |
-|------|-------|---------|
-| Z | 170,667 µsteps/mm | `µm = µsteps / 170.667` |
-| X, Y | 20,157 µsteps/mm | `µm = µsteps / 20.157` |
-| T | 80,000 µsteps/90° | Position 1-4 mapped to angles |
+**Position conversion** (µsteps ↔ µm): Conversion factors are defined in `motorconfig.json` and vary by hardware configuration. Use `scope.get_axes_config()` to retrieve the current axis scaling and limits at runtime rather than relying on hardcoded values.
 
 **Status register** (from `STATUS_R{axis}`):
 - Bit 22: Target reached (1 = at target position)
@@ -454,15 +443,17 @@ python -m pytest tests/test_hardware_serial.py --run-hardware -v
 ```python
 from modules.color_channels import ColorChannel
 
-# Enum values
-ColorChannel.Blue   # 0  — 470nm excitation
-ColorChannel.Green  # 1  — 530nm excitation
-ColorChannel.Red    # 2  — 625nm excitation
+# Enum values (standard filterset)
+ColorChannel.Blue   # 0  — 405nm excitation
+ColorChannel.Green  # 1  — 488nm excitation
+ColorChannel.Red    # 2  — 589nm excitation
 ColorChannel.BF     # 3  — Brightfield (white LED)
 ColorChannel.PC     # 4  — Phase contrast
 ColorChannel.DF     # 5  — Darkfield
-ColorChannel.Lumi   # 6  — Luminescence (no excitation)
+ColorChannel.Lumi   # 6  — Luminescence (all LEDs off, captures emitted light only)
 ```
+
+**Note**: Excitation wavelengths above are for the standard filterset. A second filterset with different excitation wavelengths is available, and OEM customers may have fully custom filtersets with different wavelengths and/or a different number of excitation channels.
 
 ---
 
