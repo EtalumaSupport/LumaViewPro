@@ -71,6 +71,7 @@ if __name__ == "__main__":
     # faulthandler.enable()
 
     disable_homing = False
+    simulate_mode = '--simulate' in sys.argv
 
     ############################################################################
     #---------------------Directory Initialization-----------------------------#
@@ -290,7 +291,27 @@ if __name__ == "__main__":
     from kivy.metrics import dp
     #from kivy.animation import Animation
     from kivy.graphics import Line, Color, Rectangle, Ellipse, Mesh
-    from kivy_garden.matplotlib.backend_kivyagg import FigureCanvasKivyAgg
+    # Matplotlib-to-Kivy bridge (replaces kivy-garden.matplotlib)
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from kivy.graphics.texture import Texture as KivyTexture
+
+    class FigureCanvasKivyAgg(Image):
+        """Render a matplotlib figure as a Kivy Image widget using the Agg backend."""
+
+        def __init__(self, figure, **kwargs):
+            super().__init__(**kwargs)
+            self.figure = figure
+            self._canvas_agg = FigureCanvasAgg(figure)
+            self.draw()
+
+        def draw(self):
+            self._canvas_agg.draw()
+            w, h = self._canvas_agg.get_width_height()
+            buf = self._canvas_agg.buffer_rgba()
+            texture = KivyTexture.create(size=(w, h), colorfmt='rgba')
+            texture.blit_buffer(bytes(buf), colorfmt='rgba', bufferfmt='ubyte')
+            texture.flip_vertical()
+            self.texture = texture
 
     # User Interface
     from kivy.uix.accordion import AccordionItem
@@ -1939,7 +1960,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def __init__(self, **kwargs):
         super(MainDisplay,self).__init__(**kwargs)
-        self.scope = lumascope_api.Lumascope(camera_type=initialized_settings['camera_type'])
+        self.scope = lumascope_api.Lumascope(camera_type=initialized_settings['camera_type'], simulate=simulate_mode)
         self.camera_temps_event = None
         self.recording = threading.Event()
         self.recording.clear()
@@ -7909,7 +7930,7 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope.disconnect()
         lumaview.scope = None
         # Reinitialize the scope object (connects motorboard, ledboard, camera)
-        lumaview.scope = lumascope_api.Lumascope(camera_type=initialized_settings['camera_type'])
+        lumaview.scope = lumascope_api.Lumascope(camera_type=initialized_settings['camera_type'], simulate=simulate_mode)
         labware_id, labware = get_selected_labware()
 
         # Set all variables that were already set at init
