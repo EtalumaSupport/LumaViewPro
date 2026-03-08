@@ -314,7 +314,7 @@ class Lumascope():
         Turn on LED at channel number at mA power """
         if not self.led: return
 
-        if type(channel) == str:
+        if isinstance(channel, str):
             channel = self.color2ch(color=channel)
 
         self.led.led_on(channel, mA, block=block)
@@ -325,7 +325,7 @@ class Lumascope():
         Turn off LED at channel number """
         if not self.led: return
 
-        if type(channel) == str:
+        if isinstance(channel, str):
             channel = self.color2ch(color=channel)
 
         self.led.led_off(channel)
@@ -335,7 +335,7 @@ class Lumascope():
         """ LED BOARD FUNCTIONS
         Fast write-only LED on for time-critical pulses """
         if not self.led: return
-        if type(channel) == str:
+        if isinstance(channel, str):
             channel = self.color2ch(color=channel)
         self.led.led_on_fast(channel, mA)
         self.frame_validity.invalidate('led')
@@ -344,7 +344,7 @@ class Lumascope():
         """ LED BOARD FUNCTIONS
         Fast write-only LED off for time-critical pulses """
         if not self.led: return
-        if type(channel) == str:
+        if isinstance(channel, str):
             channel = self.color2ch(color=channel)
         self.led.led_off_fast(channel)
         self.frame_validity.invalidate('led')
@@ -434,17 +434,17 @@ class Lumascope():
                 else:
                     grab_status, grab_image_ts = self.camera.grab()
 
-                if grab_status == True:
+                if grab_status:
                     self.frame_validity.count_frame()
                     tmp = self.camera.array.copy()
 
-                    if all_ones_check == True:
+                    if all_ones_check:
 
                         if np.all(tmp == np.iinfo(tmp.dtype).max):
                             all_ones_failed = True
                             logger.warning(f"[SCOPE API ] get_image all_ones_check failed")
 
-                    if all_ones_failed == False:
+                    if not all_ones_failed:
                         if earliest_image_ts is None:
                             tmp_buffer.append(tmp)
                             break
@@ -458,14 +458,14 @@ class Lumascope():
 
                 # In case of timeout, if we hit the timeout because of the all ones check, then just let it continue and return the all ones image
                 if datetime.datetime.now() > stop_time:
-                    if all_ones_failed == False:
+                    if not all_ones_failed:
                         logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
                         return False
                     else:
                         logger.warning(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded with all_ones_failed")
                         break
 
-                if grab_status == False:
+                if not grab_status:
                     logger.error(f"[SCOPE API ] get_image grab failed, retrying")
 
                 time.sleep(0.05)
@@ -517,7 +517,7 @@ class Lumascope():
             return False
 
         grab_status, grab_image_ts = self.camera.grab()
-        if grab_status == True:
+        if grab_status:
             tmp = self.camera.array.copy()
         else:
             return False
@@ -569,7 +569,7 @@ class Lumascope():
 
 
     def generate_image_save_path(self, save_folder, file_root, append, tail_id_mode, output_format):
-        if type(save_folder) == str:
+        if isinstance(save_folder, str):
             save_folder = pathlib.Path(save_folder)
 
         if file_root is None:
@@ -594,7 +594,7 @@ class Lumascope():
             while os.path.exists(path):
                 path = self.get_next_save_path(path)
 
-        elif tail_id_mode == None:
+        elif tail_id_mode is None:
             filename =  f"{file_root}{append}{file_extension}"
             path = save_folder / filename
 
@@ -824,7 +824,7 @@ class Lumascope():
             sum_iteration_callback=sum_iteration_callback,
         )
 
-        if True == turn_off_all_leds_after:
+        if turn_off_all_leds_after:
             self.leds_off()
 
         if array is False:
@@ -1081,7 +1081,7 @@ class Lumascope():
                 positions[ax] = self.motion.target_pos(axis=ax)
             return positions
 
-        if (False == self.motion.has_turret()) and (axis == 'T'):
+        if (not self.motion.has_turret()) and (axis == 'T'):
             return None
 
         position = self.motion.target_pos(axis)
@@ -1148,7 +1148,7 @@ class Lumascope():
         #if not self.motion: return True
 
         # Handle case where we want to know if turret has reached its target, but there is no turret
-        if (axis == 'T') and (self.motion.has_turret() == False):
+        if (axis == 'T') and (not self.motion.has_turret()):
             return True
 
         try:
@@ -1159,7 +1159,7 @@ class Lumascope():
             return False
 
     def get_target_pos(self, axis):
-        if (axis == 'T') and (self.motion.has_turret() == False):
+        if (axis == 'T') and (not self.motion.has_turret()):
             return -1
 
         try:
@@ -1502,7 +1502,7 @@ class Lumascope():
 
     @staticmethod
     def generate_image_save_path_static(save_folder, file_root, append, tail_id_mode, output_format):
-        if type(save_folder) == str:
+        if isinstance(save_folder, str):
             save_folder = pathlib.Path(save_folder)
 
         if file_root is None:
@@ -1523,7 +1523,7 @@ class Lumascope():
             while os.path.exists(path):
                 path = Lumascope.get_next_save_path_static(path)
 
-        elif tail_id_mode == None:
+        elif tail_id_mode is None:
             filename =  f"{file_root}{append}{file_extension}"
             path = save_folder / filename
 

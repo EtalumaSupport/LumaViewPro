@@ -68,7 +68,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
         self,
         objective_id: str
     ) -> str | None:
-        if self._has_turret == True:
+        if self._has_turret:
             short_name = self._objectives_helper.get_objective_info(objective_id=objective_id)['short_name']
         else:
             short_name = None
@@ -160,7 +160,7 @@ class ProtocolPostProcessingExecutor(abc.ABC):
                 **kwargs,
             )
 
-            if not alg_results['status'] == True:
+            if not alg_results['status']:
                 logger.error(f"Failed to generate {output_file_loc_rel}: {alg_results['error']}")
                 continue
 

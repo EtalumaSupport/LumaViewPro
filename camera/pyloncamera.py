@@ -48,7 +48,7 @@ class PylonCamera(Camera):
 
     def __init__(self, **kwargs):
 
-        if os.getenv("PYLON_CAMEMU", None) != None:
+        if os.getenv("PYLON_CAMEMU", None) is not None:
             logger.info('[CAM Class ] PylonCamera.connect() detected request to use camera emulation')
             self._use_camera_emulation = True
         else:
@@ -643,7 +643,7 @@ class PylonCamera(Camera):
             return
 
         try:
-            if state == True:
+            if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
                 self.update_auto_gain_min_max(min_gain=min_gain, max_gain=max_gain)
                 self.active.GainAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
@@ -674,7 +674,7 @@ class PylonCamera(Camera):
             return
 
         try:
-            if state == True:
+            if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
                 self.update_auto_gain_min_max(min_gain=min_gain, max_gain=max_gain)
                 self.active.GainAuto.SetValue('Once') # 'Off' 'Once' 'Continuous'
@@ -744,7 +744,7 @@ class PylonCamera(Camera):
             return
 
         try:
-            if state == True:
+            if state:
                 self.active.ExposureAuto.SetValue('Continuous') # 'Off' 'Once' 'Continuous'
             else:
                 self.active.ExposureAuto.SetValue('Off')

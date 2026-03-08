@@ -46,7 +46,7 @@ def focus_function(
     image = _mask_saturated(image)
     score = _focus_function(image=image)
 
-    if (True == _enable_af_score_logging) and (False == skip_score_logging):
+    if _enable_af_score_logging and not skip_score_logging:
         logger.info(f'[SCOPE API ] Focus Score: {score}')
 
     return score

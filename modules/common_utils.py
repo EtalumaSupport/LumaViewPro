@@ -193,7 +193,7 @@ def get_opened_layer(lumaview_imagesettings) -> str | None:
     for layer in get_layers():
         try:
             layer_accordion_obj = lumaview_imagesettings.accordion_item_lookup(layer=layer)
-            if layer_accordion_obj.collapse == False:
+            if not layer_accordion_obj.collapse:
                 return layer
         except Exception:
             continue

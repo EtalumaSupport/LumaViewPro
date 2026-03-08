@@ -234,7 +234,7 @@ class ZProjector(ProtocolPostProcessingExecutor):
                 method=method
             )
 
-        if result['status'] == False:
+        if not result['status']:
             return result
         
         output_file_loc_abs = path / output_file_loc

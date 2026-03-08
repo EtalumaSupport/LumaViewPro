@@ -40,7 +40,7 @@ class VideoWriter:
 
     @staticmethod
     def _get_fourcc_code(codec: str | int):
-        if type(codec) == str:
+        if isinstance(codec, str):
             fourcc = cv2.VideoWriter_fourcc(*codec)
         else:
             fourcc = codec

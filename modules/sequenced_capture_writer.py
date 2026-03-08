@@ -111,7 +111,7 @@ def write_capture(
         print(f"Begin write_capture for {name}")
 
     try:
-        if enable_image_saving == True:
+        if enable_image_saving:
             if is_video:
                 if video_as_frames:
                     frame_num = 0
@@ -232,7 +232,7 @@ def write_capture(
             if capture_result is None:
                 capture_result_filepath_name = "unsaved"
 
-            elif type(capture_result) == dict:
+            elif isinstance(capture_result, dict):
                 capture_result_filepath_name = capture_result['metadata']['file_loc']
 
             elif separate_folder_per_channel:

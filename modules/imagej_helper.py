@@ -41,7 +41,7 @@ class ImageJHelper:
 
         self._test_dependencies()
 
-        if imagej_imported == False:
+        if not imagej_imported:
             logger.error(f"[ImageJ Helper] ImageJ module failed to import, unable to use {self.__class__.__name__}")
             self._ij = None
             return

@@ -219,7 +219,7 @@ class IDSCamera(Camera):
         return tuple(pf.SymbolicValue() for pf in self.remote_nodemap.FindNode("PixelFormat").AvailableEntries())
     
     def exposure_t(self, t):
-        if self.active == False:
+        if not self.active:
             logger.warning(f'[CAM Class ] Cannot set exposure {t}ms: camera inactive')
             return
 
@@ -236,7 +236,7 @@ class IDSCamera(Camera):
             logger.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
 
     def get_exposure_t(self):
-        if self.active == False:
+        if not self.active:
             logger.warning('[CAM Class ] Cannot read exposure: camera inactive')
             return -1
 
@@ -347,7 +347,7 @@ class IDSCamera(Camera):
         return self.remote_nodemap.HasNode("GainAuto") # Return False if IDS camera does not support auto gain
 
     def get_gain(self):
-        if self.active == False:
+        if not self.active:
             logger.warning('[CAM Class ] Cannot read gain: camera inactive')
             return -1
 
@@ -359,7 +359,7 @@ class IDSCamera(Camera):
             return -1
 
     def gain(self, gain):
-        if self.active == False:
+        if not self.active:
             logger.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
             return
 

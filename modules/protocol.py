@@ -93,12 +93,12 @@ class Protocol:
 
     def to_file(self, file_path: pathlib.Path):   
         
-        if self.period() == None:
+        if self.period() is None:
             period_minutes = -1
         else:
             period_minutes = round(self.period().total_seconds() / 60.0, 2)
 
-        if self.duration() == None:
+        if self.duration() is None:
             duration_hours = -1
         else:
             duration_hours = round(self.duration().total_seconds() / 3600.0, 6)
@@ -418,7 +418,7 @@ class Protocol:
             
         _validate_inputs()
         
-        if include_objective_in_step_name == True:
+        if include_objective_in_step_name:
             objective_short_name = self._objective_loader.get_objective_info(objective_id=objective_id)['short_name']
         else:
             objective_short_name = None

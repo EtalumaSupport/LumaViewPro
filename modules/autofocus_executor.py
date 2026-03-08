@@ -227,7 +227,7 @@ class AutofocusExecutor:
             while True:
                 image = self._scope.get_image(force_new_capture=True)
                 count += 1
-                if type(image) == np.ndarray:
+                if isinstance(image, np.ndarray):
                     break
 
                 if count >= num_retries:
@@ -289,7 +289,7 @@ class AutofocusExecutor:
             df = pd.DataFrame(self._af_data_full)
             best_focus_position = self._find_best(df=df)
 
-            if self._last_pass == True:
+            if self._last_pass:
                 try:
                     self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
                 except Exception:

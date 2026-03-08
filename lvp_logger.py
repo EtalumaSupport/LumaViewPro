@@ -71,7 +71,7 @@ try:
 except Exception:
     lvp_installed = False
 
-if windows_machine and (lvp_installed == True):
+if windows_machine and lvp_installed:
 
     documents_folder = userpaths.get_my_documents()
     lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")

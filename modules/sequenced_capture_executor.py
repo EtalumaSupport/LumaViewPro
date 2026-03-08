@@ -1038,7 +1038,7 @@ class SequencedCaptureExecutor:
 
         use_color = step['Color'] if step['False_Color'] else 'BF'
 
-        if self._enable_image_saving == True:
+        if self._enable_image_saving:
             use_full_pixel_depth = self._image_capture_config['use_full_pixel_depth']
 
             accepted_gain_range = 0.001
@@ -1133,7 +1133,7 @@ class SequencedCaptureExecutor:
                         force_to_8bit = True
                         image = self._scope.get_image(force_to_8bit=force_to_8bit)
 
-                        if type(image) == np.ndarray:
+                        if isinstance(image, np.ndarray):
                             
                             # Should never be used since forcing images to 8-bit
                             if image.dtype == np.uint16:
@@ -1337,7 +1337,7 @@ class SequencedCaptureExecutor:
                        captured_frames=1
                        ):
         
-        if self._enable_image_saving == True:
+        if self._enable_image_saving:
             if is_video:
                 if "set_writing_title" in self._callbacks:
                     Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=0), 0)
@@ -1493,7 +1493,7 @@ class SequencedCaptureExecutor:
             if capture_result is None:
                 capture_result_filepath_name = "unsaved"
 
-            elif type(capture_result) == dict:
+            elif isinstance(capture_result, dict):
                 capture_result_filepath_name = capture_result['metadata']['file_loc']
 
             elif self._separate_folder_per_channel:
