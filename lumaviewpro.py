@@ -2592,6 +2592,12 @@ void main (void) {
         self._mouse_over_image = False
         Window.bind(mouse_pos=self._on_mouse_pos)
 
+        # Scroll-to-focus: accumulate scroll ticks and debounce into single move
+        self._scroll_z_pending = 0.0          # Accumulated Z delta (µm)
+        self._scroll_z_trigger = Clock.create_trigger(self._flush_scroll_z, 0.05)
+        self._scroll_last_time = 0.0          # monotonic time of last scroll event
+        self._scroll_inertia_window = 0.15    # seconds — scrolls faster than this get multiplied
+
 
     def _key_up(self, *args):
         if len(args) < 5: # No modifiers present
@@ -2626,19 +2632,39 @@ void main (void) {
                     return
 
             if 'ctrl' in self._active_key_presses:
-                # Focus control
-                vertical_control = lumaview.ids['motionsettings_id'].ids['verticalcontrol_id']
-                overshoot_enabled = False
+                # Focus control — accumulate scroll ticks, debounce into single move
+                if protocol_running_global.is_set():
+                    return
+
+                try:
+                    _, objective = get_current_objective_info()
+                except Exception:
+                    return
+
+                if 'shift' in self._active_key_presses:
+                    step_um = objective['z_coarse']
+                else:
+                    step_um = objective['z_fine']
+
+                # Inertial scaling: faster scrolling = larger steps
+                now = time.monotonic()
+                dt = now - self._scroll_last_time
+                self._scroll_last_time = now
+
+                if dt < self._scroll_inertia_window and dt > 0:
+                    # Scale up when scrolling fast (up to 5x)
+                    speed_factor = min(5.0, self._scroll_inertia_window / dt)
+                else:
+                    speed_factor = 1.0
+
+                delta = step_um * speed_factor
                 if touch.button == 'scrolldown':
-                    if 'shift' in self._active_key_presses:
-                        vertical_control.coarse_up(overshoot_enabled=overshoot_enabled)
-                    else:
-                        vertical_control.fine_up(overshoot_enabled=overshoot_enabled)
+                    self._scroll_z_pending += delta
                 elif touch.button == 'scrollup':
-                    if 'shift' in self._active_key_presses:
-                        vertical_control.coarse_down(overshoot_enabled=overshoot_enabled)
-                    else:
-                        vertical_control.fine_down(overshoot_enabled=overshoot_enabled)
+                    self._scroll_z_pending -= delta
+
+                # Reset the debounce trigger — fires 50ms after last scroll event
+                self._scroll_z_trigger()
 
             else:
                 # Digital zoom control
@@ -2651,6 +2677,21 @@ void main (void) {
         # If some other kind of "touch": Fall back on Scatter's behavior
         else:
             super(ShaderViewer, self).on_touch_down(touch)
+
+
+    def _flush_scroll_z(self, dt):
+        """Debounced scroll-to-focus: send one accumulated Z move."""
+        delta = self._scroll_z_pending
+        self._scroll_z_pending = 0.0
+
+        if delta == 0.0:
+            return
+
+        io_executor.put(IOTask(
+            action=move_relative_position,
+            args=('Z', delta),
+            kwargs={"overshoot_enabled": False},
+        ))
 
 
     def _on_mouse_pos(self, window, pos):
