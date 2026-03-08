@@ -259,11 +259,12 @@ if __name__ == "__main__":
         import pyi_splash # type: ignore
         pyi_splash.update_text("")
 
-    # Deactivate kivy logging
-    #os.environ["KIVY_NO_CONSOLELOG"] = "1"
+    # Disable Kivy's own file logging (LVP has its own RotatingFileHandler)
+    os.environ["KIVY_NO_CONSOLELOG"] = "1"
+    os.environ["KIVY_NO_FILELOG"] = "1"
 
     # Kivy configurations
-    # Configurations must be set befor Kivy is imported
+    # Configurations must be set before Kivy is imported
     from kivy.config import Config
     Config.set('input', 'mouse', 'mouse, disable_multitouch')
     Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
