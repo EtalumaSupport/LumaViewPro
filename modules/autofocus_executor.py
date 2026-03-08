@@ -298,12 +298,13 @@ class AutofocusExecutor:
                 # Move just underneath focus position to ensure we move UP to final position
                 self._move_absolute_position(pos=(best_focus_position-self._params['resolution']))
 
-                self._autofocus_executor.protocol_end()
-                self._autofocus_executor.clear_protocol_pending()
-
                 logger.info(f"[AF] Autofocus complete. Best focus position: {best_focus_position} um")
 
                 self._move_absolute_position(pos=best_focus_position)
+
+                # End protocol AFTER final move to prevent race condition (#563)
+                self._autofocus_executor.protocol_end()
+                self._autofocus_executor.clear_protocol_pending()
                 self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
 
                 if self._save_results_to_file:

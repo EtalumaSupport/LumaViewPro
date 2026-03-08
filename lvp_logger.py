@@ -225,5 +225,15 @@ if not debug:
         pass
 
 sys.excepthook = custom_except_hook
+
+# Also catch unhandled exceptions in worker threads (Python 3.8+)
+def _thread_except_hook(args):
+    if issubclass(args.exc_type, KeyboardInterrupt):
+        return
+    logger.critical(
+        f"Logger ] CRASH - Uncaught Exception in thread '{args.thread.name}': ",
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback)
+    )
+threading.excepthook = _thread_except_hook
 minimize_logger_window()
 logging.disable(logging.DEBUG)

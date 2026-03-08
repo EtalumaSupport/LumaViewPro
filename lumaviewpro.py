@@ -1056,6 +1056,10 @@ def get_auto_gain_settings() -> dict:
 def create_hyperstacks_if_needed():
     image_capture_config = get_image_capture_config_from_ui()
     if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+        Clock.schedule_once(lambda dt: show_notification_popup(
+            title='Saving Hyperstacks',
+            message='Building ImageJ Hyperstacks from captured data.\nThis may take several minutes for large datasets.'
+        ), 0)
         _, objective = get_current_objective_info()
         stack_builder = StackBuilder(
             has_turret=lumaview.scope.has_turret(),

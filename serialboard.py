@@ -7,6 +7,7 @@ auto-reconnect and echo handling.
 """
 
 import re
+import time
 import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
@@ -24,6 +25,8 @@ class SerialBoard:
         self.port = None
         self.firmware_version = None
         self.driver = None
+        self._last_error_log_time = 0.0
+        self._error_log_interval = 2.0  # seconds between repeated error logs
         self.baudrate = 115200
         self.bytesize = serial.EIGHTBITS
         self.parity = serial.PARITY_NONE
@@ -175,11 +178,17 @@ class SerialBoard:
                 return response
 
             except serial.SerialTimeoutException:
-                logger.error(f'{self._label} exchange_command({command}) Serial Timeout')
+                now = time.monotonic()
+                if now - self._last_error_log_time >= self._error_log_interval:
+                    logger.error(f'{self._label} exchange_command({command}) Serial Timeout')
+                    self._last_error_log_time = now
                 self._close_driver()
 
             except Exception as e:
-                logger.error(f'{self._label} exchange_command({command}) failed: {e}')
+                now = time.monotonic()
+                if now - self._last_error_log_time >= self._error_log_interval:
+                    logger.error(f'{self._label} exchange_command({command}) failed: {e}')
+                    self._last_error_log_time = now
                 self._close_driver()
 
             return None
@@ -200,5 +209,8 @@ class SerialBoard:
             try:
                 self.driver.write(stream)
             except Exception as e:
-                logger.error(f'{self._label} _write_command_fast({command}) failed: {e}')
+                now = time.monotonic()
+                if now - self._last_error_log_time >= self._error_log_interval:
+                    logger.error(f'{self._label} _write_command_fast({command}) failed: {e}')
+                    self._last_error_log_time = now
                 self._close_driver()

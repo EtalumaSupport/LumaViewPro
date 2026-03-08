@@ -122,6 +122,9 @@ class VideoWriter:
                 ts = self._get_timestamp_str()
             image = image_utils.add_timestamp(image=image, timestamp_str=ts)
         
+        # mp4v codec only supports 8-bit — convert if needed (#424)
+        if image.dtype != np.uint8:
+            image = image_utils.convert_16bit_to_8bit(image) if image.dtype == np.uint16 else image.astype(np.uint8)
         self._video.write(image)
 
     

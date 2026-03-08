@@ -101,7 +101,7 @@ class Protocol:
         if self.duration() == None:
             duration_hours = -1
         else:
-            duration_hours = round(self.duration().total_seconds() / 3600.0, 2)
+            duration_hours = round(self.duration().total_seconds() / 3600.0, 6)
 
         try:
             with open(file_path, 'w') as fp:

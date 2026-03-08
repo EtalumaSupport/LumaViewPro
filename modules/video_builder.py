@@ -3,6 +3,7 @@ import itertools
 import pathlib
 
 import cv2
+import numpy as np
 import pandas as pd
 
 import image_utils
@@ -231,6 +232,9 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
                 frame_ts = _get_timestamp_str(row['Timestamp'])
                 image = image_utils.add_timestamp(image=image, timestamp_str=frame_ts)
                 
+            # mp4v codec only supports 8-bit — convert if needed (#424)
+            if image.dtype != np.uint8:
+                image = image_utils.convert_16bit_to_8bit(image) if image.dtype == np.uint16 else image.astype(np.uint8)
             video.write(image)
 
             if popup is not None:
