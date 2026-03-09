@@ -227,6 +227,7 @@ if __name__ == "__main__":
     import modules.imagej_helper as imagej_helper
     import modules.zprojector as zprojector
     from modules.video_writer import VideoWriter
+    from modules.debounce import debounce
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
     import modules.config_helpers as config_helpers
     import modules.scope_commands as scope_commands
@@ -322,7 +323,17 @@ if __name__ == "__main__":
     from ui.range_slider import RangeSlider
     from ui.progress_popup import show_popup
     from ui.notification_popup import show_notification_popup, show_confirmation_popup, show_confirmation_w_ack_popup
+    from ui.hover_behavior import HoverBehavior
 
+    from kivy.uix.togglebutton import ToggleButton
+
+    class RoundedButton(HoverBehavior, Button):
+        """Button with rounded corners and hover highlighting."""
+        pass
+
+    class RoundedToggleButton(HoverBehavior, ToggleButton):
+        """Toggle button with rounded corners and hover highlighting."""
+        pass
 
     import image_utils_kivy
 
@@ -479,7 +490,10 @@ else:
     class Scatter(Widget): pass
     class Image(Widget): pass
     class Button(Widget): pass
+    class ToggleButton(Widget): pass
     class Label(Widget): pass
+    class RoundedButton(Button): pass
+    class RoundedToggleButton(ToggleButton): pass
     class Slider(Widget): pass
     class ScrollView(Widget): pass
     class Popup(Widget): pass
@@ -839,12 +853,11 @@ def go_to_step_update_ui(step):
     else:
         layer_obj.ids['acquire_none'].active = True
 
-    def temp():
+    # Set LED button state to match: 'down' if LED is on, 'normal' if off.
+    # The actual LED hardware command is sent in go_to_step() when
+    # protocol_led_on is True and not called_from_protocol.
+    if settings['protocol_led_on'] and not protocol_running_global.is_set():
         layer_obj.ids['enable_led_btn'].state = 'down'
-
-    if settings['protocol_led_on']:
-        if not protocol_running_global.is_set():
-            camera_executor.put(IOTask(action=lambda: Clock.schedule_once(lambda dt: temp())))
 
 
 
@@ -4843,6 +4856,7 @@ class VerticalControl(BoxLayout):
             self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
 
 
+    @debounce(0.2)
     def coarse_up(self, overshoot_enabled: bool = False):
         if protocol_running_global.is_set():
             return
@@ -4857,6 +4871,7 @@ class VerticalControl(BoxLayout):
             }
         ))
 
+    @debounce(0.2)
     def fine_up(self, overshoot_enabled: bool = False):
         if protocol_running_global.is_set():
             return
@@ -4871,6 +4886,7 @@ class VerticalControl(BoxLayout):
             }
         ))
 
+    @debounce(0.2)
     def fine_down(self, overshoot_enabled: bool = False):
         if protocol_running_global.is_set():
             return
@@ -4885,6 +4901,7 @@ class VerticalControl(BoxLayout):
             }
         ))
 
+    @debounce(0.2)
     def coarse_down(self, overshoot_enabled: bool = False):
         if protocol_running_global.is_set():
             return
@@ -4948,6 +4965,7 @@ class VerticalControl(BoxLayout):
         io_executor.put(IOTask(action=move_absolute_position, args=('Z', pos)))
         #move_absolute_position('Z', pos)
 
+    @debounce(1.0)
     def home(self):
         logger.info('[LVP Main  ] VerticalControl.home()')
         io_executor.put(IOTask(action=move_home, kwargs={"axis":'Z'}))
@@ -5244,6 +5262,7 @@ class VerticalControl(BoxLayout):
         # )
 
 
+    @debounce(1.0)
     def turret_home(self):
         def _on_turret_homed():
             Clock.schedule_once(lambda dt: self._reset_turret_buttons(), 0)
@@ -5315,6 +5334,7 @@ class VerticalControl(BoxLayout):
             return
 
 
+    @debounce(0.5)
     def turret_select(self, selected_position, protocol=False):
         if not lumaview.scope.has_thomed():
             if not protocol:
@@ -5435,6 +5455,7 @@ class XYStageControl(BoxLayout):
                 if self.ids['y_pos_id'].text != new_y_text:
                     self.ids['y_pos_id'].text = new_y_text # Update y position text box
 
+    @debounce(0.2)
     def fine_left(self):
         if protocol_running_global.is_set():
             return
@@ -5443,6 +5464,7 @@ class XYStageControl(BoxLayout):
         fine = objective['xy_fine']
         stage_executor.put(IOTask(action=move_relative_position, args=('X', -fine)))
 
+    @debounce(0.2)
     def fine_right(self):
         if protocol_running_global.is_set():
             return
@@ -5451,6 +5473,7 @@ class XYStageControl(BoxLayout):
         fine = objective['xy_fine']
         stage_executor.put(IOTask(action=move_relative_position, args=('X', fine)))
 
+    @debounce(0.2)
     def coarse_left(self):
         if protocol_running_global.is_set():
             return
@@ -5459,6 +5482,7 @@ class XYStageControl(BoxLayout):
         coarse = objective['xy_coarse']
         stage_executor.put(IOTask(action=move_relative_position, args=('X', -coarse)))
 
+    @debounce(0.2)
     def coarse_right(self):
         if protocol_running_global.is_set():
             return
@@ -5467,6 +5491,7 @@ class XYStageControl(BoxLayout):
         coarse = objective['xy_coarse']
         stage_executor.put(IOTask(action=move_relative_position, args=('X', coarse)))
 
+    @debounce(0.2)
     def fine_back(self):
         if protocol_running_global.is_set():
             return
@@ -5475,6 +5500,7 @@ class XYStageControl(BoxLayout):
         fine = objective['xy_fine']
         stage_executor.put(IOTask(action=move_relative_position, args=('Y', -fine)))
 
+    @debounce(0.2)
     def fine_fwd(self):
         if protocol_running_global.is_set():
             return
@@ -5483,6 +5509,7 @@ class XYStageControl(BoxLayout):
         fine = objective['xy_fine']
         stage_executor.put(IOTask(action=move_relative_position, args=('Y', fine)))
 
+    @debounce(0.2)
     def coarse_back(self):
         if protocol_running_global.is_set():
             return
@@ -5491,6 +5518,7 @@ class XYStageControl(BoxLayout):
         coarse = objective['xy_coarse']
         stage_executor.put(IOTask(action=move_relative_position, args=('Y', -coarse)))
 
+    @debounce(0.2)
     def coarse_fwd(self):
         if protocol_running_global.is_set():
             return
@@ -5639,6 +5667,7 @@ class XYStageControl(BoxLayout):
     #     settings['stage_offset']['y'] = y_plate_offset-y_pos
     #     self.update_gui()
 
+    @debounce(1.0)
     def home(self):
         logger.info('[LVP Main  ] XYStageControl.home()')
         global lumaview
@@ -6370,7 +6399,14 @@ class ProtocolSettings(CompositeCapture):
             objective_id=objective_id,
         )
 
-        #self.update_step_ui()
+        # Validate the modified step and warn the user if there are errors
+        errors = self._protocol.validate_steps()
+        if errors:
+            msg = '\n'.join(errors)
+            Clock.schedule_once(lambda dt: show_notification_popup(
+                title="Protocol Validation Warning",
+                message=f"Step modified with validation issues:\n\n{msg}"
+            ), 0)
 
         stage.set_protocol_steps(df=self._protocol.steps())
 
@@ -6428,6 +6464,15 @@ class ProtocolSettings(CompositeCapture):
 
             if after_current_step or (self.curr_step < 0):
                 self.curr_step += 1
+
+        # Validate after inserting and warn the user if there are errors
+        errors = self._protocol.validate_steps()
+        if errors:
+            msg = '\n'.join(errors)
+            Clock.schedule_once(lambda dt: show_notification_popup(
+                title="Protocol Validation Warning",
+                message=f"Step added with validation issues:\n\n{msg}"
+            ), 0)
 
         stage.set_protocol_steps(df=self._protocol.steps())
         self.go_to_step(protocol=False)
@@ -9464,7 +9509,7 @@ class ZStack(CompositeCapture):
 # File / Folder Chooser Buttons
 # ============================================================================
 
-class FileChooseBTN(Button):
+class FileChooseBTN(HoverBehavior, Button):
     context  = StringProperty()
     selection = ListProperty([])
 
@@ -9561,7 +9606,7 @@ class FileChooseBTN(Button):
             return
 
 # Button the triggers 'filechooser.choose_dir()' from plyer
-class FolderChooseBTN(Button):
+class FolderChooseBTN(HoverBehavior, Button):
     context  = StringProperty()
     selection = ListProperty([])
 
@@ -9662,7 +9707,7 @@ class FolderChooseBTN(Button):
 
 
 # Button the triggers 'filechooser.save_file()' from plyer
-class FileSaveBTN(Button):
+class FileSaveBTN(HoverBehavior, Button):
     context  = StringProperty()
     selection = ListProperty([])
 

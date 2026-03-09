@@ -38,26 +38,26 @@
 # GLOBAL WIDGET STYLES
 # -----------------------
 # Rounded button — use in place of Button for text buttons
-<RoundedButton@Button>:
+<RoundedButton>:
     background_normal: ''
     background_down: ''
     background_color: 0, 0, 0, 0
     canvas.before:
         Color:
-            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
+            rgba: (0.45, 0.48, 0.52, 1) if self.hovered and self.state == 'normal' else (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
         RoundedRectangle:
             pos: self.pos
             size: self.size
             radius: [dp(6)]
 
 # Rounded toggle button — use in place of ToggleButton for text toggle buttons
-<RoundedToggleButton@ToggleButton>:
+<RoundedToggleButton>:
     background_normal: ''
     background_down: ''
     background_color: 0, 0, 0, 0
     canvas.before:
         Color:
-            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.2, 0.55, 0.82, 1)
+            rgba: (0.45, 0.48, 0.52, 1) if self.hovered and self.state == 'normal' else (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.2, 0.55, 0.82, 1)
         RoundedRectangle:
             pos: self.pos
             size: self.size
@@ -78,7 +78,7 @@
     background_color: 0, 0, 0, 0
     canvas.before:
         Color:
-            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
+            rgba: (0.45, 0.48, 0.52, 1) if self.hovered and self.state == 'normal' else (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
         RoundedRectangle:
             pos: self.pos
             size: self.size
@@ -90,7 +90,7 @@
     background_color: 0, 0, 0, 0
     canvas.before:
         Color:
-            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
+            rgba: (0.45, 0.48, 0.52, 1) if self.hovered and self.state == 'normal' else (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
         RoundedRectangle:
             pos: self.pos
             size: self.size
@@ -102,7 +102,7 @@
     background_color: 0, 0, 0, 0
     canvas.before:
         Color:
-            rgba: (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
+            rgba: (0.45, 0.48, 0.52, 1) if self.hovered and self.state == 'normal' else (0.35, 0.38, 0.42, 1) if self.state == 'normal' else (0.25, 0.28, 0.32, 1)
         RoundedRectangle:
             pos: self.pos
             size: self.size
@@ -310,7 +310,7 @@
     ToggleButton:
         id: toggle_editor
         size_hint: None, None
-        size: 30, 60
+        size: '30dp', '60dp'
         pos_hint: {"x":0, "y":0.5}
         border: 0, 0, 0, 0
         background_normal: './data/icons/right_arrow_right_arc.png'
@@ -602,7 +602,7 @@
 			id: objective_spinner2
 			sync_height: True
 	        text: 'Select'
-			font_size:'12dp'
+			font_size:'12sp'
 			option_cls: "SpinnerOption0"
 			text_autoupdate: True
 	        on_release: root.load_objectives()
@@ -613,7 +613,7 @@
 		text: 'Set Turret Objective'
 		size_hint_y: None
 		height: '30dp'
-		font_size: '12dp'
+		font_size: '12sp'
         on_release: root.set_turret_objective()
 
 	RoundedButton:
@@ -621,7 +621,7 @@
 		text: 'Reset Turret Objective'
 		size_hint_y: None
 		height: '30dp'
-		font_size: '12dp'
+		font_size: '12sp'
 		on_release: root.reset_turret_objective()
             
 	ZStack:
@@ -709,7 +709,7 @@
 			size_hint_y: None
 			height: '30dp'
 	        text: 'Z Stack'
-			font_size: '12dp'
+			font_size: '12sp'
 			option_cls: "SpinnerOption0"
 			text_autoupdate: True
 			values: ('Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
@@ -722,7 +722,7 @@
 			height: '30dp'
 			text: 'Acquire'
 			tooltip_text: 'Acquire Z-stack'
-			font_size: '12dp'
+			font_size: '12sp'
 			on_release: root.run_zstack_acquire_from_ui()
 
 		Label:
@@ -760,7 +760,7 @@
 		# 	on_release: root.center()
 		# Button:
 		# 	text: 'Calibrate'
-		# 	font_size: '12dp'
+		# 	font_size: '12sp'
 		# 	on_release: root.calibrate()
 
 	# Two Columns for X and Y Directions
@@ -1055,7 +1055,7 @@
 				sync_height: True
 				visible: True
 				text: 'New'
-				font_size: '12dp'
+				font_size: '12sp'
 				option_cls: "SpinnerOption0"
 				size_hint_y: None
 				height: '30dp'
@@ -1311,7 +1311,7 @@
 					sync_height: True
 					text: ''
 					tooltip_text: 'Set tiling dimensions for New Protocols or untiled Steps application'
-					font_size: '12dp'
+					font_size: '12sp'
 					size_hint_y: None
 					height: '30dp'
 					option_cls: "SpinnerOption0"
@@ -1677,7 +1677,7 @@
 			id: zprojection_method_spinner
 			sync_height: True
 	        text: 'Select'
-			font_size:'12dp'
+			font_size:'12sp'
 			option_cls: "SpinnerOption0"
 			text_autoupdate: True
 			values: '',
@@ -1823,7 +1823,7 @@
 <Stage>:
 	canvas:
 		Line:
-			width: 1
+			width: dp(1)
 			rectangle: (self.x, self.y, self.width, self.height)
 
 
@@ -1935,7 +1935,7 @@
 # MicroscopeSettings - Settings for  Microscope within ImageSettings
 # ------------------------------------------
 <SpinnerOption0@SpinnerOption>:
-    font_size: '12dp'
+    font_size: '12sp'
 
 <MicroscopeSettings>:
     padding: '5dp'
@@ -1972,7 +1972,7 @@
 					id: scope_spinner
 					sync_height: True
 					text: 'Select'
-					font_size:'12dp'
+					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					on_release: root.load_scopes()
@@ -1992,7 +1992,7 @@
 					id: objective_spinner
 					sync_height: True
 					text: 'Select'
-					font_size:'12dp'
+					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					on_release: root.load_objectives()
@@ -2172,7 +2172,7 @@
 					id: live_image_output_format_spinner
 					sync_height: True
 					text: 'Select'
-					font_size:'12dp'
+					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					on_text: root.select_live_image_output_format()
@@ -2193,7 +2193,7 @@
 					id: sequenced_image_output_format_spinner
 					sync_height: True
 					text: 'Select'
-					font_size:'12dp'
+					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					on_text: root.select_sequenced_image_output_format()
@@ -2213,7 +2213,7 @@
 					id: video_recording_format_spinner
 					sync_height: True
 					text: 'Select'
-					font_size:'12dp'
+					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					on_text: root.select_video_recording_format()
@@ -2330,7 +2330,7 @@
 					id: binning_spinner
 					sync_height: True
 					text: 'Select'
-					font_size:'12dp'
+					font_size:'12sp'
 					option_cls: "SpinnerOption0"
 					text_autoupdate: True
 					on_release: root.load_binning_sizes()
@@ -2384,10 +2384,10 @@
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					#value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_release: root.acceleration_pct_slider() # on_touch_move # on_release
 				TextInput:
 					id: acceleration_pct_text
@@ -2579,10 +2579,10 @@
 					step: 1.
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_value: root.ill_slider() # on_touch_move # on_release
 				TextInput:
 					id: ill_text
@@ -2686,10 +2686,10 @@
 					step: 0.25
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_release: root.stim_freq_slider() # on_touch_move # on_release
 				TextInput:
 					id: stim_freq_text
@@ -2731,10 +2731,10 @@
 					step: 1.
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_release: root.stim_pulse_width_slider() # on_touch_move # on_release
 				TextInput:
 					id: stim_pulse_width_text
@@ -2777,10 +2777,10 @@
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_release: root.stim_pulse_count_slider() # on_touch_move # on_release
 				TextInput:
 					id: stim_pulse_count_text
@@ -2871,10 +2871,10 @@
 					step: 0.1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_value: root.gain_slider()
 				TextInput:
 					id: gain_text
@@ -2922,10 +2922,10 @@
 					# step: 0.01
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_value: root.exp_slider()
 				TextInput:
 					id: exp_text
@@ -2968,10 +2968,10 @@
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_release: root.sum_slider()
 				TextInput:
 					id: sum_text
@@ -3117,10 +3117,10 @@
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_release: root.video_duration_slider()
 				TextInput:
 					id: video_duration_text
@@ -3243,10 +3243,10 @@
 					step: 1
 					cursor_size: '20dp','20dp'
 					cursor_image: './data/icons/slider_cursor.png'
-					track_width: 5
+					track_width: dp(5)
 					value_track: True
 					value_track_color: root.bg_color
-					value_track_width: 5
+					value_track_width: dp(5)
 					on_release: root.composite_threshold_slider()
 				TextInput:
 					id: composite_threshold_text
@@ -3369,7 +3369,7 @@
 		Color:
 			rgba: root.bg_color
 		Line:
-			width: 1
+			width: dp(1)
 			rectangle: (self.x, self.y, self.width, self.height)
 
 <GraphingControls>:
