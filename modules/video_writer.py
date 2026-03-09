@@ -6,7 +6,7 @@ import pathlib
 import cv2
 import numpy as np
 
-import image_utils
+import modules.image_utils as image_utils
 from lvp_logger import logger
 
 

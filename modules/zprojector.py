@@ -7,7 +7,7 @@ import pandas as pd
 import tifffile as tf
 
 import modules.common_utils as common_utils
-import image_utils
+import modules.image_utils as image_utils
 
 from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor

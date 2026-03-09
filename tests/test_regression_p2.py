@@ -64,7 +64,7 @@ _mock_settings_init.settings = {
     'Blue': {'autofocus': False},
     'Lumi': {'autofocus': False},
 }
-sys.modules.setdefault('settings_init', _mock_settings_init)
+sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 import serialboard
 from serialboard import SerialBoard
@@ -324,7 +324,7 @@ class TestVideoBitDepth:
 
     def test_convert_16bit_to_8bit_preserves_relative_intensity(self):
         """Conversion should preserve relative brightness (divide by 256)."""
-        import image_utils
+        import modules.image_utils as image_utils
 
         frame = np.array([[0, 256, 512, 65535]], dtype=np.uint16)
         result = image_utils.convert_16bit_to_8bit(frame)

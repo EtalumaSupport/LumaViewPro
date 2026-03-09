@@ -8,7 +8,7 @@ import psutil
 import tifffile as tf
 # from ome_types.model import OME, Image, Pixels, UnitsTime, UnitsLength, Channel
 
-import image_utils
+import modules.image_utils as image_utils
 
 import logging
 logger = logging.getLogger('lvp_logger')

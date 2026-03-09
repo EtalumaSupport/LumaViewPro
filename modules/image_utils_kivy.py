@@ -3,7 +3,7 @@
 import cv2
 from kivy.graphics.texture import Texture
 
-import image_utils
+import modules.image_utils as image_utils
 
 from lvp_logger import logger
 

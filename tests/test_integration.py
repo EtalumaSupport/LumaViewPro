@@ -59,7 +59,7 @@ _mock_settings_init.settings = {
     'Blue': {'autofocus': False},
     'Lumi': {'autofocus': False},
 }
-sys.modules.setdefault('settings_init', _mock_settings_init)
+sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor

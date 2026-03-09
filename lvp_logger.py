@@ -52,7 +52,7 @@ if windows_machine and lvp_installed:
 else:
     lvp_appdata = script_path
 
-from settings_init import load_debug_setting
+from modules.settings_init import load_debug_setting
 try:
     debug = load_debug_setting(lvp_appdata)
 except Exception:

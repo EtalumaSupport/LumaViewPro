@@ -11,7 +11,7 @@ from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_record import ProtocolPostRecord
-import image_utils
+import modules.image_utils as image_utils
 
 from lvp_logger import logger
 

@@ -28,7 +28,7 @@ except ImportError:
 
 from lumascope_api import Lumascope
 
-import image_utils
+import modules.image_utils as image_utils
 
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
@@ -44,7 +44,7 @@ from lvp_logger import logger
 from concurrent.futures import ProcessPoolExecutor
 import threading
 
-from settings_init import settings
+from modules.settings_init import settings
 
 import threading
 

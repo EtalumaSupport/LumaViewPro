@@ -9,7 +9,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.dates import ConciseDateFormatter
 import pandas
-import image_utils
+import modules.image_utils as image_utils
 
 from modules.cell_count import CellCount
 

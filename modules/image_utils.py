@@ -9,7 +9,7 @@ import tifffile as tf
 
 from modules.color_channels import ColorChannel
 import modules.common_utils as common_utils
-import image_utils
+import modules.image_utils as image_utils
 
 from fractions import Fraction
 

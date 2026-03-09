@@ -6,7 +6,7 @@ import cv2
 import skimage
 import numpy as np
 
-import image_utils
+import modules.image_utils as image_utils
 
 from modules.settings_transformer import SettingsTransformer
 

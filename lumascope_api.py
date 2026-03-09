@@ -29,7 +29,7 @@ import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
 import modules.objectives_loader as objectives_loader
-import image_utils
+import modules.image_utils as image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from modules.frame_validity import FrameValidity
 

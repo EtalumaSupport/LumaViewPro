@@ -2,7 +2,7 @@
 
 import json
 
-import labware
+import modules.labware as labware
 
 class LabwareLoader(object):
     """A class that stores and computes actions for objective labware"""
