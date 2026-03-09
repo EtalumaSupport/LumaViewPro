@@ -40,6 +40,7 @@ import logging
 import os
 import pathlib
 import platform
+import re
 import shutil
 import statistics
 import subprocess
@@ -475,155 +476,16 @@ def _collect_device_manager_full():
 
 
 # ---------------------------------------------------------------------------
-# Raw REPL file transfer (Thonny-style)
+# Raw REPL file transfer (Thonny-style) — delegated to drivers.raw_repl
 # ---------------------------------------------------------------------------
 
-# MicroPython raw REPL control characters
-_CTRL_A = b'\x01'  # Enter raw REPL
-_CTRL_B = b'\x02'  # Exit raw REPL (back to friendly REPL)
-_CTRL_C = b'\x03'  # Keyboard interrupt
-_CTRL_D = b'\x04'  # Soft reset / execute in raw REPL
-
-_RAW_REPL_PROMPT = b'>'  # Raw REPL ready prompt
-_RAW_REPL_OK = b'OK'     # Sent after Ctrl+D before output
-
-
-def _enter_raw_repl(serial_port, timeout=5):
-    """Interrupt running firmware and enter MicroPython raw REPL.
-
-    Steps: Ctrl+C twice (interrupt), then Ctrl+A (raw REPL mode).
-    Returns True on success, False on failure.
-    """
-    old_timeout = serial_port.timeout
-    serial_port.timeout = 0.5
-
-    try:
-        # Interrupt any running program
-        serial_port.write(_CTRL_C)
-        time.sleep(0.1)
-        serial_port.write(_CTRL_C)
-        time.sleep(0.3)
-        serial_port.read(4096)  # Drain buffer
-
-        # Enter raw REPL
-        serial_port.write(_CTRL_A)
-        time.sleep(0.2)
-        data = serial_port.read(4096)
-        if data and b'raw REPL' in data:
-            return True
-
-        # Sometimes needs another try
-        serial_port.write(_CTRL_A)
-        time.sleep(0.3)
-        data = serial_port.read(4096)
-        return data is not None and b'raw REPL' in data
-    except Exception as e:
-        logger.warning(f"Failed to enter raw REPL: {e}")
-        return False
-    finally:
-        serial_port.timeout = old_timeout
-
-
-def _raw_repl_exec(serial_port, code, timeout=10):
-    """Execute Python code in raw REPL and return stdout output.
-
-    The raw REPL protocol:
-      1. Send code followed by Ctrl+D
-      2. Board responds: OK<stdout output>\x04<stderr output>\x04
-    Returns stdout as bytes, or None on error.
-    """
-    old_timeout = serial_port.timeout
-    serial_port.timeout = timeout
-
-    try:
-        # Send code + Ctrl+D to execute
-        serial_port.write(code.encode('utf-8') + _CTRL_D)
-
-        # Read until we get the OK marker
-        response = b''
-        start = time.time()
-        while time.time() - start < timeout:
-            chunk = serial_port.read(1024)
-            if chunk:
-                response += chunk
-                # Raw REPL output ends with \x04 (twice: stdout\x04stderr\x04)
-                if response.count(b'\x04') >= 2:
-                    break
-            else:
-                break
-
-        # Parse: OK<stdout>\x04<stderr>\x04
-        ok_idx = response.find(b'OK')
-        if ok_idx == -1:
-            logger.warning(f"Raw REPL: no OK in response ({response[:100]!r})")
-            return None
-
-        after_ok = response[ok_idx + 2:]
-        parts = after_ok.split(b'\x04')
-        stdout = parts[0] if len(parts) >= 1 else b''
-        stderr = parts[1] if len(parts) >= 2 else b''
-
-        if stderr.strip():
-            logger.warning(f"Raw REPL stderr: {stderr.decode('utf-8', 'ignore').strip()}")
-
-        return stdout
-    except Exception as e:
-        logger.warning(f"Raw REPL exec error: {e}")
-        return None
-    finally:
-        serial_port.timeout = old_timeout
-
-
-def _exit_raw_repl(serial_port):
-    """Exit raw REPL and soft-reset the board (restarts main.py).
-
-    Ctrl+B exits raw REPL, then Ctrl+D triggers soft reset.
-    """
-    try:
-        serial_port.write(_CTRL_B)  # Back to friendly REPL
-        time.sleep(0.1)
-        serial_port.write(_CTRL_D)  # Soft reset → restarts main.py
-        time.sleep(0.5)
-        serial_port.read(4096)  # Drain startup output
-    except Exception as e:
-        logger.warning(f"Error exiting raw REPL: {e}")
-
-
-def _list_files_via_raw_repl(serial_port):
-    """List all files on the board's filesystem via raw REPL.
-
-    Returns list of filenames, or empty list on failure.
-    """
-    code = "import os\nfor f in os.listdir('/'):\n print(f)"
-    stdout = _raw_repl_exec(serial_port, code, timeout=5)
-    if stdout is None:
-        return []
-    return [line.strip() for line in stdout.decode('utf-8', 'ignore').split('\n')
-            if line.strip()]
-
-
-def _read_file_via_raw_repl(serial_port, filename):
-    """Read a single file from the board via raw REPL.
-
-    Uses base64 encoding for safe binary transfer.
-    Returns file contents as bytes, or None on failure.
-    """
-    # Use repr() to safely quote the filename (prevents injection via
-    # filenames containing quotes or other special characters)
-    code = (
-        "import ubinascii\n"
-        f"with open({filename!r}, 'rb') as f:\n"
-        " d = f.read()\n"
-        "print(ubinascii.b2a_base64(d).decode(), end='')"
-    )
-    stdout = _raw_repl_exec(serial_port, code, timeout=10)
-    if stdout is None:
-        return None
-    try:
-        return base64.b64decode(stdout.strip())
-    except Exception as e:
-        logger.warning(f"Failed to decode {filename}: {e}")
-        return None
+from drivers.raw_repl import (
+    enter_raw_repl as _enter_raw_repl,
+    raw_exec as _raw_repl_exec,
+    exit_raw_repl as _exit_raw_repl,
+    list_files as _list_files_via_raw_repl,
+    read_file as _read_file_via_raw_repl,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -929,20 +791,34 @@ class FirmwareDiagnostics:
         return self._cmd(self.motor_board, 'FULLINFO')
 
     def get_serial_number(self):
-        """Extract serial number from FULLINFO."""
+        """Extract serial number from FULLINFO.
+
+        Old firmware returns everything on one line:
+          Etaluma Motor Controller Board EL-0923 Firmware: 2023-05-30 Model: LS850 Serial: 12006 X homed: True ...
+        New firmware uses multi-line with 'Serial Number = ...'
+        """
         fullinfo = self.get_motor_fullinfo()
         if not fullinfo or 'not connected' in fullinfo.lower() or 'error' in fullinfo.lower():
             return 'UNKNOWN'
-        for line in str(fullinfo).split('\n'):
-            upper = line.upper()
-            if 'SN' in upper or 'SERIAL' in upper:
-                for sep in ['=', ':', ' ']:
-                    if sep in line:
-                        val = line.split(sep, 1)[-1].strip()
-                        if val:
-                            return val
+        text = str(fullinfo)
+
+        # Try "Serial Number = <value>" (new firmware, multi-line)
+        m = re.search(r'Serial\s*Number\s*[=:]\s*(\S+)', text)
+        if m:
+            return m.group(1)
+
+        # Try "Serial: <value>" or "Serial = <value>" (old firmware, one-line)
+        m = re.search(r'Serial\s*[=:]\s*(\S+)', text, re.IGNORECASE)
+        if m:
+            return m.group(1)
+
+        # Try "SN: <value>" or "SN = <value>"
+        m = re.search(r'\bSN\s*[=:]\s*(\S+)', text, re.IGNORECASE)
+        if m:
+            return m.group(1)
+
         # Fallback: return cleaned first chunk
-        clean = fullinfo.strip().split('\n')[0][:30]
+        clean = text.strip().split('\n')[0][:30]
         return clean if clean else 'UNKNOWN'
 
     def run_led_selftest(self):
