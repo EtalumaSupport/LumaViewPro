@@ -2175,6 +2175,34 @@ def main():
         mot_ok = report.diag._motor_ok()
         print(f"  LED board:   {'Connected' if led_ok else 'Not found'}")
         print(f"  Motor board: {'Connected' if mot_ok else 'Not found'}")
+
+        # If neither board found, prompt for power cycle before giving up
+        if not led_ok and not mot_ok:
+            print()
+            print("  ** No boards detected. **")
+            print("  Please try the following:")
+            print("    1. Check that the USB cable is connected")
+            print("    2. Power-cycle the system (turn off, wait 10 seconds, turn on)")
+            print("    3. Wait 30 seconds for the boards to boot")
+            try:
+                input("  Press Enter to retry (Ctrl-C to skip hardware)...")
+            except KeyboardInterrupt:
+                print("\n  Skipping hardware.")
+                led_ok = False
+                mot_ok = False
+            else:
+                print("  Retrying...")
+                report.diag.connect_standalone()
+                led_ok = report.diag._led_ok()
+                mot_ok = report.diag._motor_ok()
+                print(f"  LED board:   {'Connected' if led_ok else 'Not found'}")
+                print(f"  Motor board: {'Connected' if mot_ok else 'Not found'}")
+                if not led_ok and not mot_ok:
+                    print()
+                    print("  Still no boards found. Generating report without hardware.")
+                    print("  Please include this report and contact techsupport@etaluma.com")
+                    print()
+
         if led_ok:
             report.led_board = report.diag.led_board
         if mot_ok:
