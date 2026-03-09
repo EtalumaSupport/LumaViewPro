@@ -57,7 +57,7 @@ class AutofocusExecutor:
 
 
     def reset(self):
-        if hasattr(self, '_iterator_scheduled') and self._iterator_scheduled is not None:
+        if self._use_kivy_clock and hasattr(self, '_iterator_scheduled') and self._iterator_scheduled is not None:
             self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
             self._iterator_scheduled = None
         self._reset_state()
@@ -177,11 +177,15 @@ class AutofocusExecutor:
                 self._autofocus_executor.clear_protocol_pending()
                 self._is_focusing = False
                 self._is_complete = False
+                self._af_in_progress.clear()
                 # Surface error in logs; UI callback (if present) will clear button
                 import logging as _logging
                 _logging.getLogger().error(f"[AF] Error during loop: {ex}", exc_info=True)
                 if 'complete' in self._callbacks:
-                    self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
+                    if self._use_kivy_clock:
+                        self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
+                    else:
+                        self._callbacks['complete']()
                 break
 
     def run_in_progress(self) -> bool:
@@ -246,7 +250,10 @@ class AutofocusExecutor:
             focus_score = autofocus_functions.focus_function(image=image)
             current_pos = round(self._scope.get_current_position('Z'), common_utils.max_decimal_precision('z'))
 
-            self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=current_pos), 0)
+            if self._use_kivy_clock:
+                self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=current_pos), 0)
+            elif self.ui_update_func:
+                self.ui_update_func(pos=current_pos)
 
             self._af_data_pass.append(
                 {
@@ -291,10 +298,11 @@ class AutofocusExecutor:
             best_focus_position = self._find_best(df=df)
 
             if self._last_pass:
-                try:
-                    self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
-                except Exception:
-                    pass
+                if self._use_kivy_clock:
+                    try:
+                        self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
+                    except Exception:
+                        pass
 
                 # Move just underneath focus position to ensure we move UP to final position
                 self._move_absolute_position(pos=(best_focus_position-self._params['resolution']))
@@ -306,7 +314,10 @@ class AutofocusExecutor:
                 # End protocol AFTER final move to prevent race condition (#563)
                 self._autofocus_executor.protocol_end()
                 self._autofocus_executor.clear_protocol_pending()
-                self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
+                if self._use_kivy_clock:
+                    self._kivy_clock_module.Clock.schedule_once(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
+                elif self.ui_update_func:
+                    self.ui_update_func(pos=float(best_focus_position))
 
                 if self._save_results_to_file:
                     # Push file/plot work off the UI thread using the file IO executor
@@ -318,7 +329,7 @@ class AutofocusExecutor:
                 self._is_focusing = False
                 self._is_complete = True
 
-                #self._af_in_progress.clear()
+                self._af_in_progress.clear()
 
                 if 'complete' in self._callbacks:
                     self._callbacks['complete']()
