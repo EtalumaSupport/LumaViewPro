@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import queue
 import image_utils
 from modules.video_writer import VideoWriter

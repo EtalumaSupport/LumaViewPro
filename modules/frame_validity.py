@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Frame validity tracking for hardware state changes.
 
 When hardware state changes (LED on/off, gain/exposure change, motor movement),

@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 # Ref: https://stackoverflow.com/questions/538666/format-timedelta-to-string
  
 from string import Formatter

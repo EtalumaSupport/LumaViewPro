@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import cv2
 from kivy.graphics.texture import Texture

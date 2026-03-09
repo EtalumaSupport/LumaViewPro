@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
 Created on Jun 20 12:36:12 2022
 

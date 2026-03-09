@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 from abc import ABC, abstractmethod
 import numpy as np
 import contextlib

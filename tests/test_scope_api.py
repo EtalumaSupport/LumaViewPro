@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
 Tests for the GUI-independent scope API modules:
 - modules/config_helpers.py

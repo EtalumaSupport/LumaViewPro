@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
 Module storing the implementation of a circular progress bar in kivy.
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Basic capture example using Lumascope API in simulate mode.
 
 Demonstrates:

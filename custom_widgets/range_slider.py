@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 # Source code for Range Slider from: https://groups.google.com/g/kivy-users/c/oMFx0YKW5oA/m/r4uj07ENBgAJ
 
 #: -*- encoding: utf-8 -*-

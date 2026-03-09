@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
 Integration tests for protocol execution through SequencedCaptureExecutor.
 

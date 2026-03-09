@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 # ----------------------------------------------------
 # lumascope_api testing. Not intended for customer

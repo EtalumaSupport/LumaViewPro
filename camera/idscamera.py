@@ -1,3 +1,4 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import datetime
 from ids_peak import ids_peak
 from ids_peak import ids_peak_ipl_extension
