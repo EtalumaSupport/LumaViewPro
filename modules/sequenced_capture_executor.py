@@ -347,6 +347,23 @@ class SequencedCaptureExecutor:
             logger.error(f"[PROTOCOL] Protocol has no steps. Cannot start run.")
             return
 
+        # Pre-run validation: check positions within axis limits
+        try:
+            axis_limits = {}
+            for axis in ('X', 'Y', 'Z'):
+                try:
+                    axis_limits[axis] = self._scope.get_axis_limits(axis)
+                except Exception:
+                    pass  # skip axis if limits unavailable
+            validation_errors = protocol.validate_for_run(axis_limits=axis_limits)
+            if validation_errors:
+                for err in validation_errors:
+                    logger.error(f"[PROTOCOL] Validation: {err}")
+                logger.error(f"[PROTOCOL] Protocol has {len(validation_errors)} validation error(s). Cannot start run.")
+                return
+        except Exception as ex:
+            logger.warning(f"[PROTOCOL] Pre-run validation failed: {ex}. Proceeding anyway.")
+
         try:
             if not self._scope.are_all_connected():
                 logger.error(f"[PROTOCOL] Not all scope components connected. Cannot start run.")

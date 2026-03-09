@@ -17,7 +17,7 @@ from modules.protocol import Protocol
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_protocol(steps_data: list[dict]) -> Protocol:
+def _make_protocol(steps_data: list[dict], labware_id: str = '96-well') -> Protocol:
     """Create a Protocol with given steps, mocking file-dependent constructors."""
     with patch.object(Protocol, '__init__', lambda self, **kw: None):
         p = Protocol.__new__(Protocol)
@@ -42,6 +42,7 @@ def _make_protocol(steps_data: list[dict]) -> Protocol:
             'steps': df,
             'period': datetime.timedelta(minutes=1),
             'duration': datetime.timedelta(hours=1),
+            'labware_id': labware_id,
         }
         return p
 
@@ -243,3 +244,136 @@ class TestMultipleErrors:
         assert len(errors) == 2
         assert "Step 1" in errors[0]
         assert "Step 2" in errors[1]
+
+
+# ---------------------------------------------------------------------------
+# validate_for_run() tests — pre-execution runtime validation
+# ---------------------------------------------------------------------------
+
+_DEFAULT_AXIS_LIMITS = {
+    'X': {'min': 0, 'max': 120000},
+    'Y': {'min': 0, 'max': 80000},
+    'Z': {'min': 0, 'max': 14000},
+}
+
+
+@pytest.fixture(autouse=True)
+def _mock_well_plate_loader():
+    """Mock WellPlateLoader so validate_for_run doesn't need labware files."""
+    mock_loader = MagicMock()
+    mock_loader.get_plate_list.return_value = [
+        '96-well', '24-well', '6-well',
+    ]
+    with patch('modules.labware_loader.WellPlateLoader', return_value=mock_loader):
+        yield
+
+
+class TestValidateForRunPositionBounds:
+    def test_valid_positions_no_errors(self):
+        p = _make_protocol([_valid_step(X=60000, Y=40000, Z=5000)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert errors == []
+
+    def test_x_exceeds_max(self):
+        p = _make_protocol([_valid_step(X=130000)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert any("X position 130000" in e and "outside travel limits" in e for e in errors)
+
+    def test_y_exceeds_max(self):
+        p = _make_protocol([_valid_step(Y=90000)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert any("Y position 90000" in e and "outside travel limits" in e for e in errors)
+
+    def test_z_exceeds_max(self):
+        p = _make_protocol([_valid_step(Z=15000)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert any("Z position 15000" in e and "outside travel limits" in e for e in errors)
+
+    def test_negative_position(self):
+        p = _make_protocol([_valid_step(X=-100)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert any("X position -100" in e and "outside travel limits" in e for e in errors)
+
+    def test_position_at_max_boundary_valid(self):
+        p = _make_protocol([_valid_step(X=120000, Y=80000, Z=14000)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert errors == []
+
+    def test_position_at_min_boundary_valid(self):
+        p = _make_protocol([_valid_step(X=0, Y=0, Z=0)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert errors == []
+
+    def test_multiple_axes_out_of_range(self):
+        p = _make_protocol([_valid_step(X=200000, Y=200000, Z=200000)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        position_errors = [e for e in errors if "outside travel limits" in e]
+        assert len(position_errors) == 3
+
+    def test_multiple_steps_one_out_of_range(self):
+        p = _make_protocol([
+            _valid_step(Name='A1_BF', X=60000, Y=40000, Z=5000),
+            _valid_step(Name='B1_BF', X=130000, Y=40000, Z=5000),
+        ])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        position_errors = [e for e in errors if "outside travel limits" in e]
+        assert len(position_errors) == 1
+        assert "Step 2" in position_errors[0]
+
+
+class TestValidateForRunNoLimits:
+    def test_no_axis_limits_skips_position_check(self):
+        p = _make_protocol([_valid_step(X=999999)])
+        errors = p.validate_for_run(axis_limits=None)
+        # Should only have validate_steps() errors, not position errors
+        assert not any("outside travel limits" in e for e in errors)
+
+    def test_empty_axis_limits_skips_position_check(self):
+        p = _make_protocol([_valid_step(X=999999)])
+        errors = p.validate_for_run(axis_limits={})
+        assert not any("outside travel limits" in e for e in errors)
+
+    def test_partial_axis_limits(self):
+        """Only Z limits provided — X and Y should not be checked."""
+        limits = {'Z': {'min': 0, 'max': 14000}}
+        p = _make_protocol([_valid_step(X=999999, Z=15000)])
+        errors = p.validate_for_run(axis_limits=limits)
+        position_errors = [e for e in errors if "outside travel limits" in e]
+        assert len(position_errors) == 1
+        assert "Z position" in position_errors[0]
+
+
+class TestValidateForRunLabware:
+    @patch('modules.labware_loader.WellPlateLoader')
+    def test_invalid_labware(self, mock_loader_cls):
+        mock_loader = MagicMock()
+        mock_loader.get_plate_list.return_value = ['96-well', '24-well', '6-well']
+        mock_loader_cls.return_value = mock_loader
+        p = _make_protocol([_valid_step()], labware_id='384-well')
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert any("Labware '384-well' not found" in e for e in errors)
+
+    @patch('modules.labware_loader.WellPlateLoader')
+    def test_valid_labware(self, mock_loader_cls):
+        mock_loader = MagicMock()
+        mock_loader.get_plate_list.return_value = ['96-well', '24-well', '6-well']
+        mock_loader_cls.return_value = mock_loader
+        p = _make_protocol([_valid_step()], labware_id='96-well')
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert not any("Labware" in e for e in errors)
+
+
+class TestValidateForRunIncludesFieldValidation:
+    def test_field_errors_included(self):
+        """validate_for_run should include validate_steps errors too."""
+        p = _make_protocol([_valid_step(Color='Bad', Z=15000)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert any("Color 'Bad'" in e for e in errors)
+        assert any("Z position 15000" in e for e in errors)
+
+
+class TestValidateForRunEmpty:
+    def test_empty_protocol(self):
+        p = _make_protocol([])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        assert errors == []

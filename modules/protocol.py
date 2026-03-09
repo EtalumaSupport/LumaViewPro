@@ -280,6 +280,62 @@ class Protocol:
 
         return errors
 
+    def validate_for_run(self, axis_limits: dict = None) -> list:
+        """Validate protocol is safe to execute on hardware.
+
+        Checks positions are within axis travel limits. Call this before
+        starting a protocol run. validate_steps() checks field format;
+        this method checks runtime safety.
+
+        Args:
+            axis_limits: dict mapping axis name to {'min': float, 'max': float}
+                in µm. Example: {'X': {'min': 0, 'max': 120000}, ...}
+
+        Returns:
+            List of error strings. Empty list if all checks pass.
+        """
+        errors = []
+        steps = self.steps()
+        if steps is None or len(steps) == 0:
+            return errors
+
+        # Validate step field values first
+        errors.extend(self.validate_steps())
+
+        if axis_limits:
+            for idx, step in steps.iterrows():
+                label = f"Step {idx + 1} ({step.get('Name', '?')})"
+
+                for axis in ('X', 'Y', 'Z'):
+                    if axis not in axis_limits:
+                        continue
+                    try:
+                        pos = float(step.get(axis, 0))
+                    except (ValueError, TypeError):
+                        errors.append(f"{label}: {axis} position is not a valid number")
+                        continue
+                    limits = axis_limits[axis]
+                    if pos < limits['min'] or pos > limits['max']:
+                        errors.append(
+                            f"{label}: {axis} position {pos} µm is outside travel limits "
+                            f"({limits['min']}–{limits['max']} µm)")
+
+        # Validate labware exists
+        labware_key = self.labware()
+        if labware_key:
+            try:
+                from modules import labware_loader
+                loader = labware_loader.WellPlateLoader()
+                plate_list = loader.get_plate_list()
+                if labware_key not in plate_list:
+                    errors.append(
+                        f"Labware '{labware_key}' not found. "
+                        f"Available: {', '.join(plate_list)}")
+            except Exception:
+                pass  # skip labware validation if loader fails
+
+        return errors
+
     def num_steps(self) -> int:
         return len(self._config['steps'])
     
