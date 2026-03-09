@@ -65,6 +65,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('settings_init', _mock_settings_init)
 
+import serialboard
 from serialboard import SerialBoard
 from modules.protocol import Protocol
 
@@ -344,93 +345,102 @@ class TestSerialErrorRateLimiting:
     Bug #539: When the USB cable is disconnected, every polling command
     triggers a log.error, flooding the log file with thousands of
     identical messages per minute.
+
+    Uses patch.object on serialboard.logger to avoid shared mock state
+    leaking between test files.
     """
 
     def test_first_error_is_logged(self):
         """First serial error should always be logged."""
-        _mock_logger.reset_mock()
+        mock_log = MagicMock()
         board = _make_serial_board()
         board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
 
-        board.exchange_command('TEST')
+        with patch.object(serialboard, 'logger', mock_log):
+            board.exchange_command('TEST')
 
-        _mock_logger.error.assert_called_once()
+        mock_log.error.assert_called_once()
 
     def test_rapid_errors_are_suppressed(self):
         """Errors within the rate-limit window should be suppressed."""
-        _mock_logger.reset_mock()
+        mock_log = MagicMock()
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
-        # First call — should log
-        board.driver = _make_mock_serial()
-        board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
-        board.exchange_command('TEST1')
-        assert _mock_logger.error.call_count == 1
+        with patch.object(serialboard, 'logger', mock_log):
+            # First call — should log
+            board.driver = _make_mock_serial()
+            board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+            board.exchange_command('TEST1')
+            assert mock_log.error.call_count == 1
 
-        # Second call immediately after — should be suppressed
-        board.driver = _make_mock_serial()
-        board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
-        board.exchange_command('TEST2')
-        assert _mock_logger.error.call_count == 1, \
-            "Second error within rate-limit window should be suppressed (bug #539)"
+            # Second call immediately after — should be suppressed
+            board.driver = _make_mock_serial()
+            board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+            board.exchange_command('TEST2')
+            assert mock_log.error.call_count == 1, \
+                "Second error within rate-limit window should be suppressed (bug #539)"
 
     def test_error_logged_after_interval(self):
         """Errors after the rate-limit interval should be logged again."""
-        _mock_logger.reset_mock()
+        mock_log = MagicMock()
+        mock_time = MagicMock()
         board = _make_serial_board()
-        board._error_log_interval = 0.05  # 50ms for fast test
+        board._error_log_interval = 2.0
 
-        # First error
-        board.driver = _make_mock_serial()
-        board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
-        board.exchange_command('TEST1')
-        assert _mock_logger.error.call_count == 1
+        with patch.object(serialboard, 'logger', mock_log), \
+             patch.object(serialboard.time, 'monotonic', mock_time):
+            # First error at t=0
+            mock_time.return_value = 100.0
+            board.driver = _make_mock_serial()
+            board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+            board.exchange_command('TEST1')
+            assert mock_log.error.call_count == 1
 
-        # Wait past the interval
-        time.sleep(0.06)
-
-        # Second error — should be logged
-        board.driver = _make_mock_serial()
-        board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
-        board.exchange_command('TEST2')
-        assert _mock_logger.error.call_count == 2, \
-            "Error after rate-limit interval should be logged"
+            # Second error at t=3 (past 2s interval) — should be logged
+            mock_time.return_value = 103.0
+            board.driver = _make_mock_serial()
+            board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
+            board.exchange_command('TEST2')
+            assert mock_log.error.call_count == 2, \
+                "Error after rate-limit interval should be logged"
 
     def test_write_fast_errors_also_rate_limited(self):
         """_write_command_fast errors should also be rate-limited."""
-        _mock_logger.reset_mock()
+        mock_log = MagicMock()
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
-        # First call — should log
-        board.driver.write.side_effect = Exception("write failed")
-        board._write_command_fast('TEST1')
-        assert _mock_logger.error.call_count == 1
+        with patch.object(serialboard, 'logger', mock_log):
+            # First call — should log
+            board.driver.write.side_effect = Exception("write failed")
+            board._write_command_fast('TEST1')
+            assert mock_log.error.call_count == 1
 
-        # Second call immediately — should be suppressed
-        board.driver = _make_mock_serial()
-        board.driver.write.side_effect = Exception("write failed")
-        board._write_command_fast('TEST2')
-        assert _mock_logger.error.call_count == 1, \
-            "_write_command_fast errors should also be rate-limited (bug #539)"
+            # Second call immediately — should be suppressed
+            board.driver = _make_mock_serial()
+            board.driver.write.side_effect = Exception("write failed")
+            board._write_command_fast('TEST2')
+            assert mock_log.error.call_count == 1, \
+                "_write_command_fast errors should also be rate-limited (bug #539)"
 
     def test_generic_exception_also_rate_limited(self):
         """Generic exceptions (not just timeout) should be rate-limited."""
-        _mock_logger.reset_mock()
+        mock_log = MagicMock()
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
-        # First generic error
-        board.driver.write.side_effect = Exception("USB disconnected")
-        board.exchange_command('TEST1')
-        assert _mock_logger.error.call_count == 1
+        with patch.object(serialboard, 'logger', mock_log):
+            # First generic error
+            board.driver.write.side_effect = Exception("USB disconnected")
+            board.exchange_command('TEST1')
+            assert mock_log.error.call_count == 1
 
-        # Second generic error immediately
-        board.driver = _make_mock_serial()
-        board.driver.write.side_effect = Exception("USB disconnected")
-        board.exchange_command('TEST2')
-        assert _mock_logger.error.call_count == 1
+            # Second generic error immediately
+            board.driver = _make_mock_serial()
+            board.driver.write.side_effect = Exception("USB disconnected")
+            board.exchange_command('TEST2')
+            assert mock_log.error.call_count == 1
 
     def test_driver_still_closed_when_suppressed(self):
         """Even when log is suppressed, driver must still be closed."""

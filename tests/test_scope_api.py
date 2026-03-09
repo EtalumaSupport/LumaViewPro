@@ -487,10 +487,11 @@ class TestScopeCommandsMotion:
     def test_move_home_unknown_axis(self):
         scope = _make_mock_scope()
         executor = _make_mock_executor()
-        _mock_logger.reset_mock()
-        scope_commands.move_home(scope, executor, 'W')
+        mock_log = MagicMock()
+        with patch.object(scope_commands, 'logger', mock_log):
+            scope_commands.move_home(scope, executor, 'W')
         executor.put.assert_not_called()
-        _mock_logger.warning.assert_called()
+        mock_log.warning.assert_called()
 
 
 # ===========================================================================
