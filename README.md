@@ -2,6 +2,8 @@
 
 LumaViewPro is an open-source fluorescence microscope control application written in Python. Sponsored by [Etaluma, Inc.](https://www.etaluma.com/), it provides a full-featured GUI and a Python API for controlling Etaluma Lumascope microscopes.
 
+**Current version:** 3.2.0-beta
+
 ![lvpscreenshot2](https://user-images.githubusercontent.com/108957480/179601967-8c2f3be7-5371-4091-9f07-fd34e1c8f9bb.png)
 
 ## Hardware Overview
@@ -39,6 +41,34 @@ API documentation and example scripts are in the `docs/` folder.
 The easiest way to run LumaViewPro is to use the Windows installer, which includes the application, camera driver, and all dependencies. Download the latest release from the [GitHub Releases](https://github.com/EtalumaSupport/LumaViewPro/releases) page.
 
 To run from source on any platform (Windows, macOS, or Linux), use the install scripts or follow the manual instructions below.
+
+## Troubleshooting
+
+**"No camera found" or camera not detected**
+- Make sure the Basler Pylon Runtime is installed (the Windows installer includes it; for source installs, download from [Basler](https://docs.baslerweb.com/pylon-software-suite))
+- Verify the camera is connected via USB 3.0 (not USB 2.0)
+- On Linux, check that your user is in the `dialout` group: `groups $USER`
+
+**"Python not found" or wrong version**
+- LumaViewPro requires Python 3.11, 3.12, or 3.13
+- On Windows, make sure "Add python.exe to PATH" was checked during installation
+- On macOS/Linux, try `python3 --version` to check your installed version
+
+**Application crashes on startup**
+- Try running from the command line to see error messages: `python lumaviewpro.py`
+- Try simulate mode to rule out hardware issues: `python lumaviewpro.py --simulate`
+
+**Permission denied on Linux (serial port)**
+```bash
+sudo usermod -a -G dialout $USER
+# Log out and back in
+```
+
+## Support
+
+To report bugs or request features, please open an issue on [GitHub Issues](https://github.com/EtalumaSupport/LumaViewPro/issues). Please include your LumaViewPro version and, if possible, attach a zipped copy of your logs folder:
+- **Windows (installed):** `Documents\LumaViewPro {version}\logs\`
+- **Running from source:** `logs\` in the LumaViewPro folder
 
 ## Requirements (running from source)
 
@@ -194,42 +224,16 @@ LumaViewPro supports ImageJ/FIJI integration for advanced image analysis. This i
 
 ## Updating
 
-If you installed from source using git:
+**Windows installer:** Download and run the latest installer from the [GitHub Releases](https://github.com/EtalumaSupport/LumaViewPro/releases) page.
+
+**From source (git):**
 ```bash
 cd LumaViewPro
 git pull
 pip install -r requirements.txt
 ```
 
-If you downloaded the ZIP, download and extract the latest version from GitHub and re-run `pip install -r requirements.txt`.
-
-## Troubleshooting
-
-**"No camera found" or camera not detected**
-- Make sure the Basler Pylon Runtime is installed (the Windows installer includes it; for source installs, download from [Basler](https://docs.baslerweb.com/pylon-software-suite))
-- Verify the camera is connected via USB 3.0 (not USB 2.0)
-- On Linux, check that your user is in the `dialout` group: `groups $USER`
-
-**"Python not found" or wrong version**
-- LumaViewPro requires Python 3.11, 3.12, or 3.13
-- On Windows, make sure "Add python.exe to PATH" was checked during installation
-- On macOS/Linux, try `python3 --version` to check your installed version
-
-**Application crashes on startup**
-- Try running from the command line to see error messages: `python lumaviewpro.py`
-- Try simulate mode to rule out hardware issues: `python lumaviewpro.py --simulate`
-
-**Permission denied on Linux (serial port)**
-```bash
-sudo usermod -a -G dialout $USER
-# Log out and back in
-```
-
-## Support
-
-To report bugs or request features, please open an issue on [GitHub Issues](https://github.com/EtalumaSupport/LumaViewPro/issues). Please include your LumaViewPro version and, if possible, attach a zipped copy of your logs folder:
-- **Windows (installed):** `Documents\LumaViewPro {version}\logs\`
-- **Running from source:** `logs\` in the LumaViewPro folder
+**From source (ZIP):** Download and extract the latest version from GitHub and re-run `pip install -r requirements.txt`.
 
 ## License
 
