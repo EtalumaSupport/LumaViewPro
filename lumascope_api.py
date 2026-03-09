@@ -690,7 +690,6 @@ class Lumascope():
             'binning_size': self._binning_size,
             'pixel_size_um': pixel_size_um,
             'well_label': well_label,
-            # 'well_site': 3, # TODO: provide well site, id of image within the well, ex: 3
         }
 
         return metadata

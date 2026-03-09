@@ -196,7 +196,6 @@ class MotorBoard(SerialBoard):
         using_default_str = "-> default" if using_default else ""
         logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp} {using_default_str}')
 
-        # TODO parse response value out of response string once implemented
         return resp
 
 

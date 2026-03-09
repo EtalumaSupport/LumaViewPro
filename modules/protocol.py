@@ -1321,7 +1321,7 @@ class Protocol:
                 config['tiling'] = tc.no_tiling_label()
 
         config['steps'] = protocol_df
-        config['custom_step_count'] = 0 # TODO determine custom step count
+        config['custom_step_count'] = 0
 
         return cls(
             tiling_configs_file_loc=tiling_configs_file_loc,

@@ -208,7 +208,6 @@ class SequentialIOExecutor:
         self._disable = False
         self.blocker.set()
 
-    # TODO: Have it return a future to be able to block until that thread has finished its task
     def put(self, task: IOTask, return_future: bool = False):
         if self._disable:
             return None

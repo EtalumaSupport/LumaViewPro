@@ -762,9 +762,6 @@ class PylonCamera(Camera):
             return
 
         try:
-            #if not enabled:
-            #    self.active # TODO
-
             self.active.TestPattern.SetValue(pattern)
             self.grab()
         except genicam.RuntimeException as e:

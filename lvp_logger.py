@@ -141,8 +141,6 @@ class ThreadPauseFilter(logging.Filter):
         # Allow the log if the thread is not paused
         return not getattr(_paused_threads, 'paused', False)
 
-#TODO Separate crash logs into a separate file that contains any other info we might need to debug (settings.json maybe) besides stacktrace
-
 # Log traceback if we have a crash to tell us more info on what happened
 def custom_except_hook(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):

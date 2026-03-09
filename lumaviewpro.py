@@ -806,7 +806,6 @@ def go_to_step_update_ui(step):
 
                 stim_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
 
-                # TODO Update with proper UI elements
                 if stim_config['enabled']:
                     stim_layer_obj.ids['stim_enable_btn'].active = True
                     stim_layer_obj.ids['stim_disable_btn'].active = False
@@ -2040,7 +2039,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             scope_display.play = False
             scope_display.stop()
             if self.scope.led:
-                # TODO: Update UI to reflect
                 self.led_on_before_pause = self.scope.get_led_state(color=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))['enabled']
                 scope_commands.leds_off(self.scope, io_executor)
                 layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=common_utils.get_opened_layer(lumaview.ids['imagesettings_id']))
@@ -3725,7 +3723,7 @@ class CellCountControls(BoxLayout):
     def _get_init_settings(self):
         return {
             'context': {
-                'pixels_per_um': 1.0,       # TODO Isn't this supposed to be 0.5 ?
+                'pixels_per_um': 1.0,       # default; updated per objective/camera at runtime
                 'fluorescent_mode': True
             },
             'segmentation': {
@@ -4190,12 +4188,6 @@ class PostProcessingAccordion(BoxLayout):
             self.accordion_item_states[accordion_item_id] = self.accordion_item_state(self.ids[accordion_item_id])
             changed_items.append(accordion_item_id)
 
-        # TODO not currently needed to detect accordion item state changes, but an example is shown below
-        # if 'cell_count_accordion_id' in changed_items:
-        #     if self.accordion_item_states['cell_count_accordion_id'] == 'open':
-        #         cell_count_content.activate()
-        #     else:
-        #         cell_count_content.deactivate()
 
 
     def init_cell_count(self):
@@ -6576,9 +6568,6 @@ class ProtocolSettings(CompositeCapture):
             'reset_title': reset_title,
         }
 
-        #TODO THREAD
-        #initial_position = get_current_plate_position()
-
         autogain_settings = get_auto_gain_settings()
 
         sequence = copy.deepcopy(self._protocol)
@@ -7679,185 +7668,6 @@ class Stage(Widget):
             Rectangle(texture=texture, pos=pos, size=size, group=group)
 
 
-    # def draw_labware(
-    #     self,
-    #     *args,
-    #     full_redraw: bool = False
-    # ): # View the labware from front and above
-    #     global lumaview
-    #     global settings
-    #     global kivy_events
-    #     kivy_events = Clock.get_events()
-
-    #     if self.parent is None:
-    #         return
-
-    #     if 'settings' not in globals():
-    #         return
-
-    #     # Create current labware instance
-    #     _, labware = get_selected_labware()
-
-    #     if full_redraw:
-    #         # logger.error("===============FULL REDRAW================")
-    #         self.canvas.clear()
-    #     else:
-    #         # self.canvas.remove_group('crosshairs')
-    #         # self.canvas.remove_group('selected_well')
-    #         pass
-
-    #     if self._protocol_step_redraw:
-    #         self.canvas.remove_group('steps')
-
-    #     with self.canvas:
-    #         w = self.width
-    #         h = self.height
-    #         x = self.x
-    #         y = self.y
-
-    #         # Get labware dimensions
-    #         dim_max = labware.get_dimensions()
-
-    #         # mm to pixels scale
-    #         scale_x = w/dim_max['x']
-    #         scale_y = h/dim_max['y']
-
-    #         # Stage Coordinates (120x80 mm)
-    #         stage_w = 120
-    #         stage_h = 80
-
-    #         stage_x = settings['stage_offset']['x']/1000
-    #         stage_y = settings['stage_offset']['y']/1000
-
-    #         # Get target position
-    #         # Outline of Stage Area from Above
-    #         # ------------------
-    #         if full_redraw:
-    #             with self.canvas:
-    #                 Color(.2, .2, .2 , 0.5)                # dark grey
-    #                 Rectangle(pos=(x+(dim_max['x']-stage_w-stage_x)*scale_x, y+stage_y*scale_y),
-    #                             size=(stage_w*scale_x, stage_h*scale_y), group='outline')
-
-    #                 # Outline of Plate from Above
-    #                 # ------------------
-    #                 Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
-    #                 Line(points=(x, y, x, y+h-15), width = 1, group='outline')          # Left
-    #                 Line(points=(x+w, y, x+w, y+h), width = 1, group='outline')         # Right
-    #                 Line(points=(x, y, x+w, y), width = 1, group='outline')             # Bottom
-    #                 Line(points=(x+15, y+h, x+w, y+h), width = 1, group='outline')      # Top
-    #                 Line(points=(x, y+h-15, x+15, y+h), width = 1, group='outline')     # Diagonal
-
-    #             # ROI rectangle
-    #             # ------------------
-    #             if self.ROI_max[0] > self.ROI_min[0]:
-    #                 roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(
-    #                     labware=labware,
-    #                     stage_offset=settings['stage_offset'],
-    #                     sx=self.ROI_min[0],
-    #                     sy=self.ROI_min[1],
-    #                     scale_x=scale_x,
-    #                     scale_y=scale_y
-    #                 )
-
-    #                 roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(
-    #                     labware=labware,
-    #                     stage_offset=settings['stage_offset'],
-    #                     sx=self.ROI_max[0],
-    #                     sy=self.ROI_max[1],
-    #                     scale_x=scale_x,
-    #                     scale_y=scale_y
-    #                 )
-
-    #                 with self.canvas:
-    #                     Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
-    #                     Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y), group='outline')
-
-    #         # Draw all ROI rectangles
-    #         # ------------------
-    #         # TODO (for each step)
-    #         '''
-    #         for ROI in self.ROIs:
-    #             if self.ROI_max[0] > self.ROI_min[0]:
-    #                 roi_min_x, roi_min_y = coordinate_transformer.stage_to_pixel(self.ROI_min[0], self.ROI_min[1], scale_x, scale_y)
-    #                 roi_max_x, roi_max_y = coordinate_transformer.stage_to_pixel(self.ROI_max[0], self.ROI_max[1], scale_x, scale_y)
-    #                 Color(50/255, 164/255, 206/255, 1.)                # kivy aqua
-    #                 Line(rectangle=(x+roi_min_x, y+roi_min_y, roi_max_x - roi_min_x, roi_max_y - roi_min_y))
-    #         '''
-
-    #         # Draw all wells
-    #         # ------------------
-    #         cols = labware.config['columns']
-    #         rows = labware.config['rows']
-
-    #         well_spacing_x = labware.config['spacing']['x']
-    #         well_spacing_y = labware.config['spacing']['y']
-    #         well_spacing_pixel_x = well_spacing_x
-    #         well_spacing_pixel_y = well_spacing_y
-
-    #         well_diameter = labware.config['diameter']
-    #         if well_diameter == -1:
-    #             well_radius_pixel_x = well_spacing_pixel_x
-    #             well_radius_pixel_y = well_spacing_pixel_y
-    #         else:
-    #             well_radius = well_diameter / 2
-    #             well_radius_pixel_x = well_radius * scale_x
-    #             well_radius_pixel_y = well_radius * scale_y
-
-    #         if full_redraw:
-    #             with self.canvas:
-    #                 Color(0.4, 0.4, 0.4, 0.5)
-
-    #                 for i in range(cols):
-    #                     for j in range(rows):
-    #                         well_plate_x, well_plate_y = labware.get_well_position(i, j)
-    #                         well_pixel_x, well_pixel_y = coordinate_transformer.plate_to_pixel(
-    #                             labware=labware,
-    #                             px=well_plate_x,
-    #                             py=well_plate_y,
-    #                             scale_x=scale_x,
-    #                             scale_y=scale_y
-    #                         )
-    #                         x_center = int(x+well_pixel_x) # on screen center
-    #                         y_center = int(y+well_pixel_y) # on screen center
-    #                         Ellipse(pos=(x_center-well_radius_pixel_x, y_center-well_radius_pixel_y), size=(well_radius_pixel_x*2, well_radius_pixel_y*2), group='wells')
-
-    #         if full_redraw or self._protocol_step_redraw:
-    #             self._protocol_step_redraw = False
-
-    #             if  (self._protocol_step_locations_show == True) and \
-    #                 (self._protocol_step_locations_df is not None):
-
-    #                 half_size = 2
-    #                 with self.canvas:
-    #                     Color(1., 1., 0., 1.)
-    #                     for _, step in self._protocol_step_locations_df.iterrows():
-    #                         pixel_x, pixel_y = coordinate_transformer.plate_to_pixel(
-    #                         labware=labware,
-    #                         px=step['X'],
-    #                         py=step['Y'],
-    #                         scale_x=scale_x,
-    #                         scale_y=scale_y
-    #                     )
-
-    #                     x_center = x+pixel_x
-    #                     y_center = y+pixel_y
-
-    #                     Line(points=(x_center-half_size, y_center, x_center+half_size, y_center), width = 1, group='steps') # horizontal line
-    #                     Line(points=(x_center, y_center-half_size, x_center, y_center+half_size), width = 1, group='steps') # vertical line
-
-    #         io_executor.put(IOTask(
-    #             action=self.get_target_xy,
-    #             callback=self.get_target_callback,
-    #             cb_args=(
-    #                 scale_x,
-    #                 scale_y,
-    #                 well_radius_pixel_x,
-    #                 x,
-    #                 y
-    #             ),
-    #             pass_result=True
-    #         ))
-
     def get_target_xy(self):
         try:
             target_stage_x = lumaview.scope.get_target_position('X')
@@ -8417,7 +8227,7 @@ class MicroscopeSettings(BoxLayout):
         if use_full_pixel_depth:
             lumaview.scope.camera.set_pixel_format('Mono12')
         else:
-            lumaview.scope.camera.set_pixel_format('Mono8') #TODO: Dynamically set based on camera capabilities
+            lumaview.scope.camera.set_pixel_format('Mono8')
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
 
@@ -8583,8 +8393,6 @@ class MicroscopeSettings(BoxLayout):
         image_settings.set_df_layer_control_visibility(visible=layers_config['Darkfield'])
         image_settings.set_lumi_layer_control_visibility(visible=layers_config['Lumi'])
         image_settings.set_fluoresence_layer_controls_visibility(visible=layers_config['Flourescence'])
-        # image_settings.set_bf_layer_control_visibility(visible=layers_config['Brightfield']) # TODO: add UI support
-        # image_settings.set_pc_layer_control_visibility(visible=layers_config['PhaseContrast']) # TODO: add UI support
 
         protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])

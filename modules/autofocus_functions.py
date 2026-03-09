@@ -56,8 +56,6 @@ def focus_function(
 # 96 well plate center focus takes 6m
 def focus_vollath4_original(image: np.ndarray) -> float:
     # Journal of Microscopy, Vol. 188, Pt 3, December 1997, pp. 264–272
-    # TODO the w/h seem swapped, but this is how the original code was written.
-    # Needs further investigation to clarify.
     image = image.astype(np.float64, copy=False)
     w, h = image.shape
 
@@ -83,8 +81,6 @@ def focus_vollath4_numba(image: np.ndarray) -> float:
 
 
 def focus_skew(image: np.ndarray) -> float:
-    # TODO the w/h seem swapped, but this is how the original code was written.
-    # Needs further investigation to clarify.
     w, h = image.shape
 
     hist = np.histogram(image, bins=256,range=(0,256))
@@ -99,8 +95,6 @@ def focus_skew(image: np.ndarray) -> float:
 
 
 def focus_pixel_variation(image: np.ndarray) -> float:
-    # TODO the w/h seem swapped, but this is how the original code was written.
-    # Needs further investigation to clarify.
     w, h = image.shape
 
     sum = np.sum(image)

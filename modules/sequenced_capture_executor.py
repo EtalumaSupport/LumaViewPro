@@ -607,7 +607,6 @@ class SequencedCaptureExecutor:
             if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
                 return
             
-            #TODO: Make sure all of this IO is handled outside of Kivy main thread
             self._autofocus_executor.run(
                 objective_id=step['Objective'],
                 save_results_to_file=self._save_autofocus_data,
@@ -665,8 +664,6 @@ class SequencedCaptureExecutor:
                 # Handle hyperstack creation as a post-processing function for now. Capture images in TIFF.
                 if output_format == 'ImageJ Hyperstack':
                     output_format = 'TIFF'
-
-                # TODO THREAD
 
                 if step['Acquire'] == 'video':
                     self._video_write_finished.clear()
@@ -1027,7 +1024,6 @@ class SequencedCaptureExecutor:
         else:
             logger.warning('LED controller not available.')
 
-        # TODO: replace sleep + get_image with scope.capture - will require waiting on capture complete
         # Grab image and save
 
         # if 'update_scope_display' in self._callbacks:

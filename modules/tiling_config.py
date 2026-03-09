@@ -89,10 +89,10 @@ class TilingConfig:
 
         #x_current = lumaview.scope.get_current_position('X')
         #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-        x_center = 60000 # TODO make center of a well
+        x_center = 60000  # stage center; should use well center from labware config
         #y_current = lumaview.scope.get_current_position('Y')
         #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
-        y_center = 40000 # TODO make center of a well
+        y_center = 40000  # stage center; should use well center from labware config
         tiling_min = {
             "x": x_center - tiling_mxn["n"]*x_fov/2,
             "y": y_center - tiling_mxn["m"]*y_fov/2
