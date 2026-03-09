@@ -2,6 +2,7 @@
 
 import datetime
 import pathlib
+import shutil
 import time
 import sys
 import ctypes
@@ -342,6 +343,10 @@ class SequencedCaptureExecutor:
         if leds_state_at_end not in ("off", "return_to_original",):
             raise ValueError(f"Unsupported value for leds_state_at_end: {leds_state_at_end}")
         
+        if protocol.num_steps() == 0:
+            logger.error(f"[PROTOCOL] Protocol has no steps. Cannot start run.")
+            return
+
         try:
             if not self._scope.are_all_connected():
                 logger.error(f"[PROTOCOL] Not all scope components connected. Cannot start run.")
@@ -1078,6 +1083,16 @@ class SequencedCaptureExecutor:
             #     self._scope.set_exposure_time(step['Exposure'])
 
             if is_video:
+                # Check disk space before starting video capture (need at least 500MB)
+                try:
+                    disk_usage = shutil.disk_usage(str(save_folder))
+                    free_mb = disk_usage.free / (1024 * 1024)
+                    if free_mb < 500:
+                        logger.error(f"[PROTOCOL] Insufficient disk space ({free_mb:.0f} MB free) — skipping video capture")
+                        return
+                except Exception as ex:
+                    logger.warning(f"[PROTOCOL] Could not check disk space: {ex}")
+
                 # Settle time for auto-gain first frame (static captures use frame validity)
                 time.sleep(max(step['Exposure']/1000, 0.05))
                 # Disable autogain and then reenable it only for the first frame
@@ -1190,6 +1205,12 @@ class SequencedCaptureExecutor:
                         if stim_thread.is_alive():
                             logger.warning(f"[PROTOCOL] Stim thread did not exit within 5s timeout")
                     
+                    if captured_frames == 0:
+                        logger.warning("[PROTOCOL] Zero frames captured during video recording — skipping write")
+                        self._video_write_finished.set()
+                        self._scope.leds_off()
+                        return
+
                     calculated_fps = captured_frames//duration_sec
 
                     logger.info(f"Protocol-Video] Images present in video array: {not video_images.empty()}")

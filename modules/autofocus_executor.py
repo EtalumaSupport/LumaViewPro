@@ -336,8 +336,8 @@ class AutofocusExecutor:
                     # Push file/plot work off the UI thread using the file IO executor
                     try:
                         self._file_io_executor.protocol_put(IOTask(action=self._save_autofocus_data))
-                    except Exception:
-                        pass
+                    except Exception as ex:
+                        logger.warning(f"[AF] Failed to queue autofocus data save: {ex}")
 
                 self._is_focusing = False
                 self._is_complete = True
@@ -449,17 +449,24 @@ class AutofocusExecutor:
         axs.set_ylabel("Focus Score")
         axs.grid()
 
-        fig.savefig(str(plot_outfile_loc), backend='agg')
         try:
+            fig.savefig(str(plot_outfile_loc), backend='agg')
+        except Exception as ex:
+            logger.warning(f"[AF] Failed to save autofocus plot: {ex}")
+        finally:
             fig.clear()
-        except Exception:
-            pass
+            del fig
 
 
     @staticmethod
     def _find_best(df: pd.DataFrame) -> float:
-        max_score_idx = df['score'].idxmax()
-        max_position = df['position'].loc[max_score_idx]
+        # Drop NaN/infinite scores before finding best
+        valid = df[df['score'].apply(lambda x: np.isfinite(x))]
+        if valid.empty:
+            logger.warning("Autofocus: all focus scores are NaN/infinite — returning first position")
+            return df['position'].iloc[0]
+        max_score_idx = valid['score'].idxmax()
+        max_position = valid['position'].loc[max_score_idx]
         return max_position
 
 
