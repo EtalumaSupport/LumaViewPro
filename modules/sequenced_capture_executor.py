@@ -407,9 +407,22 @@ class SequencedCaptureExecutor:
         This loop runs until all scans are complete.
         """
         last_maintenance_time = time.monotonic()
+        last_connection_check = time.monotonic()
 
         while self._run_in_progress and not self._protocol_ended.is_set():
             try:
+                # Periodic hardware connection check (every 30 seconds)
+                now = time.monotonic()
+                if now - last_connection_check > 30:
+                    last_connection_check = now
+                    try:
+                        if not self._scope.are_all_connected():
+                            logger.error("[PROTOCOL] Hardware disconnected during run — aborting protocol")
+                            self._cleanup()
+                            break
+                    except Exception as ex:
+                        logger.warning(f"[PROTOCOL] Connection check failed: {ex}")
+
                 # Check if we've completed all scans
                 remaining_scans = self.remaining_scans()
                 if remaining_scans <= 0:
@@ -876,48 +889,62 @@ class SequencedCaptureExecutor:
     def _cleanup(self):
         if not self._run_in_progress:
             return
-        
+
         # if self._use_tiff_stacks:
         #     self._protocol.remove_zstack_starts_and_ends()
-        
-        self._cancel_all_scheduled_events()
 
-        if self._leds_state_at_end == "off":
-            self._leds_off()
-        elif self._leds_state_at_end == "return_to_original":
-            self._leds_off()
-            for color, color_data in self._original_led_states.items():
-                if color_data['enabled']:
-                    self._led_on(color=color, illumination=color_data['illumination'], block=True)
-        else:
-            raise NotImplementedError(f"Unsupported LEDs state at end value: {self._leds_state_at_end}")
-        
-        # Always return autofocus states to initial
-        for layer, layer_data in self._original_autofocus_states.items():
-            # Restore via callback if available, otherwise write directly
-            if 'restore_autofocus_state' in self._callbacks:
-                self._callbacks['restore_autofocus_state'](layer=layer, value=layer_data)
+        try:
+            self._cancel_all_scheduled_events()
+        except Exception as ex:
+            logger.error(f"[PROTOCOL] Error cancelling scheduled events during cleanup: {ex}")
+
+        try:
+            if self._leds_state_at_end == "off":
+                self._leds_off()
+            elif self._leds_state_at_end == "return_to_original":
+                self._leds_off()
+                for color, color_data in self._original_led_states.items():
+                    if color_data['enabled']:
+                        self._led_on(color=color, illumination=color_data['illumination'], block=True)
             else:
-                settings[layer]["autofocus"] = layer_data
-            if self._callbacks.get('reset_autofocus_btns'):
-                # Updates autofocus buttons to their prior states
-                Clock.schedule_once(lambda dt: self._callbacks['reset_autofocus_btns'](), 0)
+                logger.error(f"Unsupported LEDs state at end value: {self._leds_state_at_end}")
+        except Exception as ex:
+            logger.error(f"[PROTOCOL] Error restoring LED states during cleanup: {ex}")
 
-        if not self._disable_saving_artifacts:
-            # Queue to close protocol execution record (should execute after last file/protocol record written)
-            self.file_io_executor.protocol_put(IOTask(
-                action=self._protocol_execution_record.complete
-            ))
-            #self._protocol_execution_record.complete()
+        # Always return autofocus states to initial
+        try:
+            for layer, layer_data in self._original_autofocus_states.items():
+                # Restore via callback if available, otherwise write directly
+                if 'restore_autofocus_state' in self._callbacks:
+                    self._callbacks['restore_autofocus_state'](layer=layer, value=layer_data)
+                else:
+                    settings[layer]["autofocus"] = layer_data
+                if self._callbacks.get('reset_autofocus_btns'):
+                    # Updates autofocus buttons to their prior states
+                    Clock.schedule_once(lambda dt: self._callbacks['reset_autofocus_btns'](), 0)
+        except Exception as ex:
+            logger.error(f"[PROTOCOL] Error restoring autofocus states during cleanup: {ex}")
 
-        if self._return_to_position is not None:
-            self._default_move(
-                px=self._return_to_position['x'],
-                py=self._return_to_position['y'],
-                z=self._return_to_position['z'],
-            )
+        try:
+            if not self._disable_saving_artifacts:
+                # Queue to close protocol execution record (should execute after last file/protocol record written)
+                self.file_io_executor.protocol_put(IOTask(
+                    action=self._protocol_execution_record.complete
+                ))
+        except Exception as ex:
+            logger.error(f"[PROTOCOL] Error completing protocol record during cleanup: {ex}")
 
-        
+        try:
+            if self._return_to_position is not None:
+                self._default_move(
+                    px=self._return_to_position['x'],
+                    py=self._return_to_position['y'],
+                    z=self._return_to_position['z'],
+                )
+        except Exception as ex:
+            logger.error(f"[PROTOCOL] Error returning to position during cleanup: {ex}")
+
+
         self._scan_in_progress.clear()
         self._protocol_ended.set()
 
@@ -1159,7 +1186,9 @@ class SequencedCaptureExecutor:
                     self._stim_start_event.clear()  # Reset start event for next step
 
                     for stim_thread in stim_threads:
-                        stim_thread.join()
+                        stim_thread.join(timeout=5.0)
+                        if stim_thread.is_alive():
+                            logger.warning(f"[PROTOCOL] Stim thread did not exit within 5s timeout")
                     
                     calculated_fps = captured_frames//duration_sec
 
