@@ -8,6 +8,10 @@ and movement, and supports configurable delays.
 Timing modes:
   'fast'      — instant movement, zero delays (for tests)
   'realistic' — serial delays and speed-limited movement matching real hardware
+
+Failure injection (for testing error recovery):
+  fail_after=N      — disconnect after N commands (simulates USB cable pull)
+  fail_on={'ZHOME'} — return None for specific commands (simulates timeout)
 """
 
 import pathlib
@@ -50,8 +54,15 @@ class SimulatedMotorBoard:
                  move_delay: float = 0.0, cmd_delay: float = 0.0,
                  timing: str = 'fast', firmware_version: str = '2.0.1',
                  motorconfig_defaults_file: pathlib.Path | None = None,
+                 fail_after: int | None = None,
+                 fail_on: set | None = None,
                  **kwargs):
         logger.info('[XYZ Sim   ] SimulatedMotorBoard.__init__()')
+
+        # Failure injection
+        self._fail_after = fail_after          # disconnect after N commands
+        self._fail_on = fail_on or set()       # return None for these commands
+        self._cmd_count = 0
 
         # Load hardware config (same defaults as real MotorBoard)
         if motorconfig_defaults_file is None:
@@ -162,6 +173,20 @@ class SimulatedMotorBoard:
                 except Exception:
                     return None
             if self.driver is None:
+                return None
+
+            # Failure injection: disconnect after N commands
+            self._cmd_count += 1
+            if self._fail_after is not None and self._cmd_count > self._fail_after:
+                logger.warning(f'[XYZ Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands')
+                self.driver = None
+                self.found = False
+                return None
+
+            # Failure injection: fail on specific commands
+            cmd_word = command.strip().split()[0] if command else ''
+            if cmd_word in self._fail_on:
+                logger.warning(f'[XYZ Sim   ] INJECTED FAILURE: timeout on {cmd_word}')
                 return None
 
             self._sim_delay()

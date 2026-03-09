@@ -8,6 +8,10 @@ and supports configurable delays to simulate real timing.
 Timing modes:
   'fast'      — zero delays (for tests)
   'realistic' — serial delays matching real hardware (~12ms per command)
+
+Failure injection (for testing error recovery):
+  fail_after=N      — disconnect after N commands (simulates USB cable pull)
+  fail_on={'LEDS_ENT'} — return None for specific commands (simulates timeout)
 """
 
 import threading
@@ -21,7 +25,10 @@ class SimulatedLEDBoard:
     TIMING_REALISTIC = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
     def __init__(self, delay: float = 0.0, timing: str = 'fast',
-                 firmware_version: str = '2.0.1', **kwargs):
+                 firmware_version: str = '2.0.1',
+                 fail_after: int | None = None,
+                 fail_on: set | None = None,
+                 **kwargs):
         logger.info('[LED Sim   ] SimulatedLEDBoard.__init__()')
         self.found = True
         self._lock = threading.RLock()
@@ -30,6 +37,11 @@ class SimulatedLEDBoard:
         self.driver = True  # truthy sentinel — not a real serial port
         self._delay = delay
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
+
+        # Failure injection
+        self._fail_after = fail_after          # disconnect after N commands
+        self._fail_on = fail_on or set()       # return None for these commands
+        self._cmd_count = 0
 
         # Apply timing preset (overrides delay if preset given)
         self.set_timing_mode(timing)
@@ -102,6 +114,20 @@ class SimulatedLEDBoard:
             if self.driver is None:
                 return None
 
+            # Failure injection: disconnect after N commands
+            self._cmd_count += 1
+            if self._fail_after is not None and self._cmd_count > self._fail_after:
+                logger.warning(f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands')
+                self.driver = None
+                self.found = False
+                return None
+
+            # Failure injection: fail on specific commands
+            cmd_word = command.strip().split('_')[0] if command else ''
+            if command.strip() in self._fail_on:
+                logger.warning(f'[LED Sim   ] INJECTED FAILURE: timeout on {command.strip()}')
+                return None
+
             self._sim_delay()
             response = f"RE: {command}"
             logger.debug(f'[LED Sim   ] exchange_command({command}) -> {response}')
@@ -116,6 +142,15 @@ class SimulatedLEDBoard:
                     return
             if self.driver is None:
                 return
+
+            # Failure injection (same as exchange_command)
+            self._cmd_count += 1
+            if self._fail_after is not None and self._cmd_count > self._fail_after:
+                logger.warning(f'[LED Sim   ] INJECTED FAILURE: disconnect after {self._fail_after} commands')
+                self.driver = None
+                self.found = False
+                return
+
             # No delay on fast path
             logger.debug(f'[LED Sim   ] _write_command_fast({command})')
 

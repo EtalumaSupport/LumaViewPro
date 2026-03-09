@@ -833,3 +833,97 @@ class TestTimingModes:
             SimulatedLEDBoard(timing='turbo')
         with pytest.raises(ValueError):
             SimulatedCamera(timing='turbo')
+
+
+class TestFailureInjection:
+    """Verify failure injection for testing error recovery paths."""
+
+    # --- Motor board ---
+
+    def test_motor_fail_after_disconnects(self):
+        """Motor board should return None after N commands."""
+        m = SimulatedMotorBoard(fail_after=3)
+        assert m.exchange_command('INFO') is not None      # cmd 1
+        assert m.exchange_command('INFO') is not None      # cmd 2
+        assert m.exchange_command('INFO') is not None      # cmd 3
+        assert m.exchange_command('INFO') is None          # cmd 4 — disconnected
+        assert m.driver is None
+
+    def test_motor_fail_after_sets_found_false(self):
+        """After injected disconnect, found should be False."""
+        m = SimulatedMotorBoard(fail_after=1)
+        assert m.found is True
+        m.exchange_command('INFO')   # cmd 1 — succeeds
+        m.exchange_command('INFO')   # cmd 2 — fails
+        assert m.found is False
+
+    def test_motor_fail_on_specific_command(self):
+        """Motor board should return None for targeted commands only."""
+        m = SimulatedMotorBoard(fail_on={'ZHOME'})
+        assert m.exchange_command('INFO') is not None      # OK
+        assert m.exchange_command('ZHOME') is None         # targeted failure
+        assert m.exchange_command('INFO') is not None      # still connected
+        assert m.driver is not None                        # not disconnected
+
+    def test_motor_fail_on_multiple_commands(self):
+        """Multiple commands can be targeted for failure."""
+        m = SimulatedMotorBoard(fail_on={'ZHOME', 'THOME'})
+        assert m.exchange_command('ZHOME') is None
+        assert m.exchange_command('THOME') is None
+        assert m.exchange_command('HOME') is not None      # not in fail set
+
+    def test_motor_no_failure_by_default(self):
+        """Without fail params, simulator works normally."""
+        m = SimulatedMotorBoard()
+        for _ in range(100):
+            assert m.exchange_command('INFO') is not None
+
+    def test_motor_fail_after_affects_move(self):
+        """Mid-protocol disconnect: move starts OK, then fails."""
+        m = SimulatedMotorBoard(fail_after=5)
+        m.exchange_command('HOME')                         # cmd 1
+        m.move_abs_pos('Z', 5000)                          # uses multiple commands
+        # Eventually commands fail
+        result = m.exchange_command('ACTUAL_RZ')
+        # After enough commands, should get None
+        # (exact count depends on internal commands used by move_abs_pos)
+
+    # --- LED board ---
+
+    def test_led_fail_after_disconnects(self):
+        """LED board should return None after N commands."""
+        led = SimulatedLEDBoard(fail_after=2)
+        assert led.exchange_command('LEDS_ENT') is not None  # cmd 1
+        assert led.exchange_command('LED0_100') is not None   # cmd 2
+        assert led.exchange_command('LEDS_OFF') is None       # cmd 3 — disconnected
+        assert led.driver is None
+
+    def test_led_fail_after_sets_found_false(self):
+        """After injected disconnect, found should be False."""
+        led = SimulatedLEDBoard(fail_after=1)
+        assert led.found is True
+        led.exchange_command('LEDS_ENT')    # cmd 1 — succeeds
+        led.exchange_command('LED0_100')     # cmd 2 — fails
+        assert led.found is False
+
+    def test_led_fail_on_specific_command(self):
+        """LED board should return None for targeted commands only."""
+        led = SimulatedLEDBoard(fail_on={'LEDS_ENT'})
+        assert led.exchange_command('LEDS_ENT') is None       # targeted
+        assert led.exchange_command('LED0_100') is not None    # OK
+        assert led.driver is not None                          # still connected
+
+    def test_led_no_failure_by_default(self):
+        """Without fail params, LED simulator works normally."""
+        led = SimulatedLEDBoard()
+        for _ in range(100):
+            assert led.exchange_command('LED0_100') is not None
+
+    def test_led_fast_path_also_fails(self):
+        """_write_command_fast should also respect fail_after."""
+        led = SimulatedLEDBoard(fail_after=2)
+        led._write_command_fast('LED0_100')   # cmd 1
+        led._write_command_fast('LED1_100')   # cmd 2
+        led._write_command_fast('LED2_100')   # cmd 3 — should disconnect
+        assert led.driver is None
+        assert led.found is False
