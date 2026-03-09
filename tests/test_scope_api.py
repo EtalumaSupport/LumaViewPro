@@ -286,12 +286,13 @@ class TestBlockWaitForThreads:
         config_helpers.block_wait_for_threads(futures)
 
     def test_logs_exceptions(self):
-        _mock_logger.reset_mock()
+        mock_log = MagicMock()
         f = Future()
         f.set_exception(ValueError("test error"))
-        config_helpers.block_wait_for_threads([f], log_loc="TEST")
-        _mock_logger.error.assert_called()
-        assert "test error" in str(_mock_logger.error.call_args)
+        with patch.object(config_helpers, 'logger', mock_log):
+            config_helpers.block_wait_for_threads([f], log_loc="TEST")
+        mock_log.error.assert_called()
+        assert "test error" in str(mock_log.error.call_args)
 
 
 class TestGetCurrentPlatePosition:
