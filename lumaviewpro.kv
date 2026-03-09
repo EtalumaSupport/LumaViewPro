@@ -63,6 +63,14 @@
             size: self.size
             radius: [dp(6)]
 
+# Fix checkbox visibility on macOS Metal backend (#466)
+<CheckBox>:
+    background_checkbox_normal: 'data/icons/checkbox_off.png'
+    background_checkbox_down: 'data/icons/checkbox_on.png'
+    background_radio_normal: 'data/icons/radio_off.png'
+    background_radio_down: 'data/icons/radio_on.png'
+    color: 1, 1, 1, 1
+
 # Rounded style for file/folder chooser buttons (extend Button in Python)
 <FileChooseBTN>:
     background_normal: ''
@@ -358,7 +366,7 @@
 
     RelativeLayout:
         size_hint: None, None
-        width: dp(60)
+        width: dp(30)
         height: dp(120)
         pos_hint: {'center_y': 0.5}
         ToggleButton:
@@ -371,8 +379,9 @@
             Image:
                 source: './data/icons/right_arrow_right_arc.png' if toggle_motionsettings.state == 'normal' else './data/icons/left_arrow_right_arc.png'
                 size_hint: None, None
-                size: dp(40), dp(60)
-                center: toggle_motionsettings.center
+                size: dp(30), dp(60)
+                center_y: toggle_motionsettings.center_y
+                right: toggle_motionsettings.right
 
 <VerticalControl>:
 	orientation: 'vertical'
@@ -1881,7 +1890,7 @@
     orientation: 'horizontal'
     RelativeLayout:
         size_hint: None, None
-        width: dp(60)
+        width: dp(30)
         height: dp(120)
         pos_hint: {'center_y': 0.5}
         ToggleButton:
@@ -1894,8 +1903,9 @@
             Image:
                 source: './data/icons/left_arrow_left_arc.png' if toggle_imagesettings.state == 'normal' else './data/icons/right_arrow_left_arc.png'
                 size_hint: None, None
-                size: dp(40), dp(60)
-                center: toggle_imagesettings.center
+                size: dp(30), dp(60)
+                center_y: toggle_imagesettings.center_y
+                x: toggle_imagesettings.x
 
     Accordion:
         orientation: 'vertical'

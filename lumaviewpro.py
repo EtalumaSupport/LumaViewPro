@@ -2893,7 +2893,7 @@ class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
 
 class MotionSettings(BoxLayout):
     settings_width = dp(300)
-    tab_width = dp(60)
+    tab_width = dp(30)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -4275,7 +4275,7 @@ void main (void) {
 
 class ImageSettings(BoxLayout):
     settings_width = dp(300)
-    tab_width = dp(60)
+    tab_width = dp(30)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
