@@ -17,7 +17,7 @@ import datetime
 from unittest.mock import MagicMock
 
 # Add parent directory to path so we can import project modules
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
 # Mock modules not needed for headless simulate mode
 _mock_logger = MagicMock()
