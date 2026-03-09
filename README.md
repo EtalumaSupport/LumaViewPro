@@ -44,7 +44,9 @@ To run from source on any platform (Windows, macOS, or Linux), use the install s
 
 - **Python**: 3.11, 3.12, or 3.13
 - **Camera SDK**: [Basler Pylon](https://docs.baslerweb.com/pylon-software-suite) (included in the Windows installer, must be installed separately when running from source)
-- **OS**: Windows 10/11, macOS (Intel + Apple Silicon), Linux
+- **OS**: Windows 10/11, macOS, Linux (see note below)
+
+**macOS note:** Basler Pylon only supports specific macOS versions. As of March 2026, supported versions are macOS 11, 12, 13, and 14 (Intel and ARM 64-bit). Check the [Basler Pylon page](https://www.baslerweb.com/en-us/software/pylon/) for the latest compatibility information.
 
 ## Installation from Source
 
@@ -225,7 +227,9 @@ sudo usermod -a -G dialout $USER
 
 ## Support
 
-To report bugs or request features, please open an issue on [GitHub Issues](https://github.com/EtalumaSupport/LumaViewPro/issues).
+To report bugs or request features, please open an issue on [GitHub Issues](https://github.com/EtalumaSupport/LumaViewPro/issues). Please include your LumaViewPro version and, if possible, attach a zipped copy of your logs folder:
+- **Windows (installed):** `Documents\LumaViewPro {version}\logs\`
+- **Running from source:** `logs\` in the LumaViewPro folder
 
 ## License
 
