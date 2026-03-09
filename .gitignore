@@ -5,9 +5,7 @@ data/current.json
 .spyproject/
 .pytest_cache/
 calls.txt
-logs/LVP_Log*
-logs/profile/*
-logs/profiling/*
+logs/
 capture/
 script_testing.py
 venv*/
