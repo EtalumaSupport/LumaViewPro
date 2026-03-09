@@ -31,16 +31,6 @@
         "Z": 25,
         "T": 0
     },
-    "LEDChannel": {
-        "Ch0": "BF",
-        "Ch1": "IPC Phase",
-        "Ch2": "Ext Phase",
-        "Ch3": "DAPI",
-        "Ch4": "FITC",
-        "Ch5": "TexasRed",
-        "Ch6": "None",
-        "Ch7": "None"
-    },
     "TurretPosition": {
         "1": 0,
         "2": 80000,

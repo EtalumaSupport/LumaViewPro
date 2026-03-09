@@ -108,17 +108,6 @@ class MotorConfig:
             return 0
         return int(val)
 
-    # --- LED channel names ---
-
-    def led_channel_name(self, channel_index: int) -> str:
-        section = self._config.get("LEDChannel")
-        if section is None:
-            return "Unknown"
-        val = section.get(f"Ch{channel_index}")
-        if val is None:
-            return "Unknown"
-        return val
-
     # --- Optics ---
 
     def lens_focal_length(self) -> float:
