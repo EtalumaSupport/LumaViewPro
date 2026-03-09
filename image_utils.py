@@ -15,6 +15,14 @@ from fractions import Fraction
 
 from lvp_logger import logger, version
 
+# Pre-built lookup tables for bit-depth conversion (built once at import, ~4 KB each)
+# Using the same float math as the original per-pixel conversion ensures identical results.
+_LUT_12_TO_8 = np.clip(
+    np.arange(4096, dtype=np.float32) / 4095 * 255, 0, 255
+).astype(np.uint8)
+
+_LUT_16_TO_8 = (np.arange(65536, dtype=np.float64) / 256).astype(np.uint8)
+
 # Conversion to tifffile's desired datatype references
 tifffile_dtypes = {
     'BYTE': 1,
@@ -128,7 +136,7 @@ def convert_12bit_to_8bit(image):
     if image.dtype == 'uint8':
         return image
 
-    return np.clip(image.astype(np.float32) / 4095 * 255, 0, 255).astype(np.uint8)
+    return _LUT_12_TO_8[image]
 
 
 def convert_12bit_to_16bit(image):
@@ -143,8 +151,7 @@ def convert_16bit_to_8bit(image):
     if image.dtype == 'uint8':
         return image
 
-    new_image = image.copy()
-    return (new_image/256).astype('uint8')
+    return _LUT_16_TO_8[image]
 
 @enum.unique
 class LvpColormap(enum.Enum):
