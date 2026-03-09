@@ -1238,7 +1238,7 @@ class SequencedCaptureExecutor:
                         return
                     finally:
                         self._video_write_finished.set()
-                        stop_event.set()
+                        self._stim_stop_event.set()
 
                     if "reset_title" in self._callbacks:
                         Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
@@ -1246,7 +1246,7 @@ class SequencedCaptureExecutor:
                     logger.info("Protocol-Video] Video writing finished.")
                     logger.info(f"Protocol-Video] Video saved at {output_file_loc}")
 
-                    stop_event.set()
+                    self._stim_stop_event.set()
                     self._scope.leds_off()
                     
                     
@@ -1339,111 +1339,111 @@ class SequencedCaptureExecutor:
                 if "set_writing_title" in self._callbacks:
                     Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=0), 0)
 
-                if video_as_frames:
-                    frame_num = 0
-                    capture_result = save_folder
-                    if not save_folder.exists():
-                        save_folder.mkdir(exist_ok=True, parents=True)
+                try:
+                    if video_as_frames:
+                        frame_num = 0
+                        capture_result = save_folder
+                        if not save_folder.exists():
+                            save_folder.mkdir(exist_ok=True, parents=True)
 
-                    while not video_images.empty():
-
-                        progress = frame_num / captured_frames * 100
-                        if "set_writing_title" in self._callbacks:
-                            Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=progress), 0)
-
-                        image_pair = video_images.get_nowait()
-                        frame_num += 1
-
-                        image = image_pair[0]
-                        ts = image_pair[1]
-
-                        del image_pair
-
-                        ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-
-                        image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
-
-                        del image
-                        video_images.task_done()
-
-                        frame_name = f"{name}_Frame_{frame_num:04}"
-
-                        output_file_loc = save_folder / f"{frame_name}.tiff"
-
-                        metadata = {
-                            "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
-                            "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
-                            "frame_num": frame_num
-                        }
-                        
-                        try:
-                            image_utils.write_tiff(
-                                data=image_w_timestamp,
-                                metadata=metadata,
-                                file_loc=output_file_loc,
-                                video_frame=True,
-                                ome=False,
-                                color=step['Color']
-                            )
-                        except Exception as e:
-                            logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
-
-                    # Ensure queue is fully drained before deletion
-                    try:
                         while not video_images.empty():
-                            video_images.get_nowait()
-                            video_images.task_done()
-                    except Exception:
-                        pass
-                    # Queue is not empty, delete it and force garbage collection
-                    del video_images
-                    gc.collect()
 
-                        
+                            progress = frame_num / max(1, captured_frames) * 100
+                            if "set_writing_title" in self._callbacks:
+                                Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=progress), 0)
 
-                else:
-                    output_file_loc = save_folder / f"{name}.mp4v"
-                    video_writer = VideoWriter(
-                        output_file_loc=output_file_loc,
-                        fps=calculated_fps,
-                        include_timestamp_overlay=True
-                    )
-                    frame_num = 0
-                    while not video_images.empty():
-                        progress = frame_num / captured_frames * 100
-                        if "set_writing_title" in self._callbacks:
-                            Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=progress), 0)
-
-                        try:
                             image_pair = video_images.get_nowait()
-                            video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
-                            del image_pair
-                            video_images.task_done()
                             frame_num += 1
-                        except Exception as e:
-                            logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
 
-                    # Ensure queue is fully drained before deletion
-                    try:
-                        while not video_images.empty():
-                            video_images.get_nowait()
+                            image = image_pair[0]
+                            ts = image_pair[1]
+
+                            del image_pair
+
+                            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+                            image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
+
+                            del image
                             video_images.task_done()
-                    except Exception:
-                        pass
-                    # Video images queue empty. Delete it and force garbage collection
-                    del video_images
 
-                    video_writer.finish()
-                    #video_writer.test_video(str(output_file_loc))
-                    del video_writer
-                    gc.collect()
-                    
-                    capture_result = output_file_loc
+                            frame_name = f"{name}_Frame_{frame_num:04}"
 
-                self._video_write_finished.set()
+                            output_file_loc = save_folder / f"{frame_name}.tiff"
+
+                            metadata = {
+                                "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
+                                "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
+                                "frame_num": frame_num
+                            }
+
+                            try:
+                                image_utils.write_tiff(
+                                    data=image_w_timestamp,
+                                    metadata=metadata,
+                                    file_loc=output_file_loc,
+                                    video_frame=True,
+                                    ome=False,
+                                    color=step['Color']
+                                )
+                            except Exception as e:
+                                logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
+
+                        # Ensure queue is fully drained before deletion
+                        try:
+                            while not video_images.empty():
+                                video_images.get_nowait()
+                                video_images.task_done()
+                        except Exception:
+                            pass
+                        del video_images
+                        gc.collect()
+
+
+                    else:
+                        output_file_loc = save_folder / f"{name}.mp4v"
+                        video_writer = VideoWriter(
+                            output_file_loc=output_file_loc,
+                            fps=calculated_fps,
+                            include_timestamp_overlay=True
+                        )
+                        try:
+                            frame_num = 0
+                            while not video_images.empty():
+                                progress = frame_num / max(1, captured_frames) * 100
+                                if "set_writing_title" in self._callbacks:
+                                    Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=progress), 0)
+
+                                try:
+                                    image_pair = video_images.get_nowait()
+                                    video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
+                                    del image_pair
+                                    video_images.task_done()
+                                    frame_num += 1
+                                except Exception as e:
+                                    logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
+                        finally:
+                            video_writer.finish()
+                            del video_writer
+
+                        # Ensure queue is fully drained before deletion
+                        try:
+                            while not video_images.empty():
+                                video_images.get_nowait()
+                                video_images.task_done()
+                        except Exception:
+                            pass
+                        del video_images
+                        gc.collect()
+
+                        capture_result = output_file_loc
+
+                finally:
+                    self._video_write_finished.set()
+
                 if "reset_title" in self._callbacks:
                     Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
-                
+
                 logger.info("Protocol-Video] Video writing finished.")
                 logger.info(f"Protocol-Video] Video saved at {capture_result}")
             

@@ -126,13 +126,18 @@ class VideoWriter:
         # mp4v codec only supports 8-bit — convert if needed (#424)
         if image.dtype != np.uint8:
             image = image_utils.convert_16bit_to_8bit(image) if image.dtype == np.uint16 else image.astype(np.uint8)
-        self._video.write(image)
+        success = self._video.write(image)
+        if success is False:
+            logger.error("VideoWriter: cv2.VideoWriter.write() returned failure — frame may be lost")
 
-    
+
     def finish(self):
         if self._video is not None:
             cv2.destroyAllWindows()
-            self._video.release()
+            try:
+                self._video.release()
+            except Exception as e:
+                logger.error(f"VideoWriter: release() failed — video file may be corrupt: {e}")
         else:
             logger.warning("VideoWriter.finish() called without adding any frames. No video file was created.")
 

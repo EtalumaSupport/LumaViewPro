@@ -95,6 +95,9 @@ class AutofocusExecutor:
 
         range = self._objective['AF_range']
 
+        if range <= 0:
+            raise ValueError(f"AF_range must be positive, got {range}")
+
         z_min = max(0, center-range)
         z_max = center+range
         resolution = self._objective['AF_max']
@@ -295,6 +298,16 @@ class AutofocusExecutor:
             self._af_data_pass = []
 
             df = pd.DataFrame(self._af_data_full)
+
+            # Detect degenerate focus curve (all zeros, all NaN, or flat)
+            scores = df['score']
+            if scores.max() == 0 or scores.isna().all():
+                logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) — aborting, keeping current Z position")
+                self._is_focusing = False
+                self._is_complete = True
+                self._best_focus_position = self._params['center']
+                return
+
             best_focus_position = self._find_best(df=df)
 
             if self._last_pass:
