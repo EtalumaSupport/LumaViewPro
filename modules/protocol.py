@@ -928,11 +928,14 @@ class Protocol:
             config=config
         )
 
-        # Validate step fields and log warnings
+        # Validate step fields — reject protocol if any errors found
         validation_errors = protocol.validate_steps()
         if validation_errors:
             for err in validation_errors:
-                logger.warning(f"Protocol validation: {err}")
+                logger.error(f"Protocol validation: {err}")
+            raise ProtocolFormatError(
+                f"Protocol has {len(validation_errors)} validation error(s): {validation_errors[0]}"
+            )
 
         return protocol
 

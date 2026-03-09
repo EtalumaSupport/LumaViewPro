@@ -2,6 +2,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import re
+import time
 from lvp_logger import logger
 from serialboard import SerialBoard
 
@@ -68,11 +69,15 @@ class LEDBoard(SerialBoard):
         command = 'STATUS'
         return self.exchange_command(command)
 
-    def wait_until_on(self):
+    def wait_until_on(self, timeout: float = 5.0):
         # Waits in loop until ledboard confirms that an LED is on (not turned off)
 
+        deadline = time.monotonic() + timeout
         status = self.get_status()
         while status is None or "STATUS" not in status:
+            if time.monotonic() > deadline:
+                logger.warning(f"[LED] wait_until_on() timed out after {timeout}s")
+                return
             status = self.get_status()
 
     def get_led_ma(self, color):

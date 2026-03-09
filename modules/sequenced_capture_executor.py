@@ -1670,8 +1670,7 @@ class SequencedCaptureExecutor:
                     if remaining > 0.003:
                         time.sleep(remaining - 0.002)
                     else:
-                        # short busy-wait to reduce jitter
-                        pass
+                        time.sleep(0.0001)  # yield CPU instead of busy-wait
 
                 led_on_fast()
 
@@ -1686,7 +1685,7 @@ class SequencedCaptureExecutor:
                     if remaining > 0.003:
                         time.sleep(remaining - 0.002)
                     else:
-                        pass
+                        time.sleep(0.0001)  # yield CPU instead of busy-wait
 
                 led_off_fast()
 
@@ -1699,7 +1698,7 @@ class SequencedCaptureExecutor:
                     if remaining > 0.003:
                         time.sleep(remaining - 0.002)
                     else:
-                        pass
+                        time.sleep(0.0001)  # yield CPU instead of busy-wait
 
         finally:
             if sys.platform.startswith('win') and time_period_set:

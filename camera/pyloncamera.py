@@ -25,6 +25,12 @@ class PylonCamera(Camera):
 
         super().__init__()
 
+    def _mark_disconnected(self):
+        """Atomically mark camera as disconnected. Sets both flags together
+        to avoid inconsistent state between _device_removed and active."""
+        self._device_removed = True
+        self.active = None
+
     def _get_max_exposure_models(self) -> dict:
         return {
             "daA3840-45um": 1_000,
@@ -221,8 +227,7 @@ class PylonCamera(Camera):
             return temps
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Failed to read camera temperatures: {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
             return {}
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
@@ -246,8 +251,7 @@ class PylonCamera(Camera):
                 self.set_frame_size(w=1900, h=1900)
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during init_camera_config: {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in init_camera_config: {e}')
 
@@ -273,8 +277,7 @@ class PylonCamera(Camera):
             return True
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during set_pixel_format({pixel_format}): {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
             return False
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in set_pixel_format: {e}')
@@ -289,8 +292,7 @@ class PylonCamera(Camera):
             return self.active.PixelFormat.GetValue()
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Failed to read pixel format: Camera may be disconnected - {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
             return ""
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error reading pixel format: {e}')
@@ -322,8 +324,7 @@ class PylonCamera(Camera):
             return True
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during set_binning_size({size}): {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
             return False
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in set_binning_size: {e}')
@@ -344,8 +345,7 @@ class PylonCamera(Camera):
             return vert_bin
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Failed to read binning size: Camera may be disconnected - {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
             return 1
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error reading binning size: {e}')
@@ -376,8 +376,7 @@ class PylonCamera(Camera):
             self.active.AutoFunctionProfile.SetValue('MinimizeExposureTime')
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during init_auto_gain_focus: {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in init_auto_gain_focus: {e}')
 
@@ -388,8 +387,7 @@ class PylonCamera(Camera):
                 self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during update_auto_gain_target_brightness({auto_target_brightness}): {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in update_auto_gain_target_brightness: {e}')
 
@@ -410,8 +408,7 @@ class PylonCamera(Camera):
                 self.active.AutoGainUpperLimit.SetValue(max_gain)
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during update_auto_gain_min_max(min={min_gain}, max={max_gain}): {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in update_auto_gain_min_max: {e}')
 
@@ -488,8 +485,7 @@ class PylonCamera(Camera):
             logger.info(f'[CAM Class ] Frame size set to {width}x{height}')
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during set_frame_size({w}x{h}): {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in set_frame_size: {e}')
 
@@ -531,8 +527,7 @@ class PylonCamera(Camera):
             }
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Failed to read frame size: Camera may be disconnected - {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
             return None
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error reading frame size: {e}')
@@ -548,8 +543,7 @@ class PylonCamera(Camera):
             return float(self.active.Gain.GetValue())
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Failed to read gain value: Camera may be disconnected - {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
             return -1
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error reading gain: {e}')
@@ -561,10 +555,10 @@ class PylonCamera(Camera):
         Avoids transport-layer enumeration to reduce risk of native-side instability.
         """
         if self._device_removed:
-            self.active = None
+            self._mark_disconnected()
             return False
         if self.active is None:
-            self._device_removed = True
+            self._mark_disconnected()
             return False
         # if getattr(self, "_use_camera_emulation", False):
         #     return True
@@ -591,8 +585,7 @@ class PylonCamera(Camera):
             logger.info(f'[CAM Class ] Gain set to {gain}')
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during gain({gain}): {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in gain: {e}')
 
@@ -623,8 +616,7 @@ class PylonCamera(Camera):
             logger.info(f'[CAM Class ] Auto gain {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Auto gain({state}) failed: {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in auto_gain: {e}')
 
@@ -654,8 +646,7 @@ class PylonCamera(Camera):
             logger.info(f'[CAM Class ] Auto gain once {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Auto gain once({state}) failed: {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in auto_gain_once: {e}')
             
@@ -676,8 +667,7 @@ class PylonCamera(Camera):
             logger.info(f'[CAM Class ] Exposure set to {t}ms')
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during exposure_t({t}ms): {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in exposure_t: {e}')
 
@@ -696,8 +686,7 @@ class PylonCamera(Camera):
             return millisec
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Failed to read exposure time: Camera may be disconnected - {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
             return -1
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error reading exposure time: {e}')
@@ -720,8 +709,7 @@ class PylonCamera(Camera):
             logger.info(f'[CAM Class ] Auto exposure {"enabled" if state else "disabled"}')
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Auto exposure({state}) failed: {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in auto_exposure_t: {e}')
 
@@ -735,8 +723,7 @@ class PylonCamera(Camera):
             self.grab()
         except genicam.RuntimeException as e:
             logger.error(f'[CAM Class ] Camera communication error during set_test_pattern({pattern}): {e}')
-            self._device_removed = True
-            self.active = None
+            self._mark_disconnected()
         except Exception as e:
             logger.exception(f'[CAM Class ] Unexpected error in set_test_pattern: {e}')
 
