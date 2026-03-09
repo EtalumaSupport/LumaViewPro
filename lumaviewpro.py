@@ -319,9 +319,9 @@ if __name__ == "__main__":
 
 
     # User Interface Custom Widgets
-    from custom_widgets.range_slider import RangeSlider
-    from custom_widgets.progress_popup import show_popup
-    from custom_widgets.notification_popup import show_notification_popup, show_confirmation_popup, show_confirmation_w_ack_popup
+    from ui.range_slider import RangeSlider
+    from ui.progress_popup import show_popup
+    from ui.notification_popup import show_notification_popup, show_confirmation_popup, show_confirmation_w_ack_popup
 
 
     import image_utils_kivy
@@ -9832,8 +9832,7 @@ def process_ij_helper():
 # ============================================================================
 
 class LumaViewProApp(App):
-
-
+    kv_file = 'ui/lumaviewpro.kv'
 
     def on_start(self):
         global _app_initializing
