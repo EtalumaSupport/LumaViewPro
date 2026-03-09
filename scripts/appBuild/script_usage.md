@@ -41,7 +41,7 @@ wix --version
 Expected output: `v6.x.x` or similar
 
 **Note about WiX BAL extension:**
-The WiX Bootstrapper Application Library (BAL) extension required for Bundle creation is **automatically included** in the `scripts/build_exe/deps/` folder. The build script will use this bundled extension automatically. No manual installation is required.
+The WiX Bootstrapper Application Library (BAL) extension required for Bundle creation is **automatically included** in the `build_exe/deps/` folder. The build script will use this bundled extension automatically. No manual installation is required.
 
 ### 2. Python & PyInstaller
 - Python 3.x must be installed and in PATH
@@ -78,7 +78,7 @@ Download these and note their file paths for configuration.
 ## Initial Configuration
 
 ### 1. Configure Dependency Paths
-Edit `scripts/config/build_dependencies.json` to specify paths to external MSI files:
+Edit `config/build_dependencies.json` to specify paths to external MSI files:
 
 ```json
 {
@@ -96,7 +96,7 @@ Edit `scripts/config/build_dependencies.json` to specify paths to external MSI f
 - If paths are configured and valid, you won't be prompted during build
 
 **WiX BAL Extension Priority:**
-1. **Bundled** - Uses `scripts/build_exe/deps/WixToolset.BootstrapperApplications.wixext.dll` (default)
+1. **Bundled** - Uses `build_exe/deps/WixToolset.BootstrapperApplications.wixext.dll` (default)
 2. **Config** - Uses custom path from `wix_bal_extension` field if specified
 3. **Package Manager** - Falls back to `wix extension add` if neither above are available
 
@@ -122,7 +122,7 @@ If you encounter WiX argument parsing errors, this is likely the cause.
 Navigate to the scripts directory and run:
 
 ```powershell
-cd C:\Path\To\LumaViewPro\scripts
+cd C:\Path\To\LumaViewPro\scripts\appBuild
 .\build_win_release.ps1
 ```
 
@@ -164,7 +164,7 @@ The script will prompt you for:
 After a successful build, you'll find:
 
 ```
-scripts/
+scripts/appBuild/
 ├── tmp/                              # Temporary build files (can be deleted)
 │   ├── LumaViewPro-X.X.X/           # Cloned repository
 │   └── artifacts/                    # Source archives (if -CreateZip used)
@@ -215,9 +215,9 @@ Then restart your PowerShell session.
 **Solution:** Check the `version.txt` file in the branch you're building and enter that exact version.
 
 ### Error: "Apache Maven not found"
-**Cause:** The `scripts/build_exe/deps/apache-maven-3.9.8` directory doesn't exist.
+**Cause:** The `build_exe/deps/apache-maven-3.9.8` directory doesn't exist.
 
-**Solution:** Download Apache Maven 3.9.8 and extract it to `scripts/build_exe/deps/apache-maven-3.9.8/`
+**Solution:** Download Apache Maven 3.9.8 and extract it to `build_exe/deps/apache-maven-3.9.8/`
 
 ### Bundle Creation Skipped
 **Cause:** Either Pylon or Corretto MSI path is missing or invalid.
@@ -231,7 +231,7 @@ Then restart your PowerShell session.
 **Cause:** The bundled WiX BAL extension in deps folder is missing or corrupted.
 
 **Solution:** 
-1. Verify `scripts/build_exe/deps/WixToolset.BootstrapperApplications.wixext.dll` exists
+1. Verify `build_exe/deps/WixToolset.BootstrapperApplications.wixext.dll` exists
 2. If missing, re-download or copy from a working WiX 6.x installation
 3. Alternatively, specify a custom extension path in `config/build_dependencies.json`:
    ```json
@@ -268,7 +268,7 @@ The script creates `exe_artifacts` in the directory where `build_win_release.ps1
 2. Run from there
 
 ### Build Configuration
-The WiX files are located in `scripts/build_exe/wix/`:
+The WiX files are located in `build_exe/wix/`:
 - `Package.wxs` - MSI package configuration
 - `Bundle.wxs` - Bundle installer configuration
 - `Folders.wxs` - Installation directory structure
@@ -304,5 +304,5 @@ Modify these files to customize:
 ```
 
 **Main outputs:**
-- MSI: `scripts/exe_artifacts/package/LumaViewPro-X.X.X.msi`
-- Bundle: `scripts/exe_artifacts/bundle/LumaViewPro-X.X.X-setup.exe`
+- MSI: `exe_artifacts/package/LumaViewPro-X.X.X.msi`
+- Bundle: `exe_artifacts/bundle/LumaViewPro-X.X.X-setup.exe`

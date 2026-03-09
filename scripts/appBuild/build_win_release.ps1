@@ -147,7 +147,7 @@ if ($CreateZip) {
 
 echo "Generating .exe..."
 Set-Location -Path $repo_dir
-Copy-Item '.\scripts\config\lumaviewpro_win_release.spec' '.\lumaviewpro.spec'
+Copy-Item '.\scripts\appBuild\config\lumaviewpro_win_release.spec' '.\lumaviewpro.spec'
 pyinstaller --log-level INFO .\lumaviewpro.spec
 
 
