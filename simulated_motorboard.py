@@ -10,17 +10,14 @@ Timing modes:
   'realistic' — serial delays and speed-limited movement matching real hardware
 """
 
+import pathlib
 import threading
 import time
 from lvp_logger import logger
+from modules.motorconfig import MotorConfig
 
 
 class SimulatedMotorBoard:
-
-    # Conversion constants (same as real MotorBoard)
-    Z_USTEP_PER_MM = 170667
-    XY_USTEP_PER_MM = 20157
-    T_USTEP_PER_DEG = 80000.0 / 90.0
 
     # Axis speeds in usteps/sec (realistic values for Etaluma hardware)
     AXIS_SPEEDS = {
@@ -52,12 +49,18 @@ class SimulatedMotorBoard:
     def __init__(self, model: str = 'LS720T', serial_number: str = 'SIM-001',
                  move_delay: float = 0.0, cmd_delay: float = 0.0,
                  timing: str = 'fast', firmware_version: str = '2.0.1',
+                 motorconfig_defaults_file: pathlib.Path | None = None,
                  **kwargs):
         logger.info('[XYZ Sim   ] SimulatedMotorBoard.__init__()')
 
+        # Load hardware config (same defaults as real MotorBoard)
+        if motorconfig_defaults_file is None:
+            motorconfig_defaults_file = pathlib.Path("data/motorconfig_defaults.json")
+        self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
+
         self.found = True
         self.overshoot = False
-        self.backlash = 25
+        self.backlash = self.motorconfig.antibacklash_um('Z')
         self._has_turret = model.endswith('T')
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
@@ -84,15 +87,15 @@ class SimulatedMotorBoard:
 
         self.axes_config = {
             'Z': {
-                'limits': {'min': 0., 'max': 14000.},
+                'limits': {'min': 0., 'max': self.motorconfig.travel_limit_um('Z')},
                 'move_func': self.z_um2ustep
             },
             'X': {
-                'limits': {'min': 0., 'max': 120000.},
+                'limits': {'min': 0., 'max': self.motorconfig.travel_limit_um('X')},
                 'move_func': self.xy_um2ustep
             },
             'Y': {
-                'limits': {'min': 0., 'max': 80000.},
+                'limits': {'min': 0., 'max': self.motorconfig.travel_limit_um('Y')},
                 'move_func': self.xy_um2ustep
             },
             'T': {
@@ -304,28 +307,33 @@ class SimulatedMotorBoard:
     # Conversion functions (identical to real MotorBoard)
     # ------------------------------------------------------------------
     def z_ustep2um(self, ustep):
-        return ustep * 1000 / self.Z_USTEP_PER_MM
+        return ustep * 1000 / self.motorconfig.usteps_per_mm('Z')
 
     def z_um2ustep(self, um):
-        return int(self.Z_USTEP_PER_MM * um / 1000)
+        return int(self.motorconfig.usteps_per_mm('Z') * um / 1000)
 
     def xy_ustep2um(self, ustep):
-        return ustep * 1000 / self.XY_USTEP_PER_MM
+        return ustep * 1000 / self.motorconfig.usteps_per_mm('X')
 
     def xy_um2ustep(self, um):
-        return int(self.XY_USTEP_PER_MM * um / 1000)
+        return int(self.motorconfig.usteps_per_mm('X') * um / 1000)
 
     def t_ustep2deg(self, ustep):
-        return 90.0 / 80000.0 * ustep
+        usteps_per_90deg = self.motorconfig.usteps_per_mm('T')
+        return 90.0 / usteps_per_90deg * ustep
 
     def t_ustep2pos(self, ustep):
         return int(self.t_ustep2deg(ustep) / 90) + 1
 
     def t_deg2ustep(self, degrees):
-        return int(degrees * 80000.0 / 90.0)
+        usteps_per_90deg = self.motorconfig.usteps_per_mm('T')
+        return int(degrees * usteps_per_90deg / 90.0)
 
     def t_pos2ustep(self, position):
-        return self.t_deg2ustep(90 * (position - 1))
+        usteps = self.motorconfig.turret_position_usteps(position)
+        if usteps == 0 and position > 1:
+            return self.t_deg2ustep(90 * (position - 1))
+        return usteps
 
     # ------------------------------------------------------------------
     # Homing

@@ -1,0 +1,49 @@
+{
+    "Microscope": "LS850T",
+    "Serial Number": "Unknown",
+    "Mainboard": "EL-0940-01 Integrated Mainboard",
+    "Axis Present": {
+        "X": 1,
+        "Y": 1,
+        "Z": 1,
+        "T": 1
+    },
+    "Axis Microsteps per mm / Objective": {
+        "X": 20157,
+        "Y": 20157,
+        "Z": 170666,
+        "T": 80000
+    },
+    "Axis Travel Limit": {
+        "X": 120,
+        "Y": 80,
+        "Z": 14,
+        "T": 360
+    },
+    "Axis antibacklash": {
+        "X": 0,
+        "Y": 0,
+        "Z": 25,
+        "T": 0
+    },
+    "LEDChannel": {
+        "Ch0": "BF",
+        "Ch1": "IPC Phase",
+        "Ch2": "Ext Phase",
+        "Ch3": "DAPI",
+        "Ch4": "FITC",
+        "Ch5": "TexasRed",
+        "Ch6": "None",
+        "Ch7": "None"
+    },
+    "TurretPosition": {
+        "1": 0,
+        "2": 80000,
+        "3": 160000,
+        "4": 240000
+    },
+    "Optics": {
+        "LensFocalLength": 47.8,
+        "PixelSize": 2.0
+    }
+}

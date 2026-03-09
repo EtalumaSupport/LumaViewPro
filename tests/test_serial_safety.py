@@ -42,8 +42,12 @@ sys.modules.setdefault('requests', MagicMock())
 sys.modules.setdefault('requests.structures', MagicMock())
 
 # Now safe to import
+import pathlib
 from ledboard import LEDBoard
 from motorboard import MotorBoard
+from modules.motorconfig import MotorConfig
+
+_MOTORCONFIG_DEFAULTS = pathlib.Path("data/motorconfig_defaults.json")
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +263,7 @@ class TestMotorBoardSafety:
         """Create a MotorBoard with a mock serial driver."""
         # MotorBoard imported at module level
         board = MotorBoard.__new__(MotorBoard)
+        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
         board.overshoot = False
         board.backlash = 25
@@ -593,6 +598,7 @@ class TestMotorBoardCommands:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
+        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
         board.overshoot = False
         board.backlash = 25
@@ -696,6 +702,7 @@ class TestMotorBoardHoming:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
+        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
         board.overshoot = False
         board.backlash = 25
@@ -776,6 +783,7 @@ class TestMotorBoardFullinfo:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
+        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
         board.overshoot = False
         board.backlash = 25
@@ -847,6 +855,7 @@ class TestMotorBoardConversions:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
+        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         return board
 
     def test_z_roundtrip(self):
@@ -874,12 +883,12 @@ class TestMotorBoardConversions:
             assert pos == pos_back, f"Turret roundtrip failed for pos {pos}: got {pos_back}"
 
     def test_z_known_values(self):
-        """Spot check Z conversion against known ratio (170667 ustep/mm)."""
+        """Spot check Z conversion against known ratio (170666 ustep/mm)."""
         board = self._make_board()
-        # 1mm = 1000um -> 170667 usteps
-        assert board.z_um2ustep(1000) == 170667
-        # 170667 usteps -> 1000um
-        assert abs(board.z_ustep2um(170667) - 1000) < 0.01
+        # 1mm = 1000um -> 170666 usteps (from motorconfig_defaults.json)
+        assert board.z_um2ustep(1000) == 170666
+        # 170666 usteps -> 1000um
+        assert abs(board.z_ustep2um(170666) - 1000) < 0.01
 
     def test_xy_known_values(self):
         """Spot check XY conversion against known ratio (20157 ustep/mm)."""
@@ -903,6 +912,7 @@ class TestMotorBoardMovement:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
+        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
         board.overshoot = False
         board.backlash = 25
@@ -1106,6 +1116,7 @@ class TestMotorFirmwareVersion:
 
     def _make_board(self):
         board = MotorBoard.__new__(MotorBoard)
+        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
         board.overshoot = False
         board.backlash = 25

@@ -1,11 +1,13 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import pathlib
 import time
 import lvp_logger
 from lvp_logger import logger
 
 from serialboard import SerialBoard
+from modules.motorconfig import MotorConfig
 
 
 class MotorBoard(SerialBoard):
@@ -13,14 +15,19 @@ class MotorBoard(SerialBoard):
     #----------------------------------------------------------
     # Initialize connection through microcontroller
     #----------------------------------------------------------
-    def __init__(self, **kwargs):
+    def __init__(self, motorconfig_defaults_file: pathlib.Path | None = None, **kwargs):
         self.overshoot = False
-        self.backlash = 25 # um of additional downlaod travel in z for drive hysterisis
         self._has_turret = False
         self.initial_homing_complete = False
         self.initial_t_homing_complete = False
         self._fullinfo = None
         self._connect_fails = 0
+
+        # Load hardware config (per-unit values from motorconfig.json, with defaults fallback)
+        if motorconfig_defaults_file is None:
+            motorconfig_defaults_file = pathlib.Path("data/motorconfig_defaults.json")
+        self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
+        self.backlash = self.motorconfig.antibacklash_um('Z')
 
         super().__init__(vid=0x2E8A, pid=0x0005, label='[XYZ Class ]',
                          timeout=30, write_timeout=5)
@@ -32,21 +39,21 @@ class MotorBoard(SerialBoard):
             'Z': {
                 'limits': {
                     'min': 0.,
-                    'max': 14000.,
+                    'max': self.motorconfig.travel_limit_um('Z'),
                 },
                 'move_func': self.z_um2ustep
             },
             'X': {
                 'limits': {
                     'min': 0.,
-                    'max': 120000.,
+                    'max': self.motorconfig.travel_limit_um('X'),
                 },
                 'move_func': self.xy_um2ustep
             },
             'Y': {
                 'limits': {
                     'min': 0.,
-                    'max': 80000.,
+                    'max': self.motorconfig.travel_limit_um('Y'),
                 },
                 'move_func': self.xy_um2ustep
             },
@@ -259,13 +266,13 @@ class MotorBoard(SerialBoard):
     # Stock actuator = 0.30 mm pitch.  (1 rev/0.30 mm) x (200 steps/rev) x (256 usteps/step) = 170667 ustep/mm
     #----------------------------------------------------------
     def z_ustep2um(self, ustep):
-        # logger.info('[XYZ Class ] MotorBoard.z_ustep2um('+str(ustep)+')')
-        um = (ustep * 1000 / 170667)
+        usteps_per_mm = self.motorconfig.usteps_per_mm('Z')
+        um = (ustep * 1000 / usteps_per_mm)
         return um
 
     def z_um2ustep(self, um):
-        # logger.info('[XYZ Class ] MotorBoard.z_um2ustep('+str(um)+')')
-        ustep = int( (170667 * um) / 1000)
+        usteps_per_mm = self.motorconfig.usteps_per_mm('Z')
+        ustep = int((usteps_per_mm * um) / 1000)
         return ustep
 
     def zhome(self):
@@ -279,13 +286,13 @@ class MotorBoard(SerialBoard):
     #----------------------------------------------------------
 
     def xy_ustep2um(self, ustep):
-        # logger.info('[XYZ Class ] MotorBoard.xy_ustep2um('+str(ustep)+')')
-        um = (ustep * 1000 / 20157)
+        usteps_per_mm = self.motorconfig.usteps_per_mm('X')
+        um = (ustep * 1000 / usteps_per_mm)
         return um
 
     def xy_um2ustep(self, um):
-        # logger.info('[XYZ Class ] MotorBoard.xy_um2ustep('+str(um)+')')
-        ustep = int( (20157 * um) / 1000)
+        usteps_per_mm = self.motorconfig.usteps_per_mm('X')
+        ustep = int((usteps_per_mm * um) / 1000)
         return ustep
 
     def xyhome(self):
@@ -307,21 +314,27 @@ class MotorBoard(SerialBoard):
     # T (Turret) Functions
     #----------------------------------------------------------
     def t_ustep2deg(self, ustep):
-        # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(ustep)+')')
-        degrees = 90./80000. * ustep # needs correct value
+        # T config value is usteps per 90 degrees (one turret position)
+        usteps_per_90deg = self.motorconfig.usteps_per_mm('T')
+        degrees = 90.0 / usteps_per_90deg * ustep
         return degrees
 
     def t_ustep2pos(self, ustep):
         return int(self.t_ustep2deg(ustep=ustep)/90)+1
 
     def t_deg2ustep(self, degrees):
-        # logger.info('[XYZ Class ] MotorBoard.t_ustep2deg('+str(um)+')')
-        ustep = int( degrees * 80000./90.) # needs correct value
-        #print("ustep: ",ustep)
+        usteps_per_90deg = self.motorconfig.usteps_per_mm('T')
+        ustep = int(degrees * usteps_per_90deg / 90.0)
         return ustep
 
     def t_pos2ustep(self, position):
-        return self.t_deg2ustep(degrees=90*(position-1))
+        """Convert turret position (1-based) to microsteps.
+        Uses motorconfig turret positions if available, falls back to 90-degree spacing."""
+        usteps = self.motorconfig.turret_position_usteps(position)
+        if usteps == 0 and position > 1:
+            # Fallback: evenly-spaced positions
+            return self.t_deg2ustep(degrees=90*(position-1))
+        return usteps
 
     def thome(self):
         """ Home the turret, need to test if functional in hardware"""
