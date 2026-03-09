@@ -25,7 +25,7 @@ def find_nearest_step(x: float, y: float, protocol) -> int:
         return -1
 
     steps_df = protocol.steps()
-    idx = (steps_df[['X', 'Y']].sub([x, y]).pow(2).sum(1)).idxmin()
+    idx = (steps_df[['X', 'Y']].sub([x, y]).pow(2).sum(axis=1)).idxmin()
     return idx
 
 
