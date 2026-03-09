@@ -8656,14 +8656,18 @@ class MicroscopeSettings(BoxLayout):
         self._report_popup.open()
 
         def run():
-            report = TechSupportReport(scope=lumaview.scope)
+            try:
+                report = TechSupportReport(scope=lumaview.scope)
 
-            def progress(pct, msg):
-                Clock.schedule_once(
-                    lambda dt: self._update_report_progress(pct, msg), 0)
+                def progress(pct, msg):
+                    Clock.schedule_once(
+                        lambda dt: self._update_report_progress(pct, msg), 0)
 
-            path = report.generate(callback=progress, include_bandwidth_test=False)
-            Clock.schedule_once(lambda dt: self._report_done(path), 0)
+                path = report.generate(callback=progress, include_bandwidth_test=False)
+                Clock.schedule_once(lambda dt: self._report_done(path), 0)
+            except Exception as e:
+                logger.error(f"Support report failed: {e}", exc_info=True)
+                Clock.schedule_once(lambda dt: self._report_done(None), 0)
 
         threading.Thread(target=run, daemon=True).start()
 

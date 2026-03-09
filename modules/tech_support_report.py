@@ -608,9 +608,11 @@ def _read_file_via_raw_repl(serial_port, filename):
     Uses base64 encoding for safe binary transfer.
     Returns file contents as bytes, or None on failure.
     """
+    # Use repr() to safely quote the filename (prevents injection via
+    # filenames containing quotes or other special characters)
     code = (
         "import ubinascii\n"
-        f"with open('{filename}', 'rb') as f:\n"
+        f"with open({filename!r}, 'rb') as f:\n"
         " d = f.read()\n"
         "print(ubinascii.b2a_base64(d).decode(), end='')"
     )
@@ -825,12 +827,14 @@ class FirmwareDiagnostics:
         self.motor_board = motor_board
 
     def connect_standalone(self):
-        """Auto-detect and connect to boards (standalone mode)."""
+        """Auto-detect and connect to boards (standalone mode).
+
+        Board constructors auto-connect, so we just check .found after init.
+        """
         try:
             from drivers.ledboard import LEDBoard
             self.led_board = LEDBoard()
             if self.led_board.found:
-                self.led_board.connect()
                 logger.info("LED board connected")
             else:
                 self.led_board = None
@@ -842,7 +846,6 @@ class FirmwareDiagnostics:
             from drivers.motorboard import MotorBoard
             self.motor_board = MotorBoard()
             if self.motor_board.found:
-                self.motor_board.connect()
                 logger.info("Motor board connected")
             else:
                 self.motor_board = None
@@ -878,6 +881,9 @@ class FirmwareDiagnostics:
             return 'Board not connected'
         if end_markers is None:
             end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
+        lock = getattr(board, '_lock', None)
+        if lock:
+            lock.acquire()
         try:
             old_timeout = board.driver.timeout
             board.driver.timeout = timeout
@@ -907,6 +913,9 @@ class FirmwareDiagnostics:
             return '\n'.join(lines) or 'No response'
         except Exception as e:
             return f'Error: {e}'
+        finally:
+            if lock:
+                lock.release()
 
     # -- High-level collectors --
 
@@ -953,7 +962,7 @@ class FirmwareDiagnostics:
 
     def get_driver_status_all(self):
         """DRVSTAT for all 4 axes."""
-        return {ax: self._cmd(self.motor_board, f'DRVSTAT{ax}')
+        return {ax: self._cmd(self.motor_board, f'DRVSTAT_{ax}')
                 for ax in 'XYZT'}
 
     def get_motor_positions_all(self):
@@ -1516,19 +1525,20 @@ class TechSupportReport:
             board_dir = d / label
             board_dir.mkdir()
             for filename, content in files.items():
-                # Skip main.py if it somehow appears
-                if filename.lower() in ('main.py', 'boot.py'):
+                # Sanitize filename (strip path components to prevent traversal)
+                safe_name = pathlib.Path(filename).name
+                if safe_name.lower() in ('main.py', 'boot.py'):
                     continue
-                filepath = board_dir / filename
+                filepath = board_dir / safe_name
                 with open(filepath, 'wb') as f:
                     f.write(content)
-                logger.info(f"  Saved {label}/{filename} ({len(content)} bytes)")
+                logger.info(f"  Saved {label}/{safe_name} ({len(content)} bytes)")
 
                 # Validate motorconfig.json
-                if filename.lower() == 'motorconfig.json':
-                    validation = validate_motorconfig(content, f'{label}/{filename}')
+                if safe_name.lower() == 'motorconfig.json':
+                    validation = validate_motorconfig(content, f'{label}/{safe_name}')
                     with open(d / f'{label}_motorconfig_validation.txt', 'w') as f:
-                        f.write(f"Motorconfig Validation ({label}/{filename})\n")
+                        f.write(f"Motorconfig Validation ({label}/{safe_name})\n")
                         f.write(f"Valid: {validation['valid']}\n\n")
                         if validation['errors']:
                             f.write("ERRORS:\n")
@@ -1650,10 +1660,14 @@ class TechSupportReport:
         d = tmp / 'hardware_checks'
         d.mkdir(exist_ok=True)
 
+        # Run latency test once per board, write both text and JSON from same data
+        results = {}
+        for board, label in [(self.led_board, 'LED'), (self.motor_board, 'Motor')]:
+            results[label] = self.diag.measure_serial_latency(board, 'INFO')
+
         with open(d / 'serial_latency.txt', 'w') as f:
             f.write("Serial Round-Trip Latency\n" + "=" * 40 + "\n\n")
-            for board, label in [(self.led_board, 'LED'), (self.motor_board, 'Motor')]:
-                latency = self.diag.measure_serial_latency(board, 'INFO')
+            for label, latency in results.items():
                 f.write(f"--- {label} Board ({SERIAL_LATENCY_ITERATIONS}x INFO) ---\n")
                 if 'error' in latency:
                     f.write(f"  Error: {latency['error']}\n\n")
@@ -1672,12 +1686,8 @@ class TechSupportReport:
                                 f"— unstable USB connection **\n\n")
 
         with open(d / 'serial_latency.json', 'w') as f:
-            # Write without the raw timings array for readability
-            summary = {}
-            for board, label in [(self.led_board, 'LED'), (self.motor_board, 'Motor')]:
-                lat = self.diag.measure_serial_latency(board, 'INFO', iterations=10)
-                lat.pop('timings_ms', None)
-                summary[label] = lat
+            summary = {label: {k: v for k, v in lat.items() if k != 'timings_ms'}
+                       for label, lat in results.items()}
             json.dump(summary, f, indent=2, default=str)
 
     def _step_homing_test(self, tmp):
