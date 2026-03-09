@@ -183,6 +183,8 @@ def _make_single_step_protocol(
     protocol.duration.return_value = datetime.timedelta(minutes=1)
     protocol.labware.return_value = '6-well'
     protocol.capture_root.return_value = ''
+    protocol.validate_for_run.return_value = []
+    protocol.validate_steps.return_value = []
     protocol.to_file = MagicMock()
     return protocol
 
@@ -243,6 +245,8 @@ def _make_multi_step_protocol(steps_config):
     protocol.duration.return_value = datetime.timedelta(minutes=1)
     protocol.labware.return_value = '6-well'
     protocol.capture_root.return_value = ''
+    protocol.validate_for_run.return_value = []
+    protocol.validate_steps.return_value = []
     protocol.to_file = MagicMock()
     return protocol
 

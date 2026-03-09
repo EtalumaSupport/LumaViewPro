@@ -1567,32 +1567,34 @@ class ScopeDisplay(Image):
             if debug_counter % 2 == 0:
                 if self.use_bullseye:
                     image_bullseye = self.transform_to_bullseye(image=image)
-
-                    Clock.schedule_once(lambda dt: self.create_and_set_bullseye_texture(image_bullseye), 0)
+                    bullseye_bytes = image_bullseye.tobytes()
+                    bullseye_shape = image_bullseye.shape
+                    Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape: self.create_and_set_bullseye_texture(b, s), 0)
 
         if not self.use_bullseye:
             if self.use_live_image_histogram_equalization:
                 image = self._contrast_stretcher.update(image)
-                # image=cv2.normalize(src=image, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
 
-            # Convert to texture for display (using OpenGL)
-            Clock.schedule_once(lambda dt: self.create_and_set_texture(image), 0)
+            # Convert to bytes on worker thread, blit on main thread
+            image_bytes = image.tobytes()
+            image_shape = image.shape
+            Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape: self.create_and_set_texture(b, s), 0)
 
         if self.record:
             lumaview.live_capture()
 
-    def create_and_set_bullseye_texture(self, image):
-        size = (image.shape[1], image.shape[0])
+    def create_and_set_bullseye_texture(self, image_bytes, shape):
+        size = (shape[1], shape[0])
         if not hasattr(self, '_bullseye_texture') or self._bullseye_texture is None or self._bullseye_texture.size != size:
             self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
-        self._bullseye_texture.blit_buffer(image.tobytes(), colorfmt='rgb', bufferfmt='ubyte')
+        self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
 
-    def create_and_set_texture(self, image):
-        size = (image.shape[1], image.shape[0])
+    def create_and_set_texture(self, image_bytes, shape):
+        size = (shape[1], shape[0])
         if not hasattr(self, '_mono_texture') or self._mono_texture is None or self._mono_texture.size != size:
             self._mono_texture = Texture.create(size=size, colorfmt='luminance')
-        self._mono_texture.blit_buffer(image.tobytes(), colorfmt='luminance', bufferfmt='ubyte')
+        self._mono_texture.blit_buffer(image_bytes, colorfmt='luminance', bufferfmt='ubyte')
         self.texture = self._mono_texture
 
 
@@ -8624,6 +8626,76 @@ class MicroscopeSettings(BoxLayout):
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
 
         lumaview.scope.set_frame_size(width, height)
+
+    def generate_support_report(self):
+        """Show confirmation dialog, then generate a tech support report."""
+        from ui.notification_popup import show_confirmation_popup
+        show_confirmation_popup(
+            title='Tech Support Report',
+            message=(
+                'This will create a diagnostic report to send to\n'
+                'Etaluma Tech Support.\n\n'
+                'The stage will be homed and moved during testing.\n'
+                'Please remove any samples from the stage.\n\n'
+                'This may take a few minutes.'
+            ),
+            confirm_text='Generate',
+            cancel_text='Cancel',
+            on_confirm=self._start_support_report,
+        )
+
+    def _start_support_report(self):
+        from ui.progress_popup import CustomPopup
+        from modules.tech_support_report import TechSupportReport
+        import threading
+
+        self._report_popup = CustomPopup(
+            title='Generating Support Report...',
+            auto_dismiss=False,
+        )
+        self._report_popup.open()
+
+        def run():
+            report = TechSupportReport(scope=lumaview.scope)
+
+            def progress(pct, msg):
+                Clock.schedule_once(
+                    lambda dt: self._update_report_progress(pct, msg), 0)
+
+            path = report.generate(callback=progress, include_bandwidth_test=False)
+            Clock.schedule_once(lambda dt: self._report_done(path), 0)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _update_report_progress(self, pct, msg):
+        if hasattr(self, '_report_popup') and self._report_popup:
+            self._report_popup.progress = pct
+            self._report_popup.text = msg
+
+    def _report_done(self, zip_path):
+        if hasattr(self, '_report_popup') and self._report_popup:
+            self._report_popup.dismiss()
+            self._report_popup = None
+
+        from ui.notification_popup import show_notification_popup
+        if zip_path:
+            show_notification_popup(
+                title='Report Complete',
+                message=(
+                    f'Saved to Desktop:\n{zip_path.name}\n\n'
+                    f'Please email this file to:\n'
+                    f'techsupport@etaluma.com'
+                ),
+            )
+        else:
+            show_notification_popup(
+                title='Report Failed',
+                message=(
+                    'Could not generate the report.\n'
+                    'Check the log file for details and contact\n'
+                    'techsupport@etaluma.com directly.'
+                ),
+            )
 
 
 # ============================================================================

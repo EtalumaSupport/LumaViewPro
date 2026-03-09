@@ -71,6 +71,7 @@ class Lumascope():
 
         # Camera
         self.image_buffer = None
+        self._frame_buffer = None  # Pre-allocated buffer for get_image_from_buffer
         try:
             if simulate:
                 self.camera: Camera = SimulatedCamera(
@@ -606,29 +607,29 @@ class Lumascope():
             return False
 
         grab_status, grab_image_ts = self.camera.grab()
-        if grab_status:
-            tmp = self.camera.array.copy()
-        else:
+        if not grab_status:
             return False
+
+        src = self.camera.array
+        if self._frame_buffer is None or self._frame_buffer.shape != src.shape or self._frame_buffer.dtype != src.dtype:
+            self._frame_buffer = np.empty(src.shape, dtype=src.dtype)
+        np.copyto(self._frame_buffer, src)
+        tmp = self._frame_buffer
 
         use_scale_bar = self._scale_bar['enabled']
         if self._objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
-            old_tmp = tmp
             tmp = image_utils.add_scale_bar(
                 image=tmp,
                 objective=self._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
             )
-            del old_tmp  # Explicitly release reference to allow immediate memory reclaim
 
         if force_to_8bit and tmp.dtype != np.uint8:
-            old_tmp = tmp
             tmp = image_utils.convert_12bit_to_8bit(tmp)
-            del old_tmp  # Explicitly release reference to allow immediate memory reclaim
 
         return tmp
 

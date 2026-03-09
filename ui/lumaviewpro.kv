@@ -2478,6 +2478,17 @@
 					background_down: './data/icons/ToggleRW.png'
 					on_release: root.update_bullseye_state()
 
+			# Support Report
+			BoxLayout:
+				size_hint_y: None
+				height: dp(48)
+				padding: dp(8)
+				RoundedButton:
+					id: btn_support_report
+					text: 'Generate Support Report'
+					font_size: '12sp'
+					on_release: root.generate_support_report()
+
 			Label:
 
 # LayerControl - Settings for Layers within ImageSettings
