@@ -1,37 +1,5 @@
 #!/usr/bin/python3
-
-'''
-MIT License
-
-Copyright (c) 2024 Etaluma, Inc.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-```
-This open source software was developed for use with Etaluma microscopes.
-
-AUTHORS:
-Kevin Peter Hickerson, The Earthineering Company
-Anna Iwaniec Hickerson, Keck Graduate Institute
-Gerard Decker, The Earthineering Company
-'''
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import contextlib
 import datetime
@@ -158,6 +126,7 @@ class Lumascope():
 
 
     def disconnect(self):
+        """Disconnect from all hardware (LED, motion, camera)."""
         logger.info('[SCOPE API ] Disconnecting from microscope...')
         if self.led is not None:
             self.led.disconnect()
@@ -185,6 +154,11 @@ class Lumascope():
     #     logger.info('[SCOPE API ] Microscope reconnected')
 
     def are_all_connected(self) -> bool:
+        """Check if LED, motion, and camera boards are all connected.
+
+        Returns:
+            bool: True if all three components are connected.
+        """
         logger.info('[SCOPE API ] Performing connection check...')
         led = self.led is not None and self.led.is_connected()
         motion = self.motion is not None and self.motion.is_connected()
@@ -217,24 +191,65 @@ class Lumascope():
     # SCOPE CONFIGURATION FUNCTIONS
     ########################################################################
     def set_labware(self, labware):
+        """Set the current labware (well plate) for the microscope.
+
+        Args:
+            labware: Labware object describing the well plate geometry.
+        """
         self._labware = labware
 
     def get_labware(self):
+        """Get the currently installed labware.
+
+        Returns:
+            The current labware object, or None if not set.
+        """
         return self._labware
 
     def set_objective(self, objective_id: str):
+        """Set the active objective by ID.
+
+        Args:
+            objective_id: Objective identifier (e.g. "4x", "10x", "20x").
+        """
         self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
 
     def get_objective_info(self, objective_id: str):
+        """Get objective metadata by ID.
+
+        Args:
+            objective_id: Objective identifier (e.g. "4x", "10x", "20x").
+
+        Returns:
+            dict: Objective info including focal_length, magnification, etc.
+        """
         return self._objectives_loader.get_objective_info(objective_id=objective_id)
 
     def set_turret_config(self, turret_config: dict[int,str]) -> None:
+        """Set the turret objective configuration.
+
+        Args:
+            turret_config: Mapping of turret position (1-4) to objective ID.
+        """
         self._turret_config = turret_config
 
     def get_turret_config(self):
+        """Get the current turret objective configuration.
+
+        Returns:
+            dict: Mapping of turret position to objective ID.
+        """
         return self._turret_config
 
     def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
+        """Find the turret position holding a given objective.
+
+        Args:
+            objective_id: Objective identifier to search for.
+
+        Returns:
+            int | None: Turret position (1-4), or None if not found.
+        """
         for turret_position, turret_objective_id in self._turret_config.items():
             if objective_id == turret_objective_id:
                 return turret_position
@@ -249,14 +264,30 @@ class Lumascope():
         return True
 
     def set_scale_bar(self, enabled: bool, color: str = None):
+        """Configure the scale bar overlay on captured images.
+
+        Args:
+            enabled: Whether to draw the scale bar.
+            color: Scale bar color (e.g. "white"). Uses default if None.
+        """
         self._scale_bar['enabled'] = enabled
         if color is not None:
             self._scale_bar['color'] = color
 
     def set_stage_offset(self, stage_offset):
+        """Set the stage offset for coordinate transformations.
+
+        Args:
+            stage_offset: Stage offset dict with axis offsets.
+        """
         self._stage_offset = stage_offset
 
     def set_binning_size(self, size):
+        """Set camera pixel binning size.
+
+        Args:
+            size (int): Binning factor (1 = no binning, 2 = 2x2, etc.).
+        """
         try:
             self._binning_size = size
 
@@ -266,6 +297,11 @@ class Lumascope():
             logger.exception(f"[SCOPE API ] Error setting binning size: {ex}")
 
     def get_binning_size(self) -> int:
+        """Get the current camera binning size.
+
+        Returns:
+            int: Current binning factor (1 if camera inactive).
+        """
         if not self.camera or not self.camera.active:
             return 1
 
@@ -277,44 +313,62 @@ class Lumascope():
     ########################################################################
 
     def leds_enable(self):
-        """ LED BOARD FUNCTIONS
-        Enable all LEDS"""
+        """Enable all LED channels (allows them to be turned on)."""
         if not self.led: return
         self.led.leds_enable()
 
     def leds_disable(self):
-        """ LED BOARD FUNCTIONS
-        Disable all LEDS"""
+        """Disable all LED channels (prevents them from turning on)."""
         if not self.led: return
         self.led.leds_disable()
 
     def get_led_ma(self, color: str):
-        """ LED BOARD FUNCTIONS
-        Get LED illumination (mA)"""
+        """Get the current illumination level for an LED channel.
+
+        Args:
+            color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
+
+        Returns:
+            float: Illumination in milliamps, or -1 if LED board unavailable.
+        """
         if not self.led: return -1
 
         return self.led.get_led_ma(color=color)
 
 
     def get_led_state(self, color: str):
-        """ LED BOARD FUNCTIONS
-        Get a dictionary containing the LED state and illumination (mA)"""
+        """Get the on/off state and illumination for an LED channel.
+
+        Args:
+            color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
+
+        Returns:
+            dict: LED state and illumination (mA), or -1 if unavailable.
+        """
         if not self.led: return -1
 
         return self.led.get_led_state(color=color)
 
 
     def get_led_states(self):
-        """ LED BOARD FUNCTIONS
-        Get a dictionary of dictionaries containing the LED states and illumination (mA)"""
+        """Get state and illumination for all LED channels.
+
+        Returns:
+            dict: Mapping of color to state/illumination dict, or -1 if unavailable.
+        """
         if not self.led: return -1
 
         return self.led.get_led_states()
 
 
     def led_on(self, channel, mA, block=False):
-        """ LED BOARD FUNCTIONS
-        Turn on LED at channel number at mA power """
+        """Turn on an LED channel at the specified current.
+
+        Args:
+            channel: Channel number (0-5) or color name string.
+            mA: Illumination current in milliamps.
+            block: If True, wait for confirmation from the LED board.
+        """
         if not self.led: return
 
         if isinstance(channel, str):
@@ -324,8 +378,11 @@ class Lumascope():
         self.frame_validity.invalidate('led')
 
     def led_off(self, channel):
-        """ LED BOARD FUNCTIONS
-        Turn off LED at channel number """
+        """Turn off an LED channel.
+
+        Args:
+            channel: Channel number (0-5) or color name string.
+        """
         if not self.led: return
 
         if isinstance(channel, str):
@@ -335,8 +392,12 @@ class Lumascope():
         self.frame_validity.invalidate('led')
 
     def led_on_fast(self, channel, mA):
-        """ LED BOARD FUNCTIONS
-        Fast write-only LED on for time-critical pulses """
+        """Turn on an LED with write-only (no read-back) for time-critical pulses.
+
+        Args:
+            channel: Channel number (0-5) or color name string.
+            mA: Illumination current in milliamps.
+        """
         if not self.led: return
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
@@ -344,8 +405,11 @@ class Lumascope():
         self.frame_validity.invalidate('led')
 
     def led_off_fast(self, channel):
-        """ LED BOARD FUNCTIONS
-        Fast write-only LED off for time-critical pulses """
+        """Turn off an LED with write-only (no read-back) for time-critical pulses.
+
+        Args:
+            channel: Channel number (0-5) or color name string.
+        """
         if not self.led: return
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
@@ -353,50 +417,48 @@ class Lumascope():
         self.frame_validity.invalidate('led')
 
     def leds_off_fast(self):
-        """ LED BOARD FUNCTIONS
-        Fast write-only LEDs off for time-critical pulses """
+        """Turn off all LEDs with write-only (no read-back) for time-critical pulses."""
         if not self.led: return
         self.led.leds_off_fast()
         self.frame_validity.invalidate('led')
 
     def leds_off(self):
-        """ LED BOARD FUNCTIONS
-        Turn off all LEDs """
+        """Turn off all LEDs."""
         if not self.led: return
         self.led.leds_off()
         self.frame_validity.invalidate('led')
 
     def get_led_status(self):
+        """Get the LED board status register."""
         if not self.led: return
         return self.led.get_status()
 
     def wait_until_led_on(self):
+        """Block until the LED board confirms an LED is on."""
         if not self.led: return
         self.led.wait_until_on()
 
-    def ch2color(self, color):
-        """ LED BOARD FUNCTIONS
-        Convert channel number to string representing color
-         0 -> Blue: Fluorescence
-         1 -> Green: Fluorescence
-         2 -> Red: Fluorescence
-         3 -> BF: Brightfield
-         4 -> PC: Phase Contrast
-         5 -> DF: Low Mag Darkfield
-           """
+    def ch2color(self, channel):
+        """Convert a channel number to its color name string.
+
+        Args:
+            channel (int): Channel number (0=Blue, 1=Green, 2=Red, 3=BF, 4=PC, 5=DF).
+
+        Returns:
+            str: Color name (e.g. "Blue", "BF"), or None if LED board unavailable.
+        """
         if not self.led: return
-        return self.led.ch2color(color)
+        return self.led.ch2color(channel)
 
     def color2ch(self, color):
-        """ LED BOARD FUNCTIONS
-        Convert string representing color to channel number
-         Blue: Fluorescence Channel 0   -> 0
-         Green: Fluorescence Channel 1  -> 1
-         Red: Fluorescence Channel 2    -> 2
-         BF: Brightfield                -> 3
-         PC: Phase Contrast             -> 4
-         DF: Low Mag Darkfield          -> 5
-           """
+        """Convert a color name string to its channel number.
+
+        Args:
+            color (str): Color name ("Blue", "Green", "Red", "BF", "PC", "DF").
+
+        Returns:
+            int: Channel number (0-5), or None if LED board unavailable.
+        """
         if not self.led: return
         return self.led.color2ch(color)
 
@@ -416,10 +478,25 @@ class Lumascope():
         force_new_capture = False,
         new_capture_timeout = 1000,
     ):
-        """ CAMERA FUNCTIONS
-        Grab and return image from camera
-        # Will only force new capture if force_new_capture set to True
-        # Else, will return last captured image from buffer array
+        """Grab and return an image from the camera.
+
+        By default returns the last buffered frame. Set force_new_capture=True
+        to trigger a fresh capture. Multiple frames can be summed for noise
+        reduction via sum_count.
+
+        Args:
+            force_to_8bit: Convert 12-bit images to 8-bit output.
+            earliest_image_ts: Reject frames captured before this timestamp.
+            timeout: Max time to wait for a valid frame.
+            all_ones_check: Reject saturated (all-max-value) frames.
+            sum_count: Number of frames to sum for noise reduction.
+            sum_delay_s: Delay in seconds between summed frames.
+            sum_iteration_callback: Called after each summed frame.
+            force_new_capture: If True, wait for a new camera capture.
+            new_capture_timeout: Timeout (ms) for new capture grab.
+
+        Returns:
+            numpy.ndarray | False: Captured image array, or False on failure.
         """
 
         if not self.camera or not self.camera.active:
@@ -517,6 +594,14 @@ class Lumascope():
         self,
         force_to_8bit: bool = True
         ):
+        """Grab the latest buffered frame from the camera without forcing a new capture.
+
+        Args:
+            force_to_8bit: Convert 12-bit images to 8-bit output.
+
+        Returns:
+            numpy.ndarray | False: Image array, or False if camera inactive or grab failed.
+        """
         if not self.camera or not self.camera.active:
             return False
 
@@ -629,6 +714,20 @@ class Lumascope():
         return labware.get_well_label(x=x_target, y=y_target)
 
     def generate_image_metadata(self, color, x, y, z) -> dict:
+        """Build TIFF metadata dict for the current capture settings and position.
+
+        Args:
+            color (str): Channel color name (e.g. "Blue", "BF").
+            x (float): Stage X position in um (or None).
+            y (float): Stage Y position in um (or None).
+            z (float): Stage Z position in um (or None).
+
+        Returns:
+            dict: Metadata including channel, positions, exposure, gain, pixel size.
+
+        Raises:
+            Exception: If objective, labware, or stage offset are not set.
+        """
         def _validate():
             if self._objective is None:
                 raise Exception(f"[SCOPE API ] Objective not set")
@@ -708,6 +807,27 @@ class Lumascope():
         y,
         z
     ):
+        """Prepare an image array and metadata for saving to disk.
+
+        Flips the image vertically, converts bit depth if needed, generates
+        the save path and metadata.
+
+        Args:
+            array: Raw image array from camera.
+            save_folder: Directory to save into.
+            file_root: Filename prefix.
+            append: String appended to filename (e.g. color label).
+            color: Color label for the filename.
+            tail_id_mode: "increment" for auto-numbered files, or None.
+            output_format: "TIFF" or "OME-TIFF".
+            true_color: Actual channel color for metadata.
+            x: Stage X position in um.
+            y: Stage Y position in um.
+            z: Stage Z position in um.
+
+        Returns:
+            dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
+        """
         metadata = self.generate_image_metadata(color=true_color, x=x, y=y, z=z)
 
         if array.dtype == np.uint16:
@@ -745,8 +865,23 @@ class Lumascope():
         y=None,
         z=None
     ):
-        """CAMERA FUNCTIONS
-        save image (as array) to file
+        """Save an image array to a TIFF file with metadata.
+
+        Args:
+            array: Image array to save.
+            save_folder: Directory to save into.
+            file_root: Filename prefix.
+            append: String appended to filename.
+            color: Color label for the filename.
+            tail_id_mode: "increment" for auto-numbered files, or None.
+            output_format: "TIFF" or "OME-TIFF".
+            true_color: Actual channel color for metadata.
+            x: Stage X position in um.
+            y: Stage Y position in um.
+            z: Stage Z position in um.
+
+        Returns:
+            str: Path to the saved file.
         """
 
         if (common_utils.check_disk_space() < 1024):  # Check for at least 1 GB of free space
@@ -811,8 +946,31 @@ class Lumascope():
             use_executor = False
         ):
 
-        """CAMERA FUNCTIONS
-        Grab the current live image and save to file
+        """Grab the current live image from the camera and save to a TIFF file.
+
+        Combines get_image() and save_image() in one call. Optionally turns off
+        all LEDs after capture.
+
+        Args:
+            save_folder: Directory to save into.
+            file_root: Filename prefix.
+            append: String appended to filename.
+            color: Color label for the filename.
+            tail_id_mode: "increment" for auto-numbered files, or None.
+            force_to_8bit: Convert 12-bit images to 8-bit.
+            output_format: "TIFF" or "OME-TIFF".
+            true_color: Actual channel color for metadata.
+            earliest_image_ts: Reject frames before this timestamp.
+            timeout: Max time to wait for a valid frame.
+            all_ones_check: Reject saturated frames.
+            sum_count: Number of frames to sum.
+            sum_delay_s: Delay between summed frames.
+            sum_iteration_callback: Called after each summed frame.
+            turn_off_all_leds_after: Turn off all LEDs after capture.
+            use_executor: Reserved for future use.
+
+        Returns:
+            str | None: Path to saved file, or None on failure.
         """
 
         if (common_utils.check_disk_space() < 1024):  # Check for at least 1 GB of free space
@@ -838,69 +996,91 @@ class Lumascope():
 
 
     def get_max_width(self):
-        """CAMERA FUNCTIONS
-        Grab the max pixel width of camera
+        """Get the maximum pixel width of the camera sensor.
+
+        Returns:
+            int: Max width in pixels, or 0 if camera inactive.
         """
         if (not self.camera) or (not self.camera.active): return 0
         return self.camera.get_max_frame_size()['width']
 
     def get_max_height(self):
-        """CAMERA FUNCTIONS
-        Grab the max pixel height of camera
+        """Get the maximum pixel height of the camera sensor.
+
+        Returns:
+            int: Max height in pixels, or 0 if camera inactive.
         """
         if (not self.camera) or (not self.camera.active): return 0
         return self.camera.get_max_frame_size()['height']
 
     def get_width(self):
-        """CAMERA FUNCTIONS
-        Grab the current pixel width setting of camera
+        """Get the current frame width setting.
+
+        Returns:
+            int: Current width in pixels, or 0 if camera unavailable.
         """
         if not self.camera: return 0
         return self.camera.get_frame_size()['width']
 
     def get_height(self):
-        """CAMERA FUNCTIONS
-        Grab the current pixel height setting of camera
+        """Get the current frame height setting.
+
+        Returns:
+            int: Current height in pixels, or 0 if camera unavailable.
         """
         if not self.camera: return 0
         return self.camera.get_frame_size()['height']
 
     def set_frame_size(self, w, h):
-        """CAMERA FUNCTIONS
-        Set frame size (pixel width by pixel height
-        of camera to w by h"""
+        """Set the camera frame size in pixels.
+
+        Args:
+            w (int): Frame width in pixels.
+            h (int): Frame height in pixels.
+        """
 
         if not self.camera or not self.camera.active: return
         self.camera.set_frame_size(w, h)
 
     def get_frame_size(self):
-        """CAMERA FUNCTIONS
-        Get frame size (pixel width by pixel height
-        of camera to w by h"""
+        """Get the current camera frame size.
+
+        Returns:
+            dict: Contains 'width' and 'height' in pixels, or None if inactive.
+        """
 
         if not self.camera or not self.camera.active: return
         return self.camera.get_frame_size()
 
 
     def get_gain(self):
-        """CAMERA FUNCTIONS
-        Get camera gain"""
+        """Get the current camera gain.
+
+        Returns:
+            float: Gain in dB, or -1 if camera inactive.
+        """
 
         if not self.camera or not self.camera.active: return -1
         return self.camera.get_gain()
 
     def set_gain(self, gain):
-        """CAMERA FUNCTIONS
-        Set camera gain"""
+        """Set the camera gain.
+
+        Args:
+            gain (float): Gain value in dB.
+        """
 
         if not self.camera or not self.camera.active: return
         self.camera.gain(gain)
         self.frame_validity.invalidate('gain')
 
     def set_auto_gain(self, state: bool, settings: dict):
-        """CAMERA FUNCTIONS
-        Enable / Disable camera auto_gain with the value of 'state'
-        It will be continueously updating based on the current image """
+        """Enable or disable automatic gain adjustment.
+
+        Args:
+            state: True to enable auto gain, False to disable.
+            settings: Dict with 'target_brightness', 'min_gain', 'max_gain'.
+        """
 
         if not self.camera or not self.camera.active: return
         self.camera.auto_gain(
@@ -912,26 +1092,33 @@ class Lumascope():
         self.frame_validity.invalidate('gain')
 
     def set_exposure_time(self, t):
-        """CAMERA FUNCTIONS
-         Set exposure time in the camera hardware t (msec)"""
+        """Set the camera exposure time.
+
+        Args:
+            t (float): Exposure time in milliseconds.
+        """
 
         if not self.camera or not self.camera.active: return
         self.camera.exposure_t(t)
         self.frame_validity.invalidate('exposure')
 
     def get_exposure_time(self):
-        """CAMERA FUNCTIONS
-         Get exposure time in the camera hardware
-         Returns t (msec), or -1 if the camera is inactive"""
+        """Get the current camera exposure time.
+
+        Returns:
+            float: Exposure time in milliseconds, or 0 if camera inactive.
+        """
 
         if not self.camera or not self.camera.active: return 0
         exposure = self.camera.get_exposure_t()
         return exposure
 
     def set_auto_exposure_time(self, state = True):
-        """CAMERA FUNCTIONS
-         Enable / Disable camera auto_exposure with the value of 'state'
-        It will be continueously updating based on the current image """
+        """Enable or disable automatic exposure adjustment.
+
+        Args:
+            state: True to enable auto exposure, False to disable.
+        """
 
         if not self.camera or not self.camera.active: return
         self.camera.auto_exposure_t(state)
@@ -939,6 +1126,11 @@ class Lumascope():
 
 
     def camera_is_connected(self) -> bool:
+        """Check if the camera is active and connected.
+
+        Returns:
+            bool: True if camera is connected and active.
+        """
         if not self.camera or not self.camera.active:
             return False
 
@@ -947,9 +1139,10 @@ class Lumascope():
         #return True
 
     def get_camera_temps(self) -> dict:
-        """CAMERA FUNCTIONS
-         Get camera temperature readings
-         Returns dict with key val pairs 'source' : temperature in Celsius
+        """Get camera temperature readings.
+
+        Returns:
+            dict: Mapping of sensor name to temperature in Celsius. Empty if inactive.
         """
 
         if not self.camera or not self.camera.active:
@@ -969,29 +1162,34 @@ class Lumascope():
         logger.info(f"Limit switch status after homing: {after}", extra={'force_error': True})
 
     def get_axes_config(self):
-        """MOTION CONTROL FUNCTIONS
-        Get the axis configuration from the motion board"""
+        """Get the axis configuration from the motion board.
+
+        Returns:
+            dict: Axis configuration (axes present, limits, etc.).
+        """
         return self.motion.get_axes_config()
 
     def get_axis_limits(self, axis: str) -> dict:
-        """MOTION CONTROL FUNCTIONS
-        Get the axis limits from the motion board
-        returns dict with keys 'min' and 'max' in um
+        """Get the travel limits for an axis.
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", or "T").
+
+        Returns:
+            dict: Contains 'min' and 'max' positions in um.
         """
 
         return self.motion.get_axis_limits(axis=axis)
 
 
     def zhome(self):
-        """MOTION CONTROL FUNCTIONS
-        Home the z-axis (i.e. focus)"""
+        """Home the Z axis (focus)."""
         #if not self.motion: return
         with self.reference_position_logger():
             self.motion.zhome()
 
     def xyhome(self):
-        """MOTION CONTROL FUNCTIONS
-        Home the xy-axes (i.e. stage). Note: z-axis and turret will always home first"""
+        """Home the XY axes (stage). Z axis and turret always home first."""
         #if not self.motion: return
         with self.reference_position_logger():
             self.is_homing = True
@@ -1004,8 +1202,11 @@ class Lumascope():
         #self.is_homing = False
 
     def has_xyhomed(self):
-        """MOTION CONTROL FUNCTIONS
-        Indicate if the xy-axes (i.e. stage) has been homed since startup"""
+        """Check if the XY axes have been homed since startup.
+
+        Returns:
+            bool: True if XY homing has been performed.
+        """
         return self.motion.has_xyhomed()
 
     def xyhome_iterate(self):
@@ -1014,8 +1215,7 @@ class Lumascope():
             self.xyhome_timer.cancel()
 
     def xycenter(self):
-        """MOTION CONTROL FUNCTIONS
-        Move Stage to the center."""
+        """Move the XY stage to center position."""
 
         #if not self.motion: return
         self.motion.xycenter()
@@ -1036,8 +1236,7 @@ class Lumascope():
 
 
     def thome(self):
-        """MOTION CONTROL FUNCTIONS
-        Home the Turret"""
+        """Home the turret axis. Moves Z to 0 during turret motion for safety."""
 
         #if not self.motion:
         #    return
@@ -1048,13 +1247,19 @@ class Lumascope():
                 self.motion.thome()
 
     def has_thomed(self):
-        """MOTION CONTROL FUNCTIONS
-        Indicate if the t-axes has been homed since startup"""
+        """Check if the turret has been homed since startup.
+
+        Returns:
+            bool: True if turret homing has been performed.
+        """
         return self.motion.has_thomed()
 
     def tmove(self, position):
-        """MOTION CONTROL FUNCTIONS
-        Move turret to position 1-4"""
+        """Move the turret to a specific position. Skips if already there.
+
+        Args:
+            position (int): Target turret position (1-4).
+        """
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # Use caching to determine if T is requested to move to it's current position, and bypass the
         # move altogether if it is.
@@ -1068,14 +1273,25 @@ class Lumascope():
 
 
     def has_turret(self) -> bool:
+        """Check if the microscope has a turret axis.
+
+        Returns:
+            bool: True if a turret is present.
+        """
         return self.motion.has_turret()
 
 
     def get_target_position(self, axis=None):
-        """MOTION CONTROL FUNCTIONS
-        Get the value of the target position of the axis relative to home
-        Returns position (um), or 0 if the motion board is inactive
-        values of axis 'X', 'Y', 'Z', and 'T' """
+        """Get the target position for an axis (where it is commanded to go).
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
+
+        Returns:
+            float | dict: Position in um for a single axis, or dict of all
+                axis positions. Returns 0 if motion board inactive, None if
+                axis T requested but no turret present.
+        """
 
         if not self.motion.driver: return 0
 
@@ -1092,10 +1308,15 @@ class Lumascope():
         return position
 
     def get_current_position(self, axis=None):
-        """MOTION CONTROL FUNCTIONS
-        Get the value of the current position of the axis relative to home
-        Returns position (um), or 0 if the motion board is inactive
-        values of axis 'X', 'Y', 'Z', and 'T' """
+        """Get the current actual position for an axis.
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
+
+        Returns:
+            float | dict: Position in um for a single axis, or dict of all
+                axis positions. Returns 0 if motion board inactive.
+        """
 
         if not self.motion.driver: return 0
 
@@ -1110,8 +1331,15 @@ class Lumascope():
 
 
     def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True, ignore_limits: bool = False):
-        """MOTION CONTROL FUNCTIONS
-         Move to absolute position (in um) of axis"""
+        """Move an axis to an absolute position.
+
+        Args:
+            axis (str): Axis name ("X", "Y", "Z", "T").
+            pos (float): Target position in um.
+            wait_until_complete: If True, block until move finishes.
+            overshoot_enabled: Allow Z overshoot for backlash compensation.
+            ignore_limits: If True, skip software limit checks.
+        """
 
         #if not self.motion: return
         self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
@@ -1122,8 +1350,14 @@ class Lumascope():
 
 
     def move_relative_position(self, axis, um, wait_until_complete=False, overshoot_enabled: bool = False):
-        """MOTION CONTROL FUNCTIONS
-         Move to relative distance (in um) of axis"""
+        """Move an axis by a relative distance.
+
+        Args:
+            axis (str): Axis name ("X", "Y", "Z", "T").
+            um (float): Distance to move in um.
+            wait_until_complete: If True, block until move finishes.
+            overshoot_enabled: Allow Z overshoot for backlash compensation.
+        """
 
         #if not self.motion: return
         self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
@@ -1134,8 +1368,14 @@ class Lumascope():
 
 
     def get_home_status(self, axis):
-        """MOTION CONTROL FUNCTIONS
-         Return True if axis is in home position or motionboard is """
+        """Check if an axis is at its home position.
+
+        Args:
+            axis (str): Axis name ("X", "Y", "Z", "T").
+
+        Returns:
+            bool: True if the axis is homed, False otherwise or on error.
+        """
 
         #if not self.motion: return True
         try:
@@ -1146,8 +1386,14 @@ class Lumascope():
             return False
 
     def get_target_status(self, axis):
-        """MOTION CONTROL FUNCTIONS
-         Return True if axis is at target position"""
+        """Check if an axis has reached its target position.
+
+        Args:
+            axis (str): Axis name ("X", "Y", "Z", "T").
+
+        Returns:
+            bool: True if at target (always True for T if no turret present).
+        """
 
         #if not self.motion: return True
 
@@ -1163,6 +1409,14 @@ class Lumascope():
             return False
 
     def get_target_pos(self, axis):
+        """Get the target position for an axis (error-safe version).
+
+        Args:
+            axis (str): Axis name ("X", "Y", "Z", "T").
+
+        Returns:
+            float: Target position in um, or -1 on error/no turret.
+        """
         if (axis == 'T') and (not self.motion.has_turret()):
             return -1
 
@@ -1172,27 +1426,37 @@ class Lumascope():
             logger.exception(f"[SCOPE API ] get_target_pos({axis}) failed; returning -1: {e}")
             return -1
 
-    # Get all reference status register bits as 32 character string (32-> 0)
     def get_reference_status(self, axis):
-        """MOTION CONTROL FUNCTIONS
-         Get all reference status register bits as 32 character string (32-> 0) """
+        """Get reference status register bits for an axis.
+
+        Args:
+            axis (str): Axis name ("X", "Y", "Z", "T").
+
+        Returns:
+            str: 32-character binary string of register bits (MSB first).
+        """
 
         #if not self.motion: return
         return self.motion.reference_status(axis=axis)
 
 
     def get_limit_switch_status(self, axis):
-        """
-        MOTION CONTROL FUNCTIONS
-        Get limit switch status for an axis
+        """Get the limit switch status for an axis.
+
+        Args:
+            axis (str): Axis name ("X", "Y", "Z", "T").
+
+        Returns:
+            Limit switch state for the specified axis.
         """
         return self.motion.limit_switch_status(axis=axis)
 
 
     def get_limit_switch_status_all_axes(self):
-        """
-        MOTION CONTROL FUNCTIONS
-        Get limit switch status for all axes
+        """Get limit switch status for all axes.
+
+        Returns:
+            dict: Mapping of axis name to limit switch state.
         """
         resp = {}
         for axis in ('X','Y','Z','T'):
@@ -1201,13 +1465,21 @@ class Lumascope():
 
 
     def get_overshoot(self):
-        """MOTION CONTROL FUNCTIONS
-        Is z-axis (focus) currently in overshoot mode?"""
+        """Check if the Z axis is currently in overshoot (backlash compensation) mode.
+
+        Returns:
+            bool: True if overshoot is in progress.
+        """
 
         #if not self.motion: return False
         return self.motion.overshoot
 
     def is_moving(self):
+        """Check if any axis is currently moving.
+
+        Returns:
+            bool: True if any axis has not reached its target or overshoot is active.
+        """
         # If not communicating with motor board
         if not self.motion.driver: return False
 
@@ -1224,6 +1496,7 @@ class Lumascope():
 
 
     def wait_until_finished_moving(self):
+        """Block until all axes have reached their target positions."""
 
         if not self.motion.driver: return
 
@@ -1238,6 +1511,11 @@ class Lumascope():
 
 
     def get_microscope_model(self):
+        """Get the microscope model identifier from the motion board.
+
+        Returns:
+            str | None: Model string, or None if motion board inactive.
+        """
         if not self.motion.driver:
             return None
 
