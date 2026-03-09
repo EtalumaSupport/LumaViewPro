@@ -5,7 +5,7 @@
 LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret motion, and camera image acquisition. This document covers the Python API, serial protocol, and key conventions needed to write integrations.
 
 **Repository**: `EtalumaSupport/LumaViewPro`
-**Platform**: Python 3.10–3.12, Kivy GUI, Windows primary (macOS/Linux experimental)
+**Platform**: Python 3.11–3.13, Kivy GUI, Windows/macOS/Linux
 
 ---
 
@@ -38,21 +38,22 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 | File | Purpose |
 |------|---------|
 | `lumascope_api.py` | Main Python API — `Lumascope` class |
-| `serialboard.py` | Serial base class (connect, exchange, reconnect) |
-| `ledboard.py` | LED control driver (8 channels, 0–1000 mA) |
-| `motorboard.py` | Motion control driver (X, Y, Z, Turret) |
-| `camera/camera.py` | Camera base class (abstract) |
-| `camera/pyloncamera.py` | Basler Pylon camera driver |
-| `camera/idscamera.py` | IDS camera driver |
-| `camera/simulated_camera.py` | Simulated camera for testing |
-| `simulated_ledboard.py` | Simulated LED board for testing |
-| `simulated_motorboard.py` | Simulated motor board for testing |
+| `drivers/serialboard.py` | Serial base class (connect, exchange, reconnect) |
+| `drivers/ledboard.py` | LED control driver (up to 6 channels, 0–1000 mA) |
+| `drivers/motorboard.py` | Motion control driver (X, Y, Z, Turret) |
+| `drivers/camera.py` | Camera base class (abstract) |
+| `drivers/pyloncamera.py` | Basler Pylon camera driver |
+| `drivers/idscamera.py` | IDS camera driver |
+| `drivers/simulated_camera.py` | Simulated camera for testing |
+| `drivers/simulated_ledboard.py` | Simulated LED board for testing |
+| `drivers/simulated_motorboard.py` | Simulated motor board for testing |
+| `modules/motorconfig.py` | Per-unit hardware config (axis limits, conversion factors) |
 | `modules/common_utils.py` | Optical calculations, naming, utilities |
 | `modules/coord_transformations.py` | Stage ↔ plate ↔ pixel coordinate conversion |
 | `modules/objectives_loader.py` | Objective lens database (`data/objectives.json`) |
 | `modules/protocol.py` | Protocol file format (load/save/validate) |
 | `modules/sequenced_capture_executor.py` | Protocol execution engine |
-| `image_utils.py` | Image conversion, timestamps, colormaps |
+| `modules/image_utils.py` | Image conversion, timestamps, colormaps |
 
 ---
 
@@ -423,11 +424,13 @@ python -m pytest tests/ --ignore=tests/test_hardware_serial.py -v
 
 # Individual test suites
 python -m pytest tests/test_serial_safety.py -v       # Serial driver (96 tests)
-python -m pytest tests/test_protocol_execution.py -v  # Protocol execution (78 tests)
-python -m pytest tests/test_simulators.py -v          # Simulator fidelity (91 tests)
+python -m pytest tests/test_protocol_execution.py -v  # Protocol execution (83 tests)
+python -m pytest tests/test_simulators.py -v          # Simulator fidelity (86 tests)
 python -m pytest tests/test_scope_api.py -v           # Scope API (60 tests)
-python -m pytest tests/test_integration.py -v         # Integration (23 tests)
+python -m pytest tests/test_integration.py -v         # Integration (22 tests)
 python -m pytest tests/test_frame_validity.py -v      # Frame validity (29 tests)
+python -m pytest tests/test_validate_steps.py -v      # Protocol validation (27 tests)
+python -m pytest tests/test_time_estimator.py -v      # Time estimation (23 tests)
 python -m pytest tests/test_regression_p2.py -v       # P2 bug regressions (16 tests)
 
 # Hardware-only tests (requires microscope connected)
