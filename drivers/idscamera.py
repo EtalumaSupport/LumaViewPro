@@ -5,7 +5,7 @@ from ids_peak import ids_peak_ipl_extension
 import ids_peak_ipl
 
 from lvp_logger import logger
-from camera.camera import Camera
+from drivers.camera import Camera
 import threading
 
 

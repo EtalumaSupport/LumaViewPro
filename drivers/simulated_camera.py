@@ -16,7 +16,7 @@ import numpy as np
 from scipy.ndimage import uniform_filter
 
 from lvp_logger import logger
-from camera.camera import Camera
+from drivers.camera import Camera
 
 
 class SimulatedCamera(Camera):

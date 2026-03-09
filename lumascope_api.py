@@ -11,17 +11,17 @@ import time
 import numpy as np
 
 # Import Lumascope Hardware files
-from motorboard import MotorBoard
-from ledboard import LEDBoard
-from camera.pyloncamera import PylonCamera
+from drivers.motorboard import MotorBoard
+from drivers.ledboard import LEDBoard
+from drivers.pyloncamera import PylonCamera
 try:
-    from camera.idscamera import IDSCamera
+    from drivers.idscamera import IDSCamera
 except ImportError:
     IDSCamera = None
-from camera.camera import Camera
-from camera.simulated_camera import SimulatedCamera
-from simulated_motorboard import SimulatedMotorBoard
-from simulated_ledboard import SimulatedLEDBoard
+from drivers.camera import Camera
+from drivers.simulated_camera import SimulatedCamera
+from drivers.simulated_motorboard import SimulatedMotorBoard
+from drivers.simulated_ledboard import SimulatedLEDBoard
 
 # Import additional libraries
 from lvp_logger import logger, version
@@ -813,7 +813,7 @@ class Lumascope():
         the save path and metadata.
 
         Args:
-            array: Raw image array from camera.
+            array: Raw image array from drivers.
             save_folder: Directory to save into.
             file_root: Filename prefix.
             append: String appended to filename (e.g. color label).

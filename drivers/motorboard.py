@@ -6,7 +6,7 @@ import time
 import lvp_logger
 from lvp_logger import logger
 
-from serialboard import SerialBoard
+from drivers.serialboard import SerialBoard
 from modules.motorconfig import MotorConfig
 
 

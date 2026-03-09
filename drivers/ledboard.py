@@ -4,7 +4,7 @@
 import re
 import time
 from lvp_logger import logger
-from serialboard import SerialBoard
+from drivers.serialboard import SerialBoard
 
 
 class LEDBoard(SerialBoard):

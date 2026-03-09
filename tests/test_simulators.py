@@ -44,12 +44,12 @@ sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
 sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
 sys.modules.setdefault('ids_peak_ipl', MagicMock())
 
-from simulated_ledboard import SimulatedLEDBoard
-from simulated_motorboard import SimulatedMotorBoard
-from camera.simulated_camera import SimulatedCamera
-from camera.camera import Camera
-from ledboard import LEDBoard
-from motorboard import MotorBoard
+from drivers.simulated_ledboard import SimulatedLEDBoard
+from drivers.simulated_motorboard import SimulatedMotorBoard
+from drivers.simulated_camera import SimulatedCamera
+from drivers.camera import Camera
+from drivers.ledboard import LEDBoard
+from drivers.motorboard import MotorBoard
 
 
 # ---------------------------------------------------------------------------

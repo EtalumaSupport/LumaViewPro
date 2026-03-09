@@ -10,7 +10,7 @@ from lvp_logger import logger
 
 import queue
 
-from camera.camera import Camera
+from drivers.camera import Camera
 
 
 class PylonCamera(Camera):

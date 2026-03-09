@@ -60,7 +60,7 @@ class TestLEDSerialBenchmark:
 
     @pytest.fixture
     def led(self):
-        from ledboard import LEDBoard
+        from drivers.ledboard import LEDBoard
         board = LEDBoard()
         if not board.found:
             pytest.skip("LED board not found")
@@ -150,7 +150,7 @@ class TestMotorSerialBenchmark:
 
     @pytest.fixture
     def motor(self):
-        from motorboard import MotorBoard
+        from drivers.motorboard import MotorBoard
         board = MotorBoard()
         if not board.found:
             pytest.skip("Motor board not found")
@@ -218,7 +218,7 @@ class TestConcurrentSerialAccess:
 
     @pytest.fixture
     def led(self):
-        from ledboard import LEDBoard
+        from drivers.ledboard import LEDBoard
         board = LEDBoard()
         if not board.found:
             pytest.skip("LED board not found")

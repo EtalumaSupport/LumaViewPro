@@ -66,8 +66,8 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
-import serialboard
-from serialboard import SerialBoard
+import drivers.serialboard as serialboard
+from drivers.serialboard import SerialBoard
 from modules.protocol import Protocol
 
 

@@ -43,8 +43,8 @@ sys.modules.setdefault('requests.structures', MagicMock())
 
 # Now safe to import
 import pathlib
-from ledboard import LEDBoard
-from motorboard import MotorBoard
+from drivers.ledboard import LEDBoard
+from drivers.motorboard import MotorBoard
 from modules.motorconfig import MotorConfig
 
 _MOTORCONFIG_DEFAULTS = pathlib.Path("data/motorconfig_defaults.json")
@@ -1172,31 +1172,31 @@ class TestSimulatorFirmwareVersion:
     """Test that simulators expose firmware_version and is_v2."""
 
     def test_led_simulator_default_v2(self):
-        from simulated_ledboard import SimulatedLEDBoard
+        from drivers.simulated_ledboard import SimulatedLEDBoard
         board = SimulatedLEDBoard()
         assert board.firmware_version == '2.0.1'
         assert board.is_v2 is True
 
     def test_led_simulator_legacy(self):
-        from simulated_ledboard import SimulatedLEDBoard
+        from drivers.simulated_ledboard import SimulatedLEDBoard
         board = SimulatedLEDBoard(firmware_version=None)
         assert board.firmware_version is None
         assert board.is_v2 is False
 
     def test_led_simulator_custom_version(self):
-        from simulated_ledboard import SimulatedLEDBoard
+        from drivers.simulated_ledboard import SimulatedLEDBoard
         board = SimulatedLEDBoard(firmware_version='1.0.0')
         assert board.firmware_version == '1.0.0'
         assert board.is_v2 is False
 
     def test_motor_simulator_default_v2(self):
-        from simulated_motorboard import SimulatedMotorBoard
+        from drivers.simulated_motorboard import SimulatedMotorBoard
         board = SimulatedMotorBoard()
         assert board.firmware_version == '2.0.1'
         assert board.is_v2 is True
 
     def test_motor_simulator_legacy(self):
-        from simulated_motorboard import SimulatedMotorBoard
+        from drivers.simulated_motorboard import SimulatedMotorBoard
         board = SimulatedMotorBoard(firmware_version=None)
         assert board.firmware_version is None
         assert board.is_v2 is False
