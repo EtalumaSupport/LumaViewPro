@@ -52,9 +52,9 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
         video_config = layer_settings['video_config']
 
         if 'stim_config' in layer_settings:
-            # Force an update to keep stim_config.illumination in sync with layer illumination
-            settings[layer]['stim_config']['illumination'] = layer_settings['ill']
-            stim_config = layer_settings['stim_config']
+            # Copy stim_config so we don't mutate the input settings dict
+            stim_config = dict(layer_settings['stim_config'])
+            stim_config['illumination'] = layer_settings['ill']
         else:
             stim_config = None
 

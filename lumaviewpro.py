@@ -844,7 +844,7 @@ def go_to_step_update_ui(step):
 
     if settings['protocol_led_on']:
         if not protocol_running_global.is_set():
-            camera_executor.put(IOTask(action=Clock.schedule_once(lambda dt: temp())))
+            camera_executor.put(IOTask(action=lambda: Clock.schedule_once(lambda dt: temp())))
 
 
 
@@ -1306,6 +1306,7 @@ class ScopeDisplay(Image):
         logger.info('[LVP Main  ] Clock.schedule_interval(self.update, 1.0 / self.fps)')
         self.paused.clear()
 
+        Clock.unschedule(self.update_scopedisplay)
         Clock.schedule_interval(self.update_scopedisplay, 1.0 / self.fps)
 
     def stop(self):
@@ -1493,6 +1494,10 @@ class ScopeDisplay(Image):
 
         if self.camera_disconnected_display_set:
             Clock.schedule_once(lambda dt: self.source_clear(), 0)
+
+        # Update scale bar color based on active channel (black for transmitted, white for fluorescence)
+        if active_layer is not None:
+            lumaview.scope._scale_bar['color'] = active_layer
 
         # Likely not an IO call as image will be stored in buffer
         image = lumaview.scope.get_image_from_buffer(force_to_8bit=True)
@@ -6326,6 +6331,11 @@ class ProtocolSettings(CompositeCapture):
             before_step = self.curr_step
 
         layer_configs = get_layer_configs()
+
+        # Early return if no channels have acquire enabled (#548)
+        if not any(lc['acquire'] is not None for lc in layer_configs.values()):
+            return
+
         for layer, layer_config in layer_configs.items():
             if layer_config['acquire'] is None:
                 continue
@@ -8508,8 +8518,9 @@ class MicroscopeSettings(BoxLayout):
                 file = file+'.json'
 
         os.chdir(source_path)
+        settings_snapshot = copy.deepcopy(settings)
         with open(file, "w") as write_file:
-            json.dump(settings, write_file, indent = 4, cls=CustomJSONizer)
+            json.dump(settings_snapshot, write_file, indent = 4, cls=CustomJSONizer)
 
 
     def load_binning_sizes(self):

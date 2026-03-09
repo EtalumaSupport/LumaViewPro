@@ -130,8 +130,8 @@ class TestAFRaceCondition:
 
         source = inspect.getsource(AutofocusExecutor._iterate)
 
-        # Extract just the last-pass block (from "last_pass == True" to "return")
-        last_pass_start = source.index('self._last_pass == True')
+        # Extract just the last-pass block (from "self._last_pass:" to "return")
+        last_pass_start = source.index('if self._last_pass:')
         # Find the return that ends this block
         last_pass_block = source[last_pass_start:]
         return_idx = last_pass_block.index('\n                return\n')

@@ -152,7 +152,8 @@ class Lumascope():
             self._binning_size = 1
 
         self._scale_bar = {
-            'enabled': False
+            'enabled': False,
+            'color': None,
         }
 
 
@@ -247,8 +248,10 @@ class Lumascope():
 
         return True
 
-    def set_scale_bar(self, enabled: bool):
+    def set_scale_bar(self, enabled: bool, color: str = None):
         self._scale_bar['enabled'] = enabled
+        if color is not None:
+            self._scale_bar['color'] = color
 
     def set_stage_offset(self, stage_offset):
         self._stage_offset = stage_offset
@@ -502,6 +505,7 @@ class Lumascope():
                 image=self.image_buffer,
                 objective=self._objective,
                 binning_size=self._binning_size,
+                color=self._scale_bar.get('color'),
             )
 
         if force_to_8bit and self.image_buffer.dtype != np.uint8:
@@ -532,6 +536,7 @@ class Lumascope():
                 image=tmp,
                 objective=self._objective,
                 binning_size=self._binning_size,
+                color=self._scale_bar.get('color'),
             )
             del old_tmp  # Explicitly release reference to allow immediate memory reclaim
 

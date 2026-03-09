@@ -322,7 +322,6 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
 
     modality = ''
     if is_color_image(data):
-        # Handles case where an actual color image is provided (such as composite or bullseye in engineering mode)
         photometric = tf.PHOTOMETRIC.RGB
         modality = 'RGB'
     elif color in ('BF', 'PC', 'DF'):
@@ -334,197 +333,88 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
     else:
         raise ValueError(f"Unexpected color value ({color}) for tiff data generation")
 
-
-    """
-    To Add:
-    ImageNumber
-    LensModel
-
-    """
-
-    if image_type == 'imagej':
-        tiff_metadata={
-            'unit': 'um',
-            'axes': axes,
-            'SignificantBits': data.itemsize*8,
-            'PhysicalSizeX': metadata['pixel_size_um'],
-            'PhysicalSizeXUnit': 'um',
-            'PhysicalSizeY': metadata['pixel_size_um'],
-            'PhysicalSizeYUnit': 'um',
-            'Channel': {
-                'Name': [metadata['channel']],
-                'Modality': [modality],
-            },
-            'Plane': {
-                'PositionX': metadata['plate_pos_mm']['x'],
-                'PositionY': metadata['plate_pos_mm']['y'],
-                'PositionZ': metadata['z_pos_um'],
-                'PositionXUnit': 'mm',
-                'PositionYUnit': 'mm',
-                'PositionZUnit': 'um',
-                'Objective': metadata['objective'],
-                'ExposureTime': metadata['exposure_time_ms'],
-                'ExposureTimeUnit': 'ms',
-                'Gain': metadata['gain_db'],
-                'GainUnit': 'dB',
-                'Illumination': metadata['illumination_ma'],
-                'IlluminationUnit': 'mA'
-            },
-            'Document': {
-                'Manufacturer': metadata.get('camera_make', ''),
-                'Device': metadata.get('microscope', ''),
-                'WellLabel': metadata.get('well_label', ''),
-                'WellSite': metadata.get('well_site', ''), # TODO: provide well site, id of image within the well, ex: 3
-            },
-        }
-        tiff_extratags = []
-
-        # 2025-10-03:
-        # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
-        # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
-        options=dict(
+    # Video frames pass through metadata as-is with no structured fields
+    if image_type == 'video_frame':
+        options = dict(
             photometric=photometric,
-            compression='deflate', # 'lzw', # deflate is much faster with 1 worker than lzw with two
-            # resolutionunit='CENTIMETER',
-            # unit='um',
-            maxworkers=1, # 2, # deflate is much faster with 1 worker than lzw with two
-            # spacing=metadata['pixel_size_um'],
+            compression='lzw',
+            resolutionunit='CENTIMETER',
+            maxworkers=2,
         )
-
         if data.dtype == np.uint8:
             options['tile'] = (128, 128)
+        return {
+            'metadata': metadata,
+            'extratags': [],
+            'options': options,
+        }
 
+    # Shared plane metadata for all structured image types
+    plane = {
+        'PositionX': metadata['plate_pos_mm']['x'],
+        'PositionY': metadata['plate_pos_mm']['y'],
+        'PositionZ': metadata['z_pos_um'],
+        'PositionXUnit': 'mm',
+        'PositionYUnit': 'mm',
+        'PositionZUnit': 'um',
+        'Objective': metadata['objective'],
+        'ExposureTime': metadata['exposure_time_ms'],
+        'ExposureTimeUnit': 'ms',
+        'Gain': metadata['gain_db'],
+        'GainUnit': 'dB',
+        'Illumination': metadata['illumination_ma'],
+        'IlluminationUnit': 'mA',
+    }
+
+    # Base metadata shared by all structured types
+    tiff_metadata = {
+        'axes': axes,
+        'SignificantBits': data.itemsize * 8,
+        'PhysicalSizeX': metadata['pixel_size_um'],
+        'PhysicalSizeXUnit': 'um',
+        'PhysicalSizeY': metadata['pixel_size_um'],
+        'PhysicalSizeYUnit': 'um',
+        'Channel': {'Name': [metadata['channel']]},
+        'Plane': plane,
+    }
+
+    # ImageJ adds unit, channel modality, and document block
+    if image_type == 'imagej':
+        tiff_metadata['unit'] = 'um'
+        tiff_metadata['Channel']['Modality'] = [modality]
+        tiff_metadata['Document'] = {
+            'Manufacturer': metadata.get('camera_make', ''),
+            'Device': metadata.get('microscope', ''),
+            'WellLabel': metadata.get('well_label', ''),
+            'WellSite': metadata.get('well_site', ''),
+        }
+        options = dict(
+            photometric=photometric,
+            compression='deflate',
+            maxworkers=1,
+        )
         # Resolution for ImageJ types is in pixels/pixel
         resolution = (1. / metadata['pixel_size_um'], 1. / metadata['pixel_size_um'])
-
-        return {
-            'metadata': tiff_metadata,
-            'extratags': tiff_extratags,
-            'options': options,
-            'resolution': resolution,
-            # 'resolutionunit': 'um',
-        }
-
-    elif image_type == 'ome':
-        tiff_metadata={
-            'axes': axes,
-            'SignificantBits': data.itemsize*8,
-            'PhysicalSizeX': metadata['pixel_size_um'],
-            'PhysicalSizeXUnit': 'um',
-            'PhysicalSizeY': metadata['pixel_size_um'],
-            'PhysicalSizeYUnit': 'um',
-            'Channel': {'Name': [metadata['channel']]},
-            'Plane': {
-                'PositionX': metadata['plate_pos_mm']['x'],
-                'PositionY': metadata['plate_pos_mm']['y'],
-                'PositionZ': metadata['z_pos_um'],
-                'PositionXUnit': 'mm',
-                'PositionYUnit': 'mm',
-                'PositionZUnit': 'um',
-                'Objective': metadata['objective'],
-                'ExposureTime': metadata['exposure_time_ms'],
-                'ExposureTimeUnit': 'ms',
-                'Gain': metadata['gain_db'],
-                'GainUnit': 'dB',
-                'Illumination': metadata['illumination_ma'],
-                'IlluminationUnit': 'mA'
-            }
-        }
-        tiff_extratags = []
-        # Metadata seems to be working properly for OME-TIFF's so let's leave it alone for now.
-
-        # 2025-10-03:
-        # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
-        # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
-        options=dict(
-            photometric=photometric,
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=2
-        )
-
-        if data.dtype == np.uint8:
-            options['tile'] = (128, 128)
-
-        resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
-
-        return {
-            'metadata': tiff_metadata,
-            'extratags': tiff_extratags,
-            'options': options,
-            'resolution': resolution,
-        }
-
-    elif image_type == 'video_frame':
-        tiff_extratags = []
-        tiff_metadata = metadata
-
-        # 2025-10-03:
-        # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
-        # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
-        options=dict(
-            photometric=photometric,
-            compression='lzw',
-            resolutionunit='CENTIMETER',
-            maxworkers=2
-        )
-
-        if data.dtype == np.uint8:
-            options['tile'] = (128, 128)
-
-        return {
-            'metadata': tiff_metadata,
-            'extratags': tiff_extratags,
-            'options': options,
-        }
-
     else:
-        tiff_metadata={
-            'axes': axes,
-            'SignificantBits': data.itemsize*8,
-            'PhysicalSizeX': metadata['pixel_size_um'],
-            'PhysicalSizeXUnit': 'um',
-            'PhysicalSizeY': metadata['pixel_size_um'],
-            'PhysicalSizeYUnit': 'um',
-            'Channel': {'Name': [metadata['channel']]},
-            'Plane': {
-                'PositionX': metadata['plate_pos_mm']['x'],
-                'PositionY': metadata['plate_pos_mm']['y'],
-                'PositionZ': metadata['z_pos_um'],
-                'PositionXUnit': 'mm',
-                'PositionYUnit': 'mm',
-                'PositionZUnit': 'um',
-                'Objective': metadata['objective'],
-                'ExposureTime': metadata['exposure_time_ms'],
-                'ExposureTimeUnit': 'ms',
-                'Gain': metadata['gain_db'],
-                'GainUnit': 'dB',
-                'Illumination': metadata['illumination_ma'],
-                'IlluminationUnit': 'mA'
-            }
-        }
-        tiff_extratags = []
-        # 2025-10-03:
-        # - Keeping tile seems to break ImageJ compatibility with tiff colormaps in 16-bit images
-        # - Removing tile seems to break ImageJ compatibility with tiff colormaps in 8-bit images
-        options=dict(
+        # ome and default use same options
+        options = dict(
             photometric=photometric,
             compression='lzw',
             resolutionunit='CENTIMETER',
-            maxworkers=2
+            maxworkers=2,
         )
-
-        if data.dtype == np.uint8:
-            options['tile'] = (128, 128)
-
         resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
 
-        return {
-            'metadata': tiff_metadata,
-            'extratags': tiff_extratags,
-            'options': options,
-            'resolution': resolution,
-        }
+    # Tile setting: 8-bit images use tiles for ImageJ colormap compatibility
+    if data.dtype == np.uint8:
+        options['tile'] = (128, 128)
+
+    return {
+        'metadata': tiff_metadata,
+        'extratags': [],
+        'options': options,
+        'resolution': resolution,
+    }
 
 
 def ms_exposure_to_rational(ms_exposure):
@@ -539,83 +429,74 @@ def subject_dist_to_rational(distance):
     return fraction.numerator, fraction.denominator
 
 
-def add_scale_bar(
-    image,
-    objective: dict,
-    binning_size: int
-):
-    height, width = image.shape[0], image.shape[1]
+_scale_bar_cache = {}
 
-    MIN_IMAGE_WIDTH_PIXELS = 100
-    if width < MIN_IMAGE_WIDTH_PIXELS:
-        # Don't try to add a scale bar if the image is too small
-        return image
 
-    dtype = image.dtype
-    is_color = is_color_image(image=image)
-
+def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binning_size, color):
+    """Pre-render scale bar overlay and mask. Returns (overlay, mask, cache_key)."""
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
         binning_size=binning_size
     )
 
     # Scale bar should be 1/8 to 1/4 the image length
-    scale_bar_length_range_pixels = {
-        'min': int(width/8),
-        'max': int(width/4),
-    }
-    scale_bar_length_range_pixels['mid'] = int((scale_bar_length_range_pixels['min'] + scale_bar_length_range_pixels['max']) / 2)
+    min_px = int(width / 8)
+    max_px = int(width / 4)
+    mid_px = (min_px + max_px) // 2
 
-    scale_bar_length_range_um = {k: v*pixel_size_um for k,v in scale_bar_length_range_pixels.items()}
+    mid_um = mid_px * pixel_size_um
+    min_um = min_px * pixel_size_um
+    max_um = max_px * pixel_size_um
 
     good_numbers = np.array(
-        [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1250, 1500, 1750, 2000, 2500, 3000]
+        [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1250, 1500, 1750, 2000, 2500, 3000],
+        dtype=float,
     )
 
-    # If needed, adjust the good numbers by factors of 10 to keep them 'good'
-    if scale_bar_length_range_um['min'] > good_numbers.max():
-        while scale_bar_length_range_um['min'] > good_numbers.max():
+    if min_um > good_numbers.max():
+        while min_um > good_numbers.max():
             good_numbers *= 10
-    elif scale_bar_length_range_um['max'] < good_numbers.min():
-        while scale_bar_length_range_um['max'] < good_numbers.min():
-            good_numbers = (good_numbers / 10)
+    elif max_um < good_numbers.min():
+        while max_um < good_numbers.min():
+            good_numbers = good_numbers / 10
 
-    # Find the nearest good number to the midpoint target
-    good_numbers_diff = np.absolute(good_numbers-scale_bar_length_range_um['mid'])
-    good_numbers_index = good_numbers_diff.argmin()
+    good_numbers_index = np.absolute(good_numbers - mid_um).argmin()
     scale_bar_length_um = good_numbers[good_numbers_index]
-
-    # Convert the calculated value back to pixels
     scale_bar_length_pixels = int(scale_bar_length_um / pixel_size_um)
 
-    scale_bar_thickness_pixels = min(3, int(height/300))
-    scale_bar_bottom_offset = int(height/40)
-    scale_bar_right_offset = int(width/40)
+    scale_bar_thickness_pixels = min(3, int(height / 300))
+    scale_bar_bottom_offset = int(height / 40)
+    scale_bar_right_offset = int(width / 40)
 
-    if dtype == np.uint8:
-        scale_bar_value = 2**8-1
-    else: # 12-bit
-        scale_bar_value = 2**12-1
+    transmitted_channels = ('BF', 'PC', 'DF')
+    if color in transmitted_channels:
+        scale_bar_value = 0
+    elif dtype == np.uint8:
+        scale_bar_value = 255
+    else:
+        scale_bar_value = 4095
 
     x_end = width - scale_bar_right_offset
     x_start = x_end - scale_bar_length_pixels
     y_start = scale_bar_bottom_offset
     y_end = y_start + scale_bar_thickness_pixels
 
+    # Render onto a blank canvas
     if is_color:
-        image[y_start:y_end+1,x_start:x_end+1,:] = scale_bar_value
+        canvas = np.zeros((height, width, 3), dtype=dtype)
+        canvas[y_start:y_end+1, x_start:x_end+1, :] = scale_bar_value
     else:
-        image[y_start:y_end+1,x_start:x_end+1] = scale_bar_value
+        canvas = np.zeros((height, width), dtype=dtype)
+        canvas[y_start:y_end+1, x_start:x_end+1] = scale_bar_value
 
     text_x_pos = x_start
     text_y_pos = y_end + 5
-    font_scale = max(0.75, width/2000)
+    font_scale = max(0.75, width / 2000)
     font_face = cv2.FONT_HERSHEY_SIMPLEX
     font_thickness = 1
 
     scale_bar_text = f"{scale_bar_length_um}um, {objective['magnification']}x"
 
-    # Adjust the font scaling until the text string is smaller than the scale bar length
     while True:
         text_size, _ = cv2.getTextSize(
             text=scale_bar_text,
@@ -623,23 +504,70 @@ def add_scale_bar(
             fontScale=font_scale,
             thickness=font_thickness
         )
-        text_w, text_h = text_size
-        if text_w < scale_bar_length_pixels:
+        if text_size[0] < scale_bar_length_pixels:
             break
-
         font_scale *= 0.75
 
     cv2.putText(
-        img=image,
+        img=canvas,
         text=scale_bar_text,
         org=(text_x_pos, text_y_pos),
         fontFace=font_face,
         fontScale=font_scale,
-        color=(scale_bar_value,scale_bar_value,scale_bar_value),
+        color=(scale_bar_value, scale_bar_value, scale_bar_value),
         thickness=font_thickness,
         lineType=cv2.LINE_AA,
         bottomLeftOrigin=True
     )
+
+    # Build boolean mask of non-zero pixels
+    if is_color:
+        mask = np.any(canvas != 0, axis=2)
+    else:
+        mask = canvas != 0
+
+    # For black scale bars (transmitted), the overlay is zeros and mask marks where to write
+    # We need to handle this differently: store the value and use it during apply
+    return canvas, mask, scale_bar_value
+
+
+def add_scale_bar(
+    image,
+    objective: dict,
+    binning_size: int,
+    color: str = None,
+):
+    global _scale_bar_cache
+
+    height, width = image.shape[0], image.shape[1]
+
+    MIN_IMAGE_WIDTH_PIXELS = 100
+    if width < MIN_IMAGE_WIDTH_PIXELS:
+        return image
+
+    dtype = image.dtype
+    is_color = is_color_image(image=image)
+
+    cache_key = (height, width, dtype, is_color, objective['focal_length'], objective['magnification'], binning_size, color)
+
+    if _scale_bar_cache.get('key') != cache_key:
+        overlay, mask, value = _compute_scale_bar_overlay(
+            height, width, dtype, is_color, objective, binning_size, color
+        )
+        _scale_bar_cache = {'key': cache_key, 'overlay': overlay, 'mask': mask, 'value': value}
+
+    cached = _scale_bar_cache
+    mask = cached['mask']
+
+    if cached['value'] == 0:
+        # Black scale bar for transmitted channels — set masked pixels to 0
+        if is_color:
+            image[mask] = 0
+        else:
+            image[mask] = 0
+    else:
+        # White scale bar — apply overlay values
+        image[mask] = cached['overlay'][mask]
 
     return image
 
