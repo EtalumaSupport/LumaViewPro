@@ -527,6 +527,10 @@ else:
 
 
 
+# ============================================================================
+# Utility / Helper Functions
+# ============================================================================
+
 def set_last_save_folder(dir: pathlib.Path | None):
     if dir is None:
         return
@@ -543,6 +547,10 @@ def update_autofocus_selection_after_protocol():
     for layer in common_utils.get_layers():
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
         layer_obj.init_autofocus()
+
+# ============================================================================
+# LED / Illumination Helpers
+# ============================================================================
 
 def _handle_ui_for_leds_off():
     global lumaview
@@ -577,6 +585,10 @@ def is_image_saving_enabled() -> bool:
 
     return True
 
+
+# ============================================================================
+# Protocol Step Navigation
+# ============================================================================
 
 def _update_step_number_callback(step_num: int):
     protocol_settings = lumaview.ids['motionsettings_id'].ids['protocol_settings_id']
@@ -669,16 +681,18 @@ def go_to_step(
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
-        # Update settings to correspond with step
+        # Update settings to correspond with step — batch write for thread safety
         color = step['Color']
-        settings[color]['autofocus'] = step['Auto_Focus']
-        settings[color]['false_color'] = step['False_Color']
-        settings[color]['ill'] = step["Illumination"]
-        settings[color]['gain'] = step["Gain"]
-        settings[color]['auto_gain'] = step["Auto_Gain"]
-        settings[color]['exp'] = step["Exposure"]
-        settings[color]['sum'] = step["Sum"]
-        settings[color]['acquire'] = step['Acquire']
+        settings[color].update({
+            'autofocus': step['Auto_Focus'],
+            'false_color': step['False_Color'],
+            'ill': step["Illumination"],
+            'gain': step["Gain"],
+            'auto_gain': step["Auto_Gain"],
+            'exp': step["Exposure"],
+            'sum': step["Sum"],
+            'acquire': step['Acquire'],
+        })
 
         layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=color)
 
@@ -812,6 +826,10 @@ def go_to_step_update_ui(step):
 
 
 
+
+# ============================================================================
+# Configuration Getters (UI State Accessors)
+# ============================================================================
 
 def get_binning_from_ui() -> int:
     try:
@@ -1031,6 +1049,10 @@ def get_current_objective_info() -> tuple[str, dict]:
     return config_helpers.get_current_objective_info(settings, objective_helper)
 
 
+# ============================================================================
+# Motion / Stage Control Helpers
+# ============================================================================
+
 def _handle_ui_update_for_axis(axis: str, vertical_control: bool = False):
     axis = axis.upper()
     if axis == 'Z':
@@ -1106,6 +1128,10 @@ def move_home(axis: str):
     Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {version}   |   Homing, please wait..."), 0)
     scope_commands.move_home(lumaview.scope, io_executor, axis, callback=move_home_cb, cb_args=(axis))
 
+# ============================================================================
+# Window Title Helpers
+# ============================================================================
+
 # Should only be called from main thread
 def set_recording_title(progress=None):
     if progress is None:
@@ -1130,6 +1156,10 @@ def move_home_cb(axis):
     _handle_ui_update_for_axis(axis=axis)
     Window.set_title(f"Lumaview Pro {version}")
 
+# ============================================================================
+# Histogram / Contrast Helpers
+# ============================================================================
+
 def live_histo_off():
     if live_histo_setting and lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization:
         lumaview.ids['viewer_id'].ids['scope_display_id'].use_live_image_histogram_equalization = False
@@ -1146,9 +1176,10 @@ def log_system_metrics(dt=None):
 
     
 
-# -------------------------------------------------------------------------
-# SCOPE DISPLAY Image representing the microscope camera
-# -------------------------------------------------------------------------
+# ============================================================================
+# ScopeDisplay — Live Camera Image Widget
+# ============================================================================
+
 class ScopeDisplay(Image):
     record = BooleanProperty(None)
     record = False
@@ -1544,9 +1575,10 @@ class ScopeDisplay(Image):
         if abs(layer_obj.ids['exp_slider'].value - actual_exp) > 0.01:
             layer_obj.ids['exp_slider'].value = actual_exp
 
-# -------------------------------------------------------------------------
-# COMPOSITE CAPTURE FloatLayout with shared capture capabilities
-# -------------------------------------------------------------------------
+# ============================================================================
+# CompositeCapture — Shared Capture Capabilities
+# ============================================================================
+
 class CompositeCapture(FloatLayout):
 
     _capturing = False  # Guard against rapid double-clicks
@@ -1755,6 +1787,18 @@ class CompositeCapture(FloatLayout):
         """Runs on background thread — performs hardware I/O without blocking UI."""
         global lumaview
 
+        # Snapshot settings at entry for thread safety — avoids seeing partial
+        # updates from the UI thread during the capture sequence.
+        all_layers = (
+            *common_utils.get_transmitted_layers(),
+            *common_utils.get_fluorescence_layers(),
+            *common_utils.get_luminescence_layers(),
+        )
+        layer_settings = {layer: dict(settings[layer]) for layer in all_layers}
+        frame_settings = dict(settings['frame'])
+        live_folder = settings['live_folder']
+        image_output_format = dict(settings['image_output_format'])
+
         acquired_channel_count = 0
         most_recent_aq_channel = None
 
@@ -1763,12 +1807,12 @@ class CompositeCapture(FloatLayout):
         else:
             dtype = np.uint8
 
-        img = np.zeros((settings['frame']['height'], settings['frame']['width'], 3), dtype=dtype)
+        img = np.zeros((frame_settings['height'], frame_settings['width'], 3), dtype=dtype)
         transmitted_present = False
 
         for trans_layer in common_utils.get_transmitted_layers():
             trans_layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=trans_layer)
-            if settings[trans_layer]["acquire"] == "image":
+            if layer_settings[trans_layer]["acquire"] == "image":
                 transmitted_present = True
                 acquired_channel_count += 1
                 most_recent_aq_channel = trans_layer
@@ -1781,13 +1825,13 @@ class CompositeCapture(FloatLayout):
                         time.sleep(.001)
 
                 # set the gain and exposure
-                gain = settings[trans_layer]['gain']
+                gain = layer_settings[trans_layer]['gain']
                 lumaview.scope.set_gain(gain)
-                exposure = settings[trans_layer]['exp']
+                exposure = layer_settings[trans_layer]['exp']
                 lumaview.scope.set_exposure_time(exposure)
 
                 # update illumination to currently selected settings
-                illumination = settings[trans_layer]['ill']
+                illumination = layer_settings[trans_layer]['ill']
 
                 # Transmitted channel capture — route LED through io_executor
                 scope_commands.led_on_sync(
@@ -1822,7 +1866,7 @@ class CompositeCapture(FloatLayout):
 
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
             layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
-            if settings[layer]['acquire'] == "image":
+            if layer_settings[layer]['acquire'] == "image":
                 acquired_channel_count += 1
                 most_recent_aq_channel = layer
 
@@ -1834,22 +1878,22 @@ class CompositeCapture(FloatLayout):
                         time.sleep(.001)
 
                 # set the gain and exposure
-                gain = settings[layer]['gain']
+                gain = layer_settings[layer]['gain']
                 lumaview.scope.set_gain(gain)
-                exposure = settings[layer]['exp']
+                exposure = layer_settings[layer]['exp']
                 lumaview.scope.set_exposure_time(exposure)
-                sum_count=settings[layer]['sum']
+                sum_count=layer_settings[layer]['sum']
                 sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
 
                 # Set brightness threshold for composites dealing with transmitted channels
                 # If given in percentage, convert to 8 or 16 bit value
                 if not use_full_pixel_depth:
-                    brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
+                    brightness_threshold = layer_settings[layer]["composite_brightness_threshold"] / 100 * 255
                 else:
-                    brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 4095
+                    brightness_threshold = layer_settings[layer]["composite_brightness_threshold"] / 100 * 4095
 
                 # update illumination to currently selected settings
-                illumination = settings[layer]['ill']
+                illumination = layer_settings[layer]['ill']
 
                 # Fluorescence capture — route LED through io_executor
                 # Check to make sure we are not capturing from a luminescence layer which doesn't use an LED
@@ -1913,7 +1957,7 @@ class CompositeCapture(FloatLayout):
         # File saving can run on this thread (no UI dependency)
         append = f'{self.get_well_label()}'
 
-        save_folder = pathlib.Path(settings['live_folder']) / "Manual"
+        save_folder = pathlib.Path(live_folder) / "Manual"
         save_folder.mkdir(parents=True, exist_ok=True)
         set_last_save_folder(dir=save_folder)
 
@@ -1925,7 +1969,7 @@ class CompositeCapture(FloatLayout):
                 append=append,
                 color=None,
                 tail_id_mode='increment',
-                output_format=settings['image_output_format']['live']
+                output_format=image_output_format['live']
             )
         elif acquired_channel_count != 0:
             lumaview.scope.save_image(
@@ -1935,7 +1979,7 @@ class CompositeCapture(FloatLayout):
                 append=append,
                 color=None,
                 tail_id_mode='increment',
-                output_format=settings['image_output_format']['live']
+                output_format=image_output_format['live']
             )
         else:
             logger.info("[Composite Capture  ] No image saved as no channels were selected")
@@ -1963,9 +2007,10 @@ class CompositeCapture(FloatLayout):
         #     sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
 
 
-# -------------------------------------------------------------------------
-# MAIN DISPLAY of LumaViewPro App
-# -------------------------------------------------------------------------
+# ============================================================================
+# MainDisplay — Primary Application Display (Recording, Camera, Fit/Zoom)
+# ============================================================================
+
 class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def __init__(self, **kwargs):
@@ -2573,6 +2618,10 @@ if __name__ == "__main__":
     uniform vec4       color;
     '''
 
+# ============================================================================
+# ShaderViewer — GPU Shader-Based Image Display with Pan/Zoom
+# ============================================================================
+
 class ShaderViewer(Scatter):
     black = ObjectProperty(0.)
     white = ObjectProperty(1.)
@@ -2842,6 +2891,10 @@ if __name__ == "__main__":
     Factory.register('ShaderViewer', cls=ShaderViewer)
 
 
+# ============================================================================
+# Accordion Item Widgets (Layer/Channel Selection)
+# ============================================================================
+
 class AccordionItemXyStageControl(AccordionItem):
 
     def __init__(self, **kwargs):
@@ -2890,6 +2943,10 @@ class AccordionItemImageSettingsBlueControl(AccordionItemImageSettingsBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
+
+# ============================================================================
+# MotionSettings — Left Sidebar Panel (Motion, Protocol, Post-Processing)
+# ============================================================================
 
 class MotionSettings(BoxLayout):
     settings_width = dp(300)
@@ -3033,6 +3090,10 @@ class MotionSettings(BoxLayout):
             self.pos = -self.settings_width + self.tab_width, 0
         else:
             self.pos = 0, 0
+
+# ============================================================================
+# Post-Processing Controls (Stitch, Z-Projection, Composite, Video)
+# ============================================================================
 
 class StitchControls(BoxLayout):
 
@@ -3379,6 +3440,10 @@ class VideoCreationControls(BoxLayout):
     #     except Exception as e:
     #         logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
 
+# ============================================================================
+# GraphingControls — Data Plotting and Trendlines
+# ============================================================================
+
 class GraphingControls(BoxLayout):
     x_axis_label = "X-Axis"
     y_axis_label = "Y-Axis"
@@ -3668,6 +3733,10 @@ class GraphingControls(BoxLayout):
     def set_post_processing_module(self, postprocessingmodule):
         self._post = postprocessingmodule
 
+
+# ============================================================================
+# CellCountControls — Cell Counting and Analysis
+# ============================================================================
 
 class CellCountControls(BoxLayout):
 
@@ -4048,6 +4117,9 @@ class CellCountControls(BoxLayout):
         self.update_filter_max(image=self._preview_image)
 
 
+# ============================================================================
+# PostProcessingAccordion — Post-Processing Panel Container
+# ============================================================================
 
 class PostProcessingAccordion(BoxLayout):
 
@@ -4208,6 +4280,10 @@ def open_last_save_folder():
     else:
         subprocess.Popen([command, str(last_save_folder)])
 
+# ============================================================================
+# CellCountDisplay and ShaderEditor
+# ============================================================================
+
 class CellCountDisplay(FloatLayout):
 
     def __init__(self, **kwargs):
@@ -4272,6 +4348,10 @@ void main (void) {
         else:
             self.hide_editor = False
             self.pos = 0, 0
+
+# ============================================================================
+# ImageSettings — Right Sidebar Panel (Channel Controls, LED, Exposure)
+# ============================================================================
 
 class ImageSettings(BoxLayout):
     settings_width = dp(300)
@@ -4584,6 +4664,10 @@ def set_histogram_layer(active_layer):
             logger.info(f'[LVP Main  ] Clock.schedule_interval(...[{active_layer}]...histogram, 0.5)')
 
 
+# ============================================================================
+# Histogram — Per-Channel Image Histogram Display
+# ============================================================================
+
 class Histogram(Widget):
     bg_color = ObjectProperty(None)
     layer = ObjectProperty(None)
@@ -4668,6 +4752,10 @@ class Histogram(Widget):
                 Color(r, b, g, a / 2)
                 Mesh(vertices=vertices, indices=indices, mode='triangles')
 
+
+# ============================================================================
+# VerticalControl — Z-Axis, Objectives, Turret, and Autofocus
+# ============================================================================
 
 class VerticalControl(BoxLayout):
 
@@ -5271,6 +5359,10 @@ class VerticalControl(BoxLayout):
             self.ids[f'turret_pos_{available_position}_btn'].state = state
 
 
+# ============================================================================
+# XYStageControl — XY Stage Movement and Bookmarks
+# ============================================================================
+
 class XYStageControl(BoxLayout):
 
     def update_gui(self, dt=0, full_redraw: bool = False):
@@ -5539,7 +5631,10 @@ class XYStageControl(BoxLayout):
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
-# Protocol settings tab
+# ============================================================================
+# ProtocolSettings — Protocol Steps, Scanning, and Execution
+# ============================================================================
+
 class ProtocolSettings(CompositeCapture):
     global settings
 
@@ -6998,7 +7093,10 @@ class ProtocolSettings(CompositeCapture):
         self._cleanup_at_end_of_protocol(autofocus_scan=False)
 
 
-# Widget for displaying Microscope Stage area, labware, and current position
+# ============================================================================
+# Stage — Labware Display, Well Plate Visualization, and Stage Interaction
+# ============================================================================
+
 class Stage(Widget):
 
     def _triggered_full_redraw(self, *args):
@@ -7729,6 +7827,10 @@ class Stage(Widget):
             x = 1
             y = 1
 
+# ============================================================================
+# MicroscopeSettings — Settings Load/Save, Scope Selection, Binning, Objectives
+# ============================================================================
+
 class MicroscopeSettings(BoxLayout):
 
     def __init__(self, **kwargs):
@@ -8457,8 +8559,10 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope.set_frame_size(width, height)
 
 
-# Modified Slider Class to enable on_release event
-# ---------------------------------------------------------------------
+# ============================================================================
+# ModSlider — Custom Slider with on_release Event
+# ============================================================================
+
 class ModSlider(Slider):
     def __init__(self, **kwargs):
         self.register_event_type('on_release')
@@ -8508,8 +8612,10 @@ class ModSlider(Slider):
     #     return super().keyboard_on_key_down(window, keycode, text, modifiers)
 
 
-# LayerControl Layout class
-# ---------------------------------------------------------------------
+# ============================================================================
+# LayerControl — Per-Channel LED, Exposure, Gain, and Stimulation Controls
+# ============================================================================
+
 class LayerControl(BoxLayout):
     layer = StringProperty(None)
     bg_color = ObjectProperty(None)
@@ -9150,8 +9256,10 @@ def reset_stim_ui():
                 layer_obj.ids['stim_disable_btn'].active = True
                 layer_obj.update_stim_controls_visibility()
 
-# Z Stack functions class
-# ---------------------------------------------------------------------
+# ============================================================================
+# ZStack — Z-Stack Acquisition Controls
+# ============================================================================
+
 class ZStack(CompositeCapture):
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')
@@ -9329,6 +9437,10 @@ class ZStack(CompositeCapture):
 
         set_last_save_folder(dir=sequenced_capture_executor.run_dir())
 
+
+# ============================================================================
+# File / Folder Chooser Buttons
+# ============================================================================
 
 class FileChooseBTN(Button):
     context  = StringProperty()
@@ -9602,6 +9714,10 @@ class FileSaveBTN(Button):
                 cell_count_content.save_method_as(file=filename)
 
 
+# ============================================================================
+# Application Initialization Helpers
+# ============================================================================
+
 def load_log_level():
     for settings_file in ("./data/current.json", "./data/settings.json"):
         if not os.path.exists(settings_file):
@@ -9689,9 +9805,10 @@ def init_ij():
 def process_ij_helper():
     return imagej_helper.ImageJHelper()
 
-# -------------------------------------------------------------------------
-# RUN LUMAVIEWPRO APP
-# -------------------------------------------------------------------------
+# ============================================================================
+# LumaViewProApp — Main Application Class (Build, Start, Stop, Tooltips)
+# ============================================================================
+
 class LumaViewProApp(App):
 
 
@@ -10278,6 +10395,10 @@ class LumaViewProApp(App):
             self.tt_widget.opacity = 0
             self.tt_shown = False
 
+# ============================================================================
+# Tooltip — Hover Tooltip Widget
+# ============================================================================
+
 class Tooltip(Label):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -10319,6 +10440,10 @@ if __name__ == "__main__":
         except Exception as e:
             # If for some reason we get another error again, bite the bullet
             return original_setslicemethod(self, i, j, sequence)
+
+# ============================================================================
+# Application Entry Point
+# ============================================================================
 
 def dummy_function(PID: int):
     for _ in range(100):
