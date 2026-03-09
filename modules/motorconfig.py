@@ -83,6 +83,18 @@ class MotorConfig:
     def serial_number(self) -> str:
         return self._config.get("Serial Number", "Unknown")
 
+    def hardware_rev(self) -> str:
+        return self._config.get("HardwareRev", "Unknown")
+
+    # --- Image center offset ---
+
+    def image_center_offset(self) -> tuple[int, int]:
+        """Return (X, Y) image center offset in microsteps."""
+        section = self._config.get("ImageCenter")
+        if section is None:
+            return (0, 0)
+        return (int(section.get("X", 0)), int(section.get("Y", 0)))
+
     # --- Turret ---
 
     def turret_position_usteps(self, position: int) -> int:

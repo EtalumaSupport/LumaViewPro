@@ -2,6 +2,11 @@
     "Microscope": "LS850T",
     "Serial Number": "Unknown",
     "Mainboard": "EL-0940-01 Integrated Mainboard",
+    "HardwareRev": "1",
+    "ImageCenter": {
+        "X": 0,
+        "Y": 0
+    },
     "Axis Present": {
         "X": 1,
         "Y": 1,
