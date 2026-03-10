@@ -56,6 +56,7 @@ CTRL_A = b'\x01'  # Enter raw REPL
 CTRL_B = b'\x02'  # Exit raw REPL (back to friendly REPL)
 CTRL_C = b'\x03'  # Keyboard interrupt
 CTRL_D = b'\x04'  # Soft reset / execute in raw REPL
+CTRL_E = b'\x05'  # Enter raw paste mode
 
 # ---------------------------------------------------------------------------
 # Conservative timing constants — reliability over speed
@@ -113,6 +114,50 @@ def _send_chunked(serial_port, data):
         serial_port.write(chunk)
         if i + CODE_CHUNK_SIZE < len(data):
             time.sleep(DELAY_BETWEEN_CHUNKS)
+
+
+def _send_code(serial_port, code):
+    """Send code to raw REPL using raw paste mode if available, else chunked.
+
+    Raw paste mode (MicroPython 1.14+) uses flow control for faster
+    code submission. Falls back to standard chunked send if not supported.
+
+    The code is executed after sending (Ctrl+D is appended automatically).
+    Caller must read the OK acknowledgment and any output.
+    """
+    if isinstance(code, str):
+        code = code.encode('utf-8')
+
+    # Probe for raw paste mode: Ctrl+E, 'A', 0x01
+    serial_port.write(CTRL_E + b'A\x01')
+    time.sleep(0.05)
+    resp = serial_port.read(20)
+
+    if resp[:2] == b'R\x01':
+        # Raw paste mode supported — use flow-controlled transfer
+        window_size = int.from_bytes(resp[2:4], 'little') if len(resp) >= 4 else 128
+        logger.debug(f"Raw paste mode, window={window_size}")
+        sent = 0
+        while sent < len(code):
+            to_send = min(window_size, len(code) - sent)
+            serial_port.write(code[sent:sent + to_send])
+            sent += to_send
+            if sent < len(code):
+                sig = serial_port.read(1)
+                if sig != b'\x01':
+                    logger.warning(f"Raw paste flow control error: {sig!r}")
+                    break
+        # Signal end of code — device responds with Ctrl+D echo
+        # followed immediately by OK<stdout>\x04<stderr>\x04.
+        # We must NOT consume any bytes here — the caller reads OK.
+        serial_port.write(CTRL_D)
+    else:
+        # Raw paste not supported — cancel and use standard chunked send
+        logger.debug("Raw paste not supported, using chunked send")
+        serial_port.write(CTRL_C)
+        time.sleep(0.1)
+        _drain_input(serial_port)
+        _send_chunked(serial_port, code + CTRL_D)
 
 
 def enter_raw_repl(serial_port, soft_reset=True):
@@ -352,21 +397,25 @@ def read_file(serial_port, filename, verify=True):
 def write_file(serial_port, filename, data):
     """Write a file to the board via raw REPL with full safety.
 
+    Uses binary stdin transfer: sends a small helper script that reads
+    raw bytes from ``sys.stdin.buffer``, then streams the file data
+    directly over the serial link. This avoids base64 encoding overhead
+    and large code compilation on the RP2040.
+
     Safety measures (beyond what mpremote and Thonny do):
-      1. Backup: renames existing file to filename.bak
-      2. Atomic write: writes to filename.tmp first
-      3. SHA256 verification: computes hash on-device, compares to local
+      1. Atomic write: writes to filename.tmp first
+      2. SHA256 verification: computed inline during write, compared to local
+      3. Backup: renames existing file to filename.bak only after verify
       4. Rename: filename.tmp → filename only after verification
-      5. Retries: up to WRITE_VERIFY_RETRIES attempts
+      5. Retries: up to WRITE_VERIFY_RETRIES attempts with full cleanup
 
     Args:
         serial_port: pyserial Serial instance (must be in raw REPL)
-        filename: destination path on board (e.g. 'motorconfig.json')
+        filename: destination path on board (e.g. 'main.py')
         data: bytes to write
 
     Returns True on success, False on failure.
     """
-    # Sanitize — prevent path traversal from host side
     import pathlib
     safe_name = pathlib.Path(filename).name
     if not safe_name:
@@ -376,130 +425,110 @@ def write_file(serial_port, filename, data):
     tmp_name = safe_name + '.tmp'
     bak_name = safe_name + '.bak'
 
-    # Compute expected SHA256
     expected_hash = hashlib.sha256(data).hexdigest()
+    file_size = len(data)
     logger.info(
-        f"Writing {safe_name} ({len(data)} bytes, SHA256={expected_hash[:16]}...)")
+        f"Writing {safe_name} ({file_size} bytes, SHA256={expected_hash[:16]}...)")
 
-    # Encode data as base64 for safe transfer
-    b64_data = base64.b64encode(data).decode('ascii')
+    # Helper script runs on-device: reads binary data from stdin,
+    # writes to temp file, verifies SHA256, does atomic rename.
+    # Kept minimal to reduce code compilation time on RP2040.
+    helper_code = (
+        f"import sys,os,uhashlib as H,ubinascii as B\n"
+        f"try:\n os.remove({tmp_name!r})\nexcept:\n pass\n"
+        f"d=sys.stdin.buffer.read({file_size})\n"
+        f"f=open({tmp_name!r},'wb')\nf.write(d)\nf.close()\n"
+        f"h=H.sha256()\nh.update(d)\n"
+        f"x=B.hexlify(h.digest()).decode()\n"
+        f"if x=={expected_hash!r} and len(d)=={file_size}:\n"
+        f" try:\n  os.remove({bak_name!r})\n except:\n  pass\n"
+        f" try:\n  os.rename({safe_name!r},{bak_name!r})\n except:\n  pass\n"
+        f" os.rename({tmp_name!r},{safe_name!r})\n"
+        f" print('OK:'+x+':'+str(len(d)))\n"
+        f"else:\n"
+        f" try:\n  os.remove({tmp_name!r})\n except:\n  pass\n"
+        f" print('FAIL:'+x+':'+str(len(d)))\n"
+    )
 
     for attempt in range(1, WRITE_VERIFY_RETRIES + 1):
         logger.info(f"Write attempt {attempt}/{WRITE_VERIFY_RETRIES}")
+        old_timeout = serial_port.timeout
 
-        # Step 1: Back up existing file (ignore errors if file doesn't exist)
-        backup_code = (
-            "import os\n"
-            "try:\n"
-            f" os.rename({safe_name!r}, {bak_name!r})\n"
-            f" print('backup_ok')\n"
-            "except OSError:\n"
-            " print('no_existing_file')\n"
-        )
-        result = raw_exec(serial_port, backup_code, timeout=5)
-        if result is not None:
-            msg = result.decode('utf-8', 'ignore').strip()
-            logger.info(f"Backup step: {msg}")
-        time.sleep(0.3)
+        try:
+            # Send helper script (uses raw paste mode if available)
+            _send_code(serial_port, helper_code)
 
-        # Step 2: Write data to temp file via base64
-        # Split base64 into chunks to avoid memory issues on RP2040
-        chunk_size = 512  # base64 chars per chunk (384 bytes decoded)
-        chunks = [b64_data[i:i + chunk_size]
-                  for i in range(0, len(b64_data), chunk_size)]
+            # Wait for the code-accepted marker before streaming data.
+            # Standard raw REPL sends: OK<stdout>\x04<stderr>\x04
+            # Raw paste mode sends:    \x04<stdout>\x04<stderr>\x04>
+            # We accept either \x04 or OK as the start marker.
+            serial_port.timeout = 10.0
+            marker = serial_port.read(1)
+            if marker == b'O':
+                # Standard raw REPL: consume the 'K'
+                serial_port.read(1)
+            elif marker != CTRL_D:
+                logger.warning(f"Expected OK or \\x04 marker, got {marker!r}")
+                time.sleep(DELAY_BETWEEN_RETRIES)
+                continue
 
-        # Open temp file
-        open_code = (
-            "import ubinascii\n"
-            f"_f = open({tmp_name!r}, 'wb')\n"
-            "print('opened')"
-        )
-        result = raw_exec(serial_port, open_code, timeout=5)
-        if result is None or b'opened' not in result:
-            logger.warning(f"Failed to open {tmp_name} for writing")
+            # Stream raw binary data — no encoding overhead
+            for i in range(0, file_size, 1024):
+                serial_port.write(data[i:i + 1024])
+                # Brief pause every 8KB for USB CDC flow control
+                if (i + 1024) % 8192 == 0:
+                    time.sleep(0.005)
+            serial_port.flush()
+
+            # Wait for helper to finish (write + hash + rename on-device).
+            # Response ends with \x04<stderr>\x04 (we already consumed
+            # the leading marker, so look for 2 more \x04 bytes).
+            # Use short per-read timeout with an overall deadline to
+            # avoid blocking on the last read after all data has arrived.
+            overall_timeout = max(30, file_size // 500)
+            serial_port.timeout = 2.0
+            response = b''
+            deadline = time.time() + overall_timeout
+            while time.time() < deadline:
+                chunk = serial_port.read(1024)
+                if chunk:
+                    response += chunk
+                    if response.count(b'\x04') >= 2:
+                        break
+                elif response:
+                    # Got data before but nothing now — response complete
+                    break
+
+            resp_text = response.decode('utf-8', errors='replace')
+
+            if 'OK:' in resp_text:
+                parts = resp_text.split('OK:')[1].split(':')
+                device_hash = parts[0].strip()
+                logger.info(f"Successfully wrote {safe_name} "
+                            f"({file_size} bytes, SHA256 verified, "
+                            f"backup in {bak_name})")
+                return True
+            elif 'FAIL:' in resp_text:
+                parts = resp_text.split('FAIL:')[1].split(':')
+                device_hash = parts[0].strip()
+                logger.error(
+                    f"SHA256 MISMATCH on {safe_name}: "
+                    f"expected {expected_hash[:16]}..., "
+                    f"got {device_hash[:16]}...")
+            else:
+                logger.warning(f"Unexpected response: {resp_text[:200]}")
+
+        except Exception as e:
+            logger.warning(f"Write attempt {attempt} error: {e}")
+
+        finally:
+            serial_port.timeout = old_timeout
+
+        if attempt < WRITE_VERIFY_RETRIES:
             time.sleep(DELAY_BETWEEN_RETRIES)
-            continue
-        time.sleep(0.1)
 
-        # Write chunks
-        write_ok = True
-        for i, chunk in enumerate(chunks):
-            write_code = (
-                f"_f.write(ubinascii.a2b_base64({chunk!r}))\n"
-                f"print('chunk_{i}')"
-            )
-            result = raw_exec(serial_port, write_code, timeout=10)
-            if result is None or f'chunk_{i}'.encode() not in result:
-                logger.warning(f"Failed to write chunk {i}/{len(chunks)}")
-                write_ok = False
-                break
-            time.sleep(0.05)  # Brief pause between chunks
-
-        # Close file
-        close_code = "_f.close()\nprint('closed')"
-        result = raw_exec(serial_port, close_code, timeout=5)
-        if result is None or b'closed' not in result:
-            logger.warning("Failed to close temp file")
-            write_ok = False
-        time.sleep(0.3)
-
-        if not write_ok:
-            # Clean up partial temp file
-            raw_exec(serial_port,
-                     f"import os\ntry:\n os.remove({tmp_name!r})\nexcept: pass",
-                     timeout=5)
-            time.sleep(DELAY_BETWEEN_RETRIES)
-            continue
-
-        # Step 3: SHA256 verification on-device
-        # MicroPython 1.19 has uhashlib (not hashlib)
-        verify_code = (
-            "import uhashlib, ubinascii\n"
-            f"h = uhashlib.sha256()\n"
-            f"with open({tmp_name!r}, 'rb') as f:\n"
-            " while True:\n"
-            "  b = f.read(256)\n"
-            "  if not b: break\n"
-            "  h.update(b)\n"
-            "print(ubinascii.hexlify(h.digest()).decode())"
-        )
-        result = raw_exec(serial_port, verify_code, timeout=10)
-        if result is None:
-            logger.warning("SHA256 verification failed — no response")
-            time.sleep(DELAY_BETWEEN_RETRIES)
-            continue
-
-        device_hash = result.decode('utf-8', 'ignore').strip()
-        if device_hash != expected_hash:
-            logger.error(
-                f"SHA256 MISMATCH on {tmp_name}: "
-                f"expected {expected_hash[:16]}..., got {device_hash[:16]}...")
-            # Clean up bad temp file
-            raw_exec(serial_port,
-                     f"import os\ntry:\n os.remove({tmp_name!r})\nexcept: pass",
-                     timeout=5)
-            time.sleep(DELAY_BETWEEN_RETRIES)
-            continue
-
-        logger.info(f"SHA256 verified: {device_hash[:16]}...")
-
-        # Step 4: Atomic rename — temp → final
-        rename_code = (
-            "import os\n"
-            f"os.rename({tmp_name!r}, {safe_name!r})\n"
-            "print('renamed')"
-        )
-        result = raw_exec(serial_port, rename_code, timeout=5)
-        if result is None or b'renamed' not in result:
-            logger.error(f"Failed to rename {tmp_name} → {safe_name}")
-            time.sleep(DELAY_BETWEEN_RETRIES)
-            continue
-
-        logger.info(f"Successfully wrote {safe_name} "
-                    f"({len(data)} bytes, verified, backup in {bak_name})")
-        return True
-
-    logger.error(f"Failed to write {safe_name} after {WRITE_VERIFY_RETRIES} attempts")
+    logger.error(
+        f"Failed to write {safe_name} after {WRITE_VERIFY_RETRIES} attempts")
     return False
 
 
