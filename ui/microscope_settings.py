@@ -1,0 +1,850 @@
+# Copyright Etaluma, Inc.
+import copy
+import datetime
+import json
+import logging
+import math
+import os
+import pathlib
+import threading
+
+import numpy as np
+
+from kivy.clock import Clock
+from kivy.uix.boxlayout import BoxLayout
+
+import modules.app_context as _app_ctx
+import modules.common_utils as common_utils
+from modules.sequential_io_executor import IOTask
+
+logger = logging.getLogger('LVP.ui.microscope_settings')
+
+
+class MicroscopeSettings(BoxLayout):
+
+    def __init__(self, **kwargs):
+        super(MicroscopeSettings, self).__init__(**kwargs)
+        logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
+
+        try:
+            import lumaviewpro
+            os.chdir(lumaviewpro.source_path)
+            with open('./data/scopes.json', "r") as read_file:
+                self.scopes = json.load(read_file)
+        except Exception:
+            logger.exception('[LVP Main  ] Unable to read scopes.json.')
+            raise
+
+        # try:
+        #     os.chdir(source_path)
+        #     with open('./data/objectives.json', "r") as read_file:
+        #         self.objectives = json.load(read_file)
+        # except Exception:
+        #     logger.exception('[LVP Main  ] Unable to open objectives.json.')
+        #     raise
+
+
+    # def get_objective_info(self, objective_id: str) -> dict:
+    #     return self.objectives[objective_id]
+
+    def reconnect(self):
+        import lumaviewpro
+
+        logger.info("[LVP Main  ] Reconnecting to microscope...")
+
+        lumaview = lumaviewpro.lumaview
+        settings = _app_ctx.ctx.settings
+
+        lumaview.scope.disconnect()
+        lumaview.scope = None
+        # Reinitialize the scope object (connects motorboard, ledboard, camera)
+        lumaview.scope = lumaviewpro.lumascope_api.Lumascope(camera_type=lumaviewpro.initialized_settings['camera_type'], simulate=lumaviewpro.simulate_mode)
+        labware_id, labware = lumaviewpro.get_selected_labware()
+
+        # Set all variables that were already set at init
+        lumaview.scope.set_labware(labware)
+
+        if lumaview.scope.has_turret():
+            lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
+
+        lumaview.scope.set_scale_bar(enabled=settings['scale_bar']['enabled'])
+        lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
+        lumaview.scope.set_binning_size(size=lumaviewpro.binning.binning_size_str_to_int(text=settings['binning']['size']))
+
+        lumaviewpro.sequenced_capture_executor.set_scope(lumaview.scope)
+        lumaviewpro.autofocus_executor.set_scope(lumaview.scope)
+
+        # Restart display
+
+        _app_ctx.ctx.scope_display.stop()
+        _app_ctx.ctx.scope_display.start()
+
+        if not lumaviewpro.disable_homing:
+            # Note: If the scope has a turret, this also performs a T homing
+            task = IOTask(
+                lumaviewpro.move_home,
+                args=('XY')
+            )
+            lumaviewpro.stage_executor.put(task)
+
+
+        if lumaview.scope.has_turret():
+            objective_id = settings['objective_id']
+            turret_position = lumaview.scope.get_turret_position_for_objective_id(objective_id=objective_id)
+
+            if turret_position is None:
+                DEFAULT_POSITION = 1
+                logger.info(f"Turret position for set objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
+                turret_position = DEFAULT_POSITION
+
+            lumaviewpro.turret_executor.put(IOTask(
+                lumaviewpro.move_absolute_position,
+                kwargs= {
+                    "axis": 'T',
+                    "pos": turret_position,
+                    "wait_until_complete": True
+                }
+            ))
+        _app_ctx.ctx.image_settings.set_layer_exposure_ranges()
+        layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer='BF')
+        layer_obj.apply_settings()
+
+        lumaviewpro.scope_leds_off()
+
+        logger.info("[LVP Main  ] Reconnection complete.")
+
+
+    def acceleration_pct_slider(self):
+        settings = _app_ctx.ctx.settings
+        scope_configs = self.scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+
+        if not selected_scope_config['XYStage']:
+            return
+
+        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_slider()')
+        acc_val = self.ids['acceleration_pct_slider'].value
+        self.set_acceleration_limit(val_pct=acc_val)
+
+
+    def acceleration_pct_text(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_text()')
+        acc_min = self.ids['acceleration_pct_slider'].min
+        acc_max = self.ids['acceleration_pct_slider'].max
+        try:
+            acc_val = int(self.ids['acceleration_pct_text'].text)
+        except Exception:
+            return
+
+        acc_val = int(np.clip(acc_val, acc_min, acc_max))
+
+        self.ids['acceleration_pct_slider'].value = acc_val
+        self.ids['acceleration_pct_text'].text = str(acc_val)
+        self.set_acceleration_limit(val_pct=acc_val)
+
+
+    def set_acceleration_limit(self, val_pct: int):
+        import lumaviewpro
+        settings = _app_ctx.ctx.settings
+        settings['motion']['acceleration_max_pct'] = val_pct
+        lumaviewpro.lumaview.scope.set_acceleration_limit(val_pct=val_pct)
+
+
+    def set_acceleration_control_visibility(self, visible):
+        for acceleration_id in ('acceleration_control_box',):
+            self.ids[acceleration_id].visible = visible
+
+
+    # load settings from JSON file
+    def load_settings(self, filename="./data/current.json"):
+        logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
+        import lumaviewpro
+
+        lumaview = lumaviewpro.lumaview
+        settings = _app_ctx.ctx.settings
+
+        try:
+            # Settings are imported at the very beginning of file
+
+            if settings['profiling']['enabled']:
+                ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                profiling_save_path = os.path.join(lumaviewpro.source_path, f'./logs/profiling')
+                lumaviewpro.MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
+                logger.info('[LVP Main  ] Memory Profiler started.')
+
+            if 'autogain' not in settings['protocol']:
+                settings['protocol']['autogain'] = {
+                    'max_duration_seconds': 1.0,
+                    'target_brightness': 0.3,
+                    'min_gain': 0.0,
+                    'max_gain': 20.0,
+                }
+
+            try:
+                live_folder = pathlib.Path(settings['live_folder']).resolve()
+                live_folder.mkdir(exist_ok=True, parents=True)
+
+            except Exception as e:
+                logger.warning(f"[LVP Main  ] Unable to find/create live image folder at {settings['live_folder']}: {e}")
+                live_folder = pathlib.Path('./capture').resolve()
+                live_folder.mkdir(exist_ok=True, parents=True)
+                logger.info(f"[LVP Main  ] Defaulting live image folder to {str(live_folder)}")
+
+            settings['live_folder'] = str(live_folder)
+
+            # update GUI values from JSON data:
+
+            # Scope auto-detection
+            detected_model = lumaview.scope.get_microscope_model()
+            if detected_model in self.scopes.keys():
+                logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
+                self.ids['scope_spinner'].text = detected_model
+            else:
+                logger.info(f'[LVP Main  ] Using scope selection from {filename}')
+                self.ids['scope_spinner'].text = settings['microscope']
+
+            if settings['use_full_pixel_depth']:
+                self.ids['enable_full_pixel_depth_btn'].state = 'down'
+            else:
+                self.ids['enable_full_pixel_depth_btn'].state = 'normal'
+            self.update_full_pixel_depth_state()
+
+            if 'separate_folder_per_channel' in settings:
+                if settings['separate_folder_per_channel']:
+                    self.ids['separate_folder_per_channel_id'].state = 'down'
+                else:
+                    self.ids['separate_folder_per_channel_id'].state = 'normal'
+            self.update_separate_folders_per_channel()
+
+            self.ids['live_image_output_format_spinner'].text = settings['image_output_format']['live']
+            self.select_live_image_output_format()
+
+            self.ids['sequenced_image_output_format_spinner'].text = settings['image_output_format']['sequenced']
+            self.select_sequenced_image_output_format()
+
+            try:
+                # Model name and max exposure are now set during camera connect().
+                # Just read the already-computed max exposure here.
+                max_exposure = lumaview.scope.camera.get_max_exposure()
+            except Exception as e:
+                logger.error(f"Error getting camera information (Camera may not be connected): {e}")
+                logger.warning(f"Maximum Exposure defaulted to 1000 ms")
+                max_exposure = 1000
+
+            lumaviewpro.max_exposure = max_exposure
+
+            if not settings['video_as_frames']:
+                self.ids['video_recording_format_spinner'].text = 'mp4'
+            else:
+                self.ids['video_recording_format_spinner'].text = 'Frames'
+
+            self.select_video_recording_format()
+
+            if "live_view_fps" in settings:
+                lumaviewpro.live_view_fps = settings['live_view_fps']
+            else:
+                lumaviewpro.live_view_fps = 10
+
+            logger.info(f"[LVP Main  ] Live view FPS set to {lumaviewpro.live_view_fps}")
+
+            acceleration_limit = settings['motion']['acceleration_max_pct']
+            self.ids['acceleration_pct_slider'].value = acceleration_limit
+            self.acceleration_pct_slider()
+
+            # Set Frame Size
+            # Multiplying frame size by the binning size to account for the select_binning_size() call
+            # Effectively sets the frame size to the size it was prior to pixel binning, then bins
+            binning_size_str = settings['binning']['size']
+            binning_size = lumaviewpro.binning.binning_size_str_to_int(text=binning_size_str)
+
+            self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
+            self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
+            lumaview.scope.set_frame_size(settings['frame']['width'] * binning_size,
+                                            settings['frame']['height'] * binning_size)
+
+            # Pixel Binning
+            self.ids['binning_spinner'].text = binning_size_str
+            self.select_binning_size()
+            lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
+
+            objective_id = settings['objective_id']
+
+            # Mutate turret config keys from str to int for cleaner handling
+            settings['turret_objectives'] = {int(k):v for k,v in settings['turret_objectives'].items()}
+
+            if lumaview.scope.has_turret():
+                turret_objectives = list(settings["turret_objectives"].values())
+                if objective_id not in turret_objectives:
+                    logger.warning(f"Startup objective {objective_id} not found in turret objectives ({turret_objectives}).")
+
+                lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
+
+            self.ids['objective_spinner'].text = objective_id
+
+            vertical_control_id = _app_ctx.ctx.motion_settings.ids['verticalcontrol_id']
+            v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
+            v_control_objective_spinner.text = objective_id
+
+            objective_helper = _app_ctx.ctx.objective_helper
+            objective = objective_helper.get_objective_info(objective_id=objective_id)
+            self.ids['magnification_id'].text = f"{objective['magnification']}"
+
+            lumaview.scope.set_objective(objective_id=objective_id)
+
+            # Load previous turret position objectives
+            for turret_pos, objective_id in settings["turret_objectives"].items():
+                if objective_id is None:
+                    button_text = f"{turret_pos}"
+                else:
+                    magnification = objective_helper.get_objective_info(objective_id=objective_id)['magnification']
+                    button_text = f"{magnification}x"
+
+                vertical_control_id.ids[f"turret_pos_{turret_pos}_btn"].text = button_text
+
+            if settings['scale_bar']['enabled']:
+                self.ids['enable_scale_bar_btn'].state = 'down'
+            else:
+                self.ids['enable_scale_bar_btn'].state = 'normal'
+            self.update_scale_bar_state()
+
+            protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
+            protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
+            protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
+            protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
+            protocol_settings.select_labware()
+
+            zstack_settings = _app_ctx.ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
+            zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
+            zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
+            zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
+
+            z_reference = common_utils.convert_zstack_reference_position_setting_to_config(text_label=settings['zstack']['position'])
+
+            zstack_config = lumaviewpro.ZStackConfig(
+                range=settings['zstack']['range'],
+                step_size=settings['zstack']['step_size'],
+                current_z_reference=z_reference,
+                current_z_value=None
+            )
+
+            zstack_settings.ids['zstack_steps_id'].text = str(zstack_config.number_of_steps())
+
+            if "show_tooltips" in settings:
+                if settings["show_tooltips"]:
+                    self.ids['show_tooltips_btn'].state = 'down'
+                    lumaviewpro.show_tooltips = True
+                else:
+                    self.ids['show_tooltips_btn'].state = 'normal'
+                    lumaviewpro.show_tooltips = False
+
+
+            if "protocol_led_on" in settings:
+                if settings["protocol_led_on"]:
+                    self.ids['protocol_led_on_btn'].state = 'down'
+                else:
+                    self.ids['protocol_led_on_btn'].state = 'normal'
+            else:
+                self.ids['protocol_led_on_btn'].state = 'normal'
+                settings["protocol_led_on"] = False
+
+            if "stimulation_enabled" in settings:
+                if settings["stimulation_enabled"]:
+                    self.ids['stimulation_settings_btn'].state = 'down'
+                else:
+                    self.ids['stimulation_settings_btn'].state = 'normal'
+                    # Apply the disabled state to all layers
+                    self.update_stimulation_settings()
+            else:
+                self.ids['stimulation_settings_btn'].state = 'normal'
+                settings["stimulation_enabled"] = False
+
+            # Protocol accordions are permanently disabled (no longer a setting)
+            settings.pop("disable_protocol_accordions", None)
+
+            for layer in common_utils.get_layers():
+
+                layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
+
+                # Set initializing flag to prevent apply_settings during load
+                layer_obj._initializing = True
+
+                if (layer in common_utils.get_fluorescence_layers()):
+                    layer_obj.ids['composite_threshold_slider'].value = settings[layer]['composite_brightness_threshold']
+
+                if 'ill' in settings[layer]:
+                    layer_obj.ids['ill_slider'].value = settings[layer]['ill']
+
+                layer_obj.ids['gain_slider'].value = settings[layer]['gain']
+
+                layer_obj.ids['exp_slider'].max = max_exposure
+
+                if settings[layer]['exp'] <= max_exposure:
+                    layer_obj.ids['exp_slider'].value = settings[layer]['exp']
+                else:
+                    layer_obj.ids['exp_slider'].value = max_exposure
+                    settings[layer]['exp'] = max_exposure
+
+                layer_obj.ids['false_color'].active = settings[layer]['false_color']
+
+                if 'sum' in settings[layer]:
+                    layer_obj.ids['sum_slider'].value = settings[layer]['sum']
+                else:
+                    layer_obj.ids['sum_slider'].value = 1
+
+                if settings[layer]['acquire'] == "image":
+                    layer_obj.ids['acquire_image'].active = True
+                elif settings[layer]['acquire'] == "video":
+                    layer_obj.ids['acquire_video'].active = True
+                else:
+                    settings[layer]['acquire'] = None
+                    layer_obj.ids['acquire_none'].active = True
+
+                video_config = settings[layer]['video_config']
+                DEFAULT_VIDEO_DURATION_SEC = 5
+
+                if video_config is None:
+                    video_config = {}
+
+
+                if 'duration' not in video_config:
+                    video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
+
+                settings[layer]['video_config'] = video_config
+
+                layer_obj.ids['video_duration_text'].text = str(video_config['duration'])
+                layer_obj.ids['video_duration_slider'].value = video_config['duration']
+
+                layer_obj.ids['autofocus'].active = settings[layer]['autofocus']
+
+                # Clear initializing flag - settings are now loaded
+                layer_obj._initializing = False
+
+                if 'stim_config' in settings[layer]:
+                    # Default to hidden until enabled
+                    layer_obj.show_stim_controls = False
+
+                    stim_config = settings[layer]['stim_config']
+                    layer_obj.ids['stim_enable_btn'].active = stim_config['enabled']
+                    layer_obj.ids['stim_disable_btn'].active = not stim_config['enabled']
+                    layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
+                    layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])
+                    layer_obj.ids['stim_pulse_width_text'].text = str(stim_config['pulse_width'])
+                    layer_obj.ids['stim_pulse_width_slider'].value = float(stim_config['pulse_width'])
+                    layer_obj.ids['stim_pulse_count_text'].text = str(stim_config['pulse_count'])
+                    layer_obj.ids['stim_pulse_count_slider'].value = int(stim_config['pulse_count'])
+
+                    # Force hide until enabled
+                    layer_obj.ids['stim_pulse_count_box'].visible = False
+                    layer_obj.ids['stim_freq_box'].visible = False
+                    layer_obj.ids['stim_pulse_width_box'].visible = False
+                    layer_obj.ids['stim_pulse_count_box'].opacity = 0
+                    layer_obj.ids['stim_freq_box'].opacity = 0
+                    layer_obj.ids['stim_pulse_width_box'].opacity = 0
+
+                    layer_obj.update_stim_controls_visibility()
+
+        except Exception:
+            logger.exception('[LVP Main  ] Incompatible JSON file for Microscope Settings')
+
+        self.set_ui_features_for_scope()
+
+
+
+    def update_separate_folders_per_channel(self):
+        settings = _app_ctx.ctx.settings
+
+        if self.ids['separate_folder_per_channel_id'].state == 'down':
+            self._seperate_folder_per_channel = True
+        else:
+            self._seperate_folder_per_channel = False
+
+        settings['separate_folder_per_channel'] = self._seperate_folder_per_channel
+
+
+    def update_bullseye_state(self):
+        if self.ids['enable_bullseye_btn_id'].state == 'down':
+            _app_ctx.ctx.viewer.update_shader(false_color='BF')
+            _app_ctx.ctx.scope_display.use_bullseye = True
+        else:
+            for layer in common_utils.get_layers():
+                layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
+                accordion_item = _app_ctx.ctx.image_settings.accordion_item_lookup(layer=layer)
+                if not accordion_item.collapse:
+                    if layer_obj.ids['false_color'].active:
+                        _app_ctx.ctx.viewer.update_shader(false_color=layer)
+
+                    break
+
+            _app_ctx.ctx.scope_display.use_bullseye = False
+
+    def update_full_pixel_depth_state(self):
+        import lumaviewpro
+        settings = _app_ctx.ctx.settings
+
+        if self.ids['enable_full_pixel_depth_btn'].state == 'down':
+            use_full_pixel_depth = True
+        else:
+            use_full_pixel_depth = False
+
+        _app_ctx.ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
+
+        if use_full_pixel_depth:
+            lumaviewpro.lumaview.scope.camera.set_pixel_format('Mono12')
+        else:
+            lumaviewpro.lumaview.scope.camera.set_pixel_format('Mono8')
+
+        settings['use_full_pixel_depth'] = use_full_pixel_depth
+
+
+    def select_live_image_output_format(self):
+        settings = _app_ctx.ctx.settings
+        settings['image_output_format']['live'] = self.ids['live_image_output_format_spinner'].text
+
+
+    def select_sequenced_image_output_format(self):
+        settings = _app_ctx.ctx.settings
+        settings['image_output_format']['sequenced'] = self.ids['sequenced_image_output_format_spinner'].text
+
+    def select_video_recording_format(self):
+        settings = _app_ctx.ctx.settings
+        if self.ids['video_recording_format_spinner'].text == 'mp4':
+            settings['video_as_frames'] = False
+        else:
+            settings['video_as_frames'] = True
+
+
+    def update_scale_bar_state(self):
+        import lumaviewpro
+        settings = _app_ctx.ctx.settings
+
+        if self.ids['enable_scale_bar_btn'].state == 'down':
+            enabled = True
+        else:
+            enabled = False
+
+        lumaviewpro.lumaview.scope.set_scale_bar(enabled=enabled)
+        settings['scale_bar']['enabled'] = enabled
+
+    def update_crosshairs_state(self):
+        scope_display = _app_ctx.ctx.scope_display
+        if self.ids['enable_crosshairs_btn'].state == 'down':
+            scope_display.use_crosshairs = True
+            scope_display.show_crosshairs(True)
+        else:
+            scope_display.use_crosshairs = False
+            scope_display.show_crosshairs(False)
+
+
+    def update_live_image_histogram_equalization(self):
+        import lumaviewpro
+        if self.ids['enable_live_image_histogram_equalization_btn'].state == 'down':
+            _app_ctx.ctx.scope_display.use_live_image_histogram_equalization = True
+            lumaviewpro.live_histo_setting = True
+        else:
+            _app_ctx.ctx.scope_display.use_live_image_histogram_equalization = False
+            lumaviewpro.live_histo_setting = False
+
+
+    def update_show_tooltips(self):
+        import lumaviewpro
+        settings = _app_ctx.ctx.settings
+        if self.ids['show_tooltips_btn'].state == 'down':
+            lumaviewpro.show_tooltips = True
+            settings["show_tooltips"] = True
+        else:
+            lumaviewpro.show_tooltips = False
+            settings["show_tooltips"] = False
+
+    def update_protocol_led_on(self):
+        settings = _app_ctx.ctx.settings
+        if self.ids['protocol_led_on_btn'].state == 'down':
+            settings["protocol_led_on"] = True
+        else:
+            settings["protocol_led_on"] = False
+
+    def update_stimulation_settings(self):
+        """Toggle stimulation features globally across all channels."""
+        settings = _app_ctx.ctx.settings
+        stimulation_enabled = self.ids['stimulation_settings_btn'].state == 'down'
+        settings["stimulation_enabled"] = stimulation_enabled
+
+        # Update all layer controls
+        for layer in ['BF', 'PC', 'EP', 'DF', 'Lumi', 'Red', 'Green', 'Blue']:
+            if layer in ['Red', 'Green', 'Blue']:
+                layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
+                if layer_obj:
+                    if stimulation_enabled:
+                        # Enable stimulation features
+                        layer_obj.stimulation_support = True
+                        # Don't automatically show stim controls, just enable support
+                    else:
+                        # Disable stimulation features
+                        layer_obj.stimulation_support = False
+                        layer_obj.show_stim_controls = False
+                        layer_obj.show_camera_controls = True
+                        # Set stim to disabled
+                        if 'stim_disable_btn' in layer_obj.ids:
+                            layer_obj.ids['stim_disable_btn'].active = True
+                        # Disable stim_config
+                        if 'stim_config' in settings[layer]:
+                            settings[layer]['stim_config']['enabled'] = False
+
+    # Save settings to JSON file
+    def save_settings(self, file="./data/current.json"):
+        logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
+        import lumaviewpro
+        settings = _app_ctx.ctx.settings
+
+        if isinstance(file, str) and (file[-5:].lower() != '.json'):
+                file = file+'.json'
+
+        os.chdir(lumaviewpro.source_path)
+        settings_snapshot = copy.deepcopy(settings)
+        with open(file, "w") as write_file:
+            json.dump(settings_snapshot, write_file, indent = 4, cls=lumaviewpro.CustomJSONizer)
+
+
+    def load_binning_sizes(self):
+        spinner = self.ids['binning_spinner']
+        spinner.values = ['1x1','2x2','4x4']
+
+
+    def select_binning_size(self):
+        import lumaviewpro
+        settings = _app_ctx.ctx.settings
+
+        lumaview = lumaviewpro.lumaview
+        orig_binning_size = lumaview.scope.get_binning_size()
+        orig_frame_size = lumaviewpro.get_current_frame_dimensions()
+
+        new_binning_size_str = self.ids['binning_spinner'].text
+
+        new_binning_size = lumaviewpro.binning.binning_size_str_to_int(new_binning_size_str)
+        lumaview.scope.set_binning_size(size=new_binning_size)
+        settings['binning']['size'] = new_binning_size_str
+        ratio = new_binning_size / orig_binning_size
+        new_frame_size = {
+            'width': math.floor(orig_frame_size['width'] / ratio),
+            'height': math.floor(orig_frame_size['height'] / ratio),
+        }
+        self.ids['frame_width_id'].text = str(new_frame_size['width'])
+        self.ids['frame_height_id'].text = str(new_frame_size['height'])
+        self.frame_size()
+
+
+    def load_scopes(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.load_scopes()')
+        spinner = self.ids['scope_spinner']
+        spinner.values = list(self.scopes.keys())
+
+    def select_scope(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.select_scope()')
+        import lumaviewpro
+        settings = _app_ctx.ctx.settings
+
+        spinner = self.ids['scope_spinner']
+        settings['microscope'] = spinner.text
+
+        self.set_ui_features_for_scope()
+        lumaviewpro.stage.full_redraw()
+
+
+    def set_ui_features_for_scope(self) -> None:
+        import lumaviewpro
+        settings = _app_ctx.ctx.settings
+
+        microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
+        scope_configs = microscope_settings.scopes
+        selected_scope_config = scope_configs[settings['microscope']]
+
+        microscope_settings.set_acceleration_control_visibility(visible=selected_scope_config['XYStage'])
+
+        motion_settings = _app_ctx.ctx.motion_settings
+        motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
+        motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
+        motion_settings.set_tiling_control_visibility(visible=selected_scope_config['XYStage'])
+
+        image_settings = _app_ctx.ctx.image_settings
+        layers_config = selected_scope_config['Layers']
+        image_settings.set_df_layer_control_visibility(visible=layers_config['Darkfield'])
+        image_settings.set_lumi_layer_control_visibility(visible=layers_config['Lumi'])
+        image_settings.set_fluoresence_layer_controls_visibility(visible=layers_config['Flourescence'])
+
+        protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
+        protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
+        protocol_settings.set_show_protocol_step_locations_visibility(visible=selected_scope_config['XYStage'])
+
+        _app_ctx.ctx.motion_settings.ids['post_processing_id'].ids['stitch_controls_id'].set_button_enabled_state(state=selected_scope_config['XYStage'])
+
+        if selected_scope_config['XYStage'] is False:
+            lumaviewpro.stage.remove_parent()
+            protocol_settings.select_labware(labware="Center Plate")
+            _app_ctx.ctx.motion_settings.ids['post_processing_id'].hide_stitch()
+
+        lumaviewpro.stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
+
+
+    def load_objectives(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.load_objectives()')
+        spinner = self.ids['objective_spinner']
+        objective_helper = _app_ctx.ctx.objective_helper
+        spinner.values = objective_helper.get_objectives_list()
+
+
+    def select_objective(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
+        import lumaviewpro
+
+        lumaview = lumaviewpro.lumaview
+        settings = _app_ctx.ctx.settings
+        objective_helper = _app_ctx.ctx.objective_helper
+
+        objective_id = self.ids['objective_spinner'].text
+        objective = objective_helper.get_objective_info(objective_id=objective_id)
+        settings['objective_id'] = objective_id
+        microscope_settings_id = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
+        microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
+
+        # Update selected to be consistent with other selector
+        vc_objective_spinner = _app_ctx.ctx.motion_settings.ids['verticalcontrol_id'].ids['objective_spinner2']
+        vc_objective_spinner.text = objective_id
+
+        if lumaview.scope.has_turret():
+            lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
+
+        lumaview.scope.set_objective(objective_id=objective_id)
+
+        fov_size = common_utils.get_field_of_view(
+            focal_length=objective['focal_length'],
+            frame_size=settings['frame'],
+            binning_size=lumaviewpro.get_binning_from_ui(),
+        )
+        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
+        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
+
+    def frame_size(self):
+        logger.info('[LVP Main  ] MicroscopeSettings.frame_size()')
+        import lumaviewpro
+
+        lumaview = lumaviewpro.lumaview
+        settings = _app_ctx.ctx.settings
+        objective_helper = _app_ctx.ctx.objective_helper
+
+        if not lumaview.scope.camera_is_connected():
+            return
+
+        try:
+            current_frame_size = lumaviewpro.get_current_frame_dimensions()
+        except ValueError:
+            current_frame_size = {
+                'width': settings['frame']['width'],
+                'height': settings['frame']['height'],
+            }
+
+        width = int(min(current_frame_size['width'], lumaview.scope.get_max_width()))
+        height = int(min(current_frame_size['height'], lumaview.scope.get_max_height()))
+
+        try:
+            min_frame_size = lumaview.scope.camera.get_min_frame_size()
+            width = max(width, min_frame_size['width'])
+            height = max(height, min_frame_size['height'])
+
+            max_frame_size = lumaview.scope.camera.get_max_frame_size()
+            width = min(width, max_frame_size['width'])
+            height = min(height, max_frame_size['height'])
+        except Exception:
+            pass
+
+        settings['frame']['width'] = width
+        settings['frame']['height'] = height
+
+        self.ids['frame_width_id'].text = str(width)
+        self.ids['frame_height_id'].text = str(height)
+
+        objective_id = settings['objective_id']
+        objective = objective_helper.get_objective_info(objective_id=objective_id)
+
+        fov_size = common_utils.get_field_of_view(
+            focal_length=objective['focal_length'],
+            frame_size=settings['frame'],
+            binning_size=lumaviewpro.get_binning_from_ui(),
+        )
+        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
+        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
+
+        lumaview.scope.set_frame_size(width, height)
+
+    def generate_support_report(self):
+        """Show confirmation dialog, then generate a tech support report."""
+        from ui.notification_popup import show_confirmation_popup
+        show_confirmation_popup(
+            title='Tech Support Report',
+            message=(
+                'This will create a diagnostic report to send to\n'
+                'Etaluma Tech Support.\n\n'
+                'The stage will be homed and moved during testing.\n'
+                'Please remove any samples from the stage.\n\n'
+                'This may take a few minutes.'
+            ),
+            confirm_text='Generate',
+            cancel_text='Cancel',
+            on_confirm=self._start_support_report,
+        )
+
+    def _start_support_report(self):
+        from ui.progress_popup import CustomPopup
+        from modules.tech_support_report import TechSupportReport
+        import threading
+        import lumaviewpro
+
+        self._report_popup = CustomPopup(
+            title='Generating Support Report...',
+            auto_dismiss=False,
+        )
+        self._report_popup.open()
+
+        def run():
+            try:
+                report = TechSupportReport(scope=lumaviewpro.lumaview.scope)
+
+                def progress(pct, msg):
+                    Clock.schedule_once(
+                        lambda dt: self._update_report_progress(pct, msg), 0)
+
+                path = report.generate(callback=progress, include_bandwidth_test=False)
+                Clock.schedule_once(lambda dt: self._report_done(path), 0)
+            except Exception as e:
+                logger.error(f"Support report failed: {e}", exc_info=True)
+                Clock.schedule_once(lambda dt: self._report_done(None), 0)
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _update_report_progress(self, pct, msg):
+        if hasattr(self, '_report_popup') and self._report_popup:
+            self._report_popup.progress = pct
+            self._report_popup.text = msg
+
+    def _report_done(self, zip_path):
+        if hasattr(self, '_report_popup') and self._report_popup:
+            self._report_popup.dismiss()
+            self._report_popup = None
+
+        from ui.notification_popup import show_notification_popup
+        if zip_path:
+            show_notification_popup(
+                title='Report Complete',
+                message=(
+                    f'Saved to Desktop:\n{zip_path.name}\n\n'
+                    f'Please email this file to:\n'
+                    f'techsupport@etaluma.com'
+                ),
+            )
+        else:
+            show_notification_popup(
+                title='Report Failed',
+                message=(
+                    'Could not generate the report.\n'
+                    'Check the log file for details and contact\n'
+                    'techsupport@etaluma.com directly.'
+                ),
+            )
