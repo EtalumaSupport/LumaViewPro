@@ -124,6 +124,20 @@ if __name__ == "__main__":
     except Exception:
         pass
 
+    # Get git commit hash for build identification (e.g. "4.0.0-beta (eda766e)")
+    build_hash = ""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=script_path,
+        )
+        if result.returncode == 0:
+            build_hash = result.stdout.strip()
+    except Exception:
+        pass
+
     PROTOCOL_DATA_DIR_NAME = "ProtocolData"
 
     try:
@@ -178,6 +192,11 @@ if __name__ == "__main__":
     from lvp_logger import logger, debug
 
     DEBUG_MODE = debug
+
+    if build_hash:
+        version = f"{version} ({build_hash})"
+    print(f"LumaViewPro {version}")
+    logger.info(f"[LVP Main  ] LumaViewPro {version}")
 
     if DEBUG_MODE:
         logger.info("[LVP Main  ] Debug mode is enabled.")
