@@ -183,11 +183,11 @@ if __name__ == "__main__":
         logger.info("[LVP Main  ] Debug mode is enabled.")
 
     try:
-        from settings_init import load_lvp_settings
+        from modules.settings_init import load_lvp_settings
 
         load_lvp_settings(logger, source_path)
 
-        from settings_init import settings as initialized_settings
+        from modules.settings_init import settings as initialized_settings
 
         settings = initialized_settings
 
@@ -206,7 +206,7 @@ if __name__ == "__main__":
     from modules.tiling_config import TilingConfig
     import modules.common_utils as common_utils
 
-    import labware
+    import modules.labware as labware
     from modules.autofocus_executor import AutofocusExecutor
     import modules.autofocus_functions as autofocus_functions
     from modules.stitcher import Stitcher
@@ -238,9 +238,9 @@ if __name__ == "__main__":
 
     # Hardware
     import lumascope_api
-    import post_processing
+    import modules.post_processing as post_processing
 
-    import image_utils
+    import modules.image_utils as image_utils
 
 
     global profiling_helper
@@ -335,7 +335,7 @@ if __name__ == "__main__":
         """Toggle button with rounded corners and hover highlighting."""
         pass
 
-    import image_utils_kivy
+    import modules.image_utils_kivy as image_utils_kivy
 
 
 
