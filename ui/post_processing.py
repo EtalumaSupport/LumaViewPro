@@ -1077,7 +1077,6 @@ class PostProcessingAccordion(BoxLayout):
         super().__init__(**kwargs)
         self.name = self.__class__.__name__
         self.post = post_processing.PostProcessing()
-        #global settings
         #stitching params (see more info in image_stitcher.py):
         #self.raw_images_folder = settings['save_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.raw_images_folder = './capture/' # I'm guessing not ./capture/ because that would have frames over time already (to make video)

@@ -58,7 +58,6 @@ def find_nearest_step(x, y, protocol):
 # ============================================================================
 
 def _handle_ui_for_leds_off():
-    import lumaviewpro
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers_with_led():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
@@ -66,7 +65,6 @@ def _handle_ui_for_leds_off():
 
 
 def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
-    import lumaviewpro
     ctx = _app_ctx.ctx
     if enabled:
         state = "down"

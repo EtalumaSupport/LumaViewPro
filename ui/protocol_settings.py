@@ -31,7 +31,6 @@ logger = logging.getLogger('LVP.ui.protocol_settings')
 
 
 class ProtocolSettings(CompositeCapture):
-    global settings
 
     done = BooleanProperty(False)
 

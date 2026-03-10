@@ -689,26 +689,3 @@ class LayerControl(BoxLayout):
             ctx.viewer.update_shader(self.layer)
         else:
             ctx.viewer.update_shader('none')
-
-def reset_acquire_ui():
-    ctx = _app_ctx.ctx
-    settings = ctx.settings
-    for layer in common_utils.get_layers():
-        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        if settings[layer]['acquire'] == "image":
-            layer_obj.ids['acquire_image'].active = True
-        elif settings[layer]['acquire'] == "video":
-            layer_obj.ids['acquire_video'].active = True
-        else:
-            layer_obj.ids['acquire_none'].active = True
-
-def reset_stim_ui():
-    ctx = _app_ctx.ctx
-    settings = ctx.settings
-    for layer in common_utils.get_layers():
-        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        if "stim_config" in settings[layer]:
-            if settings[layer]['stim_config'] is not None:
-                settings[layer]['stim_config']['enabled'] = False
-                layer_obj.ids['stim_disable_btn'].active = True
-                layer_obj.update_stim_controls_visibility()
