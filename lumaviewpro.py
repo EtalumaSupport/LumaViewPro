@@ -1252,6 +1252,9 @@ class ScopeDisplay(Image):
         self.use_live_image_histogram_equalization = False
         self.camera_disconnected_display_set = False
 
+        self._bullseye_rgb_buf = None
+        self._bullseye_buf_shape = None
+
         # FPS tracking
         self._fps_frame_count = 0
         self._fps_last_time = time.monotonic()
@@ -1475,6 +1478,16 @@ class ScopeDisplay(Image):
             ScopeDisplay._bullseye_lut = ScopeDisplay._build_bullseye_lut()
         return ScopeDisplay._bullseye_lut[image]
 
+    def transform_to_bullseye_prealloc(self, image):
+        if ScopeDisplay._bullseye_lut is None:
+            ScopeDisplay._bullseye_lut = ScopeDisplay._build_bullseye_lut()
+        target_shape = image.shape + (3,)
+        if self._bullseye_rgb_buf is None or self._bullseye_buf_shape != image.shape:
+            self._bullseye_rgb_buf = np.empty(target_shape, dtype=np.uint8)
+            self._bullseye_buf_shape = image.shape
+        np.take(ScopeDisplay._bullseye_lut, image, axis=0, out=self._bullseye_rgb_buf)
+        return self._bullseye_rgb_buf
+
 
     def update_scopedisplay(self, dt=0):
         # Backpressure: avoid flooding the scope display executor if it is still draining
@@ -1583,12 +1596,11 @@ class ScopeDisplay(Image):
                 if open_layer is not None:
                     Clock.schedule_once(lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0)
 
-            if debug_counter % 2 == 0:
-                if self.use_bullseye:
-                    image_bullseye = self.transform_to_bullseye(image=image)
-                    bullseye_bytes = image_bullseye.tobytes()
-                    bullseye_shape = image_bullseye.shape
-                    Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape: self.create_and_set_bullseye_texture(b, s), 0)
+        if ENGINEERING_MODE and self.use_bullseye:
+            image_bullseye = self.transform_to_bullseye_prealloc(image=image)
+            bullseye_bytes = image_bullseye.tobytes()
+            bullseye_shape = image_bullseye.shape
+            Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape: self.create_and_set_bullseye_texture(b, s), 0)
 
         if not self.use_bullseye:
             if self.use_live_image_histogram_equalization:
