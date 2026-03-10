@@ -99,9 +99,114 @@ def led_on_sync(scope, executor, channel, illumination, timeout=5):
         fut.result(timeout=timeout)
 
 
+def leds_off_sync(scope, executor, timeout=5):
+    """Turn off all LEDs synchronously (blocks until complete).
+
+    Args:
+        scope: Lumascope instance
+        executor: SequentialIOExecutor
+        timeout: Seconds to wait for completion
+    """
+    if not scope.led:
+        logger.warning('[ScopeCmd  ] LED controller not available.')
+        return
+
+    task = IOTask(action=scope.leds_off)
+    fut = executor.put(task, return_future=True)
+    if fut:
+        fut.result(timeout=timeout)
+
+
+# ---------------------------------------------------------------------------
+# Camera commands
+# ---------------------------------------------------------------------------
+
+def set_gain_sync(scope, executor, gain, timeout=5):
+    """Set camera gain synchronously via the executor.
+
+    Args:
+        scope: Lumascope instance with .set_gain()
+        executor: SequentialIOExecutor (camera executor)
+        gain: Gain value to set
+        timeout: Seconds to wait for completion
+    """
+    task = IOTask(action=scope.set_gain, args=(gain,))
+    fut = executor.put(task, return_future=True)
+    if fut:
+        fut.result(timeout=timeout)
+
+
+def set_exposure_sync(scope, executor, exposure, timeout=5):
+    """Set camera exposure time synchronously via the executor.
+
+    Args:
+        scope: Lumascope instance with .set_exposure_time()
+        executor: SequentialIOExecutor (camera executor)
+        exposure: Exposure time in milliseconds
+        timeout: Seconds to wait for completion
+    """
+    task = IOTask(action=scope.set_exposure_time, args=(exposure,))
+    fut = executor.put(task, return_future=True)
+    if fut:
+        fut.result(timeout=timeout)
+
+
+def capture_and_wait_sync(scope, executor, timeout=30, **kwargs):
+    """Capture a frame synchronously via the executor.
+
+    Routes scope.capture_and_wait() through the camera executor so that
+    all camera operations are serialized.
+
+    Args:
+        scope: Lumascope instance with .capture_and_wait()
+        executor: SequentialIOExecutor (camera executor)
+        timeout: Seconds to wait for the capture to complete
+        **kwargs: Passed through to scope.capture_and_wait()
+
+    Returns:
+        The captured image array, or None on failure.
+    """
+    task = IOTask(action=scope.capture_and_wait, kwargs=kwargs)
+    fut = executor.put(task, return_future=True)
+    if fut:
+        return fut.result(timeout=timeout)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Motion commands
 # ---------------------------------------------------------------------------
+
+def move_absolute_sync(scope, executor, axis, pos, wait_until_complete=True,
+                       overshoot_enabled=True, timeout=30):
+    """Move to an absolute position synchronously via the executor.
+
+    Blocks until the IOTask completes.  When *wait_until_complete* is True
+    (the default), the executor worker thread also waits for the stage to
+    arrive before returning — so the caller is guaranteed motion is finished.
+
+    Args:
+        scope: Lumascope instance
+        executor: SequentialIOExecutor (io/stage executor)
+        axis: Axis letter ('X', 'Y', 'Z')
+        pos: Target position in micrometers
+        wait_until_complete: Block inside the executor until motion finishes
+        overshoot_enabled: Allow overshoot compensation
+        timeout: Seconds to wait for the future
+    """
+    task = IOTask(
+        action=scope.move_absolute_position,
+        kwargs={
+            'axis': axis,
+            'pos': pos,
+            'wait_until_complete': wait_until_complete,
+            'overshoot_enabled': overshoot_enabled,
+        },
+    )
+    fut = executor.put(task, return_future=True)
+    if fut:
+        fut.result(timeout=timeout)
+
 
 def move_absolute(
     scope,

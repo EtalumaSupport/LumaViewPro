@@ -1855,17 +1855,18 @@ class CompositeCapture(FloatLayout):
                 most_recent_aq_channel = trans_layer
 
                 if z_stage_present:
-                    # Go to focus and wait for arrival
-                    trans_layer_obj.goto_focus()
+                    # Move to focus position via io_executor (blocks until arrived)
+                    focus_pos = layer_settings[trans_layer]['focus']
+                    scope_commands.move_absolute_sync(
+                        lumaview.scope, io_executor, 'Z', focus_pos,
+                        wait_until_complete=True,
+                    )
 
-                    while not lumaview.scope.get_target_status('Z'):
-                        time.sleep(.001)
-
-                # set the gain and exposure
+                # set the gain and exposure via camera_executor
                 gain = layer_settings[trans_layer]['gain']
-                lumaview.scope.set_gain(gain)
+                scope_commands.set_gain_sync(lumaview.scope, camera_executor, gain)
                 exposure = layer_settings[trans_layer]['exp']
-                lumaview.scope.set_exposure_time(exposure)
+                scope_commands.set_exposure_sync(lumaview.scope, camera_executor, exposure)
 
                 # update illumination to currently selected settings
                 illumination = layer_settings[trans_layer]['ill']
@@ -1876,8 +1877,11 @@ class CompositeCapture(FloatLayout):
                     lumaview.scope.color2ch(trans_layer), illumination,
                 )
 
-                transmitted_channel = lumaview.scope.capture_and_wait(force_to_8bit=not use_full_pixel_depth)
-                scope_leds_off()
+                transmitted_channel = scope_commands.capture_and_wait_sync(
+                    lumaview.scope, camera_executor,
+                    force_to_8bit=not use_full_pixel_depth,
+                )
+                scope_commands.leds_off_sync(lumaview.scope, io_executor)
 
                 img = np.array(transmitted_channel, dtype=dtype)
 
@@ -1899,7 +1903,7 @@ class CompositeCapture(FloatLayout):
             'Lumi': 2,
         }
 
-        scope_leds_off(no_callback=True)
+        scope_commands.leds_off_sync(lumaview.scope, io_executor)
 
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
             layer_obj = lumaview.ids['imagesettings_id'].layer_lookup(layer=layer)
@@ -1908,17 +1912,18 @@ class CompositeCapture(FloatLayout):
                 most_recent_aq_channel = layer
 
                 if z_stage_present:
-                    # Go to focus and wait for arrival
-                    layer_obj.goto_focus()
+                    # Move to focus position via io_executor (blocks until arrived)
+                    focus_pos = layer_settings[layer]['focus']
+                    scope_commands.move_absolute_sync(
+                        lumaview.scope, io_executor, 'Z', focus_pos,
+                        wait_until_complete=True,
+                    )
 
-                    while not lumaview.scope.get_target_status('Z'):
-                        time.sleep(.001)
-
-                # set the gain and exposure
+                # set the gain and exposure via camera_executor
                 gain = layer_settings[layer]['gain']
-                lumaview.scope.set_gain(gain)
+                scope_commands.set_gain_sync(lumaview.scope, camera_executor, gain)
                 exposure = layer_settings[layer]['exp']
-                lumaview.scope.set_exposure_time(exposure)
+                scope_commands.set_exposure_sync(lumaview.scope, camera_executor, exposure)
                 sum_count=layer_settings[layer]['sum']
                 sum_iteration_callback = lumaview.ids['viewer_id'].ids['scope_display_id'].update_scopedisplay
 
@@ -1940,13 +1945,14 @@ class CompositeCapture(FloatLayout):
                         lumaview.scope.color2ch(layer), illumination,
                     )
 
-                img_gray = lumaview.scope.capture_and_wait(
+                img_gray = scope_commands.capture_and_wait_sync(
+                    lumaview.scope, camera_executor,
                     force_to_8bit=not use_full_pixel_depth,
                     sum_count=sum_count,
                     sum_delay_s=exposure/1000,
                     sum_iteration_callback=sum_iteration_callback,
                 )
-                scope_leds_off(no_callback=True)
+                scope_commands.leds_off_sync(lumaview.scope, io_executor)
 
                 img_gray = np.array(img_gray)
 
@@ -1986,7 +1992,7 @@ class CompositeCapture(FloatLayout):
                     elif layer in ('Blue', 'Lumi'):
                         img[:,:,2] = img_gray
 
-            scope_leds_off(no_callback=True)
+            scope_commands.leds_off_sync(lumaview.scope, io_executor)
 
             Clock.schedule_once(lambda dt, lo=layer_obj: Clock.unschedule(lo.ids['histo_id'].histogram), 0)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
