@@ -114,10 +114,11 @@ class Camera(ABC):
         if was_grabbing:
             self.stop_grabbing()
 
-        yield
-
-        if was_grabbing:
-            self.start_grabbing()
+        try:
+            yield
+        finally:
+            if was_grabbing:
+                self.start_grabbing()
 
     @abstractmethod
     def init_camera_config(self):

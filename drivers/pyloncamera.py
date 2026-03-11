@@ -741,8 +741,9 @@ class ImageHandler(pylon.ImageEventHandler):
 
             if grab_succeeded:
                 try:
-                    # GetArray() can cause native crash if device is disconnected
-                    img = grabResult.GetArray()
+                    # GetArray() returns a view into the SDK buffer — copy immediately
+                    # to decouple from buffer lifetime before it's requeued
+                    img = grabResult.GetArray().copy()
                     ts = datetime.datetime.now()
                     self._base._store_frame(img, ts)
                     self._frame_queue.put((True, img, ts))

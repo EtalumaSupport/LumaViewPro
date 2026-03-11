@@ -48,10 +48,10 @@ class IDSCamera(Camera):
             if self.model_name:
                 self.set_max_exposure_time()
 
+            self.cam_image_handler = ImageHandler(self.data_stream, parent_cam=self)
+
             self.init_camera_config()
             self.start_grabbing()
-
-            self.cam_image_handler = ImageHandler(self.data_stream, parent_cam=self)
 
             self.error_report_count = 0
             logger.info('[CAM Class ] Connected to IDS camera')
@@ -67,13 +67,16 @@ class IDSCamera(Camera):
     def disconnect(self) -> bool:
         try:
             if self.active:
-                if self.is_grabbing():
-                    self.stop_grabbing()
-                ids_peak.Library.Close()
+                try:
+                    if self.is_grabbing():
+                        self.stop_grabbing()
+                except Exception:
+                    pass
+                self.active = None
                 self.remote_nodemap = None
                 self.data_stream = None
                 self.device_manager = None
-                self.active = None
+                ids_peak.Library.Close()
                 logger.info('[CAM Class ] Disconnected from IDS camera')
                 return True
             else:
@@ -98,7 +101,7 @@ class IDSCamera(Camera):
             self.remote_nodemap.FindNode("UserSetSelector").SetCurrentEntry("Default")
             self.remote_nodemap.FindNode("UserSetLoad").Execute()
             self.remote_nodemap.FindNode("UserSetLoad").WaitUntilDone()
-            self.set_pixel_format("Mono10g40IDS") #NOTE: Should be converted to Mono8 for Pixel Format Destination
+            self.set_pixel_format("Mono8")
             #TODO: auto gain
             self.remote_nodemap.FindNode("ReverseX").SetValue(True)
             self.exposure_t(10)
@@ -302,7 +305,8 @@ class IDSCamera(Camera):
                 return False, None
 
             img = ids_peak_ipl_extension.BufferToImage(buffer)
-            img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
+            if img.PixelFormat() != ids_peak_ipl.PixelFormatName_Mono8:
+                img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
             img = img.get_numpy().copy()
             img_ts = datetime.datetime.now()
             self.data_stream.QueueBuffer(buffer)
@@ -401,7 +405,8 @@ class ImageHandler(ImageHandlerBase):
                 result = not buffer.IsIncomplete()
                 if result:
                     img = ids_peak_ipl_extension.BufferToImage(buffer)
-                    img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
+                    if img.PixelFormat() != ids_peak_ipl.PixelFormatName_Mono8:
+                        img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
                     frame = img.get_numpy().copy()
                     ts = datetime.datetime.now()
                     self._store_frame(frame, ts)
@@ -413,11 +418,16 @@ class ImageHandler(ImageHandlerBase):
                         break
                 self.data_stream.QueueBuffer(buffer)
             except Exception as e:
+                # WaitForFinishedBuffer timeout is normal — not a failure
+                err_str = str(e).lower()
+                if 'abort' in err_str or 'removed' in err_str or 'device' in err_str:
+                    logger.warning(f'[CAM Class ] Device removal detected in grab loop: {e}')
+                    self._parent._mark_disconnected()
+                    break
                 should_stop = self._record_failure()
                 if should_stop:
                     logger.error('[CAM Class ] Too many grab exceptions; marking device as removed')
                     self._parent._mark_disconnected()
                     break
-                # Only log occasionally to avoid flooding
                 if self._failed_grabs % 5 == 1:
                     logger.warning(f'[CAM Class ] ImageHandler grab loop exception: {e}')

@@ -530,7 +530,7 @@ class Lumascope():
 
                 if grab_status:
                     self.frame_validity.count_frame()
-                    tmp = self.camera.array.copy()
+                    tmp = self.camera.array  # already a copy from grab()
 
                     if all_ones_check:
 
