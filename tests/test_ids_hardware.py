@@ -1,7 +1,17 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-from drivers.idscamera import IDSCamera
 import unittest
 import time
+
+import pytest
+
+try:
+    from drivers.idscamera import IDSCamera
+    HAS_IDS = True
+except ImportError:
+    HAS_IDS = False
+
+pytestmark = pytest.mark.skipif(not HAS_IDS, reason="IDS Peak SDK not installed")
+
 
 class TestIDS(unittest.TestCase):
     def setUp(self):
@@ -24,7 +34,7 @@ class TestIDS(unittest.TestCase):
         #Test valid
         self.camera.set_frame_size(1920,1528)
         self.assertDictEqual(self.camera.get_frame_size(),{'width':1920,'height':1528})
-        
+
         #Test out of bounds
         self.camera.set_frame_size(1919,1529)
         self.assertDictEqual(self.camera.get_frame_size(),{'width':1872,'height':1528})
@@ -52,7 +62,7 @@ class TestIDS(unittest.TestCase):
         self.assertFalse(self.camera.set_binning_size(0))
         self.assertEqual(self.camera.get_binning_size(), 2)
 
-    def test_grab(self):
+    def test_grab_frame(self):
         time.sleep(1)  # Allow some time for the camera to start grabbing
         result, timestamp = self.camera.grab()
         self.assertTrue(result)

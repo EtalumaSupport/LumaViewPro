@@ -18,6 +18,12 @@ class ProtocolPostRecord:
     FILE_HEADER = "LumaViewPro Protocol Post-Processing Record"
     CURRENT_VERSION = 1
     DEFAULT_FILENAME = 'protocol_post_record.tsv'
+
+    def __del__(self):
+        try:
+            self._close_outfile()
+        except Exception:
+            pass
     COLUMNS = (
         'Filepath',
         'Timestamp',
@@ -78,8 +84,10 @@ class ProtocolPostRecord:
     def _close_outfile(self):
         if self._outfile_fp is None:
             return
-        
+
         self._outfile_fp.close()
+        self._outfile_fp = None
+        self._outfile_csv = None
 
 
     @staticmethod

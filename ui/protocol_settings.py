@@ -1286,12 +1286,6 @@ class ProtocolSettings(FloatLayout):
             )
             return
 
-        protocol_running_global = ctx.protocol_running
-        protocol_running_global.set()
-
-        # Disable ability for user to move stage manually
-        ctx.stage.set_motion_capability(False)
-
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
         if self.ids['run_scan_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
             run_not_started_func()
@@ -1312,6 +1306,11 @@ class ProtocolSettings(FloatLayout):
             logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui() - User ending scan early')
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
+
+        # All validation passed — now commit to running
+        protocol_running_global = ctx.protocol_running
+        protocol_running_global.set()
+        ctx.stage.set_motion_capability(False)
 
         self.ids['run_scan_btn'].text = 'Abort One Scan'
         self.ids['run_scan_btn'].background_down = './data/icons/abort_protocol_background.png'
@@ -1448,11 +1447,6 @@ class ProtocolSettings(FloatLayout):
         sequenced_capture_executor = ctx.sequenced_capture_executor
         file_io_executor = ctx.file_io_executor
 
-        protocol_running_global = ctx.protocol_running
-        protocol_running_global.set()
-
-        ctx.stage.set_motion_capability(False)
-
         # Only block if starting NEW protocol run (button is 'down'), not if aborting (button is 'normal')
         if self.ids['run_protocol_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
             run_not_started_func()
@@ -1467,7 +1461,6 @@ class ProtocolSettings(FloatLayout):
 
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
         if self.ids['run_protocol_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
-
             run_not_started_func()
             logger.warning(f"Cannot start protocol run. Autofocus still in progress.")
             return
@@ -1484,6 +1477,11 @@ class ProtocolSettings(FloatLayout):
         if self.ids['run_protocol_btn'].state == 'normal':
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
+
+        # All validation passed — now commit to running
+        protocol_running_global = ctx.protocol_running
+        protocol_running_global.set()
+        ctx.stage.set_motion_capability(False)
 
         # Note: This will be quickly overwritten by the remaining number of scans
         self.ids['run_protocol_btn'].text = 'Running Protocol'

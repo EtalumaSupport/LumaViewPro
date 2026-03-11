@@ -12,7 +12,6 @@ import numpy as np
 import cv2
 import gc
 import queue
-import ctypes
 
 from modules.sequenced_capture_writer import write_capture
 
@@ -45,8 +44,6 @@ from concurrent.futures import ProcessPoolExecutor
 import threading
 
 from modules.settings_init import settings
-
-import threading
 
 
 """
@@ -104,6 +101,7 @@ class SequencedCaptureExecutor:
         self._z_ui_update_func = z_ui_update_func
         self._scan_in_progress = threading.Event()
         self._protocol_ended = threading.Event()
+        self._cleanup_lock = threading.Lock()
         self._cpu_pool = cpu_pool
         self._video_write_finished = threading.Event()
         self._video_write_finished.set()
@@ -144,6 +142,7 @@ class SequencedCaptureExecutor:
         self._auto_gain_deadline = 0.0
         self._grease_redistribution_done = True
         self._captures_taken = 0
+        self._step_start_time = time.monotonic()
         self._target_x_pos = -1
         self._target_y_pos = -1
         self._target_z_pos = -1
@@ -375,6 +374,8 @@ class SequencedCaptureExecutor:
         
         # Not IO
         self._original_led_states = self._scope.get_led_states()
+        self._original_gain = self._scope.get_gain()
+        self._original_exposure = self._scope.get_exposure_time()
         if initial_autofocus_states is not None:
             self._original_autofocus_states = initial_autofocus_states
         else:
@@ -479,10 +480,34 @@ class SequencedCaptureExecutor:
                 if 'run_scan_pre' in self._callbacks:
                     self._callbacks['run_scan_pre']()
                 
+                # Check disk space once per scan: 10 MB/image + 500 MB/video, minimum 2 GB
+                try:
+                    if self._parent_dir is not None:
+                        disk_usage = shutil.disk_usage(str(self._parent_dir))
+                        free_mb = disk_usage.free / (1024 * 1024)
+                        estimated_mb = 0
+                        num_steps = self._protocol.num_steps()
+                        for i in range(num_steps):
+                            step = self._protocol.step(idx=i)
+                            if step.get('Acquire') == 'video':
+                                estimated_mb += 500
+                            else:
+                                estimated_mb += 10
+                        required_mb = max(2048, estimated_mb)
+                        if free_mb < required_mb:
+                            logger.error(
+                                f"[PROTOCOL] Insufficient disk space ({free_mb:.0f} MB free, "
+                                f"need {required_mb:.0f} MB for {num_steps} steps) — aborting protocol"
+                            )
+                            self._protocol_ended.set()
+                            break
+                except Exception:
+                    pass  # If we can't check, proceed anyway
+
                 self._go_to_step(step_idx=self._curr_step)
                 self._scan_in_progress.set()
                 self._auto_gain_deadline = time.monotonic() + self._autogain_settings['max_duration'].total_seconds()
-                
+
                 start_scan_time = datetime.datetime.now()
                 # Run the scan loop - this will block until scan completes
                 self._scan_loop()
@@ -506,7 +531,11 @@ class SequencedCaptureExecutor:
                 logger.error(f"[Protocol] Error during run loop: {ex}", exc_info=True)
                 self._cleanup()
                 break
-    
+
+        # If we exited the while loop (protocol_ended or run_in_progress cleared),
+        # ensure cleanup runs so callbacks fire and resources are released.
+        self._cleanup()
+
     def _scan_loop(self):
         """Scan loop - iterates through all protocol steps until scan completes.
         Returns when the scan is complete (all steps executed).
@@ -583,6 +612,15 @@ class SequencedCaptureExecutor:
     
         # Check if target location has not been reached yet
         if (not x_status) or (not y_status) or (not z_status) or self._scope.get_overshoot():
+            if time.monotonic() - self._step_start_time > self.STEP_TIMEOUT_SECONDS:
+                logger.error(f"[PROTOCOL] Step {self._curr_step} timed out waiting for motion ({self.STEP_TIMEOUT_SECONDS}s) — skipping step")
+                # Force advance to next step
+                num_steps = self._protocol.num_steps()
+                if self._curr_step < num_steps - 1:
+                    self._curr_step += 1
+                    self._go_to_step(step_idx=self._curr_step)
+                else:
+                    self._scan_in_progress.clear()
             return
         
         if not self._grease_redistribution_done:
@@ -811,10 +849,13 @@ class SequencedCaptureExecutor:
             Clock.schedule_once(lambda dt: self._callbacks['move_position']('Z'), 0)
 
 
+    STEP_TIMEOUT_SECONDS = 120  # Max time to wait for a single step (motion + capture)
+
     def _go_to_step(
         self,
         step_idx: int,
     ):
+        self._step_start_time = time.monotonic()
         if self._protocol_ended.is_set():
             return
         
@@ -909,6 +950,14 @@ class SequencedCaptureExecutor:
 
 
     def _cleanup(self):
+        if not self._cleanup_lock.acquire(blocking=False):
+            return  # Another thread is already cleaning up
+        try:
+            self._cleanup_inner()
+        finally:
+            self._cleanup_lock.release()
+
+    def _cleanup_inner(self):
         if not self._run_in_progress:
             return
 
@@ -946,6 +995,15 @@ class SequencedCaptureExecutor:
                     Clock.schedule_once(lambda dt: self._callbacks['reset_autofocus_btns'](), 0)
         except Exception as ex:
             logger.error(f"[PROTOCOL] Error restoring autofocus states during cleanup: {ex}")
+
+        # Restore camera gain and exposure to pre-protocol values
+        try:
+            if hasattr(self, '_original_gain') and self._original_gain >= 0:
+                self._scope.set_gain(self._original_gain)
+            if hasattr(self, '_original_exposure') and self._original_exposure > 0:
+                self._scope.set_exposure_time(self._original_exposure)
+        except Exception as ex:
+            logger.error(f"[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}")
 
         try:
             if not self._disable_saving_artifacts:
@@ -1100,16 +1158,6 @@ class SequencedCaptureExecutor:
             #     self._scope.set_exposure_time(step['Exposure'])
 
             if is_video:
-                # Check disk space before starting video capture (need at least 500MB)
-                try:
-                    disk_usage = shutil.disk_usage(str(save_folder))
-                    free_mb = disk_usage.free / (1024 * 1024)
-                    if free_mb < 500:
-                        logger.error(f"[PROTOCOL] Insufficient disk space ({free_mb:.0f} MB free) — skipping video capture")
-                        return
-                except Exception as ex:
-                    logger.warning(f"[PROTOCOL] Could not check disk space: {ex}")
-
                 # Settle time for auto-gain first frame (static captures use frame validity)
                 time.sleep(max(step['Exposure']/1000, 0.05))
                 # Disable autogain and then reenable it only for the first frame
@@ -1147,7 +1195,7 @@ class SequencedCaptureExecutor:
                     expected_frames = fps * duration_sec
                     captured_frames = 0
                     seconds_per_frame = 1.0 / fps
-                    video_images = queue.Queue()
+                    video_images = queue.Queue(maxsize=500)
 
                     stim_threads = []
 
@@ -1201,8 +1249,11 @@ class SequencedCaptureExecutor:
 
                             image = np.flip(image, 0)
 
-                            video_images.put_nowait((image, datetime.datetime.now()))
-                            #video_images.append((image, datetime.datetime.now()))
+                            try:
+                                video_images.put_nowait((image, datetime.datetime.now()))
+                            except queue.Full:
+                                logger.warning(f"[Protocol-Video] Frame queue full ({video_images.maxsize}), dropping frame")
+                                continue
 
                             captured_frames += 1
                         
@@ -1344,8 +1395,22 @@ class SequencedCaptureExecutor:
 
 
 
+                if captured_image is False:
+                    logger.error(f"[PROTOCOL] Capture failed for {name} — camera inactive or frame drain failed")
+                    # Still record the step with "capture_failed" so the record isn't silently missing
+                    self.file_io_executor.protocol_put(IOTask(
+                        action=self._write_capture,
+                        kwargs={
+                            "step": step,
+                            "step_index": self._curr_step,
+                            "scan_count": self._scan_count,
+                            "capture_time": datetime.datetime.now(),
+                        }
+                    ))
+                    self._scope.leds_off()
+                    return
+
                 logger.info(f"Protocol Image Captured: {name}")
-                #time.sleep(0.005)
 
                 self.file_io_executor.protocol_put(IOTask(
                     action=self._write_capture,
@@ -1516,8 +1581,19 @@ class SequencedCaptureExecutor:
             
             else:
                 if captured_image is False:
+                    logger.warning(f"[PROTOCOL] _write_capture: captured_image is False, recording as capture_failed")
+                    capture_result_filepath_name = "capture_failed"
+                    self._protocol_execution_record.add_step(
+                        capture_result_file_name=capture_result_filepath_name,
+                        step_name=name if name else "unknown",
+                        step_index=step_index,
+                        scan_count=scan_count,
+                        timestamp=capture_time,
+                        frame_count=0,
+                        duration_sec=0.0,
+                    )
                     return
-                
+
                 capture_result = self._scope.save_image(
                     array=captured_image,
                     save_folder=save_folder,
@@ -1570,18 +1646,20 @@ class SequencedCaptureExecutor:
             capture_result_filepath_name = "unsaved"
 
         gc.collect()
-        
-        self._protocol_execution_record.add_step(
-            capture_result_file_name=capture_result_filepath_name,
-            step_name=name,
-            step_index=step_index,
-            scan_count=scan_count,
-            timestamp=capture_time,
-            frame_count=captured_frames if is_video else 1,
-            duration_sec=duration_sec if is_video else 0.0
-        )
 
-        logger.info(f"Protocol-Writer] Added step to protocol execution record")
+        try:
+            self._protocol_execution_record.add_step(
+                capture_result_file_name=capture_result_filepath_name,
+                step_name=name,
+                step_index=step_index,
+                scan_count=scan_count,
+                timestamp=capture_time,
+                frame_count=captured_frames if is_video else 1,
+                duration_sec=duration_sec if is_video else 0.0
+            )
+            logger.info(f"Protocol-Writer] Added step to protocol execution record")
+        except Exception as ex:
+            logger.error(f"[Protocol-Writer] Failed to add step to protocol execution record: {ex}")
 
     
 

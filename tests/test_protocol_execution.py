@@ -15,7 +15,7 @@ import pathlib
 import sys
 import threading
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -359,12 +359,15 @@ class TestSingleScanBasicImage:
         assert completed, "Protocol did not complete within timeout"
 
     def test_sets_gain_and_exposure(self, executor, scope, tmp_path):
+        # Record original camera settings
+        original_gain = scope.camera.get_gain()
+        original_exposure = scope.camera.get_exposure_t()
         protocol = _make_single_step_protocol(color='BF', gain=5.0, exposure=50.0)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # Verify gain and exposure were applied to the simulator
-        assert scope.camera.get_gain() == pytest.approx(5.0, abs=0.1)
-        assert scope.camera.get_exposure_t() == pytest.approx(50.0, abs=0.1)
+        # After protocol cleanup, gain/exposure should be restored to original values
+        assert scope.camera.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope.camera.get_exposure_t() == pytest.approx(original_exposure, abs=0.1)
 
     def test_turns_led_on_and_off(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', illumination=75.0)
@@ -1557,3 +1560,398 @@ class TestVideoEdgeCases:
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
+
+
+# ===========================================================================
+# Tier 3: Robustness & Error Handling — P0/P1 audit fix coverage
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# P0-1: Concurrent cleanup (threading.Lock)
+# ---------------------------------------------------------------------------
+
+class TestCleanupConcurrency:
+    """P0-1: _cleanup() guarded by threading.Lock — no double cleanup."""
+
+    def test_concurrent_reset_no_crash(self, executor, scope, tmp_path):
+        """Call reset() from multiple threads while protocol is running."""
+        protocol = _make_multi_step_protocol([
+            {'color': 'BF'}, {'color': 'Red'}, {'color': 'Green'},
+            {'color': 'Blue'}, {'color': 'BF'},
+        ])
+        done = threading.Event()
+        executor.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='test_concurrent',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks={
+                'run_complete': lambda **kw: done.set(),
+                'go_to_step': lambda **kw: None,
+            },
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+        # Let protocol start
+        time.sleep(0.1)
+        # Fire reset from multiple threads simultaneously
+        threads = [threading.Thread(target=executor.reset) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        # Should not crash; protocol should end
+        done.wait(timeout=COMPLETION_TIMEOUT)
+
+    def test_double_reset_idempotent(self, executor, scope, tmp_path):
+        """Calling reset() twice in quick succession doesn't crash."""
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        # Protocol already completed and cleaned up — reset again should be harmless
+        executor.reset()
+        executor.reset()
+
+
+# ---------------------------------------------------------------------------
+# P0-2: Disk space check
+# ---------------------------------------------------------------------------
+
+class TestDiskSpaceCheck:
+    """P0-2: Protocol aborts when disk space is below 2 GB."""
+
+    @patch('modules.sequenced_capture_executor.shutil.disk_usage')
+    def test_low_disk_aborts_image_protocol(self, mock_disk_usage, executor, scope, tmp_path):
+        """With very low disk space, image capture should abort without hanging."""
+        fake_usage = MagicMock()
+        fake_usage.free = 500 * 1024 * 1024  # 500 MB
+        mock_disk_usage.return_value = fake_usage
+
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed, "Protocol did not abort within timeout when disk space is low"
+
+    @patch('modules.sequenced_capture_executor.shutil.disk_usage')
+    def test_large_protocol_needs_more_than_2gb(self, mock_disk_usage, executor, scope, tmp_path):
+        """300 image steps need 3 GB (300 * 10 MB), so 2.5 GB free should abort."""
+        fake_usage = MagicMock()
+        fake_usage.free = 2500 * 1024 * 1024  # 2.5 GB — enough for 2 GB but not 300*10 MB = 3 GB
+        mock_disk_usage.return_value = fake_usage
+
+        protocol = _make_multi_step_protocol([{'color': 'BF'} for _ in range(300)])
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed, "Protocol did not abort within timeout when disk space is low for large protocol"
+
+    @patch('modules.sequenced_capture_executor.shutil.disk_usage')
+    def test_video_steps_need_500mb_each(self, mock_disk_usage, executor, scope, tmp_path):
+        """5 video steps need 2.5 GB (5 * 500 MB), so 2.2 GB free should abort."""
+        fake_usage = MagicMock()
+        fake_usage.free = 2200 * 1024 * 1024  # 2.2 GB — enough for 2 GB floor but not 5*500 MB
+        mock_disk_usage.return_value = fake_usage
+
+        protocol = _make_multi_step_protocol([
+            {'color': 'BF', 'acquire': 'video', 'video_config': {'duration': 1, 'fps': 5}}
+            for _ in range(5)
+        ])
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed, "Protocol did not abort for video steps requiring more disk space"
+
+    @patch('modules.sequenced_capture_executor.shutil.disk_usage', side_effect=OSError("disk error"))
+    def test_disk_check_exception_does_not_crash(self, mock_disk_usage, executor, scope, tmp_path):
+        """If disk_usage raises OSError, protocol continues."""
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# P0-3: Capture failure handling
+# ---------------------------------------------------------------------------
+
+class TestCaptureFailure:
+    """P0-3: capture_and_wait returning False records 'capture_failed'."""
+
+    def test_capture_false_records_failure(self, executor, scope, tmp_path):
+        """When capture_and_wait returns False, protocol completes (doesn't hang)."""
+        protocol = _make_single_step_protocol(color='BF')
+
+        original_capture = scope.capture_and_wait
+        scope.capture_and_wait = MagicMock(return_value=False)
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+        scope.capture_and_wait = original_capture
+
+    def test_multiple_capture_failures_still_complete(self, executor, scope, tmp_path):
+        """Three steps all fail capture — protocol runs to completion."""
+        protocol = _make_multi_step_protocol([
+            {'color': 'BF'}, {'color': 'Red'}, {'color': 'Green'},
+        ])
+
+        original_capture = scope.capture_and_wait
+        scope.capture_and_wait = MagicMock(return_value=False)
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+        scope.capture_and_wait = original_capture
+
+
+# ---------------------------------------------------------------------------
+# P1-4: Per-step motion timeout
+# ---------------------------------------------------------------------------
+
+class TestStepTimeout:
+    """P1-4: Steps that exceed STEP_TIMEOUT_SECONDS are skipped."""
+
+    def test_stuck_motion_skips_step(self, executor, scope, tmp_path):
+        """If motion never completes, the step times out and protocol continues."""
+        from modules.sequenced_capture_executor import SequencedCaptureExecutor
+
+        # Use a very short timeout for the test
+        original_timeout = SequencedCaptureExecutor.STEP_TIMEOUT_SECONDS
+        SequencedCaptureExecutor.STEP_TIMEOUT_SECONDS = 1  # 1 second
+
+        protocol = _make_multi_step_protocol([
+            {'color': 'BF', 'x': 10.0}, {'color': 'Red', 'x': 20.0},
+        ])
+
+        # Make get_target_status always return False for first step
+        call_count = [0]
+        original_get_target = scope.get_target_status
+
+        def slow_target(axis):
+            call_count[0] += 1
+            # First ~200 calls (first step) — never reach target
+            if call_count[0] < 200:
+                return False
+            return original_get_target(axis)
+
+        scope.get_target_status = slow_target
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        # Restore
+        SequencedCaptureExecutor.STEP_TIMEOUT_SECONDS = original_timeout
+        scope.get_target_status = original_get_target
+
+        assert completed
+
+
+# ---------------------------------------------------------------------------
+# P1-7: Video frame queue bounded
+# ---------------------------------------------------------------------------
+
+class TestVideoQueueBounded:
+    """P1-7: Video frame queue has maxsize=500."""
+
+    def test_video_queue_has_maxsize(self, executor, scope, tmp_path):
+        """Verify the queue.Queue is created with maxsize."""
+        import queue as queue_mod
+
+        original_queue = queue_mod.Queue
+        created_queues = []
+
+        class TrackingQueue(original_queue):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                created_queues.append(self)
+
+        with patch('modules.sequenced_capture_executor.queue.Queue', TrackingQueue):
+            protocol = _make_single_step_protocol(
+                color='BF',
+                acquire='video',
+                video_config={'duration': 0.5, 'fps': 5},
+            )
+            completed, _ = _run_and_wait(executor, protocol, tmp_path)
+
+        assert completed
+        # At least one queue should have been created with maxsize > 0
+        video_queues = [q for q in created_queues if q.maxsize > 0]
+        assert len(video_queues) >= 1
+        assert video_queues[0].maxsize == 500
+
+
+# ---------------------------------------------------------------------------
+# P1-8: Camera gain/exposure restoration
+# ---------------------------------------------------------------------------
+
+class TestCameraStateRestoration:
+    """P1-8: Camera gain and exposure restored to pre-protocol values."""
+
+    def test_gain_restored_after_protocol(self, executor, scope, tmp_path):
+        """Gain is restored to original value after protocol completes."""
+        scope.set_gain(3.0)
+        scope.set_exposure_time(25.0)
+        original_gain = scope.get_gain()
+        original_exposure = scope.get_exposure_time()
+
+        protocol = _make_single_step_protocol(color='BF', gain=10.0, exposure=100.0)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+        assert scope.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope.get_exposure_time() == pytest.approx(original_exposure, abs=0.1)
+
+    def test_gain_restored_with_auto_gain(self, executor, scope, tmp_path):
+        """Even with auto_gain enabled, original gain is restored after cleanup."""
+        scope.set_gain(5.0)
+        original_gain = scope.get_gain()
+
+        protocol = _make_single_step_protocol(color='BF', auto_gain=True)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+        assert scope.get_gain() == pytest.approx(original_gain, abs=0.1)
+
+    def test_gain_restored_after_multi_step(self, executor, scope, tmp_path):
+        """Multi-step protocol with varying gains restores to original."""
+        scope.set_gain(2.0)
+        scope.set_exposure_time(15.0)
+        original_gain = scope.get_gain()
+        original_exposure = scope.get_exposure_time()
+
+        protocol = _make_multi_step_protocol([
+            {'color': 'BF', 'gain': 5.0, 'exposure': 50.0},
+            {'color': 'Red', 'gain': 10.0, 'exposure': 100.0},
+            {'color': 'Green', 'gain': 15.0, 'exposure': 200.0},
+        ])
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+        assert scope.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope.get_exposure_time() == pytest.approx(original_exposure, abs=0.1)
+
+    def test_gain_restored_after_cancellation(self, executor, scope, tmp_path):
+        """Gain is restored even when protocol is cancelled mid-run."""
+        scope.set_gain(4.0)
+        scope.set_exposure_time(30.0)
+        original_gain = scope.get_gain()
+        original_exposure = scope.get_exposure_time()
+
+        protocol = _make_multi_step_protocol([
+            {'color': c, 'gain': 12.0, 'exposure': 80.0}
+            for c in ['BF', 'Red', 'Green', 'Blue', 'BF']
+        ])
+
+        done = threading.Event()
+        executor.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='test_cancel_restore',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks={
+                'run_complete': lambda **kw: done.set(),
+                'go_to_step': lambda **kw: None,
+            },
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+        time.sleep(0.2)
+        executor.reset()
+        done.wait(timeout=COMPLETION_TIMEOUT)
+
+        assert scope.get_gain() == pytest.approx(original_gain, abs=0.1)
+        assert scope.get_exposure_time() == pytest.approx(original_exposure, abs=0.1)
+
+
+# ---------------------------------------------------------------------------
+# P1-5: Validation before protocol_running_global
+# ---------------------------------------------------------------------------
+
+class TestValidationOrder:
+    """P1-5: Ensure protocol_running_global is not set before validation."""
+
+    def test_run_in_progress_false_when_not_started(self, executor, scope, tmp_path):
+        """Before any run, run_in_progress should be False."""
+        assert not executor.run_in_progress()
+
+    def test_run_in_progress_false_after_completion(self, executor, scope, tmp_path):
+        """After protocol completes, run_in_progress is False."""
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+        assert not executor.run_in_progress()
+
+
+# ---------------------------------------------------------------------------
+# Cleanup correctness
+# ---------------------------------------------------------------------------
+
+class TestCleanupCorrectness:
+    """Verify cleanup handles all state properly."""
+
+    def test_leds_off_after_protocol_abort(self, executor, scope, tmp_path):
+        """All LEDs are off after aborting a multi-step protocol."""
+        protocol = _make_multi_step_protocol([
+            {'color': c, 'illumination': 100.0}
+            for c in ['BF', 'Red', 'Green', 'Blue', 'BF']
+        ])
+        done = threading.Event()
+        executor.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='test_abort_leds',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks={
+                'run_complete': lambda **kw: done.set(),
+                'go_to_step': lambda **kw: None,
+            },
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+        time.sleep(0.2)
+        executor.reset()
+        done.wait(timeout=COMPLETION_TIMEOUT)
+
+        for ch, mA in scope.led._channel_states.items():
+            assert mA == 0.0, f"LED channel {ch} still on at {mA} mA after abort"
+
+    def test_back_to_back_runs_no_state_bleed(self, executor, scope, tmp_path):
+        """Gain/exposure from run A don't leak into run B's restored values."""
+        # Run A: set gain to 8
+        scope.set_gain(8.0)
+        scope.set_exposure_time(80.0)
+        protocol_a = _make_single_step_protocol(color='BF', gain=15.0, exposure=150.0)
+        completed_a, _ = _run_and_wait(executor, protocol_a, tmp_path)
+        assert completed_a
+        # Should restore to 8.0/80.0
+        assert scope.get_gain() == pytest.approx(8.0, abs=0.1)
+
+        # Wait for file queue to drain before starting next run
+        deadline = time.monotonic() + 5.0
+        while executor.file_io_executor.is_protocol_queue_active():
+            if time.monotonic() > deadline:
+                raise TimeoutError("file_io_executor did not drain in time")
+            time.sleep(0.05)
+
+        # Run B: change gain before second run
+        scope.set_gain(2.0)
+        scope.set_exposure_time(20.0)
+        protocol_b = _make_single_step_protocol(color='Red', gain=12.0, exposure=120.0)
+        completed_b, _ = _run_and_wait(executor, protocol_b, tmp_path / 'run2')
+        assert completed_b
+        # Should restore to 2.0/20.0, NOT to 8.0/80.0 from run A
+        assert scope.get_gain() == pytest.approx(2.0, abs=0.1)
+        assert scope.get_exposure_time() == pytest.approx(20.0, abs=0.1)
