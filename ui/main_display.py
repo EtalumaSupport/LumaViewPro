@@ -29,11 +29,10 @@ logger = logging.getLogger('LVP.ui.main_display')
 
 class MainDisplay(CompositeCapture): # i.e. global lumaview
 
-    def __init__(self, **kwargs):
+    def __init__(self, camera_type='ids', simulate=False, **kwargs):
         import lumascope_api
-        ctx = _app_ctx.ctx
         super(MainDisplay,self).__init__(**kwargs)
-        self.scope = lumascope_api.Lumascope(camera_type=ctx.settings['camera_type'], simulate=ctx.simulate_mode)
+        self.scope = lumascope_api.Lumascope(camera_type=camera_type, simulate=simulate)
         self.camera_temps_event = None
         self.recording = threading.Event()
         self.recording.clear()

@@ -675,7 +675,7 @@ class LumaViewProApp(TooltipMixin, App):
             Window.minimum_height = 600
             Window.bind(on_resize=self._on_resize)
             Window.bind(on_request_close=self.on_request_close)
-            lumaview = MainDisplay()
+            lumaview = MainDisplay(camera_type=settings['camera_type'], simulate=simulate_mode)
             lumaview.scope.engineering_mode = ENGINEERING_MODE
             cell_count_content = CellCountControls()
             graphing_controls = GraphingControls()
