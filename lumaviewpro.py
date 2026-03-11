@@ -39,11 +39,8 @@ import numpy as np
 import pandas as pd
 import time
 import json
-import subprocess
 import sys
 import typing
-import shutil
-import userpaths
 import threading
 # import faulthandler
 
@@ -65,9 +62,6 @@ if __name__ == "__main__":
     #---------------------Directory Initialization-----------------------------#
     ############################################################################
 
-
-    """Main application entry point"""
-    # All the initialization code goes here
     global version, windows_machine, num_cores
     global lumaview, settings, cell_count_content, graphing_controls
     global max_exposure, wellplate_loader, objective_helper
@@ -77,108 +71,25 @@ if __name__ == "__main__":
     global focus_round
     global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor, stage_executor, turret_executor, reset_executor
     global cpu_pool
-    # motorboard_lock, ledboard_lock, camera_lock — removed (never assigned or used)
     global ij_helper
     global live_view_fps
-
     global use_multiprocessing
 
     cpu_pool = None
     use_multiprocessing = False
-
     live_view_fps = 10
-
     ij_helper = None
 
-    # Directory initialization
-    abspath = os.path.abspath(__file__)
-    basename = os.path.basename(__file__)
-    script_path = abspath[:-len(basename)]
-
-    print(f"Script Location: {script_path}")
-
-    os.chdir(script_path)
-    # The version.txt file is in the same directory as the actual script, so making sure it can find the version file.
-
-
-    windows_machine = False
-
-    if os.name == "nt":
-        windows_machine = True
-
-
-    # Python version check
-    if sys.version_info < (3, 10):
-        print(f"ERROR: LumaViewPro requires Python 3.10 or later. You are running {sys.version}")
-        sys.exit(1)
-    if sys.version_info >= (3, 13):
-        print(f"WARNING: Python {sys.version_info.major}.{sys.version_info.minor} has not been tested with LumaViewPro. "
-              f"Recommended: Python 3.10-3.12.")
-
-    version = ""
-    try:
-        with open("version.txt") as f:
-            version = f.readlines()[0].strip()
-    except Exception:
-        pass
-
-    # Get git commit hash for build identification (e.g. "4.0.0-beta (eda766e)")
-    build_hash = ""
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-            cwd=script_path,
-        )
-        if result.returncode == 0:
-            build_hash = result.stdout.strip()
-    except Exception:
-        pass
+    # Environment setup — paths, version, platform detection
+    from modules.app_environment import init_environment
+    _env = init_environment(main_file=__file__)
+    script_path = _env.script_path
+    source_path = _env.source_path
+    version = _env.version
+    windows_machine = _env.windows_machine
+    num_cores = _env.num_cores
 
     PROTOCOL_DATA_DIR_NAME = "ProtocolData"
-
-    try:
-        with open("marker.lvpinstalled") as f:
-            lvp_installed = True
-    except Exception:
-        lvp_installed = False
-
-    if windows_machine and lvp_installed:
-        print("Machine-Type - WINDOWS")
-        documents_folder = userpaths.get_my_documents()
-        os.chdir(documents_folder)
-        lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
-
-        if os.path.exists(lvp_appdata):
-            pass
-        else:
-            os.mkdir(lvp_appdata)
-
-        source_path = lvp_appdata
-        print(f"Data Location: {source_path}")
-
-        os.chdir(source_path)
-
-        if os.path.exists(os.path.join(lvp_appdata, "data")):
-            pass
-        else:
-            shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
-
-        if os.path.exists(os.path.join(lvp_appdata, "logs")):
-            pass
-        else:
-            shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
-
-    elif windows_machine and not lvp_installed:
-        print("Machine-Type - WINDOWS (not installed)")
-        source_path = script_path
-    else:
-        print("Machine-Type - NON-WINDOWS")
-        source_path = script_path
-
-    num_cores = os.cpu_count()
-    print(f"Num cores identified as {num_cores}")
 
 
     ############################################################################
@@ -191,8 +102,6 @@ if __name__ == "__main__":
 
     DEBUG_MODE = debug
 
-    if build_hash:
-        version = f"{version} ({build_hash})"
     print(f"LumaViewPro {version}")
     logger.info(f"[LVP Main  ] LumaViewPro {version}")
 
@@ -319,17 +228,7 @@ if __name__ == "__main__":
     from ui.range_slider import RangeSlider
     from ui.progress_popup import show_popup
     from ui.notification_popup import show_notification_popup, show_confirmation_popup, show_confirmation_w_ack_popup
-    from ui.hover_behavior import HoverBehavior
-
-    from kivy.uix.togglebutton import ToggleButton
-
-    class RoundedButton(HoverBehavior, Button):
-        """Button with rounded corners and hover highlighting."""
-        pass
-
-    class RoundedToggleButton(HoverBehavior, ToggleButton):
-        """Toggle button with rounded corners and hover highlighting."""
-        pass
+    from ui.rounded_buttons import RoundedButton, RoundedToggleButton
 
     import modules.image_utils_kivy as image_utils_kivy
 
@@ -431,96 +330,17 @@ if __name__ == "__main__":
 
 
 else:
-    # Minimal dummy class definitions for subprocess compatibility
-    class App:
-        def __init__(self, **kwargs): pass
-        def build(self): pass
-        def run(self): pass
-        def on_start(self): pass
-        def on_stop(self): pass
-
-    class Widget:
-        def __init__(self, **kwargs):
-            self.ids = {}
-            self.parent = None
-        def add_widget(self, widget): pass
-        def remove_widget(self, widget): pass
-
-    class BoxLayout(Widget): pass
-    class FloatLayout(Widget): pass
-    class Scatter(Widget): pass
-    class Image(Widget): pass
-    class Button(Widget): pass
-    class ToggleButton(Widget): pass
-    class Label(Widget): pass
-    class RoundedButton(Button): pass
-    class RoundedToggleButton(ToggleButton): pass
-    class Slider(Widget): pass
-    class ScrollView(Widget): pass
-    class Popup(Widget): pass
-    class AccordionItem(Widget): pass
-
-    # Graphics classes
-    class RenderContext: pass
-    class Line: pass
-    class Color: pass
-    class Rectangle: pass
-    class Ellipse: pass
-    class Texture: pass
-
-    # Properties - FIXED to accept arguments
-    class StringProperty:
-        def __init__(self, default_value="", **kwargs):
-            self.default_value = default_value
-        def __get__(self, obj, objtype): return self.default_value
-        def __set__(self, obj, value): pass
-
-    class ObjectProperty:
-        def __init__(self, default_value=None, **kwargs):
-            self.default_value = default_value
-        def __get__(self, obj, objtype): return self.default_value
-        def __set__(self, obj, value): pass
-
-    class BooleanProperty:
-        def __init__(self, default_value=False, **kwargs):
-            self.default_value = default_value
-        def __get__(self, obj, objtype): return self.default_value
-        def __set__(self, obj, value): pass
-
-    class ListProperty:
-        def __init__(self, default_value=None, **kwargs):
-            self.default_value = default_value or []
-        def __get__(self, obj, objtype): return self.default_value
-        def __set__(self, obj, value): pass
-
-    # Other classes
-    class MotionEvent: pass
-    class Factory: pass
-
-    # Clock dummy
-    class Clock:
-        @staticmethod
-        def schedule_once(func, timeout): pass
-        @staticmethod
-        def schedule_interval(func, interval): pass
-        @staticmethod
-        def unschedule(func): pass
-
-    # Metrics
-    def dp(value): return value
-
-    # Custom widgets dummies
-    class RangeSlider(Widget): pass
-    class FigureCanvasKivyAgg(Widget): pass
-
-    # Custom widget functions
-    def show_popup(*args, **kwargs): pass
-    def show_notification_popup(*args, **kwargs): pass
-
-    # Module dummy
-    class image_utils_kivy:
-        @staticmethod
-        def any_method(*args, **kwargs): pass
+    # Subprocess/worker compatibility — Kivy not available
+    from modules.subprocess_stubs import (  # noqa: F401
+        App, Widget, BoxLayout, FloatLayout, Scatter, Image, Button,
+        ToggleButton, Label, RoundedButton, RoundedToggleButton,
+        Slider, ScrollView, Popup, AccordionItem,
+        RenderContext, Line, Color, Rectangle, Ellipse, Texture,
+        StringProperty, ObjectProperty, BooleanProperty, ListProperty,
+        MotionEvent, Factory, Clock, dp,
+        RangeSlider, FigureCanvasKivyAgg,
+        show_popup, show_notification_popup, image_utils_kivy,
+    )
 
 
 
@@ -1025,36 +845,9 @@ class LumaViewProApp(TooltipMixin, App):
 
 
 
-if __name__ == "__main__":
-    # Fixing Kivy issue that was leading to crazy memory accumulation due to tracebacks being stored in memory
-    # For some reason kivy was calling a Python 2 method on newer Python 3 List objects, causing exceptions that would accumulate
-    # These exceptions were CONSTANT because they were happening on each Main Display refresh and Histogram refresh
-    from kivy.properties import ObservableReferenceList
-
-
-
-    def patched_setslice(self, i, j, sequence, **kwargs):
-        try:
-            # Try the original assignment
-            return original_setslicemethod(self, i, j, sequence)
-        except AttributeError:
-            # Getting attribute error if kivy is calling a deprecated method on a new Python 3 object
-            # Call proper method
-            return set_item_method(self, slice(i, j), sequence)
-        except Exception as e:
-            # If for some reason we get another error again, bite the bullet
-            return original_setslicemethod(self, i, j, sequence)
-
 # ============================================================================
 # Application Entry Point
 # ============================================================================
 
 if __name__ == "__main__":
-
-    original_setslicemethod = ObservableReferenceList.__setslice__
-    set_item_method = ObservableReferenceList.__setitem__
-    # Replace the original method with our patched version
-    ObservableReferenceList.__setslice__ = patched_setslice
     LumaViewProApp().run()
-
-#endregion
