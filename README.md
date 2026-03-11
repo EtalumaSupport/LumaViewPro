@@ -76,7 +76,7 @@ To report bugs or request features, please open an issue on [GitHub Issues](http
 - **Camera SDK**: [Basler Pylon](https://docs.baslerweb.com/pylon-software-suite) (included in the Windows installer, must be installed separately when running from source)
 - **OS**: Windows 10/11, macOS, Linux (see note below)
 
-**macOS note:** Basler Pylon only supports specific macOS versions. As of March 2026, supported versions are macOS 11, 12, 13, and 14 (Intel and ARM 64-bit). Check the [Basler Pylon page](https://www.baslerweb.com/en-us/software/pylon/) for the latest compatibility information.
+**macOS note:** pypylon 4.0.0 wheels require macOS 14.0 (Sonoma) or later on Apple Silicon (ARM64). Intel Macs support macOS 11+. Check the [Basler Pylon page](https://www.baslerweb.com/en-us/software/pylon/) for the latest compatibility information.
 
 ## Installation from Source
 
@@ -219,8 +219,18 @@ LumaViewPro supports ImageJ/FIJI integration for advanced image analysis. This i
 
 1. Install [Azul Java 8 JDK+FX](https://www.azul.com/downloads/?version=java-8-lts&package=jdk-fx#zulu) for your OS
    - During installation, select the option to set the `JAVA_HOME` environment variable
+   - On Apple Silicon (ARM64) Macs, install the ARM64 JDK — the JVM architecture must match your Python architecture
 2. Install [Apache Maven 3.9.8+](https://maven.apache.org/download.cgi) (Binary Zip Archive)
    - Add the Maven `bin/` folder to your `PATH`
+
+## Development
+
+To run the test suite or build release packages, install the development dependencies:
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/
+```
 
 ## Updating
 
