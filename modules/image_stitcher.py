@@ -48,9 +48,9 @@ def _color_transfer(source, target):
     a -= aMeanTar
     b -= bMeanTar
 
-    l = (lStdTar / lStdSrc) * l
-    a = (aStdTar / aStdSrc) * a
-    b = (bStdTar / bStdSrc) * b
+    l = (lStdTar / lStdSrc) * l if lStdSrc > 0 else l
+    a = (aStdTar / aStdSrc) * a if aStdSrc > 0 else a
+    b = (bStdTar / bStdSrc) * b if bStdSrc > 0 else b
 
     l += lMeanSrc
     a += aMeanSrc
