@@ -730,9 +730,6 @@ class LumaViewProApp(TooltipMixin, App):
         #     pass_result=True
         # ))
 
-        # load settings file
-        ctx.motion_settings.ids['microscope_settings_id'].load_settings("./data/current.json")
-
         autofocus_executor = AutofocusExecutor(
             scope=lumaview.scope,
             camera_executor=camera_executor,
@@ -799,12 +796,16 @@ class LumaViewProApp(TooltipMixin, App):
         ctx.image_settings = lumaview.ids['imagesettings_id']
         ctx.motion_settings = lumaview.ids['motionsettings_id']
 
+        # load settings file (must be after motion_settings is wired)
+        ctx.motion_settings.ids['microscope_settings_id'].load_settings("./data/current.json")
+
         # Copy post_processing self-registration values (set during widget tree construction
-        # before ctx existed) — these are read via ctx by other modules
-        ctx.stitch_controls = stitch_controls
-        ctx.zprojection_controls = zprojection_controls
-        ctx.composite_gen_controls = composite_gen_controls
-        ctx.video_creation_controls = video_creation_controls
+        # before ctx existed via `import lumaviewpro; lumaviewpro.X = self`)
+        import lumaviewpro as _lvp_mod
+        ctx.stitch_controls = getattr(_lvp_mod, 'stitch_controls', None)
+        ctx.zprojection_controls = getattr(_lvp_mod, 'zprojection_controls', None)
+        ctx.composite_gen_controls = getattr(_lvp_mod, 'composite_gen_controls', None)
+        ctx.video_creation_controls = getattr(_lvp_mod, 'video_creation_controls', None)
 
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)
