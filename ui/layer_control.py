@@ -40,12 +40,17 @@ class LayerControl(BoxLayout):
         self.apply_gain_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
         self.apply_exp_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
         self.apply_ill_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
+        self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
         if ctx is None:
+            self._init_ui_retries += 1
+            if self._init_ui_retries > 50:
+                logger.error('[LVP Main  ] LayerControl._init_ui: ctx still None after 50 retries, giving up')
+                return
             Clock.schedule_once(self._init_ui, 0.1)
             return
         settings = ctx.settings

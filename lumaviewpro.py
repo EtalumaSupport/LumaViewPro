@@ -116,7 +116,8 @@ if __name__ == "__main__":
         settings = initialized_settings
 
     except Exception as e:
-        logger.exception(f"[LVP Main  ] Failed to load settings. {e}")
+        logger.critical(f"[LVP Main  ] Failed to load settings — cannot continue. {e}")
+        sys.exit(1)
 
     import modules.profiling_utils as profiling_utils
 
@@ -262,9 +263,6 @@ if __name__ == "__main__":
     stage = None
 
     ENGINEERING_MODE = False
-
-    # Flag to prevent apply_settings during app initialization
-    _app_initializing = True
 
     focus_round = 0
 
@@ -458,8 +456,6 @@ class LumaViewProApp(TooltipMixin, App):
     kv_file = 'ui/lumaviewpro.kv'
 
     def on_start(self):
-        global _app_initializing
-
         # Continuously update image of stage and protocol
         Clock.schedule_interval(stage.draw_labware, 0.1)
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
@@ -467,8 +463,6 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Clear app initialization flag and apply settings for the default opened layer
         def complete_initialization(dt):
-            global _app_initializing
-            _app_initializing = False
             if ctx is not None:
                 ctx.ready = True
 

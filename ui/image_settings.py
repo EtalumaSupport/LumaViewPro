@@ -85,6 +85,7 @@ class ImageSettings(BoxLayout):
         self._accordion_item_red_control = AccordionItemImageSettingsRedControl()
         self._accordion_item_green_control = AccordionItemImageSettingsGreenControl()
         self._accordion_item_blue_control = AccordionItemImageSettingsBlueControl()
+        self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
 
@@ -232,6 +233,10 @@ class ImageSettings(BoxLayout):
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
         if ctx is None:
+            self._init_ui_retries += 1
+            if self._init_ui_retries > 50:
+                logger.error('[LVP Main  ] ImageSettings._init_ui: ctx still None after 50 retries, giving up')
+                return
             Clock.schedule_once(self._init_ui, 0.1)
             return
         self.assign_led_button_down_images()

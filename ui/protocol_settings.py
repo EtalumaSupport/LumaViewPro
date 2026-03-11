@@ -115,6 +115,7 @@ class ProtocolSettings(FloatLayout):
         self._protocol = None
 
         self.exposures = 1  # 1 indexed
+        self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
     def _do_update_step_ui(self, *args):
@@ -144,6 +145,10 @@ class ProtocolSettings(FloatLayout):
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
         if ctx is None:
+            self._init_ui_retries += 1
+            if self._init_ui_retries > 50:
+                logger.error('[LVP Main  ] ProtocolSettings._init_ui: ctx still None after 50 retries, giving up')
+                return
             Clock.schedule_once(self._init_ui, 0.1)
             return
         settings = ctx.settings

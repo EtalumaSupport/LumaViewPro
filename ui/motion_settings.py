@@ -30,11 +30,16 @@ class MotionSettings(BoxLayout):
         logger.debug('[LVP Main  ] MotionSettings.__init__()')
         self._accordion_item_xystagecontrol = AccordionItemXyStageControl()
         self._accordion_item_xystagecontrol_visible = False
+        self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
 
     def _init_ui(self, dt=0):
         if _app_ctx.ctx is None:
+            self._init_ui_retries += 1
+            if self._init_ui_retries > 50:
+                logger.error('[LVP Main  ] MotionSettings._init_ui: ctx still None after 50 retries, giving up')
+                return
             Clock.schedule_once(self._init_ui, 0.1)
             return
         self.enable_ui_features_for_engineering_mode()
