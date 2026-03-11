@@ -767,6 +767,151 @@ class TestSimulatedCamera:
         cam.set_timing_mode('fast')
         assert cam._grab_delay == 0.0
 
+    # -- Camera profile --
+
+    def test_profile_loaded_on_connect(self):
+        cam = SimulatedCamera()
+        assert cam.profile is not None
+        assert cam.profile.model_name == 'SimulatedCamera-1920x1200'
+
+    def test_profile_sensor_info(self):
+        cam = SimulatedCamera()
+        assert cam.profile.sensor == 'Simulated'
+        assert cam.profile.pixel_size_um == 2.0
+        assert cam.profile.shutter == 'global'
+
+    def test_profile_sets_max_exposure(self):
+        cam = SimulatedCamera()
+        assert cam.max_exposure == cam.profile.max_exposure_ms
+
+    def test_profile_binning_sizes(self):
+        cam = SimulatedCamera()
+        assert cam.profile.binning_sizes == [1, 2, 4]
+
+    def test_profile_pixel_formats(self):
+        cam = SimulatedCamera()
+        assert 'Mono8' in cam.profile.pixel_formats
+        assert 'Mono12' in cam.profile.pixel_formats
+
+    def test_profile_gain_info(self):
+        cam = SimulatedCamera()
+        assert cam.profile.gain.total_min_db == 0.0
+        assert cam.profile.gain.total_max_db == 20.0
+        assert cam.profile.gain.analog_max_db == 20.0
+
+    def test_profile_native_resolution(self):
+        cam = SimulatedCamera()
+        assert cam.profile.native_resolution == {'width': 1920, 'height': 1200}
+
+    def test_profile_capabilities(self):
+        cam = SimulatedCamera()
+        assert cam.profile.has_auto_gain is True
+        assert cam.profile.has_auto_exposure is True
+        assert cam.profile.has_temperature is True
+        assert cam.profile.driver == 'simulated'
+
+    # -- update_camera_config exception safety --
+
+    def test_update_camera_config_restarts_after_exception(self):
+        """Grabbing must restart even if config change throws."""
+        cam = SimulatedCamera()
+        assert cam.is_grabbing() is True
+        with pytest.raises(ValueError):
+            with cam.update_camera_config():
+                assert cam.is_grabbing() is False
+                raise ValueError("simulated config failure")
+        # Grabbing must be restored despite the exception
+        assert cam.is_grabbing() is True
+
+
+class TestCameraProfiles:
+    """Tests for drivers/camera_profiles.py lookup and defaults."""
+
+    def test_lookup_known_pylon_model(self):
+        from drivers.camera_profiles import lookup_profile
+        p = lookup_profile('daA3840-45um')
+        assert p.model_name == 'daA3840-45um'
+        assert p.sensor == 'Sony IMX334LLR-C'
+        assert p.pixel_size_um == 2.0
+        assert p.shutter == 'rolling'
+        assert p.driver == 'pylon'
+        assert p.max_exposure_ms == 1_000
+
+    def test_lookup_known_ace2_model(self):
+        from drivers.camera_profiles import lookup_profile
+        p = lookup_profile('a2A3536-31umBAS')
+        assert p.sensor == 'Sony IMX676-AAMR1-C'
+        assert p.max_exposure_ms == 10_000
+        assert p.gain.analog_max_db == 30.0
+        assert p.has_temperature is True
+
+    def test_lookup_known_ids_model(self):
+        from drivers.camera_profiles import lookup_profile
+        p = lookup_profile('U3-34L0XCP-M')
+        assert p.driver == 'ids'
+        assert p.sensor == 'Sony IMX676-AAMR1-C'
+        assert p.pixel_size_um == 2.0
+        assert p.native_resolution == {'width': 3552, 'height': 3552}
+        assert p.binning_sizes == [1, 2]
+        assert p.gain.gain_selector == 'AnalogAll'
+        assert p.has_auto_gain is False
+        assert p.has_auto_exposure is False
+        assert 'Mono8' not in p.pixel_formats  # No native Mono8
+        assert 'Mono10g40IDS' in p.pixel_formats
+        assert p.max_exposure_ms == 2_000
+
+    def test_lookup_simulated(self):
+        from drivers.camera_profiles import lookup_profile
+        p = lookup_profile('SimulatedCamera-1920x1200')
+        assert p.driver == 'simulated'
+        assert p.gain.total_min_db == 0.0
+
+    def test_lookup_unknown_returns_default(self):
+        from drivers.camera_profiles import lookup_profile
+        p = lookup_profile('TotallyUnknownCamera-XYZ')
+        assert p.model_name == 'TotallyUnknownCamera-XYZ'
+        assert p.driver == 'unknown'
+        assert p.max_exposure_ms == 1_000
+        assert p.binning_sizes == [1]
+
+    def test_lookup_none_returns_default(self):
+        from drivers.camera_profiles import lookup_profile
+        p = lookup_profile(None)
+        assert p.driver == 'unknown'
+
+    def test_lookup_substring_match(self):
+        from drivers.camera_profiles import lookup_profile
+        # Model name might have extra text from SDK
+        p = lookup_profile('Basler daA3840-45um (12345678)')
+        assert p.sensor == 'Sony IMX334LLR-C'
+
+    def test_lookup_returns_copy(self):
+        """Modifying a returned profile should not affect the registry."""
+        from drivers.camera_profiles import lookup_profile
+        p1 = lookup_profile('daA3840-45um')
+        p1.max_exposure_ms = 999
+        p1.gain.total_min_db = -99.0
+
+        p2 = lookup_profile('daA3840-45um')
+        assert p2.max_exposure_ms == 1_000
+        assert p2.gain.total_min_db is None  # Not modified
+
+    def test_dynamic_fields_initially_none(self):
+        from drivers.camera_profiles import lookup_profile
+        p = lookup_profile('daA3840-45um')
+        assert p.exposure_min_us is None
+        assert p.exposure_max_us is None
+        assert p.gain.total_min_db is None  # Pylon profiles don't preset these
+        assert p.gain.total_max_db is None
+
+    def test_profile_dataclass_defaults(self):
+        from drivers.camera_profiles import CameraProfile
+        p = CameraProfile()
+        assert p.model_name == ''
+        assert p.pixel_formats == []
+        assert p.binning_sizes == [1]
+        assert p.alignment == {'width': 4, 'height': 4}
+
 
 class TestTimingModes:
     """Verify timing mode switching across all simulators."""

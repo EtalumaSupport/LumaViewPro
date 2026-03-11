@@ -6,6 +6,7 @@ import threading
 import numpy as np
 
 from lvp_logger import logger
+from drivers.camera_profiles import CameraProfile, lookup_profile
 
 default_max_exposure = 1_000 # in ms
 
@@ -74,6 +75,7 @@ class Camera(ABC):
         self.max_exposure = 100 # in ms
         self._device_removed = False
         self._device_serial = None
+        self.profile: CameraProfile = CameraProfile()
 
         self.max_exposure_dict = self._get_max_exposure_models()
 
@@ -187,7 +189,34 @@ class Camera(ABC):
     def get_all_temperatures(self):
         pass
 
+    def _load_profile(self):
+        """Load the camera profile based on model_name.
+
+        Called by subclass connect() after model_name is known. Sets
+        self.profile and applies static values (max_exposure). Subclasses
+        should then call _query_dynamic_capabilities() to fill in SDK-
+        queried values like gain and exposure ranges.
+        """
+        self.profile = lookup_profile(self.model_name)
+        self.max_exposure = self.profile.max_exposure_ms
+        logger.info(f'[CAM Class ] Loaded profile: {self.profile.model_name} '
+                     f'(sensor={self.profile.sensor}, driver={self.profile.driver})')
+
+    def _query_dynamic_capabilities(self):
+        """Query SDK for dynamic values and merge into profile.
+
+        Subclasses should override to query gain min/max, exposure min/max,
+        etc. from the camera SDK. The base implementation is a no-op.
+        """
+        pass
+
     def set_max_exposure_time(self):
+        # Legacy path — check profile first, fall back to max_exposure_dict
+        if self.profile and self.profile.max_exposure_ms:
+            self.max_exposure = self.profile.max_exposure_ms
+            logger.info(f"[CAM Class ] Max exposure set to {self.max_exposure} ms (from profile)")
+            return
+
         found_key = None
         for key in self.max_exposure_dict.keys():
             if self.model_name in key:
@@ -208,6 +237,7 @@ class Camera(ABC):
         """Return a dict mapping model name substrings to max exposure (ms).
 
         Subclasses should override to register their known models.
+        Deprecated — prefer camera_profiles.py instead.
         """
         return {}
 

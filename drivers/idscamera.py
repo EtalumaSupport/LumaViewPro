@@ -44,9 +44,9 @@ class IDSCamera(Camera):
             except Exception:
                 logger.warning('[CAM Class ] Could not read all IDS camera information')
 
-            # Set max exposure based on detected model
-            if self.model_name:
-                self.set_max_exposure_time()
+            # Load camera profile and query dynamic capabilities
+            self._load_profile()
+            self._query_dynamic_capabilities()
 
             self.cam_image_handler = ImageHandler(self.data_stream, parent_cam=self)
 
@@ -93,6 +93,35 @@ class IDSCamera(Camera):
             return False
         return True
 
+    def _query_dynamic_capabilities(self):
+        """Query IDS SDK for gain/exposure ranges and merge into profile."""
+        if not self.active or not self.remote_nodemap:
+            return
+
+        try:
+            # Gain range
+            try:
+                gain_node = self.remote_nodemap.FindNode("Gain")
+                self.profile.gain.total_min_db = gain_node.Minimum()
+                self.profile.gain.total_max_db = gain_node.Maximum()
+                logger.info(f'[CAM Class ] Gain range: {self.profile.gain.total_min_db:.1f} - '
+                            f'{self.profile.gain.total_max_db:.1f} dB')
+            except Exception as e:
+                logger.debug(f'[CAM Class ] Could not query gain range: {e}')
+
+            # Exposure range
+            try:
+                exp_node = self.remote_nodemap.FindNode("ExposureTime")
+                self.profile.exposure_min_us = exp_node.Minimum()
+                self.profile.exposure_max_us = exp_node.Maximum()
+                logger.info(f'[CAM Class ] Exposure range: {self.profile.exposure_min_us:.0f} - '
+                            f'{self.profile.exposure_max_us:.0f} us')
+            except Exception as e:
+                logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
+
+        except Exception as e:
+            logger.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
+
     def init_camera_config(self):
         if not self.active:
             return
@@ -101,7 +130,13 @@ class IDSCamera(Camera):
             self.remote_nodemap.FindNode("UserSetSelector").SetCurrentEntry("Default")
             self.remote_nodemap.FindNode("UserSetLoad").Execute()
             self.remote_nodemap.FindNode("UserSetLoad").WaitUntilDone()
-            self.set_pixel_format("Mono8")
+            # Use lowest-bandwidth format from profile (Mono8 if available,
+            # otherwise first listed). Software ConvertTo handles the rest.
+            if self.profile.pixel_formats:
+                preferred = 'Mono8' if 'Mono8' in self.profile.pixel_formats else self.profile.pixel_formats[0]
+            else:
+                preferred = 'Mono10g40IDS'
+            self.set_pixel_format(preferred)
             #TODO: auto gain
             self.remote_nodemap.FindNode("ReverseX").SetValue(True)
             self.exposure_t(10)

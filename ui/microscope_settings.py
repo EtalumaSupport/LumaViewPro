@@ -613,7 +613,13 @@ class MicroscopeSettings(BoxLayout):
 
     def load_binning_sizes(self):
         spinner = self.ids['binning_spinner']
-        spinner.values = ['1x1','2x2','4x4']
+        # Use camera profile if available, otherwise default
+        try:
+            camera = _app_ctx.ctx.lumaview.scope.camera
+            sizes = camera.profile.binning_sizes
+        except Exception:
+            sizes = [1, 2, 4]
+        spinner.values = [f'{s}x{s}' for s in sizes]
 
 
     def select_binning_size(self):

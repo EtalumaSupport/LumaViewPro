@@ -28,10 +28,44 @@ class PylonCamera(Camera):
     # _mark_disconnected() inherited from Camera base class
 
     def _get_max_exposure_models(self) -> dict:
+        # Legacy fallback — profiles are the primary source now
         return {
             "daA3840-45um": 1_000,
             "a2A3536-31umBAS": 10_000,
         }
+
+    def _query_dynamic_capabilities(self):
+        """Query Pylon SDK for gain/exposure ranges and merge into profile."""
+        if not self.active:
+            return
+
+        try:
+            nm = self.active.GetNodeMap()
+
+            # Gain ranges
+            try:
+                gain_node = nm.GetNode("Gain")
+                if gain_node is not None:
+                    self.profile.gain.total_min_db = gain_node.GetMin()
+                    self.profile.gain.total_max_db = gain_node.GetMax()
+                    logger.info(f'[CAM Class ] Gain range: {self.profile.gain.total_min_db:.1f} - '
+                                f'{self.profile.gain.total_max_db:.1f} dB')
+            except Exception as e:
+                logger.debug(f'[CAM Class ] Could not query gain range: {e}')
+
+            # Exposure range
+            try:
+                exp_node = nm.GetNode("ExposureTime")
+                if exp_node is not None:
+                    self.profile.exposure_min_us = exp_node.GetMin()
+                    self.profile.exposure_max_us = exp_node.GetMax()
+                    logger.info(f'[CAM Class ] Exposure range: {self.profile.exposure_min_us:.0f} - '
+                                f'{self.profile.exposure_max_us:.0f} us')
+            except Exception as e:
+                logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
+
+        except Exception as e:
+            logger.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
     def disconnect(self) -> bool:
         try:
@@ -145,9 +179,9 @@ class PylonCamera(Camera):
                 self.model_name = None
                 self._device_serial = None
 
-            # Set max exposure based on detected model
-            if self.model_name:
-                self.set_max_exposure_time()
+            # Load camera profile and query dynamic capabilities
+            self._load_profile()
+            self._query_dynamic_capabilities()
 
             # Ensure no stale queued frames or state
             try:

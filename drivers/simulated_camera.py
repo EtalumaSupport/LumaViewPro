@@ -98,7 +98,7 @@ class SimulatedCamera(Camera):
             self._device_serial = self.SERIAL_NUMBER
             self._device_removed = False
 
-            self.set_max_exposure_time()
+            self._load_profile()
             self.init_camera_config()
             self._grabbing = True
 
