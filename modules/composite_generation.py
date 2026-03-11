@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 import modules.common_utils as common_utils
+from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
 from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
@@ -130,7 +131,6 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
     @staticmethod
     def _create_composite_image(path: pathlib.Path, df: pd.DataFrame):
 
-        # Ratio for the amount that the transmitted channel is added to the composite ([0,1])
         BF_present = False
         BF_channel = ""
 
@@ -140,14 +140,11 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
 
         for layer in allowed_BF_layers:
             if (df['Color'] == layer).any():
-                # A BF layer is present. Use first found one as base for the composite.
                 BF_present = True
                 BF_channel = layer
                 allowed_layers.append(layer)
-
                 break
 
-        
         df = df[df['Color'].isin(allowed_layers)]
 
         # Load source images
@@ -156,137 +153,86 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
             image_filepath = path / row['Filepath']
             images[row['Filepath']] = cv2.imread(str(image_filepath), cv2.IMREAD_UNCHANGED)
 
-        color_index_map = {
-            'Blue': 0,
-            'Green': 1,
-            'Red': 2,
-            'Lumi': 0,
-        }
-        
         error = None
         status = True
-        
-        # Transmitted channel present
-        if BF_present:
-            try:
+
+        try:
+            transmitted_image = None
+            channel_images = {}
+            brightness_thresholds = {}
+            img_dtype = None
+
+            if BF_present:
                 logger.info("CompositeGeneration] Generating transmitted channel composite")
                 BF_row = df[df['Color'] == BF_channel]
-                try:
-                    BF_image_filename = BF_row['Filepath'].iloc[0]
-                except Exception as e:
-                    BF_present = False
-                    logger.error(f"CompositeGeneration] Error details: {e}")
-                    raise e
-                
+                BF_image_filename = BF_row['Filepath'].iloc[0]
                 BF_image = images[BF_image_filename]
-
-                img = np.array(BF_image, dtype=BF_image.dtype)
-
-                # Init mask to keep track of changed pixels
-                # Set all values in the mask for changed to False
-                mask_transmitted_changed = img == None
-                
-                # Prep transmitted channel to have 3 channels for RGB value manipulation
-                img = np.repeat(BF_image[:, :, None], 3, axis=2)
-
                 img_dtype = BF_image.dtype
+                # cv2.imread returns BGR — convert grayscale transmitted to plain 2D array
+                if image_utils.is_color_image(BF_image):
+                    transmitted_image = cv2.cvtColor(BF_image, cv2.COLOR_BGR2GRAY)
+                else:
+                    transmitted_image = BF_image
+            else:
+                logger.info("CompositeGeneration] Generating fluorescent channel composite")
 
-                for _, row in df.iterrows():
-                    layer = row['Color']
+            for _, row in df.iterrows():
+                layer = row['Color']
 
-                    # Exempt BF layer
-                    if layer == BF_channel:
-                        continue
+                # Skip transmitted layer (already captured above)
+                if layer == BF_channel:
+                    continue
 
-                    f_image = images[row['Filepath']]
-                    f_is_color = image_utils.is_color_image(image=f_image)
+                # Skip non-fluorescence layers
+                if layer not in ('Red', 'Green', 'Blue', 'Lumi'):
+                    continue
 
-                    if img_dtype == "uint8":
-                        brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 255
-                    elif img_dtype == "uint16":
-                        brightness_threshold = settings[layer]["composite_brightness_threshold"] / 100 * 4095
+                f_image = images[row['Filepath']]
+                if img_dtype is None:
+                    img_dtype = f_image.dtype
 
-                    channel_index = color_index_map[layer]
+                # Convert color images to grayscale
+                if image_utils.is_color_image(f_image):
+                    img_gray = cv2.cvtColor(f_image, cv2.COLOR_BGR2GRAY)
+                else:
+                    img_gray = np.array(f_image)
 
-                    # Convert to np array
-                    f_image = np.array(f_image)
-                    
-                    # Convert to 1 channnel image instead of RGB
-                    if f_is_color:
-                        img_gray = f_image[:, :, channel_index]
+                channel_images[layer] = img_gray
+
+                # Compute brightness threshold
+                if BF_present:
+                    if img_dtype == np.uint8:
+                        max_value = 255
                     else:
-                        img_gray = f_image
+                        max_value = 4095
+                    brightness_thresholds[layer] = settings[layer]["composite_brightness_threshold"] / 100 * max_value
 
-                    # Create mask of every pixel > brightness threshold in channel image
-                    channel_above_threshold_mask = img_gray > brightness_threshold
-
-                    # Create masks for pixels that correspond to changed/unchanged pixels in the transmitted image
-                    not_changed_mask = channel_above_threshold_mask & (~mask_transmitted_changed)
-                    changed_mask = channel_above_threshold_mask & mask_transmitted_changed
-
-                    # For not-yet changed pixels, set every other channel to 0, then the desired color channel value
-                    # Allows desired channel to show up fully
-                    img[not_changed_mask, 0] = 0
-                    img[not_changed_mask, 1] = 0
-                    img[not_changed_mask, 2] = 0
-
-                    img[not_changed_mask, channel_index] = img_gray[not_changed_mask]
-
-                    # Update changed pixels
-                    mask_transmitted_changed[not_changed_mask] = True
-
-                    # For already changed pixels, only update the current channel value (allows stacking of RGB values)
-                    img[changed_mask, channel_index] = img_gray[changed_mask]
-
-            except Exception as e:
-                # Issue with BF composite, so treat as normal flourescent composite generation.
-                logger.error(f"CompositeGeneration] Error generating transmitted channel composite: {e}")
-                error = "Error generating transmitted channel composite"
+            if not channel_images and transmitted_image is None:
                 status = False
+                error = "Composite Generation Error: No images found"
+            else:
+                dtype = img_dtype or np.uint8
+                max_value = 255 if dtype == np.uint8 else 4095
 
-        # No transmitted channel present
-        if not BF_present:
-            try:
-                logger.info("CompositeGeneration] Generating flourescent channel composite")
-                row0 = df.iloc[0]
-                source_image_sample_filename = row0['Filepath']
-                source_image_sample = images[source_image_sample_filename]
-                source_image_sample_shape = source_image_sample.shape
-
-                img = np.zeros(
-                    shape=(source_image_sample_shape[0], source_image_sample_shape[1], 3),
-                    dtype=source_image_sample.dtype
+                # build_composite returns RGB — convert to BGR for cv2.imwrite output
+                img_rgb = build_composite(
+                    channel_images=channel_images,
+                    transmitted_image=transmitted_image,
+                    brightness_thresholds=brightness_thresholds,
+                    dtype=dtype,
+                    max_value=max_value,
                 )
+                img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
 
-                img_dtype = source_image_sample.dtype
+        except Exception as e:
+            logger.error(f"CompositeGeneration] Error generating composite: {e}")
+            error = f"Error generating composite: {e}"
+            status = False
 
-                for _, row in df.iterrows():
-                    layer = row['Color']
-                    try:
-                        layer_index = color_index_map[layer]
-                    except Exception:
-                        # If color not flourescent, skip this image
-                        continue
-
-                    source_image = images[row['Filepath']]
-                    source_is_color = image_utils.is_color_image(image=source_image)
-                    
-                    if source_is_color:
-                        img[:,:,layer_index] = source_image[:,:,layer_index]
-                    else:
-                        img[:,:,layer_index] = source_image
-                status = True
-                error = None
-
-            except Exception as e:
-                logger.error(f"CompositeGeneration] Error generating flourescent channel composite: {e}")
-                error = "Error generating flourescent channel composite"
-                status = False
-
-        if img is None:
+        if img is None and status:
             status = False
             error = "Composite Generation Error: No final image"
-            
+
         return {
             'status': status,
             'error': error,

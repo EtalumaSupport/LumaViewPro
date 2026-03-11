@@ -17,6 +17,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
 import modules.scope_commands as scope_commands
 from modules.ui_helpers import (
@@ -263,70 +264,54 @@ class CompositeCapture(FloatLayout):
 
         if use_full_pixel_depth:
             dtype = np.uint16
+            max_value = 4095
         else:
             dtype = np.uint8
+            max_value = 255
 
-        img = np.zeros((frame_settings['height'], frame_settings['width'], 3), dtype=dtype)
-        transmitted_present = False
+        transmitted_image = None
+        channel_images = {}
+        brightness_thresholds = {}
 
+        # Capture transmitted channel (BF/PC/DF) — use first found as base
         for trans_layer in common_utils.get_transmitted_layers():
-            trans_layer_obj = ctx.image_settings.layer_lookup(layer=trans_layer)
             if layer_settings[trans_layer]["acquire"] == "image":
-                transmitted_present = True
                 acquired_channel_count += 1
                 most_recent_aq_channel = trans_layer
 
                 if z_stage_present:
-                    # Move to focus position via io_executor (blocks until arrived)
                     focus_pos = layer_settings[trans_layer]['focus']
                     scope_commands.move_absolute_sync(
                         lumaviewpro.lumaview.scope, io_executor, 'Z', focus_pos,
                         wait_until_complete=True,
                     )
 
-                # set the gain and exposure via camera_executor
                 gain = layer_settings[trans_layer]['gain']
                 scope_commands.set_gain_sync(lumaviewpro.lumaview.scope, camera_executor, gain)
                 exposure = layer_settings[trans_layer]['exp']
                 scope_commands.set_exposure_sync(lumaviewpro.lumaview.scope, camera_executor, exposure)
-
-                # update illumination to currently selected settings
                 illumination = layer_settings[trans_layer]['ill']
 
-                # Transmitted channel capture — route LED through io_executor
                 scope_commands.led_on_sync(
                     lumaviewpro.lumaview.scope, io_executor,
                     lumaviewpro.lumaview.scope.color2ch(trans_layer), illumination,
                 )
 
-                transmitted_channel = scope_commands.capture_and_wait_sync(
-                    lumaviewpro.lumaview.scope, camera_executor,
-                    force_to_8bit=not use_full_pixel_depth,
+                transmitted_image = np.array(
+                    scope_commands.capture_and_wait_sync(
+                        lumaviewpro.lumaview.scope, camera_executor,
+                        force_to_8bit=not use_full_pixel_depth,
+                    ),
+                    dtype=dtype,
                 )
                 scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
-
-                img = np.array(transmitted_channel, dtype=dtype)
-
-                # Init mask to keep track of changed pixels
-                # Set all values in the mask for changed to False
-                mask_transmitted_changed = np.zeros(img.shape[:2], dtype=bool)
-
-                # Prep transmitted channel to have 3 channels for RGB value manipulation
-                img = np.repeat(transmitted_channel[:, :, None], 3, axis=2)
 
                 # Can only use one transmitted channel per composite
                 break
 
-
-        layer_map = {
-            'Red': 0,
-            'Green': 1,
-            'Blue': 2,
-            'Lumi': 2,
-        }
-
         scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
 
+        # Capture fluorescence and luminescence channels
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
             layer_obj = ctx.image_settings.layer_lookup(layer=layer)
             if layer_settings[layer]['acquire'] == "image":
@@ -334,33 +319,25 @@ class CompositeCapture(FloatLayout):
                 most_recent_aq_channel = layer
 
                 if z_stage_present:
-                    # Move to focus position via io_executor (blocks until arrived)
                     focus_pos = layer_settings[layer]['focus']
                     scope_commands.move_absolute_sync(
                         lumaviewpro.lumaview.scope, io_executor, 'Z', focus_pos,
                         wait_until_complete=True,
                     )
 
-                # set the gain and exposure via camera_executor
                 gain = layer_settings[layer]['gain']
                 scope_commands.set_gain_sync(lumaviewpro.lumaview.scope, camera_executor, gain)
                 exposure = layer_settings[layer]['exp']
                 scope_commands.set_exposure_sync(lumaviewpro.lumaview.scope, camera_executor, exposure)
-                sum_count=layer_settings[layer]['sum']
+                sum_count = layer_settings[layer]['sum']
                 sum_iteration_callback = ctx.scope_display.update_scopedisplay
 
-                # Set brightness threshold for composites dealing with transmitted channels
-                # If given in percentage, convert to 8 or 16 bit value
-                if not use_full_pixel_depth:
-                    brightness_threshold = layer_settings[layer]["composite_brightness_threshold"] / 100 * 255
-                else:
-                    brightness_threshold = layer_settings[layer]["composite_brightness_threshold"] / 100 * 4095
+                # Compute brightness threshold (percentage → absolute value)
+                brightness_thresholds[layer] = layer_settings[layer]["composite_brightness_threshold"] / 100 * max_value
 
-                # update illumination to currently selected settings
                 illumination = layer_settings[layer]['ill']
 
-                # Fluorescence capture — route LED through io_executor
-                # Check to make sure we are not capturing from a luminescence layer which doesn't use an LED
+                # Luminescence channels don't use an LED
                 if layer not in common_utils.get_transmitted_layers():
                     scope_commands.led_on_sync(
                         lumaviewpro.lumaview.scope, io_executor,
@@ -376,48 +353,21 @@ class CompositeCapture(FloatLayout):
                 )
                 scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
 
-                img_gray = np.array(img_gray)
-
-                if transmitted_present:
-                    # Create mask of every pixel > brightness threshold in channel image
-                    channel_above_threshold_mask = img_gray > brightness_threshold
-
-                    # Create masks for pixels that correspond to changed/unchanged pixels in the transmitted image
-                    not_changed_mask = channel_above_threshold_mask & (~mask_transmitted_changed)
-                    changed_mask = channel_above_threshold_mask & mask_transmitted_changed
-
-                    # Find channel index value
-                    channel_index = layer_map[layer]
-
-                    # For not-yet changed pixels, set every other channel to 0, then the desired color channel value
-                    # Allows desired channel to show up fully
-                    img[not_changed_mask, 0] = 0
-                    img[not_changed_mask, 1] = 0
-                    img[not_changed_mask, 2] = 0
-
-                    img[not_changed_mask, channel_index] = img_gray[not_changed_mask]
-
-                    # Update changed pixels
-                    mask_transmitted_changed[not_changed_mask] = True
-
-                    # For already changed pixels, only update the current channel value (allows stacking of RGB values)
-                    img[changed_mask, channel_index] = img_gray[changed_mask]
-
-
-                else:
-                    # No transmitted channel present
-                    # buffer the images
-                    if layer == 'Red':
-                        img[:,:,0] = img_gray
-                    elif layer == 'Green':
-                        img[:,:,1] = img_gray
-                    elif layer in ('Blue', 'Lumi'):
-                        img[:,:,2] = img_gray
+                channel_images[layer] = np.array(img_gray)
 
             scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
 
             Clock.schedule_once(lambda dt, lo=layer_obj: Clock.unschedule(lo.ids['histo_id'].histogram), 0)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
+
+        # Build composite image from collected channels
+        img = build_composite(
+            channel_images=channel_images,
+            transmitted_image=transmitted_image,
+            brightness_thresholds=brightness_thresholds,
+            dtype=dtype,
+            max_value=max_value,
+        )
 
         # File saving can run on this thread (no UI dependency)
         append = f'{self.get_well_label()}'
