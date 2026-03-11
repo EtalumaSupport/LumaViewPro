@@ -44,9 +44,6 @@ import typing
 import threading
 # import faulthandler
 
-from plyer import filechooser
-
-
 if __name__ == "__main__":
     # Enable faulthandler to catch segfaults and native crashes
     # faulthandler.enable()

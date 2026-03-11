@@ -23,9 +23,51 @@ import pandas as pd
 import os
 import cv2
 import glob
-import imutils
-from color_transfer import color_transfer, image_stats #use pip install color_transfer
 from lvp_logger import logger
+
+
+def _image_stats(image):
+    """Compute mean and std for each channel of an L*a*b* image."""
+    (l, a, b) = cv2.split(image)
+    return (l.mean(), l.std(), a.mean(), a.std(), b.mean(), b.std())
+
+
+def _color_transfer(source, target):
+    """Transfer color distribution from source to target using L*a*b* stats.
+
+    Based on "Color Transfer between Images" by Reinhard et al., 2001.
+    """
+    source = cv2.cvtColor(source, cv2.COLOR_BGR2LAB).astype("float32")
+    target = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype("float32")
+
+    (lMeanSrc, lStdSrc, aMeanSrc, aStdSrc, bMeanSrc, bStdSrc) = _image_stats(source)
+    (lMeanTar, lStdTar, aMeanTar, aStdTar, bMeanTar, bStdTar) = _image_stats(target)
+
+    (l, a, b) = cv2.split(target)
+    l -= lMeanTar
+    a -= aMeanTar
+    b -= bMeanTar
+
+    l = (lStdTar / lStdSrc) * l
+    a = (aStdTar / aStdSrc) * a
+    b = (bStdTar / bStdSrc) * b
+
+    l += lMeanSrc
+    a += aMeanSrc
+    b += bMeanSrc
+
+    l = np.clip(l, 0, 255)
+    a = np.clip(a, 0, 255)
+    b = np.clip(b, 0, 255)
+
+    transfer = cv2.merge([l, a, b])
+    transfer = cv2.cvtColor(transfer.astype("uint8"), cv2.COLOR_LAB2BGR)
+    return transfer
+
+
+def _grab_contours(cnts):
+    """Extract contours from cv2.findContours result (OpenCV 4.x returns 2-tuple)."""
+    return cnts[0] if len(cnts) == 2 else cnts[1]
 
 MAX_TRIES = 20 #number of tries to tolerate without any results before quiting with an error
 N_RESULTS = 5 #number of times the Low algorithm is run and gets result, to select the best result
@@ -226,7 +268,7 @@ def match_color_space(images_folder, ext = "tiff"):
     source = cv2.imread(image_paths[middle_image_indx])
     for i,target in enumerate(image_paths):
         if i==middle_image_indx: continue
-        color_adjusted_img = color_transfer(source,cv2.imread(target))
+        color_adjusted_img = _color_transfer(source,cv2.imread(target))
         cv2.imwrite(target, color_adjusted_img)
 
 def grab_images(images_folder="",image_list=[],ext = 'tiff',to_sort = True):
@@ -322,24 +364,6 @@ def combine_rgb(rgb_folder,ext="tiff"):
         #print(os.path.join(imgs_dir,'rgb_images','image'+str(i)+'.'+ext))
         cv2.imwrite(os.path.join(rgb_folder,'ims_color','image'+str(i)+'.'+ext),img)
         
-def display_img(img):
-    """
-    Displays image, waits for any key.
-
-    Parameters
-    ----------
-    img : Numpy Array
-        A numpy array (likely 3D) representing an image.
-
-    Returns
-    -------
-    None.
-
-    """
-    cv2.imshow("Stitched Image", img)
-    cv2.waitKey(0)
-    
-
 def zoom_frame(stitched_img):
     """
     Fixes the compsite image by removing missing information areas along the outer 
@@ -365,7 +389,7 @@ def zoom_frame(stitched_img):
 
     contours = cv2.findContours(thresh_img.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    contours = imutils.grab_contours(contours)
+    contours = _grab_contours(contours)
     areaOI = max(contours, key=cv2.contourArea)
 
     mask = np.zeros(thresh_img.shape, dtype="uint8")
@@ -382,7 +406,7 @@ def zoom_frame(stitched_img):
 
     contours = cv2.findContours(minRectangle.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    contours = imutils.grab_contours(contours)
+    contours = _grab_contours(contours)
     areaOI = max(contours, key=cv2.contourArea)
 
     x, y, w, h = cv2.boundingRect(areaOI)

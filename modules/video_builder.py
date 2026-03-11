@@ -248,7 +248,6 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
             
             i += 1
 
-        cv2.destroyAllWindows()
         video.release()
 
         logger.debug(f"[{self._name}] - Complete")

@@ -16,8 +16,6 @@ for pkg in ('numpy','scyjava','imglyb','pyimagej'):
 hiddenimports = [
     'imagecodecs._imcd',
     'imagecodecs._shared',
-    'plyer.platforms.win.notification',
-    'plyer.platforms.win.filechooser',
     'skimage.measure',
     'win32timezone',
 ]
