@@ -77,7 +77,10 @@ class SerialBoard:
             try:
                 self._open_serial()
                 self._reset_firmware()
-                logger.info(f'{self._label} Connected')
+                if self.firmware_version is not None:
+                    logger.info(f'{self._label} Connected (firmware v{self.firmware_version})')
+                else:
+                    logger.info(f'{self._label} Connected (legacy firmware)')
             except Exception as e:
                 self._close_driver()
                 logger.error(f'{self._label} connect() failed: {e}')
