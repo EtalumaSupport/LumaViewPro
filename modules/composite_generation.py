@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import pandas as pd
 
+import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
@@ -205,7 +206,13 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                         max_value = 255
                     else:
                         max_value = 4095
-                    brightness_thresholds[layer] = settings[layer]["composite_brightness_threshold"] / 100 * max_value
+                    ctx = _app_ctx.ctx
+                    if ctx is not None:
+                        with ctx.settings_lock:
+                            threshold = settings[layer]["composite_brightness_threshold"]
+                    else:
+                        threshold = settings[layer]["composite_brightness_threshold"]
+                    brightness_thresholds[layer] = threshold / 100 * max_value
 
             if not channel_images and transmitted_image is None:
                 status = False

@@ -44,6 +44,7 @@ from lvp_logger import logger
 from concurrent.futures import ProcessPoolExecutor
 import threading
 
+import modules.app_context as _app_ctx
 from modules.settings_init import settings
 
 
@@ -990,7 +991,12 @@ class SequencedCaptureExecutor:
                 if 'restore_autofocus_state' in self._callbacks:
                     self._callbacks['restore_autofocus_state'](layer=layer, value=layer_data)
                 else:
-                    settings[layer]["autofocus"] = layer_data
+                    ctx = _app_ctx.ctx
+                    if ctx is not None:
+                        with ctx.settings_lock:
+                            settings[layer]["autofocus"] = layer_data
+                    else:
+                        settings[layer]["autofocus"] = layer_data
                 if self._callbacks.get('reset_autofocus_btns'):
                     # Updates autofocus buttons to their prior states
                     Clock.schedule_once(lambda dt: self._callbacks['reset_autofocus_btns'](), 0)
