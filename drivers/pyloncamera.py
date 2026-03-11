@@ -10,7 +10,7 @@ from lvp_logger import logger
 
 import queue
 
-from drivers.camera import Camera
+from drivers.camera import Camera, ImageHandlerBase
 
 
 class PylonCamera(Camera):
@@ -25,11 +25,7 @@ class PylonCamera(Camera):
 
         super().__init__()
 
-    def _mark_disconnected(self):
-        """Atomically mark camera as disconnected. Sets both flags together
-        to avoid inconsistent state between _device_removed and active."""
-        self._device_removed = True
-        self.active = None
+    # _mark_disconnected() inherited from Camera base class
 
     def _get_max_exposure_models(self) -> dict:
         return {
@@ -55,11 +51,7 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Pylon camera disconnect failed: {e}')
         return False
 
-    def __delete__(self):
-        try:
-            self.active.close()
-        except Exception:
-            logger.exception('[CAM Class ] exception')
+    # __del__() inherited from Camera base class
 
     def stop_grabbing(self):
         camera = self.active
@@ -317,7 +309,7 @@ class PylonCamera(Camera):
                 self.active.BinningVertical.SetValue(size)
                 self.active.BinningVerticalMode.SetValue('Sum')
                 self.active.BinningHorizontal.SetValue(size)
-                self.active.BinningVerticalMode.SetValue('Sum')
+                self.active.BinningHorizontalMode.SetValue('Sum')
 
             logger.debug(f"[CAM Class ] Binning set to {self.get_binning_size()}, frame now {self.get_frame_size()}")
 
@@ -413,33 +405,8 @@ class PylonCamera(Camera):
             logger.exception(f'[CAM Class ] Unexpected error in update_auto_gain_min_max: {e}')
 
 
-    def grab(self):
-        """ Grab last available frame from camera and save it to self.array
-        returns True if successful
-        returns False if unsuccessful
-        access the image using camera.array where camera is the instance of the class"""
-        # Check if camera is still active before attempting grab
-        if self.active is None:
-            return False, None
-            
-        if self._device_removed:
-            return False, None
-            
-        if not self.cam_image_handler:
-            return False, None
-        
-        try:
-            result, image, image_ts = self.cam_image_handler.GetLastImage()
-            if result is False:
-                return False, None
-            
-            self.array = image
-            return True, image_ts
+    # grab() inherited from Camera base class
 
-        except Exception as ex:
-            logger.exception(f"Failed to grab image: {ex}")
-            return False, None
-    
     def grab_new_capture(self, timeout: float):
         """
         Blocks for timeout waiting for new frame. Saves from to self.array when received
@@ -729,117 +696,96 @@ class PylonCamera(Camera):
 
 
 class ImageHandler(pylon.ImageEventHandler):
+    """Pylon camera image handler — receives frames via SDK callbacks.
+
+    Uses ImageHandlerBase via composition (not inheritance) to avoid
+    metaclass conflict with pylon.ImageEventHandler.
+    """
 
     def __init__(self, parent_cam: PylonCamera):
         super().__init__()
-        self._frame_lock = threading.Lock()
-        self.last_result = False
-        self.last_img = None
-        self._failed_grabs = 0
-        self._last_img_ts = None
+        self._base = ImageHandlerBase()
         self._frame_queue = queue.Queue(maxsize=1)
         self._parent = parent_cam
-        
-    
+
     def OnImageGrabbed(self, camera, grabResult):
         try:
             # Set thread name for dummy threads
             if "Dummy" in threading.current_thread().name:
                 threading.current_thread().name = "PylonImageGrab"
-            
+
             # Check if parent camera was removed before processing
             if self._parent._device_removed:
                 logger.debug('[CAM Class ] OnImageGrabbed called but device already marked as removed, ignoring')
                 return
-            
+
             # Check if parent camera is still active
             if self._parent.active is None:
                 logger.debug('[CAM Class ] OnImageGrabbed called but camera is inactive, ignoring')
                 self._parent._device_removed = True
                 return
-            
+
             if not self._frame_queue.empty():
                 try:
                     self._frame_queue.get_nowait()
                 except queue.Empty:
                     pass
-            
+
             # Safely check grab result - this can throw native exceptions
             try:
-                self.last_result = grabResult.GrabSucceeded()
+                grab_succeeded = grabResult.GrabSucceeded()
             except Exception as e:
                 logger.warning(f'[CAM Class ] GrabSucceeded() failed: {e}, assuming device removed')
-                self._parent._device_removed = True
+                self._parent._mark_disconnected()
                 return
-            
-            if self.last_result:
+
+            if grab_succeeded:
                 try:
                     # GetArray() can cause native crash if device is disconnected
                     img = grabResult.GetArray()
                     ts = datetime.datetime.now()
-                    with self._frame_lock:
-                        self.last_img = img
-                        self._last_img_ts = ts
+                    self._base._store_frame(img, ts)
                     self._frame_queue.put((True, img, ts))
-                    self._failed_grabs = 0
                 except Exception as e:
                     logger.warning(f'[CAM Class ] GetArray() failed: {e}, marking device as removed')
-                    self._parent._device_removed = True
-                    with self._frame_lock:
-                        self.last_result = False
+                    self._parent._mark_disconnected()
+                    self._base._record_failure()
             else:
-                self._failed_grabs += 1
-                # Rate-limit noisy grab failure logs
-                if self._failed_grabs % 5 == 1:
-                    logger.warning(f"Grab Failed -> result: {self.last_result}, {self._failed_grabs} failed grabs")
-                # If we've failed a lot in a row, stop grabbing to avoid potential underlying SDK exit
-                if self._failed_grabs >= 128:
+                should_stop = self._base._record_failure()
+                if should_stop:
                     try:
                         logger.error('[CAM Class ] Too many grab failures; stopping acquisition')
                         if self._parent.active and self._parent.is_grabbing():
                             self._parent.stop_grabbing()
-                        self._parent._device_removed = True
+                        self._parent._mark_disconnected()
                     except Exception:
                         pass
         except Exception as e:
             logger.exception(e)
 
     def reset(self):
+        """Clear frame buffer, queue, and failure counter."""
         try:
             while not self._frame_queue.empty():
                 try:
                     self._frame_queue.get_nowait()
                 except queue.Empty:
                     break
-            with self._frame_lock:
-                self.last_result = False
-                self.last_img = None
-                self._last_img_ts = None
-            self._failed_grabs = 0
         except Exception:
             pass
+        self._base.reset()
 
-    def GetLastImage(self):
-        # Check if parent camera is still valid before returning image
+    def get_last_image(self):
+        """Return (success, image_copy, timestamp) with parent-camera validity check."""
         try:
             if self._parent._device_removed:
                 return False, None, None
-
             if self._parent.active is None:
                 return False, None, None
         except Exception:
             return False, None, None
-        
-        with self._frame_lock:
-            if self.last_result is False:
-                return False, None, None
 
-            # Safely copy the image - could fail if camera disconnected mid-operation
-            try:
-                return self.last_result, self.last_img.copy(), self._last_img_ts
-            except Exception as e:
-                logger.warning(f'[CAM Class ] GetLastImage copy failed: {e}')
-                return False, None, None
+        return self._base.get_last_image()
     
     
 
