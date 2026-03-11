@@ -2,6 +2,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import re
+import threading
 import time
 from lvp_logger import logger
 from drivers.serialboard import SerialBoard
@@ -15,6 +16,7 @@ class LEDBoard(SerialBoard):
     def __init__(self, **kwargs):
         super().__init__(vid=0x0424, pid=0x704C, label='[LED Class ]')
 
+        self._state_lock = threading.Lock()
         self.led_ma = {
             'BF': -1,
             'PC': -1,
@@ -59,8 +61,9 @@ class LEDBoard(SerialBoard):
         self.exchange_command(command)
 
     def leds_disable(self):
-        for color, mA in self.led_ma.items():
-            self.led_ma[color] = -1
+        with self._state_lock:
+            for color in self.led_ma:
+                self.led_ma[color] = -1
 
         command = 'LEDS_ENF'
         self.exchange_command(command)
@@ -81,30 +84,27 @@ class LEDBoard(SerialBoard):
             status = self.get_status()
 
     def get_led_ma(self, color):
-        return self.led_ma.get(color, -1)
-
+        with self._state_lock:
+            return self.led_ma.get(color, -1)
 
     def is_led_on(self, color) -> bool:
-        return self.led_ma[color] > 0
-
+        with self._state_lock:
+            return self.led_ma[color] > 0
 
     def get_led_state(self, color) -> dict:
-        enabled = self.is_led_on(color=color)
-        mA = self.get_led_ma(color=color)
-
+        with self._state_lock:
+            enabled = self.led_ma[color] > 0
+            mA = self.led_ma.get(color, -1)
         return {
             'enabled': enabled,
             'illumination': mA,
         }
 
-
     def get_led_states(self) -> dict:
-        states = {}
-        for color in self.led_ma.keys():
-            states[color] = self.get_led_state(color=color)
-
-        return states
-
+        with self._state_lock:
+            snapshot = {color: {'enabled': mA > 0, 'illumination': mA}
+                        for color, mA in self.led_ma.items()}
+        return snapshot
 
     def led_on(self, channel, mA, block=False):
         """
@@ -112,7 +112,8 @@ class LEDBoard(SerialBoard):
         If block=True, verify correct callback before returning
         """
         color = self.ch2color(channel=channel)
-        self.led_ma[color] = mA
+        with self._state_lock:
+            self.led_ma[color] = mA
 
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         response = self.exchange_command(command)
@@ -127,11 +128,11 @@ class LEDBoard(SerialBoard):
             while response is None or (command not in response and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response)):
                 response = self.exchange_command(command)
 
-
     def led_off(self, channel):
         """ Turn off LED at channel number """
         color = self.ch2color(channel=channel)
-        self.led_ma[color] = -1
+        with self._state_lock:
+            self.led_ma[color] = -1
 
         command = 'LED' + str(int(channel)) + '_OFF'
         self.exchange_command(command)
@@ -139,29 +140,33 @@ class LEDBoard(SerialBoard):
     def led_on_fast(self, channel, mA):
         """Fast write-only version of led_on for time-critical toggling."""
         color = self.ch2color(channel=channel)
-        self.led_ma[color] = mA
+        with self._state_lock:
+            self.led_ma[color] = mA
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         self._write_command_fast(command)
 
     def led_off_fast(self, channel):
         """Fast write-only version of led_off for time-critical toggling."""
         color = self.ch2color(channel=channel)
-        self.led_ma[color] = -1
+        with self._state_lock:
+            self.led_ma[color] = -1
         command = 'LED' + str(int(channel)) + '_OFF'
         self._write_command_fast(command)
 
     def leds_off(self):
         """ Turn off all LEDs """
-        for color, mA in self.led_ma.items():
-            self.led_ma[color] = -1
+        with self._state_lock:
+            for color in self.led_ma:
+                self.led_ma[color] = -1
 
         command = 'LEDS_OFF'
         self.exchange_command(command)
 
     def leds_off_fast(self):
         """Fast write-only version to turn off all LEDs."""
-        for color, mA in self.led_ma.items():
-            self.led_ma[color] = -1
+        with self._state_lock:
+            for color in self.led_ma:
+                self.led_ma[color] = -1
         command = 'LEDS_OFF'
         self._write_command_fast(command)
 

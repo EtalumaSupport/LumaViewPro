@@ -104,6 +104,7 @@ class SequencedCaptureExecutor:
         self._scan_in_progress = threading.Event()
         self._protocol_ended = threading.Event()
         self._cleanup_lock = threading.Lock()
+        self._run_lock = threading.Lock()
         self._cpu_pool = cpu_pool
         self._video_write_finished = threading.Event()
         self._video_write_finished.set()
@@ -332,9 +333,10 @@ class SequencedCaptureExecutor:
         video_as_frames: bool = False,
         initial_autofocus_states: dict | None = None,
     ):
-        if self._run_in_progress:
-            logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
-            return
+        with self._run_lock:
+            if self._run_in_progress:
+                logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
+                return
 
         # Check if file_io_executor still has pending writes
         if self.file_io_executor.is_protocol_queue_active():
@@ -343,7 +345,7 @@ class SequencedCaptureExecutor:
 
         if leds_state_at_end not in ("off", "return_to_original",):
             raise ValueError(f"Unsupported value for leds_state_at_end: {leds_state_at_end}")
-        
+
         if protocol.num_steps() == 0:
             logger.error(f"[PROTOCOL] Protocol has no steps. Cannot start run.")
             return
@@ -410,12 +412,12 @@ class SequencedCaptureExecutor:
         self._cancel_all_scheduled_events()
         result = self._init_for_new_scan(max_scans=max_scans)
         if not result['status']:
-            self._run_in_progress = False
             logger.error(f"[{self.LOGGER_NAME} ] {result['error']}")
-            return 
-        
+            return
+
         self._run_trigger_source = run_trigger_source
-        self._run_in_progress = True
+        with self._run_lock:
+            self._run_in_progress = True
         self.camera_executor.disable()
         self.protocol_executor.protocol_start()
         self._io_executor.protocol_start()
@@ -797,7 +799,8 @@ class SequencedCaptureExecutor:
 
 
     def run_in_progress(self) -> bool:
-        return self._run_in_progress
+        with self._run_lock:
+            return self._run_in_progress
     
 
     def run_trigger_source(self) -> str:
@@ -1046,7 +1049,8 @@ class SequencedCaptureExecutor:
         self._io_executor.clear_protocol_pending()
         self.protocol_executor.clear_protocol_pending()
 
-        self._run_in_progress = False
+        with self._run_lock:
+            self._run_in_progress = False
 
         # Handle file queue completion with deferred callback
         if self.file_io_executor.is_protocol_queue_active():

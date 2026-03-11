@@ -67,6 +67,7 @@ class ImageHandlerBase:
 
 class Camera(ABC):
     def __init__(self):
+        self._state_lock = threading.Lock()
         self.active = False
         self.error_report_count = 0
         self.array = np.array([])
@@ -83,10 +84,16 @@ class Camera(ABC):
 
     def __del__(self):
         try:
-            if self.active:
+            with self._state_lock:
+                is_active = bool(self.active)
+            if is_active:
                 self.disconnect()
         except Exception as e:
             logger.warning(f'[CAM Class ] __del__ disconnect failed: {e}')
+
+    def is_device_removed(self) -> bool:
+        with self._state_lock:
+            return self._device_removed
 
     def _mark_disconnected(self):
         """Atomically mark camera as disconnected.
@@ -94,8 +101,9 @@ class Camera(ABC):
         Sets both flags together to avoid inconsistent state.
         Safe to call from any thread (including SDK callbacks).
         """
-        self._device_removed = True
-        self.active = None
+        with self._state_lock:
+            self._device_removed = True
+            self.active = None
 
     @abstractmethod
     def connect(self) -> bool:
@@ -259,8 +267,9 @@ class Camera(ABC):
         Returns (success: bool, timestamp: datetime | None).
         The image is available in self.array after a successful grab.
         """
-        if self.active is None or self._device_removed:
-            return False, None
+        with self._state_lock:
+            if self.active is None or self._device_removed:
+                return False, None
 
         if not self.cam_image_handler:
             return False, None

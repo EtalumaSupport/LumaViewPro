@@ -116,6 +116,7 @@ class TestLEDBoardLocking:
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board._state_lock = threading.Lock()
         board.firmware_version = None
         board._last_error_log_time = 0.0
         board._error_log_interval = 2.0
@@ -265,6 +266,7 @@ class TestMotorBoardSafety:
         board = MotorBoard.__new__(MotorBoard)
         board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
+        board._state_lock = threading.Lock()
         board.overshoot = False
         board.backlash = 25
         board._has_turret = False
@@ -374,6 +376,7 @@ class TestLEDBoardCommands:
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board._state_lock = threading.Lock()
         return board
 
     def test_led_on_sends_correct_command(self):
@@ -458,6 +461,7 @@ class TestLEDBoardState:
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board._state_lock = threading.Lock()
         return board
 
     def test_led_on_updates_state(self):
@@ -600,6 +604,7 @@ class TestMotorBoardCommands:
         board = MotorBoard.__new__(MotorBoard)
         board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
+        board._state_lock = threading.Lock()
         board.overshoot = False
         board.backlash = 25
         board._has_turret = False
@@ -704,6 +709,7 @@ class TestMotorBoardHoming:
         board = MotorBoard.__new__(MotorBoard)
         board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
+        board._state_lock = threading.Lock()
         board.overshoot = False
         board.backlash = 25
         board._has_turret = False
@@ -785,6 +791,7 @@ class TestMotorBoardFullinfo:
         board = MotorBoard.__new__(MotorBoard)
         board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
+        board._state_lock = threading.Lock()
         board.overshoot = False
         board.backlash = 25
         board._has_turret = False
@@ -914,6 +921,7 @@ class TestMotorBoardMovement:
         board = MotorBoard.__new__(MotorBoard)
         board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
+        board._state_lock = threading.Lock()
         board.overshoot = False
         board.backlash = 25
         board._has_turret = False
@@ -1042,6 +1050,7 @@ class TestLEDFirmwareVersion:
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board._state_lock = threading.Lock()
         board.firmware_version = None
         board._last_error_log_time = 0.0
         board._error_log_interval = 2.0
@@ -1118,6 +1127,7 @@ class TestMotorFirmwareVersion:
         board = MotorBoard.__new__(MotorBoard)
         board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
         board.found = True
+        board._state_lock = threading.Lock()
         board.overshoot = False
         board.backlash = 25
         board._has_turret = False
@@ -1223,6 +1233,7 @@ class TestLEDNoneHandling:
         board.write_timeout = 0.1
         board.driver = _make_mock_serial()
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board._state_lock = threading.Lock()
         board.firmware_version = None
         board._last_error_log_time = 0.0
         board._error_log_interval = 2.0
@@ -1274,3 +1285,415 @@ class TestLEDNoneHandling:
         board.exchange_command = mock_exchange
         board.wait_until_on()
         assert call_count[0] == 2
+
+
+# ==========================================================================
+# Concurrency / State Lock Tests (C-1 through C-4)
+# ==========================================================================
+
+class TestLEDBoardStateLock:
+    """Verify LEDBoard _state_lock protects led_ma from concurrent access."""
+
+    def _make_board(self):
+        board = LEDBoard.__new__(LEDBoard)
+        board.found = False
+        board._lock = threading.RLock()
+        board._label = '[LED Class ]'
+        board.port = '/dev/fake'
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 0.1
+        board.write_timeout = 0.1
+        board.driver = _make_mock_serial()
+        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board._state_lock = threading.Lock()
+        return board
+
+    def test_led_on_uses_state_lock(self):
+        """led_on() should acquire _state_lock when updating led_ma."""
+        board = self._make_board()
+        acquired = []
+        original_lock = board._state_lock
+
+        class TrackingLock:
+            def __enter__(self_lock):
+                acquired.append('enter')
+                return original_lock.__enter__()
+            def __exit__(self_lock, *args):
+                acquired.append('exit')
+                return original_lock.__exit__(*args)
+
+        board._state_lock = TrackingLock()
+        board.led_on(channel=0, mA=100)
+        assert 'enter' in acquired, "_state_lock was not acquired during led_on()"
+        assert board.led_ma['Blue'] == 100
+
+    def test_led_off_uses_state_lock(self):
+        """led_off() should acquire _state_lock when updating led_ma."""
+        board = self._make_board()
+        board.led_ma['Blue'] = 200
+        acquired = []
+        original_lock = board._state_lock
+
+        class TrackingLock:
+            def __enter__(self_lock):
+                acquired.append('enter')
+                return original_lock.__enter__()
+            def __exit__(self_lock, *args):
+                return original_lock.__exit__(*args)
+
+        board._state_lock = TrackingLock()
+        board.led_off(channel=0)
+        assert 'enter' in acquired
+        assert board.led_ma['Blue'] == -1
+
+    def test_get_led_states_returns_consistent_snapshot(self):
+        """get_led_states() should return a consistent snapshot under _state_lock."""
+        board = self._make_board()
+        board.led_ma['Blue'] = 100
+        board.led_ma['Red'] = 200
+        states = board.get_led_states()
+        assert states['Blue'] == {'enabled': True, 'illumination': 100}
+        assert states['Red'] == {'enabled': True, 'illumination': 200}
+        assert states['BF'] == {'enabled': False, 'illumination': -1}
+
+    def test_concurrent_led_on_off(self):
+        """Concurrent led_on and led_off should not corrupt led_ma."""
+        board = self._make_board()
+        errors = []
+
+        def toggle_on():
+            try:
+                for _ in range(50):
+                    board.led_on(channel=0, mA=100)
+            except Exception as e:
+                errors.append(e)
+
+        def toggle_off():
+            try:
+                for _ in range(50):
+                    board.led_off(channel=0)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=toggle_on), threading.Thread(target=toggle_off)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        assert not errors, f"Concurrent access raised errors: {errors}"
+        # Final state should be either 100 or -1, never anything else
+        assert board.led_ma['Blue'] in (100, -1)
+
+    def test_leds_off_clears_all(self):
+        """leds_off() should atomically clear all channels under _state_lock."""
+        board = self._make_board()
+        board.led_ma['Blue'] = 100
+        board.led_ma['Red'] = 200
+        board.led_ma['Green'] = 300
+        board.leds_off()
+        for color, val in board.led_ma.items():
+            assert val == -1, f"{color} was not cleared by leds_off()"
+
+    def test_leds_off_fast_clears_all(self):
+        """leds_off_fast() should atomically clear all channels."""
+        board = self._make_board()
+        board.led_ma['Blue'] = 100
+        board.led_ma['Red'] = 200
+        # Mock _write_command_fast
+        board._write_command_fast = MagicMock()
+        board.leds_off_fast()
+        for color, val in board.led_ma.items():
+            assert val == -1
+
+    def test_led_on_fast_uses_state_lock(self):
+        """led_on_fast() should protect led_ma with _state_lock."""
+        board = self._make_board()
+        board._write_command_fast = MagicMock()
+        board.led_on_fast(channel=2, mA=500)
+        assert board.led_ma['Red'] == 500
+
+    def test_led_off_fast_uses_state_lock(self):
+        """led_off_fast() should protect led_ma with _state_lock."""
+        board = self._make_board()
+        board.led_ma['Red'] = 500
+        board._write_command_fast = MagicMock()
+        board.led_off_fast(channel=2)
+        assert board.led_ma['Red'] == -1
+
+    def test_get_led_ma_thread_safe(self):
+        """get_led_ma() should read under _state_lock."""
+        board = self._make_board()
+        board.led_ma['Green'] = 150
+        assert board.get_led_ma('Green') == 150
+        assert board.get_led_ma('BF') == -1
+        assert board.get_led_ma('nonexistent') == -1
+
+    def test_is_led_on_thread_safe(self):
+        """is_led_on() should read under _state_lock."""
+        board = self._make_board()
+        board.led_ma['Green'] = 150
+        assert board.is_led_on('Green') is True
+        assert board.is_led_on('BF') is False
+
+
+class TestMotorBoardStateLock:
+    """Verify MotorBoard _state_lock protects state flags from concurrent access."""
+
+    def _make_board(self):
+        board = MotorBoard.__new__(MotorBoard)
+        board.motorconfig = MotorConfig(defaults_file=_MOTORCONFIG_DEFAULTS)
+        board.found = True
+        board._state_lock = threading.Lock()
+        board.overshoot = False
+        board.backlash = 25
+        board._has_turret = False
+        board.initial_homing_complete = False
+        board.initial_t_homing_complete = False
+        board._fullinfo = {"model": "LS720", "serial_number": "12345"}
+        board.port = '/dev/fake'
+        board._lock = threading.RLock()
+        board._label = '[XYZ Class ]'
+        board.thread_lock = board._lock
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 30
+        board.write_timeout = 5
+        board.driver = _make_mock_serial()
+        board.axes_config = {
+            'Z': {'limits': {'min': 0., 'max': 20000.}, 'move_func': board.z_um2ustep},
+            'X': {'limits': {'min': 0., 'max': 100000.}, 'move_func': board.xy_um2ustep},
+            'Y': {'limits': {'min': 0., 'max': 100000.}, 'move_func': board.xy_um2ustep},
+            'T': {'move_func': board.t_pos2ustep},
+        }
+        return board
+
+    def test_xyhome_sets_homing_complete_under_lock(self):
+        """xyhome() should set initial_homing_complete under _state_lock."""
+        board = self._make_board()
+        board.exchange_command = MagicMock(return_value="XYZ home complete")
+        board.xyhome()
+        assert board.has_xyhomed() is True
+
+    def test_thome_sets_t_homing_complete_under_lock(self):
+        """thome() should set initial_t_homing_complete under _state_lock."""
+        board = self._make_board()
+        board.exchange_command = MagicMock(return_value="T home successful")
+        board.thome()
+        assert board.has_thomed() is True
+
+    def test_has_turret_reads_under_lock(self):
+        """has_turret() should read _has_turret under _state_lock."""
+        board = self._make_board()
+        assert board.has_turret() is False
+        with board._state_lock:
+            board._has_turret = True
+        assert board.has_turret() is True
+
+    def test_has_thomed_combines_both_flags(self):
+        """has_thomed() returns True if either homing flag is set."""
+        board = self._make_board()
+        assert board.has_thomed() is False
+        with board._state_lock:
+            board.initial_t_homing_complete = True
+        assert board.has_thomed() is True
+
+    def test_get_microscope_model_reads_under_lock(self):
+        """get_microscope_model() should read _fullinfo under _state_lock."""
+        board = self._make_board()
+        assert board.get_microscope_model() == "LS720"
+
+    def test_fullinfo_sets_has_turret_for_T_model(self):
+        """fullinfo() should set _has_turret when model ends in T."""
+        board = self._make_board()
+        board.exchange_command = MagicMock(
+            return_value="Etaluma Motor Controller Board Model: LS720T Serial: 99999"
+        )
+        info = board.fullinfo()
+        assert info['model'] == 'LS720T'
+        assert board.has_turret() is True
+
+    def test_concurrent_homing_flag_access(self):
+        """Concurrent reads/writes of homing flags should not raise."""
+        board = self._make_board()
+        board.exchange_command = MagicMock(return_value="XYZ home complete")
+        errors = []
+
+        def do_home():
+            try:
+                for _ in range(20):
+                    board.xyhome()
+            except Exception as e:
+                errors.append(e)
+
+        def check_homed():
+            try:
+                for _ in range(20):
+                    board.has_xyhomed()
+                    board.has_thomed()
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=do_home), threading.Thread(target=check_homed)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        assert not errors, f"Concurrent homing access raised: {errors}"
+
+
+class TestCameraStateLock:
+    """Verify Camera _state_lock protects active/device_removed flags."""
+
+    def test_mark_disconnected_sets_both_flags_atomically(self):
+        """_mark_disconnected should set both flags under _state_lock."""
+        from drivers.camera import Camera
+
+        # Create a minimal concrete Camera subclass
+        class StubCamera(Camera):
+            def connect(self): self.active = True; return True
+            def disconnect(self): self.active = None; return True
+            def is_connected(self): return self.active is not None and self.active is not False
+            def init_camera_config(self): pass
+            def start_grabbing(self): pass
+            def stop_grabbing(self): pass
+            def is_grabbing(self): return False
+            def set_frame_size(self, w, h): pass
+            def get_min_frame_size(self): return {'w': 1, 'h': 1}
+            def get_max_frame_size(self): return {'w': 4096, 'h': 4096}
+            def get_frame_size(self): return {'w': 1024, 'h': 1024}
+            def set_pixel_format(self, f): return True
+            def get_pixel_format(self): return 'Mono8'
+            def get_supported_pixel_formats(self): return ('Mono8',)
+            def exposure_t(self, t): pass
+            def get_exposure_t(self): return 10.0
+            def auto_exposure_t(self, state=True): pass
+            def find_model_name(self): self.model_name = 'TestCam'
+            def get_all_temperatures(self): return {}
+            def set_max_acquisition_frame_rate(self, enabled, fps=1.0): pass
+            def set_binning_size(self, size): return True
+            def get_binning_size(self): return 1
+            def grab_new_capture(self, timeout): return True, None
+            def update_auto_gain_target_brightness(self, v): pass
+            def update_auto_gain_min_max(self, min_g, max_g): pass
+            def get_gain(self): return 1.0
+            def gain(self, g): pass
+            def auto_gain(self, state=True, **kw): pass
+            def auto_gain_once(self, state=True, **kw): pass
+            def set_test_pattern(self, enabled=False, pattern='Black'): pass
+
+        cam = StubCamera()
+        assert cam.active is True
+        assert cam._device_removed is False
+
+        cam._mark_disconnected()
+        assert cam.active is None
+        assert cam._device_removed is True
+        assert cam.is_device_removed() is True
+
+    def test_grab_returns_false_after_disconnect(self):
+        """grab() should check flags under _state_lock and return False."""
+        from drivers.camera import Camera, ImageHandlerBase
+
+        class StubCamera(Camera):
+            def connect(self): self.active = True; return True
+            def disconnect(self): self.active = None; return True
+            def is_connected(self): return self.active is not None
+            def init_camera_config(self): pass
+            def start_grabbing(self): pass
+            def stop_grabbing(self): pass
+            def is_grabbing(self): return False
+            def set_frame_size(self, w, h): pass
+            def get_min_frame_size(self): return {'w': 1, 'h': 1}
+            def get_max_frame_size(self): return {'w': 4096, 'h': 4096}
+            def get_frame_size(self): return {'w': 1024, 'h': 1024}
+            def set_pixel_format(self, f): return True
+            def get_pixel_format(self): return 'Mono8'
+            def get_supported_pixel_formats(self): return ('Mono8',)
+            def exposure_t(self, t): pass
+            def get_exposure_t(self): return 10.0
+            def auto_exposure_t(self, state=True): pass
+            def find_model_name(self): self.model_name = 'TestCam'
+            def get_all_temperatures(self): return {}
+            def set_max_acquisition_frame_rate(self, enabled, fps=1.0): pass
+            def set_binning_size(self, size): return True
+            def get_binning_size(self): return 1
+            def grab_new_capture(self, timeout): return True, None
+            def update_auto_gain_target_brightness(self, v): pass
+            def update_auto_gain_min_max(self, min_g, max_g): pass
+            def get_gain(self): return 1.0
+            def gain(self, g): pass
+            def auto_gain(self, state=True, **kw): pass
+            def auto_gain_once(self, state=True, **kw): pass
+            def set_test_pattern(self, enabled=False, pattern='Black'): pass
+
+        cam = StubCamera()
+        assert cam.active is True
+
+        # Normal grab without image handler should return False (no handler)
+        result, ts = cam.grab()
+        assert result is False
+
+        # After disconnect, grab should return False immediately
+        cam._mark_disconnected()
+        result, ts = cam.grab()
+        assert result is False
+
+    def test_concurrent_mark_disconnected(self):
+        """Multiple threads calling _mark_disconnected should not raise."""
+        from drivers.camera import Camera
+
+        class StubCamera(Camera):
+            def connect(self): self.active = True; return True
+            def disconnect(self): return True
+            def is_connected(self): return self.active is not None
+            def init_camera_config(self): pass
+            def start_grabbing(self): pass
+            def stop_grabbing(self): pass
+            def is_grabbing(self): return False
+            def set_frame_size(self, w, h): pass
+            def get_min_frame_size(self): return {'w': 1, 'h': 1}
+            def get_max_frame_size(self): return {'w': 4096, 'h': 4096}
+            def get_frame_size(self): return {'w': 1024, 'h': 1024}
+            def set_pixel_format(self, f): return True
+            def get_pixel_format(self): return 'Mono8'
+            def get_supported_pixel_formats(self): return ('Mono8',)
+            def exposure_t(self, t): pass
+            def get_exposure_t(self): return 10.0
+            def auto_exposure_t(self, state=True): pass
+            def find_model_name(self): self.model_name = 'TestCam'
+            def get_all_temperatures(self): return {}
+            def set_max_acquisition_frame_rate(self, enabled, fps=1.0): pass
+            def set_binning_size(self, size): return True
+            def get_binning_size(self): return 1
+            def grab_new_capture(self, timeout): return True, None
+            def update_auto_gain_target_brightness(self, v): pass
+            def update_auto_gain_min_max(self, min_g, max_g): pass
+            def get_gain(self): return 1.0
+            def gain(self, g): pass
+            def auto_gain(self, state=True, **kw): pass
+            def auto_gain_once(self, state=True, **kw): pass
+            def set_test_pattern(self, enabled=False, pattern='Black'): pass
+
+        cam = StubCamera()
+        errors = []
+
+        def disconnect_loop():
+            try:
+                for _ in range(50):
+                    cam._mark_disconnected()
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=disconnect_loop) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        assert not errors
+        assert cam._device_removed is True
+        assert cam.active is None

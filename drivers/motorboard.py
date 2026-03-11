@@ -2,6 +2,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import pathlib
+import threading
 import time
 import lvp_logger
 from lvp_logger import logger
@@ -16,6 +17,7 @@ class MotorBoard(SerialBoard):
     # Initialize connection through microcontroller
     #----------------------------------------------------------
     def __init__(self, motorconfig_defaults_file: pathlib.Path | None = None, **kwargs):
+        self._state_lock = threading.Lock()
         self.overshoot = False
         self._has_turret = False
         self.initial_homing_complete = False
@@ -83,7 +85,9 @@ class MotorBoard(SerialBoard):
                     lvp_logger.unpause_thread()
 
                 self._reset_firmware()
-                self._fullinfo = self.fullinfo()
+                info = self.fullinfo()
+                with self._state_lock:
+                    self._fullinfo = info
                 logger.info('[XYZ Class ] Connected to motor controller')
             except Exception as e:
                 self._close_driver()
@@ -120,7 +124,8 @@ class MotorBoard(SerialBoard):
             parts = info.split()
             model = parts[parts.index("Model:") + 1]
             if model[-1] == "T":
-                self._has_turret = True
+                with self._state_lock:
+                    self._has_turret = True
             serial_number = parts[parts.index("Serial:") + 1]
         except (ValueError, IndexError) as e:
             logger.error(f'[XYZ Class ] Failed to parse FULLINFO response: {info!r} ({e})')
@@ -132,7 +137,8 @@ class MotorBoard(SerialBoard):
 
 
     def get_microscope_model(self):
-        info = self._fullinfo
+        with self._state_lock:
+            info = self._fullinfo
         return info['model']
 
     #----------------------------------------------------------
@@ -300,10 +306,12 @@ class MotorBoard(SerialBoard):
         resp = self.exchange_command('HOME')
         logger.info(f'[XYZ Class ] MotorBoard.xyhome() -> {resp}', extra={'force_error': True})
         if (resp is not None) and ('XYZ home complete' in resp):
-            self.initial_homing_complete = True
+            with self._state_lock:
+                self.initial_homing_complete = True
 
     def has_xyhomed(self):
-        return self.initial_homing_complete
+        with self._state_lock:
+            return self.initial_homing_complete
 
     def xycenter(self):
         """ Home the stage which also homes the objective first """
@@ -341,15 +349,18 @@ class MotorBoard(SerialBoard):
         resp = self.exchange_command('THOME')
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}', extra={'force_error': True})
         if (resp is not None) and ('T home successful' in resp):
-            self.initial_t_homing_complete = True
+            with self._state_lock:
+                self.initial_t_homing_complete = True
 
     def has_turret(self) -> bool:
-        return self._has_turret
+        with self._state_lock:
+            return self._has_turret
 
     def has_thomed(self):
         # Note: When the motorboard firmware performs an XYZ homing, it also
         # does a T homing if a turret is present
-        return self.initial_homing_complete or self.initial_t_homing_complete
+        with self._state_lock:
+            return self.initial_homing_complete or self.initial_t_homing_complete
 
     #----------------------------------------------------------
     # Motion Functions
@@ -444,7 +455,8 @@ class MotorBoard(SerialBoard):
             # and 50um above the height of the backlash
             if (current > pos) and (pos > (self.backlash+50)):
                 # In process of overshoot
-                self.overshoot = True
+                with self._state_lock:
+                    self.overshoot = True
                 # First overshoot downwards
                 overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
                 overshoot = max(1, overshoot)
@@ -453,7 +465,8 @@ class MotorBoard(SerialBoard):
                 while not self.target_status('Z'):
                     time.sleep(0.001)
                 # complete overshoot
-                self.overshoot = False
+                with self._state_lock:
+                    self.overshoot = False
 
         self.move(axis, steps)
 
