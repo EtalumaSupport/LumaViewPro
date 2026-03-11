@@ -14,15 +14,21 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 ```
 ┌──────────────────────────────────────────────────┐
 │  GUI (lumaviewpro.py + Kivy)                     │
+│  or REST API Server                              │
 │  or External Script                              │
 └──────────────┬───────────────────────────────────┘
-               │  Python API
+               │
+┌──────────────▼───────────────────────────────────┐
+│  ScopeSession + ProtocolRunner  (GUI-free)       │
+│  ├─ scope_commands (executor-routed wrappers)    │
+│  ├─ config_helpers (configuration queries)       │
+│  └─ SequencedCaptureExecutor (protocol engine)   │
+└──────────────┬───────────────────────────────────┘
+               │
 ┌──────────────▼───────────────────────────────────┐
 │  lumascope_api.py  (Lumascope class)             │
-│  ├─ LED control                                  │
-│  ├─ Motion control                               │
-│  ├─ Camera control                               │
-│  ├─ Image I/O                                    │
+│  ├─ LED control    ├─ Camera control             │
+│  ├─ Motion control ├─ Image I/O                  │
 │  └─ Coordinate transforms                       │
 └──┬────────────┬─────────────┬────────────────────┘
    │            │             │
@@ -37,23 +43,33 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 
 | File | Purpose |
 |------|---------|
-| `lumascope_api.py` | Main Python API — `Lumascope` class |
-| `drivers/serialboard.py` | Serial base class (connect, exchange, reconnect) |
-| `drivers/ledboard.py` | LED control driver (up to 6 channels, 0–1000 mA) |
-| `drivers/motorboard.py` | Motion control driver (X, Y, Z, Turret) |
-| `drivers/camera.py` | Camera base class (abstract) |
-| `drivers/pyloncamera.py` | Basler Pylon camera driver |
-| `drivers/idscamera.py` | IDS camera driver |
-| `drivers/simulated_camera.py` | Simulated camera for testing |
-| `drivers/simulated_ledboard.py` | Simulated LED board for testing |
-| `drivers/simulated_motorboard.py` | Simulated motor board for testing |
+| `lumascope_api.py` | Hardware abstraction — `Lumascope` class |
+| `modules/scope_session.py` | GUI-independent session container (headless + REST API) |
+| `modules/scope_commands.py` | Executor-routed hardware command wrappers |
+| `modules/protocol_runner.py` | Protocol execution orchestration |
+| `modules/sequenced_capture_executor.py` | Protocol execution engine |
+| `modules/protocol.py` | Protocol file format (load/save/validate) |
+| `modules/config_helpers.py` | Configuration query helpers |
+| `modules/composite_builder.py` | Composite image generation |
 | `modules/motorconfig.py` | Per-unit hardware config (axis limits, conversion factors) |
 | `modules/common_utils.py` | Optical calculations, naming, utilities |
 | `modules/coord_transformations.py` | Stage ↔ plate ↔ pixel coordinate conversion |
 | `modules/objectives_loader.py` | Objective lens database (`data/objectives.json`) |
-| `modules/protocol.py` | Protocol file format (load/save/validate) |
-| `modules/sequenced_capture_executor.py` | Protocol execution engine |
 | `modules/image_utils.py` | Image conversion, timestamps, colormaps |
+| `modules/stitcher.py` | Position-based image stitching |
+| `modules/stack_builder.py` | Hyperstack / Z-stack builder |
+| `drivers/serialboard.py` | Serial base class (connect, exchange, reconnect) |
+| `drivers/ledboard.py` | LED control driver (up to 8 channels, 0–1000 mA) |
+| `drivers/motorboard.py` | Motion control driver (X, Y, Z, Turret) |
+| `drivers/camera.py` | Camera base class + ImageHandlerBase |
+| `drivers/pyloncamera.py` | Basler Pylon camera driver |
+| `drivers/idscamera.py` | IDS camera driver |
+| `drivers/camera_profiles.py` | Per-model hardware specs (gain/exposure ranges, binning) |
+| `drivers/firmware_updater.py` | UF2 firmware flash orchestration |
+| `drivers/raw_repl.py` | MicroPython raw REPL for config backup/restore |
+| `drivers/simulated_camera.py` | Simulated camera for testing |
+| `drivers/simulated_ledboard.py` | Simulated LED board for testing |
+| `drivers/simulated_motorboard.py` | Simulated motor board for testing |
 
 ---
 
@@ -236,6 +252,83 @@ scope.get_turret_position_for_objective_id('10x Oly')  # Returns 2
 **Available objectives** (from `data/objectives.json`):
 `1.25x Oly`, `2x Oly`, `2.5x Meiji`, `4x Oly`, `10x Oly`, `10x Phase`, `20x Oly`, `20x w/collar`, `20x Phase`, `40x w/collar`, `40x Phase`, `60x w/collar`, `60x Meiji`, `100x U Plan Oly`, `100x M Plan Oly`
 
+---
+
+## Headless API — ScopeSession + ProtocolRunner
+
+For scripting, REST API, and headless operation, use `ScopeSession` instead of accessing `Lumascope` directly. ScopeSession is GUI-free and provides executor-routed command wrappers.
+
+### Creating a Headless Session
+
+```python
+from modules.settings_init import load_lvp_settings
+from modules.scope_session import ScopeSession
+
+# Load settings
+settings = load_lvp_settings('./data/current.json')
+
+# Create session with real hardware
+session = ScopeSession.create(settings=settings, source_path='./output')
+session.start_executors()
+
+# Or with simulated hardware
+from lumascope_api import Lumascope
+scope = Lumascope(simulate=True)
+session = ScopeSession.create(settings=settings, scope=scope)
+session.start_executors()
+```
+
+### Session Commands
+
+```python
+# LED control (routed through io_executor)
+session.led_on('Blue', 200)
+session.led_on_sync('Blue', 200, timeout=5)  # Blocking
+session.led_off('Blue')
+session.leds_off()
+
+# Motion control (routed through io_executor)
+session.move_absolute('Z', 5000, wait_until_complete=True)
+session.move_relative('X', 500)
+session.move_home('XY')
+
+# Configuration queries
+session.get_layer_configs()
+session.get_current_objective_info()
+session.get_current_plate_position()
+```
+
+### Running Protocols
+
+```python
+from modules.protocol import Protocol
+
+# Create protocol runner from session
+runner = session.create_protocol_runner()
+
+# Load and run a protocol
+protocol = Protocol.from_file('my_protocol.csv')
+
+# Single scan (one pass through all steps)
+runner.run_single_scan(protocol)
+runner.wait_for_completion()
+
+# Timed protocol (repeating scans over duration)
+runner.run_protocol(protocol)
+runner.wait_for_completion()
+
+# Abort a running protocol
+runner.abort()
+```
+
+### Session Lifecycle
+
+```python
+# When done
+session.shutdown_executors()
+session.scope.disconnect()
+```
+
 ### Coordinate Transformations
 
 ```python
@@ -322,20 +415,30 @@ Communication with the RP2040 controllers is over USB CDC serial. Each board has
 | Command | Response | Description |
 |---------|----------|-------------|
 | `INFO` | Info string | Firmware version |
-| `FULLINFO` | Model + serial | Extended info |
+| `FULLINFO` | Model + serial + axis info | Extended info (v2.0+) |
+| `CONFIG` | Motor configuration | Current config display (v2.0+) |
 | `HOME` | Completion msg | Home all axes (XY, Z, T) |
 | `ZHOME` | Completion msg | Home Z only |
 | `THOME` | Completion msg | Home turret only |
 | `CENTER` | Completion msg | Move stage to center |
+| `STOP` | Confirmation | Stop all motors immediately (v2.0.4+) |
 | `TARGET_W{axis}{steps}` | Confirmation | Set target position (µsteps) |
 | `TARGET_R{axis}` | Integer (µsteps) | Read target position |
 | `ACTUAL_R{axis}` | Integer (µsteps) | Read current position |
 | `STATUS_R{axis}` | Integer (32-bit) | Read status register |
+| `DRVSTAT` | All axes | TMC5072 driver status (v2.0+) |
+| `DRVSTAT_{axis}` | Single axis | Per-axis driver status (v2.0+) |
+| `MOTORDETECT` | Open load flags | Motor presence detection (v2.0+) |
+| `VOLTAGE` | Rail status | 24V presence + voltage rail status (v2.0+) |
+| `CURRENT` | All axes | CS_ACTUAL, IRUN, IHOLD, SG_RESULT (v2.0+) |
 | `AMAX{axis}` | Integer | Read acceleration limit |
 | `DMAX{axis}` | Integer | Read deceleration limit |
+| `FAN:{duty}` | Confirmation | Set fan PWM duty cycle |
 | `SPI{axis}0x{addr}{payload}` | Response | Direct SPI read/write to TMC5072 |
 
 **Axes**: `X`, `Y`, `Z`, `T`
+
+**Responsive homing** (v2.0.4+): During homing, the firmware checks for serial input. `STOP` aborts homing mid-sequence. `INFO`, `ACTUAL_R`, `STATUS_R`, and `VOLTAGE` respond normally. Other commands return `BUSY`.
 
 **Position conversion** (µsteps ↔ µm): Conversion factors are defined in `motorconfig.json` and vary by hardware configuration. Use `scope.get_axes_config()` to retrieve the current axis scaling and limits at runtime rather than relying on hardcoded values.
 
@@ -418,20 +521,26 @@ A1_BF	60000	40000	5000	False	BF	False	100	10	False	50	1	10x Oly	A1		-1	False	-1	
 
 ## Testing
 
+**655 tests total** (635 passed, 20 skipped) across 14 test files.
+
 ```bash
 # Run all tests (no hardware needed)
 python -m pytest tests/ --ignore=tests/test_hardware_serial.py -v
 
 # Individual test suites
 python -m pytest tests/test_serial_safety.py -v       # Serial driver (96 tests)
-python -m pytest tests/test_protocol_execution.py -v  # Protocol execution (83 tests)
 python -m pytest tests/test_simulators.py -v          # Simulator fidelity (86 tests)
+python -m pytest tests/test_protocol_execution.py -v  # Protocol execution (83 tests)
 python -m pytest tests/test_scope_api.py -v           # Scope API (60 tests)
-python -m pytest tests/test_integration.py -v         # Integration (22 tests)
+python -m pytest tests/test_firmware_updater.py -v    # Firmware updater (45 tests)
+python -m pytest tests/test_validate_steps.py -v      # Protocol validation (43 tests)
 python -m pytest tests/test_frame_validity.py -v      # Frame validity (29 tests)
-python -m pytest tests/test_validate_steps.py -v      # Protocol validation (27 tests)
 python -m pytest tests/test_time_estimator.py -v      # Time estimation (23 tests)
+python -m pytest tests/test_integration.py -v         # Integration (22 tests)
+python -m pytest tests/test_stitcher.py -v            # Image stitcher (19 tests)
+python -m pytest tests/test_composite_builder.py -v   # Composite builder (18 tests)
 python -m pytest tests/test_regression_p2.py -v       # P2 bug regressions (16 tests)
+python -m pytest tests/test_motorconfig.py -v         # Motorconfig integration (15 tests)
 
 # Hardware-only tests (requires microscope connected)
 python -m pytest tests/test_hardware_serial.py --run-hardware -v
