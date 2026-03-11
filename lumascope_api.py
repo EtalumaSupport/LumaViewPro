@@ -242,15 +242,28 @@ class Lumascope():
         """
         return self._turret_config
 
-    def get_turret_position_for_objective_id(self, objective_id: str) -> int | None:
+    def get_turret_position_for_objective_id(self, objective_id: str, prefer_current: bool = True) -> int | None:
         """Find the turret position holding a given objective.
+
+        When multiple positions hold the same objective, prefers the current
+        turret position to avoid unnecessary moves (#488).
 
         Args:
             objective_id: Objective identifier to search for.
+            prefer_current: If True (default), return the current turret
+                position when it already holds the requested objective.
 
         Returns:
             int | None: Turret position (1-4), or None if not found.
         """
+        if prefer_current:
+            try:
+                current_pos = self.get_current_position(axis='T')
+                if self._turret_config.get(current_pos) == objective_id:
+                    return current_pos
+            except Exception:
+                pass
+
         for turret_position, turret_objective_id in self._turret_config.items():
             if objective_id == turret_objective_id:
                 return turret_position

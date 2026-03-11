@@ -125,6 +125,7 @@ def go_to_step(
                 'exp': step["Exposure"],
                 'sum': step["Sum"],
                 'acquire': step['Acquire'],
+                'focus': step['Z'],  # Keep per-layer focus in sync with step (#535)
             })
 
         layer_obj = ctx.image_settings.layer_lookup(layer=color)
