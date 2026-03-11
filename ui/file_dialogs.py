@@ -8,8 +8,6 @@ from kivy.properties import ListProperty, StringProperty
 from kivy.uix.button import Button
 
 from plyer import filechooser
-import tkinter
-from tkinter import filedialog, Tk
 
 from ui.hover_behavior import HoverBehavior
 import modules.app_context as _app_ctx
@@ -52,6 +50,7 @@ class FileChooseBTN(HoverBehavior, Button):
 
         if sys.platform in ('win32', 'darwin'):
             # Tested for Windows/Mac platforms
+            from tkinter import Tk, filedialog
 
             # Use root with attributes to keep filedialog on top
             # Ref: https://stackoverflow.com/questions/3375227/how-to-give-tkinter-file-dialog-focus
@@ -159,6 +158,7 @@ class FolderChooseBTN(HoverBehavior, Button):
         # but needs testing on Linux
         if sys.platform in ('win32','darwin'):
             # Tested for Windows/Mac platforms
+            from tkinter import Tk, filedialog
 
             # Use root with attributes to keep filedialog on top
             # Ref: https://stackoverflow.com/questions/3375227/how-to-give-tkinter-file-dialog-focus
@@ -242,6 +242,7 @@ class FileSaveBTN(HoverBehavior, Button):
 
         # Use root with attributes to keep filedialog on top
         # Ref: https://stackoverflow.com/questions/3375227/how-to-give-tkinter-file-dialog-focus
+        from tkinter import Tk, filedialog
         root = Tk()
         root.attributes('-alpha', 0.0)
         root.attributes('-topmost', True)

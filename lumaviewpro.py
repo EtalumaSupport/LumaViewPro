@@ -44,8 +44,6 @@ import typing
 import threading
 # import faulthandler
 
-import tkinter
-from tkinter import filedialog, Tk
 from plyer import filechooser
 
 
@@ -634,10 +632,7 @@ class LumaViewProApp(TooltipMixin, App):
         if not self._lvp_lock.lock():
             error_msg = "Another instance of LVP may already be running. Exiting."
             logger.error(f'[LVP Lock ] {error_msg}')
-            tkinter.messagebox.showerror(
-                "LumaViewPro Error",
-                error_msg
-            )
+            print(f"ERROR: {error_msg}", file=sys.stderr)
             sys.exit(1)
         
         global Window

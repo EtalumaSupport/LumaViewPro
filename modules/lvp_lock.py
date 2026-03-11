@@ -7,6 +7,7 @@ class LvpLock:
     def __init__(self, lock_port: int):
         self._lock_port = lock_port
         self._lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     
 
     def lock(self) -> bool:
