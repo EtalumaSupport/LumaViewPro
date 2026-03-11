@@ -76,6 +76,8 @@ LOG_FILE = os.path.join(log_dir, 'lumaviewpro.log')
 
 ERRORS_LOG_FILE = os.path.join(log_dir, 'lumaviewpro_errors.log')
 
+REST_API_LOG_FILE = os.path.join(log_dir, 'lumaviewpro_rest_api.log')
+
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
     # if level is DEBUG/WARNING/ERROR/CRITICAL, log the level, message, time, and filename
@@ -189,8 +191,29 @@ class ErrorOrForcedFilter(logging.Filter):
 
 error_file_handler.addFilter(ErrorOrForcedFilter())
 
+# REST API log handler — captures records marked with extra={'api_request': True}
+rest_api_handler = RotatingFileHandler(
+    REST_API_LOG_FILE,
+    mode='a',
+    maxBytes=5*1024*1024,
+    backupCount=2,
+    encoding=None,
+    delay=True,  # Don't create file until first REST API log message
+)
+rest_api_handler.namer = lambda name: name.replace('.log', '') + '.log'
+rest_api_handler.setFormatter(CustomFormatter())
+rest_api_handler.addFilter(ThreadPauseFilter())
+
+class RestAPIFilter(logging.Filter):
+    """Only allows records explicitly marked as REST API traffic."""
+    def filter(self, record):
+        return bool(getattr(record, 'api_request', False))
+
+rest_api_handler.addFilter(RestAPIFilter())
+
 logger.addHandler(file_handler)
 logger.addHandler(error_file_handler)
+logger.addHandler(rest_api_handler)
 
 # Best-effort: remove any existing console/stream handlers from root to reduce terminal noise
 if not debug:

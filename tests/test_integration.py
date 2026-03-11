@@ -13,6 +13,10 @@ Test tiers:
 """
 
 import datetime
+import json
+import logging
+import logging.handlers
+import os
 import pathlib
 import sys
 import threading
@@ -692,3 +696,246 @@ class TestHeadlessSession:
         runner = session.create_protocol_runner()
         af = runner.sequenced_capture_executor._autofocus_executor
         assert af._use_kivy_clock is False
+
+
+class TestRestAPIPrep:
+    """Verify REST API prep methods (P-1 through P-8)."""
+
+    def test_get_pixel_format(self):
+        """get_pixel_format() should return format string from simulated camera."""
+        session = ScopeSession.create_headless()
+        fmt = session.scope.get_pixel_format()
+        assert isinstance(fmt, str)
+        assert fmt in ('Mono8', 'Mono10', 'Mono12')
+
+    def test_set_pixel_format(self):
+        """set_pixel_format() should change the camera format."""
+        session = ScopeSession.create_headless()
+        result = session.scope.set_pixel_format('Mono12')
+        assert result is True
+        assert session.scope.get_pixel_format() == 'Mono12'
+
+    def test_set_pixel_format_invalid(self):
+        """set_pixel_format() with invalid format should return False."""
+        session = ScopeSession.create_headless()
+        result = session.scope.set_pixel_format('InvalidFormat')
+        assert result is False
+
+    def test_get_supported_pixel_formats(self):
+        """get_supported_pixel_formats() should return tuple of format strings."""
+        session = ScopeSession.create_headless()
+        formats = session.scope.get_supported_pixel_formats()
+        assert isinstance(formats, tuple)
+        assert len(formats) > 0
+        assert 'Mono8' in formats
+
+    def test_pixel_format_inactive_camera(self):
+        """Pixel format methods should handle inactive camera gracefully."""
+        session = ScopeSession.create_headless()
+        session.scope.camera = None
+        assert session.scope.get_pixel_format() is None
+        assert session.scope.set_pixel_format('Mono8') is False
+        assert session.scope.get_supported_pixel_formats() == ()
+
+    def test_get_motor_info(self):
+        """get_motor_info() should return model, serial, firmware."""
+        session = ScopeSession.create_headless()
+        info = session.scope.get_motor_info()
+        assert 'model' in info
+        assert 'serial_number' in info
+        assert 'firmware_version' in info
+        assert info['model'] is not None
+
+    def test_get_led_info(self):
+        """get_led_info() should return firmware and connection status."""
+        session = ScopeSession.create_headless()
+        info = session.scope.get_led_info()
+        assert info['connected'] is True
+        assert info['firmware_version'] is not None
+
+    def test_get_camera_info(self):
+        """get_camera_info() should return model and connection status."""
+        session = ScopeSession.create_headless()
+        info = session.scope.get_camera_info()
+        assert info['connected'] is True
+        assert info['model'] is not None
+
+    def test_get_system_info(self):
+        """get_system_info() should return consolidated info for all hardware."""
+        session = ScopeSession.create_headless()
+        info = session.scope.get_system_info()
+        assert 'motor' in info
+        assert 'led' in info
+        assert 'camera' in info
+        assert info['simulated'] is True
+        assert 'lvp_version' in info
+
+    def test_system_info_no_hardware(self):
+        """get_system_info() should handle missing hardware gracefully."""
+        session = ScopeSession.create_headless()
+        session.scope.motion = None
+        session.scope.led = None
+        session.scope.camera = None
+        info = session.scope.get_system_info()
+        assert info['motor']['model'] is None
+        assert info['led']['connected'] is False
+        assert info['camera']['connected'] is False
+
+    def test_encode_image_png(self):
+        """encode_image() should encode numpy array to PNG bytes."""
+        from modules.image_utils import encode_image
+        img = np.zeros((100, 100), dtype=np.uint8)
+        data = encode_image(img, 'png')
+        assert isinstance(data, bytes)
+        assert len(data) > 0
+        # PNG magic bytes
+        assert data[:4] == b'\x89PNG'
+
+    def test_encode_image_jpeg(self):
+        """encode_image() should encode numpy array to JPEG bytes."""
+        from modules.image_utils import encode_image
+        img = np.zeros((100, 100), dtype=np.uint8)
+        data = encode_image(img, 'jpeg')
+        assert isinstance(data, bytes)
+        # JPEG magic bytes
+        assert data[:2] == b'\xff\xd8'
+
+    def test_encode_image_invalid_format(self):
+        """encode_image() should raise ValueError for unsupported format."""
+        from modules.image_utils import encode_image
+        img = np.zeros((100, 100), dtype=np.uint8)
+        with pytest.raises(ValueError, match="Unsupported"):
+            encode_image(img, 'bmp')
+
+    def test_rest_api_log_filter_logic(self):
+        """RestAPIFilter logic: only pass records with api_request=True."""
+        # Replicate the filter logic here since lvp_logger is mocked in this test file
+        class RestAPIFilter(logging.Filter):
+            def filter(self, record):
+                return bool(getattr(record, 'api_request', False))
+
+        filt = RestAPIFilter()
+
+        # Normal records should be filtered out
+        record = logging.LogRecord('test', logging.INFO, '', 0, 'test', (), None)
+        assert filt.filter(record) is False
+
+        # Records with api_request=True should pass
+        record.api_request = True
+        assert filt.filter(record) is True
+
+    def test_get_available_objectives(self):
+        """get_available_objectives() should return list of objective IDs."""
+        session = ScopeSession.create_headless()
+        objectives = session.scope.get_available_objectives()
+        assert isinstance(objectives, list)
+        assert len(objectives) > 0
+        # Should contain known objectives from objectives.json
+        assert any('20x' in obj for obj in objectives)
+
+    def test_get_current_objective_none_by_default(self):
+        """get_current_objective() should return None before setting one."""
+        session = ScopeSession.create_headless()
+        assert session.scope.get_current_objective() is None
+
+    def test_get_current_objective_after_set(self):
+        """get_current_objective() should return info after set_objective()."""
+        session = ScopeSession.create_headless()
+        objectives = session.scope.get_available_objectives()
+        session.scope.set_objective(objectives[0])
+        current = session.scope.get_current_objective()
+        assert current is not None
+        assert isinstance(current, dict)
+
+    def test_autofocus_executor_get_status_idle(self):
+        """AutofocusExecutor.get_status() should return idle state initially."""
+        session = ScopeSession.create_headless()
+        session.start_executors()
+        try:
+            runner = session.create_protocol_runner()
+            af = runner.sequenced_capture_executor._autofocus_executor
+            status = af.get_status()
+            assert status['state'] == 'idle'
+            assert status['in_progress'] is False
+            assert status['best_position'] is None
+        finally:
+            runner.shutdown()
+            session.shutdown_executors()
+
+    def test_autofocus_executor_cancel_noop_when_idle(self):
+        """AutofocusExecutor.cancel() should be safe when not running."""
+        session = ScopeSession.create_headless()
+        session.start_executors()
+        try:
+            runner = session.create_protocol_runner()
+            af = runner.sequenced_capture_executor._autofocus_executor
+            af.cancel()  # Should not raise
+            assert af.get_status()['state'] == 'idle'
+        finally:
+            runner.shutdown()
+            session.shutdown_executors()
+
+    def test_autofocus_executor_run_and_complete(self):
+        """AutofocusExecutor should run autofocus and reach completion."""
+        session = ScopeSession.create_headless()
+        session.start_executors()
+        try:
+            runner = session.create_protocol_runner()
+            runner._ensure_executors_started()  # Start AF executor thread
+            af = runner.sequenced_capture_executor._autofocus_executor
+
+            objectives = session.scope.get_available_objectives()
+            done = threading.Event()
+            af.run(
+                objective_id=objectives[0],
+                callbacks={'complete': lambda: done.set()},
+            )
+
+            assert af.get_status()['in_progress'] is True
+
+            completed = done.wait(timeout=30)
+            assert completed, "Autofocus did not complete within timeout"
+
+            status = af.get_status()
+            assert status['state'] == 'complete'
+            assert status['best_position'] is not None
+        finally:
+            runner.shutdown()
+            session.shutdown_executors()
+
+    def test_autofocus_executor_cancel_during_run(self):
+        """AutofocusExecutor.cancel() should stop a running autofocus."""
+        session = ScopeSession.create_headless()
+        session.start_executors()
+        try:
+            runner = session.create_protocol_runner()
+            runner._ensure_executors_started()
+            af = runner.sequenced_capture_executor._autofocus_executor
+
+            objectives = session.scope.get_available_objectives()
+            af.run(objective_id=objectives[0], callbacks={})
+
+            # Give it a moment to start
+            time.sleep(0.1)
+            assert af.get_status()['in_progress'] is True
+
+            af.cancel()
+
+            # Wait for cancellation to take effect
+            time.sleep(0.5)
+            status = af.get_status()
+            assert status['in_progress'] is False
+            assert status['state'] != 'focusing'
+        finally:
+            runner.shutdown()
+            session.shutdown_executors()
+
+    def test_settings_has_rest_api_section(self):
+        """Default settings template should include rest_api configuration."""
+        settings_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'settings.json')
+        with open(settings_path) as f:
+            settings = json.load(f)
+        assert 'rest_api' in settings
+        assert settings['rest_api']['enabled'] is False
+        assert settings['rest_api']['host'] == '127.0.0.1'
+        assert settings['rest_api']['port'] == 8000

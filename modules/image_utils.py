@@ -132,6 +132,39 @@ def rgb_image_to_gray(image):
     return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
 
+def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) -> bytes:
+    """Encode a numpy image array to binary image data.
+
+    Args:
+        image: 2D (grayscale) or 3D (color) numpy array.
+        fmt: Output format — 'png', 'jpeg', or 'tiff'.
+        jpeg_quality: JPEG quality (1-100), only used for JPEG format.
+
+    Returns:
+        bytes: Encoded image data.
+
+    Raises:
+        ValueError: If format is unsupported or encoding fails.
+    """
+    fmt = fmt.lower()
+    if fmt in ('jpg', 'jpeg'):
+        params = [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality]
+        ext = '.jpg'
+    elif fmt == 'png':
+        params = [cv2.IMWRITE_PNG_COMPRESSION, 1]  # fast compression
+        ext = '.png'
+    elif fmt in ('tiff', 'tif'):
+        params = []
+        ext = '.tiff'
+    else:
+        raise ValueError(f"Unsupported image format: {fmt}")
+
+    success, buf = cv2.imencode(ext, image, params)
+    if not success:
+        raise ValueError(f"Failed to encode image as {fmt}")
+    return buf.tobytes()
+
+
 def convert_12bit_to_8bit(image):
     if image.dtype == 'uint8':
         return image

@@ -228,6 +228,22 @@ class Lumascope():
         """
         return self._objectives_loader.get_objective_info(objective_id=objective_id)
 
+    def get_available_objectives(self) -> list[str]:
+        """Get list of all available objective IDs.
+
+        Returns:
+            list[str]: Objective identifiers (e.g. ["4x", "10x Oly", "20x Oly"]).
+        """
+        return self._objectives_loader.get_objectives_list()
+
+    def get_current_objective(self) -> dict | None:
+        """Get the currently active objective info.
+
+        Returns:
+            dict | None: Active objective metadata, or None if not set.
+        """
+        return self._objective
+
     def set_turret_config(self, turret_config: dict[int,str]) -> None:
         """Set the turret objective configuration.
 
@@ -322,6 +338,39 @@ class Lumascope():
             return 1
 
         return self.camera.get_binning_size()
+
+    def get_pixel_format(self) -> str | None:
+        """Get the current camera pixel format.
+
+        Returns:
+            str | None: Pixel format string (e.g. 'Mono8'), or None if inactive.
+        """
+        if not self.camera or not self.camera.active:
+            return None
+        return self.camera.get_pixel_format()
+
+    def set_pixel_format(self, pixel_format: str) -> bool:
+        """Set the camera pixel format.
+
+        Args:
+            pixel_format: Format string (e.g. 'Mono8', 'Mono12').
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        if not self.camera or not self.camera.active:
+            return False
+        return self.camera.set_pixel_format(pixel_format)
+
+    def get_supported_pixel_formats(self) -> tuple:
+        """Get the list of supported camera pixel formats.
+
+        Returns:
+            tuple: Supported format strings, or empty tuple if inactive.
+        """
+        if not self.camera or not self.camera.active:
+            return ()
+        return self.camera.get_supported_pixel_formats()
 
 
     ########################################################################
@@ -1536,6 +1585,66 @@ class Lumascope():
             return None
 
         return self.motion.get_microscope_model()
+
+    def get_motor_info(self) -> dict:
+        """Get motor controller information.
+
+        Returns:
+            dict: Keys 'model', 'serial_number', 'firmware_version'.
+                  Values are None/unknown if board inactive.
+        """
+        if not self.motion or not self.motion.driver:
+            return {'model': None, 'serial_number': None, 'firmware_version': None}
+
+        info = self.motion.fullinfo()
+        return {
+            'model': info.get('model', 'unknown'),
+            'serial_number': info.get('serial_number', 'unknown'),
+            'firmware_version': getattr(self.motion, 'firmware_version', None),
+        }
+
+    def get_led_info(self) -> dict:
+        """Get LED controller information.
+
+        Returns:
+            dict: Keys 'firmware_version', 'connected'.
+        """
+        if not self.led or not self.led.driver:
+            return {'firmware_version': None, 'connected': False}
+
+        return {
+            'firmware_version': getattr(self.led, 'firmware_version', None),
+            'connected': True,
+        }
+
+    def get_camera_info(self) -> dict:
+        """Get camera information.
+
+        Returns:
+            dict: Keys 'model', 'pixel_format', 'connected'.
+        """
+        if not self.camera or not self.camera.active:
+            return {'model': None, 'pixel_format': None, 'connected': False}
+
+        return {
+            'model': self.camera.get_model_name(),
+            'pixel_format': self.camera.get_pixel_format(),
+            'connected': True,
+        }
+
+    def get_system_info(self) -> dict:
+        """Get consolidated system information for all hardware.
+
+        Returns:
+            dict: Keys 'motor', 'led', 'camera', 'simulated', 'lvp_version'.
+        """
+        return {
+            'motor': self.get_motor_info(),
+            'led': self.get_led_info(),
+            'camera': self.get_camera_info(),
+            'simulated': self._simulated,
+            'lvp_version': version,
+        }
 
     ########################################################################
     # INTEGRATED SCOPE FUNCTIONS

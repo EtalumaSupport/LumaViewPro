@@ -191,6 +191,36 @@ class AutofocusExecutor:
                         self._callbacks['complete']()
                 break
 
+    def cancel(self):
+        """Cancel an in-progress autofocus run."""
+        if not self._af_in_progress.is_set():
+            return
+        logger.info('[AF] Autofocus cancelled by request')
+        self._af_in_progress.clear()
+        self._is_focusing = False
+        self._autofocus_executor.protocol_end()
+        self._autofocus_executor.clear_protocol_pending()
+
+    def get_status(self) -> dict:
+        """Get current autofocus status.
+
+        Returns:
+            dict with keys: 'state' (idle/focusing/complete), 'best_position',
+                  'in_progress'.
+        """
+        if self._is_complete:
+            state = 'complete'
+        elif self._is_focusing:
+            state = 'focusing'
+        else:
+            state = 'idle'
+
+        return {
+            'state': state,
+            'in_progress': self._af_in_progress.is_set(),
+            'best_position': self._best_focus_position,
+        }
+
     def run_in_progress(self) -> bool:
         return self._af_in_progress.is_set()
 
