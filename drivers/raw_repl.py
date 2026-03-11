@@ -86,7 +86,8 @@ def _drain_input(serial_port):
     Loops until nothing left, unlike a single read(4096) which may
     miss data still in transit.
     """
-    while True:
+    max_iterations = 100
+    for _ in range(max_iterations):
         n = serial_port.in_waiting if hasattr(serial_port, 'in_waiting') else 0
         if n > 0:
             serial_port.read(n)
@@ -99,6 +100,8 @@ def _drain_input(serial_port):
             serial_port.timeout = old_timeout
             if not leftover:
                 break
+    else:
+        logger.warning("_drain_input: hit iteration limit — device may be in an output loop")
 
 
 def _send_chunked(serial_port, data):

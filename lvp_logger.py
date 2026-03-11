@@ -47,8 +47,10 @@ if windows_machine and lvp_installed:
     documents_folder = userpaths.get_my_documents()
     lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
 
-    os.chdir(lvp_appdata)
-    
+    # Do NOT os.chdir() here — it changes global CWD as a side effect of import.
+    # Use absolute paths instead.
+    pass
+
 else:
     lvp_appdata = script_path
 
@@ -60,12 +62,13 @@ except Exception:
 
 
 
-os.makedirs("logs/LVP_Log", exist_ok=True)
+log_dir = os.path.join(lvp_appdata, "logs", "LVP_Log")
+os.makedirs(log_dir, exist_ok=True)
 
-# files to which messages are logged 
-LOG_FILE = 'logs/LVP_Log/lumaviewpro.log'
+# files to which messages are logged
+LOG_FILE = os.path.join(log_dir, 'lumaviewpro.log')
 
-ERRORS_LOG_FILE = 'logs/LVP_Log/lumaviewpro_errors.log'
+ERRORS_LOG_FILE = os.path.join(log_dir, 'lumaviewpro_errors.log')
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):

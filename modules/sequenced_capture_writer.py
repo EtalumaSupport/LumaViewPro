@@ -42,21 +42,34 @@ def setup_worker_logger(log_dir: str = ".") -> logging.Logger:
     return logger
 
 def worker_initializer(lvp_appdata):
+    """Initialize worker process - called once when process starts."""
+    import os
+    import sys
+    import atexit
+    import builtins
+    from datetime import datetime
+
+    orig_stdout = sys.stdout
+    orig_stderr = sys.stderr
     try:
-        """Initialize worker process - called once when process starts."""
-        import os
-        import sys
-        import builtins
-        from datetime import datetime
-    
         pid = os.getpid()
         # Open two files, line-buffered
-        sys.stdout = open(f"{lvp_appdata}/logs/subprocess_workers.log", "a", buffering=1)
-        sys.stderr = open(f"{lvp_appdata}/logs/subprocess_workers.error.log", "a", buffering=1)
+        stdout_file = open(f"{lvp_appdata}/logs/subprocess_workers.log", "a", buffering=1)
+        stderr_file = open(f"{lvp_appdata}/logs/subprocess_workers.error.log", "a", buffering=1)
+        sys.stdout = stdout_file
+        sys.stderr = stderr_file
+
+        def _cleanup_worker_files():
+            for f in (stdout_file, stderr_file):
+                try:
+                    f.flush()
+                    f.close()
+                except Exception:
+                    pass
+        atexit.register(_cleanup_worker_files)
 
         orig_print = builtins.print
         def prefixed_print(*args, **kwargs):
-            # Always print to our new sys.stdout
             timestamp = datetime.now().isoformat(sep=" ", timespec="milliseconds")
             prefix = f"{timestamp} [PID {pid}]"
             orig_print(prefix, *args, **kwargs, file=sys.stdout, flush=True)
@@ -68,16 +81,15 @@ def worker_initializer(lvp_appdata):
         os.environ['KIVY_NO_ARGS'] = '1'
         os.environ['KIVY_NO_CONFIG'] = '1'
         os.environ['KIVY_LOGGER_LEVEL'] = 'critical'
-        
+
         # Prevent pygame sound initialization
         os.environ['SDL_AUDIODRIVER'] = 'dummy'
         print(f"Worker process {pid} initialized")
         print("initializer complete")
-        # Set up any worker-specific configuration here
-        # This runs once per worker process at startup
-        pass
     except Exception:
-        import traceback, sys
+        sys.stdout = orig_stdout
+        sys.stderr = orig_stderr
+        import traceback
         traceback.print_exc(file=sys.stderr)
         raise
 

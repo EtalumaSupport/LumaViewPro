@@ -102,11 +102,14 @@ class PostProcessing:
                 }
 
         results_file_path = os.path.join(path, 'results.csv')
-        with open(results_file_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(fields)
-            for record in results:
-                writer.writerow(record.values())
+        try:
+            with open(results_file_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(fields)
+                for record in results:
+                    writer.writerow(record.values())
+        except OSError as e:
+            logger.error(f'[LVP Main  ] Failed to write results CSV: {e}')
 
         """df = pandas.read_csv(results_file_path)
         fig, ax = plt.subplots()
