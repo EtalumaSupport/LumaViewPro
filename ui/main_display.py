@@ -104,8 +104,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             # Reset button state
             try:
                 self.ids['record_btn'].state = 'normal'
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f'[LVP Main  ] Failed to reset record button state: {e}')
             return
 
         _app_ctx.ctx.camera_executor.put(IOTask(self.record_init))

@@ -33,13 +33,18 @@ version = ""
 try:
     with open("version.txt") as f:
         version = f.readlines()[0].strip()
-except Exception:
-    pass
+except FileNotFoundError:
+    pass  # Expected when running from source without version.txt
+except Exception as e:
+    print(f"[lvp_logger] WARNING: Failed to read version.txt: {e}", file=sys.stderr)
 
 try:
     with open("marker.lvpinstalled") as f:
         lvp_installed = True
-except Exception:
+except FileNotFoundError:
+    lvp_installed = False  # Expected when running from source
+except Exception as e:
+    print(f"[lvp_logger] WARNING: Failed to read marker.lvpinstalled: {e}", file=sys.stderr)
     lvp_installed = False
 
 if windows_machine and lvp_installed:
@@ -57,7 +62,8 @@ else:
 from modules.settings_init import load_debug_setting
 try:
     debug = load_debug_setting(lvp_appdata)
-except Exception:
+except Exception as e:
+    print(f"[lvp_logger] WARNING: Failed to load debug setting, defaulting to False: {e}", file=sys.stderr)
     debug = False
 
 
@@ -193,8 +199,8 @@ if not debug:
         for h in list(root_logger.handlers):
             if isinstance(h, logging.StreamHandler):
                 root_logger.removeHandler(h)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"[Logger  ] Failed to remove console handler: {e}")
 
 sys.excepthook = custom_except_hook
 

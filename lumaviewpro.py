@@ -813,7 +813,9 @@ class LumaViewProApp(TooltipMixin, App):
             etaluma_engineering.register(ctx)
             logger.info('[LVP Main  ] Engineering plugin loaded')
         except ImportError:
-            pass
+            pass  # Expected — plugin not installed
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Engineering plugin failed to register: {e}')
 
         return lumaview
 

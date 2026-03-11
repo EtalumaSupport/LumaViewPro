@@ -156,7 +156,8 @@ class SerialBoard:
             if self.driver is None:
                 try:
                     self.connect()
-                except Exception:
+                except Exception as e:
+                    logger.error(f'{self._label} exchange_command({command}) reconnect failed: {e}')
                     return None
 
             if self.driver is None:

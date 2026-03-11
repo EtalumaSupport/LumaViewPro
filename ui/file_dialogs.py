@@ -115,7 +115,7 @@ class FileChooseBTN(HoverBehavior, Button):
         elif self.context == "load_graphing_data":
             filetypes_tk = [('CSV', '.csv')]
         else:
-            logger.exception(f"Unsupported handling for {self.context}")
+            logger.error(f"Unsupported handling for {self.context}")
             return
 
         if sys.platform == 'darwin':
@@ -269,7 +269,7 @@ class FileSaveBTN(HoverBehavior, Button):
         elif self.context == 'save_graph':
             filetypes = [('PNG', '.png')]
         else:
-            logger.exception(f"Unsupported handling for {self.context}")
+            logger.error(f"Unsupported handling for {self.context}")
             return
 
         selected_path = _app_ctx.ctx.settings['live_folder']

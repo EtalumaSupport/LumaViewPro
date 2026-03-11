@@ -186,7 +186,7 @@ def _report_progress(callback, stage, message, progress):
         try:
             callback(stage, message, progress)
         except Exception as e:
-            logger.warning(f"Progress callback error: {e}")
+            logger.error(f"Progress callback error ({callback!r}): {e}")
 
 
 def _find_serial_port(vid, pid):

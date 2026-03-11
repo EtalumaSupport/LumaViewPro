@@ -85,8 +85,8 @@ class Camera(ABC):
         try:
             if self.active:
                 self.disconnect()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f'[CAM Class ] __del__ disconnect failed: {e}')
 
     def _mark_disconnected(self):
         """Atomically mark camera as disconnected.
@@ -273,7 +273,7 @@ class Camera(ABC):
             self.array = image
             return True, image_ts
         except Exception as ex:
-            logger.exception(f"Failed to grab image: {ex}")
+            logger.exception(f"[CAM Class ] grab() - get_last_image() failed: {ex}")
             return False, None
 
     @abstractmethod

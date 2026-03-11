@@ -136,9 +136,8 @@ class PylonCamera(Camera):
                     pylon.RegistrationMode_Append,
                     pylon.Cleanup_Delete
                 )
-            except Exception:
-                # If registration isn't supported on this platform/TL, ignore
-                pass
+            except Exception as e:
+                logger.debug(f'[CAM Class ] Camera removal handler registration not supported: {e}')
 
             self.cam_image_handler = ImageHandler(self)
             camera.RegisterImageEventHandler(
