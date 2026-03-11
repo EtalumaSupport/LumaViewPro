@@ -149,7 +149,7 @@ class ScopeDisplay(Image):
         elif ctx is not None and 'live_view_fps' in ctx.settings:
             self.fps = ctx.settings['live_view_fps']
         else:
-            self.fps = 10
+            self.fps = 30
 
         logger.info('[LVP Main  ] Clock.schedule_interval(self.update, 1.0 / self.fps)')
         self.paused.clear()

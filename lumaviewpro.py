@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
     cpu_pool = None
     use_multiprocessing = False
-    live_view_fps = 10
+    live_view_fps = 30
     ij_helper = None
 
     # Environment setup — paths, version, platform detection

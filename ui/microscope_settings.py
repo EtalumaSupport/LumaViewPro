@@ -161,6 +161,20 @@ class MicroscopeSettings(BoxLayout):
             self.ids[acceleration_id].visible = visible
 
 
+    def live_view_fps_slider(self):
+        ctx = _app_ctx.ctx
+        fps_val = int(self.ids['live_view_fps_slider'].value)
+        ctx.live_view_fps = fps_val
+        ctx.settings['live_view_fps'] = fps_val
+        logger.info(f'[LVP Main  ] Live view FPS set to {fps_val}')
+
+        # Restart scope display with new FPS
+        scope_display = ctx.scope_display
+        if scope_display is not None:
+            scope_display.stop()
+            scope_display.start(fps=fps_val)
+
+
     # load settings from JSON file
     def load_settings(self, filename="./data/current.json"):
         logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
@@ -249,9 +263,10 @@ class MicroscopeSettings(BoxLayout):
             if "live_view_fps" in settings:
                 ctx.live_view_fps = settings['live_view_fps']
             else:
-                ctx.live_view_fps = 10
+                ctx.live_view_fps = 30
 
             logger.info(f"[LVP Main  ] Live view FPS set to {ctx.live_view_fps}")
+            self.ids['live_view_fps_slider'].value = ctx.live_view_fps
 
             acceleration_limit = settings['motion']['acceleration_max_pct']
             self.ids['acceleration_pct_slider'].value = acceleration_limit

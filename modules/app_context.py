@@ -68,7 +68,7 @@ class AppContext:
     disable_homing: bool = False
     simulate_mode: bool = False
     max_exposure: float = 0.0
-    live_view_fps: int = 10
+    live_view_fps: int = 30
     focus_round: int = 0
 
     # Initialization flag (replaces _app_initializing)
