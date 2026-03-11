@@ -732,6 +732,7 @@ class ImageHandler(pylon.ImageEventHandler):
 
     def __init__(self, parent_cam: PylonCamera):
         super().__init__()
+        self._frame_lock = threading.Lock()
         self.last_result = False
         self.last_img = None
         self._failed_grabs = 0
@@ -774,14 +775,18 @@ class ImageHandler(pylon.ImageEventHandler):
             if self.last_result:
                 try:
                     # GetArray() can cause native crash if device is disconnected
-                    self.last_img = grabResult.GetArray()
-                    self._last_img_ts = datetime.datetime.now()
-                    self._frame_queue.put((self.last_result, self.last_img, self._last_img_ts))
+                    img = grabResult.GetArray()
+                    ts = datetime.datetime.now()
+                    with self._frame_lock:
+                        self.last_img = img
+                        self._last_img_ts = ts
+                    self._frame_queue.put((True, img, ts))
                     self._failed_grabs = 0
                 except Exception as e:
                     logger.warning(f'[CAM Class ] GetArray() failed: {e}, marking device as removed')
                     self._parent._device_removed = True
-                    self.last_result = False
+                    with self._frame_lock:
+                        self.last_result = False
             else:
                 self._failed_grabs += 1
                 # Rate-limit noisy grab failure logs
@@ -806,9 +811,10 @@ class ImageHandler(pylon.ImageEventHandler):
                     self._frame_queue.get_nowait()
                 except queue.Empty:
                     break
-            self.last_result = False
-            self.last_img = None
-            self._last_img_ts = None
+            with self._frame_lock:
+                self.last_result = False
+                self.last_img = None
+                self._last_img_ts = None
             self._failed_grabs = 0
         except Exception:
             pass
@@ -824,15 +830,16 @@ class ImageHandler(pylon.ImageEventHandler):
         except Exception:
             return False, None, None
         
-        if self.last_result is False:
-            return False, None, None
-        
-        # Safely copy the image - could fail if camera disconnected mid-operation
-        try:
-            return self.last_result, self.last_img.copy(), self._last_img_ts
-        except Exception as e:
-            logger.warning(f'[CAM Class ] GetLastImage copy failed: {e}')
-            return False, None, None
+        with self._frame_lock:
+            if self.last_result is False:
+                return False, None, None
+
+            # Safely copy the image - could fail if camera disconnected mid-operation
+            try:
+                return self.last_result, self.last_img.copy(), self._last_img_ts
+            except Exception as e:
+                logger.warning(f'[CAM Class ] GetLastImage copy failed: {e}')
+                return False, None, None
     
     
 

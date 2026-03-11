@@ -400,6 +400,7 @@ class IDSCamera(Camera):
 class ImageHandler:
     def __init__(self, data_stream: ids_peak.DataStream):
         self.data_stream = data_stream
+        self._frame_lock = threading.Lock()
         self.last_result = False
         self.last_img = None
         self.last_img_ts = None
@@ -422,20 +423,28 @@ class ImageHandler:
         while not self._stop_event.is_set():
             try:
                 buffer = self.data_stream.WaitForFinishedBuffer(1000)
-                self.last_result = not buffer.IsIncomplete()
-                if self.last_result:
+                result = not buffer.IsIncomplete()
+                if result:
                     img = ids_peak_ipl_extension.BufferToImage(buffer)
                     img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
-                    self.last_img = img.get_numpy().copy()
-                    self.last_img_ts = datetime.datetime.now()
+                    frame = img.get_numpy().copy()
+                    ts = datetime.datetime.now()
+                    with self._frame_lock:
+                        self.last_result = True
+                        self.last_img = frame
+                        self.last_img_ts = ts
+                else:
+                    with self._frame_lock:
+                        self.last_result = False
                 self.data_stream.QueueBuffer(buffer)
             except Exception as e:
-                self.last_result = False
+                with self._frame_lock:
+                    self.last_result = False
                 logger.exception(f'[CAM Class ] ImageHandler grab loop exception: {e}')
 
     def get_last_image(self):
-        if not self.last_result:
-            return False, None, None
-        
-        return self.last_result, self.last_img, self.last_img_ts
+        with self._frame_lock:
+            if not self.last_result:
+                return False, None, None
+            return self.last_result, self.last_img, self.last_img_ts
                     

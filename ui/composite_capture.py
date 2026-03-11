@@ -29,7 +29,7 @@ logger = logging.getLogger('LVP.ui.composite_capture')
 
 class CompositeCapture(FloatLayout):
 
-    _capturing = False  # Guard against rapid double-clicks
+    _capturing = threading.Event()  # Thread-safe guard against rapid double-clicks
 
     def __init__(self, **kwargs):
         super(CompositeCapture,self).__init__(**kwargs)
@@ -60,14 +60,14 @@ class CompositeCapture(FloatLayout):
 
 
     def live_capture(self):
-        if CompositeCapture._capturing:
+        if CompositeCapture._capturing.is_set():
             logger.warning('[LVP Main  ] Capture already in progress, ignoring')
             return
-        CompositeCapture._capturing = True
+        CompositeCapture._capturing.set()
         try:
             self._live_capture_impl()
         finally:
-            CompositeCapture._capturing = False
+            CompositeCapture._capturing.clear()
 
     def _live_capture_impl(self):
         import lumaviewpro
@@ -193,10 +193,10 @@ class CompositeCapture(FloatLayout):
     def composite_capture(self):
         import lumaviewpro
 
-        if CompositeCapture._capturing:
+        if CompositeCapture._capturing.is_set():
             logger.warning('[LVP Main  ] Composite capture already in progress, ignoring')
             return
-        CompositeCapture._capturing = True
+        CompositeCapture._capturing.set()
 
         z_stage_present = not lumaviewpro.disable_homing
 
@@ -254,10 +254,11 @@ class CompositeCapture(FloatLayout):
             *common_utils.get_fluorescence_layers(),
             *common_utils.get_luminescence_layers(),
         )
-        layer_settings = {layer: dict(settings[layer]) for layer in all_layers}
-        frame_settings = dict(settings['frame'])
-        live_folder = settings['live_folder']
-        image_output_format = dict(settings['image_output_format'])
+        with ctx.settings_lock:
+            layer_settings = {layer: dict(settings[layer]) for layer in all_layers}
+            frame_settings = dict(settings['frame'])
+            live_folder = settings['live_folder']
+            image_output_format = dict(settings['image_output_format'])
 
         acquired_channel_count = 0
         most_recent_aq_channel = None
@@ -313,7 +314,6 @@ class CompositeCapture(FloatLayout):
 
         # Capture fluorescence and luminescence channels
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
-            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
             if layer_settings[layer]['acquire'] == "image":
                 acquired_channel_count += 1
                 most_recent_aq_channel = layer
@@ -357,7 +357,11 @@ class CompositeCapture(FloatLayout):
 
             scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
 
-            Clock.schedule_once(lambda dt, lo=layer_obj: Clock.unschedule(lo.ids['histo_id'].histogram), 0)
+            # Unschedule histogram on main thread — widget access must not happen from worker
+            def _unschedule_histo(dt, layer_name=layer):
+                lo = ctx.image_settings.layer_lookup(layer=layer_name)
+                Clock.unschedule(lo.ids['histo_id'].histogram)
+            Clock.schedule_once(_unschedule_histo, 0)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
         # Build composite image from collected channels
@@ -410,5 +414,5 @@ class CompositeCapture(FloatLayout):
                 opened_layer_obj.ids['enable_led_btn'].state = 'normal'
             opened_layer_obj.apply_settings(update_led=True)
 
-        CompositeCapture._capturing = False
+        CompositeCapture._capturing.clear()
         Clock.schedule_once(_restore_ui, 0)
