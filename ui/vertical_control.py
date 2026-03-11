@@ -7,11 +7,36 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+from modules.config_getters import (
+    get_active_layer_config,
+    get_auto_gain_settings,
+    get_binning_from_ui,
+    get_current_frame_dimensions,
+    get_current_objective_info,
+    get_current_plate_position,
+    get_image_capture_config_from_ui,
+    get_selected_labware,
+    get_stim_configs,
+)
 from modules.debounce import debounce
 from modules.protocol import Protocol
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask
 from modules.tiling_config import TilingConfig
+from modules.ui_helpers import (
+    _handle_ui_for_led,
+    _handle_ui_for_leds_off,
+    _handle_ui_update_for_axis,
+    live_histo_off,
+    live_histo_reverse,
+    move_absolute_position,
+    move_home,
+    move_relative_position,
+    reset_title,
+    set_recording_title,
+    set_writing_title,
+    update_autofocus_selection_after_protocol,
+)
 
 logger = logging.getLogger('LVP.ui.vertical_control')
 
@@ -36,12 +61,12 @@ class VerticalControl(BoxLayout):
 
 
     def update_gui(self, vertical_control=False):
-        import lumaviewpro
-        if lumaviewpro.sequenced_capture_executor.run_in_progress():
+        ctx = _app_ctx.ctx
+        if ctx.sequenced_capture_executor.run_in_progress():
             return
         if not vertical_control:
-            lumaviewpro.io_executor.put(IOTask(
-                action=lumaviewpro.lumaview.scope.get_target_position,
+            ctx.io_executor.put(IOTask(
+                action=ctx.lumaview.scope.get_target_position,
                 args=('Z'),
                 callback=self.execute_kivy_gui,
                 cb_kwargs={"vertical_control":vertical_control},
@@ -87,14 +112,14 @@ class VerticalControl(BoxLayout):
 
     @debounce(0.2)
     def coarse_up(self, overshoot_enabled: bool = False):
-        import lumaviewpro
-        if _app_ctx.ctx.protocol_running.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
-        lumaviewpro.io_executor.put(IOTask(
-            action=lumaviewpro.move_relative_position,
+        ctx.io_executor.put(IOTask(
+            action=move_relative_position,
             args=('Z', coarse),
             kwargs={
                 "overshoot_enabled": overshoot_enabled
@@ -103,14 +128,14 @@ class VerticalControl(BoxLayout):
 
     @debounce(0.2)
     def fine_up(self, overshoot_enabled: bool = False):
-        import lumaviewpro
-        if _app_ctx.ctx.protocol_running.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         fine = objective['z_fine']
-        lumaviewpro.io_executor.put(IOTask(
-            action=lumaviewpro.move_relative_position,
+        ctx.io_executor.put(IOTask(
+            action=move_relative_position,
             args=('Z', fine),
             kwargs={
                 "overshoot_enabled": overshoot_enabled
@@ -119,14 +144,14 @@ class VerticalControl(BoxLayout):
 
     @debounce(0.2)
     def fine_down(self, overshoot_enabled: bool = False):
-        import lumaviewpro
-        if _app_ctx.ctx.protocol_running.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         fine = objective['z_fine']
-        lumaviewpro.io_executor.put(IOTask(
-            action=lumaviewpro.move_relative_position,
+        ctx.io_executor.put(IOTask(
+            action=move_relative_position,
             args=('Z', -fine),
             kwargs={
                 "overshoot_enabled": overshoot_enabled
@@ -135,14 +160,14 @@ class VerticalControl(BoxLayout):
 
     @debounce(0.2)
     def coarse_down(self, overshoot_enabled: bool = False):
-        import lumaviewpro
-        if _app_ctx.ctx.protocol_running.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         coarse = objective['z_coarse']
-        lumaviewpro.io_executor.put(IOTask(
-            action=lumaviewpro.move_relative_position,
+        ctx.io_executor.put(IOTask(
+            action=move_relative_position,
             args=('Z', -coarse),
             kwargs={
                 "overshoot_enabled": overshoot_enabled
@@ -151,8 +176,8 @@ class VerticalControl(BoxLayout):
 
 
     def set_position(self, pos):
-        import lumaviewpro
-        if _app_ctx.ctx.protocol_running.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
 
         logger.info('[LVP Main  ] VerticalControl.set_position()')
@@ -164,33 +189,33 @@ class VerticalControl(BoxLayout):
         #move_absolute_position('Z', pos)
 
     def queue_slider_position(self):
-        import lumaviewpro
-        lumaviewpro.io_executor.put(IOTask(
-            action=lumaviewpro.move_absolute_position,
+        ctx = _app_ctx.ctx
+        ctx.io_executor.put(IOTask(
+            action=move_absolute_position,
             args=('Z', self._next_pos)
         ))
         self._next_pos = None
 
     def set_bookmark(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.set_bookmark()')
-        lumaviewpro.io_executor.put(IOTask(action=self.ex_set_bookmark))
+        ctx.io_executor.put(IOTask(action=self.ex_set_bookmark))
 
     def ex_set_bookmark(self):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
-        height = lumaviewpro.lumaview.scope.get_current_position('Z')  # Get current z height in um
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        height = ctx.lumaview.scope.get_current_position('Z')  # Get current z height in um
         settings['bookmark']['z'] = height
 
     def set_all_bookmarks(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.set_all_bookmarks()')
-        lumaviewpro.io_executor.put(IOTask(action=self.ex_set_all_bookmarks))
+        ctx.io_executor.put(IOTask(action=self.ex_set_all_bookmarks))
 
     def ex_set_all_bookmarks(self):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
-        height = lumaviewpro.lumaview.scope.get_current_position('Z')  # Get current z height in um
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        height = ctx.lumaview.scope.get_current_position('Z')  # Get current z height in um
         settings['bookmark']['z'] = height
         settings['BF']['focus'] = height
         settings['PC']['focus'] = height
@@ -201,18 +226,18 @@ class VerticalControl(BoxLayout):
         settings['Lumi']['focus'] = height
 
     def goto_bookmark(self):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         pos = settings['bookmark']['z']
-        lumaviewpro.io_executor.put(IOTask(action=lumaviewpro.move_absolute_position, args=('Z', pos)))
+        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Z', pos)))
         #move_absolute_position('Z', pos)
 
     @debounce(1.0)
     def home(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.home()')
-        lumaviewpro.io_executor.put(IOTask(action=lumaviewpro.move_home, kwargs={"axis":'Z'}))
+        ctx.io_executor.put(IOTask(action=move_home, kwargs={"axis":'Z'}))
         #move_home(axis='Z')
 
     def load_objective_from_settings(self):
@@ -220,21 +245,20 @@ class VerticalControl(BoxLayout):
         self.ids['objective_spinner2'] = settings['objective_id']
 
     def load_objectives(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.load_objectives()')
         spinner = self.ids['objective_spinner2']
-        spinner.values = lumaviewpro.objective_helper.get_objectives_list()
+        spinner.values = ctx.objective_helper.get_objectives_list()
 
 
     def select_objective(self):
-        import lumaviewpro
-        logger.info('[LVP Main  ] VerticalControl.select_objective()')
-        settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
+        logger.info('[LVP Main  ] VerticalControl.select_objective()')
+        settings = ctx.settings
 
         # Update objective stored in settings
         objective_id = self.ids['objective_spinner2'].text
-        objective = lumaviewpro.objective_helper.get_objective_info(objective_id=objective_id)
+        objective = ctx.objective_helper.get_objective_info(objective_id=objective_id)
         settings['objective_id'] = objective_id
 
         # Update magnification UI info
@@ -246,25 +270,25 @@ class VerticalControl(BoxLayout):
         ms_objective_spinner.text = objective_id
 
         # Set objective in lumascope
-        if lumaviewpro.lumaview.scope.has_turret():
-            lumaviewpro.lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
+        if ctx.lumaview.scope.has_turret():
+            ctx.lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
 
-        lumaviewpro.lumaview.scope.set_objective(objective_id=objective_id)
+        ctx.lumaview.scope.set_objective(objective_id=objective_id)
 
         # Update UI FOV
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
-            binning_size=lumaviewpro.get_binning_from_ui(),
+            binning_size=get_binning_from_ui(),
         )
         microscope_settings_id.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         microscope_settings_id.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
 
 
     def _reset_run_autofocus_button(self, **kwargs):
-        import lumaviewpro
-        lumaviewpro.autofocus_thread_executor.protocol_end()
-        lumaviewpro.autofocus_thread_executor.clear_protocol_pending()
+        ctx = _app_ctx.ctx
+        ctx.autofocus_thread_executor.protocol_end()
+        ctx.autofocus_thread_executor.clear_protocol_pending()
         self.ids['autofocus_id'].state = 'normal'
         self.ids['autofocus_id'].text = 'Autofocus'
 
@@ -275,15 +299,15 @@ class VerticalControl(BoxLayout):
 
 
     def _cleanup_at_end_of_autofocus(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
-        lumaviewpro.reset_executor.put(IOTask(
-            action=lumaviewpro.sequenced_capture_executor.reset,
+        ctx.reset_executor.put(IOTask(
+            action=ctx.sequenced_capture_executor.reset,
             callback=self._reset_run_autofocus_button
         ))
 
-        lumaviewpro.reset_executor.put(IOTask(
-            action=lumaviewpro.autofocus_executor.reset
+        ctx.reset_executor.put(IOTask(
+            action=ctx.autofocus_executor.reset
         ))
 
         # Resetting autofocus_executor before sequenced_capture_executor leads to possiblity of sequenced_capture accidentally re-starting AF. (sees it is finished, sequenced iterate is running, restarts AF)
@@ -292,43 +316,43 @@ class VerticalControl(BoxLayout):
 
 
     def _autofocus_run_complete(self, **kwargs):
-        import lumaviewpro
-        lumaviewpro.live_histo_reverse()
+        ctx = _app_ctx.ctx
+        live_histo_reverse()
         Clock.schedule_once(lambda dt: self._reset_run_autofocus_button(), 0)
         # Clear any stuck AF protocol queue entries after completion
         try:
-            lumaviewpro.autofocus_thread_executor.protocol_end()
-            lumaviewpro.autofocus_thread_executor.clear_protocol_pending()
+            ctx.autofocus_thread_executor.protocol_end()
+            ctx.autofocus_thread_executor.clear_protocol_pending()
         except Exception:
             pass
 
 
     def run_autofocus_from_ui(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
-        settings = _app_ctx.ctx.settings
+        settings = ctx.settings
 
-        if lumaviewpro.ENGINEERING_MODE:
+        if ctx.engineering_mode:
             save_autofocus_data = True
             parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Autofocus Characterization"
         else:
             save_autofocus_data = False
             parent_dir = None
 
-        lumaviewpro.live_histo_off()
+        live_histo_off()
 
         trigger_source = 'autofocus'
         run_complete_func = self._autofocus_run_complete
         run_not_started_func = self._reset_run_autofocus_button
 
-        run_trigger_source = lumaviewpro.sequenced_capture_executor.run_trigger_source()
-        if lumaviewpro.sequenced_capture_executor.run_in_progress() and \
+        run_trigger_source = ctx.sequenced_capture_executor.run_trigger_source()
+        if ctx.sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
             run_not_started_func()
             logger.warning(f"Cannot start autofocus. Run already in progress from {run_trigger_source}")
             return
 
-        if lumaviewpro.autofocus_executor.run_in_progress() or lumaviewpro.sequenced_capture_executor.run_in_progress():
+        if ctx.autofocus_executor.run_in_progress() or ctx.sequenced_capture_executor.run_in_progress():
             self._cleanup_at_end_of_autofocus()
             return
 
@@ -345,10 +369,10 @@ class VerticalControl(BoxLayout):
             pass
         def _af_safety(dt):
             try:
-                if lumaviewpro.sequenced_capture_executor.run_trigger_source() == 'autofocus' and lumaviewpro.sequenced_capture_executor.run_in_progress():
+                if ctx.sequenced_capture_executor.run_trigger_source() == 'autofocus' and ctx.sequenced_capture_executor.run_in_progress():
                     # If AF is still stuck after timeout, attempt a protocol reset and revert UI
-                    lumaviewpro.reset_executor.put(IOTask(
-                        action=lumaviewpro.sequenced_capture_executor.reset,
+                    ctx.reset_executor.put(IOTask(
+                        action=ctx.sequenced_capture_executor.reset,
                         callback=self._reset_run_autofocus_button
                     ))
                     logger.warning('[AF Safety] Autofocus appeared stuck. Forced reset.')
@@ -356,14 +380,14 @@ class VerticalControl(BoxLayout):
                 pass
         self._af_safety_event = Clock.schedule_once(_af_safety, 15)
 
-        objective_id, _ = lumaviewpro.get_current_objective_info()
-        labware_id, _ = lumaviewpro.get_selected_labware()
-        active_layer, active_layer_config = lumaviewpro.get_active_layer_config()
+        objective_id, _ = get_current_objective_info()
+        labware_id, _ = get_selected_labware()
+        active_layer, active_layer_config = get_active_layer_config()
         active_layer_config['autofocus'] = True
         active_layer_config['acquire'] = "image"
         #curr_position = get_current_plate_position()
-        lumaviewpro.io_executor.put(IOTask(
-            action=lumaviewpro.get_current_plate_position,
+        ctx.io_executor.put(IOTask(
+            action=get_current_plate_position,
             callback=self.intermediary_autofocus,
             cb_args=(
                 labware_id,
@@ -397,8 +421,8 @@ class VerticalControl(BoxLayout):
 
         curr_position = result
 
-        import lumaviewpro
-        lumaviewpro.io_executor.put(IOTask(
+        ctx = _app_ctx.ctx
+        ctx.io_executor.put(IOTask(
             action=self.curr_position_autofocus,
             args= (
                 curr_position,
@@ -426,9 +450,8 @@ class VerticalControl(BoxLayout):
                                 save_autofocus_data,
                                 result=None, exception=None):
 
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
+        settings = ctx.settings
 
         curr_position.update({'name': 'AF'})
 
@@ -437,7 +460,7 @@ class VerticalControl(BoxLayout):
         ]
 
         tiling_config = TilingConfig(
-            tiling_configs_file_loc=pathlib.Path(lumaviewpro.source_path) / "data" / "tiling.json",
+            tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json",
         )
 
         config = {
@@ -450,34 +473,34 @@ class VerticalControl(BoxLayout):
             'layer_configs': {active_layer: active_layer_config},
             'period': None,
             'duration': None,
-            'frame_dimensions': lumaviewpro.get_current_frame_dimensions(),
-            'binning_size': lumaviewpro.get_binning_from_ui(),
-            'stim_config': lumaviewpro.get_stim_configs(),
+            'frame_dimensions': get_current_frame_dimensions(),
+            'binning_size': get_binning_from_ui(),
+            'stim_config': get_stim_configs(),
         }
 
         autofocus_sequence = Protocol.from_config(
             input_config=config,
-            tiling_configs_file_loc=pathlib.Path(lumaviewpro.source_path) / "data" / "tiling.json",
+            tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json",
         )
 
-        autogain_settings = lumaviewpro.get_auto_gain_settings()
+        autogain_settings = get_auto_gain_settings()
 
         callbacks = {
-            'move_position': lumaviewpro._handle_ui_update_for_axis,
+            'move_position': _handle_ui_update_for_axis,
             'update_scope_display': ctx.scope_display.update_scopedisplay,
             'scan_iterate_post': run_complete_func,
             'run_complete': run_complete_func,
-            'leds_off': lumaviewpro._handle_ui_for_leds_off,
-            'led_state': lumaviewpro._handle_ui_for_led,
-            'reset_autofocus_btns': lumaviewpro.update_autofocus_selection_after_protocol,
-            'set_recording_title': lumaviewpro.set_recording_title,
-            'set_writing_title': lumaviewpro.set_writing_title,
-            'reset_title': lumaviewpro.reset_title,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
+            'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+            'set_recording_title': set_recording_title,
+            'set_writing_title': set_writing_title,
+            'reset_title': reset_title,
             'autofocus_completed': self._cleanup_at_end_of_autofocus,
         }
 
-        lumaviewpro.protocol_executor.put(IOTask(
-            action=lumaviewpro.sequenced_capture_executor.run,
+        ctx.protocol_executor.put(IOTask(
+            action=ctx.sequenced_capture_executor.run,
             kwargs={
                 "protocol":autofocus_sequence,
                 "run_mode":SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
@@ -485,7 +508,7 @@ class VerticalControl(BoxLayout):
                 "max_scans":1,
                 "sequence_name":'af',
                 "parent_dir":parent_dir,
-                "image_capture_config":lumaviewpro.get_image_capture_config_from_ui(),
+                "image_capture_config":get_image_capture_config_from_ui(),
                 "enable_image_saving":False,
                 "disable_saving_artifacts":True,
                 "separate_folder_per_channel":False,
@@ -519,12 +542,12 @@ class VerticalControl(BoxLayout):
 
     @debounce(1.0)
     def turret_home(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         def _on_turret_homed():
             Clock.schedule_once(lambda dt: self._reset_turret_buttons(), 0)
 
-        lumaviewpro.io_executor.put(IOTask(
-            action=lumaviewpro.lumaview.scope.thome,
+        ctx.io_executor.put(IOTask(
+            action=ctx.lumaview.scope.thome,
             callback=_on_turret_homed,
         ))
 
@@ -536,8 +559,8 @@ class VerticalControl(BoxLayout):
 
 
     def set_turret_objective(self):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
 
         selected_turret = None
         for position in range(1,5):
@@ -553,7 +576,7 @@ class VerticalControl(BoxLayout):
 
             # Find magnification of the selected objective
             desired_objective_id = self.ids['objective_spinner2'].text
-            magnification = lumaviewpro.objective_helper.get_objective_info(objective_id=desired_objective_id)['magnification']
+            magnification = ctx.objective_helper.get_objective_info(objective_id=desired_objective_id)['magnification']
 
             # Change turret text
             selected_turret_id.text = f"{magnification}x"
@@ -593,13 +616,13 @@ class VerticalControl(BoxLayout):
 
     @debounce(0.5)
     def turret_select(self, selected_position, protocol=False):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
-        if not lumaviewpro.lumaview.scope.has_thomed():
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        if not ctx.lumaview.scope.has_thomed():
             if not protocol:
-                lumaviewpro.io_executor.put(IOTask(lumaviewpro.lumaview.scope.thome))
+                ctx.io_executor.put(IOTask(ctx.lumaview.scope.thome))
             else:
-                lumaviewpro.lumaview.scope.thome()
+                ctx.lumaview.scope.thome()
 
         if not isinstance(selected_position, int) and not isinstance(selected_position, float):
             if not selected_position.isdigit():
@@ -608,9 +631,9 @@ class VerticalControl(BoxLayout):
             selected_position = int(selected_position)
 
         if not protocol:
-            lumaviewpro.io_executor.put(IOTask(lumaviewpro.lumaview.scope.tmove, kwargs={'position':selected_position}))
+            ctx.io_executor.put(IOTask(ctx.lumaview.scope.tmove, kwargs={'position':selected_position}))
         else:
-            lumaviewpro.lumaview.scope.tmove(position=selected_position)
+            ctx.lumaview.scope.tmove(position=selected_position)
 
         for available_position in range(1,5):
             if selected_position == available_position:

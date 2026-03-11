@@ -657,6 +657,7 @@ class LumaViewProApp(TooltipMixin, App):
         global sequenced_capture_executor
 
         global autofocus_executor
+        global ctx
 
         self.icon = './data/icons/icon.png'
 
@@ -761,11 +762,15 @@ class LumaViewProApp(TooltipMixin, App):
         )
 
         # Create AppContext — central service registry
-        global ctx
         ctx = AppContext(
             scope=lumaview.scope,
+            lumaview=lumaview,
             settings=settings,
             session=scope_session,
+            sequenced_capture_executor=sequenced_capture_executor,
+            autofocus_executor=autofocus_executor,
+            version=version,
+            source_path=source_path,
             io_executor=io_executor,
             camera_executor=camera_executor,
             protocol_executor=protocol_executor,
@@ -777,8 +782,19 @@ class LumaViewProApp(TooltipMixin, App):
             wellplate_loader=wellplate_loader,
             coordinate_transformer=coordinate_transformer,
             objective_helper=objective_helper,
+            stage=stage,
+            cell_count_content=cell_count_content,
+            graphing_controls=graphing_controls,
+            ij_helper=ij_helper,
             protocol_running=protocol_running_global,
             engineering_mode=ENGINEERING_MODE,
+            show_tooltips=show_tooltips,
+            live_histo_setting=live_histo_setting,
+            last_save_folder=last_save_folder,
+            disable_homing=disable_homing,
+            simulate_mode=simulate_mode,
+            live_view_fps=live_view_fps,
+            focus_round=focus_round,
         )
         app_context.ctx = ctx  # Publish to module-level singleton for extracted modules
 
@@ -787,6 +803,13 @@ class LumaViewProApp(TooltipMixin, App):
         ctx.scope_display = ctx.viewer.ids['scope_display_id']
         ctx.image_settings = lumaview.ids['imagesettings_id']
         ctx.motion_settings = lumaview.ids['motionsettings_id']
+
+        # Copy post_processing self-registration values (set during widget tree construction
+        # before ctx existed) — these are read via ctx by other modules
+        ctx.stitch_controls = stitch_controls
+        ctx.zprojection_controls = zprojection_controls
+        ctx.composite_gen_controls = composite_gen_controls
+        ctx.video_creation_controls = video_creation_controls
 
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)

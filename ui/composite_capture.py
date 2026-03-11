@@ -36,22 +36,22 @@ class CompositeCapture(FloatLayout):
 
     # Gets the current well label (ex. A1, C2, ...)
     def get_well_label(self):
-        import lumaviewpro
         from modules.config_getters import get_selected_labware
 
+        ctx = _app_ctx.ctx
         _, labware = get_selected_labware()
 
         # Get target position
         try:
-            x_target = lumaviewpro.lumaview.scope.get_target_position('X')
-            y_target = lumaviewpro.lumaview.scope.get_target_position('Y')
+            x_target = ctx.scope.get_target_position('X')
+            y_target = ctx.scope.get_target_position('Y')
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             raise
 
-        x_target, y_target = lumaviewpro.coordinate_transformer.stage_to_plate(
+        x_target, y_target = ctx.coordinate_transformer.stage_to_plate(
             labware=labware,
-            stage_offset=lumaviewpro.settings['stage_offset'],
+            stage_offset=ctx.settings['stage_offset'],
             sx=x_target,
             sy=y_target
         )
@@ -70,13 +70,12 @@ class CompositeCapture(FloatLayout):
             CompositeCapture._capturing.clear()
 
     def _live_capture_impl(self):
-        import lumaviewpro
         from modules.config_getters import get_layer_configs
 
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
 
         ctx = _app_ctx.ctx
-        settings = lumaviewpro.settings
+        settings = ctx.settings
 
         file_root = 'live_'
         color = 'BF'
@@ -109,8 +108,8 @@ class CompositeCapture(FloatLayout):
         sum_delay_s=layer_configs[layer]['exposure']/1000
         sum_count=layer_configs[layer]['sum']
 
-        if lumaviewpro.ENGINEERING_MODE is False:
-            return lumaviewpro.lumaview.scope.save_live_image(
+        if ctx.engineering_mode is False:
+            return ctx.scope.save_live_image(
                 save_folder,
                 file_root,
                 append,
@@ -128,7 +127,7 @@ class CompositeCapture(FloatLayout):
             use_crosshairs = ctx.scope_display.use_crosshairs
 
             if not use_bullseye and not use_crosshairs:
-                return lumaviewpro.lumaview.scope.save_live_image(
+                return ctx.scope.save_live_image(
                     save_folder,
                     file_root,
                     append,
@@ -141,7 +140,7 @@ class CompositeCapture(FloatLayout):
                     turn_off_all_leds_after=False,
                 )
 
-            image_orig = lumaviewpro.lumaview.scope.get_image(force_to_8bit=force_to_8bit_pixel_depth)
+            image_orig = ctx.scope.get_image(force_to_8bit=force_to_8bit_pixel_depth)
             if image_orig is False:
                 return
 
@@ -157,7 +156,7 @@ class CompositeCapture(FloatLayout):
                 image = image_orig
 
             # Original image may be in 8 or 12-bit
-            lumaviewpro.lumaview.scope.save_image(
+            ctx.scope.save_image(
                 array=image_orig,
                 save_folder=save_folder,
                 file_root=file_root,
@@ -178,7 +177,7 @@ class CompositeCapture(FloatLayout):
                 crosshairs_image = bullseye_image
 
             # Overlay image is in 8-bits
-            lumaviewpro.lumaview.scope.save_image(
+            ctx.scope.save_image(
                 array=crosshairs_image,
                 save_folder=save_folder,
                 file_root=file_root,
@@ -191,28 +190,27 @@ class CompositeCapture(FloatLayout):
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         if CompositeCapture._capturing.is_set():
             logger.warning('[LVP Main  ] Composite capture already in progress, ignoring')
             return
         CompositeCapture._capturing.set()
 
-        z_stage_present = not lumaviewpro.disable_homing
+        z_stage_present = not ctx.disable_homing
 
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
 
-        ctx = _app_ctx.ctx
         initial_layer = common_utils.get_opened_layer(ctx.image_settings)
 
-        if lumaviewpro.lumaview.scope.get_led_state(initial_layer)['enabled']:
+        if ctx.scope.get_led_state(initial_layer)['enabled']:
             led_restore_state = True
         else:
             led_restore_state = False
 
         live_histo_off()
 
-        if lumaviewpro.lumaview.scope.camera.active is None:
+        if ctx.scope.camera.active is None:
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
@@ -240,12 +238,10 @@ class CompositeCapture(FloatLayout):
         use_full_pixel_depth,
     ):
         """Runs on background thread — performs hardware I/O without blocking UI."""
-        import lumaviewpro
-
         ctx = _app_ctx.ctx
-        settings = lumaviewpro.settings
-        io_executor = lumaviewpro.io_executor
-        camera_executor = lumaviewpro.camera_executor
+        settings = ctx.settings
+        io_executor = ctx.io_executor
+        camera_executor = ctx.camera_executor
 
         # Snapshot settings at entry for thread safety — avoids seeing partial
         # updates from the UI thread during the capture sequence.
@@ -283,34 +279,34 @@ class CompositeCapture(FloatLayout):
                 if z_stage_present:
                     focus_pos = layer_settings[trans_layer]['focus']
                     scope_commands.move_absolute_sync(
-                        lumaviewpro.lumaview.scope, io_executor, 'Z', focus_pos,
+                        ctx.scope, io_executor, 'Z', focus_pos,
                         wait_until_complete=True,
                     )
 
                 gain = layer_settings[trans_layer]['gain']
-                scope_commands.set_gain_sync(lumaviewpro.lumaview.scope, camera_executor, gain)
+                scope_commands.set_gain_sync(ctx.scope, camera_executor, gain)
                 exposure = layer_settings[trans_layer]['exp']
-                scope_commands.set_exposure_sync(lumaviewpro.lumaview.scope, camera_executor, exposure)
+                scope_commands.set_exposure_sync(ctx.scope, camera_executor, exposure)
                 illumination = layer_settings[trans_layer]['ill']
 
                 scope_commands.led_on_sync(
-                    lumaviewpro.lumaview.scope, io_executor,
-                    lumaviewpro.lumaview.scope.color2ch(trans_layer), illumination,
+                    ctx.scope, io_executor,
+                    ctx.scope.color2ch(trans_layer), illumination,
                 )
 
                 transmitted_image = np.array(
                     scope_commands.capture_and_wait_sync(
-                        lumaviewpro.lumaview.scope, camera_executor,
+                        ctx.scope, camera_executor,
                         force_to_8bit=not use_full_pixel_depth,
                     ),
                     dtype=dtype,
                 )
-                scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
+                scope_commands.leds_off_sync(ctx.scope, io_executor)
 
                 # Can only use one transmitted channel per composite
                 break
 
-        scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
+        scope_commands.leds_off_sync(ctx.scope, io_executor)
 
         # Capture fluorescence and luminescence channels
         for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
@@ -321,14 +317,14 @@ class CompositeCapture(FloatLayout):
                 if z_stage_present:
                     focus_pos = layer_settings[layer]['focus']
                     scope_commands.move_absolute_sync(
-                        lumaviewpro.lumaview.scope, io_executor, 'Z', focus_pos,
+                        ctx.scope, io_executor, 'Z', focus_pos,
                         wait_until_complete=True,
                     )
 
                 gain = layer_settings[layer]['gain']
-                scope_commands.set_gain_sync(lumaviewpro.lumaview.scope, camera_executor, gain)
+                scope_commands.set_gain_sync(ctx.scope, camera_executor, gain)
                 exposure = layer_settings[layer]['exp']
-                scope_commands.set_exposure_sync(lumaviewpro.lumaview.scope, camera_executor, exposure)
+                scope_commands.set_exposure_sync(ctx.scope, camera_executor, exposure)
                 sum_count = layer_settings[layer]['sum']
                 sum_iteration_callback = ctx.scope_display.update_scopedisplay
 
@@ -340,22 +336,22 @@ class CompositeCapture(FloatLayout):
                 # Luminescence channels don't use an LED
                 if layer not in common_utils.get_transmitted_layers():
                     scope_commands.led_on_sync(
-                        lumaviewpro.lumaview.scope, io_executor,
-                        lumaviewpro.lumaview.scope.color2ch(layer), illumination,
+                        ctx.scope, io_executor,
+                        ctx.scope.color2ch(layer), illumination,
                     )
 
                 img_gray = scope_commands.capture_and_wait_sync(
-                    lumaviewpro.lumaview.scope, camera_executor,
+                    ctx.scope, camera_executor,
                     force_to_8bit=not use_full_pixel_depth,
                     sum_count=sum_count,
                     sum_delay_s=exposure/1000,
                     sum_iteration_callback=sum_iteration_callback,
                 )
-                scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
+                scope_commands.leds_off_sync(ctx.scope, io_executor)
 
                 channel_images[layer] = np.array(img_gray)
 
-            scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
+            scope_commands.leds_off_sync(ctx.scope, io_executor)
 
             # Unschedule histogram on main thread — widget access must not happen from worker
             def _unschedule_histo(dt, layer_name=layer):
@@ -381,7 +377,7 @@ class CompositeCapture(FloatLayout):
         set_last_save_folder(dir=save_folder)
 
         if acquired_channel_count != 1 and acquired_channel_count != 0:
-            lumaviewpro.lumaview.scope.save_image(
+            ctx.scope.save_image(
                 array=img,
                 save_folder=save_folder,
                 file_root='composite_',
@@ -391,7 +387,7 @@ class CompositeCapture(FloatLayout):
                 output_format=image_output_format['live']
             )
         elif acquired_channel_count != 0:
-            lumaviewpro.lumaview.scope.save_image(
+            ctx.scope.save_image(
                 array=img,
                 save_folder=save_folder,
                 file_root=f"{most_recent_aq_channel}_Image_",
@@ -405,7 +401,7 @@ class CompositeCapture(FloatLayout):
 
         # UI updates must happen on the main thread
         def _restore_ui(dt):
-            lumaviewpro.lumaview.ids['composite_btn'].state = 'normal'
+            ctx.lumaview.ids['composite_btn'].state = 'normal'
             live_histo_reverse()
             opened_layer_obj = common_utils.get_opened_layer_obj(ctx.image_settings)
             if led_restore_state:

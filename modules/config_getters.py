@@ -61,8 +61,8 @@ def get_zstack_params() -> dict:
 def get_zstack_positions() -> tuple[bool, dict]:
     config = get_zstack_params()
 
-    import lumaviewpro
-    current_pos = lumaviewpro.lumaview.scope.get_current_position('Z')
+    ctx = _app_ctx.ctx
+    current_pos = ctx.scope.get_current_position('Z')
 
     zstack_config = ZStackConfig(
         range=config['range'],
@@ -116,8 +116,8 @@ def get_enabled_stim_configs() -> dict:
 # ---------------------------------------------------------------------------
 
 def get_current_plate_position():
-    import lumaviewpro
-    if not lumaviewpro.lumaview.scope.motion.driver:
+    ctx = _app_ctx.ctx
+    if not ctx.scope.motion.driver:
         logger.error(f"Cannot retrieve current plate position")
         return {
             'x': 0,
@@ -125,11 +125,11 @@ def get_current_plate_position():
             'z': 0
         }
 
-    pos = lumaviewpro.lumaview.scope.get_current_position(axis=None)
+    pos = ctx.scope.get_current_position(axis=None)
     _, labware_obj = get_selected_labware()
-    px, py = _app_ctx.ctx.coordinate_transformer.stage_to_plate(
+    px, py = ctx.coordinate_transformer.stage_to_plate(
         labware=labware_obj,
-        stage_offset=_app_ctx.ctx.settings['stage_offset'],
+        stage_offset=ctx.settings['stage_offset'],
         sx=pos['X'],
         sy=pos['Y'],
     )
@@ -257,7 +257,7 @@ def get_protocol_time_params() -> dict:
 # ---------------------------------------------------------------------------
 
 def create_hyperstacks_if_needed():
-    import lumaviewpro
+    ctx = _app_ctx.ctx
     image_capture_config = get_image_capture_config_from_ui()
     if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
         from kivy.clock import Clock
@@ -268,11 +268,11 @@ def create_hyperstacks_if_needed():
         ), 0)
         _, objective = get_current_objective_info()
         stack_builder = StackBuilder(
-            has_turret=lumaviewpro.lumaview.scope.has_turret(),
+            has_turret=ctx.scope.has_turret(),
         )
         stack_builder.load_folder(
-            path=lumaviewpro.sequenced_capture_executor.run_dir(),
-            tiling_configs_file_loc=pathlib.Path(lumaviewpro.source_path) / "data" / "tiling.json",
+            path=ctx.sequenced_capture_executor.run_dir(),
+            tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json",
             binning_size=get_binning_from_ui(),
             focal_length=objective['focal_length'],
         )

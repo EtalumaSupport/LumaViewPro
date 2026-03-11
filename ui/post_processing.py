@@ -50,7 +50,7 @@ class StitchControls(BoxLayout):
 
     @show_popup
     def run_stitcher(self, popup, path):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         status_map = {
             True: "Success",
             False: "FAILED"
@@ -61,15 +61,15 @@ class StitchControls(BoxLayout):
         popup.auto_dismiss = False
 
         stitcher = Stitcher(
-            has_turret=lumaviewpro.lumaview.scope.has_turret(),
+            has_turret=ctx.lumaview.scope.has_turret(),
         )
         # result = stitcher.load_folder(
         #     path=pathlib.Path(path),
         #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
         # )
-        _app_ctx.ctx.file_io_executor.put(IOTask(action=stitcher.load_folder,
+        ctx.file_io_executor.put(IOTask(action=stitcher.load_folder,
                              args=(pathlib.Path(path),
-                                    pathlib.Path(lumaviewpro.source_path) / "data" / "tiling.json",
+                                    pathlib.Path(ctx.source_path) / "data" / "tiling.json",
                                     popup
                                     ),
                              callback=self.stitcher_callback,
@@ -116,12 +116,12 @@ class ZProjectionControls(BoxLayout):
 
     @show_popup
     def run_zprojection(self, popup, path):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         popup.title = "Z-Projection"
         popup.progress = 0
         popup.auto_dismiss = False
 
-        if lumaviewpro.ij_helper is None:
+        if ctx.ij_helper is None:
             popup.text = "     ImageJ is not initialized.\n" + \
                          "Please wait for ImageJ to initialize.\n" + \
                          "   Note: This may take some time.\n" + \
@@ -157,13 +157,13 @@ class ZProjectionControls(BoxLayout):
         return
 
     def zprojection_with_imagej(self, popup, path):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         status_map = {
             True: "Success",
             False: "FAILED"
         }
 
-        if lumaviewpro.ij_helper is not None:
+        if ctx.ij_helper is not None:
             self.ij_initialized = True
             Clock.unschedule(self.ij_buffer_event)
             self.ij_buffer_event = None
@@ -174,7 +174,7 @@ class ZProjectionControls(BoxLayout):
             self.ij_buffer_event = None
             self.ij_buffer_count = 0
 
-        if lumaviewpro.ij_helper is None:
+        if ctx.ij_helper is None:
             popup.text = "Failed to initialize ImageJ. Please try again."
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
@@ -182,8 +182,8 @@ class ZProjectionControls(BoxLayout):
         popup.text = "Generating Z-Projection images..."
 
         zproj = zprojector.ZProjector(
-            has_turret=lumaviewpro.lumaview.scope.has_turret(),
-            ij_helper=lumaviewpro.ij_helper
+            has_turret=ctx.lumaview.scope.has_turret(),
+            ij_helper=ctx.ij_helper
         )
         # result = zproj.load_folder(
         #     path=pathlib.Path(path),
@@ -191,9 +191,9 @@ class ZProjectionControls(BoxLayout):
         #     method=self.ids['zprojection_method_spinner'].text
         # )
 
-        _app_ctx.ctx.file_io_executor.put(IOTask(action=zproj.load_folder,
+        ctx.file_io_executor.put(IOTask(action=zproj.load_folder,
                              args=(pathlib.Path(path),
-                                    pathlib.Path(lumaviewpro.source_path) / "data" / "tiling.json",
+                                    pathlib.Path(ctx.source_path) / "data" / "tiling.json",
                                     popup
                                     ),
                              kwargs={
@@ -233,7 +233,7 @@ class CompositeGenControls(BoxLayout):
 
     @show_popup
     def run_composite_gen(self, popup, path):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         status_map = {
             True: "Success",
             False: "FAILED"
@@ -244,14 +244,14 @@ class CompositeGenControls(BoxLayout):
         popup.auto_dismiss = False
 
         composite_gen = CompositeGeneration(
-            has_turret=lumaviewpro.lumaview.scope.has_turret(),
+            has_turret=ctx.lumaview.scope.has_turret(),
         )
 
         # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
         # May want to update this in the future
-        _app_ctx.ctx.file_io_executor.put(IOTask(action=composite_gen.load_folder,
+        ctx.file_io_executor.put(IOTask(action=composite_gen.load_folder,
                              args=(pathlib.Path(path),
-                                    pathlib.Path(lumaviewpro.source_path) / "data" / "tiling.json",
+                                    pathlib.Path(ctx.source_path) / "data" / "tiling.json",
                                     popup
                                     ),
                              callback=self.composite_gen_callback,
@@ -304,7 +304,7 @@ class VideoCreationControls(BoxLayout):
 
     @show_popup
     def run_video_gen(self, popup, path) -> None:
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         status_map = {
             True: "Success",
             False: "FAILED"
@@ -335,12 +335,12 @@ class VideoCreationControls(BoxLayout):
             #self.done = True
 
         video_builder = VideoBuilder(
-            has_turret=lumaviewpro.lumaview.scope.has_turret(),
+            has_turret=ctx.lumaview.scope.has_turret(),
         )
 
-        _app_ctx.ctx.file_io_executor.put(IOTask(action=video_builder.load_folder,
+        ctx.file_io_executor.put(IOTask(action=video_builder.load_folder,
                              args=(pathlib.Path(path),
-                                    pathlib.Path(lumaviewpro.source_path) / "data" / "tiling.json",
+                                    pathlib.Path(ctx.source_path) / "data" / "tiling.json",
                                     popup
                                     ),
                              kwargs={
@@ -632,7 +632,6 @@ class GraphingControls(BoxLayout):
             self.update_trendline()
 
     def initialize_graph(self):
-        import lumaviewpro
         if plt:
             plt.clf()
         graphing_area = self.graphing_area
@@ -940,9 +939,8 @@ class CellCountControls(BoxLayout):
 
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
-        import lumaviewpro
         logger.info(f'[LVP Main  ] CellCountContent.save_method_as({file})')
-        os.chdir(lumaviewpro.source_path)
+        os.chdir(_app_ctx.ctx.source_path)
         self._add_method_settings_metadata()
         with open(file, "w") as write_file:
             json.dump(self._settings, write_file, indent = 4, cls=CustomJSONizer)
@@ -957,7 +955,6 @@ class CellCountControls(BoxLayout):
 
 
     def _regenerate_image_preview(self):
-        import lumaviewpro
         if self._preview_source_image is None:
             return
 
@@ -968,7 +965,7 @@ class CellCountControls(BoxLayout):
 
         self._preview_image = image
 
-        lumaviewpro.cell_count_content.ids['cell_count_image_id'].texture = image_utils_kivy.image_to_texture(image=image)
+        _app_ctx.ctx.cell_count_content.ids['cell_count_image_id'].texture = image_utils_kivy.image_to_texture(image=image)
 
 
     def slider_adjustment_threshold(self):
@@ -1042,7 +1039,6 @@ class CellCountControls(BoxLayout):
 
 
     def pixel_conversion_adjustment(self):
-        import lumaviewpro
 
         def _validate(value_str):
             try:
@@ -1055,7 +1051,7 @@ class CellCountControls(BoxLayout):
 
             return True, value
 
-        value_str = lumaviewpro.cell_count_content.ids['text_cell_count_pixels_per_um_id'].text
+        value_str = _app_ctx.ctx.cell_count_content.ids['text_cell_count_pixels_per_um_id'].text
 
         valid, value = _validate(value_str)
         if not valid:
@@ -1186,12 +1182,12 @@ class PostProcessingAccordion(BoxLayout):
 
 
     def open_cell_count(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         if self._cell_count_popup is None:
-            lumaviewpro.cell_count_content.set_post_processing_module(self.post)
+            ctx.cell_count_content.set_post_processing_module(self.post)
             self._cell_count_popup = Popup(
                 title="Post Processing - Object Analysis",
-                content=lumaviewpro.cell_count_content,
+                content=ctx.cell_count_content,
                 size_hint=(0.85,0.85),
                 auto_dismiss=True
             )
@@ -1199,12 +1195,12 @@ class PostProcessingAccordion(BoxLayout):
         self._cell_count_popup.open()
 
     def open_graphing(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         if self._graphing_popup is None:
-            lumaviewpro.graphing_controls.set_post_processing_module(self.post)
+            ctx.graphing_controls.set_post_processing_module(self.post)
             self._graphing_popup = Popup(
                 title="Post Processing - Object Plotting",
-                content=lumaviewpro.graphing_controls,
+                content=ctx.graphing_controls,
                 size_hint=(0.85,0.85),
                 auto_dismiss=True
             )
@@ -1213,7 +1209,7 @@ class PostProcessingAccordion(BoxLayout):
 
 
 def open_last_save_folder():
-    import lumaviewpro
+    ctx = _app_ctx.ctx
 
     OS_FOLDER_MAP = {
         'win32': 'explorer',
@@ -1226,10 +1222,10 @@ def open_last_save_folder():
         return
 
     command = OS_FOLDER_MAP[sys.platform]
-    if lumaviewpro.last_save_folder is None:
-        subprocess.Popen([command, str(pathlib.Path(_app_ctx.ctx.settings['live_folder']).resolve())])
+    if ctx.last_save_folder is None:
+        subprocess.Popen([command, str(pathlib.Path(ctx.settings['live_folder']).resolve())])
     else:
-        subprocess.Popen([command, str(lumaviewpro.last_save_folder)])
+        subprocess.Popen([command, str(ctx.last_save_folder)])
 
 # ============================================================================
 # CellCountDisplay and ShaderEditor

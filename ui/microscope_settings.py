@@ -14,8 +14,14 @@ from kivy.clock import Clock
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
+import modules.binning as binning
 import modules.common_utils as common_utils
+from modules.config_getters import get_binning_from_ui, get_current_frame_dimensions, get_selected_labware
+from modules.json_helper import CustomJSONizer
+from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
+from modules.ui_helpers import move_absolute_position, move_home, scope_leds_off
+from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.ui.microscope_settings')
 
@@ -27,8 +33,8 @@ class MicroscopeSettings(BoxLayout):
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
 
         try:
-            import lumaviewpro
-            os.chdir(lumaviewpro.source_path)
+            _source = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            os.chdir(_source)
             with open('./data/scopes.json', "r") as read_file:
                 self.scopes = json.load(read_file)
         except Exception:
@@ -48,19 +54,19 @@ class MicroscopeSettings(BoxLayout):
     #     return self.objectives[objective_id]
 
     def reconnect(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         logger.info("[LVP Main  ] Reconnecting to microscope...")
 
-        lumaview = lumaviewpro.lumaview
-        settings = _app_ctx.ctx.settings
+        lumaview = ctx.lumaview
+        settings = ctx.settings
 
         lumaview.scope.disconnect()
         lumaview.scope = None
         # Reinitialize the scope object (connects motorboard, ledboard, camera)
         import lumascope_api
-        lumaview.scope = lumascope_api.Lumascope(camera_type=settings['camera_type'], simulate=lumaviewpro.simulate_mode)
-        labware_id, labware = lumaviewpro.get_selected_labware()
+        lumaview.scope = lumascope_api.Lumascope(camera_type=settings['camera_type'], simulate=ctx.simulate_mode)
+        labware_id, labware = get_selected_labware()
 
         # Set all variables that were already set at init
         lumaview.scope.set_labware(labware)
@@ -70,23 +76,23 @@ class MicroscopeSettings(BoxLayout):
 
         lumaview.scope.set_scale_bar(enabled=settings['scale_bar']['enabled'])
         lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
-        lumaview.scope.set_binning_size(size=lumaviewpro.binning.binning_size_str_to_int(text=settings['binning']['size']))
+        lumaview.scope.set_binning_size(size=binning.binning_size_str_to_int(text=settings['binning']['size']))
 
-        lumaviewpro.sequenced_capture_executor.set_scope(lumaview.scope)
-        lumaviewpro.autofocus_executor.set_scope(lumaview.scope)
+        ctx.sequenced_capture_executor.set_scope(lumaview.scope)
+        ctx.autofocus_executor.set_scope(lumaview.scope)
 
         # Restart display
 
-        _app_ctx.ctx.scope_display.stop()
-        _app_ctx.ctx.scope_display.start()
+        ctx.scope_display.stop()
+        ctx.scope_display.start()
 
-        if not lumaviewpro.disable_homing:
+        if not ctx.disable_homing:
             # Note: If the scope has a turret, this also performs a T homing
             task = IOTask(
-                lumaviewpro.move_home,
+                move_home,
                 args=('XY')
             )
-            lumaviewpro.stage_executor.put(task)
+            ctx.io_executor.put(task)
 
 
         if lumaview.scope.has_turret():
@@ -98,19 +104,19 @@ class MicroscopeSettings(BoxLayout):
                 logger.info(f"Turret position for set objective {objective_id} not in turret objectives configuration. Setting to position {DEFAULT_POSITION}")
                 turret_position = DEFAULT_POSITION
 
-            lumaviewpro.turret_executor.put(IOTask(
-                lumaviewpro.move_absolute_position,
+            ctx.io_executor.put(IOTask(
+                move_absolute_position,
                 kwargs= {
                     "axis": 'T',
                     "pos": turret_position,
                     "wait_until_complete": True
                 }
             ))
-        _app_ctx.ctx.image_settings.set_layer_exposure_ranges()
-        layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer='BF')
+        ctx.image_settings.set_layer_exposure_ranges()
+        layer_obj = ctx.image_settings.layer_lookup(layer='BF')
         layer_obj.apply_settings()
 
-        lumaviewpro.scope_leds_off()
+        scope_leds_off()
 
         logger.info("[LVP Main  ] Reconnection complete.")
 
@@ -145,10 +151,9 @@ class MicroscopeSettings(BoxLayout):
 
 
     def set_acceleration_limit(self, val_pct: int):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
-        settings['motion']['acceleration_max_pct'] = val_pct
-        lumaviewpro.lumaview.scope.set_acceleration_limit(val_pct=val_pct)
+        ctx = _app_ctx.ctx
+        ctx.settings['motion']['acceleration_max_pct'] = val_pct
+        ctx.lumaview.scope.set_acceleration_limit(val_pct=val_pct)
 
 
     def set_acceleration_control_visibility(self, visible):
@@ -159,18 +164,18 @@ class MicroscopeSettings(BoxLayout):
     # load settings from JSON file
     def load_settings(self, filename="./data/current.json"):
         logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
-        lumaview = lumaviewpro.lumaview
-        settings = _app_ctx.ctx.settings
+        lumaview = ctx.lumaview
+        settings = ctx.settings
 
         try:
             # Settings are imported at the very beginning of file
 
             if settings['profiling']['enabled']:
                 ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                profiling_save_path = os.path.join(lumaviewpro.source_path, f'./logs/profiling')
-                lumaviewpro.MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
+                profiling_save_path = os.path.join(ctx.source_path, f'./logs/profiling')
+                MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
                 logger.info('[LVP Main  ] Memory Profiler started.')
 
             if 'autogain' not in settings['protocol']:
@@ -232,7 +237,7 @@ class MicroscopeSettings(BoxLayout):
                 logger.warning(f"Maximum Exposure defaulted to 1000 ms")
                 max_exposure = 1000
 
-            lumaviewpro.max_exposure = max_exposure
+            ctx.max_exposure = max_exposure
 
             if not settings['video_as_frames']:
                 self.ids['video_recording_format_spinner'].text = 'mp4'
@@ -242,11 +247,11 @@ class MicroscopeSettings(BoxLayout):
             self.select_video_recording_format()
 
             if "live_view_fps" in settings:
-                lumaviewpro.live_view_fps = settings['live_view_fps']
+                ctx.live_view_fps = settings['live_view_fps']
             else:
-                lumaviewpro.live_view_fps = 10
+                ctx.live_view_fps = 10
 
-            logger.info(f"[LVP Main  ] Live view FPS set to {lumaviewpro.live_view_fps}")
+            logger.info(f"[LVP Main  ] Live view FPS set to {ctx.live_view_fps}")
 
             acceleration_limit = settings['motion']['acceleration_max_pct']
             self.ids['acceleration_pct_slider'].value = acceleration_limit
@@ -256,7 +261,7 @@ class MicroscopeSettings(BoxLayout):
             # Multiplying frame size by the binning size to account for the select_binning_size() call
             # Effectively sets the frame size to the size it was prior to pixel binning, then bins
             binning_size_str = settings['binning']['size']
-            binning_size = lumaviewpro.binning.binning_size_str_to_int(text=binning_size_str)
+            binning_size = binning.binning_size_str_to_int(text=binning_size_str)
 
             self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
             self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
@@ -282,11 +287,11 @@ class MicroscopeSettings(BoxLayout):
 
             self.ids['objective_spinner'].text = objective_id
 
-            vertical_control_id = _app_ctx.ctx.motion_settings.ids['verticalcontrol_id']
+            vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
             v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
             v_control_objective_spinner.text = objective_id
 
-            objective_helper = _app_ctx.ctx.objective_helper
+            objective_helper = ctx.objective_helper
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             self.ids['magnification_id'].text = f"{objective['magnification']}"
 
@@ -308,20 +313,20 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['enable_scale_bar_btn'].state = 'normal'
             self.update_scale_bar_state()
 
-            protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
+            protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
             protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
             protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
             protocol_settings.select_labware()
 
-            zstack_settings = _app_ctx.ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
+            zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
             zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
             zstack_settings.ids['zstack_stepsize_id'].text = str(settings['zstack']['step_size'])
             zstack_settings.ids['zstack_range_id'].text = str(settings['zstack']['range'])
 
             z_reference = common_utils.convert_zstack_reference_position_setting_to_config(text_label=settings['zstack']['position'])
 
-            zstack_config = lumaviewpro.ZStackConfig(
+            zstack_config = ZStackConfig(
                 range=settings['zstack']['range'],
                 step_size=settings['zstack']['step_size'],
                 current_z_reference=z_reference,
@@ -333,10 +338,10 @@ class MicroscopeSettings(BoxLayout):
             if "show_tooltips" in settings:
                 if settings["show_tooltips"]:
                     self.ids['show_tooltips_btn'].state = 'down'
-                    lumaviewpro.show_tooltips = True
+                    ctx.show_tooltips = True
                 else:
                     self.ids['show_tooltips_btn'].state = 'normal'
-                    lumaviewpro.show_tooltips = False
+                    ctx.show_tooltips = False
 
 
             if "protocol_led_on" in settings:
@@ -364,7 +369,7 @@ class MicroscopeSettings(BoxLayout):
 
             for layer in common_utils.get_layers():
 
-                layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
+                layer_obj = ctx.image_settings.layer_lookup(layer=layer)
 
                 # Set initializing flag to prevent apply_settings during load
                 layer_obj._initializing = True
@@ -479,20 +484,20 @@ class MicroscopeSettings(BoxLayout):
             _app_ctx.ctx.scope_display.use_bullseye = False
 
     def update_full_pixel_depth_state(self):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
 
         if self.ids['enable_full_pixel_depth_btn'].state == 'down':
             use_full_pixel_depth = True
         else:
             use_full_pixel_depth = False
 
-        _app_ctx.ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
+        ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
 
         if use_full_pixel_depth:
-            lumaviewpro.lumaview.scope.camera.set_pixel_format('Mono12')
+            ctx.lumaview.scope.camera.set_pixel_format('Mono12')
         else:
-            lumaviewpro.lumaview.scope.camera.set_pixel_format('Mono8')
+            ctx.lumaview.scope.camera.set_pixel_format('Mono8')
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
 
@@ -515,15 +520,15 @@ class MicroscopeSettings(BoxLayout):
 
 
     def update_scale_bar_state(self):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
 
         if self.ids['enable_scale_bar_btn'].state == 'down':
             enabled = True
         else:
             enabled = False
 
-        lumaviewpro.lumaview.scope.set_scale_bar(enabled=enabled)
+        ctx.lumaview.scope.set_scale_bar(enabled=enabled)
         settings['scale_bar']['enabled'] = enabled
 
     def update_crosshairs_state(self):
@@ -537,23 +542,23 @@ class MicroscopeSettings(BoxLayout):
 
 
     def update_live_image_histogram_equalization(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         if self.ids['enable_live_image_histogram_equalization_btn'].state == 'down':
-            _app_ctx.ctx.scope_display.use_live_image_histogram_equalization = True
-            lumaviewpro.live_histo_setting = True
+            ctx.scope_display.use_live_image_histogram_equalization = True
+            ctx.live_histo_setting = True
         else:
-            _app_ctx.ctx.scope_display.use_live_image_histogram_equalization = False
-            lumaviewpro.live_histo_setting = False
+            ctx.scope_display.use_live_image_histogram_equalization = False
+            ctx.live_histo_setting = False
 
 
     def update_show_tooltips(self):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
         if self.ids['show_tooltips_btn'].state == 'down':
-            lumaviewpro.show_tooltips = True
+            ctx.show_tooltips = True
             settings["show_tooltips"] = True
         else:
-            lumaviewpro.show_tooltips = False
+            ctx.show_tooltips = False
             settings["show_tooltips"] = False
 
     def update_protocol_led_on(self):
@@ -593,17 +598,17 @@ class MicroscopeSettings(BoxLayout):
     # Save settings to JSON file
     def save_settings(self, file="./data/current.json"):
         logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
 
         if isinstance(file, str) and (file[-5:].lower() != '.json'):
                 file = file+'.json'
 
-        os.chdir(lumaviewpro.source_path)
-        with _app_ctx.ctx.settings_lock:
+        os.chdir(ctx.source_path)
+        with ctx.settings_lock:
             settings_snapshot = copy.deepcopy(settings)
         with open(file, "w") as write_file:
-            json.dump(settings_snapshot, write_file, indent = 4, cls=lumaviewpro.CustomJSONizer)
+            json.dump(settings_snapshot, write_file, indent = 4, cls=CustomJSONizer)
 
 
     def load_binning_sizes(self):
@@ -612,16 +617,16 @@ class MicroscopeSettings(BoxLayout):
 
 
     def select_binning_size(self):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
 
-        lumaview = lumaviewpro.lumaview
+        lumaview = ctx.lumaview
         orig_binning_size = lumaview.scope.get_binning_size()
-        orig_frame_size = lumaviewpro.get_current_frame_dimensions()
+        orig_frame_size = get_current_frame_dimensions()
 
         new_binning_size_str = self.ids['binning_spinner'].text
 
-        new_binning_size = lumaviewpro.binning.binning_size_str_to_int(new_binning_size_str)
+        new_binning_size = binning.binning_size_str_to_int(new_binning_size_str)
         lumaview.scope.set_binning_size(size=new_binning_size)
         settings['binning']['size'] = new_binning_size_str
         ratio = new_binning_size / orig_binning_size
@@ -641,49 +646,49 @@ class MicroscopeSettings(BoxLayout):
 
     def select_scope(self):
         logger.info('[LVP Main  ] MicroscopeSettings.select_scope()')
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
 
         spinner = self.ids['scope_spinner']
         settings['microscope'] = spinner.text
 
         self.set_ui_features_for_scope()
-        lumaviewpro.stage.full_redraw()
+        ctx.stage.full_redraw()
 
 
     def set_ui_features_for_scope(self) -> None:
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
 
-        microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
+        microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
         scope_configs = microscope_settings.scopes
         selected_scope_config = scope_configs[settings['microscope']]
 
         microscope_settings.set_acceleration_control_visibility(visible=selected_scope_config['XYStage'])
 
-        motion_settings = _app_ctx.ctx.motion_settings
+        motion_settings = ctx.motion_settings
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
         motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
         motion_settings.set_tiling_control_visibility(visible=selected_scope_config['XYStage'])
 
-        image_settings = _app_ctx.ctx.image_settings
+        image_settings = ctx.image_settings
         layers_config = selected_scope_config['Layers']
         image_settings.set_df_layer_control_visibility(visible=layers_config['Darkfield'])
         image_settings.set_lumi_layer_control_visibility(visible=layers_config['Lumi'])
         image_settings.set_fluoresence_layer_controls_visibility(visible=layers_config['Flourescence'])
 
-        protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
+        protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
         protocol_settings.set_show_protocol_step_locations_visibility(visible=selected_scope_config['XYStage'])
 
-        _app_ctx.ctx.motion_settings.ids['post_processing_id'].ids['stitch_controls_id'].set_button_enabled_state(state=selected_scope_config['XYStage'])
+        ctx.motion_settings.ids['post_processing_id'].ids['stitch_controls_id'].set_button_enabled_state(state=selected_scope_config['XYStage'])
 
         if selected_scope_config['XYStage'] is False:
-            lumaviewpro.stage.remove_parent()
+            ctx.stage.remove_parent()
             protocol_settings.select_labware(labware="Center Plate")
-            _app_ctx.ctx.motion_settings.ids['post_processing_id'].hide_stitch()
+            ctx.motion_settings.ids['post_processing_id'].hide_stitch()
 
-        lumaviewpro.stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
+        ctx.stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
 
 
     def load_objectives(self):
@@ -695,20 +700,20 @@ class MicroscopeSettings(BoxLayout):
 
     def select_objective(self):
         logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
-        lumaview = lumaviewpro.lumaview
-        settings = _app_ctx.ctx.settings
-        objective_helper = _app_ctx.ctx.objective_helper
+        lumaview = ctx.lumaview
+        settings = ctx.settings
+        objective_helper = ctx.objective_helper
 
         objective_id = self.ids['objective_spinner'].text
         objective = objective_helper.get_objective_info(objective_id=objective_id)
         settings['objective_id'] = objective_id
-        microscope_settings_id = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
+        microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
         microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
 
         # Update selected to be consistent with other selector
-        vc_objective_spinner = _app_ctx.ctx.motion_settings.ids['verticalcontrol_id'].ids['objective_spinner2']
+        vc_objective_spinner = ctx.motion_settings.ids['verticalcontrol_id'].ids['objective_spinner2']
         vc_objective_spinner.text = objective_id
 
         if lumaview.scope.has_turret():
@@ -719,24 +724,24 @@ class MicroscopeSettings(BoxLayout):
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
-            binning_size=lumaviewpro.get_binning_from_ui(),
+            binning_size=get_binning_from_ui(),
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
 
     def frame_size(self):
         logger.info('[LVP Main  ] MicroscopeSettings.frame_size()')
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
-        lumaview = lumaviewpro.lumaview
-        settings = _app_ctx.ctx.settings
-        objective_helper = _app_ctx.ctx.objective_helper
+        lumaview = ctx.lumaview
+        settings = ctx.settings
+        objective_helper = ctx.objective_helper
 
         if not lumaview.scope.camera_is_connected():
             return
 
         try:
-            current_frame_size = lumaviewpro.get_current_frame_dimensions()
+            current_frame_size = get_current_frame_dimensions()
         except ValueError:
             current_frame_size = {
                 'width': settings['frame']['width'],
@@ -769,7 +774,7 @@ class MicroscopeSettings(BoxLayout):
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],
-            binning_size=lumaviewpro.get_binning_from_ui(),
+            binning_size=get_binning_from_ui(),
         )
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
@@ -797,7 +802,6 @@ class MicroscopeSettings(BoxLayout):
         from ui.progress_popup import CustomPopup
         from modules.tech_support_report import TechSupportReport
         import threading
-        import lumaviewpro
 
         self._report_popup = CustomPopup(
             title='Generating Support Report...',
@@ -807,7 +811,7 @@ class MicroscopeSettings(BoxLayout):
 
         def run():
             try:
-                report = TechSupportReport(scope=lumaviewpro.lumaview.scope)
+                report = TechSupportReport(scope=_app_ctx.ctx.lumaview.scope)
 
                 def progress(pct, msg):
                     Clock.schedule_once(

@@ -232,8 +232,7 @@ class ImageSettings(BoxLayout):
     def _init_ui(self, dt=0):
         self.assign_led_button_down_images()
         # Skip accordion_collapse during app initialization to prevent premature apply_settings
-        import lumaviewpro
-        if not lumaviewpro._app_initializing:
+        if not _app_ctx.ctx.initializing:
             self.accordion_collapse()
         self.set_layer_exposure_ranges()
         self.enable_image_stats_if_needed()
@@ -249,10 +248,10 @@ class ImageSettings(BoxLayout):
 
 
     def set_layer_exposure_ranges(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].max = lumaviewpro.max_exposure
+            layer_obj.ids['exp_slider'].max = ctx.max_exposure
 
         for layer in common_utils.get_transmitted_layers():
             layer_obj = self.layer_lookup(layer=layer)
@@ -264,7 +263,7 @@ class ImageSettings(BoxLayout):
 
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
-            layer_obj.ids['exp_slider'].max = lumaviewpro.max_exposure
+            layer_obj.ids['exp_slider'].max = ctx.max_exposure
 
 
     def assign_led_button_down_images(self):
@@ -286,9 +285,9 @@ class ImageSettings(BoxLayout):
         if not _app_ctx.ctx.protocol_running.is_set():
             self.update_transmitted()
         logger.info('[LVP Main  ] ImageSettings.toggle_settings()')
-        import lumaviewpro
-        lumaview = lumaviewpro.lumaview
-        scope_display = _app_ctx.ctx.scope_display
+        ctx = _app_ctx.ctx
+        lumaview = ctx.lumaview
+        scope_display = ctx.scope_display
 
         # scope_display.stop()
 
@@ -297,7 +296,7 @@ class ImageSettings(BoxLayout):
             self.pos = lumaview.width - self.tab_width, 0
 
             for layer in common_utils.get_layers():
-                layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
+                layer_obj = ctx.image_settings.layer_lookup(layer=layer)
                 Clock.unschedule(layer_obj.ids['histo_id'].histogram)
                 logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
         else:
@@ -339,18 +338,19 @@ class ImageSettings(BoxLayout):
 
     def accordion_collapse(self):
         logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
-        import lumaviewpro
+        from modules.ui_helpers import scope_leds_off
+        ctx = _app_ctx.ctx
 
         # Skip during app initialization - will be called explicitly after init completes
-        if lumaviewpro._app_initializing:
+        if ctx.initializing:
             return
 
         logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
 
         # turn off the camera update and all LEDs
-        scope_display = _app_ctx.ctx.scope_display
+        scope_display = ctx.scope_display
         # scope_display.stop()
-        lumaviewpro.scope_leds_off()
+        scope_leds_off()
 
         # turn off all LED toggle buttons and histograms
         for layer in common_utils.get_layers():
@@ -370,8 +370,7 @@ class ImageSettings(BoxLayout):
 
     def check_settings(self, *args):
         logger.info('[LVP Main  ] ImageSettings.check_settings()')
-        import lumaviewpro
-        lumaview = lumaviewpro.lumaview
+        lumaview = _app_ctx.ctx.lumaview
         if self.ids['toggle_imagesettings'].state == 'normal':
             self.pos = lumaview.width - self.tab_width, 0
         else:

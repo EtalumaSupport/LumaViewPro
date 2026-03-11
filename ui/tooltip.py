@@ -13,6 +13,8 @@ from kivy.graphics import Color, Rectangle, Line
 from kivy.uix.accordion import AccordionItem
 from kivy.uix.label import Label
 
+import modules.app_context as _app_ctx
+
 
 class Tooltip(Label):
     def __init__(self, **kwargs):
@@ -90,7 +92,7 @@ class TooltipMixin:
     # Called every time mouse is moved
     # Used to check if tooltip should be shown
     def mouse_moved(self, *args) -> None:
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         delay_until_tooltip = 0.5   # In Seconds
 
@@ -98,7 +100,7 @@ class TooltipMixin:
         self.mouse_pos = mouse_pos
         on_widget = False
 
-        if lumaviewpro.show_tooltips:
+        if ctx.show_tooltips:
             self.hidden = False
 
             # Hide tooltip on mouse movement if not colliding anymore (Put here to check asap after a change)
@@ -237,9 +239,9 @@ class TooltipMixin:
 
 
     def show_tooltip(self, *args) -> None:
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
-        if lumaviewpro.show_tooltips:
+        if ctx.show_tooltips:
             if self.widget_being_described is not None:
                 self.tt_widget._update_rect()
                 # Default offsets
@@ -266,8 +268,8 @@ class TooltipMixin:
                 if not self.tt_shown:
 
                     # Remove and add the widget to ensure it shows up at the front of the screen
-                    lumaviewpro.lumaview.remove_widget(self.tt_widget)
-                    lumaviewpro.lumaview.add_widget(self.tt_widget)
+                    ctx.lumaview.remove_widget(self.tt_widget)
+                    ctx.lumaview.add_widget(self.tt_widget)
                     self.tt_widget.size = Window.size
 
                     if lower_half:

@@ -199,7 +199,6 @@ class LayerControl(BoxLayout):
             self.ids[item].disabled = state
 
         # When transitioning out of auto-gain, keep last auto-gain settings to apply
-        import lumaviewpro
         camera_executor.put(IOTask(
             action = LayerControl.get_gain_exposure,
             args=(self, init, state),
@@ -213,10 +212,9 @@ class LayerControl(BoxLayout):
 
 
     def get_gain_exposure(self, init, state):
-        import lumaviewpro
-        lumaview = lumaviewpro.lumaview
-        actual_gain = lumaview.scope.camera.get_gain()
-        actual_exp = lumaview.scope.camera.get_exposure_t()
+        ctx = _app_ctx.ctx
+        actual_gain = ctx.scope.camera.get_gain()
+        actual_exp = ctx.scope.camera.get_exposure_t()
 
         return (init, state, actual_gain, actual_exp)
 
@@ -529,10 +527,9 @@ class LayerControl(BoxLayout):
         ))
 
     def execute_save_focus(self):
-        import lumaviewpro
-        lumaview = lumaviewpro.lumaview
-        settings = _app_ctx.ctx.settings
-        pos = lumaview.scope.get_current_position('Z')
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        pos = ctx.scope.get_current_position('Z')
         settings[self.layer]['focus'] = pos
 
 
@@ -544,10 +541,10 @@ class LayerControl(BoxLayout):
         ))
 
     def execute_goto_focus(self):
-        import lumaviewpro
+        from modules.ui_helpers import move_absolute_position
         settings = _app_ctx.ctx.settings
         pos = settings[self.layer]['focus']
-        lumaviewpro.move_absolute_position('Z', pos)  # set current z height in usteps
+        move_absolute_position('Z', pos)  # set current z height in usteps
 
     def update_led_state(self, apply_settings=True):
         settings = _app_ctx.ctx.settings
@@ -571,21 +568,19 @@ class LayerControl(BoxLayout):
 
 
     def set_led_state(self, enabled: bool, illumination: float):
-        import lumaviewpro
-        lumaview = lumaviewpro.lumaview
-        io_executor = _app_ctx.ctx.io_executor
-        channel = lumaview.scope.color2ch(self.layer)
+        ctx = _app_ctx.ctx
+        io_executor = ctx.io_executor
+        channel = ctx.scope.color2ch(self.layer)
         if not enabled:
-            scope_commands.led_off(lumaview.scope, io_executor, channel)
+            scope_commands.led_off(ctx.scope, io_executor, channel)
         else:
             logger.info(f'[LVP Main  ] lumaview.scope.led_on(lumaview.scope.color2ch({self.layer}), {illumination})')
-            scope_commands.led_on(lumaview.scope, io_executor, channel, illumination)
+            scope_commands.led_on(ctx.scope, io_executor, channel, illumination)
 
     def update_led_toggle_ui(self):
-        import lumaviewpro
-        lumaview = lumaviewpro.lumaview
-        if lumaview.scope.led:
-            led_state = lumaview.scope.get_led_state(color=self.layer)
+        ctx = _app_ctx.ctx
+        if ctx.scope.led:
+            led_state = ctx.scope.get_led_state(color=self.layer)
             if led_state['enabled']:
                 self.ids['enable_led_btn'].state = 'down'
             else:
@@ -604,8 +599,8 @@ class LayerControl(BoxLayout):
         settings = ctx.settings
         protocol_running_global = ctx.protocol_running
         camera_executor = ctx.camera_executor
-        import lumaviewpro
-        lumaview = lumaviewpro.lumaview
+        from ui.image_settings import set_histogram_layer
+        lumaview = ctx.lumaview
 
         def update_shader(dt=None):
             if not ctx.scope_display.paused.is_set():
@@ -631,7 +626,7 @@ class LayerControl(BoxLayout):
         # update illumination to currently selected settings
         # -----------------------------------------------------
         if not protocol:
-            lumaviewpro.set_histogram_layer(active_layer=self.layer)
+            set_histogram_layer(active_layer=self.layer)
 
 
         # Queue IO task and update UI after completing IO
@@ -664,7 +659,8 @@ class LayerControl(BoxLayout):
 
         if not ignore_auto_gain:
             if not protocol_running_global.is_set():
-                autogain_settings = lumaviewpro.get_auto_gain_settings()
+                from modules.config_getters import get_auto_gain_settings
+                autogain_settings = get_auto_gain_settings()
                 camera_executor.put(IOTask(
                     action=lumaview.scope.set_auto_gain,
                     args=(auto_gain_enabled),

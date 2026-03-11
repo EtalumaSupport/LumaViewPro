@@ -190,12 +190,12 @@ class ScopeDisplay(Image):
                 x_dist_pixel = texture_click_pos_x - texture_width/2 # Positive means to the right of center
                 y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
 
-                # Late import to avoid circular dependency
-                import lumaviewpro
-                _, objective = lumaviewpro.get_current_objective_info()
+                from modules.config_getters import get_current_objective_info, get_binning_from_ui
+                from modules.ui_helpers import move_relative_position
+                _, objective = get_current_objective_info()
                 pixel_size_um = common_utils.get_pixel_size(
                     focal_length=objective['focal_length'],
-                    binning_size=lumaviewpro.get_binning_from_ui(),
+                    binning_size=get_binning_from_ui(),
                 )
 
                 x_dist_um = x_dist_pixel * pixel_size_um
@@ -203,8 +203,8 @@ class ScopeDisplay(Image):
 
                 ctx = _app_ctx.ctx
                 from modules.sequential_io_executor import IOTask
-                ctx.io_executor.put(IOTask(lumaviewpro.move_relative_position, kwargs={'axis':'X', 'um':x_dist_um}))
-                ctx.io_executor.put(IOTask(lumaviewpro.move_relative_position, kwargs={'axis':'Y', 'um':y_dist_um}))
+                ctx.io_executor.put(IOTask(move_relative_position, kwargs={'axis':'X', 'um':x_dist_um}))
+                ctx.io_executor.put(IOTask(move_relative_position, kwargs={'axis':'Y', 'um':y_dist_um}))
 
 
     @staticmethod
@@ -304,8 +304,8 @@ class ScopeDisplay(Image):
         active_layer_config = None
         open_layer = None
         try:
-            import lumaviewpro
-            active_layer, active_layer_config = lumaviewpro.get_active_layer_config()
+            from modules.config_getters import get_active_layer_config
+            active_layer, active_layer_config = get_active_layer_config()
         except Exception:
             pass
 
@@ -416,8 +416,7 @@ class ScopeDisplay(Image):
             Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape: self.create_and_set_texture(b, s), 0)
 
         if self.record:
-            import lumaviewpro
-            lumaviewpro.lumaview.live_capture()
+            ctx.lumaview.live_capture()
 
     def create_and_set_bullseye_texture(self, image_bytes, shape):
         size = (shape[1], shape[0])

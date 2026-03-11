@@ -31,8 +31,7 @@ class FileChooseBTN(HoverBehavior, Button):
         filetypes = None
         filetypes_tk = None
         if self.context == "load_protocol":
-            import lumaviewpro
-            selected_path = str(pathlib.Path(lumaviewpro.settings['live_folder']))
+            selected_path = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
             filetypes = ["*.tsv"]
             filetypes_tk = [('TSV', '.tsv')]
         elif self.context == "load_settings":
@@ -89,27 +88,27 @@ class FileChooseBTN(HoverBehavior, Button):
 
     def on_selection_function(self, *a, **k):
         logger.info('[LVP Main  ] FileChooseBTN.on_selection_function()')
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
 
         if self.selection:
             print("Selection")
             print(f"Self.context: {self.context}")
             if self.context == 'load_settings':
-                _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].load_settings(self.selection[0])
+                ctx.motion_settings.ids['microscope_settings_id'].load_settings(self.selection[0])
 
             elif self.context == 'load_protocol':
-                _app_ctx.ctx.motion_settings.ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
+                ctx.motion_settings.ids['protocol_settings_id'].load_protocol(filepath = self.selection[0])
 
             elif self.context == 'load_cell_count_input_image':
-                lumaviewpro.cell_count_content.set_preview_source_file(file=self.selection[0])
+                ctx.cell_count_content.set_preview_source_file(file=self.selection[0])
 
             elif self.context == 'load_graphing_data':
                 print("Set Graphing source")
-                lumaviewpro.graphing_controls.set_graphing_source(file=self.selection[0])
+                ctx.graphing_controls.set_graphing_source(file=self.selection[0])
 
             elif self.context == 'load_cell_count_method':
-                lumaviewpro.cell_count_content.load_method_from_file(file=self.selection[0])
+                ctx.cell_count_content.load_method_from_file(file=self.selection[0])
 
         else:
             return
@@ -123,8 +122,8 @@ class FolderChooseBTN(HoverBehavior, Button):
         logger.info(f'[LVP Main  ] FolderChooseBTN.choose({context})')
         self.context = context
 
-        import lumaviewpro
-        settings = lumaviewpro.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
 
         # Show previously selected/default folder
         if self.context in (
@@ -132,7 +131,7 @@ class FolderChooseBTN(HoverBehavior, Button):
             "apply_composite_gen_to_folder",
             "apply_video_gen_to_folder",
         ):
-            selected_path = pathlib.Path(settings['live_folder']) / lumaviewpro.PROTOCOL_DATA_DIR_NAME
+            selected_path = pathlib.Path(settings['live_folder']) / "ProtocolData"
             if not selected_path.exists():
                 selected_path = pathlib.Path(settings['live_folder'])
 
@@ -142,8 +141,8 @@ class FolderChooseBTN(HoverBehavior, Button):
         ):
             # Special handling for Z-Projections since they can either be from protocols or
             # from manually-acquired Z-Stacks
-            if lumaviewpro.last_save_folder is not None:
-                selected_path = pathlib.Path(lumaviewpro.last_save_folder)
+            if ctx.last_save_folder is not None:
+                selected_path = pathlib.Path(ctx.last_save_folder)
                 if not selected_path.exists():
                     selected_path = pathlib.Path(settings['live_folder'])
             else:
@@ -193,8 +192,8 @@ class FolderChooseBTN(HoverBehavior, Button):
 
 
     def on_selection_function(self, *a, **k):
-        import lumaviewpro
-        settings = lumaviewpro.settings
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
         logger.info('[LVP Main  ] FolderChooseBTN.on_selection_function()')
         if self.selection:
             path = self.selection[0]
@@ -204,17 +203,17 @@ class FolderChooseBTN(HoverBehavior, Button):
         if self.context == 'live_folder':
             settings['live_folder'] = str(pathlib.Path(path).resolve())
         elif self.context == 'apply_cell_count_method_to_folder':
-            lumaviewpro.cell_count_content.apply_method_to_folder(
+            ctx.cell_count_content.apply_method_to_folder(
                 path=path
             )
         elif self.context == 'apply_stitching_to_folder':
-            lumaviewpro.stitch_controls.run_stitcher(path=pathlib.Path(path))
+            ctx.stitch_controls.run_stitcher(path=pathlib.Path(path))
         elif self.context == 'apply_composite_gen_to_folder':
-            lumaviewpro.composite_gen_controls.run_composite_gen(path=pathlib.Path(path))
+            ctx.composite_gen_controls.run_composite_gen(path=pathlib.Path(path))
         elif self.context == 'apply_video_gen_to_folder':
-            lumaviewpro.video_creation_controls.run_video_gen(path=pathlib.Path(path))
+            ctx.video_creation_controls.run_video_gen(path=pathlib.Path(path))
         elif self.context == 'apply_zprojection_to_folder':
-            lumaviewpro.zprojection_controls.run_zprojection(path=pathlib.Path(path))
+            ctx.zprojection_controls.run_zprojection(path=pathlib.Path(path))
         else:
             raise Exception(f"on_selection_function(): Unknown selection {self.context}")
 
@@ -239,8 +238,7 @@ class FileSaveBTN(HoverBehavior, Button):
             logger.exception(f"Unsupported handling for {self.context}")
             return
 
-        import lumaviewpro
-        selected_path = lumaviewpro.settings['live_folder']
+        selected_path = _app_ctx.ctx.settings['live_folder']
 
         # Use root with attributes to keep filedialog on top
         # Ref: https://stackoverflow.com/questions/3375227/how-to-give-tkinter-file-dialog-focus
@@ -269,21 +267,21 @@ class FileSaveBTN(HoverBehavior, Button):
 
     def on_selection_function(self, *a, **k):
         logger.info('[LVP Main  ] FileSaveBTN.on_selection_function()')
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         if self.context == 'save_settings':
             if self.selection:
-                _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].save_settings(self.selection[0])
+                ctx.motion_settings.ids['microscope_settings_id'].save_settings(self.selection[0])
                 logger.info('[LVP Main  ] Saving Settings to File:' + self.selection[0])
 
         elif self.context == 'saveas_protocol':
             if self.selection:
-                _app_ctx.ctx.motion_settings.ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
+                ctx.motion_settings.ids['protocol_settings_id'].save_protocol(filepath = self.selection[0])
                 logger.info('[LVP Main  ] Saving Protocol to File:' + self.selection[0])
 
         elif self.context == 'save_graph':
             if self.selection:
-                lumaviewpro.graphing_controls.save_graph(filepath=self.selection[0])
+                ctx.graphing_controls.save_graph(filepath=self.selection[0])
                 logger.info('[LVP Main  ] Saving Graph PNG to File:' + self.selection[0])
 
         elif self.context == 'saveas_cell_count_method':
@@ -292,4 +290,4 @@ class FileSaveBTN(HoverBehavior, Button):
                 filename = self.selection[0]
                 if os.path.splitext(filename)[1] == "":
                     filename += ".json"
-                lumaviewpro.cell_count_content.save_method_as(file=filename)
+                ctx.cell_count_content.save_method_as(file=filename)

@@ -9,7 +9,10 @@ from kivy.graphics import Color, Line, Rectangle, Ellipse, Fbo
 from kivy.uix.widget import Widget
 
 import modules.app_context as _app_ctx
+from modules.config_getters import get_selected_labware
 from modules.sequential_io_executor import IOTask
+from modules.step_navigation import go_to_step
+from modules.ui_helpers import find_nearest_step, move_absolute_position
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -29,9 +32,9 @@ class Stage(Widget):
 
 
     def remove_parent(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         if self.parent is not None:
-            self.parent.remove_widget(lumaviewpro.stage)
+            self.parent.remove_widget(ctx.stage)
 
 
     def get_id(self):
@@ -121,7 +124,6 @@ class Stage(Widget):
         self._motion_enabled = enabled
 
     def on_touch_down(self, touch):
-        import lumaviewpro
         logger.info('[LVP Main  ] Stage.on_touch_down()')
 
         if not self._motion_enabled:
@@ -137,7 +139,7 @@ class Stage(Widget):
             mouse_y = mouse_y-self.y
 
             # Create current labware instance
-            _, labware = lumaviewpro.get_selected_labware()
+            _, labware = get_selected_labware()
 
             # Get labware dimensions
             dim_max = labware.get_dimensions()
@@ -151,9 +153,10 @@ class Stage(Widget):
             plate_y = dim_max['y'] - mouse_y*scale_y
 
             # Convert from plate position to stage position
-            settings = _app_ctx.ctx.settings
-            coordinate_transformer = _app_ctx.ctx.coordinate_transformer
-            _, labware = lumaviewpro.get_selected_labware()
+            ctx = _app_ctx.ctx
+            settings = ctx.settings
+            coordinate_transformer = ctx.coordinate_transformer
+            _, labware = get_selected_labware()
             stage_x, stage_y = coordinate_transformer.plate_to_stage(
                 labware=labware,
                 stage_offset=settings['stage_offset'],
@@ -162,19 +165,18 @@ class Stage(Widget):
             )
 
             if touch.button == 'left':
-                io_executor = _app_ctx.ctx.io_executor
-                io_executor.put(IOTask(action=lumaviewpro.move_absolute_position, args=('X', stage_x)))
-                io_executor.put(IOTask(action=lumaviewpro.move_absolute_position, args=('Y', stage_y)))
+                io_executor = ctx.io_executor
+                io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
+                io_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y)))
 
             elif touch.button == 'right':
                 try:
                     logger.info(f"[Stage   ] Finding nearest step to {plate_x}, {plate_y}")
-                    ctx = _app_ctx.ctx
-                    step_idx = lumaviewpro.find_nearest_step(x=plate_x, y=plate_y, protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol)
+                    step_idx = find_nearest_step(x=plate_x, y=plate_y, protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol)
                     if step_idx == -1:
                         return
 
-                    lumaviewpro.go_to_step(protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
+                    go_to_step(protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
                                step_idx=step_idx,
                                called_from_protocol=False,
                                include_move=True)
@@ -185,27 +187,26 @@ class Stage(Widget):
             # move_absolute_position('Y', stage_y)
 
     def draw_labware(self, *args, full_redraw: bool = False):
-        import lumaviewpro
-
         if self.parent is None:
             return
 
-        if not hasattr(lumaviewpro, 'lumaview') or lumaviewpro.lumaview is None:
+        ctx = _app_ctx.ctx
+
+        if not hasattr(ctx, 'lumaview') or ctx.lumaview is None:
             return
 
-        if not hasattr(lumaviewpro, 'settings') or lumaviewpro.settings is None:
+        if not hasattr(ctx, 'settings') or ctx.settings is None:
             return
 
         # Get all IO out of the way immediately as well as calculating drawing parameters
-        lumaviewpro.stage_executor.put(IOTask(action=self.draw_labware_io_calculations, args=(full_redraw,)))
+        ctx.io_executor.put(IOTask(action=self.draw_labware_io_calculations, args=(full_redraw,)))
 
     def create_labware_fbo(self):
         """
         Create FBO for static labware rendering (wells, outlines, stage area).
         This significantly optimizes performance by pre-rendering static elements.
         """
-        import lumaviewpro
-        labware_name, labware = lumaviewpro.get_selected_labware()
+        labware_name, labware = get_selected_labware()
 
         if labware_name in self._labware_fbos:
             logger.debug(f"[Stage     ] Using cached labware FBO for {labware_name}")
@@ -341,8 +342,7 @@ class Stage(Widget):
         Create FBO for protocol step locations rendering.
         This optimizes performance by pre-rendering step markers.
         """
-        import lumaviewpro
-        labware_name, labware = lumaviewpro.get_selected_labware()
+        labware_name, labware = get_selected_labware()
         coordinate_transformer = _app_ctx.ctx.coordinate_transformer
 
         # Check if we need to regenerate the FBO
@@ -421,9 +421,10 @@ class Stage(Widget):
 
 
     def draw_labware_io_calculations(self, full_redraw: bool = False):
-        import lumaviewpro
-        settings = _app_ctx.ctx.settings
-        coordinate_transformer = _app_ctx.ctx.coordinate_transformer
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        coordinate_transformer = ctx.coordinate_transformer
+        scope = ctx.scope
 
         # Try to get current and target positions - may fail if not homed yet
         position_available = False
@@ -433,11 +434,11 @@ class Stage(Widget):
         y_current = None
 
         try:
-            if lumaviewpro.lumaview.scope.has_xyhomed():
-                x_target = lumaviewpro.lumaview.scope.get_target_position('X')
-                y_target = lumaviewpro.lumaview.scope.get_target_position('Y')
-                x_current = np.clip(lumaviewpro.lumaview.scope.get_current_position('X'), 0, 120000) # prevents crosshairs from leaving the stage area
-                y_current = np.clip(lumaviewpro.lumaview.scope.get_current_position('Y'), 0, 80000) # prevents crosshairs from leaving the stage area
+            if scope.has_xyhomed():
+                x_target = scope.get_target_position('X')
+                y_target = scope.get_target_position('Y')
+                x_current = np.clip(scope.get_current_position('X'), 0, 120000) # prevents crosshairs from leaving the stage area
+                y_current = np.clip(scope.get_current_position('Y'), 0, 80000) # prevents crosshairs from leaving the stage area
                 position_available = True
         except Exception:
             # If we can't get positions (not homed yet), we'll still draw the labware
@@ -449,7 +450,7 @@ class Stage(Widget):
                 return
 
         # Create current labware instance
-        labware_name, labware = lumaviewpro.get_selected_labware()
+        labware_name, labware = get_selected_labware()
 
         # Check if labware changed - trigger full redraw
         if labware_name != self._cached_labware_name:
@@ -661,10 +662,10 @@ class Stage(Widget):
 
 
     def get_target_xy(self):
-        import lumaviewpro
+        scope = _app_ctx.ctx.scope
         try:
-            target_stage_x = lumaviewpro.lumaview.scope.get_target_position('X')
-            target_stage_y = lumaviewpro.lumaview.scope.get_target_position('Y')
+            target_stage_x = scope.get_target_position('X')
+            target_stage_y = scope.get_target_position('Y')
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None
@@ -672,7 +673,6 @@ class Stage(Widget):
         return (target_stage_x, target_stage_y)
 
     def get_target_callback(self, scale_x, scale_y, well_radius_pixel_x, x, y, result=None, exception=None):
-        import lumaviewpro
         settings = _app_ctx.ctx.settings
         coordinate_transformer = _app_ctx.ctx.coordinate_transformer
         io_executor = _app_ctx.ctx.io_executor
@@ -681,7 +681,7 @@ class Stage(Widget):
             target_stage_x = result[0]
             target_stage_y = result[1]
 
-            _, labware = lumaviewpro.get_selected_labware()
+            _, labware = get_selected_labware()
             target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
                 labware=labware,
                 stage_offset=settings['stage_offset'],
@@ -725,11 +725,11 @@ class Stage(Widget):
 
 
     def motion_enabled_io(self):
-        import lumaviewpro
+        scope = _app_ctx.ctx.scope
         try:
-            x_current = lumaviewpro.lumaview.scope.get_current_position('X')
+            x_current = scope.get_current_position('X')
             x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-            y_current = lumaviewpro.lumaview.scope.get_current_position('Y')
+            y_current = scope.get_current_position('Y')
             y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')

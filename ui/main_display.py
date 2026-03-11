@@ -30,10 +30,10 @@ logger = logging.getLogger('LVP.ui.main_display')
 class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def __init__(self, **kwargs):
-        import lumaviewpro
         import lumascope_api
+        ctx = _app_ctx.ctx
         super(MainDisplay,self).__init__(**kwargs)
-        self.scope = lumascope_api.Lumascope(camera_type=lumaviewpro.settings['camera_type'], simulate=lumaviewpro.simulate_mode)
+        self.scope = lumascope_api.Lumascope(camera_type=ctx.settings['camera_type'], simulate=ctx.simulate_mode)
         self.camera_temps_event = None
         self.recording = threading.Event()
         self.recording.clear()
@@ -58,12 +58,11 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 Clock.unschedule(self.camera_temps_event)
 
     def cam_toggle(self):
-        import lumaviewpro
         logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
 
         ctx = _app_ctx.ctx
-        settings = lumaviewpro.settings
-        io_executor = lumaviewpro.io_executor
+        settings = ctx.settings
+        io_executor = ctx.io_executor
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         if self.scope.camera.active is None:
@@ -91,7 +90,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             scope_display.start()
 
     def record_button(self):
-        import lumaviewpro
         from ui.notification_popup import show_notification_popup
 
         if self.recording.is_set():
@@ -111,20 +109,19 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 pass
             return
 
-        lumaviewpro.camera_executor.put(IOTask(self.record_init))
+        _app_ctx.ctx.camera_executor.put(IOTask(self.record_init))
 
     def open_save_folder_button(self):
         from ui.post_processing import open_last_save_folder
         open_last_save_folder()
 
     def record_init(self):
-        import lumaviewpro
         from ui.notification_popup import show_notification_popup
 
         logger.info('[LVP Main  ] MainDisplay.record()')
 
         ctx = _app_ctx.ctx
-        settings = lumaviewpro.settings
+        settings = ctx.settings
 
         # Guard against race condition: if another record_init() already started, abort
         if self.recording.is_set():
@@ -250,8 +247,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def _enqueue_recording_frame(self, dt=None):
         """Enqueue a recording frame task without creating closure."""
-        import lumaviewpro
-        lumaviewpro.camera_executor.put(IOTask(self.record_helper))
+        _app_ctx.ctx.camera_executor.put(IOTask(self.record_helper))
 
     def check_recording_state(self, dt=None):
         # Over the max duration, stop video
@@ -278,28 +274,24 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def update_recording_title(self, dt=None):
         """Update window title with recording elapsed time."""
-        import lumaviewpro
         if self.recording.is_set():
             elapsed = time.time() - self.start_ts
             from kivy.core.window import Window
-            Window.set_title(f"Lumaview Pro {lumaviewpro.version}   |   Recording Manual Video: {elapsed:.1f}s")
+            Window.set_title(f"Lumaview Pro {_app_ctx.ctx.version}   |   Recording Manual Video: {elapsed:.1f}s")
 
     def update_writing_progress(self, dt=None):
         """Update window title with video writing progress percentage."""
-        import lumaviewpro
         if self.video_writing_total_frames > 0:
             progress_pct = (self.video_writing_progress / self.video_writing_total_frames) * 100
             from kivy.core.window import Window
-            Window.set_title(f"Lumaview Pro {lumaviewpro.version}   |   Writing Manual Video: {progress_pct:.0f}%")
+            Window.set_title(f"Lumaview Pro {_app_ctx.ctx.version}   |   Writing Manual Video: {progress_pct:.0f}%")
 
     def _enqueue_recording_complete(self, dt=None):
         """Enqueue recording finalization task on camera executor."""
-        import lumaviewpro
-        lumaviewpro.camera_executor.put(IOTask(self._finalize_recording_state))
+        _app_ctx.ctx.camera_executor.put(IOTask(self._finalize_recording_state))
 
     def _finalize_recording_state(self, dt=None):
         """Run on camera executor: Capture final state quickly and hand off to file writer."""
-        import lumaviewpro
         memmap_path = None
         try:
             logger.info("Manual-Video] Finalizing recording state...")
@@ -348,7 +340,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             }
 
             # Hand off to file IO executor (doesn't block camera)
-            lumaviewpro.file_io_executor.put(IOTask(
+            _app_ctx.ctx.file_io_executor.put(IOTask(
                 self.recording_complete,
                 kwargs=kwargs,
                 callback=self._recording_cleanup_callback,
@@ -367,7 +359,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def recording_complete(self, **kwargs):
         """Run on file_io_executor: Do heavy file writing without blocking camera."""
-        import lumaviewpro
         from modules.config_getters import (
             get_active_layer_config, get_image_capture_config_from_ui,
             get_current_objective_info, get_binning_from_ui,
@@ -420,7 +411,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     include_hyperstack_generation = True
                     _, objective = get_current_objective_info()
                     stack_builder = StackBuilder(
-                        has_turret=lumaviewpro.lumaview.scope.has_turret(),
+                        has_turret=_app_ctx.ctx.scope.has_turret(),
                     )
                     frame_metadata = []
 
@@ -448,7 +439,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                             }
 
                     if include_hyperstack_generation:
-                        current_position = lumaviewpro.lumaview.scope.get_current_position()
+                        current_position = _app_ctx.ctx.scope.get_current_position()
                         frame_metadata.append(
                             {
                                 'Filepath': output_file_loc.name,
@@ -546,7 +537,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def _recording_cleanup_gui(self, memmap_path=None):
         """Final cleanup on GUI thread after video writing completes."""
-        import lumaviewpro
         try:
             # Unschedule progress updates
             if hasattr(self, 'writing_progress_update') and self.writing_progress_update:
@@ -565,15 +555,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
             # Reset window title
             from kivy.core.window import Window
-            Window.set_title(f"Lumaview Pro {lumaviewpro.version}")
+            Window.set_title(f"Lumaview Pro {_app_ctx.ctx.version}")
 
             logger.info("Manual-Video] Recording cleanup complete")
         except Exception as e:
             logger.exception(f"Manual-Video] Error during GUI cleanup: {e}")
 
     def record_helper(self, dt=None):
-        import lumaviewpro
-        settings = lumaviewpro.settings
+        settings = _app_ctx.ctx.settings
 
         if not settings['use_full_pixel_depth'] or not settings['video_as_frames']:
             force_to_8bit = True
@@ -607,14 +596,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.ids['viewer_id'].pos = (0,0)
 
     def one2one_image(self):
-        import lumaviewpro
         logger.info('[LVP Main  ] MainDisplay.one2one_image()')
         if self.scope.camera.active is None:
             return
+        scope = _app_ctx.ctx.scope
         w = self.width
         h = self.height
-        scale_hor = float(lumaviewpro.lumaview.scope.get_width()) / float(w)
-        scale_ver = float(lumaviewpro.lumaview.scope.get_height()) / float(h)
+        scale_hor = float(scope.get_width()) / float(w)
+        scale_ver = float(scope.get_height()) / float(h)
         scale = max(scale_hor, scale_ver)
         self.ids['viewer_id'].scale = scale
         self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))

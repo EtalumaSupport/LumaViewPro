@@ -27,15 +27,14 @@ def go_to_step(
     include_move: bool = True,
     called_from_protocol: bool = True
 ):
-    import lumaviewpro
     from modules.config_getters import get_selected_labware
     from modules.ui_helpers import move_absolute_position
     from ui.notification_popup import show_notification_popup
 
     ctx = _app_ctx.ctx
-    settings = lumaviewpro.settings
-    coordinate_transformer = lumaviewpro.coordinate_transformer
-    io_executor = lumaviewpro.io_executor
+    settings = ctx.settings
+    coordinate_transformer = ctx.coordinate_transformer
+    io_executor = ctx.io_executor
 
     num_steps = protocol.num_steps()
     protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
@@ -67,9 +66,9 @@ def go_to_step(
         )
 
         turret_pos = None
-        if lumaviewpro.lumaview.scope.has_turret():
+        if ctx.scope.has_turret():
             step_objective_id = step["Objective"]
-            turret_pos = lumaviewpro.lumaview.scope.get_turret_position_for_objective_id(
+            turret_pos = ctx.scope.get_turret_position_for_objective_id(
                 objective_id=step_objective_id,
             )
 
@@ -81,7 +80,7 @@ def go_to_step(
                 Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Objective Not Set", message=error_msg), 0)
 
         # Move into position
-        if lumaviewpro.lumaview.scope.motion.driver:
+        if ctx.scope.motion.driver:
             if not called_from_protocol:
                 if turret_pos is not None:
                     io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'T',"pos": turret_pos,"protocol": False}))
@@ -135,7 +134,7 @@ def go_to_step(
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
         if not called_from_protocol and settings['protocol_led_on']:
-            scope_commands.led_on(lumaviewpro.lumaview.scope, io_executor, color, step['Illumination'])
+            scope_commands.led_on(ctx.scope, io_executor, color, step['Illumination'])
             Clock.schedule_once(lambda dt: temp(), 0)
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
@@ -147,11 +146,9 @@ def go_to_step(
 
 
 def go_to_step_update_ui(step):
-    import lumaviewpro
-
     ctx = _app_ctx.ctx
-    settings = lumaviewpro.settings
-    protocol_running_global = lumaviewpro.protocol_running_global
+    settings = ctx.settings
+    protocol_running_global = ctx.protocol_running
 
     color = step['Color']
     layer_obj = ctx.image_settings.layer_lookup(layer=color)

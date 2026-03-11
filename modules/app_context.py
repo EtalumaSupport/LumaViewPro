@@ -19,11 +19,16 @@ class AppContext:
 
     # Hardware
     scope: object = None               # Lumascope instance
+    lumaview: object = None            # MainDisplay widget
 
     # Core services
     settings: dict = field(default_factory=dict)
     settings_lock: threading.Lock = field(default_factory=threading.Lock)
     session: object = None             # ScopeSession
+    sequenced_capture_executor: object = None
+    autofocus_executor: object = None
+    version: str = ""
+    source_path: str = ""
 
     # Executors
     io_executor: object = None
@@ -45,10 +50,26 @@ class AppContext:
     scope_display: object = None       # ScopeDisplay widget
     image_settings: object = None      # ImageSettings widget
     motion_settings: object = None     # MotionSettings widget
+    stage: object = None               # Stage widget
+    cell_count_content: object = None
+    graphing_controls: object = None
+    stitch_controls: object = None
+    composite_gen_controls: object = None
+    video_creation_controls: object = None
+    zprojection_controls: object = None
+    ij_helper: object = None
 
     # State
     protocol_running: object = None    # threading.Event
     engineering_mode: bool = False
+    show_tooltips: bool = False
+    live_histo_setting: bool = False
+    last_save_folder: str = None
+    disable_homing: bool = False
+    simulate_mode: bool = False
+    max_exposure: float = 0.0
+    live_view_fps: int = 10
+    focus_round: int = 0
 
     # Initialization flag (replaces _app_initializing)
     _ready: bool = False

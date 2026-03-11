@@ -145,7 +145,7 @@ void main (void) {
 
     def on_touch_down(self, touch, *args):
         logger.info('[LVP Main  ] ShaderViewer.on_touch_down()')
-        import lumaviewpro
+        from modules.config_getters import get_current_objective_info
         ctx = _app_ctx.ctx
 
         ZOOM_BLOCKERS = [ctx.image_settings, ctx.motion_settings]
@@ -161,11 +161,11 @@ void main (void) {
 
             if 'ctrl' in self._active_key_presses:
                 # Focus control — accumulate scroll ticks, debounce into single move
-                if lumaviewpro.protocol_running_global.is_set():
+                if ctx.protocol_running.is_set():
                     return
 
                 try:
-                    _, objective = lumaviewpro.get_current_objective_info()
+                    _, objective = get_current_objective_info()
                 except Exception:
                     return
 
@@ -214,7 +214,7 @@ void main (void) {
 
     def _flush_scroll_z(self, dt):
         """Debounced scroll-to-focus: send one accumulated Z move."""
-        import lumaviewpro
+        from modules.ui_helpers import move_relative_position
         from modules.sequential_io_executor import IOTask
 
         delta = self._scroll_z_pending
@@ -224,7 +224,7 @@ void main (void) {
             return
 
         _app_ctx.ctx.io_executor.put(IOTask(
-            action=lumaviewpro.move_relative_position,
+            action=move_relative_position,
             args=('Z', delta),
             kwargs={"overshoot_enabled": False},
         ))
@@ -262,8 +262,9 @@ void main (void) {
     def _update_status_bar(self, dt):
         """Periodic status bar update (~5 Hz)."""
         try:
-            import lumaviewpro
-            status_label = lumaviewpro.lumaview.ids.get('status_bar_id')
+            from modules.config_getters import get_current_objective_info, get_binning_from_ui, get_selected_labware
+            ctx = _app_ctx.ctx
+            status_label = ctx.lumaview.ids.get('status_bar_id')
             if status_label is None:
                 return
 
@@ -277,10 +278,10 @@ void main (void) {
 
                 # Convert pixel offset from image center to plate coordinates
                 try:
-                    _, objective = lumaviewpro.get_current_objective_info()
+                    _, objective = get_current_objective_info()
                     pixel_size_um = common_utils.get_pixel_size(
                         focal_length=objective['focal_length'],
-                        binning_size=lumaviewpro.get_binning_from_ui(),
+                        binning_size=get_binning_from_ui(),
                     )
                     tex_w, tex_h = scope_display.texture_size
                     # Pixel distance from center
@@ -289,15 +290,15 @@ void main (void) {
                     dx_um = dx_px * pixel_size_um
                     dy_um = dy_px * pixel_size_um
 
-                    if lumaviewpro.lumaview.scope.motion.driver:
-                        pos = lumaviewpro.lumaview.scope.get_current_position(axis=None)
+                    if ctx.lumaview.scope.motion.driver:
+                        pos = ctx.lumaview.scope.get_current_position(axis=None)
                         # Stage coords of the cursor point
                         cursor_sx = pos['X'] + dx_um
                         cursor_sy = pos['Y'] - dy_um  # image Y is inverted vs stage Y
-                        _, labware = lumaviewpro.get_selected_labware()
-                        px, py = lumaviewpro.coordinate_transformer.stage_to_plate(
+                        _, labware = get_selected_labware()
+                        px, py = ctx.coordinate_transformer.stage_to_plate(
                             labware=labware,
-                            stage_offset=lumaviewpro.settings['stage_offset'],
+                            stage_offset=ctx.settings['stage_offset'],
                             sx=cursor_sx,
                             sy=cursor_sy,
                         )

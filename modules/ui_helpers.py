@@ -32,8 +32,8 @@ def set_last_save_folder(dir):
     if dir is None:
         return
 
-    import lumaviewpro
-    lumaviewpro.last_save_folder = dir
+    ctx = _app_ctx.ctx
+    ctx.last_save_folder = dir
 
 
 # ============================================================================
@@ -41,8 +41,8 @@ def set_last_save_folder(dir):
 # ============================================================================
 
 def focus_log(positions, values):
-    import lumaviewpro
-    lumaviewpro.focus_round = config_helpers.focus_log(positions, values, lumaviewpro.focus_round, lumaviewpro.source_path)
+    ctx = _app_ctx.ctx
+    ctx.focus_round = config_helpers.focus_log(positions, values, ctx.focus_round, ctx.source_path)
 
 def update_autofocus_selection_after_protocol():
     ctx = _app_ctx.ctx
@@ -77,12 +77,12 @@ def _handle_ui_for_led(layer: str, enabled: bool, **kwargs):
 
 
 def scope_leds_off(no_callback: bool = False):
-    import lumaviewpro
-    if lumaviewpro.protocol_running_global.is_set():
+    ctx = _app_ctx.ctx
+    if ctx.protocol_running.is_set():
         return
 
     callback = None if no_callback else _handle_ui_for_leds_off
-    scope_commands.leds_off(lumaviewpro.lumaview.scope, lumaviewpro.io_executor, callback=callback)
+    scope_commands.leds_off(ctx.scope, ctx.io_executor, callback=callback)
 
 
 # ============================================================================
@@ -122,9 +122,8 @@ def move_absolute_position(
     protocol: bool = False,
     vertical_control: bool = False
 ):
-    import lumaviewpro
     ctx = _app_ctx.ctx
-    io_executor = lumaviewpro.io_executor
+    io_executor = ctx.io_executor
 
     if protocol:
         put_func = io_executor.protocol_put
@@ -145,14 +144,14 @@ def move_absolute_position(
     else:
         if not protocol:
             scope_commands.move_absolute(
-                lumaviewpro.lumaview.scope, io_executor, axis, pos,
+                ctx.scope, io_executor, axis, pos,
                 wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled,
                 callback=_handle_ui_update_for_axis,
                 cb_kwargs={'axis': axis},
             )
         else:
-            lumaviewpro.lumaview.scope.move_absolute_position(
+            ctx.scope.move_absolute_position(
                 axis=axis, pos=pos,
                 wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled,
@@ -167,9 +166,9 @@ def move_relative_position(
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True
 ):
-    import lumaviewpro
+    ctx = _app_ctx.ctx
     scope_commands.move_relative(
-        lumaviewpro.lumaview.scope, lumaviewpro.io_executor, axis, um,
+        ctx.scope, ctx.io_executor, axis, um,
         wait_until_complete=wait_until_complete,
         overshoot_enabled=overshoot_enabled,
         callback=_handle_ui_update_for_axis,
@@ -178,10 +177,10 @@ def move_relative_position(
 
 
 def move_home(axis: str):
-    import lumaviewpro
+    ctx = _app_ctx.ctx
     axis = axis.upper()
-    Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {lumaviewpro.version}   |   Homing, please wait..."), 0)
-    scope_commands.move_home(lumaviewpro.lumaview.scope, lumaviewpro.io_executor, axis, callback=move_home_cb, cb_args=(axis))
+    Clock.schedule_once(lambda dt: Window.set_title(f"Lumaview Pro {ctx.version}   |   Homing, please wait..."), 0)
+    scope_commands.move_home(ctx.scope, ctx.io_executor, axis, callback=move_home_cb, cb_args=(axis))
 
 
 # ============================================================================
@@ -190,29 +189,29 @@ def move_home(axis: str):
 
 # Should only be called from main thread
 def set_recording_title(progress=None):
-    import lumaviewpro
+    ctx = _app_ctx.ctx
     if progress is None:
-        Window.set_title(f"Lumaview Pro {lumaviewpro.version}   |   Recording Video...")
+        Window.set_title(f"Lumaview Pro {ctx.version}   |   Recording Video...")
     else:
-        Window.set_title(f"Lumaview Pro {lumaviewpro.version}   |   Recording Video... {int(progress)}%")
+        Window.set_title(f"Lumaview Pro {ctx.version}   |   Recording Video... {int(progress)}%")
 
 # Should only be called from main thread
 def set_writing_title(progress=None):
-    import lumaviewpro
+    ctx = _app_ctx.ctx
     if progress is None:
-        Window.set_title(f"Lumaview Pro {lumaviewpro.version}   |   Writing Video...")
+        Window.set_title(f"Lumaview Pro {ctx.version}   |   Writing Video...")
     else:
-        Window.set_title(f"Lumaview Pro {lumaviewpro.version}   |   Writing Video... {int(progress)}%")
+        Window.set_title(f"Lumaview Pro {ctx.version}   |   Writing Video... {int(progress)}%")
 
 def reset_title():
-    import lumaviewpro
-    Window.set_title(f"Lumaview Pro {lumaviewpro.version}")
+    ctx = _app_ctx.ctx
+    Window.set_title(f"Lumaview Pro {ctx.version}")
 
 
 def move_home_cb(axis):
-    import lumaviewpro
+    ctx = _app_ctx.ctx
     _handle_ui_update_for_axis(axis=axis)
-    Window.set_title(f"Lumaview Pro {lumaviewpro.version}")
+    Window.set_title(f"Lumaview Pro {ctx.version}")
 
 
 # ============================================================================
@@ -220,16 +219,14 @@ def move_home_cb(axis):
 # ============================================================================
 
 def live_histo_off():
-    import lumaviewpro
     ctx = _app_ctx.ctx
-    if lumaviewpro.live_histo_setting and ctx.scope_display.use_live_image_histogram_equalization:
+    if ctx.live_histo_setting and ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = False
         logger.info('[LVP Main  ] Live Histogram Equalization] False')
 
 def live_histo_reverse():
-    import lumaviewpro
     ctx = _app_ctx.ctx
-    if lumaviewpro.live_histo_setting and not ctx.scope_display.use_live_image_histogram_equalization:
+    if ctx.live_histo_setting and not ctx.scope_display.use_live_image_histogram_equalization:
         ctx.scope_display.use_live_image_histogram_equalization = True
         logger.info('[LVP Main  ] Live Histogram Equalization] True')
 
@@ -239,25 +236,23 @@ def live_histo_reverse():
 # ============================================================================
 
 def reset_acquire_ui():
-    import lumaviewpro
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        if lumaviewpro.settings[layer]['acquire'] == "image":
+        if ctx.settings[layer]['acquire'] == "image":
             layer_obj.ids['acquire_image'].active = True
-        elif lumaviewpro.settings[layer]['acquire'] == "video":
+        elif ctx.settings[layer]['acquire'] == "video":
             layer_obj.ids['acquire_video'].active = True
         else:
             layer_obj.ids['acquire_none'].active = True
 
 def reset_stim_ui():
-    import lumaviewpro
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        if "stim_config" in lumaviewpro.settings[layer]:
-            if lumaviewpro.settings[layer]['stim_config'] is not None:
-                lumaviewpro.settings[layer]['stim_config']['enabled'] = False
+        if "stim_config" in ctx.settings[layer]:
+            if ctx.settings[layer]['stim_config'] is not None:
+                ctx.settings[layer]['stim_config']['enabled'] = False
                 layer_obj.ids['stim_disable_btn'].active = True
                 layer_obj.update_stim_controls_visibility()
 

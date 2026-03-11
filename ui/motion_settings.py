@@ -8,8 +8,10 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+from modules.config_getters import get_current_objective_info, get_selected_labware
 from modules.debounce import debounce
 from modules.sequential_io_executor import IOTask
+from modules.ui_helpers import move_absolute_position, move_home, move_relative_position
 from ui.image_settings import AccordionItemXyStageControl
 
 logger = logging.getLogger('LVP.ui.motion_settings')
@@ -49,10 +51,10 @@ class MotionSettings(BoxLayout):
             _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].ids['enable_bullseye_box_id'].opacity = 1
 
     def accordion_collapse(self):
-        import lumaviewpro
         logger.info('[LVP Main  ] MotionSettings.accordion_collapse()')
 
-        stage = lumaviewpro.stage
+        ctx = _app_ctx.ctx
+        stage = ctx.stage
 
         # Handles removing/adding the stage display depending on whether or not the accordion item is visible
         protocol_accordion_item = self.ids['motionsettings_protocol_accordion_id']
@@ -139,7 +141,6 @@ class MotionSettings(BoxLayout):
     # Hide (and unhide) motion settings
     def toggle_settings(self):
         logger.info('[LVP Main  ] MotionSettings.toggle_settings()')
-        import lumaviewpro
         scope_display = _app_ctx.ctx.scope_display
         #scope_display.stop()
         self.ids['verticalcontrol_id'].update_gui()
@@ -174,22 +175,22 @@ class MotionSettings(BoxLayout):
 class XYStageControl(BoxLayout):
 
     def update_gui(self, dt=0, full_redraw: bool = False):
-        import lumaviewpro
-        if lumaviewpro.sequenced_capture_executor.run_in_progress():
+        ctx = _app_ctx.ctx
+        if ctx.sequenced_capture_executor.run_in_progress():
             return
         # logger.info('[LVP Main  ] XYStageControl.update_gui()')
-        _app_ctx.ctx.io_executor.put(IOTask(
+        ctx.io_executor.put(IOTask(
             action=self.get_xy_targets,
             callback=self.get_targets_ui_callback,
             pass_result=True
         ))
 
     def get_xy_targets(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         try:
-            x_target = lumaviewpro.lumaview.scope.get_target_position('X')  # Get target value in um
+            x_target = ctx.lumaview.scope.get_target_position('X')  # Get target value in um
             x_target = np.clip(x_target, 0, 120000) # prevents crosshairs from leaving the stage area
-            y_target = lumaviewpro.lumaview.scope.get_target_position('Y')  # Get target value in um
+            y_target = ctx.lumaview.scope.get_target_position('Y')  # Get target value in um
             y_target = np.clip(y_target, 0, 80000) # prevents crosshairs from leaving the stage area
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
@@ -198,15 +199,15 @@ class XYStageControl(BoxLayout):
         return (x_target, y_target)
 
     def get_targets_ui_callback(self, result=None, exception=None):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         if result is not None:
             x_target = result[0]
             y_target = result[1]
 
             # Convert from plate position to stage position
-            _, labware = lumaviewpro.get_selected_labware()
-            settings = _app_ctx.ctx.settings
-            coordinate_transformer = _app_ctx.ctx.coordinate_transformer
+            _, labware = get_selected_labware()
+            settings = ctx.settings
+            coordinate_transformer = ctx.coordinate_transformer
             stage_x, stage_y = coordinate_transformer.stage_to_plate(
                 labware=labware,
                 stage_offset=settings['stage_offset'],
@@ -228,87 +229,87 @@ class XYStageControl(BoxLayout):
 
     @debounce(0.2)
     def fine_left(self):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_relative_position, args=('X', -fine)))
+        ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', -fine)))
 
     @debounce(0.2)
     def fine_right(self):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.fine_right()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_relative_position, args=('X', fine)))
+        ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', fine)))
 
     @debounce(0.2)
     def coarse_left(self):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.coarse_left()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_relative_position, args=('X', -coarse)))
+        ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', -coarse)))
 
     @debounce(0.2)
     def coarse_right(self):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.coarse_right()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_relative_position, args=('X', coarse)))
+        ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', coarse)))
 
     @debounce(0.2)
     def fine_back(self):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.fine_back()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_relative_position, args=('Y', -fine)))
+        ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', -fine)))
 
     @debounce(0.2)
     def fine_fwd(self):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.fine_fwd()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         fine = objective['xy_fine']
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_relative_position, args=('Y', fine)))
+        ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', fine)))
 
     @debounce(0.2)
     def coarse_back(self):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.coarse_back()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_relative_position, args=('Y', -coarse)))
+        ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', -coarse)))
 
     @debounce(0.2)
     def coarse_fwd(self):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.coarse_fwd()')
-        _, objective = lumaviewpro.get_current_objective_info()
+        _, objective = get_current_objective_info()
         coarse = objective['xy_coarse']
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_relative_position, args=('Y', coarse)))
+        ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', coarse)))
 
     def set_xposition(self, x_pos):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.set_xposition()')
         try:
@@ -318,9 +319,9 @@ class XYStageControl(BoxLayout):
 
         # x_pos is the the plate position in mm
         # Find the coordinates for the stage
-        _, labware = lumaviewpro.get_selected_labware()
-        settings = _app_ctx.ctx.settings
-        coordinate_transformer = _app_ctx.ctx.coordinate_transformer
+        _, labware = get_selected_labware()
+        settings = ctx.settings
+        coordinate_transformer = ctx.coordinate_transformer
         stage_x, _ = coordinate_transformer.plate_to_stage(
             labware=labware,
             stage_offset=settings['stage_offset'],
@@ -331,12 +332,12 @@ class XYStageControl(BoxLayout):
         logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_absolute_position, args=('X', stage_x)))
+        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
 
 
     def set_yposition(self, y_pos):
-        import lumaviewpro
-        if lumaviewpro.protocol_running_global.is_set():
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.set_yposition()')
 
@@ -347,9 +348,9 @@ class XYStageControl(BoxLayout):
 
         # y_pos is the the plate position in mm
         # Find the coordinates for the stage
-        _, labware = lumaviewpro.get_selected_labware()
-        settings = _app_ctx.ctx.settings
-        coordinate_transformer = _app_ctx.ctx.coordinate_transformer
+        _, labware = get_selected_labware()
+        settings = ctx.settings
+        coordinate_transformer = ctx.coordinate_transformer
         _, stage_y = coordinate_transformer.plate_to_stage(
             labware=labware,
             stage_offset=settings['stage_offset'],
@@ -358,24 +359,24 @@ class XYStageControl(BoxLayout):
         )
 
         # Move to y-position
-        lumaviewpro.stage_executor.put(IOTask(action=lumaviewpro.move_absolute_position, args=('Y', stage_y)))
+        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y)))
 
 
     def set_xbookmark(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.set_xbookmark()')
-        lumaviewpro.stage_executor.put(IOTask(action=self.ex_set_xbookmark))
+        ctx.io_executor.put(IOTask(action=self.ex_set_xbookmark))
 
     def ex_set_xbookmark(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         # Get current stage x-position in um
-        x_pos = lumaviewpro.lumaview.scope.get_current_position('X')
+        x_pos = ctx.lumaview.scope.get_current_position('X')
 
         # Save plate x-position to settings
-        _, labware = lumaviewpro.get_selected_labware()
-        settings = _app_ctx.ctx.settings
-        coordinate_transformer = _app_ctx.ctx.coordinate_transformer
+        _, labware = get_selected_labware()
+        settings = ctx.settings
+        coordinate_transformer = ctx.coordinate_transformer
         plate_x, _ = coordinate_transformer.stage_to_plate(
             labware=labware,
             stage_offset=settings['stage_offset'],
@@ -386,19 +387,19 @@ class XYStageControl(BoxLayout):
         settings['bookmark']['x'] = plate_x
 
     def set_ybookmark(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.set_ybookmark()')
 
-        lumaviewpro.stage_executor.put(IOTask(action=self.ex_set_ybookmark))
+        ctx.io_executor.put(IOTask(action=self.ex_set_ybookmark))
 
     def ex_set_ybookmark(self):
-        import lumaviewpro
-        y_pos = lumaviewpro.lumaview.scope.get_current_position('Y')  # Get current y pos in um
+        ctx = _app_ctx.ctx
+        y_pos = ctx.lumaview.scope.get_current_position('Y')  # Get current y pos in um
 
         # Save plate y-position to settings
-        _, labware = lumaviewpro.get_selected_labware()
-        settings = _app_ctx.ctx.settings
-        coordinate_transformer = _app_ctx.ctx.coordinate_transformer
+        _, labware = get_selected_labware()
+        settings = ctx.settings
+        coordinate_transformer = ctx.coordinate_transformer
         _, plate_y = coordinate_transformer.stage_to_plate(
             labware=labware,
             stage_offset=settings['stage_offset'],
@@ -409,44 +410,44 @@ class XYStageControl(BoxLayout):
         settings['bookmark']['y'] = plate_y
 
     def goto_xbookmark(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.goto_xbookmark()')
 
-        settings = _app_ctx.ctx.settings
-        coordinate_transformer = _app_ctx.ctx.coordinate_transformer
+        settings = ctx.settings
+        coordinate_transformer = ctx.coordinate_transformer
 
         # Get bookmark plate x-position in mm
         x_pos = settings['bookmark']['x']
 
         # Move to x-position
-        _, labware = lumaviewpro.get_selected_labware()
+        _, labware = get_selected_labware()
         stage_x, _ = coordinate_transformer.plate_to_stage(
             labware=labware,
             stage_offset=settings['stage_offset'],
             px=x_pos,
             py=0
         )
-        lumaviewpro.stage_executor.put(IOTask(lumaviewpro.move_absolute_position, args=('X', stage_x)))
+        ctx.io_executor.put(IOTask(move_absolute_position, args=('X', stage_x)))
 
     def goto_ybookmark(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
 
-        settings = _app_ctx.ctx.settings
-        coordinate_transformer = _app_ctx.ctx.coordinate_transformer
+        settings = ctx.settings
+        coordinate_transformer = ctx.coordinate_transformer
 
         # Get bookmark plate y-position in mm
         y_pos = settings['bookmark']['y']
 
         # Move to y-position
-        _, labware = lumaviewpro.get_selected_labware()
+        _, labware = get_selected_labware()
         _, stage_y = coordinate_transformer.plate_to_stage(
             labware=labware,
             stage_offset=settings['stage_offset'],
             px=0,
             py=y_pos
         )
-        lumaviewpro.stage_executor.put(IOTask(lumaviewpro.move_absolute_position, args=('Y', stage_y))) # set current y position in um
+        ctx.io_executor.put(IOTask(move_absolute_position, args=('Y', stage_y))) # set current y position in um
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')
@@ -464,15 +465,15 @@ class XYStageControl(BoxLayout):
 
     @debounce(1.0)
     def home(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.home()')
 
-        if lumaviewpro.lumaview.scope.motion.driver: # motor controller is actively connected
-            lumaviewpro.stage_executor.put(IOTask(lumaviewpro.move_home, kwargs={'axis':'XY'}))
+        if ctx.lumaview.scope.motion.driver: # motor controller is actively connected
+            ctx.io_executor.put(IOTask(move_home, kwargs={'axis':'XY'}))
 
             # Firmware seems to move the turret back to position 1 when performing XY homing
             # Use this command to make sure the UI is in-sync
-            _app_ctx.ctx.motion_settings.ids['verticalcontrol_id'].turret_select(selected_position=1)
+            ctx.motion_settings.ids['verticalcontrol_id'].turret_select(selected_position=1)
 
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')

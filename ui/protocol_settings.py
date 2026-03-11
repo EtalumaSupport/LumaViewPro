@@ -20,11 +20,44 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+from modules.config_getters import (
+    create_hyperstacks_if_needed,
+    get_active_layer_config,
+    get_auto_gain_settings,
+    get_binning_from_ui,
+    get_current_frame_dimensions,
+    get_current_objective_info,
+    get_current_plate_position,
+    get_image_capture_config_from_ui,
+    get_layer_configs,
+    get_protocol_time_params,
+    get_selected_labware,
+    get_sequenced_capture_config_from_ui,
+    get_stim_configs,
+    get_zstack_params,
+    is_image_saving_enabled,
+)
 from modules.protocol import Protocol
 from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask
+from modules.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
+from modules.ui_helpers import (
+    _handle_ui_for_led,
+    _handle_ui_for_leds_off,
+    _handle_ui_update_for_axis,
+    _update_step_number_callback,
+    live_histo_off,
+    live_histo_reverse,
+    reset_acquire_ui,
+    reset_stim_ui,
+    reset_title,
+    set_last_save_folder,
+    set_recording_title,
+    set_writing_title,
+    update_autofocus_selection_after_protocol,
+)
 from ui.progress_popup import show_popup
 
 logger = logging.getLogger('LVP.ui.protocol_settings')
@@ -45,8 +78,8 @@ class ProtocolSettings(FloatLayout):
         # Thread-safe flag to prevent duplicate file completion handlers
         self._scan_files_completed_event = threading.Event()
 
-        import lumaviewpro
-        source_path = lumaviewpro.source_path
+        ctx = _app_ctx.ctx
+        source_path = ctx.source_path
 
         os.chdir(source_path)
         try:
@@ -107,10 +140,9 @@ class ProtocolSettings(FloatLayout):
 
 
     def _init_ui(self, dt=0):
-        import lumaviewpro
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
-        source_path = lumaviewpro.source_path
+        source_path = ctx.source_path
 
         self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()
         self.ids['tiling_size_spinner'].text = self.tiling_config.default_config()
@@ -125,7 +157,7 @@ class ProtocolSettings(FloatLayout):
                 filepath=''
                 settings['protocol']['filepath']=''
 
-                protocol_config = lumaviewpro.get_sequenced_capture_config_from_ui()
+                protocol_config = get_sequenced_capture_config_from_ui()
                 self._protocol = Protocol.create_empty(
                     config=protocol_config,
                     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
@@ -135,7 +167,7 @@ class ProtocolSettings(FloatLayout):
             logger.exception('[LVP Main  ] Error loading protocol at startup')
             filepath=''
             settings['protocol']['filepath']=''
-            protocol_config = lumaviewpro.get_sequenced_capture_config_from_ui()
+            protocol_config = get_sequenced_capture_config_from_ui()
             self._protocol = Protocol.create_empty(
                     config=protocol_config,
                     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
@@ -148,7 +180,6 @@ class ProtocolSettings(FloatLayout):
 
     # Update Protocol Period
     def update_period(self):
-        import lumaviewpro
         settings = _app_ctx.ctx.settings
 
         logger.info('[LVP Main  ] ProtocolSettings.update_period()')
@@ -157,7 +188,7 @@ class ProtocolSettings(FloatLayout):
         except Exception:
             logger.exception('[LVP Main  ] Update Period is not an acceptable value')
 
-        time_params = lumaviewpro.get_protocol_time_params()
+        time_params = get_protocol_time_params()
         self._protocol.modify_time_params(
             period=time_params['period'],
             duration=time_params['duration'],
@@ -165,7 +196,6 @@ class ProtocolSettings(FloatLayout):
 
     # Update Protocol Duration
     def update_duration(self):
-        import lumaviewpro
         settings = _app_ctx.ctx.settings
 
         logger.info('[LVP Main  ] ProtocolSettings.update_duration()')
@@ -174,7 +204,7 @@ class ProtocolSettings(FloatLayout):
         except Exception:
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
 
-        time_params = lumaviewpro.get_protocol_time_params()
+        time_params = get_protocol_time_params()
         self._protocol.modify_time_params(
             period=time_params['period'],
             duration=time_params['duration'],
@@ -203,9 +233,9 @@ class ProtocolSettings(FloatLayout):
 
     # Labware Selection
     def select_labware(self, labware: str = None):
-        import lumaviewpro
         settings = _app_ctx.ctx.settings
-        wellplate_loader = _app_ctx.ctx.wellplate_loader
+        ctx = _app_ctx.ctx
+        wellplate_loader = ctx.wellplate_loader
 
         logger.info('[LVP Main  ] ProtocolSettings.select_labware()')
         if labware is None:
@@ -219,18 +249,18 @@ class ProtocolSettings(FloatLayout):
             spinner.text = center_plate_str
             settings['protocol']['labware'] = labware
 
-        labware_id, labware = lumaviewpro.get_selected_labware()
+        labware_id, labware = get_selected_labware()
 
         if labware is None:
             logger.error(f"Labware could not be loaded")
             return
 
-        lumaviewpro.lumaview.scope.set_labware(labware=labware)
+        ctx.lumaview.scope.set_labware(labware=labware)
 
         if self._protocol is not None:
             self._protocol.modify_labware(labware_id=labware_id)
 
-        lumaviewpro.stage.full_redraw()
+        ctx.stage.full_redraw()
 
 
     def set_labware_selection_visibility(self, visible):
@@ -257,19 +287,19 @@ class ProtocolSettings(FloatLayout):
 
 
     def apply_tiling(self):
-        import lumaviewpro
         settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
 
         logger.info('[LVP Main  ] Apply tiling to protocol')
 
-        axes_config = lumaviewpro.lumaview.scope.get_axes_config()
-        _, labware = lumaviewpro.get_selected_labware()
+        axes_config = ctx.lumaview.scope.get_axes_config()
+        _, labware = get_selected_labware()
         stage_offset = settings['stage_offset']
 
         tile_status = self._protocol.apply_tiling(
             tiling=self.ids['tiling_size_spinner'].text,
-            frame_dimensions=lumaviewpro.get_current_frame_dimensions(),
-            binning_size=lumaviewpro.get_binning_from_ui(),
+            frame_dimensions=get_current_frame_dimensions(),
+            binning_size=get_binning_from_ui(),
             curr_step_idx=self.curr_step,
             axes_config=axes_config,
             labware=labware,
@@ -284,16 +314,16 @@ class ProtocolSettings(FloatLayout):
             Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Tiling Warning", message=error_msg), 0)
 
         self._protocol.optimize_step_ordering()
-        lumaviewpro.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(df=self._protocol.steps())
         self.update_step_ui()
         self.go_to_step(protocol=False)
 
 
     def apply_zstacking(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         logger.info('[LVP Main  ] Apply Z-Stacking to protocol')
-        zstack_params = lumaviewpro.get_zstack_params()
+        zstack_params = get_zstack_params()
 
         if zstack_params['range'] < 0 or zstack_params['step_size'] < 0:
             error_msg = f"Z-Stacking parameters are not valid. Please ensure range and step size are positive values."
@@ -310,7 +340,7 @@ class ProtocolSettings(FloatLayout):
         )
 
         self._protocol.optimize_step_ordering()
-        lumaviewpro.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(df=self._protocol.steps())
         self.update_step_ui()
         self.go_to_step(protocol=False)
 
@@ -342,12 +372,12 @@ class ProtocolSettings(FloatLayout):
 
 
     def new_protocol(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
         # Check if file writing is in progress
-        file_io_executor = lumaviewpro.file_io_executor
+        file_io_executor = ctx.file_io_executor
         if file_io_executor.is_protocol_queue_active():
             logger.warning('[LVP Main  ] Cannot create new protocol - files still being written')
             from ui.notification_popup import show_notification_popup
@@ -357,8 +387,8 @@ class ProtocolSettings(FloatLayout):
             )
             return
 
-        config = lumaviewpro.get_sequenced_capture_config_from_ui()
-        source_path = lumaviewpro.source_path
+        config = get_sequenced_capture_config_from_ui()
+        source_path = ctx.source_path
         protocol = Protocol.from_config(
             input_config=config,
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
@@ -373,11 +403,10 @@ class ProtocolSettings(FloatLayout):
         ))
 
     def new_protocol_ex(self, protocol):
-        import lumaviewpro
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
-        if (lumaviewpro.lumaview.scope.has_turret()) and (not lumaviewpro.lumaview.scope.is_current_turret_position_objective_set()):
+        if (ctx.lumaview.scope.has_turret()) and (not ctx.lumaview.scope.is_current_turret_position_objective_set()):
             error_msg = f"Cannot create new protocol. Please set objective for current turret position."
             logger.error(error_msg)
 
@@ -399,7 +428,7 @@ class ProtocolSettings(FloatLayout):
 
         self._protocol = protocol
 
-        lumaviewpro.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(df=self._protocol.steps())
         def temp():
             self.ids['protocol_filename'].text = ''
             self.ids['capture_root'].text = ''
@@ -437,7 +466,7 @@ class ProtocolSettings(FloatLayout):
 
 
     def _validate_objectives_in_protocol(self, protocol_df: pd.DataFrame) -> bool:
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         # Validation for objectives with multi-objective protocol
         protocol_objective_ids = set(protocol_df['Objective'].to_list())
@@ -448,15 +477,14 @@ class ProtocolSettings(FloatLayout):
 
         # Otherwise, check all the objectives used in the protocol and confirm
         # they are all part of the current turret config
-        turret_objective_ids = set(lumaviewpro.lumaview.scope.get_turret_config().values())
+        turret_objective_ids = set(ctx.lumaview.scope.get_turret_config().values())
         return protocol_objective_ids.issubset(turret_objective_ids)
 
     # Load Protocol from File
     def load_protocol(self, filepath="./data/new_default_protocol.tsv"):
-        import lumaviewpro
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
-        source_path = lumaviewpro.source_path
+        source_path = ctx.source_path
 
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
@@ -482,7 +510,7 @@ class ProtocolSettings(FloatLayout):
         if protocol is False:
             error_title = "Empty Protocol Steps"
             error_msg = f"Warning: Selected protocol had no steps. Empty protocol loaded."
-            protocol_config = lumaviewpro.get_sequenced_capture_config_from_ui()
+            protocol_config = get_sequenced_capture_config_from_ui()
 
             protocol = Protocol.create_empty(
                 config=protocol_config,
@@ -538,29 +566,29 @@ class ProtocolSettings(FloatLayout):
                 if settings[layer]['stim_config'] is not None:
                     settings[layer]['stim_config']['enabled'] = False
 
-        lumaviewpro.reset_acquire_ui()
-        lumaviewpro.reset_stim_ui()
+        reset_acquire_ui()
+        reset_stim_ui()
 
         # Make steps available for drawing locations
-        lumaviewpro.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(df=self._protocol.steps())
 
         self.update_step_ui()
         # Skip go_to_step during startup - will be handled by on_start if initializing,
         # or called explicitly by user action if loading protocol later
-        if not lumaviewpro._app_initializing:
+        if not ctx.initializing:
             self.go_to_step(protocol=False)
 
         return True
 
 
     def get_default_name_for_curr_step(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         step = self.get_curr_step()
 
-        if lumaviewpro.lumaview.scope.has_turret():
+        if ctx.lumaview.scope.has_turret():
             objective_id = step['Objective']
-            objective_info = lumaviewpro.objective_helper.get_objective_info(objective_id=objective_id)
+            objective_info = ctx.objective_helper.get_objective_info(objective_id=objective_id)
             if objective_info is None:
                 objective_short_name = objective_id
             else:
@@ -585,12 +613,11 @@ class ProtocolSettings(FloatLayout):
 
     # Save Protocol to File
     def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
-        import lumaviewpro
         settings = _app_ctx.ctx.settings
 
         logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
 
-        time_params = lumaviewpro.get_protocol_time_params()
+        time_params = get_protocol_time_params()
         self._protocol.modify_time_params(
             period=time_params['period'],
             duration=time_params['duration']
@@ -681,8 +708,7 @@ class ProtocolSettings(FloatLayout):
         self,
         protocol=True
     ):
-        import lumaviewpro
-        lumaviewpro.go_to_step(
+        go_to_step(
             protocol=self._protocol,
             step_idx=self.curr_step,
             ignore_auto_gain=False,
@@ -717,7 +743,7 @@ class ProtocolSettings(FloatLayout):
 
     # Delete Current Step of Protocol
     def delete_step(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         logger.info('[LVP Main  ] ProtocolSettings.delete_step()')
 
@@ -728,7 +754,7 @@ class ProtocolSettings(FloatLayout):
             step_idx=self.curr_step
         )
 
-        lumaviewpro.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(df=self._protocol.steps())
 
         if self._protocol.num_steps() <= 0:
             self.curr_step = -1
@@ -740,8 +766,6 @@ class ProtocolSettings(FloatLayout):
 
 
     def modify_step(self):
-        import lumaviewpro
-
         logger.info('[LVP Main  ] ProtocolSettings.modify_step()')
 
         if self._protocol.num_steps() < 1:
@@ -755,10 +779,10 @@ class ProtocolSettings(FloatLayout):
 
 
     def modify_step_ex(self):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         from ui.notification_popup import show_notification_popup
 
-        active_layer, active_layer_config = lumaviewpro.get_active_layer_config()
+        active_layer, active_layer_config = get_active_layer_config()
         stim_was_active = False
 
         if 'stim_config' in active_layer_config:
@@ -767,15 +791,15 @@ class ProtocolSettings(FloatLayout):
                     # We want to keep the same acquire channel when we are only modifying the stim config.
                     true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
                     active_layer = true_step_layer
-                    active_layer_config = lumaviewpro.get_layer_configs()[active_layer]
+                    active_layer_config = get_layer_configs()[active_layer]
                     stim_was_active = True
 
-        plate_position = lumaviewpro.get_current_plate_position()
-        objective_id, _ = lumaviewpro.get_current_objective_info()
+        plate_position = get_current_plate_position()
+        objective_id, _ = get_current_objective_info()
 
         #logger.error(f"CURRENT Z POSITION IN UM {plate_position['z']}")
 
-        if (lumaviewpro.lumaview.scope.has_turret()) and (not lumaviewpro.lumaview.scope.is_current_turret_position_objective_set()):
+        if (ctx.lumaview.scope.has_turret()) and (not ctx.lumaview.scope.is_current_turret_position_objective_set()):
             error_msg = f"Cannot modify protocol step. Please set objective for current turret position."
             logger.error(error_msg)
             show_notification_popup(title="Protocol Step Modification Error", message=error_msg)
@@ -788,7 +812,7 @@ class ProtocolSettings(FloatLayout):
         if stim_was_active:
             original_step = self._protocol.step(idx=self.curr_step)
             original_layer = original_step['Color']
-            layer_configs_all = lumaviewpro.get_layer_configs()
+            layer_configs_all = get_layer_configs()
             if original_layer in layer_configs_all and (layer_configs_all[original_layer]['acquire'] is not None):
                 step_name = original_step['Name']
 
@@ -797,7 +821,7 @@ class ProtocolSettings(FloatLayout):
             step_name=step_name,
             layer=active_layer,
             layer_config=active_layer_config,
-            stim_configs=lumaviewpro.get_stim_configs(),
+            stim_configs=get_stim_configs(),
             plate_position=plate_position,
             objective_id=objective_id,
         )
@@ -811,13 +835,11 @@ class ProtocolSettings(FloatLayout):
                 message=f"Step modified with validation issues:\n\n{msg}"
             ), 0)
 
-        lumaviewpro.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(df=self._protocol.steps())
 
 
     # add_step
     def insert_step(self, after_current_step: bool = True):
-        import lumaviewpro
-
         logger.info('[LVP Main  ] ProtocolSettings.insert_step()')
         io_executor = _app_ctx.ctx.io_executor
         io_executor.put(IOTask(
@@ -828,13 +850,13 @@ class ProtocolSettings(FloatLayout):
 
 
     def insert_step_ex(self, after_current_step: bool = True):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
         from ui.notification_popup import show_notification_popup
 
-        plate_position = lumaviewpro.get_current_plate_position()
-        objective_id, _ = lumaviewpro.get_current_objective_info()
+        plate_position = get_current_plate_position()
+        objective_id, _ = get_current_objective_info()
 
-        if (lumaviewpro.lumaview.scope.has_turret()) and (not lumaviewpro.lumaview.scope.is_current_turret_position_objective_set()):
+        if (ctx.lumaview.scope.has_turret()) and (not ctx.lumaview.scope.is_current_turret_position_objective_set()):
             error_msg = f"Cannot add step to protocol. Please set objective for current turret position."
             logger.error(error_msg)
             Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Add Step Error", message=error_msg), 0)
@@ -847,7 +869,7 @@ class ProtocolSettings(FloatLayout):
             after_step = None
             before_step = self.curr_step
 
-        layer_configs = lumaviewpro.get_layer_configs()
+        layer_configs = get_layer_configs()
 
         # Early return if no channels have acquire enabled (#548)
         if not any(lc['acquire'] is not None for lc in layer_configs.values()):
@@ -861,12 +883,12 @@ class ProtocolSettings(FloatLayout):
                 step_name=None,
                 layer=layer,
                 layer_config=layer_config,
-                stim_configs=lumaviewpro.get_stim_configs(),
+                stim_configs=get_stim_configs(),
                 plate_position=plate_position,
                 objective_id=objective_id,
                 before_step=before_step,
                 after_step=after_step,
-                include_objective_in_step_name=lumaviewpro.lumaview.scope.has_turret(),
+                include_objective_in_step_name=ctx.lumaview.scope.has_turret(),
             )
 
             if after_current_step or (self.curr_step < 0):
@@ -881,7 +903,7 @@ class ProtocolSettings(FloatLayout):
                 message=f"Step added with validation issues:\n\n{msg}"
             ), 0)
 
-        lumaviewpro.stage.set_protocol_steps(df=self._protocol.steps())
+        ctx.stage.set_protocol_steps(df=self._protocol.steps())
         self.go_to_step(protocol=False)
 
 
@@ -890,8 +912,8 @@ class ProtocolSettings(FloatLayout):
 
 
     def update_show_step_locations(self):
-        import lumaviewpro
-        lumaviewpro.stage.show_protocol_steps(enable=self.ids['show_step_locations_id'].active)
+        ctx = _app_ctx.ctx
+        ctx.stage.show_protocol_steps(enable=self.ids['show_step_locations_id'].active)
 
 
     def update_tiling_selection(self):
@@ -922,35 +944,35 @@ class ProtocolSettings(FloatLayout):
 
 
     def _reset_run_autofocus_scan_button(self, **kwargs):
-        import lumaviewpro
-        protocol_running_global = _app_ctx.ctx.protocol_running
+        ctx = _app_ctx.ctx
+        protocol_running_global = ctx.protocol_running
         protocol_running_global.clear()
 
         self.ids['run_autofocus_btn'].state = 'normal'
         self.ids['run_autofocus_btn'].text = 'Autofocus All Steps'
         self.ids['run_autofocus_btn'].disabled = False
-        lumaviewpro.stage.set_motion_capability(True)
+        ctx.stage.set_motion_capability(True)
 
 
     def _reset_run_scan_button(self, **kwargs):
-        import lumaviewpro
-        protocol_running_global = _app_ctx.ctx.protocol_running
+        ctx = _app_ctx.ctx
+        protocol_running_global = ctx.protocol_running
         protocol_running_global.clear()
         self.ids['run_scan_btn'].state = 'normal'
         self.ids['run_scan_btn'].text = 'Run One Scan'
         self.ids['run_scan_btn'].disabled = False
-        lumaviewpro.stage.set_motion_capability(True)
+        ctx.stage.set_motion_capability(True)
 
 
     def _reset_run_protocol_button(self, **kwargs):
-        import lumaviewpro
-        protocol_running_global = _app_ctx.ctx.protocol_running
+        ctx = _app_ctx.ctx
+        protocol_running_global = ctx.protocol_running
         protocol_running_global.clear()
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
         self.ids['run_protocol_btn'].disabled = False
         self.ids['run_protocol_btn'].background_down = 'atlas://data/images/defaulttheme/button_pressed'
-        lumaviewpro.stage.set_motion_capability(True)
+        ctx.stage.set_motion_capability(True)
 
 
     def _is_protocol_valid(self) -> bool:
@@ -962,7 +984,7 @@ class ProtocolSettings(FloatLayout):
 
 
     def _autofocus_run_complete_callback(self, **kwargs):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         # Don't reset immediately - keep running until files complete
 
@@ -973,7 +995,7 @@ class ProtocolSettings(FloatLayout):
         focused_protocol = kwargs['protocol']
         self._protocol.steps()['Z'] = focused_protocol.steps()['Z']
 
-        file_io_executor = lumaviewpro.file_io_executor
+        file_io_executor = ctx.file_io_executor
 
         # Check if files are still being written
         if file_io_executor.is_protocol_queue_active():
@@ -993,19 +1015,19 @@ class ProtocolSettings(FloatLayout):
             self.ids['run_protocol_btn'].disabled = True
 
             # Update window title
-            version = lumaviewpro.version
+            version = ctx.version
             Window.set_title(f"Lumaview Pro {version}   |   Writing protocol scan files to disk...")
         else:
             # No files pending - proceed with normal reset
-            lumaviewpro.live_histo_reverse()
-            lumaviewpro.reset_acquire_ui()
+            live_histo_reverse()
+            reset_acquire_ui()
             self._reset_run_autofocus_scan_button()
 
 
     def _update_autofocus_write_status(self, dt):
         """Update UI to show file writing progress for autofocus."""
-        import lumaviewpro
-        file_io_executor = lumaviewpro.file_io_executor
+        ctx = _app_ctx.ctx
+        file_io_executor = ctx.file_io_executor
 
         if file_io_executor.is_protocol_queue_active():
             queue_size = file_io_executor.protocol_queue_size()
@@ -1021,7 +1043,6 @@ class ProtocolSettings(FloatLayout):
 
     def _autofocus_files_complete(self, **kwargs):
         """Called when ALL files are written to disk for autofocus run."""
-        import lumaviewpro
 
         # Guard against multiple calls using thread-safe event
         if self._scan_files_completed_event.is_set():
@@ -1041,36 +1062,35 @@ class ProtocolSettings(FloatLayout):
         self.ids['run_protocol_btn'].disabled = False
 
         # Complete remaining cleanup
-        lumaviewpro.live_histo_reverse()
-        lumaviewpro.reset_acquire_ui()
-        Clock.schedule_once(lambda dt: lumaviewpro.reset_title(), 0)
+        live_histo_reverse()
+        reset_acquire_ui()
+        Clock.schedule_once(lambda dt: reset_title(), 0)
 
 
     def debug_func(self):
-        import lumaviewpro
-        logger.error(f"DEBUG VAL: {lumaviewpro.lumaview.scope.get_led_status()}")
+        ctx = _app_ctx.ctx
+        logger.error(f"DEBUG VAL: {ctx.lumaview.scope.get_led_status()}")
 
     def run_autofocus_scan_from_ui(self):
-        import lumaviewpro
         from ui.notification_popup import show_notification_popup
 
         logger.info('[LVP Main  ] ProtocolSettings.run_autofocus_scan_from_ui()')
         trigger_source = 'autofocus_scan'
         run_not_started_func = self._reset_run_autofocus_scan_button
 
-        sequenced_capture_executor = lumaviewpro.sequenced_capture_executor
-        file_io_executor = lumaviewpro.file_io_executor
         ctx = _app_ctx.ctx
+        sequenced_capture_executor = ctx.sequenced_capture_executor
+        file_io_executor = ctx.file_io_executor
 
         run_trigger_source = sequenced_capture_executor.run_trigger_source()
 
-        lumaviewpro.live_histo_off()
-        lumaviewpro.stage.set_motion_capability(False)
+        live_histo_off()
+        ctx.stage.set_motion_capability(False)
 
         # Only block if starting NEW autofocus scan (button is 'down'), not if aborting (button is 'normal')
         if self.ids['run_autofocus_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
             run_not_started_func()
-            lumaviewpro.live_histo_reverse()
+            live_histo_reverse()
             logger.warning(f"Cannot start autofocus scan - files still being written to disk")
             show_notification_popup(
                 title="Operation Blocked",
@@ -1085,13 +1105,13 @@ class ProtocolSettings(FloatLayout):
         if sequenced_capture_executor.run_in_progress() and \
             (run_trigger_source != trigger_source):
             run_not_started_func()
-            lumaviewpro.live_histo_reverse()
+            live_histo_reverse()
             logger.warning(f"Cannot start autofocus scan. Run already in progress from {run_trigger_source}")
             return
 
         if not self._is_protocol_valid():
             run_not_started_func()
-            lumaviewpro.live_histo_reverse()
+            live_histo_reverse()
             return
 
 
@@ -1101,7 +1121,7 @@ class ProtocolSettings(FloatLayout):
         settings = _app_ctx.ctx.settings
 
         callbacks = {
-            'move_position': lumaviewpro._handle_ui_update_for_axis,
+            'move_position': _handle_ui_update_for_axis,
             'update_scope_display': ctx.scope_display.update_scopedisplay,
             # Pause live UI during recording-heavy runs for throughput
             'pause_live_ui': lambda: (
@@ -1117,19 +1137,19 @@ class ProtocolSettings(FloatLayout):
             'autofocus_in_progress': self._autofocus_in_progress_callback,
             'autofocus_complete': self._autofocus_complete_callback,
             'scan_iterate_post': run_not_started_func,
-            'update_step_number': lumaviewpro._update_step_number_callback,
-            'go_to_step': lumaviewpro.go_to_step,
+            'update_step_number': _update_step_number_callback,
+            'go_to_step': go_to_step,
             'run_complete': self._autofocus_run_complete_callback,
             'files_complete': self._autofocus_files_complete,
-            'leds_off': lumaviewpro._handle_ui_for_leds_off,
-            'led_state': lumaviewpro._handle_ui_for_led,
-            'reset_autofocus_btns': lumaviewpro.update_autofocus_selection_after_protocol,
-            'set_recording_title': lumaviewpro.set_recording_title,
-            'set_writing_title': lumaviewpro.set_writing_title,
-            'reset_title': lumaviewpro.reset_title,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
+            'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+            'set_recording_title': set_recording_title,
+            'set_writing_title': set_writing_title,
+            'reset_title': reset_title,
         }
 
-        autogain_settings = lumaviewpro.get_auto_gain_settings()
+        autogain_settings = get_auto_gain_settings()
 
         sequence = copy.deepcopy(self._protocol)
         sequence.modify_autofocus_all_steps(enabled=True)
@@ -1141,7 +1161,7 @@ class ProtocolSettings(FloatLayout):
             max_scans=1,
             sequence_name='af_scan',
             parent_dir=None,
-            image_capture_config=lumaviewpro.get_image_capture_config_from_ui(),
+            image_capture_config=get_image_capture_config_from_ui(),
             enable_image_saving=False,
             separate_folder_per_channel=False,
             autogain_settings=autogain_settings,
@@ -1153,16 +1173,16 @@ class ProtocolSettings(FloatLayout):
 
 
     def _scan_run_complete(self, **kwargs):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         # Don't reset protocol_running_global yet - keep it True until files complete
 
         # Reset completion event for this scan (thread-safe)
         self._scan_files_completed_event.clear()
 
-        protocol_running_global = _app_ctx.ctx.protocol_running
-        file_io_executor = lumaviewpro.file_io_executor
-        version = lumaviewpro.version
+        protocol_running_global = ctx.protocol_running
+        file_io_executor = ctx.file_io_executor
+        version = ctx.version
 
         # Check if files are still being written
         if file_io_executor.is_protocol_queue_active():
@@ -1187,17 +1207,17 @@ class ProtocolSettings(FloatLayout):
             # No files pending - proceed with normal reset
             protocol_running_global.clear()
             self._reset_run_scan_button()
-            lumaviewpro.create_hyperstacks_if_needed()
-            lumaviewpro.live_histo_reverse()
-            lumaviewpro.reset_acquire_ui()
+            create_hyperstacks_if_needed()
+            live_histo_reverse()
+            reset_acquire_ui()
             self.reset_autofocus_ui()
-            lumaviewpro.stage.set_motion_capability(True)
+            ctx.stage.set_motion_capability(True)
 
 
     def _update_file_write_status(self, dt):
         """Update UI to show file writing progress."""
-        import lumaviewpro
-        file_io_executor = lumaviewpro.file_io_executor
+        ctx = _app_ctx.ctx
+        file_io_executor = ctx.file_io_executor
 
         if file_io_executor.is_protocol_queue_active():
             queue_size = file_io_executor.protocol_queue_size()
@@ -1213,7 +1233,7 @@ class ProtocolSettings(FloatLayout):
 
     def _scan_files_complete(self, **kwargs):
         """Called when ALL files are written to disk (deferred callback)."""
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         # Guard against multiple calls using thread-safe event
         if self._scan_files_completed_event.is_set():
@@ -1225,7 +1245,7 @@ class ProtocolSettings(FloatLayout):
             Clock.unschedule(self._file_write_status_event)
             self._file_write_status_event = None
 
-        protocol_running_global = _app_ctx.ctx.protocol_running
+        protocol_running_global = ctx.protocol_running
         protocol_running_global.clear()
 
         # Now actually reset the button
@@ -1236,16 +1256,15 @@ class ProtocolSettings(FloatLayout):
         self.ids['run_autofocus_btn'].disabled = False
 
         # Complete remaining cleanup
-        lumaviewpro.create_hyperstacks_if_needed()
-        lumaviewpro.live_histo_reverse()
-        lumaviewpro.reset_acquire_ui()
+        create_hyperstacks_if_needed()
+        live_histo_reverse()
+        reset_acquire_ui()
         self.reset_autofocus_ui()
-        lumaviewpro.stage.set_motion_capability(True)
-        lumaviewpro.reset_title()
+        ctx.stage.set_motion_capability(True)
+        reset_title()
 
 
     def run_scan_from_ui(self):
-        import lumaviewpro
         from ui.notification_popup import show_notification_popup
 
         logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
@@ -1253,9 +1272,9 @@ class ProtocolSettings(FloatLayout):
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
 
-        sequenced_capture_executor = lumaviewpro.sequenced_capture_executor
-        file_io_executor = lumaviewpro.file_io_executor
         ctx = _app_ctx.ctx
+        sequenced_capture_executor = ctx.sequenced_capture_executor
+        file_io_executor = ctx.file_io_executor
 
         # Only block if starting NEW scan (button is 'down'), not if aborting (button is 'normal')
         if self.ids['run_scan_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
@@ -1267,11 +1286,11 @@ class ProtocolSettings(FloatLayout):
             )
             return
 
-        protocol_running_global = _app_ctx.ctx.protocol_running
+        protocol_running_global = ctx.protocol_running
         protocol_running_global.set()
 
         # Disable ability for user to move stage manually
-        lumaviewpro.stage.set_motion_capability(False)
+        ctx.stage.set_motion_capability(False)
 
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
         if self.ids['run_scan_btn'].state == 'down' and sequenced_capture_executor._autofocus_executor.in_progress():
@@ -1304,8 +1323,8 @@ class ProtocolSettings(FloatLayout):
             'scan_iterate_post': run_not_started_func,
             'run_complete': run_complete_func,
             'files_complete': self._scan_files_complete,
-            'leds_off': lumaviewpro._handle_ui_for_leds_off,
-            'led_state': lumaviewpro._handle_ui_for_led,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
             'pause_live_ui': lambda: (
                 Clock.unschedule(ctx.scope_display.update_scopedisplay),
                 Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
@@ -1326,16 +1345,16 @@ class ProtocolSettings(FloatLayout):
 
 
     def _protocol_run_complete(self, **kwargs):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         # Don't reset protocol_running_global yet - keep it True until files complete
 
         # Reset completion event for this run (thread-safe)
         self._scan_files_completed_event.clear()
 
-        protocol_running_global = _app_ctx.ctx.protocol_running
-        file_io_executor = lumaviewpro.file_io_executor
-        version = lumaviewpro.version
+        protocol_running_global = ctx.protocol_running
+        file_io_executor = ctx.file_io_executor
+        version = ctx.version
 
         # Check if files are still being written
         if file_io_executor.is_protocol_queue_active():
@@ -1360,17 +1379,17 @@ class ProtocolSettings(FloatLayout):
             # No files pending - proceed with normal reset
             protocol_running_global.clear()
             self._reset_run_protocol_button()
-            lumaviewpro.live_histo_reverse()
-            lumaviewpro.create_hyperstacks_if_needed()
-            lumaviewpro.reset_acquire_ui()
+            live_histo_reverse()
+            create_hyperstacks_if_needed()
+            reset_acquire_ui()
             self.reset_autofocus_ui()
-            lumaviewpro.stage.set_motion_capability(True)
+            ctx.stage.set_motion_capability(True)
 
 
     def _update_protocol_write_status(self, dt):
         """Update UI to show file writing progress for protocol."""
-        import lumaviewpro
-        file_io_executor = lumaviewpro.file_io_executor
+        ctx = _app_ctx.ctx
+        file_io_executor = ctx.file_io_executor
 
         if file_io_executor.is_protocol_queue_active():
             queue_size = file_io_executor.protocol_queue_size()
@@ -1386,7 +1405,7 @@ class ProtocolSettings(FloatLayout):
 
     def _protocol_files_complete(self, **kwargs):
         """Called when ALL files are written to disk for protocol run."""
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
         # Guard against multiple calls using thread-safe event
         if self._scan_files_completed_event.is_set():
@@ -1398,7 +1417,7 @@ class ProtocolSettings(FloatLayout):
             Clock.unschedule(self._file_write_status_event)
             self._file_write_status_event = None
 
-        protocol_running_global = _app_ctx.ctx.protocol_running
+        protocol_running_global = ctx.protocol_running
         protocol_running_global.clear()
 
         # Reset the protocol button
@@ -1409,16 +1428,15 @@ class ProtocolSettings(FloatLayout):
         self.ids['run_autofocus_btn'].disabled = False
 
         # Complete remaining cleanup
-        lumaviewpro.live_histo_reverse()
-        lumaviewpro.create_hyperstacks_if_needed()
-        lumaviewpro.reset_acquire_ui()
+        live_histo_reverse()
+        create_hyperstacks_if_needed()
+        reset_acquire_ui()
         self.reset_autofocus_ui()
-        lumaviewpro.stage.set_motion_capability(True)
-        lumaviewpro.reset_title()
+        ctx.stage.set_motion_capability(True)
+        reset_title()
 
 
     def run_protocol_from_ui(self):
-        import lumaviewpro
         from ui.notification_popup import show_notification_popup
 
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol_from_ui()')
@@ -1426,14 +1444,14 @@ class ProtocolSettings(FloatLayout):
         run_complete_func = self._protocol_run_complete
         run_not_started_func = self._reset_run_protocol_button
 
-        sequenced_capture_executor = lumaviewpro.sequenced_capture_executor
-        file_io_executor = lumaviewpro.file_io_executor
         ctx = _app_ctx.ctx
+        sequenced_capture_executor = ctx.sequenced_capture_executor
+        file_io_executor = ctx.file_io_executor
 
-        protocol_running_global = _app_ctx.ctx.protocol_running
+        protocol_running_global = ctx.protocol_running
         protocol_running_global.set()
 
-        lumaviewpro.stage.set_motion_capability(False)
+        ctx.stage.set_motion_capability(False)
 
         # Only block if starting NEW protocol run (button is 'down'), not if aborting (button is 'normal')
         if self.ids['run_protocol_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
@@ -1479,8 +1497,8 @@ class ProtocolSettings(FloatLayout):
             'autofocus_complete': self._autofocus_complete_callback,
             'run_complete': run_complete_func,
             'files_complete': self._protocol_files_complete,
-            'leds_off': lumaviewpro._handle_ui_for_leds_off,
-            'led_state': lumaviewpro._handle_ui_for_led,
+            'leds_off': _handle_ui_for_leds_off,
+            'led_state': _handle_ui_for_led,
             'pause_live_ui': lambda: (
                 Clock.unschedule(ctx.scope_display.update_scopedisplay),
                 Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
@@ -1492,7 +1510,7 @@ class ProtocolSettings(FloatLayout):
             ),
         }
 
-        time_params = lumaviewpro.get_protocol_time_params()
+        time_params = get_protocol_time_params()
         self._protocol.modify_time_params(
             period=time_params['period'],
             duration=time_params['duration'],
@@ -1537,7 +1555,6 @@ class ProtocolSettings(FloatLayout):
 
 
     def _run_scan_pre_callback(self):
-        import lumaviewpro
         ctx = _app_ctx.ctx
         ctx.motion_settings.ids['verticalcontrol_id'].is_complete = False
         Clock.schedule_once(lambda dt: self.update_step_ui(), 0)
@@ -1563,28 +1580,26 @@ class ProtocolSettings(FloatLayout):
         disable_saving_artifacts: bool = False,
         return_to_position: dict | None = None,
     ):
-        import lumaviewpro
-
-        lumaviewpro.live_histo_off()
+        live_histo_off()
 
         logger.info('[LVP Main  ] ProtocolSettings.run_sequenced_capture()')
 
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
-        sequenced_capture_executor = lumaviewpro.sequenced_capture_executor
+        sequenced_capture_executor = ctx.sequenced_capture_executor
 
         callbacks.update(
             {
-                'move_position': lumaviewpro._handle_ui_update_for_axis,
-                'leds_off': lumaviewpro._handle_ui_for_leds_off,
-                'led_state': lumaviewpro._handle_ui_for_led,
-                'update_step_number': lumaviewpro._update_step_number_callback,
-                'go_to_step': lumaviewpro.go_to_step,
+                'move_position': _handle_ui_update_for_axis,
+                'leds_off': _handle_ui_for_leds_off,
+                'led_state': _handle_ui_for_led,
+                'update_step_number': _update_step_number_callback,
+                'go_to_step': go_to_step,
                 'update_scope_display': ctx.scope_display.update_scopedisplay,
-                'reset_autofocus_btns': lumaviewpro.update_autofocus_selection_after_protocol,
-                'set_recording_title': lumaviewpro.set_recording_title,
-                'set_writing_title': lumaviewpro.set_writing_title,
-                'reset_title': lumaviewpro.reset_title,
+                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+                'set_recording_title': set_recording_title,
+                'set_writing_title': set_writing_title,
+                'reset_title': reset_title,
                 'restore_autofocus_state': lambda layer, value: settings[layer].__setitem__('autofocus', value),
             }
         )
@@ -1593,8 +1608,8 @@ class ProtocolSettings(FloatLayout):
 
         sequence_name = self.ids['protocol_filename'].text
 
-        image_capture_config = lumaviewpro.get_image_capture_config_from_ui()
-        autogain_settings = lumaviewpro.get_auto_gain_settings()
+        image_capture_config = get_image_capture_config_from_ui()
+        autogain_settings = get_auto_gain_settings()
 
         # Snapshot autofocus states from settings on the UI thread before passing to protocol thread
         initial_autofocus_states = {layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()}
@@ -1607,7 +1622,7 @@ class ProtocolSettings(FloatLayout):
             sequence_name=sequence_name,
             parent_dir=parent_dir,
             image_capture_config=image_capture_config,
-            enable_image_saving=lumaviewpro.is_image_saving_enabled(),
+            enable_image_saving=is_image_saving_enabled(),
             separate_folder_per_channel=ctx.motion_settings.ids['microscope_settings_id']._seperate_folder_per_channel,
             autogain_settings=autogain_settings,
             callbacks=callbacks,
@@ -1618,7 +1633,7 @@ class ProtocolSettings(FloatLayout):
             initial_autofocus_states=initial_autofocus_states,
         )
 
-        lumaviewpro.set_last_save_folder(dir=sequenced_capture_executor.run_dir())
+        set_last_save_folder(dir=sequenced_capture_executor.run_dir())
 
         if run_mode == SequencedCaptureRunMode.FULL_PROTOCOL:
             self._update_protocol_run_button_status(
@@ -1628,23 +1643,23 @@ class ProtocolSettings(FloatLayout):
 
 
     def _cleanup_at_end_of_protocol(self, autofocus_scan: bool):
-        import lumaviewpro
+        ctx = _app_ctx.ctx
 
-        sequenced_capture_executor = lumaviewpro.sequenced_capture_executor
+        sequenced_capture_executor = ctx.sequenced_capture_executor
         sequenced_capture_executor.reset()
         sequenced_capture_executor._autofocus_executor.reset()
-        lumaviewpro.live_histo_reverse()
+        live_histo_reverse()
         self._reset_run_protocol_button()
         self._reset_run_scan_button()
         self._reset_run_autofocus_scan_button()
         self.reset_autofocus_ui()
         self._autofocus_complete_callback()
-        lumaviewpro.stage.set_motion_capability(True)
+        ctx.stage.set_motion_capability(True)
 
 
         if not autofocus_scan:
             try:
-                lumaviewpro.create_hyperstacks_if_needed()
+                create_hyperstacks_if_needed()
             except Exception as e:
                 logger.error(f"Error occurred while creating hyperstacks: {e}", exc_info=True)
 
