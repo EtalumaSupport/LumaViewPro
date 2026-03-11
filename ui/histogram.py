@@ -25,6 +25,8 @@ class Histogram(Widget):
         self.hist_range_set = False
         self.edges = [0,255]
         self.stablize = 0.3
+        self._mesh = None
+        self._mesh_color = None
 
 
     def histogram(self, *args):
@@ -55,6 +57,8 @@ class Histogram(Widget):
             max_height = heights.max()
             if max_height <= 0:
                 self.canvas.clear()
+                self._mesh = None
+                self._mesh_color = None
                 return
 
             x = self.x
@@ -80,9 +84,14 @@ class Histogram(Widget):
                 base = i * 4
                 indices.extend([base, base + 1, base + 2, base + 1, base + 2, base + 3])
 
-            self.canvas.clear()
             r, b, g, a = self.bg_color
             self.hist = (counts, None)
-            with self.canvas:
-                Color(r, b, g, a / 2)
-                Mesh(vertices=vertices, indices=indices, mode='triangles')
+            if self._mesh is None:
+                self.canvas.clear()
+                with self.canvas:
+                    self._mesh_color = Color(r, b, g, a / 2)
+                    self._mesh = Mesh(vertices=vertices, indices=indices, mode='triangles')
+            else:
+                self._mesh_color.rgba = (r, b, g, a / 2)
+                self._mesh.vertices = vertices
+                self._mesh.indices = indices

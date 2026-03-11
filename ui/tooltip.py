@@ -9,7 +9,7 @@ tooltip management methods for LumaViewProApp.
 import kivy.uix.accordion
 from kivy.clock import Clock
 from kivy.core.window import Window
-from kivy.graphics import Color, Rectangle, Line
+from kivy.graphics import Color, InstructionGroup, Rectangle, Line
 from kivy.uix.accordion import AccordionItem
 from kivy.uix.label import Label
 
@@ -177,9 +177,14 @@ class TooltipMixin:
             top = true_widget_y + widget.height
 
             if show_hitboxes:
-                with widget.canvas.after:
-                    Color(1,0,0,1)
-                    Line(rectangle=(left, bottom, right-left, top-bottom))
+                grp = getattr(widget, '_hitbox_group', None)
+                if grp is None:
+                    grp = InstructionGroup()
+                    widget._hitbox_group = grp
+                    widget.canvas.after.add(grp)
+                grp.clear()
+                grp.add(Color(1,0,0,1))
+                grp.add(Line(rectangle=(left, bottom, right-left, top-bottom)))
 
             return left <= mouse_x <= right and bottom <= mouse_y <= top
 
@@ -210,31 +215,40 @@ class TooltipMixin:
                 text_y = ((total_height - text_height) / 2) + true_widget_y
 
             if show_hitboxes:
-                with widget.canvas.after:  # Use canvas.after to draw on top of everything else
-                # Optional: Set a color for the hitbox
-                    Color(1, 0, 0, 1)  # Red color, fully opaque
-
-                    # Draw a rectangle around the widget's bounding box
-                    Line(rectangle=(text_x, text_y, text_width, text_height), width=1)
+                grp = getattr(widget, '_hitbox_group', None)
+                if grp is None:
+                    grp = InstructionGroup()
+                    widget._hitbox_group = grp
+                    widget.canvas.after.add(grp)
+                grp.clear()
+                grp.add(Color(1, 0, 0, 1))
+                grp.add(Line(rectangle=(text_x, text_y, text_width, text_height), width=1))
 
             return text_x <= mouse_x <= (text_x + text_width) and text_y <= mouse_y <= (text_y + text_height)
+
+    _text_size_cache = {}  # {(text, font_size, max_width): (w, h)}
 
     # Used to calculate a label's text dimensions when the label size is preset (keeps collision only on the text)
     def calculate_label_text_size(self, widget) -> tuple:
         text = widget.text
         font_size = widget.font_size
+        max_width = widget.size[0]
+
+        cache_key = (text, font_size, max_width)
+        cached = self._text_size_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
         temp_label = Label(text=text, font_size=font_size,)
-
         temp_label.texture_update()
-
         text_width, text_height = temp_label.texture_size
 
-        if text_width > widget.size[0]:
-            temp_label.text_size[0] = widget.size[0]
+        if text_width > max_width:
+            temp_label.text_size[0] = max_width
             temp_label.texture_update()
             text_width, text_height = temp_label.texture_size
 
+        self._text_size_cache[cache_key] = (text_width, text_height)
         return text_width, text_height
 
 

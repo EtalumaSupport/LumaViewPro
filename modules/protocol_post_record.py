@@ -60,6 +60,7 @@ class ProtocolPostRecord:
             self._records = self._create_empty_df()
         else:
             self._records = records
+        self._pending_records = []  # Accumulated dicts, merged lazily
 
 
     def _initialize_outfile(self, outfile: pathlib.Path):
@@ -117,20 +118,35 @@ class ProtocolPostRecord:
         return df
 
 
+    def _flush_pending(self):
+        """Merge accumulated record dicts into the DataFrame."""
+        if not self._pending_records:
+            return
+        new_df = pd.DataFrame(self._pending_records)
+        df_list = [self._records, new_df]
+        self._records = pd.concat([df for df in df_list if not df.empty], ignore_index=True).reset_index(drop=True)
+        self._pending_records.clear()
+
     def records(self) -> pd.DataFrame:
+        self._flush_pending()
         return self._records
     
 
     def file_exists_in_records(self, filepath: pathlib.Path) -> bool:
+        # Check pending records first (avoid flushing for every lookup)
+        for rec in self._pending_records:
+            if rec.get('Filepath') == filepath:
+                return True
+
         df = self._records
         df = df[df['Filepath'] == filepath]
         num_matches = len(df)
         if num_matches == 0:
             return False
-        
+
         if num_matches == 1:
             return True
-        
+
         if num_matches > 1:
             raise Exception(f"Expected 0 or 1 matched in post record for {filepath}, but found {num_matches}.")
 
@@ -218,10 +234,7 @@ class ProtocolPostRecord:
             **kwargs
         )
 
-        new_record_df = pd.DataFrame([record_dict])
-
-        df_list = [self._records, new_record_df]
-        self._records = pd.concat([df for df in df_list if not df.empty], ignore_index=True).reset_index(drop=True)
+        self._pending_records.append(record_dict)
 
         self._add_record_to_file(
             file_path=file_path,
