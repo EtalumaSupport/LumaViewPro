@@ -130,7 +130,8 @@ class ZProjectionControls(BoxLayout):
             self.ij_initialized = False
             # Run imagej initialization in a separate thread
             # Callback to finish zprojection when imagej is initialized
-            _app_ctx.ctx.file_io_executor.put(IOTask(action=lumaviewpro.init_ij, callback=self.zprojection_with_imagej, cb_args=(popup, path)))
+            from modules.imagej_helper import init_ij
+            _app_ctx.ctx.file_io_executor.put(IOTask(action=init_ij, callback=self.zprojection_with_imagej, cb_args=(popup, path)))
             self.ij_buffer_event = Clock.schedule_interval(lambda dt: self.waiting_for_imagej(popup), self.ij_buffer_interval)
             return
 
@@ -644,7 +645,8 @@ class GraphingControls(BoxLayout):
         if self.graph_widget:
             graphing_area.remove_widget(self.graph_widget)
 
-        self.graph_widget = lumaviewpro.FigureCanvasKivyAgg(plt.gcf())
+        from ui.figure_canvas import FigureCanvasKivyAgg
+        self.graph_widget = FigureCanvasKivyAgg(plt.gcf())
 
         graphing_area.add_widget(self.graph_widget)
 

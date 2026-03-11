@@ -294,28 +294,8 @@ if __name__ == "__main__":
     from kivy.metrics import dp
     #from kivy.animation import Animation
     from kivy.graphics import Line, Color, Rectangle, Ellipse, Mesh, InstructionGroup
-    # Matplotlib-to-Kivy bridge (replaces kivy-garden.matplotlib)
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from kivy.graphics.texture import Texture as KivyTexture
-    from kivy.uix.image import Image as KivyImage
-
-    class FigureCanvasKivyAgg(KivyImage):
-        """Render a matplotlib figure as a Kivy Image widget using the Agg backend."""
-
-        def __init__(self, figure, **kwargs):
-            super().__init__(**kwargs)
-            self.figure = figure
-            self._canvas_agg = FigureCanvasAgg(figure)
-            self.draw()
-
-        def draw(self):
-            self._canvas_agg.draw()
-            w, h = self._canvas_agg.get_width_height()
-            buf = self._canvas_agg.buffer_rgba()
-            texture = KivyTexture.create(size=(w, h), colorfmt='rgba')
-            texture.blit_buffer(bytes(buf), colorfmt='rgba', bufferfmt='ubyte')
-            texture.flip_vertical()
-            self.texture = texture
+    # Matplotlib-to-Kivy bridge → ui/figure_canvas.py
+    from ui.figure_canvas import FigureCanvasKivyAgg
 
     # User Interface
     from kivy.uix.accordion import AccordionItem
@@ -380,36 +360,6 @@ if __name__ == "__main__":
 
     live_histo_setting = False
 
-
-    # -------------------------------------------------------------------------
-    # SCROLLVIEW MEMORY CLEANUP UTILITY
-    # -------------------------------------------------------------------------
-    def cleanup_scrollview_viewport(scrollview):
-        """
-        Clean up ScrollView viewport textures to prevent memory accumulation.
-        This is called after accordion collapse events to release viewport resources.
-        """
-        try:
-            if not isinstance(scrollview, ScrollView):
-                return
-
-            # Clear viewport canvas
-            if hasattr(scrollview, '_viewport') and scrollview._viewport:
-                if hasattr(scrollview._viewport, 'canvas'):
-                    scrollview._viewport.canvas.ask_update()
-
-            # Clear effect textures (primary source of memory accumulation)
-            for effect in [scrollview.effect_x, scrollview.effect_y]:
-                if effect and hasattr(effect, '_texture'):
-                    effect._texture = None
-
-            # Clear viewport texture reference
-            if hasattr(scrollview, '_viewport_texture'):
-                scrollview._viewport_texture = None
-
-            logger.debug('[LVP Main  ] ScrollView viewport cleanup completed')
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] ScrollView cleanup error: {e}')
 
     last_save_folder = None
     stage = None
@@ -608,12 +558,8 @@ from modules.config_getters import (  # noqa: E402 — extracted functions
 )
 
 
-# Motion, Window Title, and Histogram helpers → modules/ui_helpers.py
-
-def log_system_metrics(dt=None):
-    config_helpers.log_system_metrics(settings)
-
-    
+# ScrollView cleanup → modules/ui_helpers.py
+from modules.ui_helpers import cleanup_scrollview_viewport  # noqa: E402
 
 from ui.scope_display import ScopeDisplay  # noqa: E402 — extracted widget
 
@@ -678,96 +624,11 @@ from ui.zstack import ZStack  # noqa: E402 — extracted widget
 from ui.file_dialogs import FileChooseBTN, FolderChooseBTN, FileSaveBTN  # noqa: E402 — extracted widgets
 
 
-# ============================================================================
-# Application Initialization Helpers
-# ============================================================================
-
-def load_log_level():
-    for settings_file in ("./data/current.json", "./data/settings.json"):
-        if not os.path.exists(settings_file):
-            continue
-
-        with open(settings_file, 'r') as fp:
-            data = json.load(fp)
-
-            try:
-                log_level = logging.getLevelName(data['logging']['default']['level'])
-                logger.setLevel(level=log_level)
-                return
-            except Exception:
-                pass
-
-
-def get_lvp_lock_port() -> int:
-    DEFAULT_LVP_LOCK_PORT = 43101
-    for settings_file in ("./data/current.json", "./data/settings.json"):
-        if not os.path.exists(settings_file):
-            continue
-
-        with open(settings_file, 'r') as fp:
-            data = json.load(fp)
-
-            try:
-                return data['lvp_lock_port']
-            except Exception:
-                pass
-        
-    return DEFAULT_LVP_LOCK_PORT
-
-
-def load_autofocus_log_enable():
-    global autofocus_executor
-    for settings_file in ("./data/current.json", "./data/settings.json"):
-        if not os.path.exists(settings_file):
-            continue
-
-        with open(settings_file, 'r') as fp:
-            data = json.load(fp)
-
-            try:
-                if data['logging']['autofocus']:
-                    autofocus_functions.enable_af_score_logging(enable=True)
-                return
-            except Exception:
-                pass
-
-
-def load_mode():
-    global ENGINEERING_MODE
-    for settings_file in ("./data/current.json", "./data/settings.json"):
-        if not os.path.exists(settings_file):
-            continue
-
-        with open(settings_file, 'r') as fp:
-            data = json.load(fp)
-
-            try:
-                mode = data['mode']
-                if mode == 'engineering':
-                    logger.info(f"Enabling engineering mode")
-                    ENGINEERING_MODE = True
-                    return
-            except Exception:
-                pass
-
-        ENGINEERING_MODE = False
-
-
-def block_wait_for_threads(futures: list, log_loc="LVP") -> None:
-    config_helpers.block_wait_for_threads(futures, log_loc)
-
-def init_ij():
-    import imagej.doctor
-    import imagej
-    import scyjava
-
-    imagej.doctor.checkup()
-    global ij_helper
-    ij_helper = imagej_helper.ImageJHelper()
-    return
-
-def process_ij_helper():
-    return imagej_helper.ImageJHelper()
+# Application config loaders → modules/app_config.py
+from modules.app_config import (  # noqa: E402
+    load_log_level, get_lvp_lock_port, load_autofocus_log_enable,
+    load_mode as _load_mode,
+)
 
 # ============================================================================
 # LumaViewProApp — Main Application Class (Build, Start, Stop, Tooltips)
@@ -889,9 +750,9 @@ class LumaViewProApp(TooltipMixin, App):
         layer_obj = ctx.image_settings.layer_lookup(layer='BF')
         layer_obj.apply_settings()
 
-        log_system_metrics() # Log once on startup
+        config_helpers.log_system_metrics(settings)  # Log once on startup
 
-        Clock.schedule_interval(functools.partial(log_system_metrics), 14400)   # Log metrics every 4 hours
+        Clock.schedule_interval(lambda dt: config_helpers.log_system_metrics(settings), 14400)   # Log metrics every 4 hours
 
         if lumaview.scope.camera_is_connected():
             lumaview.log_camera_temps()  # Log once on startup
@@ -981,7 +842,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Load engineering mode early so _init_ui() methods see the correct value
         global ENGINEERING_MODE
-        load_mode()
+        ENGINEERING_MODE = _load_mode()
 
         stage = Stage()
 
@@ -1187,11 +1048,6 @@ if __name__ == "__main__":
 # ============================================================================
 # Application Entry Point
 # ============================================================================
-
-def dummy_function(PID: int):
-    for _ in range(100):
-        print(f"DUMMY FUNCTION {PID}")
-    return
 
 if __name__ == "__main__":
 

@@ -113,18 +113,19 @@ def go_to_step(
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
-        # Update settings to correspond with step — batch write for thread safety
+        # Update settings to correspond with step — batch write under lock for thread safety
         color = step['Color']
-        settings[color].update({
-            'autofocus': step['Auto_Focus'],
-            'false_color': step['False_Color'],
-            'ill': step["Illumination"],
-            'gain': step["Gain"],
-            'auto_gain': step["Auto_Gain"],
-            'exp': step["Exposure"],
-            'sum': step["Sum"],
-            'acquire': step['Acquire'],
-        })
+        with ctx.settings_lock:
+            settings[color].update({
+                'autofocus': step['Auto_Focus'],
+                'false_color': step['False_Color'],
+                'ill': step["Illumination"],
+                'gain': step["Gain"],
+                'auto_gain': step["Auto_Gain"],
+                'exp': step["Exposure"],
+                'sum': step["Sum"],
+                'acquire': step['Acquire'],
+            })
 
         layer_obj = ctx.image_settings.layer_lookup(layer=color)
 

@@ -600,7 +600,8 @@ class MicroscopeSettings(BoxLayout):
                 file = file+'.json'
 
         os.chdir(lumaviewpro.source_path)
-        settings_snapshot = copy.deepcopy(settings)
+        with _app_ctx.ctx.settings_lock:
+            settings_snapshot = copy.deepcopy(settings)
         with open(file, "w") as write_file:
             json.dump(settings_snapshot, write_file, indent = 4, cls=lumaviewpro.CustomJSONizer)
 

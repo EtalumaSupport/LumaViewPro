@@ -68,10 +68,10 @@ class LayerControl(BoxLayout):
         Clean up ScrollView viewport resources in this LayerControl.
         Called when accordion is collapsed to prevent memory accumulation.
         """
-        import lumaviewpro
+        from modules.ui_helpers import cleanup_scrollview_viewport
         for child in self.walk():
             if isinstance(child, ScrollView):
-                lumaviewpro.cleanup_scrollview_viewport(child)
+                cleanup_scrollview_viewport(child)
 
     def update_stim_controls_visibility(self):
         if self.ids['stim_enable_btn'].active:

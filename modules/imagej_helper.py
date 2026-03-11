@@ -19,6 +19,14 @@ except ImportError:
     imagej_imported = False
 
 
+def init_ij():
+    """Initialize ImageJ and return a helper instance."""
+    import imagej.doctor
+    import imagej
+    imagej.doctor.checkup()
+    return ImageJHelper()
+
+
 class ZProjectMethod(enum.Enum):
     Min                 = "min"
     Max                 = "max"

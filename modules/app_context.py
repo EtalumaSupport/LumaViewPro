@@ -1,4 +1,5 @@
 # Copyright Etaluma, Inc.
+import threading
 from dataclasses import dataclass, field
 
 # Module-level singleton — set by LumaViewProApp.build() after construction.
@@ -21,6 +22,7 @@ class AppContext:
 
     # Core services
     settings: dict = field(default_factory=dict)
+    settings_lock: threading.Lock = field(default_factory=threading.Lock)
     session: object = None             # ScopeSession
 
     # Executors

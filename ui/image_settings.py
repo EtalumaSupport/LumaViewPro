@@ -145,8 +145,8 @@ class ImageSettings(BoxLayout):
                     for child in layer_control.walk():
                         if isinstance(child, ScrollView):
                             # Schedule cleanup after collapse animation completes
-                            import lumaviewpro
-                            Clock.schedule_once(lambda dt, sv=child: lumaviewpro.cleanup_scrollview_viewport(sv), 0.2)
+                            from modules.ui_helpers import cleanup_scrollview_viewport
+                            Clock.schedule_once(lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2)
 
                 accordion_item_obj.collapse = True
 
