@@ -814,6 +814,14 @@ class LumaViewProApp(TooltipMixin, App):
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)
 
+        # Engineering plugin hook — adds engineering tab when installed
+        try:
+            import etaluma_engineering
+            etaluma_engineering.register(ctx)
+            logger.info('[LVP Main  ] Engineering plugin loaded')
+        except ImportError:
+            pass
+
         return lumaview
 
     def _on_resize(self, window, w, h):
