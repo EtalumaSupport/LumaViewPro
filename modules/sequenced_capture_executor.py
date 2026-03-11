@@ -10,6 +10,7 @@ import typing
 
 import numpy as np
 import cv2
+import copy
 import gc
 import queue
 
@@ -381,7 +382,7 @@ class SequencedCaptureExecutor:
         else:
             self._original_autofocus_states = self.get_initial_autofocus_states()
 
-        self._protocol = protocol
+        self._protocol = copy.deepcopy(protocol)
         self._run_mode = run_mode
         self._sequence_name = sequence_name
         self._parent_dir = parent_dir
@@ -1529,8 +1530,6 @@ class SequencedCaptureExecutor:
                         except Exception:
                             pass
                         del video_images
-                        gc.collect()
-
 
                     else:
                         output_file_loc = save_folder / f"{name}.mp4v"
@@ -1566,7 +1565,6 @@ class SequencedCaptureExecutor:
                         except Exception:
                             pass
                         del video_images
-                        gc.collect()
 
                         capture_result = output_file_loc
 
@@ -1609,10 +1607,7 @@ class SequencedCaptureExecutor:
                 )
 
                 del captured_image
-                gc.collect()
 
-                
-                
                 # result = self._scope.save_live_image(
                 #     save_folder=save_folder,
                 #     file_root=None,
@@ -1644,8 +1639,6 @@ class SequencedCaptureExecutor:
 
         else:
             capture_result_filepath_name = "unsaved"
-
-        gc.collect()
 
         try:
             self._protocol_execution_record.add_step(
