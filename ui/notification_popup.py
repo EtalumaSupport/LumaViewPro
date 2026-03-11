@@ -9,11 +9,22 @@ from kivy.uix.button import Button
 
 
 def show_notification_popup(title: str, message: str):
+    content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+    content.add_widget(Label(text=message))
+
+    button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
+    button_layout.add_widget(Label())  # spacer
+    ok_button = Button(text='OK', size_hint_x=None, width='100dp')
+    button_layout.add_widget(ok_button)
+    button_layout.add_widget(Label())  # spacer
+    content.add_widget(button_layout)
+
     popup = Popup(
         title=title,
-        content=Label(text=message),
+        content=content,
         size_hint=(0.6, 0.3),
     )
+    ok_button.bind(on_release=popup.dismiss)
     popup.open()
 
 
@@ -46,8 +57,8 @@ def show_confirmation_popup(title: str, message: str, confirm_text: str, cancel_
     yes_button = Button(text=confirm_text)
     no_button = Button(text=cancel_text)
 
-    button_layout.add_widget(yes_button)
     button_layout.add_widget(no_button)
+    button_layout.add_widget(yes_button)
     content.add_widget(button_layout)
 
     popup = Popup(

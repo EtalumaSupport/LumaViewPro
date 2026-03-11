@@ -109,8 +109,8 @@ class SerialBoard:
         try:
             if self.driver is not None:
                 self.driver.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f'{self._label} _close_driver() ignored: {e}')
         self.driver = None
 
     # ------------------------------------------------------------------

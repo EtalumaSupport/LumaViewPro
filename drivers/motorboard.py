@@ -381,7 +381,8 @@ class MotorBoard(SerialBoard):
         try:
             response = self.exchange_command('TARGET_R' + axis)
             position = int(response)
-        except Exception:
+        except Exception as e:
+            logger.warning(f'[XYZ Class ] target_pos({axis}) failed: {e}')
             position = 0
 
         if axis == 'Z':
@@ -402,7 +403,8 @@ class MotorBoard(SerialBoard):
         try:
             response = self.exchange_command('ACTUAL_R' + axis)
             position = int(response)
-        except Exception:
+        except Exception as e:
+            logger.warning(f'[XYZ Class ] current_pos({axis}) failed: {e}')
             position = 0
 
         if axis == 'Z':
@@ -537,7 +539,8 @@ class MotorBoard(SerialBoard):
             else:
                 right = 0
 
-        except Exception:
+        except Exception as e:
+            logger.warning(f'[XYZ Class ] limit_switch_status({axis}) failed: {e}')
             left, right = -1, -1
 
         return left, right

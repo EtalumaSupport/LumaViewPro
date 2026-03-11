@@ -106,7 +106,10 @@ class PylonCamera(Camera):
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
 
     def is_grabbing(self):
-        return self.active.IsGrabbing()
+        try:
+            return self.active.IsGrabbing()
+        except Exception:
+            return False
 
     def connect(self) -> bool:
         """ Try to connect to the first available basler camera"""
@@ -283,10 +286,15 @@ class PylonCamera(Camera):
 
 
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float=1.0):
-        self.active.AcquisitionFrameRateEnable.Value = enabled
-
-        if enabled:
-            self.active.AcquisitionFrameRate.Value = fps
+        try:
+            self.active.AcquisitionFrameRateEnable.Value = enabled
+            if enabled:
+                self.active.AcquisitionFrameRate.Value = fps
+        except genicam.RuntimeException as e:
+            logger.error(f'[CAM Class ] Camera communication error in set_max_acquisition_frame_rate: {e}')
+            self._mark_disconnected()
+        except Exception as e:
+            logger.exception(f'[CAM Class ] Unexpected error in set_max_acquisition_frame_rate: {e}')
 
 
     def set_pixel_format(self, pixel_format: str) -> bool:
@@ -326,7 +334,15 @@ class PylonCamera(Camera):
 
 
     def get_supported_pixel_formats(self) -> tuple:
-        return self.active.PixelFormat.GetSymbolics()
+        try:
+            return self.active.PixelFormat.GetSymbolics()
+        except genicam.RuntimeException as e:
+            logger.error(f'[CAM Class ] Failed to read pixel formats: {e}')
+            self._mark_disconnected()
+            return ()
+        except Exception as e:
+            logger.exception(f'[CAM Class ] Unexpected error reading pixel formats: {e}')
+            return ()
     
 
     def set_binning_size(self, size: int) -> bool:
@@ -495,22 +511,35 @@ class PylonCamera(Camera):
         camera = self.active
         if camera is None:
             return {}
-        
-        return {
-            'width': camera.Width.GetMin(),
-            'height': camera.Height.GetMin(),
-        }
-    
+        try:
+            return {
+                'width': camera.Width.GetMin(),
+                'height': camera.Height.GetMin(),
+            }
+        except genicam.RuntimeException as e:
+            logger.error(f'[CAM Class ] Failed to read min frame size: {e}')
+            self._mark_disconnected()
+            return {}
+        except Exception as e:
+            logger.exception(f'[CAM Class ] Unexpected error reading min frame size: {e}')
+            return {}
 
     def get_max_frame_size(self) -> dict:
         camera = self.active
         if camera is None:
             return {}
-        
-        return {
-            'width': camera.Width.GetMax(),
-            'height': camera.Height.GetMax(),
-        }
+        try:
+            return {
+                'width': camera.Width.GetMax(),
+                'height': camera.Height.GetMax(),
+            }
+        except genicam.RuntimeException as e:
+            logger.error(f'[CAM Class ] Failed to read max frame size: {e}')
+            self._mark_disconnected()
+            return {}
+        except Exception as e:
+            logger.exception(f'[CAM Class ] Unexpected error reading max frame size: {e}')
+            return {}
  
 
     def get_frame_size(self):

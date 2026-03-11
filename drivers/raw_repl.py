@@ -229,6 +229,7 @@ def enter_raw_repl(serial_port, soft_reset=True):
                     continue
                 logger.info("Clean raw REPL state after soft reset")
 
+            serial_port.timeout = old_timeout
             return True
 
         except Exception as e:
