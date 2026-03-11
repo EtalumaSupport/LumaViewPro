@@ -78,22 +78,24 @@ class ProtocolSettings(FloatLayout):
         # Thread-safe flag to prevent duplicate file completion handlers
         self._scan_files_completed_event = threading.Event()
 
+        # source_path: use ctx if available, otherwise derive from package location
         ctx = _app_ctx.ctx
-        source_path = ctx.source_path
+        if ctx is not None:
+            source_path = ctx.source_path
+        else:
+            source_path = str(pathlib.Path(__file__).resolve().parent.parent)
 
-        os.chdir(source_path)
         try:
-            with open('./data/labware.json', "r") as read_file:
+            with open(os.path.join(source_path, 'data', 'labware.json'), "r") as read_file:
                 self.labware = json.load(read_file)
         except Exception:
             logger.exception("[LVP Main  ] Error reading labware definition file 'data/labware.json'")
-            if not os.path.isdir('./data'):
+            if not os.path.isdir(os.path.join(source_path, 'data')):
                 raise FileNotFoundError("Couldn't find 'data' directory.")
             else:
                 raise
 
         self.curr_step = -1
-
 
         self.tiling_config = TilingConfig(
             tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
