@@ -111,6 +111,33 @@ class ScopeSession:
             source_path=source_path,
         )
 
+    @classmethod
+    def create_headless(cls, settings: dict | None = None, source_path: str = "."):
+        """Create a headless session with simulated hardware.
+
+        Convenience factory for REST API, CLI scripts, and tests.
+        Uses simulated drivers so no physical hardware is needed.
+        """
+        from modules.sequential_io_executor import SequentialIOExecutor
+        import lumascope_api
+
+        if settings is None:
+            from modules.settings_init import settings as default_settings
+            settings = default_settings.copy()
+
+        scope = lumascope_api.Lumascope(simulate=True)
+
+        io_executor = SequentialIOExecutor(name="IO")
+        camera_executor = SequentialIOExecutor(name="CAMERA")
+
+        return cls(
+            settings=settings,
+            scope=scope,
+            io_executor=io_executor,
+            camera_executor=camera_executor,
+            source_path=source_path,
+        )
+
     # ------------------------------------------------------------------
     # Convenience wrappers (delegate to config_helpers / scope_commands)
     # ------------------------------------------------------------------

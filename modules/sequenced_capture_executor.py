@@ -114,7 +114,11 @@ class SequencedCaptureExecutor:
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
                 scope=scope,
-                use_kivy_clock=True,
+                camera_executor=camera_executor,
+                io_executor=io_executor,
+                file_io_executor=file_io_executor,
+                autofocus_executor=autofocus_io_executor,
+                use_kivy_clock=False,
             )
         else:
             self._autofocus_executor = autofocus_executor

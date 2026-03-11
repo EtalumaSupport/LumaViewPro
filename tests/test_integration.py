@@ -585,3 +585,110 @@ class TestIntegrationStateAssertions:
         protocol = _make_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
+
+
+# ===========================================================================
+# Headless / REST API Path Tests
+# ===========================================================================
+
+from modules.scope_session import ScopeSession
+from modules.protocol_runner import ProtocolRunner
+
+
+class TestHeadlessSession:
+    """Verify ScopeSession.create_headless() and ProtocolRunner work end-to-end."""
+
+    def test_create_headless_returns_session(self):
+        """create_headless() should return a working ScopeSession."""
+        session = ScopeSession.create_headless()
+        assert session is not None
+        assert session.scope is not None
+        assert session.io_executor is not None
+        assert session.camera_executor is not None
+        assert session.settings is not None
+
+    def test_create_headless_scope_is_simulated(self):
+        """Headless session should use simulated hardware."""
+        session = ScopeSession.create_headless()
+        assert session.scope._simulated is True
+
+    def test_create_headless_with_custom_settings(self):
+        """create_headless() should accept custom settings."""
+        custom = {'BF': {'autofocus': False}, 'custom_key': 42}
+        session = ScopeSession.create_headless(settings=custom)
+        assert session.settings['custom_key'] == 42
+
+    def test_headless_led_commands(self):
+        """Headless session should support LED on/off via scope."""
+        session = ScopeSession.create_headless()
+        session.start_executors()
+        try:
+            scope = session.scope
+            scope.led_on(channel=0, mA=100)
+            assert scope.led.get_led_ma('Blue') == 100
+            scope.led_off(channel=0)
+            assert scope.led.get_led_ma('Blue') == -1
+        finally:
+            session.shutdown_executors()
+
+    def test_headless_motor_position(self):
+        """Headless session should support motor position queries."""
+        session = ScopeSession.create_headless()
+        scope = session.scope
+        pos = scope.get_current_position('Z')
+        assert isinstance(pos, (int, float))
+
+    def test_create_protocol_runner(self):
+        """ScopeSession.create_protocol_runner() should return a ProtocolRunner."""
+        session = ScopeSession.create_headless()
+        runner = session.create_protocol_runner()
+        assert isinstance(runner, ProtocolRunner)
+        assert runner.session is session
+
+    def test_protocol_runner_runs_protocol(self, tmp_path):
+        """ProtocolRunner should execute a protocol to completion on headless session."""
+        settings = {
+            'BF': {'autofocus': False}, 'PC': {'autofocus': False},
+            'DF': {'autofocus': False}, 'Red': {'autofocus': False},
+            'Green': {'autofocus': False}, 'Blue': {'autofocus': False},
+            'Lumi': {'autofocus': False},
+            'stage_offset': {'x': 0.0, 'y': 0.0},
+            'live_folder': str(tmp_path),
+            'protocol': {
+                'autogain': {
+                    'target_brightness': 0.3,
+                    'max_duration_seconds': 1.0,
+                    'min_gain': 0.0,
+                    'max_gain': 20.0,
+                },
+            },
+        }
+        session = ScopeSession.create_headless(settings=settings)
+        session.start_executors()
+        try:
+            runner = session.create_protocol_runner()
+            protocol = _make_protocol([{'color': 'BF', 'illumination': 100.0}])
+
+            done = threading.Event()
+            def on_complete(**kwargs):
+                done.set()
+
+            runner.run_single_scan(
+                protocol=protocol,
+                sequence_name="headless_test",
+                parent_dir=str(tmp_path),
+                callbacks={'run_complete': on_complete, 'files_complete': lambda **kw: None},
+            )
+
+            completed = done.wait(timeout=COMPLETION_TIMEOUT)
+            assert completed, "Headless protocol did not complete within timeout"
+        finally:
+            runner.shutdown()
+            session.shutdown_executors()
+
+    def test_protocol_runner_use_kivy_clock_false(self):
+        """ProtocolRunner's SequencedCaptureExecutor should default to use_kivy_clock=False."""
+        session = ScopeSession.create_headless()
+        runner = session.create_protocol_runner()
+        af = runner.sequenced_capture_executor._autofocus_executor
+        assert af._use_kivy_clock is False
