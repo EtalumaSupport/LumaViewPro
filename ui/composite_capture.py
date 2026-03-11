@@ -1,0 +1,464 @@
+# Copyright Etaluma, Inc.
+"""
+CompositeCapture — shared image capture capabilities extracted from lumaviewpro.py.
+
+Provides live_capture() and composite_capture() methods inherited by MainDisplay.
+"""
+
+import datetime
+import logging
+import pathlib
+import threading
+
+import numpy as np
+
+from kivy.clock import Clock
+from kivy.uix.floatlayout import FloatLayout
+
+import modules.app_context as _app_ctx
+import modules.common_utils as common_utils
+import modules.image_utils as image_utils
+import modules.scope_commands as scope_commands
+from modules.ui_helpers import (
+    live_histo_off, live_histo_reverse, set_last_save_folder,
+)
+
+logger = logging.getLogger('LVP.ui.composite_capture')
+
+
+class CompositeCapture(FloatLayout):
+
+    _capturing = False  # Guard against rapid double-clicks
+
+    def __init__(self, **kwargs):
+        super(CompositeCapture,self).__init__(**kwargs)
+
+    # Gets the current well label (ex. A1, C2, ...)
+    def get_well_label(self):
+        import lumaviewpro
+        from modules.config_getters import get_selected_labware
+
+        _, labware = get_selected_labware()
+
+        # Get target position
+        try:
+            x_target = lumaviewpro.lumaview.scope.get_target_position('X')
+            y_target = lumaviewpro.lumaview.scope.get_target_position('Y')
+        except Exception:
+            logger.exception('[LVP Main  ] Error talking to Motor board.')
+            raise
+
+        x_target, y_target = lumaviewpro.coordinate_transformer.stage_to_plate(
+            labware=labware,
+            stage_offset=lumaviewpro.settings['stage_offset'],
+            sx=x_target,
+            sy=y_target
+        )
+
+        return labware.get_well_label(x=x_target, y=y_target)
+
+
+    def live_capture(self):
+        if CompositeCapture._capturing:
+            logger.warning('[LVP Main  ] Capture already in progress, ignoring')
+            return
+        CompositeCapture._capturing = True
+        try:
+            self._live_capture_impl()
+        finally:
+            CompositeCapture._capturing = False
+
+    def _live_capture_impl(self):
+        import lumaviewpro
+        from modules.config_getters import get_layer_configs
+
+        logger.info('[LVP Main  ] CompositeCapture.live_capture()')
+
+        ctx = _app_ctx.ctx
+        settings = lumaviewpro.settings
+
+        file_root = 'live_'
+        color = 'BF'
+        well_label = self.get_well_label()
+
+        use_full_pixel_depth = ctx.scope_display.use_full_pixel_depth
+        force_to_8bit_pixel_depth = not use_full_pixel_depth
+
+        for layer in common_utils.get_layers():
+            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+            accordion_item_obj =  ctx.image_settings.accordion_item_lookup(layer=layer)
+            if not accordion_item_obj.collapse:
+                append = f'{well_label}_{layer}'
+                if layer_obj.ids['false_color'].active:
+                    color = layer
+
+                break
+
+        save_folder = pathlib.Path(settings['live_folder']) / "Manual"
+        separate_folder_per_channel = ctx.motion_settings.ids['microscope_settings_id']._seperate_folder_per_channel
+        if separate_folder_per_channel:
+            save_folder = save_folder / layer
+
+        save_folder.mkdir(parents=True, exist_ok=True)
+        set_last_save_folder(dir=save_folder)
+
+        sum_iteration_callback = ctx.scope_display.update_scopedisplay
+
+        layer_configs = get_layer_configs(specific_layers=layer)
+        sum_delay_s=layer_configs[layer]['exposure']/1000
+        sum_count=layer_configs[layer]['sum']
+
+        if lumaviewpro.ENGINEERING_MODE is False:
+            return lumaviewpro.lumaview.scope.save_live_image(
+                save_folder,
+                file_root,
+                append,
+                color,
+                force_to_8bit=force_to_8bit_pixel_depth,
+                output_format=settings['image_output_format']['live'],
+                sum_count=sum_count,
+                sum_delay_s=sum_delay_s,
+                sum_iteration_callback=sum_iteration_callback,
+                turn_off_all_leds_after=False,
+            )
+
+        else:
+            use_bullseye = ctx.scope_display.use_bullseye
+            use_crosshairs = ctx.scope_display.use_crosshairs
+
+            if not use_bullseye and not use_crosshairs:
+                return lumaviewpro.lumaview.scope.save_live_image(
+                    save_folder,
+                    file_root,
+                    append,
+                    color,
+                    force_to_8bit=force_to_8bit_pixel_depth,
+                    output_format=settings['image_output_format']['live'],
+                    sum_count=sum_count,
+                    sum_delay_s=sum_delay_s,
+                    sum_iteration_callback=sum_iteration_callback,
+                    turn_off_all_leds_after=False,
+                )
+
+            image_orig = lumaviewpro.lumaview.scope.get_image(force_to_8bit=force_to_8bit_pixel_depth)
+            if image_orig is False:
+                return
+
+            # Save both versions of the image (unaltered and overlayed)
+            now = datetime.datetime.now()
+            time_string = now.strftime("%Y%m%d_%H%M%S")
+            append = f"{append}_{time_string}"
+
+            # If not in 8-bit mode, generate an 8-bit copy of the image for visualization
+            if use_full_pixel_depth:
+                image = image_utils.convert_12bit_to_8bit(image_orig)
+            else:
+                image = image_orig
+
+            # Original image may be in 8 or 12-bit
+            lumaviewpro.lumaview.scope.save_image(
+                array=image_orig,
+                save_folder=save_folder,
+                file_root=file_root,
+                append=append,
+                color=color,
+                tail_id_mode=None,
+                output_format=settings['image_output_format']
+            )
+
+            if use_bullseye:
+                bullseye_image = ctx.scope_display.transform_to_bullseye(image)
+            else:
+                bullseye_image = image
+
+            if use_crosshairs:
+                crosshairs_image = ctx.scope_display.add_crosshairs(bullseye_image)
+            else:
+                crosshairs_image = bullseye_image
+
+            # Overlay image is in 8-bits
+            lumaviewpro.lumaview.scope.save_image(
+                array=crosshairs_image,
+                save_folder=save_folder,
+                file_root=file_root,
+                append=f"{append}_overlay",
+                color=color,
+                tail_id_mode=None,
+                output_format=settings['image_output_format']
+            )
+
+
+    # capture and save a composite image using the current settings
+    def composite_capture(self):
+        import lumaviewpro
+
+        if CompositeCapture._capturing:
+            logger.warning('[LVP Main  ] Composite capture already in progress, ignoring')
+            return
+        CompositeCapture._capturing = True
+
+        z_stage_present = not lumaviewpro.disable_homing
+
+        logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
+
+        ctx = _app_ctx.ctx
+        initial_layer = common_utils.get_opened_layer(ctx.image_settings)
+
+        if lumaviewpro.lumaview.scope.get_led_state(initial_layer)['enabled']:
+            led_restore_state = True
+        else:
+            led_restore_state = False
+
+        live_histo_off()
+
+        if lumaviewpro.lumaview.scope.camera.active is None:
+            return
+
+        scope_display = self.ids['viewer_id'].ids['scope_display_id']
+        use_full_pixel_depth = scope_display.use_full_pixel_depth
+
+        # Run hardware-blocking work on a background thread to avoid freezing UI
+        t = threading.Thread(
+            target=self._composite_capture_worker,
+            kwargs={
+                'z_stage_present': z_stage_present,
+                'initial_layer': initial_layer,
+                'led_restore_state': led_restore_state,
+                'use_full_pixel_depth': use_full_pixel_depth,
+            },
+            daemon=True,
+            name='CompositeCapture',
+        )
+        t.start()
+
+    def _composite_capture_worker(
+        self,
+        z_stage_present,
+        initial_layer,
+        led_restore_state,
+        use_full_pixel_depth,
+    ):
+        """Runs on background thread — performs hardware I/O without blocking UI."""
+        import lumaviewpro
+
+        ctx = _app_ctx.ctx
+        settings = lumaviewpro.settings
+        io_executor = lumaviewpro.io_executor
+        camera_executor = lumaviewpro.camera_executor
+
+        # Snapshot settings at entry for thread safety — avoids seeing partial
+        # updates from the UI thread during the capture sequence.
+        all_layers = (
+            *common_utils.get_transmitted_layers(),
+            *common_utils.get_fluorescence_layers(),
+            *common_utils.get_luminescence_layers(),
+        )
+        layer_settings = {layer: dict(settings[layer]) for layer in all_layers}
+        frame_settings = dict(settings['frame'])
+        live_folder = settings['live_folder']
+        image_output_format = dict(settings['image_output_format'])
+
+        acquired_channel_count = 0
+        most_recent_aq_channel = None
+
+        if use_full_pixel_depth:
+            dtype = np.uint16
+        else:
+            dtype = np.uint8
+
+        img = np.zeros((frame_settings['height'], frame_settings['width'], 3), dtype=dtype)
+        transmitted_present = False
+
+        for trans_layer in common_utils.get_transmitted_layers():
+            trans_layer_obj = ctx.image_settings.layer_lookup(layer=trans_layer)
+            if layer_settings[trans_layer]["acquire"] == "image":
+                transmitted_present = True
+                acquired_channel_count += 1
+                most_recent_aq_channel = trans_layer
+
+                if z_stage_present:
+                    # Move to focus position via io_executor (blocks until arrived)
+                    focus_pos = layer_settings[trans_layer]['focus']
+                    scope_commands.move_absolute_sync(
+                        lumaviewpro.lumaview.scope, io_executor, 'Z', focus_pos,
+                        wait_until_complete=True,
+                    )
+
+                # set the gain and exposure via camera_executor
+                gain = layer_settings[trans_layer]['gain']
+                scope_commands.set_gain_sync(lumaviewpro.lumaview.scope, camera_executor, gain)
+                exposure = layer_settings[trans_layer]['exp']
+                scope_commands.set_exposure_sync(lumaviewpro.lumaview.scope, camera_executor, exposure)
+
+                # update illumination to currently selected settings
+                illumination = layer_settings[trans_layer]['ill']
+
+                # Transmitted channel capture — route LED through io_executor
+                scope_commands.led_on_sync(
+                    lumaviewpro.lumaview.scope, io_executor,
+                    lumaviewpro.lumaview.scope.color2ch(trans_layer), illumination,
+                )
+
+                transmitted_channel = scope_commands.capture_and_wait_sync(
+                    lumaviewpro.lumaview.scope, camera_executor,
+                    force_to_8bit=not use_full_pixel_depth,
+                )
+                scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
+
+                img = np.array(transmitted_channel, dtype=dtype)
+
+                # Init mask to keep track of changed pixels
+                # Set all values in the mask for changed to False
+                mask_transmitted_changed = np.zeros(img.shape[:2], dtype=bool)
+
+                # Prep transmitted channel to have 3 channels for RGB value manipulation
+                img = np.repeat(transmitted_channel[:, :, None], 3, axis=2)
+
+                # Can only use one transmitted channel per composite
+                break
+
+
+        layer_map = {
+            'Red': 0,
+            'Green': 1,
+            'Blue': 2,
+            'Lumi': 2,
+        }
+
+        scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
+
+        for layer in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers()):
+            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+            if layer_settings[layer]['acquire'] == "image":
+                acquired_channel_count += 1
+                most_recent_aq_channel = layer
+
+                if z_stage_present:
+                    # Move to focus position via io_executor (blocks until arrived)
+                    focus_pos = layer_settings[layer]['focus']
+                    scope_commands.move_absolute_sync(
+                        lumaviewpro.lumaview.scope, io_executor, 'Z', focus_pos,
+                        wait_until_complete=True,
+                    )
+
+                # set the gain and exposure via camera_executor
+                gain = layer_settings[layer]['gain']
+                scope_commands.set_gain_sync(lumaviewpro.lumaview.scope, camera_executor, gain)
+                exposure = layer_settings[layer]['exp']
+                scope_commands.set_exposure_sync(lumaviewpro.lumaview.scope, camera_executor, exposure)
+                sum_count=layer_settings[layer]['sum']
+                sum_iteration_callback = ctx.scope_display.update_scopedisplay
+
+                # Set brightness threshold for composites dealing with transmitted channels
+                # If given in percentage, convert to 8 or 16 bit value
+                if not use_full_pixel_depth:
+                    brightness_threshold = layer_settings[layer]["composite_brightness_threshold"] / 100 * 255
+                else:
+                    brightness_threshold = layer_settings[layer]["composite_brightness_threshold"] / 100 * 4095
+
+                # update illumination to currently selected settings
+                illumination = layer_settings[layer]['ill']
+
+                # Fluorescence capture — route LED through io_executor
+                # Check to make sure we are not capturing from a luminescence layer which doesn't use an LED
+                if layer not in common_utils.get_transmitted_layers():
+                    scope_commands.led_on_sync(
+                        lumaviewpro.lumaview.scope, io_executor,
+                        lumaviewpro.lumaview.scope.color2ch(layer), illumination,
+                    )
+
+                img_gray = scope_commands.capture_and_wait_sync(
+                    lumaviewpro.lumaview.scope, camera_executor,
+                    force_to_8bit=not use_full_pixel_depth,
+                    sum_count=sum_count,
+                    sum_delay_s=exposure/1000,
+                    sum_iteration_callback=sum_iteration_callback,
+                )
+                scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
+
+                img_gray = np.array(img_gray)
+
+                if transmitted_present:
+                    # Create mask of every pixel > brightness threshold in channel image
+                    channel_above_threshold_mask = img_gray > brightness_threshold
+
+                    # Create masks for pixels that correspond to changed/unchanged pixels in the transmitted image
+                    not_changed_mask = channel_above_threshold_mask & (~mask_transmitted_changed)
+                    changed_mask = channel_above_threshold_mask & mask_transmitted_changed
+
+                    # Find channel index value
+                    channel_index = layer_map[layer]
+
+                    # For not-yet changed pixels, set every other channel to 0, then the desired color channel value
+                    # Allows desired channel to show up fully
+                    img[not_changed_mask, 0] = 0
+                    img[not_changed_mask, 1] = 0
+                    img[not_changed_mask, 2] = 0
+
+                    img[not_changed_mask, channel_index] = img_gray[not_changed_mask]
+
+                    # Update changed pixels
+                    mask_transmitted_changed[not_changed_mask] = True
+
+                    # For already changed pixels, only update the current channel value (allows stacking of RGB values)
+                    img[changed_mask, channel_index] = img_gray[changed_mask]
+
+
+                else:
+                    # No transmitted channel present
+                    # buffer the images
+                    if layer == 'Red':
+                        img[:,:,0] = img_gray
+                    elif layer == 'Green':
+                        img[:,:,1] = img_gray
+                    elif layer in ('Blue', 'Lumi'):
+                        img[:,:,2] = img_gray
+
+            scope_commands.leds_off_sync(lumaviewpro.lumaview.scope, io_executor)
+
+            Clock.schedule_once(lambda dt, lo=layer_obj: Clock.unschedule(lo.ids['histo_id'].histogram), 0)
+            logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
+
+        # File saving can run on this thread (no UI dependency)
+        append = f'{self.get_well_label()}'
+
+        save_folder = pathlib.Path(live_folder) / "Manual"
+        save_folder.mkdir(parents=True, exist_ok=True)
+        set_last_save_folder(dir=save_folder)
+
+        if acquired_channel_count != 1 and acquired_channel_count != 0:
+            lumaviewpro.lumaview.scope.save_image(
+                array=img,
+                save_folder=save_folder,
+                file_root='composite_',
+                append=append,
+                color=None,
+                tail_id_mode='increment',
+                output_format=image_output_format['live']
+            )
+        elif acquired_channel_count != 0:
+            lumaviewpro.lumaview.scope.save_image(
+                array=img,
+                save_folder=save_folder,
+                file_root=f"{most_recent_aq_channel}_Image_",
+                append=append,
+                color=None,
+                tail_id_mode='increment',
+                output_format=image_output_format['live']
+            )
+        else:
+            logger.info("[Composite Capture  ] No image saved as no channels were selected")
+
+        # UI updates must happen on the main thread
+        def _restore_ui(dt):
+            lumaviewpro.lumaview.ids['composite_btn'].state = 'normal'
+            live_histo_reverse()
+            opened_layer_obj = common_utils.get_opened_layer_obj(ctx.image_settings)
+            if led_restore_state:
+                opened_layer_obj.ids['enable_led_btn'].state = 'down'
+            else:
+                opened_layer_obj.ids['enable_led_btn'].state = 'normal'
+            opened_layer_obj.apply_settings(update_led=True)
+
+        CompositeCapture._capturing = False
+        Clock.schedule_once(_restore_ui, 0)

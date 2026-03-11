@@ -4,7 +4,7 @@ import pathlib
 
 from kivy.clock import Clock
 
-from lumaviewpro import CompositeCapture
+from kivy.uix.floatlayout import FloatLayout
 
 import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
@@ -12,7 +12,7 @@ import modules.app_context as _app_ctx
 logger = logging.getLogger('LVP.ui.zstack')
 
 
-class ZStack(CompositeCapture):
+class ZStack(FloatLayout):
     def set_steps(self):
         logger.info('[LVP Main  ] ZStack.set_steps()')
         import lumaviewpro

@@ -16,7 +16,7 @@ from kivy.properties import BooleanProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 
-from lumaviewpro import CompositeCapture
+from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -30,7 +30,7 @@ from ui.progress_popup import show_popup
 logger = logging.getLogger('LVP.ui.protocol_settings')
 
 
-class ProtocolSettings(CompositeCapture):
+class ProtocolSettings(FloatLayout):
 
     done = BooleanProperty(False)
 
