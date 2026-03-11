@@ -206,7 +206,7 @@ def write_capture(
 
                 except Exception as e:
                     print(f"Error: Unable to save image: {e}")
-                    raise Exception(f"Unable to save image: {e}")
+                    raise RuntimeError(f"Unable to save image: {e}") from e
 
                 del captured_image
                 gc.collect()
@@ -251,7 +251,7 @@ def write_capture(
             logger.error(f"Protocol-Writer] Error: Unable to save image: {e}")
         else:
             print(f"Error: Unable to save image: {e}")
-        raise Exception(f"Unable to save image: {e}")
+        raise RuntimeError(f"Unable to save image: {e}") from e
 
     gc.collect()
 

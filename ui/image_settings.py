@@ -230,9 +230,13 @@ class ImageSettings(BoxLayout):
 
 
     def _init_ui(self, dt=0):
+        ctx = _app_ctx.ctx
+        if ctx is None:
+            Clock.schedule_once(self._init_ui, 0.1)
+            return
         self.assign_led_button_down_images()
         # Skip accordion_collapse during app initialization to prevent premature apply_settings
-        if not _app_ctx.ctx.initializing:
+        if not ctx.initializing:
             self.accordion_collapse()
         self.set_layer_exposure_ranges()
         self.enable_image_stats_if_needed()

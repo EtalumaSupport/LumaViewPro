@@ -128,7 +128,8 @@ class SerialBoard:
                     return
             self.firmware_version = None
             logger.info(f'{self._label} Legacy firmware (no version string)')
-        except Exception:
+        except Exception as e:
+            logger.debug(f'{self._label} version detection failed: {e}')
             self.firmware_version = None
 
     @property

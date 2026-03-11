@@ -291,6 +291,8 @@ class ScopeDisplay(Image):
 
     def update_scopedisplay(self, dt=0):
         ctx = _app_ctx.ctx
+        if ctx is None:
+            return
 
         # Backpressure: avoid flooding the scope display executor if it is still draining
         try:

@@ -142,8 +142,11 @@ class ProtocolSettings(FloatLayout):
 
 
     def _init_ui(self, dt=0):
-        settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
+        if ctx is None:
+            Clock.schedule_once(self._init_ui, 0.1)
+            return
+        settings = ctx.settings
         source_path = ctx.source_path
 
         self.ids['tiling_size_spinner'].values = self.tiling_config.available_configs()

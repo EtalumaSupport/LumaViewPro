@@ -44,7 +44,11 @@ class LayerControl(BoxLayout):
 
 
     def _init_ui(self, dt=0):
-        settings = _app_ctx.ctx.settings
+        ctx = _app_ctx.ctx
+        if ctx is None:
+            Clock.schedule_once(self._init_ui, 0.1)
+            return
+        settings = ctx.settings
 
         if self.layer in ['Red', 'Green', 'Blue'] and settings['stimulation_enabled']:
             self.stimulation_support = True

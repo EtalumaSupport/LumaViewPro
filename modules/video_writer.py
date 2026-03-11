@@ -133,7 +133,6 @@ class VideoWriter:
 
     def finish(self):
         if self._video is not None:
-            cv2.destroyAllWindows()
             try:
                 self._video.release()
             except Exception as e:

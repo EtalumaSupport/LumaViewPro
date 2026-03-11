@@ -34,6 +34,9 @@ class MotionSettings(BoxLayout):
 
 
     def _init_ui(self, dt=0):
+        if _app_ctx.ctx is None:
+            Clock.schedule_once(self._init_ui, 0.1)
+            return
         self.enable_ui_features_for_engineering_mode()
 
 

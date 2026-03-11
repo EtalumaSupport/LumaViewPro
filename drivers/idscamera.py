@@ -279,10 +279,14 @@ class IDSCamera(Camera):
             logger.error(f"[CAM Class ] Unsupported pixel format: {pixel_format}")
             return False
 
-        with self.update_camera_config():
-            self.remote_nodemap.FindNode("PixelFormat").SetCurrentEntry(pixel_format)
-
-        return True
+        try:
+            with self.update_camera_config():
+                self.remote_nodemap.FindNode("PixelFormat").SetCurrentEntry(pixel_format)
+            return True
+        except Exception as e:
+            logger.error(f'[CAM Class ] set_pixel_format({pixel_format}) failed: {e}')
+            self._mark_disconnected()
+            return False
 
     def get_pixel_format(self):
         try:
