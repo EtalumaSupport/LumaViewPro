@@ -88,12 +88,16 @@ class TilingConfig:
         x_fov = fill_factor * fov_size['width']
         y_fov = fill_factor * fov_size['height']
 
-        #x_current = lumaview.scope.get_current_position('X')
-        #x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
-        x_center = 60000  # stage center; should use well center from labware config
-        #y_current = lumaview.scope.get_current_position('Y')
-        #y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
-        y_center = 40000  # stage center; should use well center from labware config
+        # Stage center derived from motorconfig travel limits
+        import modules.app_context as _app_ctx
+        ctx = _app_ctx.ctx
+        if ctx is not None and ctx.scope is not None:
+            mc = ctx.scope.motion.motorconfig
+            x_center = mc.travel_limit_um('X') / 2
+            y_center = mc.travel_limit_um('Y') / 2
+        else:
+            x_center = 60000
+            y_center = 40000
         tiling_min = {
             "x": x_center - tiling_mxn["n"]*x_fov/2,
             "y": y_center - tiling_mxn["m"]*y_fov/2

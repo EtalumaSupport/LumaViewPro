@@ -55,7 +55,7 @@ class Stage(Widget):
         self._step_locations_fbo = None
         self._cached_step_locations_hash = None
 
-        # Stage Coordinates (120x80 mm)
+        # Stage Coordinates (defaults; overridden by motorconfig at draw time)
         self.STAGE_W = 120
         self.STAGE_H = 80
 
@@ -72,6 +72,14 @@ class Stage(Widget):
 
         self._prev_x_target = None
         self._prev_y_target = None
+
+    def _stage_limits_um(self):
+        """Return (x_max_um, y_max_um) from motorconfig, with fallback defaults."""
+        ctx = _app_ctx.ctx
+        if ctx is not None and hasattr(ctx, 'scope') and ctx.scope is not None:
+            mc = ctx.scope.motion.motorconfig
+            return (mc.travel_limit_um('X'), mc.travel_limit_um('Y'))
+        return (120000.0, 80000.0)
         self._prev_x_current = None
         self._prev_y_current = None
 
@@ -247,9 +255,10 @@ class Stage(Widget):
             scale_x = w/dim_max['x']
             scale_y = h/dim_max['y']
 
-            # Stage Coordinates (120x80 mm)
-            stage_w = 120
-            stage_h = 80
+            # Stage Coordinates from motorconfig
+            x_max, y_max = self._stage_limits_um()
+            stage_w = x_max / 1000.0
+            stage_h = y_max / 1000.0
 
             stage_x = settings['stage_offset']['x']/1000
             stage_y = settings['stage_offset']['y']/1000
@@ -437,8 +446,9 @@ class Stage(Widget):
             if scope.has_xyhomed():
                 x_target = scope.get_target_position('X')
                 y_target = scope.get_target_position('Y')
-                x_current = np.clip(scope.get_current_position('X'), 0, 120000) # prevents crosshairs from leaving the stage area
-                y_current = np.clip(scope.get_current_position('Y'), 0, 80000) # prevents crosshairs from leaving the stage area
+                x_max, y_max = self._stage_limits_um()
+                x_current = np.clip(scope.get_current_position('X'), 0, x_max)
+                y_current = np.clip(scope.get_current_position('Y'), 0, y_max)
                 position_available = True
         except Exception:
             # If we can't get positions (not homed yet), we'll still draw the labware
@@ -728,9 +738,10 @@ class Stage(Widget):
         scope = _app_ctx.ctx.scope
         try:
             x_current = scope.get_current_position('X')
-            x_current = np.clip(x_current, 0, 120000) # prevents crosshairs from leaving the stage area
+            x_max, y_max = self._stage_limits_um()
+            x_current = np.clip(x_current, 0, x_max)
             y_current = scope.get_current_position('Y')
-            y_current = np.clip(y_current, 0, 80000) # prevents crosshairs from leaving the stage area
+            y_current = np.clip(y_current, 0, y_max)
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None

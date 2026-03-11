@@ -61,8 +61,10 @@ class Lumascope():
         # Motion Control Board
         try:
             if simulate:
-                self.motion = SimulatedMotorBoard()
-                logger.info('[SCOPE API ] Using SIMULATED Motor Board')
+                from modules.settings_init import settings
+                sim_model = settings.get('microscope', 'LS850')
+                self.motion = SimulatedMotorBoard(model=sim_model)
+                logger.info(f'[SCOPE API ] Using SIMULATED Motor Board (model={sim_model})')
             else:
                 self.motion = MotorBoard()
         except Exception:

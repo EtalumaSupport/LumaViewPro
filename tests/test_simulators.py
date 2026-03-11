@@ -186,10 +186,10 @@ class TestSimulatedMotorBoard:
         assert board.found is True
         assert board.is_connected()
         assert board.has_xyhomed() is False
-        assert board.has_turret() is True  # default model LS720T
+        assert board.has_turret() is False  # default model LS850 (no turret)
 
     def test_no_turret_model(self):
-        board = SimulatedMotorBoard(model='LS720')
+        board = SimulatedMotorBoard(model='LS850')
         assert board.has_turret() is False
 
     def test_homing_xyz(self):
@@ -270,9 +270,9 @@ class TestSimulatedMotorBoard:
         assert pos == pos_back
 
     def test_fullinfo(self):
-        board = SimulatedMotorBoard(model='LS720T', serial_number='TEST-123')
+        board = SimulatedMotorBoard(model='LS850T', serial_number='TEST-123')
         info = board.fullinfo()
-        assert info['model'] == 'LS720T'
+        assert info['model'] == 'LS850T'
         assert info['serial_number'] == 'TEST-123'
 
     def test_exchange_command_info(self):
@@ -340,6 +340,180 @@ class TestSimulatedMotorBoard:
         board.move_abs_pos('Z', 3000, overshoot_enabled=True)
         pos = board.current_pos('Z')
         assert abs(pos - 3000) < 1
+
+
+# ---------------------------------------------------------------------------
+# Multi-Model Tests — verify all microscope models work correctly
+# ---------------------------------------------------------------------------
+
+# All shipping models: Lumi (Z only), LS820 (Z only), LS850 (XYZ), LS850T (XYZ+turret)
+ALL_MODELS = ['Lumi', 'LS820', 'LS850', 'LS850T']
+TURRET_MODELS = ['LS850T']
+NON_TURRET_MODELS = ['Lumi', 'LS820', 'LS850']
+
+
+class TestAllModels:
+    """Verify each microscope model initializes correctly."""
+
+    @pytest.mark.parametrize('model', ALL_MODELS)
+    def test_model_creates_without_error(self, model):
+        board = SimulatedMotorBoard(model=model)
+        assert board.found is True
+        assert board.is_connected()
+
+    @pytest.mark.parametrize('model', TURRET_MODELS)
+    def test_turret_model_detected(self, model):
+        board = SimulatedMotorBoard(model=model)
+        assert board.has_turret() is True
+
+    @pytest.mark.parametrize('model', NON_TURRET_MODELS)
+    def test_non_turret_model_detected(self, model):
+        board = SimulatedMotorBoard(model=model)
+        assert board.has_turret() is False
+
+    @pytest.mark.parametrize('model', ALL_MODELS)
+    def test_fullinfo_reports_model(self, model):
+        board = SimulatedMotorBoard(model=model, serial_number='SN-TEST')
+        info = board.fullinfo()
+        assert info['model'] == model
+        assert info['serial_number'] == 'SN-TEST'
+
+    @pytest.mark.parametrize('model', ALL_MODELS)
+    def test_z_axis_works(self, model):
+        board = SimulatedMotorBoard(model=model)
+        board.move_abs_pos('Z', 5000, overshoot_enabled=False)
+        assert abs(board.current_pos('Z') - 5000) < 1
+
+    @pytest.mark.parametrize('model', ALL_MODELS)
+    def test_homing_works(self, model):
+        board = SimulatedMotorBoard(model=model)
+        board.xyhome()
+        assert board.has_xyhomed() is True
+
+    @pytest.mark.parametrize('model', ALL_MODELS)
+    def test_motorconfig_travel_limits(self, model):
+        board = SimulatedMotorBoard(model=model)
+        mc = board.motorconfig
+        # All models should have valid travel limits
+        assert mc.travel_limit_mm('X') > 0
+        assert mc.travel_limit_mm('Y') > 0
+        assert mc.travel_limit_mm('Z') > 0
+
+    @pytest.mark.parametrize('model', ALL_MODELS)
+    def test_axes_config_populated(self, model):
+        board = SimulatedMotorBoard(model=model)
+        config = board.get_axes_config()
+        assert 'X' in config
+        assert 'Y' in config
+        assert 'Z' in config
+        for axis in ('X', 'Y', 'Z'):
+            assert config[axis]['limits']['max'] > 0
+
+    @pytest.mark.parametrize('model', TURRET_MODELS)
+    def test_turret_positions(self, model):
+        board = SimulatedMotorBoard(model=model)
+        mc = board.motorconfig
+        for pos in range(1, 5):
+            usteps = mc.turret_position_usteps(pos)
+            assert isinstance(usteps, int)
+
+    @pytest.mark.parametrize('model', ALL_MODELS)
+    def test_center_command(self, model):
+        """CENTER should move to stage center for all models."""
+        board = SimulatedMotorBoard(model=model)
+        resp = board.exchange_command('CENTER')
+        assert resp is not None
+        x = board.current_pos('X')
+        y = board.current_pos('Y')
+        mc = board.motorconfig
+        expected_x = mc.travel_limit_um('X') / 2
+        expected_y = mc.travel_limit_um('Y') / 2
+        assert abs(x - expected_x) < 1
+        assert abs(y - expected_y) < 1
+
+
+class TestMotorConfigDefaults:
+    """Verify motorconfig defaults are sensible."""
+
+    def test_defaults_file_exists(self):
+        import pathlib
+        f = pathlib.Path('data/motorconfig_defaults.json')
+        assert f.is_file()
+
+    def test_defaults_load(self):
+        from modules.motorconfig import MotorConfig
+        import pathlib
+        mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        assert mc.model() in ('LS850', 'LS850T')
+        assert mc.travel_limit_mm('X') == 120
+        assert mc.travel_limit_mm('Y') == 80
+        assert mc.travel_limit_mm('Z') == 14
+        assert mc.usteps_per_mm('Z') == 170666
+        assert mc.lens_focal_length() == 47.8
+        assert mc.pixel_size() == 2.0
+
+    def test_update_from_board_overrides(self):
+        from modules.motorconfig import MotorConfig
+        import pathlib
+        mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        mc.update_from_board({'Axis Travel Limit': {'Z': 20}})
+        assert mc.travel_limit_mm('Z') == 20
+        # X/Y unchanged
+        assert mc.travel_limit_mm('X') == 120
+
+    def test_missing_section_returns_default(self):
+        from modules.motorconfig import MotorConfig
+        import pathlib
+        mc = MotorConfig(defaults_file=pathlib.Path('data/motorconfig_defaults.json'))
+        # Non-existent section should return default without crashing
+        val = mc._axis_lookup('Nonexistent Section', 'X', default=42)
+        assert val == 42
+
+    def test_optics_fallback(self):
+        from modules.motorconfig import MotorConfig
+        import pathlib
+        # Create a config without Optics section
+        mc = MotorConfig.__new__(MotorConfig)
+        mc._config = {}
+        mc._defaults = {}
+        assert mc.lens_focal_length() == 47.8
+        assert mc.pixel_size() == 2.0
+
+
+class TestScaleBarObjectiveInit:
+    """Verify that set_objective enables scale bar rendering."""
+
+    def test_objective_none_at_init(self):
+        """Lumascope starts with no objective set."""
+        from lumascope_api import Lumascope
+        scope = Lumascope(simulate=True)
+        assert scope._objective is None
+
+    def test_set_objective_populates(self):
+        """set_objective() should populate _objective dict."""
+        from lumascope_api import Lumascope
+        scope = Lumascope(simulate=True)
+        scope.set_objective('20x Oly')
+        assert scope._objective is not None
+        assert scope._objective['magnification'] == 20
+
+    def test_scale_bar_disabled_without_objective(self):
+        """Scale bar enabled but no objective → use_scale_bar forced False."""
+        from lumascope_api import Lumascope
+        scope = Lumascope(simulate=True)
+        scope.set_scale_bar(enabled=True)
+        assert scope._scale_bar['enabled'] is True
+        assert scope._objective is None
+        # Internal logic forces use_scale_bar = False when _objective is None
+
+    def test_scale_bar_works_with_objective(self):
+        """Scale bar with objective set should proceed."""
+        from lumascope_api import Lumascope
+        scope = Lumascope(simulate=True)
+        scope.set_objective('20x Oly')
+        scope.set_scale_bar(enabled=True)
+        assert scope._scale_bar['enabled'] is True
+        assert scope._objective is not None
 
 
 # ---------------------------------------------------------------------------

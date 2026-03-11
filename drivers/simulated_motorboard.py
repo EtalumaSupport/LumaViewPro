@@ -50,7 +50,7 @@ class SimulatedMotorBoard:
         'simulate_move_duration': True,
     }
 
-    def __init__(self, model: str = 'LS720T', serial_number: str = 'SIM-001',
+    def __init__(self, model: str = 'LS850', serial_number: str = 'SIM-001',
                  move_delay: float = 0.0, cmd_delay: float = 0.0,
                  timing: str = 'fast', firmware_version: str = '2.0.1',
                  motorconfig_defaults_file: pathlib.Path | None = None,
@@ -224,8 +224,8 @@ class SimulatedMotorBoard:
             return 'T home successful'
 
         if cmd == 'CENTER':
-            mid_x = self.xy_um2ustep(60000)
-            mid_y = self.xy_um2ustep(40000)
+            mid_x = self.xy_um2ustep(self.motorconfig.travel_limit_um('X') / 2)
+            mid_y = self.xy_um2ustep(self.motorconfig.travel_limit_um('Y') / 2)
             self._actual['X'] = mid_x
             self._target['X'] = mid_x
             self._actual['Y'] = mid_y

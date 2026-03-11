@@ -822,7 +822,7 @@ class TestMotorBoardFullinfo:
         board = self._make_board()
         board.driver.readline.return_value = (
             b"EL-0940-02 Integrated Mainboard Firmware: 2024-09-10 "
-            b"Model: LS720T Serial: 99999 X homed: False\n"
+            b"Model: LS850T Serial: 99999 X homed: False\n"
         )
         board.fullinfo()
         assert board._has_turret is True

@@ -556,6 +556,12 @@ class LumaViewProApp(TooltipMixin, App):
             #thread_pool.submit(move_absolute_position, axis='T', pos=turret_position, wait_until_complete=True)
             #move_absolute_position(axis='T', pos=turret_position, wait_until_complete=True)
 
+        # Set initial objective from settings (enables scale bar, pixel size calc)
+        try:
+            lumaview.scope.set_objective(objective_id=settings['objective_id'])
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Failed to set initial objective: {e}')
+
         layer_obj = ctx.image_settings.layer_lookup(layer='BF')
         layer_obj.apply_settings()
 

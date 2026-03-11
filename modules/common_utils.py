@@ -234,11 +234,17 @@ def get_pixel_size(
     focal_length: float,
     binning_size: int,
 ):
-    magnification = 47.8 / focal_length # Etaluma tube focal length [mm]
-                                        # in theory could be different in different scopes
-                                        # could be looked up by model number
-                                        # although all are currently the same
-    pixel_width = 2.0 # [um/pixel] Basler pixel size (could be looked up from Camera class)
+    # Read tube focal length and pixel size from motorconfig if available
+    import modules.app_context as _app_ctx
+    ctx = _app_ctx.ctx
+    if ctx is not None and ctx.scope is not None:
+        mc = ctx.scope.motion.motorconfig
+        tube_focal_length = mc.lens_focal_length()
+        pixel_width = mc.pixel_size()
+    else:
+        tube_focal_length = 47.8  # Etaluma default [mm]
+        pixel_width = 2.0         # Basler default [um/pixel]
+    magnification = tube_focal_length / focal_length
     um_per_pixel = pixel_width / magnification
 
     um_per_pixel_w_binning = um_per_pixel * binning_size

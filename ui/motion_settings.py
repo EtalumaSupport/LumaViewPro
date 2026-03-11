@@ -196,10 +196,12 @@ class XYStageControl(BoxLayout):
     def get_xy_targets(self):
         ctx = _app_ctx.ctx
         try:
-            x_target = ctx.lumaview.scope.get_target_position('X')  # Get target value in um
-            x_target = np.clip(x_target, 0, 120000) # prevents crosshairs from leaving the stage area
-            y_target = ctx.lumaview.scope.get_target_position('Y')  # Get target value in um
-            y_target = np.clip(y_target, 0, 80000) # prevents crosshairs from leaving the stage area
+            scope = ctx.lumaview.scope
+            mc = scope.motion.motorconfig
+            x_target = scope.get_target_position('X')
+            x_target = np.clip(x_target, 0, mc.travel_limit_um('X'))
+            y_target = scope.get_target_position('Y')
+            y_target = np.clip(y_target, 0, mc.travel_limit_um('Y'))
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None
