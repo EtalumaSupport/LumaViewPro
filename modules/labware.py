@@ -49,9 +49,8 @@ class WellPlate(LabWare):
         if stitch > 1:
             for i in range(stitch):
                 for j in range(stitch):
-                    if j % 2 == 1:
-                        i = self.config['columns'] - i - 1
-                    self.stitch_list.append([i,j])
+                    si = stitch - i - 1 if j % 2 == 1 else i
+                    self.stitch_list.append([si,j])
 
     # set positions based on indices
     def set_positions(self):

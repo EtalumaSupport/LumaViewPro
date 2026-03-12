@@ -312,7 +312,7 @@ def grab_images(images_folder="",image_list=[],ext = 'tiff',to_sort = True):
         if to_sort:
             image_paths = np.array(image_paths)
             image_paths.sort()            
-    elif type(image_list[0]==str):
+    elif isinstance(image_list[0], str):
         image_paths = image_list
     else:
         return image_list

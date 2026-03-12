@@ -21,6 +21,11 @@ logger = logging.getLogger('LVP.ui.file_dialogs')
 # osascript uses native Cocoa panels — no extra dependencies.
 # ---------------------------------------------------------------------------
 
+def _escape_applescript(s):
+    """Escape a string for safe interpolation into an AppleScript double-quoted string."""
+    return s.replace('\\', '\\\\').replace('"', '\\"')
+
+
 def _macos_open_file(initial_dir=None, filetypes=None):
     """Show a native macOS open-file dialog. Returns path string or None."""
     script = 'set theFile to choose file'
@@ -34,7 +39,7 @@ def _macos_open_file(initial_dir=None, filetypes=None):
         if utis:
             clauses.append(f'of type {{{", ".join(utis)}}}')
     if initial_dir:
-        clauses.append(f'default location POSIX file "{initial_dir}"')
+        clauses.append(f'default location POSIX file "{_escape_applescript(initial_dir)}"')
     if clauses:
         script += ' ' + ' '.join(clauses)
     script += '\nPOSIX path of theFile'
@@ -55,7 +60,7 @@ def _macos_choose_folder(initial_dir=None):
     """Show a native macOS choose-folder dialog. Returns path string or None."""
     script = 'set theFolder to choose folder'
     if initial_dir:
-        script += f' default location POSIX file "{initial_dir}"'
+        script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
     script += '\nPOSIX path of theFolder'
 
     try:
@@ -75,9 +80,9 @@ def _macos_save_file(initial_dir=None, default_name=None):
     script = 'set theFile to choose file name'
     clauses = []
     if initial_dir:
-        clauses.append(f'default location POSIX file "{initial_dir}"')
+        clauses.append(f'default location POSIX file "{_escape_applescript(initial_dir)}"')
     if default_name:
-        clauses.append(f'default name "{default_name}"')
+        clauses.append(f'default name "{_escape_applescript(default_name)}"')
     if clauses:
         script += ' ' + ' '.join(clauses)
     script += '\nPOSIX path of theFile'

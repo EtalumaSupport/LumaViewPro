@@ -207,7 +207,7 @@ class Stitcher(ProtocolPostProcessingExecutor):
                     if is_color_image:
                         stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
                     else:
-                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
+                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x] = image
 
         return {
             'status': True,
@@ -289,7 +289,7 @@ class Stitcher(ProtocolPostProcessingExecutor):
                     if is_color_image:
                         stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
                     else:
-                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x,:] = image
+                        stitched_img[y_val:y_val+im_y, x_val:x_val+im_x] = image
 
 
         return stitched_img

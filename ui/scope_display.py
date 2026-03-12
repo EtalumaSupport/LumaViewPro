@@ -24,10 +24,8 @@ logger = logging.getLogger('LVP.ui.scope_display')
 
 
 class ScopeDisplay(Image):
-    record = BooleanProperty(None)
-    record = False
-    play = BooleanProperty(None)
-    play = True
+    record = BooleanProperty(False)
+    play = BooleanProperty(True)
 
     def __init__(self, **kwargs):
         super(ScopeDisplay,self).__init__(**kwargs)

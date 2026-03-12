@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import ast
 import csv
+import json
 import datetime
 import io
 import numpy as np
@@ -1344,7 +1344,7 @@ class Protocol:
 
             # Convert Video Config strings per step to dictionary
             try:
-                protocol_df['Video Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Video Config']), axis=1)
+                protocol_df['Video Config'] = protocol_df.apply(lambda x: json.loads(x['Video Config']), axis=1)
             except Exception as ex:
                 logger.error(f"Unable to parse video config, using default instead: {ex}")
                 protocol_df['Video Config'] = copy.deepcopy(DEFAULT_VIDEO_CONFIG)
@@ -1359,7 +1359,7 @@ class Protocol:
         else:
             # Convert Stim Config strings per step to dictionary
             try:
-                protocol_df['Stim_Config'] = protocol_df.apply(lambda x: ast.literal_eval(x['Stim_Config']), axis=1)
+                protocol_df['Stim_Config'] = protocol_df.apply(lambda x: json.loads(x['Stim_Config']), axis=1)
             except Exception as ex:
                 logger.error(f"Unable to parse stim config, using default instead: {ex}")
                 protocol_df['Stim_Config'] = copy.deepcopy(DEFAULT_STIM_CONFIG)

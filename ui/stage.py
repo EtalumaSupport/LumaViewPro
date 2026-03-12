@@ -72,14 +72,6 @@ class Stage(Widget):
 
         self._prev_x_target = None
         self._prev_y_target = None
-
-    def _stage_limits_um(self):
-        """Return (x_max_um, y_max_um) from motorconfig, with fallback defaults."""
-        ctx = _app_ctx.ctx
-        if ctx is not None and hasattr(ctx, 'scope') and ctx.scope is not None:
-            mc = ctx.scope.motion.motorconfig
-            return (mc.travel_limit_um('X'), mc.travel_limit_um('Y'))
-        return (120000.0, 80000.0)
         self._prev_x_current = None
         self._prev_y_current = None
 
@@ -91,6 +83,14 @@ class Stage(Widget):
         self._crosshair_h_line = None
         self._crosshair_v_line = None
         self._create_persistent_canvas_objects()
+
+    def _stage_limits_um(self):
+        """Return (x_max_um, y_max_um) from motorconfig, with fallback defaults."""
+        ctx = _app_ctx.ctx
+        if ctx is not None and hasattr(ctx, 'scope') and ctx.scope is not None:
+            mc = ctx.scope.motion.motorconfig
+            return (mc.travel_limit_um('X'), mc.travel_limit_um('Y'))
+        return (120000.0, 80000.0)
 
 
     def _create_persistent_canvas_objects(self):
