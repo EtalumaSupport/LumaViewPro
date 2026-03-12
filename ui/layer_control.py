@@ -657,8 +657,8 @@ class LayerControl(BoxLayout):
         gain = settings[self.layer]['gain']
 
         if not protocol_running_global.is_set():
-            camera_executor.put(IOTask(action=lumaview.scope.set_gain, args=(gain)))
-            camera_executor.put(IOTask(action=lumaview.scope.set_exposure_time, args=(exposure)))
+            camera_executor.put(IOTask(action=lumaview.scope.set_gain, args=(gain,)))
+            camera_executor.put(IOTask(action=lumaview.scope.set_exposure_time, args=(exposure,)))
         #lumaview.scope.set_gain(gain)
         #lumaview.scope.set_exposure_time(exposure)
 
@@ -672,7 +672,7 @@ class LayerControl(BoxLayout):
                 autogain_settings = get_auto_gain_settings()
                 camera_executor.put(IOTask(
                     action=lumaview.scope.set_auto_gain,
-                    args=(auto_gain_enabled),
+                    args=(auto_gain_enabled,),
                     kwargs={
                         "settings": autogain_settings
                     }

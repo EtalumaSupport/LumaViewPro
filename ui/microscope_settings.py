@@ -34,8 +34,7 @@ class MicroscopeSettings(BoxLayout):
 
         try:
             _source = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            os.chdir(_source)
-            with open('./data/scopes.json', "r") as read_file:
+            with open(os.path.join(_source, 'data', 'scopes.json'), "r") as read_file:
                 self.scopes = json.load(read_file)
         except Exception:
             logger.exception('[LVP Main  ] Unable to read scopes.json.')
@@ -619,9 +618,11 @@ class MicroscopeSettings(BoxLayout):
         if isinstance(file, str) and (file[-5:].lower() != '.json'):
                 file = file+'.json'
 
-        os.chdir(ctx.source_path)
         with ctx.settings_lock:
             settings_snapshot = copy.deepcopy(settings)
+        # Resolve relative paths against source_path instead of relying on CWD
+        if not os.path.isabs(file):
+            file = os.path.join(ctx.source_path, file)
         with open(file, "w") as write_file:
             json.dump(settings_snapshot, write_file, indent = 4, cls=CustomJSONizer)
 

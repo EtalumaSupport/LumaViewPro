@@ -532,6 +532,7 @@ class ImageHandler(ImageHandlerBase):
 
     def _grab_loop(self):
         while not self._stop_event.is_set():
+            buffer = None
             try:
                 buffer = self.data_stream.WaitForFinishedBuffer(1000)
                 result = not buffer.IsIncomplete()
@@ -548,7 +549,6 @@ class ImageHandler(ImageHandlerBase):
                         logger.error('[CAM Class ] Too many grab failures; marking device as removed')
                         self._parent._mark_disconnected()
                         break
-                self.data_stream.QueueBuffer(buffer)
             except Exception as e:
                 # WaitForFinishedBuffer timeout is normal — not a failure
                 err_str = str(e).lower()
@@ -563,3 +563,6 @@ class ImageHandler(ImageHandlerBase):
                     break
                 if self._failed_grabs % 5 == 1:
                     logger.warning(f'[CAM Class ] ImageHandler grab loop exception: {e}')
+            finally:
+                if buffer is not None:
+                    self.data_stream.QueueBuffer(buffer)

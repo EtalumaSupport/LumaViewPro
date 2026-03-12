@@ -940,7 +940,9 @@ class CellCountControls(BoxLayout):
     # Save settings to JSON file
     def save_method_as(self, file="./data/cell_count_method.json"):
         logger.info(f'[LVP Main  ] CellCountContent.save_method_as({file})')
-        os.chdir(_app_ctx.ctx.source_path)
+        # Resolve relative paths against source_path instead of relying on CWD
+        if not os.path.isabs(file):
+            file = os.path.join(_app_ctx.ctx.source_path, file)
         self._add_method_settings_metadata()
         with open(file, "w") as write_file:
             json.dump(self._settings, write_file, indent = 4, cls=CustomJSONizer)

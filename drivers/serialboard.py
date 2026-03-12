@@ -188,9 +188,8 @@ class SerialBoard:
                 last = getattr(self, '_last_error_log_time', 0.0)
                 interval = getattr(self, '_error_log_interval', 2.0)
                 if now - last >= interval:
-                    logger.error(f'{self._label} exchange_command({command}) Serial Timeout')
+                    logger.warning(f'{self._label} exchange_command({command}) Serial Timeout')
                     self._last_error_log_time = now
-                self._close_driver()
 
             except Exception as e:
                 now = time.monotonic()

@@ -177,7 +177,7 @@ class MotorBoard(SerialBoard):
         using_default_str = "-> default" if using_default else ""
         logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp} {using_default_str}')
 
-        return resp
+        return int(resp)
 
 
     def _acceleration_validate_inputs(self, axis: str, parameter: str):

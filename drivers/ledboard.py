@@ -89,12 +89,12 @@ class LEDBoard(SerialBoard):
 
     def is_led_on(self, color) -> bool:
         with self._state_lock:
-            return self.led_ma[color] > 0
+            return self.led_ma.get(color, -1) > 0
 
     def get_led_state(self, color) -> dict:
         with self._state_lock:
-            enabled = self.led_ma[color] > 0
             mA = self.led_ma.get(color, -1)
+            enabled = mA > 0
         return {
             'enabled': enabled,
             'illumination': mA,
@@ -106,10 +106,10 @@ class LEDBoard(SerialBoard):
                         for color, mA in self.led_ma.items()}
         return snapshot
 
-    def led_on(self, channel, mA, block=False):
+    def led_on(self, channel, mA, block=False, timeout: float = 5.0):
         """
         Turn on LED at channel number at mA power
-        If block=True, verify correct callback before returning
+        If block=True, verify correct callback before returning (with timeout)
         """
         color = self.ch2color(channel=channel)
         with self._state_lock:
@@ -125,7 +125,11 @@ class LEDBoard(SerialBoard):
             return True
 
         if block:
+            deadline = time.monotonic() + timeout
             while response is None or (command not in response and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response)):
+                if time.monotonic() > deadline:
+                    logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) timed out after {timeout}s')
+                    break
                 response = self.exchange_command(command)
 
     def led_off(self, channel):

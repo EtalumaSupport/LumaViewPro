@@ -517,9 +517,6 @@ class LumaViewProApp(TooltipMixin, App):
 
         #Clock.schedule_interval(_executor_watchdog, 60)
 
-        os.chdir(source_path)
-
-
         load_log_level()
         load_autofocus_log_enable()
         # load_mode() and engineering_mode assignment moved to build() for correct _init_ui timing

@@ -255,7 +255,7 @@ class ProtocolSettings(FloatLayout):
         else:
             center_plate_str = 'Center Plate'
             spinner = self.ids['labware_spinner']
-            spinner.values = list(center_plate_str,)
+            spinner.values = [center_plate_str]
             spinner.text = center_plate_str
             settings['protocol']['labware'] = labware
 

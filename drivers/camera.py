@@ -69,7 +69,7 @@ class Camera(ABC):
     def __init__(self):
         self._state_lock = threading.Lock()
         self._array_lock = threading.Lock()
-        self.active = False
+        self._active = False
         self.error_report_count = 0
         self.array = np.array([])
         self.cam_image_handler: ImageHandlerBase | None = None
@@ -83,10 +83,21 @@ class Camera(ABC):
 
         self.connect()
 
+    @property
+    def active(self):
+        """Thread-safe access to camera active state."""
+        with self._state_lock:
+            return self._active
+
+    @active.setter
+    def active(self, value):
+        with self._state_lock:
+            self._active = value
+
     def __del__(self):
         try:
             with self._state_lock:
-                is_active = bool(self.active)
+                is_active = bool(self._active)
             if is_active:
                 self.disconnect()
         except Exception as e:
@@ -104,7 +115,7 @@ class Camera(ABC):
         """
         with self._state_lock:
             self._device_removed = True
-            self.active = None
+            self._active = None
 
     @abstractmethod
     def connect(self) -> bool:
@@ -269,7 +280,7 @@ class Camera(ABC):
         The image is available in self.array after a successful grab.
         """
         with self._state_lock:
-            if self.active is None or self._device_removed:
+            if self._active is None or self._device_removed:
                 return False, None
 
         if not self.cam_image_handler:

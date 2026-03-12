@@ -20,7 +20,6 @@ class ModSlider(Slider):
             return True
 
     def on_touch_down(self, touch):
-        super(ModSlider, self).on_touch_down(touch)
         out = super().on_touch_down(touch)
         # If the slider accepted the touch, it will grab it.
         if touch.grab_current == self:

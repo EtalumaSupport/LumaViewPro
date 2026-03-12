@@ -210,11 +210,11 @@ def log_system_metrics(settings: dict):
 def focus_log(positions, values, focus_round: int, source_path: str) -> int:
     """Log autofocus positions and scores to file. Returns incremented focus_round."""
     if False:  # disabled — kept for future use
-        os.chdir(source_path)
+        log_file = os.path.join(source_path, 'logs', 'focus_log.txt')
         try:
-            file = open('./logs/focus_log.txt', 'a')
+            file = open(log_file, 'a')
         except Exception:
-            if not os.path.isdir('./logs'):
+            if not os.path.isdir(os.path.join(source_path, 'logs')):
                 raise FileNotFoundError("Couldn't find 'logs' directory.")
             else:
                 raise

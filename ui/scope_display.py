@@ -384,7 +384,7 @@ class ScopeDisplay(Image):
 
             if active_layer_config is not None and active_layer_config['auto_gain']:
                 from modules.sequential_io_executor import IOTask
-                ctx.camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(active_layer)))
+                ctx.camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(active_layer,)))
 
 
         if ctx.engineering_mode:

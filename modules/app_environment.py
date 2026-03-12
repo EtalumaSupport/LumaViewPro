@@ -33,14 +33,13 @@ def init_environment(main_file: str) -> AppEnvironment:
     script_path = abspath[:-len(basename)]
 
     print(f"Script Location: {script_path}")
-    os.chdir(script_path)
 
     windows_machine = os.name == "nt"
 
     # Read version
     version = ""
     try:
-        with open("version.txt") as f:
+        with open(os.path.join(script_path, "version.txt")) as f:
             version = f.readlines()[0].strip()
     except Exception:
         pass
@@ -63,7 +62,7 @@ def init_environment(main_file: str) -> AppEnvironment:
 
     # Check if running as installed application
     try:
-        with open("marker.lvpinstalled") as f:
+        with open(os.path.join(script_path, "marker.lvpinstalled")) as f:
             lvp_installed = True
     except Exception:
         lvp_installed = False
@@ -73,7 +72,6 @@ def init_environment(main_file: str) -> AppEnvironment:
         print("Machine-Type - WINDOWS")
         import userpaths
         documents_folder = userpaths.get_my_documents()
-        os.chdir(documents_folder)
         # Use base version (without hash) for folder name
         base_version = version.split(" (")[0] if " (" in version else version
         lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {base_version}")
@@ -83,7 +81,6 @@ def init_environment(main_file: str) -> AppEnvironment:
 
         source_path = lvp_appdata
         print(f"Data Location: {source_path}")
-        os.chdir(source_path)
 
         if not os.path.exists(os.path.join(lvp_appdata, "data")):
             shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))

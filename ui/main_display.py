@@ -108,13 +108,28 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 logger.warning(f'[LVP Main  ] Failed to reset record button state: {e}')
             return
 
-        _app_ctx.ctx.camera_executor.put(IOTask(self.record_init))
+        # H-3 fix: snapshot widget values on main thread before submitting
+        # to camera executor, since .ids access is not thread-safe.
+        ctx = _app_ctx.ctx
+        false_color = None
+        for layer in common_utils.get_layers():
+            layer_accordion_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
+            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+            if not layer_accordion_obj.collapse:
+                if layer_obj.ids['false_color'].active:
+                    false_color = layer
+                break
+
+        _app_ctx.ctx.camera_executor.put(IOTask(
+            self.record_init,
+            kwargs={'false_color': false_color},
+        ))
 
     def open_save_folder_button(self):
         from ui.post_processing import open_last_save_folder
         open_last_save_folder()
 
-    def record_init(self):
+    def record_init(self, false_color=None):
         from ui.notification_popup import show_notification_popup
 
         logger.info('[LVP Main  ] MainDisplay.record()')
@@ -135,22 +150,10 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         self.video_as_frames = settings['video_as_frames']
 
-        color = None
+        # false_color was snapshotted on main thread by record_button()
+        color = false_color
 
-        for layer in common_utils.get_layers():
-            layer_accordion_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
-            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-            if not layer_accordion_obj.collapse:
-
-                if layer_obj.ids['false_color'].active:
-                    color = layer
-
-                break
-
-        if color is not None:
-            self.video_false_color = color
-        else:
-            self.video_false_color = None
+        self.video_false_color = color
 
         if "manual_video" in settings:
             max_fps = settings["manual_video"]["max_fps"]
@@ -286,10 +289,45 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             Window.set_title(f"Lumaview Pro {_app_ctx.ctx.version}   |   Writing Manual Video: {progress_pct:.0f}%")
 
     def _enqueue_recording_complete(self, dt=None):
-        """Enqueue recording finalization task on camera executor."""
-        _app_ctx.ctx.camera_executor.put(IOTask(self._finalize_recording_state))
+        """Enqueue recording finalization task on camera executor.
 
-    def _finalize_recording_state(self, dt=None):
+        This runs on the main thread (via Clock.schedule_once), so we snapshot
+        all UI-dependent values here before handing off to background threads.
+        """
+        from modules.config_getters import (
+            get_active_layer_config, get_image_capture_config_from_ui,
+            get_current_objective_info, get_binning_from_ui,
+        )
+
+        # H-4 fix: snapshot widget values on main thread
+        ui_snapshot = {}
+        try:
+            ui_snapshot['active_layer_config'] = get_active_layer_config()
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Could not snapshot active_layer_config: {e}')
+            ui_snapshot['active_layer_config'] = None
+        try:
+            ui_snapshot['image_capture_config'] = get_image_capture_config_from_ui()
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Could not snapshot image_capture_config: {e}')
+            ui_snapshot['image_capture_config'] = None
+        try:
+            ui_snapshot['objective_info'] = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Could not snapshot objective_info: {e}')
+            ui_snapshot['objective_info'] = None
+        try:
+            ui_snapshot['binning'] = get_binning_from_ui()
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Could not snapshot binning: {e}')
+            ui_snapshot['binning'] = 1
+
+        _app_ctx.ctx.camera_executor.put(IOTask(
+            self._finalize_recording_state,
+            kwargs={'ui_snapshot': ui_snapshot},
+        ))
+
+    def _finalize_recording_state(self, dt=None, ui_snapshot=None):
         """Run on camera executor: Capture final state quickly and hand off to file writer."""
         memmap_path = None
         try:
@@ -336,6 +374,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 'video_as_frames': video_as_frames,
                 'memmap_path': memmap_path,
                 'video_false_color': video_false_color,
+                'ui_snapshot': ui_snapshot or {},
             }
 
             # Hand off to file IO executor (doesn't block camera)
@@ -358,10 +397,6 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def recording_complete(self, **kwargs):
         """Run on file_io_executor: Do heavy file writing without blocking camera."""
-        from modules.config_getters import (
-            get_active_layer_config, get_image_capture_config_from_ui,
-            get_current_objective_info, get_binning_from_ui,
-        )
         from modules.stack_builder import StackBuilder
         from modules.video_writer import VideoWriter
 
@@ -375,6 +410,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         video_as_frames = kwargs.get('video_as_frames', False)
         memmap_path = kwargs.get('memmap_path', None)
         video_false_color = kwargs.get('video_false_color', None)
+
+        # H-4 fix: use UI values snapshotted on main thread by _enqueue_recording_complete()
+        ui_snapshot = kwargs.get('ui_snapshot', {})
 
         try:
             # Defensive check
@@ -398,17 +436,17 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             logger.info(f"Manual-Video] Video FPS: {calculated_fps}")
             logger.info("Manual-Video] Writing video...")
 
-            color, active_layer_config = get_active_layer_config()
+            color, active_layer_config = ui_snapshot['active_layer_config']
 
             include_hyperstack_generation = False
 
             if video_as_frames:
 
-                image_capture_config = get_image_capture_config_from_ui()
+                image_capture_config = ui_snapshot['image_capture_config']
 
                 if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
                     include_hyperstack_generation = True
-                    _, objective = get_current_objective_info()
+                    _, objective = ui_snapshot['objective_info']
                     stack_builder = StackBuilder(
                         has_turret=_app_ctx.ctx.scope.has_turret(),
                     )
@@ -472,14 +510,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 if include_hyperstack_generation:
                     logger.info("Manual-Video] Creating hyperstack...")
 
-                    _, objective = get_current_objective_info()
+                    _, objective = ui_snapshot['objective_info']
                     frame_metadata_df = pd.DataFrame(frame_metadata)
                     stack_builder.create_single_recording_stack(
                         df=frame_metadata_df,
                         path=save_folder,
                         output_file_loc=save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff",
                         focal_length=objective['focal_length'],
-                        binning_size=get_binning_from_ui(),
+                        binning_size=ui_snapshot['binning'],
                     )
 
                     logger.info(f"Manual-Video] Hyperstack created at {save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff'}")
