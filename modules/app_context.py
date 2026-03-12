@@ -1,4 +1,5 @@
 # Copyright Etaluma, Inc.
+import copy
 import threading
 from dataclasses import dataclass, field
 
@@ -86,3 +87,27 @@ class AppContext:
     def initializing(self):
         """Backward-compatible check (replaces _app_initializing)."""
         return not self._ready
+
+    # --- Thread-safe settings access ---
+    # The `settings` dict is a module-level mutable global accessed ~395 times
+    # across 27+ files. Worker threads should call get_settings_snapshot() at
+    # task entry to obtain an immutable copy, avoiding races with the GUI thread.
+    # GUI-thread code may continue to access `settings` directly for now.
+
+    def get_settings_snapshot(self):
+        """Return a deep copy of settings under the lock.
+
+        Worker threads should call this once at task entry and read from
+        the returned snapshot rather than touching the live settings dict.
+        """
+        with self.settings_lock:
+            return copy.deepcopy(self.settings)
+
+    def update_settings(self, key, value):
+        """Write a top-level key in settings under the lock.
+
+        Use this for any cross-thread write to settings so the lock is
+        always acquired consistently.
+        """
+        with self.settings_lock:
+            self.settings[key] = value

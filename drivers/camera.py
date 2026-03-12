@@ -68,6 +68,7 @@ class ImageHandlerBase:
 class Camera(ABC):
     def __init__(self):
         self._state_lock = threading.Lock()
+        self._array_lock = threading.Lock()
         self.active = False
         self.error_report_count = 0
         self.array = np.array([])
@@ -279,11 +280,17 @@ class Camera(ABC):
             if not result:
                 return False, None
 
-            self.array = image
+            with self._array_lock:
+                self.array = image
             return True, image_ts
         except Exception as ex:
             logger.exception(f"[CAM Class ] grab() - get_last_image() failed: {ex}")
             return False, None
+
+    def get_array(self):
+        """Return a copy of the last grabbed image. Thread-safe."""
+        with self._array_lock:
+            return self.array.copy() if self.array.size > 0 else self.array
 
     @abstractmethod
     def grab_new_capture(self, timeout: float):

@@ -72,7 +72,7 @@ class Lumascope():
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
 
         # Camera
-        self.image_buffer = None
+        self._image_buffer = None  # backing field for image_buffer property
         self._frame_buffer = None  # Pre-allocated buffer for get_image_from_buffer
         try:
             if simulate:
@@ -97,14 +97,20 @@ class Lumascope():
         if self._no_hardware:
             logger.warning('[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)')
 
-        # Initialize scope status booleans
-        self.is_homing = False           # Is the microscope currently moving to home position
+        # --- Thread synchronization (CR-2 / CR-6) ---
+        # _state_lock protects individual shared-state reads/writes
+        self._state_lock = threading.Lock()
+        # _hw_lock is an RLock for multi-step hardware operations
+        self._hw_lock = threading.RLock()
 
-        self.is_capturing = False        # Is the microscope currently attempting image capture (with illumination)
-        self.capture_return = False      # Will be image if capture is ready to pull, else False
+        # Boolean operation flags use threading.Event for wait/signal
+        self._homing_event = threading.Event()       # set => homing in progress
+        self._capturing_event = threading.Event()    # set => capture in progress
+        self._focusing_event = threading.Event()     # set => autofocus in progress
 
-        self.is_focusing = False         # Is the microscope currently attempting autofocus
-        self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
+        # Initialize scope status
+        self._capture_return = False     # Will be image if capture is ready to pull, else False
+        self._autofocus_return = False   # Will be z-position if focus is ready to pull, else False
         self.last_focus_score = None
 
         # self.is_stepping = False         # Is the microscope currently attempting to capture a step
@@ -127,6 +133,101 @@ class Lumascope():
             'color': None,
         }
 
+
+    # --- CR-2: Thread-safe properties for shared state ---
+
+    @property
+    def is_homing(self) -> bool:
+        """True while the microscope is homing."""
+        return self._homing_event.is_set()
+
+    @is_homing.setter
+    def is_homing(self, value: bool):
+        if value:
+            self._homing_event.set()
+        else:
+            self._homing_event.clear()
+
+    @property
+    def is_capturing(self) -> bool:
+        """True while the microscope is capturing an image."""
+        return self._capturing_event.is_set()
+
+    @is_capturing.setter
+    def is_capturing(self, value: bool):
+        if value:
+            self._capturing_event.set()
+        else:
+            self._capturing_event.clear()
+
+    @property
+    def is_focusing(self) -> bool:
+        """True while the microscope is running autofocus."""
+        return self._focusing_event.is_set()
+
+    @is_focusing.setter
+    def is_focusing(self, value: bool):
+        if value:
+            self._focusing_event.set()
+        else:
+            self._focusing_event.clear()
+
+    @property
+    def image_buffer(self):
+        with self._state_lock:
+            return self._image_buffer
+
+    @image_buffer.setter
+    def image_buffer(self, value):
+        with self._state_lock:
+            self._image_buffer = value
+
+    @property
+    def capture_return(self):
+        with self._state_lock:
+            return self._capture_return
+
+    @capture_return.setter
+    def capture_return(self, value):
+        with self._state_lock:
+            self._capture_return = value
+
+    @property
+    def autofocus_return(self):
+        with self._state_lock:
+            return self._autofocus_return
+
+    @autofocus_return.setter
+    def autofocus_return(self, value):
+        with self._state_lock:
+            self._autofocus_return = value
+
+    @property
+    def scale_bar_config(self):
+        """Return a snapshot of scale bar settings."""
+        with self._state_lock:
+            return dict(self._scale_bar)
+
+    # --- CR-6: Exclusive lock for multi-step hardware operations ---
+
+    @contextlib.contextmanager
+    def acquire_exclusive(self):
+        """Context manager for multi-step hardware operations.
+
+        Prevents interleaving of compound operations (e.g., set gain + capture).
+        Uses RLock so a thread that already holds the lock can re-enter.
+
+        Usage::
+
+            with scope.acquire_exclusive():
+                scope.set_led_ma('Blue', 10)
+                image = scope.capture_blocking()
+        """
+        self._hw_lock.acquire()
+        try:
+            yield
+        finally:
+            self._hw_lock.release()
 
     def disconnect(self):
         """Disconnect from all hardware (LED, motion, camera)."""
@@ -581,7 +682,7 @@ class Lumascope():
 
                 if grab_status:
                     self.frame_validity.count_frame()
-                    tmp = self.camera.array  # already a copy from grab()
+                    tmp = self.camera.get_array()  # thread-safe copy
 
                     if all_ones_check:
 
@@ -674,11 +775,8 @@ class Lumascope():
         if not grab_status:
             return False
 
-        src = self.camera.array
-        if self._frame_buffer is None or self._frame_buffer.shape != src.shape or self._frame_buffer.dtype != src.dtype:
-            self._frame_buffer = np.empty(src.shape, dtype=src.dtype)
-        np.copyto(self._frame_buffer, src)
-        tmp = self._frame_buffer
+        tmp = self.camera.get_array()  # thread-safe copy
+        self._frame_buffer = tmp
 
         use_scale_bar = self._scale_bar['enabled']
         if self._objective is None:

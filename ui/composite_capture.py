@@ -20,6 +20,7 @@ import modules.common_utils as common_utils
 from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
 import modules.scope_commands as scope_commands
+from modules.sequential_io_executor import IOTask
 from modules.ui_helpers import (
     live_histo_off, live_histo_reverse, set_last_save_folder,
 )
@@ -216,19 +217,17 @@ class CompositeCapture(FloatLayout):
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
         use_full_pixel_depth = scope_display.use_full_pixel_depth
 
-        # Run hardware-blocking work on a background thread to avoid freezing UI
-        t = threading.Thread(
-            target=self._composite_capture_worker,
+        # Run hardware-blocking work via the protocol executor to avoid
+        # freezing the UI and to prevent contention with io_executor.
+        ctx.protocol_executor.put(IOTask(
+            action=self._composite_capture_worker,
             kwargs={
                 'z_stage_present': z_stage_present,
                 'initial_layer': initial_layer,
                 'led_restore_state': led_restore_state,
                 'use_full_pixel_depth': use_full_pixel_depth,
             },
-            daemon=True,
-            name='CompositeCapture',
-        )
-        t.start()
+        ))
 
     def _composite_capture_worker(
         self,
