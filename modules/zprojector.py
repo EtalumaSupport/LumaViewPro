@@ -221,23 +221,26 @@ class ZProjector(ProtocolPostProcessingExecutor):
             image_filepath = path / row['Filepath']
             orig_images.append(tf.imread(str(image_filepath)))
 
-        # If working with color images, split the list of color images into separate lists for 
-        # each color plane
-        if image_utils.is_color_image(image=orig_images[0]):
-            result = self._zproject_for_multi_channel(
-                images_data=orig_images,
-                method=method,
-            )
-        
-        else: # Grayscale images
-            result = self._zproject_for_single_channel(
-                images_data=orig_images,
-                method=method
-            )
+        try:
+            # If working with color images, split the list of color images
+            # into separate lists for each color plane
+            if image_utils.is_color_image(image=orig_images[0]):
+                result = self._zproject_for_multi_channel(
+                    images_data=orig_images,
+                    method=method,
+                )
+            else:  # Grayscale images
+                result = self._zproject_for_single_channel(
+                    images_data=orig_images,
+                    method=method
+                )
+        finally:
+            # Release source images immediately — can be GBs for large stacks
+            del orig_images
 
         if not result['status']:
             return result
-        
+
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
         tf.imwrite(

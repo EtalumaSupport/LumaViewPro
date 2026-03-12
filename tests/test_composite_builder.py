@@ -72,10 +72,9 @@ class TestBuildCompositeNoTransmitted:
         np.testing.assert_array_equal(img[:, :, 0], 3000)
 
     def test_empty_channels_returns_black(self):
-        # Edge case: no channels but we pass an empty dict
-        # Need at least one channel — this would raise StopIteration
-        # but in practice callers always have at least one channel
-        pass
+        """Empty channel dict with no transmitted image should raise."""
+        with pytest.raises((StopIteration, ValueError)):
+            build_composite(channel_images={}, dtype=np.uint8, max_value=255)
 
 
 class TestBuildCompositeWithTransmitted:

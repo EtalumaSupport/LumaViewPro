@@ -40,14 +40,6 @@ sys.modules.setdefault('requests', MagicMock())
 sys.modules.setdefault('requests.structures', MagicMock())
 
 
-def pytest_addoption(parser):
-    try:
-        parser.addoption("--run-hardware", action="store_true",
-                         default=False, help="Run hardware serial tests")
-    except Exception:
-        pass  # option already registered
-
-
 hardware = pytest.mark.skipif(
     "--run-hardware" not in sys.argv,
     reason="Requires --run-hardware flag and real hardware"

@@ -618,7 +618,19 @@ def add_scale_bar(
     return image
 
 
-def add_timestamp(image, timestamp_str: str):
+def add_timestamp(image, timestamp_str: str, in_place: bool = True):
+    """Draw a timestamp on the image.
+
+    Args:
+        image: Input image array (modified in place by default).
+        timestamp_str: Text to draw.
+        in_place: If True, modify image directly (no copy). If False,
+                  work on a copy and return it. Default True to avoid
+                  allocating a full-frame copy.
+
+    Returns:
+        The image with timestamp drawn.
+    """
     height, width = image.shape[0], image.shape[1]
 
     dtype = image.dtype
@@ -646,7 +658,8 @@ def add_timestamp(image, timestamp_str: str):
     else: # 16-bit
         text_intensity = 2**16-1
 
-    image = image.copy()
+    if not in_place:
+        image = image.copy()
     cv2.rectangle(
         image,
         (left_offset, top_offset),

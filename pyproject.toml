@@ -1,0 +1,24 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--tb=short -q"
+markers = [
+    "requires_led_v2: requires LED firmware v2.0+",
+    "requires_motor_v2: requires motor firmware v2.0+",
+]
+
+[tool.coverage.run]
+source = ["modules", "drivers", "ui"]
+omit = [
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "raise NotImplementedError",
+    "pass",
+]
