@@ -12,7 +12,9 @@
       "z_fine": 100,
       "z_coarse": 1000,
       "xy_fine": 300,
-      "xy_coarse": 3000
+      "xy_coarse": 3000,
+      "z_settle_tolerance_um": 50.0,
+      "z_settle_timeout_ms": 2000
     },
     "2x Oly": {
       "description": "2x Plan Apochromat Olympus",
@@ -27,7 +29,9 @@
       "z_fine": 35,
       "z_coarse": 350,
       "xy_fine": 200,
-      "xy_coarse": 2000
+      "xy_coarse": 2000,
+      "z_settle_tolerance_um": 20.0,
+      "z_settle_timeout_ms": 2000
     },
     "2.5x Meiji": {
       "description": "2.5x Plan Semi Apochromat Meiji",
@@ -42,7 +46,9 @@
       "z_fine": 35,
       "z_coarse": 350,
       "xy_fine": 200,
-      "xy_coarse": 2000
+      "xy_coarse": 2000,
+      "z_settle_tolerance_um": 20.0,
+      "z_settle_timeout_ms": 2000
     },
     "4x Oly": {
       "description": "4x U Plan Fl Olympus",
@@ -50,14 +56,16 @@
       "focal_length": 45.0,
       "aperture": 0.13,
       "DOF": 55.5,
-      "working_distance": 17,      
+      "working_distance": 17,
       "AF_min": 20.0,
       "AF_max": 72.0,
       "AF_range": 150.0,
       "z_fine": 27.75,
       "z_coarse": 277.5,
       "xy_fine": 100.0,
-      "xy_coarse": 1000.0
+      "xy_coarse": 1000.0,
+      "z_settle_tolerance_um": 10.0,
+      "z_settle_timeout_ms": 2000
     },
     "10x Oly": {
       "description": "10x U Plan Fl Olympus",
@@ -72,7 +80,9 @@
       "z_fine": 4.25,
       "z_coarse": 42.5,
       "xy_fine": 40.0,
-      "xy_coarse": 400.0
+      "xy_coarse": 400.0,
+      "z_settle_tolerance_um": 5.0,
+      "z_settle_timeout_ms": 2000
     },
     "10x Phase": {
       "description": "10x Achromat IPC Phase, 1mm glass, Olympus",
@@ -80,14 +90,16 @@
       "focal_length": 18.0,
       "aperture": 0.25,
       "DOF": 8.5,
-      "working_distance": 8.8,      
+      "working_distance": 8.8,
       "AF_min": 8.0,
       "AF_max": 36.0,
       "AF_range": 75.0,
       "z_fine": 4.25,
       "z_coarse": 42.5,
       "xy_fine": 40.0,
-      "xy_coarse": 400.0
+      "xy_coarse": 400.0,
+      "z_settle_tolerance_um": 5.0,
+      "z_settle_timeout_ms": 2000
     },
     "20x Oly": {
       "description": "20x LWD U Plan Fl, 0.17mm glass, Olympus",
@@ -95,14 +107,16 @@
       "focal_length": 9.0,
       "aperture": 0.5,
       "DOF": 5.8,
-      "working_distance": 2.1,      
+      "working_distance": 2.1,
       "AF_min": 2.0,
       "AF_max": 18.0,
       "AF_range": 40.0,
       "z_fine": 2.9,
       "z_coarse": 29.0,
       "xy_fine": 20.0,
-      "xy_coarse": 200.0
+      "xy_coarse": 200.0,
+      "z_settle_tolerance_um": 2.0,
+      "z_settle_timeout_ms": 2000
     },
     "20x w/collar": {
       "description": "20x LWD U Plan Fl with collar, Olympus",
@@ -110,14 +124,16 @@
       "focal_length": 9.0,
       "aperture": 0.45,
       "DOF": 5.8,
-      "working_distance": 6.6,      
+      "working_distance": 6.6,
       "AF_min": 2.0,
       "AF_max": 18.0,
       "AF_range": 40.0,
       "z_fine": 2.9,
       "z_coarse": 29.0,
       "xy_fine": 20.0,
-      "xy_coarse": 200.0
+      "xy_coarse": 200.0,
+      "z_settle_tolerance_um": 2.0,
+      "z_settle_timeout_ms": 2000
     },
     "20x Phase": {
       "description": "20x LWD Achromat IPC Phase, 1mm glass, Olympus",
@@ -125,14 +141,16 @@
       "focal_length": 9.0,
       "aperture": 0.4,
       "DOF": 5.8,
-      "working_distance": 3.2,      
+      "working_distance": 3.2,
       "AF_min": 2.0,
       "AF_max": 18.0,
       "AF_range": 40.0,
       "z_fine": 2.9,
       "z_coarse": 29.0,
       "xy_fine": 20.0,
-      "xy_coarse": 200.0
+      "xy_coarse": 200.0,
+      "z_settle_tolerance_um": 2.0,
+      "z_settle_timeout_ms": 2000
     },
     "40x w/collar": {
       "description": "40x LWD U Plan Fl Olympus",
@@ -140,14 +158,16 @@
       "focal_length": 4.5,
       "aperture": 0.60,
       "DOF": 1.0,
-      "working_distance": 2.7,      
+      "working_distance": 2.7,
       "AF_min": 1.0,
       "AF_max": 9.0,
       "AF_range": 20.0,
       "z_fine": 0.5,
       "z_coarse": 5.0,
       "xy_fine": 10.0,
-      "xy_coarse": 100.0
+      "xy_coarse": 100.0,
+      "z_settle_tolerance_um": 1.0,
+      "z_settle_timeout_ms": 2000
     },
     "40x Phase": {
       "description": "40x LWD Achromat Phase, 1mm glass, Olympus",
@@ -155,14 +175,16 @@
       "focal_length": 4.5,
       "aperture": 0.55,
       "DOF": 1.0,
-      "working_distance": 2.2,      
+      "working_distance": 2.2,
       "AF_min": 1.0,
       "AF_max": 9.0,
       "AF_range": 20.0,
       "z_fine": 0.5,
       "z_coarse": 5.0,
       "xy_fine": 10.0,
-      "xy_coarse": 100.0
+      "xy_coarse": 100.0,
+      "z_settle_tolerance_um": 1.0,
+      "z_settle_timeout_ms": 2000
     },
     "60x w/collar": {
       "description": "60x U Plan UPLFLN60x Olympus",
@@ -170,14 +192,16 @@
       "focal_length": 3.0,
       "aperture": 0.90,
       "DOF": 0.4,
-      "working_distance": 0.2,      
+      "working_distance": 0.2,
       "AF_min": 0.5,
       "AF_max": 6.0,
       "AF_range": 15.0,
       "z_fine": 0.2,
       "z_coarse": 2.0,
       "xy_fine": 5.0,
-      "xy_coarse": 50.0
+      "xy_coarse": 50.0,
+      "z_settle_tolerance_um": 0.5,
+      "z_settle_timeout_ms": 2000
     },
     "60x Meiji": {
       "description": "60x Plan Achromat",
@@ -185,14 +209,16 @@
       "focal_length": 3.333333,
       "aperture": 0.80,
       "DOF": 0.4,
-      "working_distance": 0.23,      
+      "working_distance": 0.23,
       "AF_min": 0.5,
       "AF_max": 6.0,
       "AF_range": 15.0,
       "z_fine": 0.2,
       "z_coarse": 2.0,
       "xy_fine": 5.0,
-      "xy_coarse": 50.0
+      "xy_coarse": 50.0,
+      "z_settle_tolerance_um": 0.5,
+      "z_settle_timeout_ms": 2000
     },
     "100x U Plan Oly": {
       "description": "100x U Plan (oil) Olympus",
@@ -200,14 +226,16 @@
       "focal_length": 1.8,
       "aperture": 1.30,
       "DOF": 0.19,
-      "working_distance": 0.2,      
+      "working_distance": 0.2,
       "AF_min": 0.2,
       "AF_max": 4.0,
       "AF_range": 10.0,
       "z_fine": 0.11,
       "z_coarse": 1.1,
       "xy_fine": 4.0,
-      "xy_coarse": 40.0
+      "xy_coarse": 40.0,
+      "z_settle_tolerance_um": 0.2,
+      "z_settle_timeout_ms": 2000
     },
     "100x M Plan Oly": {
       "description": "100x M Plan Fl (dry) Olympus",
@@ -215,14 +243,16 @@
       "focal_length": 1.8,
       "aperture": 0.95,
       "DOF": 0.19,
-      "working_distance": 0.2,      
+      "working_distance": 0.2,
       "AF_min": 0.2,
       "AF_max": 4.0,
       "AF_range": 10.0,
       "z_fine": 0.11,
       "z_coarse": 1.1,
       "xy_fine": 4.0,
-      "xy_coarse": 40.0
+      "xy_coarse": 40.0,
+      "z_settle_tolerance_um": 0.2,
+      "z_settle_timeout_ms": 2000
     },
     "100x Meiji": {
       "description": "100x Plan Apochromat(oil) MA983 Meiji",
@@ -230,13 +260,15 @@
       "focal_length": 2.0,
       "aperture": 1.25,
       "DOF": 0.19,
-      "working_distance": 0.2,      
+      "working_distance": 0.2,
       "AF_min": 0.2,
       "AF_max": 4.0,
       "AF_range": 10.0,
       "z_fine": 0.11,
       "z_coarse": 1.1,
       "xy_fine": 4.0,
-      "xy_coarse": 40.0
+      "xy_coarse": 40.0,
+      "z_settle_tolerance_um": 0.2,
+      "z_settle_timeout_ms": 2000
     }
 }

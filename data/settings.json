@@ -207,6 +207,16 @@
     "disable_protocol_accordions": true,
     "lvp_lock_port": 43101,
     "camera_type": "pylon",
+    "autofocus": {
+        "one_af_per_well": false,
+        "reduce_af_range": false,
+        "af_range_reduction_pct": 50,
+        "suppress_background_during_protocol": false
+    },
+    "stage": {
+        "plate_bottom_z_estimate": null,
+        "focus_safety_margin_um": 500
+    },
     "rest_api": {
         "enabled": false,
         "host": "127.0.0.1",

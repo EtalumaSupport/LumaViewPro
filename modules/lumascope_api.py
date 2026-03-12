@@ -132,6 +132,7 @@ class Lumascope():
         self._last_turret_position = None # Stores the last known turret position
         self.engineering_mode = False      # Set by UI to enable engineering features
         self.frame_validity = FrameValidity()
+        self._load_camera_timing()
         if self.camera:
             self._binning_size = self.camera.get_binning_size()
         else:
@@ -142,6 +143,32 @@ class Lumascope():
             'color': None,
         }
 
+
+    def _load_camera_timing(self):
+        """Load per-camera timing config if available.
+
+        Looks for data/camera_timing/<model>.json and overrides
+        FrameValidity.SKIP_FRAMES with measured values.
+        """
+        if not self.camera or not self.camera.active:
+            return
+        try:
+            import json
+            model = getattr(self.camera, 'model_name', None)
+            if not model:
+                return
+            # Normalize model name for filename
+            safe_name = model.replace(' ', '_')
+            timing_dir = pathlib.Path(os.path.dirname(__file__)).parent / 'data' / 'camera_timing'
+            timing_path = timing_dir / f'{safe_name}.json'
+            if not timing_path.exists():
+                return
+            with open(timing_path) as f:
+                config = json.load(f)
+            self.frame_validity.load_camera_timing(config)
+            logger.info(f'[SCOPE API ] Loaded camera timing config from {timing_path}')
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] Failed to load camera timing config: {e}')
 
     # --- CR-2: Thread-safe properties for shared state ---
 

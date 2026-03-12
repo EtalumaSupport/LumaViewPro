@@ -718,10 +718,16 @@ class SequencedCaptureExecutor:
         if self._z_ui_update_func is not None:
             Clock.schedule_once(lambda dt: self._z_ui_update_func(float(step['Z'])), 0)
 
+        # --- Pipeline timing instrumentation ---
+        _t_settle = time.monotonic()
+        _settle_wait_ms = (_t_settle - self._step_start_time) * 1000
+        logger.debug(f"[TIMING] Step {self._curr_step} motion settle: {_settle_wait_ms:.1f}ms")
+
         # Set camera settings
         if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
             return
 
+        _t_cam_start = time.monotonic()
         fut = self._io_executor.protocol_put(IOTask(
             action=self._scope.set_auto_gain,
             kwargs={
@@ -735,6 +741,8 @@ class SequencedCaptureExecutor:
         if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
             return
 
+        _t_led_start = time.monotonic()
+        logger.debug(f"[TIMING] Step {self._curr_step} camera settings: {(_t_led_start - _t_cam_start)*1000:.1f}ms")
         self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
 
         if not step['Auto_Gain']:
@@ -753,6 +761,9 @@ class SequencedCaptureExecutor:
             ), return_future=True)
             if fut:
                 fut.result(timeout=5)
+
+        _t_led_done = time.monotonic()
+        logger.debug(f"[TIMING] Step {self._curr_step} LED on: {(_t_led_done - _t_led_start)*1000:.1f}ms")
 
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
         if step['Auto_Focus'] and not self._autofocus_executor.complete() and not self._autofocus_executor.in_progress():
@@ -828,6 +839,7 @@ class SequencedCaptureExecutor:
                 if step['Acquire'] == 'video':
                     self._video_write_finished.clear()
 
+                _t_capture_start = time.monotonic()
                 capture_result = self._capture(
                     save_folder=save_folder,
                     step=step,
@@ -835,6 +847,8 @@ class SequencedCaptureExecutor:
                     output_format=output_format,
                     sum_count=step["Sum"],
                 )
+                _t_capture_done = time.monotonic()
+                logger.debug(f"[TIMING] Step {self._curr_step} capture+save: {(_t_capture_done - _t_capture_start)*1000:.1f}ms")
 
                 self._stim_stop_event.set()
 
@@ -859,6 +873,8 @@ class SequencedCaptureExecutor:
             ), return_future=True)
             if fut:
                 fut.result(timeout=5)
+
+        logger.debug(f"[TIMING] Step {self._curr_step} total: {(time.monotonic() - self._step_start_time)*1000:.1f}ms")
 
         num_steps = self._protocol.num_steps()
         if self._curr_step < num_steps-1:
@@ -1227,7 +1243,11 @@ class SequencedCaptureExecutor:
             use_full_pixel_depth = self._image_capture_config['use_full_pixel_depth']
 
             if is_video:
-                # Settle time for auto-gain first frame (static captures use frame validity)
+                # Drain stale frames before video capture starts
+                while self._scope.frame_validity.frames_until_valid() > 0:
+                    self._scope.get_image(force_new_capture=True)
+                    self._scope.frame_validity.count_frame()
+                # Additional settle for auto-gain first frame
                 time.sleep(max(step['Exposure']/1000, 0.05))
                 # Disable autogain and then reenable it only for the first frame
                 if step["Auto_Gain"]:

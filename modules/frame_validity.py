@@ -127,6 +127,22 @@ class FrameValidity:
         with self._lock:
             return self._frame_counter
 
+    def load_camera_timing(self, config: dict):
+        """Override SKIP_FRAMES from measured per-camera timing config.
+
+        Args:
+            config: dict with 'skip_frames' key mapping source names to
+                    measured frame counts. Only sources present in the config
+                    are overridden; others keep their defaults.
+
+        Typically called after camera connects with data loaded from
+        data/camera_timing/<model>.json.
+        """
+        measured = config.get('skip_frames', {})
+        for source, count in measured.items():
+            if isinstance(count, int) and count >= 0:
+                self.SKIP_FRAMES[source] = count
+
     def reset(self):
         """Clear all pending invalidations and reset frame counter."""
         with self._lock:
