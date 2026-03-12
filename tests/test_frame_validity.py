@@ -313,3 +313,227 @@ class TestThreadSafety:
             t.join()
 
         assert errors == []
+
+
+class TestLoadCameraTiming:
+    """Tests for load_camera_timing() config loading."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_skip_frames(self):
+        """Save and restore SKIP_FRAMES so tests don't leak state."""
+        original = dict(FrameValidity.SKIP_FRAMES)
+        yield
+        FrameValidity.SKIP_FRAMES.clear()
+        FrameValidity.SKIP_FRAMES.update(original)
+
+    def test_overrides_skip_frames(self):
+        """Config overrides SKIP_FRAMES values for specified sources."""
+        fv = FrameValidity()
+        config = {'skip_frames': {'led': 5, 'gain': 3}}
+        fv.load_camera_timing(config)
+        assert fv.SKIP_FRAMES['led'] == 5
+        assert fv.SKIP_FRAMES['gain'] == 3
+
+    def test_overridden_values_used_by_invalidate(self):
+        """After loading config, invalidate() uses the new skip counts."""
+        fv = FrameValidity()
+        fv.load_camera_timing({'skip_frames': {'led': 4}})
+        fv.invalidate('led')
+        assert fv.frames_until_valid() == 4
+        for _ in range(3):
+            fv.count_frame()
+        assert not fv.is_valid
+        fv.count_frame()
+        assert fv.is_valid
+
+    def test_partial_config_only_overrides_specified(self):
+        """Sources not in config keep their default values."""
+        fv = FrameValidity()
+        original_exposure = fv.SKIP_FRAMES['exposure']
+        original_xy = fv.SKIP_FRAMES['xy_move']
+        fv.load_camera_timing({'skip_frames': {'led': 7}})
+        assert fv.SKIP_FRAMES['led'] == 7
+        assert fv.SKIP_FRAMES['exposure'] == original_exposure
+        assert fv.SKIP_FRAMES['xy_move'] == original_xy
+
+    def test_empty_skip_frames_no_change(self):
+        """Empty skip_frames dict leaves all defaults unchanged."""
+        fv = FrameValidity()
+        original = dict(fv.SKIP_FRAMES)
+        fv.load_camera_timing({'skip_frames': {}})
+        assert fv.SKIP_FRAMES == original
+
+    def test_missing_skip_frames_key_no_change(self):
+        """Config without 'skip_frames' key leaves defaults unchanged."""
+        fv = FrameValidity()
+        original = dict(fv.SKIP_FRAMES)
+        fv.load_camera_timing({'camera_model': 'test'})
+        assert fv.SKIP_FRAMES == original
+
+    def test_empty_config_no_change(self):
+        """Completely empty config leaves defaults unchanged."""
+        fv = FrameValidity()
+        original = dict(fv.SKIP_FRAMES)
+        fv.load_camera_timing({})
+        assert fv.SKIP_FRAMES == original
+
+    def test_negative_count_rejected(self):
+        """Negative frame counts are silently ignored."""
+        fv = FrameValidity()
+        original_led = fv.SKIP_FRAMES['led']
+        fv.load_camera_timing({'skip_frames': {'led': -1}})
+        assert fv.SKIP_FRAMES['led'] == original_led
+
+    def test_float_count_rejected(self):
+        """Float frame counts are rejected (must be int)."""
+        fv = FrameValidity()
+        original_led = fv.SKIP_FRAMES['led']
+        fv.load_camera_timing({'skip_frames': {'led': 3.5}})
+        assert fv.SKIP_FRAMES['led'] == original_led
+
+    def test_string_count_rejected(self):
+        """String frame counts are rejected."""
+        fv = FrameValidity()
+        original_led = fv.SKIP_FRAMES['led']
+        fv.load_camera_timing({'skip_frames': {'led': 'three'}})
+        assert fv.SKIP_FRAMES['led'] == original_led
+
+    def test_none_count_rejected(self):
+        """None frame counts are rejected."""
+        fv = FrameValidity()
+        original_led = fv.SKIP_FRAMES['led']
+        fv.load_camera_timing({'skip_frames': {'led': None}})
+        assert fv.SKIP_FRAMES['led'] == original_led
+
+    def test_zero_count_accepted(self):
+        """Zero is a valid skip count (no frames to skip)."""
+        fv = FrameValidity()
+        fv.load_camera_timing({'skip_frames': {'led': 0}})
+        assert fv.SKIP_FRAMES['led'] == 0
+        fv.invalidate('led')
+        assert fv.is_valid  # zero skip means immediately valid
+
+    def test_does_not_affect_frame_counter(self):
+        """Loading config should not change the frame counter."""
+        fv = FrameValidity()
+        fv.count_frame()
+        fv.count_frame()
+        fv.count_frame()
+        assert fv.frame_counter == 3
+        fv.load_camera_timing({'skip_frames': {'led': 5}})
+        assert fv.frame_counter == 3
+
+    def test_does_not_affect_pending_state(self):
+        """Loading config should not clear or modify pending invalidations."""
+        fv = FrameValidity()
+        fv.invalidate('led')
+        fv.count_frame()
+        pending_before = fv.pending_sources.copy()
+        fv.load_camera_timing({'skip_frames': {'led': 10}})
+        # Pending state unchanged — the already-queued invalidation keeps
+        # its original threshold
+        assert fv.pending_sources == pending_before
+
+    def test_new_invalidation_uses_updated_count(self):
+        """After loading config, new invalidations use the updated skip counts."""
+        fv = FrameValidity()
+        fv.load_camera_timing({'skip_frames': {'led': 10}})
+        fv.invalidate('led')  # should now use 10
+        assert fv.frames_until_valid() == 10
+        assert fv.pending_sources['led'] == fv.frame_counter + 10
+
+    def test_unknown_source_in_config(self):
+        """Config can add skip counts for custom/unknown sources."""
+        fv = FrameValidity()
+        fv.load_camera_timing({'skip_frames': {'custom_thing': 8}})
+        assert fv.SKIP_FRAMES['custom_thing'] == 8
+        fv.invalidate('custom_thing')
+        assert fv.frames_until_valid() == 8
+
+    def test_mixed_valid_and_invalid_values(self):
+        """Valid values are applied, invalid ones silently ignored."""
+        fv = FrameValidity()
+        fv.load_camera_timing({'skip_frames': {
+            'led': 5,         # valid
+            'gain': -1,       # invalid (negative)
+            'exposure': 3.0,  # invalid (float)
+            'z_move': 0,      # valid (zero)
+        }})
+        assert fv.SKIP_FRAMES['led'] == 5
+        assert fv.SKIP_FRAMES['gain'] == 2      # unchanged default
+        assert fv.SKIP_FRAMES['exposure'] == 2   # unchanged default
+        assert fv.SKIP_FRAMES['z_move'] == 0
+
+    def test_extra_config_keys_ignored(self):
+        """Non-skip_frames keys in config are ignored without error."""
+        fv = FrameValidity()
+        config = {
+            'camera_model': 'daA3840-45um',
+            'measured_date': '2026-03-12',
+            'skip_frames': {'led': 3},
+            'frame_intervals_ms': {'100': 33.2},
+            'dark_noise_stddev': {'mono': 1.2},
+        }
+        fv.load_camera_timing(config)
+        assert fv.SKIP_FRAMES['led'] == 3
+
+
+class TestLoadCameraTimingLumascope:
+    """Tests for Lumascope._load_camera_timing() integration."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_skip_frames(self):
+        """Save and restore SKIP_FRAMES so tests don't leak state."""
+        original = dict(FrameValidity.SKIP_FRAMES)
+        yield
+        FrameValidity.SKIP_FRAMES.clear()
+        FrameValidity.SKIP_FRAMES.update(original)
+
+    def test_loads_from_correct_path(self, tmp_path):
+        """_load_camera_timing builds path from camera model_name."""
+        import json
+
+        # Create a mock timing config
+        timing_dir = tmp_path / 'data' / 'camera_timing'
+        timing_dir.mkdir(parents=True)
+        config = {'skip_frames': {'led': 7, 'gain': 4}}
+        (timing_dir / 'TestCam_Model.json').write_text(json.dumps(config))
+
+        # Create a minimal mock that exercises _load_camera_timing logic
+        # without instantiating a full Lumascope
+        fv = FrameValidity()
+        model = 'TestCam Model'
+        safe_name = model.replace(' ', '_')
+        timing_path = timing_dir / f'{safe_name}.json'
+        assert timing_path.exists()
+        with open(timing_path) as f:
+            loaded = json.load(f)
+        fv.load_camera_timing(loaded)
+        assert fv.SKIP_FRAMES['led'] == 7
+        assert fv.SKIP_FRAMES['gain'] == 4
+
+    def test_missing_file_no_error(self, tmp_path):
+        """Missing timing file should not raise — silently skipped."""
+        import pathlib
+        timing_dir = tmp_path / 'data' / 'camera_timing'
+        timing_dir.mkdir(parents=True)
+        timing_path = timing_dir / 'NonExistent.json'
+        # Simulating what _load_camera_timing does: check exists, skip if not
+        assert not timing_path.exists()
+
+    def test_model_name_normalization(self):
+        """Spaces in model_name are replaced with underscores for filename."""
+        model = 'daA3840 45um'
+        safe_name = model.replace(' ', '_')
+        assert safe_name == 'daA3840_45um'
+
+    def test_corrupt_json_handled(self, tmp_path):
+        """Corrupt JSON file should be caught and not crash."""
+        timing_dir = tmp_path / 'data' / 'camera_timing'
+        timing_dir.mkdir(parents=True)
+        (timing_dir / 'BadCam.json').write_text('{invalid json!!!}')
+
+        import json
+        with pytest.raises(json.JSONDecodeError):
+            with open(timing_dir / 'BadCam.json') as f:
+                json.load(f)

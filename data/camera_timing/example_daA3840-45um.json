@@ -1,0 +1,58 @@
+{
+  "_comment": "Example camera timing config for Basler daA3840-45um (Pylon dart). NOT real measured data — placeholder values for reference. Generate real configs using the engineering plugin camera characterization tool.",
+
+  "camera_model": "daA3840-45um",
+  "measured_date": "2026-01-01",
+
+  "skip_frames": {
+    "_comment": "Number of frames to grab and discard after each state change before the camera output reflects the new state. These override FrameValidity.SKIP_FRAMES defaults (2 for all sources). Measured via LED/gain/exposure settle tests in camera characterization.",
+    "led": 3,
+    "gain": 2,
+    "exposure": 2,
+    "xy_move": 2,
+    "z_move": 2,
+    "turret": 3
+  },
+
+  "frame_intervals_ms": {
+    "_comment": "Mean frame interval at various exposure times (ms). Used for estimating capture duration and protocol time estimates.",
+    "10": 23.5,
+    "50": 52.1,
+    "100": 101.3,
+    "500": 501.0
+  },
+
+  "af_z_move_drain_needed": false,
+  "af_min_drain_frames": 0,
+  "_comment_af_drain": "Whether Z moves during autofocus produce stale frames that must be drained. false means focus score is reliable immediately after Z move (global shutter behavior).",
+
+  "af_focus_score_noise_pct": 0.8,
+  "_comment_focus_noise": "Coefficient of variation (%) of focus score when nothing changes. Lower is better. Values above 5% indicate noisy sensor or unstable illumination.",
+
+  "af_min_useful_exposure_ms": 10,
+  "_comment_min_exposure": "Minimum exposure time (ms) that produces a usable focus score. Below this, SNR is too low for reliable autofocus.",
+
+  "af_z_hysteresis_detected": false,
+  "_comment_hysteresis": "Whether the Z stage shows different focus scores approaching from above vs below. If true, autofocus should always approach from the same direction.",
+
+  "af_min_roi_fraction": 0.125,
+  "_comment_roi": "Smallest center ROI fraction (of full frame) that correlates >0.95 with quarter-frame focus score. Smaller ROI = faster AF computation.",
+
+  "af_binning_viable": true,
+  "_comment_binning": "Whether 2x2 binning produces reliable focus scores (CV within 2x of 1x1). If true, AF can use binned frames for faster throughput.",
+
+  "led_warmup_drift_pct": {
+    "_comment": "LED intensity drift (%) over first 60 seconds after turn-on. Values above 2% suggest waiting before quantitative imaging.",
+    "Blue": 0.3,
+    "Green": 0.5,
+    "Red": 0.2
+  },
+
+  "dark_noise_stddev": {
+    "_comment": "Standard deviation of dark frame pixel values (no illumination). Higher values indicate more sensor noise. Useful for setting minimum signal thresholds.",
+    "mono": 1.2
+  },
+
+  "channel_crosstalk_detected": false,
+  "_comment_crosstalk": "Whether illuminating one LED channel produces measurable signal change on adjacent channels. If true, sequential rather than simultaneous multi-channel capture is recommended."
+}
