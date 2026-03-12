@@ -29,7 +29,7 @@ except ImportError:
         @staticmethod
         def unschedule(callback): pass
 
-from lumascope_api import Lumascope
+from modules.lumascope_api import Lumascope
 
 import modules.image_utils as image_utils
 

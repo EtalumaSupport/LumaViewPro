@@ -16,7 +16,7 @@ import pandas as pd
 
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 
-import lumascope_api
+import modules.lumascope_api as lumascope_api
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 from modules.objectives_loader import ObjectiveLoader

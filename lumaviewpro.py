@@ -160,7 +160,7 @@ if __name__ == "__main__":
 
 
     # Hardware
-    import lumascope_api
+    import modules.lumascope_api as lumascope_api
     import modules.post_processing as post_processing
 
     import modules.image_utils as image_utils

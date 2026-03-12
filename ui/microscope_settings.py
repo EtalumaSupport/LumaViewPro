@@ -63,7 +63,7 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope.disconnect()
         lumaview.scope = None
         # Reinitialize the scope object (connects motorboard, ledboard, camera)
-        import lumascope_api
+        import modules.lumascope_api as lumascope_api
         lumaview.scope = lumascope_api.Lumascope(camera_type=settings['camera_type'], simulate=ctx.simulate_mode)
         labware_id, labware = get_selected_labware()
 

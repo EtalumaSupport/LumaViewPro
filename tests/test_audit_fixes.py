@@ -176,7 +176,7 @@ class TestDomainExceptions:
 @pytest.fixture
 def sim_scope(_mock_heavy_deps):
     """Create a Lumascope in simulate mode (no hardware needed)."""
-    from lumascope_api import Lumascope
+    from modules.lumascope_api import Lumascope
     return Lumascope(simulate=True)
 
 
@@ -192,7 +192,7 @@ class TestLedOnValidation:
             sim_scope.led_on(channel=0, mA=-1)
 
     def test_rejects_current_above_max(self, sim_scope):
-        from lumascope_api import Lumascope
+        from modules.lumascope_api import Lumascope
         with pytest.raises(ValueError, match="current"):
             sim_scope.led_on(channel=0, mA=Lumascope.LED_MAX_MA + 1)
 
@@ -208,14 +208,14 @@ class TestMoveAbsolutePositionValidation:
             sim_scope.move_absolute_position(axis='Q', pos=100)
 
     def test_rejects_position_above_limit(self, sim_scope):
-        from lumascope_api import Lumascope
+        from modules.lumascope_api import Lumascope
         with pytest.raises(ValueError, match="exceeds safety limit"):
             sim_scope.move_absolute_position(
                 axis='Z', pos=Lumascope.MOTOR_POSITION_LIMIT + 1
             )
 
     def test_rejects_large_negative_position(self, sim_scope):
-        from lumascope_api import Lumascope
+        from modules.lumascope_api import Lumascope
         with pytest.raises(ValueError, match="exceeds safety limit"):
             sim_scope.move_absolute_position(
                 axis='Z', pos=-(Lumascope.MOTOR_POSITION_LIMIT + 1)

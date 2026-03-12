@@ -485,13 +485,13 @@ class TestScaleBarObjectiveInit:
 
     def test_objective_none_at_init(self):
         """Lumascope starts with no objective set."""
-        from lumascope_api import Lumascope
+        from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
         assert scope._objective is None
 
     def test_set_objective_populates(self):
         """set_objective() should populate _objective dict."""
-        from lumascope_api import Lumascope
+        from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
         scope.set_objective('20x Oly')
         assert scope._objective is not None
@@ -499,7 +499,7 @@ class TestScaleBarObjectiveInit:
 
     def test_scale_bar_disabled_without_objective(self):
         """Scale bar enabled but no objective → use_scale_bar forced False."""
-        from lumascope_api import Lumascope
+        from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
         scope.set_scale_bar(enabled=True)
         assert scope._scale_bar['enabled'] is True
@@ -508,7 +508,7 @@ class TestScaleBarObjectiveInit:
 
     def test_scale_bar_works_with_objective(self):
         """Scale bar with objective set should proceed."""
-        from lumascope_api import Lumascope
+        from modules.lumascope_api import Lumascope
         scope = Lumascope(simulate=True)
         scope.set_objective('20x Oly')
         scope.set_scale_bar(enabled=True)

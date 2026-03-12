@@ -35,7 +35,7 @@ sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
 sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
 sys.modules.setdefault('ids_peak_ipl', MagicMock())
 
-from lumascope_api import Lumascope
+from modules.lumascope_api import Lumascope
 
 
 # Channel configurations: color name, LED current (mA), exposure time (ms)

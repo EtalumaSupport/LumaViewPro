@@ -68,7 +68,7 @@ class ScopeSession:
         from modules.sequential_io_executor import SequentialIOExecutor
 
         if scope is None:
-            import lumascope_api
+            import modules.lumascope_api as lumascope_api
             scope = lumascope_api.Lumascope()
 
         if io_executor is None:
@@ -119,7 +119,7 @@ class ScopeSession:
         Uses simulated drivers so no physical hardware is needed.
         """
         from modules.sequential_io_executor import SequentialIOExecutor
-        import lumascope_api
+        import modules.lumascope_api as lumascope_api
 
         if settings is None:
             from modules.settings_init import settings as default_settings
