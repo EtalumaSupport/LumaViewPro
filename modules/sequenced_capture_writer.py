@@ -34,6 +34,11 @@ def setup_worker_logger(log_dir: str = ".") -> logging.Logger:
     if not any(isinstance(h, FlushFileHandler) for h in logger.handlers):
         log_path = os.path.join(log_dir, f"{name}.log")
         fh = FlushFileHandler(log_path, mode="w")
+        # Restrict log file to owner-only access (no group/world read)
+        try:
+            os.chmod(log_path, 0o600)
+        except OSError:
+            pass  # Windows or permission error — best effort
         fh.setLevel(logging.DEBUG)
         formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
         fh.setFormatter(formatter)
@@ -53,8 +58,16 @@ def worker_initializer(lvp_appdata):
     try:
         pid = os.getpid()
         # Open two files, line-buffered
-        stdout_file = open(f"{lvp_appdata}/logs/subprocess_workers.log", "a", buffering=1)
-        stderr_file = open(f"{lvp_appdata}/logs/subprocess_workers.error.log", "a", buffering=1)
+        stdout_path = f"{lvp_appdata}/logs/subprocess_workers.log"
+        stderr_path = f"{lvp_appdata}/logs/subprocess_workers.error.log"
+        stdout_file = open(stdout_path, "a", buffering=1)
+        stderr_file = open(stderr_path, "a", buffering=1)
+        # Restrict worker logs to owner-only access
+        for p in (stdout_path, stderr_path):
+            try:
+                os.chmod(p, 0o600)
+            except OSError:
+                pass
         sys.stdout = stdout_file
         sys.stderr = stderr_file
 

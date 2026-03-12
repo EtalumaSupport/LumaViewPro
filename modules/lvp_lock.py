@@ -4,11 +4,18 @@ import socket
 
 class LvpLock:
 
-    def __init__(self, lock_port: int):
+    def __init__(self, lock_port: int = 0):
+        """Create an instance lock.
+
+        Args:
+            lock_port: TCP port to bind for the lock. Pass 0 to let the OS
+                       assign an ephemeral port (more secure — avoids predictable
+                       port that could be targeted for local DoS).
+        """
         self._lock_port = lock_port
         self._lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
+
 
     def lock(self) -> bool:
         try:
@@ -16,6 +23,14 @@ class LvpLock:
             return True
         except (socket.error, OSError) as e:
             return False
+
+    @property
+    def port(self) -> int:
+        """Return the actual bound port (useful when lock_port=0)."""
+        try:
+            return self._lock_socket.getsockname()[1]
+        except Exception:
+            return self._lock_port
 
     def close(self):
         try:

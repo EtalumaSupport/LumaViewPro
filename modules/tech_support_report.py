@@ -2051,6 +2051,20 @@ class TechSupportReport:
         zip_path = output_dir / f"SN{clean_sn}-{ts}.zip"
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Include a privacy notice describing what data is collected
+            zf.writestr('PRIVACY_NOTICE.txt', (
+                'LumaViewPro Tech Support Report\n'
+                '================================\n\n'
+                'This ZIP contains diagnostic information to help Etaluma\n'
+                'troubleshoot your microscope system. It includes:\n\n'
+                '  - OS version, CPU model, RAM, disk info\n'
+                '  - Connected USB devices and display configuration\n'
+                '  - LumaViewPro settings, logs, and firmware versions\n'
+                '  - Power/sleep configuration\n\n'
+                'Please review the contents before sharing. Remove any\n'
+                'files you are not comfortable sending.\n\n'
+                'Contact: techsupport@etaluma.com\n'
+            ))
             for fp in sorted(tmp.rglob('*')):
                 if fp.is_file():
                     zf.write(fp, fp.relative_to(tmp))

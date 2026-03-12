@@ -28,6 +28,8 @@ class SerialBoard:
         self.driver = None
         self._last_error_log_time = 0.0
         self._error_log_interval = 2.0  # seconds between repeated error logs
+        self._min_command_interval = 0.0  # seconds; 0 = no rate limit (subclass can override)
+        self._last_command_time = 0.0
         self.baudrate = 115200
         self.bytesize = serial.EIGHTBITS
         self.parity = serial.PARITY_NONE
@@ -163,6 +165,14 @@ class SerialBoard:
             if self.driver is None:
                 return None
 
+            # Rate limiting: enforce minimum interval between commands
+            min_interval = getattr(self, '_min_command_interval', 0)
+            if min_interval > 0:
+                elapsed = time.monotonic() - getattr(self, '_last_command_time', 0.0)
+                if elapsed < min_interval:
+                    time.sleep(min_interval - elapsed)
+                self._last_command_time = time.monotonic()
+
             stream = command.encode('utf-8') + b"\n"
             try:
                 self.driver.write(stream)
@@ -175,7 +185,11 @@ class SerialBoard:
                     resp_lines.append(line)
 
                 response = resp_lines[0] if response_numlines == 1 else resp_lines
-                logger.debug(f'{self._label} exchange_command({command}) -> {response!r}')
+                # Truncate debug output to avoid logging large binary/config responses
+                resp_repr = repr(response)
+                if len(resp_repr) > 200:
+                    resp_repr = resp_repr[:200] + '...'
+                logger.debug(f'{self._label} exchange_command({command}) -> {resp_repr}')
 
                 resp_str = str(response)
                 if 'ERROR' in resp_str or 'FAIL' in resp_str or 'exceeds safe' in resp_str:

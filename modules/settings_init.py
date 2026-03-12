@@ -7,6 +7,33 @@ global settings
 
 global debug_setting
 
+# Required top-level keys that must exist in a valid settings file.
+# Missing keys cause hard-to-debug runtime errors downstream.
+_REQUIRED_SETTINGS_KEYS = frozenset({
+    'microscope',
+    'live_folder',
+    'frame',
+})
+
+
+def _validate_settings(settings: dict, filepath: str, logger) -> None:
+    """Check that loaded settings contain all required keys.
+
+    Logs warnings for missing keys but does not raise — allows the app
+    to start with partial config rather than crashing on startup.
+    """
+    missing = _REQUIRED_SETTINGS_KEYS - settings.keys()
+    if missing:
+        logger.warning(
+            f'[Settings ] {filepath} missing required keys: {sorted(missing)}. '
+            'App may not function correctly.'
+        )
+
+    # Type checks for critical nested structures
+    if 'frame' in settings and not isinstance(settings['frame'], dict):
+        logger.warning(f'[Settings ] {filepath}: "frame" should be a dict, got {type(settings["frame"]).__name__}')
+
+
 def load_settings(logger, filename, lvp_appdata):
 
         global settings
@@ -16,6 +43,7 @@ def load_settings(logger, filename, lvp_appdata):
         try:
             with open(filepath, "r") as read_file:
                 settings = json.load(read_file)
+            _validate_settings(settings, filepath, logger)
         except json.JSONDecodeError:
             logger.exception(f'[LVP Main  ] Incompatible JSON file for Microscope Settings: {filepath}')
         except Exception:
