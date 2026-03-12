@@ -26,7 +26,6 @@ import queue
 from collections.abc import Sequence
 from functools import partial
 from lvp_logger import logger, debug
-import traceback
 import threading
 import time
 
@@ -52,16 +51,6 @@ IOTask
 class IOTask:
         def __init__(self, action, args=None, kwargs=None, callback=None, cb_args=None, cb_kwargs=None, pass_result=False):
             self.action = action
-            # Capture creation stack to help trace where non-callable actions originate
-
-            ### USE ONLY FOR DEBUGGING PURPOSES ### Comment out otherwise
-            # try:
-            #     # Exclude the current frame to point to the caller creating the IOTask
-            #     self.creation_stack = ''.join(traceback.format_stack()[:-1])
-            # except Exception:
-            #     self.creation_stack = '<failed to capture creation stack>'
-            ### USE ONLY FOR DEBUGGING PURPOSES ### Comment out otherwise
-
             if args is None:
                 self.args = ()
             # if it’s a sequence (list, tuple, etc) but not a string
@@ -92,24 +81,11 @@ class IOTask:
                 threading.current_thread().name = self.name
                 if not callable(self.action):
                     logger.warning(f"{self.name} Worker received non-callable action: {str(self.action)}")
-                    # release the stored creation stack so it can be garbage-collected
-                    # try:
-                    #     del self.creation_stack
-                    # except Exception:
-                    #     pass
-                    # return None, None
                 res = self.action(*self.args, **self.kwargs)
                 return res, None
             except Exception as e:
                 logger.error(f"Uncaught Thread Exception in {self.name} Worker: {e}", exc_info=True)
                 return None, e
-            # finally:
-            #     # Ensure we don't keep the potentially large creation stack around after the task completes
-            #     try:
-            #         if hasattr(self, 'creation_stack'):
-            #             del self.creation_stack
-            #     except Exception:
-            #         pass
 
         def set_callback(self, callback, cb_args, cb_kwargs):
             self.callback = callback
@@ -182,8 +158,6 @@ class SequentialIOExecutor:
         self.pending_shutdown = False
         self.caller_futures = {}
 
-        # self.executed_protocol_tasks = []
-        # self.executed_tasks = []
         self.cleared_queue = False
         self.cleared_protocol_queue = False
 
@@ -338,7 +312,6 @@ class SequentialIOExecutor:
                     # Inline to avoid holding future reference - GC can collect immediately after callback attached
                     self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
                     self.running_task = task
-                    #self.executed_protocol_tasks.append(task)
                 else:
                     if not self.protocol_queue.empty():
                         self.protocol_queue.queue.clear()
@@ -347,7 +320,6 @@ class SequentialIOExecutor:
                     # Inline to avoid holding future reference - GC can collect immediately after callback attached
                     self.executor.submit(task.run).add_done_callback(partial(self._safe_done_cb, task=task))
                     self.running_task = task
-                    #self.executed_tasks.append(task)
             except Exception as e:
                 logger.error(f"Uncaught Thread Exception in {self.name} Dispatcher: {e}", exc_info=True)
 
@@ -374,16 +346,7 @@ class SequentialIOExecutor:
         except Exception as e:
             logger.error(f"Done-callback error in {self.name}: {e}")
         finally:
-            # Explicitly dereference the future to help GC
-            # This breaks any circular references and allows immediate cleanup
-            try:
-                fut._condition = None
-                fut._waiters = None
-                fut._result = None
-                fut._exception = None
-                del fut  # Explicitly delete to free memory immediately
-            except Exception:
-                pass
+            del fut
 
 
     def _on_task_done(self, task: IOTask, result, exception):
@@ -460,14 +423,7 @@ class SequentialIOExecutor:
                 fut = self.caller_futures.pop(task, None)
                 if fut:
                     try:
-                        # Cancel first so caller gets CancelledError if waiting
                         fut.cancel()
-                        # Now safe to aggressively cleanup since future is done
-                        fut._condition = None
-                        fut._waiters = None
-                        fut._result = None
-                        fut._exception = None
-                        del fut
                     except Exception:
                         pass
                 cleared_count += 1
@@ -489,14 +445,7 @@ class SequentialIOExecutor:
                 fut = self.caller_futures.pop(task, None)
                 if fut:
                     try:
-                        # Cancel first so caller gets CancelledError if waiting
                         fut.cancel()
-                        # Now safe to aggressively cleanup since future is done
-                        fut._condition = None
-                        fut._waiters = None
-                        fut._result = None
-                        fut._exception = None
-                        del fut
                     except Exception:
                         pass
                 cleared_count += 1
