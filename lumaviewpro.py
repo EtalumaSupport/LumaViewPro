@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import os
+
 # Python version check — must run before any imports that require 3.11+
 import sys
 if sys.version_info < (3, 11):
@@ -182,6 +184,8 @@ if __name__ == "__main__":
     Config.set('input', 'mouse', 'mouse, disable_multitouch')
     Config.set('graphics', 'resizable', True) # this seemed to have no effect so may be unnessesary
     Config.set('kivy', 'exit_on_escape', '0')
+    Config.set('graphics', 'minimum_width', '1024')
+    Config.set('graphics', 'minimum_height', '600')
 
     # Maximized at launch — works correctly on macOS, Windows, and Linux
     Config.set('graphics', 'window_state', 'maximized')

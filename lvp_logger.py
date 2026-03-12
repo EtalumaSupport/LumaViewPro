@@ -135,10 +135,15 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
 
+# Set up the 'LVP' parent logger so all LVP.* child loggers (used throughout the
+# codebase) inherit handlers and don't propagate to root/Kivy console.
+_lvp_parent = logging.getLogger('LVP')
+_lvp_parent.setLevel(logging.INFO)
 
 # Prevent logs from propagating to root (and the console)
 if not debug:
     logger.propagate = False
+    _lvp_parent.propagate = False
 
 # determines lowest level of messages to log (DEBUG < INFO < WARNING < ERROR < CRITICAL)
 logger.setLevel(logging.INFO)
@@ -214,6 +219,10 @@ rest_api_handler.addFilter(RestAPIFilter())
 logger.addHandler(file_handler)
 logger.addHandler(error_file_handler)
 logger.addHandler(rest_api_handler)
+
+# Give LVP.* loggers the same file handlers so their output is captured
+_lvp_parent.addHandler(file_handler)
+_lvp_parent.addHandler(error_file_handler)
 
 # Best-effort: remove any existing console/stream handlers from root to reduce terminal noise
 if not debug:
