@@ -146,8 +146,8 @@ class LayerControl(BoxLayout):
     def sum_slider(self):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.sum_slider()')
-        sum = int(self.ids['sum_slider'].value)
-        settings[self.layer]['sum'] = sum
+        total = int(self.ids['sum_slider'].value)
+        settings[self.layer]['sum'] = total
         self.apply_settings()
 
 
@@ -161,11 +161,11 @@ class LayerControl(BoxLayout):
         except Exception:
             return
 
-        sum = int(np.clip(sum_val, sum_min, sum_max))
+        total = int(np.clip(sum_val, sum_min, sum_max))
 
-        settings[self.layer]['sum'] = sum
-        self.ids['sum_slider'].value = sum
-        self.ids['sum_text'].text = str(sum)
+        settings[self.layer]['sum'] = total
+        self.ids['sum_slider'].value = total
+        self.ids['sum_text'].text = str(total)
 
         self.apply_settings()
 

@@ -16,3 +16,19 @@ class LvpLock:
             return True
         except (socket.error, OSError) as e:
             return False
+
+    def close(self):
+        try:
+            self._lock_socket.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def __del__(self):
+        self.close()

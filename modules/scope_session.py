@@ -83,19 +83,19 @@ class ScopeSession:
         objective_helper = None
 
         try:
-            import labware_loader
+            from modules import labware_loader
             wellplate_loader = labware_loader.WellPlateLoader()
         except Exception as e:
             logger.warning(f"[ScopeSession] Could not load wellplate loader: {e}")
 
         try:
-            import coord_transformations
+            from modules import coord_transformations
             coordinate_transformer = coord_transformations.CoordinateTransformer()
         except Exception as e:
             logger.warning(f"[ScopeSession] Could not load coordinate transformer: {e}")
 
         try:
-            import objectives_loader
+            from modules import objectives_loader
             objective_helper = objectives_loader.ObjectiveLoader()
         except Exception as e:
             logger.warning(f"[ScopeSession] Could not load objective helper: {e}")

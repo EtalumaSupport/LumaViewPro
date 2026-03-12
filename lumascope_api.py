@@ -811,7 +811,8 @@ class Lumascope():
             return False
 
         tmp = self.camera.get_array()  # thread-safe copy
-        self._frame_buffer = tmp
+        with self._state_lock:
+            self._frame_buffer = tmp
 
         use_scale_bar = self._scale_bar['enabled']
         if self._objective is None:

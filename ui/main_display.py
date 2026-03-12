@@ -356,9 +356,10 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             # Set video writing event to block new recordings
             self.video_writing.set()
 
-            # Initialize progress tracking
-            self.video_writing_progress = 0
-            self.video_writing_total_frames = max(1, captured_frames)
+            # Initialize progress tracking on main thread
+            total = max(1, captured_frames)
+            Clock.schedule_once(lambda dt: setattr(self, 'video_writing_progress', 0), 0)
+            Clock.schedule_once(lambda dt, t=total: setattr(self, 'video_writing_total_frames', t), 0)
 
             # Schedule progress updates
             self.writing_progress_update = Clock.schedule_interval(self.update_writing_progress, 0.1)
@@ -501,8 +502,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     except Exception as e:
                         logger.exception(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
 
-                    # Update progress after writing each frame
-                    self.video_writing_progress = frame_num + 1
+                    # Update progress on main thread
+                    progress = frame_num + 1
+                    Clock.schedule_once(lambda dt, p=progress: setattr(self, 'video_writing_progress', p), 0)
 
                 logger.info("Manual-Video] Video frames written to disk.")
 
@@ -541,8 +543,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                     except Exception:
                         logger.exception("Manual-Video] FAILED TO WRITE FRAME")
 
-                    # Update progress after adding each frame
-                    self.video_writing_progress = frame_num + 1
+                    # Update progress on main thread
+                    progress = frame_num + 1
+                    Clock.schedule_once(lambda dt, p=progress: setattr(self, 'video_writing_progress', p), 0)
 
                 video_writer.finish()
                 logger.info(f"Manual-Video] Mp4 written to {output_file_loc}")

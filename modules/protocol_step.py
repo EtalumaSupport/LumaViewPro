@@ -19,4 +19,4 @@ class ProtocolStep:
 
     def __post_init__(self):
         if not isinstance(self.auto_focus, bool):
-            self.auto_focus 
+            self.auto_focus = bool(self.auto_focus)

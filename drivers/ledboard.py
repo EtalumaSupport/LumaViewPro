@@ -179,25 +179,18 @@ class LEDBoard(SerialBoard):
         Returns measured current in mA, or None on error/unsupported."""
         if not self.is_v2:
             return None
-        with self._lock:
-            if self.driver is None:
+        command = f'LEDREAD{int(channel)}'
+        try:
+            # Firmware sends: echo (handled by exchange_command), I_SENS line, LED_K line
+            lines = self.exchange_command(command, response_numlines=3)
+            if lines is None:
                 return None
-            command = f'LEDREAD{int(channel)}'
-            try:
-                self.driver.write((command + '\n').encode('utf-8'))
-                # Firmware sends: echo, I_SENS line, LED_K line
-                lines = []
-                for _ in range(4):  # echo + up to 2 data lines + margin
-                    line = self.driver.readline().decode('utf-8', 'ignore').strip()
-                    if not line:
-                        break
-                    lines.append(line)
-                # Parse I_SENS line: "LED0 I_SENS  (AIN14): 1.2800V  ->   200.1 mA"
-                for line in lines:
-                    if 'I_SENS' in line and 'mA' in line:
-                        m = re.search(r'([\d.]+)\s*mA', line)
-                        if m:
-                            return float(m.group(1))
-            except Exception as e:
-                logger.error(f'[LED Class ] read_led_current({channel}) failed: {e}')
-            return None
+            # Parse I_SENS line: "LED0 I_SENS  (AIN14): 1.2800V  ->   200.1 mA"
+            for line in lines:
+                if 'I_SENS' in line and 'mA' in line:
+                    m = re.search(r'([\d.]+)\s*mA', line)
+                    if m:
+                        return float(m.group(1))
+        except Exception as e:
+            logger.error(f'[LED Class ] read_led_current({channel}) failed: {e}')
+        return None

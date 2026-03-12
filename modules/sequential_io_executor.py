@@ -153,7 +153,8 @@ class SequentialIOExecutor:
         else:
             self.executor = ThreadPoolExecutor(max_workers=max_workers)
             self.dispatcher = ThreadPoolExecutor(max_workers=1)
-        self.running_task = None
+        self._running_task_lock = threading.Lock()
+        self._running_task = None
         self.global_callback = None
         self.pending_shutdown = False
         self.caller_futures = {}
@@ -170,6 +171,16 @@ class SequentialIOExecutor:
         self.protocol_complete_callback = None
         self.protocol_complete_cb_args = ()
         self.protocol_complete_cb_kwargs = {}
+
+    @property
+    def running_task(self):
+        with self._running_task_lock:
+            return self._running_task
+
+    @running_task.setter
+    def running_task(self, value):
+        with self._running_task_lock:
+            self._running_task = value
 
 
     def start(self):

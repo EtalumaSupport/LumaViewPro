@@ -73,6 +73,8 @@ class MotorBoard(SerialBoard):
 
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
+        # Note: _lock is an RLock (from SerialBoard), so re-entrant acquisition
+        # by _open_serial, _reset_firmware, exchange_command etc. is safe.
         with self._lock:
             try:
                 self._open_serial()

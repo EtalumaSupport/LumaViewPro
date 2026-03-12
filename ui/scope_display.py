@@ -345,10 +345,26 @@ class ScopeDisplay(Image):
         self.camera_disconnected_display_set = False
         return
 
+    def _increment_display_counter(self, dt=None):
+        """Increment display update counter on main thread."""
+        self._display_update_counter += 1
+
+    def _reset_display_counter(self, dt=None):
+        """Reset display update counter on main thread."""
+        self._display_update_counter = 0
+
+    def _increment_debug_counter(self, dt=None):
+        """Increment debug counter on main thread."""
+        self._debug_counter += 1
+        if self._debug_counter == 30:
+            self._debug_counter = 0
+
     def update_scopedisplay_thread(self, active_layer, active_layer_config, open_layer):
         ctx = _app_ctx.ctx
 
-        self._display_update_counter += 1
+        # Snapshot counter value before scheduling increment on main thread
+        display_counter = self._display_update_counter + 1
+        Clock.schedule_once(self._increment_display_counter, 0)
 
         if not ctx.scope.camera_is_connected():
             if self.camera_disconnected_display_set:
@@ -379,8 +395,8 @@ class ScopeDisplay(Image):
             self._fps_frame_count = 0
             self._fps_last_time = now
 
-        if self._display_update_counter % 10 == 0:
-            self._display_update_counter = 0
+        if display_counter % 10 == 0:
+            Clock.schedule_once(self._reset_display_counter, 0)
 
             if active_layer_config is not None and active_layer_config['auto_gain']:
                 from modules.sequential_io_executor import IOTask
@@ -388,11 +404,13 @@ class ScopeDisplay(Image):
 
 
         if ctx.engineering_mode:
-            self._debug_counter += 1
-            if self._debug_counter == 30:
-                self._debug_counter = 0
+            # Snapshot debug counter before scheduling increment on main thread
+            debug_counter = self._debug_counter + 1
+            if debug_counter == 30:
+                debug_counter = 0
+            Clock.schedule_once(self._increment_debug_counter, 0)
 
-            if self._debug_counter % 10 == 0:
+            if debug_counter % 10 == 0:
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
                 af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)

@@ -147,8 +147,6 @@ class PylonCamera(Camera):
             )
 
             camera.Open()
-            
-            self._device_removed = False
 
             # Store device identity if possible
             try:
@@ -163,7 +161,6 @@ class PylonCamera(Camera):
                 try:
                     nm = camera.GetNodeMap()
                     
-                    ds_n = nm.GetNode("DeviceSerialNumber")
                     device_serial = nm.GetNode("DeviceSerialNumber").ToString()
                     logger.info(f'[CAM Class ] Camera Serial Number: {device_serial}')
 
@@ -301,7 +298,7 @@ class PylonCamera(Camera):
             return False
 
         if pixel_format not in self.get_supported_pixel_formats():
-            logger.exception(f"[CAM Class ] Unsupported pixel format: {pixel_format}")
+            logger.error(f"[CAM Class ] Unsupported pixel format: {pixel_format}")
             return False
 
         try:
@@ -349,7 +346,7 @@ class PylonCamera(Camera):
             return False
 
         if size < 1 or size > 4:
-            logger.exception(f"[CAM Class ] Unsupported bin size: {size}")
+            logger.error(f"[CAM Class ] Unsupported bin size: {size}")
             return False
 
         try:
@@ -381,7 +378,7 @@ class PylonCamera(Camera):
             horiz_bin = self.active.BinningHorizontal.GetValue()
 
             if horiz_bin != vert_bin:
-                logger.exception(f"[CAM Class ] Binning mismatch detected between horizontal ({horiz_bin}) and vertical ({vert_bin})")
+                logger.warning(f"[CAM Class ] Binning mismatch detected between horizontal ({horiz_bin}) and vertical ({vert_bin})")
 
             return vert_bin
         except genicam.RuntimeException as e:

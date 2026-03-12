@@ -13,5 +13,5 @@ def run_stitcher_mp(num_workers: int, items):
     return result
 
 
-def run_stitch_on_group(self, group):
+def run_stitch_on_group(group):
     print('hi')

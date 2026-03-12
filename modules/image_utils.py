@@ -49,10 +49,14 @@ def is_color_image(image) -> bool:
     return False
 
 
-def add_false_color(array, color):
+def add_false_color(array, color, output=None):
     src_dtype = array.dtype
     if (not image_utils.is_color_image(array)) and (color in (*common_utils.get_fluorescence_layers(), *common_utils.get_luminescence_layers())):
-        img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
+        if output is not None and output.shape == (array.shape[0], array.shape[1], 3) and output.dtype == src_dtype:
+            img = output
+            img[:] = 0
+        else:
+            img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
         if color in ('Blue', 'Lumi'):
             img[:,:,0] = array
         elif color == 'Green':
@@ -177,7 +181,8 @@ def convert_12bit_to_16bit(image):
         return image
 
     new_image = image.copy()
-    return (new_image * 16)
+    new_image *= 16
+    return new_image
 
 
 def convert_16bit_to_8bit(image):

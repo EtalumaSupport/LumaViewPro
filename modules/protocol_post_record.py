@@ -24,6 +24,14 @@ class ProtocolPostRecord:
             self._close_outfile()
         except Exception:
             pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._close_outfile()
+        return False
+
     COLUMNS = (
         'Filepath',
         'Timestamp',

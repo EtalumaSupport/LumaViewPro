@@ -206,7 +206,7 @@ def get_opened_layer_obj(lumaview_imagesettings):
 
 
 def to_bool(val) -> bool:
-    if 'str' in str(type(val)):
+    if isinstance(val, str):
         return True if val.lower() == "true" else False
     elif val in ("", None):
         return False

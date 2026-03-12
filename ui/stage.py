@@ -563,7 +563,7 @@ class Stage(Widget):
                 well_radius_pixel_x * 2,
                 well_radius_pixel_y * 2
             )
-            Clock.schedule_once(lambda dt: setattr(self._selected_well_line, 'ellipse', ellipse_params), 0)
+            Clock.schedule_once(lambda dt, ep=ellipse_params: setattr(self._selected_well_line, 'ellipse', ep), 0)
 
             # Draw crosshairs (updates every frame - but only 2 lines!)
             pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
@@ -581,8 +581,8 @@ class Stage(Widget):
             # Update crosshairs properties (instead of recreating)
             h_line_points = [x_center-10, y_center, x_center+10, y_center]
             v_line_points = [x_center, y_center-10, x_center, y_center+10]
-            Clock.schedule_once(lambda dt: setattr(self._crosshair_h_line, 'points', h_line_points), 0)
-            Clock.schedule_once(lambda dt: setattr(self._crosshair_v_line, 'points', v_line_points), 0)
+            Clock.schedule_once(lambda dt, pts=h_line_points: setattr(self._crosshair_h_line, 'points', pts), 0)
+            Clock.schedule_once(lambda dt, pts=v_line_points: setattr(self._crosshair_v_line, 'points', pts), 0)
 
             self._prev_x_target = x_target
             self._prev_y_target = y_target

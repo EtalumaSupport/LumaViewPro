@@ -24,6 +24,15 @@ class HoverBehavior:
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         Window.bind(mouse_pos=self._on_mouse_pos_hover)
+        self.bind(parent=self._on_parent_hover)
+
+    def _on_parent_hover(self, instance, parent):
+        """Unbind mouse_pos tracking when the widget is removed from the tree."""
+        if parent is None:
+            Window.unbind(mouse_pos=self._on_mouse_pos_hover)
+            self.hovered = False
+        else:
+            Window.bind(mouse_pos=self._on_mouse_pos_hover)
 
     def _on_mouse_pos_hover(self, window, pos):
         # Don't update if widget isn't visible or window doesn't have focus

@@ -2,7 +2,6 @@
 import queue
 import modules.image_utils as image_utils
 from modules.video_writer import VideoWriter
-import gc
 import pathlib
 # from lvp_logger import logger
 import os
@@ -172,7 +171,6 @@ def write_capture(
 
                     # Queue is not empty, delete it and force garbage collection
                     del video_images
-                    gc.collect()
 
                         
 
@@ -196,7 +194,6 @@ def write_capture(
                     video_writer.finish()
                     #video_writer.test_video(str(output_file_loc))
                     del video_writer
-                    gc.collect()
                     
                     capture_result = output_file_loc
                 
@@ -221,8 +218,7 @@ def write_capture(
                     raise RuntimeError(f"Unable to save image: {e}") from e
 
                 del captured_image
-                gc.collect()
-
+            
                 
                 
                 # result = self._scope.save_live_image(
@@ -265,7 +261,6 @@ def write_capture(
             print(f"Error: Unable to save image: {e}")
         raise RuntimeError(f"Unable to save image: {e}") from e
 
-    gc.collect()
 
     if thread:
         logger.info(f"Protocol-Writer] Successful return of {capture_result_filepath_name}")

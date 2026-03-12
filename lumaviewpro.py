@@ -865,6 +865,9 @@ class LumaViewProApp(TooltipMixin, App):
 
         ctx.motion_settings.ids['microscope_settings_id'].save_settings("./data/current.json")
 
+        logger.info("[LVP Main  ] lumaview.scope.disconnect()")
+        lumaview.scope.disconnect()
+
         logger.info('[LVP Main  ] LumaViewProApp exiting.', extra={'force_error': True})
 
 

@@ -634,6 +634,7 @@ class MicroscopeSettings(BoxLayout):
             camera = _app_ctx.ctx.lumaview.scope.camera
             sizes = camera.profile.binning_sizes
         except Exception:
+            logger.warning('[LVP Main  ] Could not read camera binning sizes, using defaults.')
             sizes = [1, 2, 4]
         spinner.values = [f'{s}x{s}' for s in sizes]
 
@@ -782,7 +783,7 @@ class MicroscopeSettings(BoxLayout):
             width = min(width, max_frame_size['width'])
             height = min(height, max_frame_size['height'])
         except Exception:
-            pass
+            logger.warning('[LVP Main  ] Could not clamp frame size to camera limits.')
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height

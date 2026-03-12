@@ -85,7 +85,13 @@ class Camera(ABC):
 
     @property
     def active(self):
-        """Thread-safe access to camera active state."""
+        """Thread-safe access to camera active state.
+
+        Three-state semantics:
+          False  -- not connected (initial state)
+          <obj>  -- connected camera instance (truthy; e.g. pylon.InstantCamera)
+          None   -- disconnected / device removed (set by _mark_disconnected)
+        """
         with self._state_lock:
             return self._active
 

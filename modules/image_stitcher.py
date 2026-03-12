@@ -148,7 +148,8 @@ def image_stitcher(images_folder,
             stitched_img = zoom_frame(stitched_img)
     except Exception:
         logger.error(f"Failed to stitched image.")
-    
+        return None
+
     try:
         if cv2.imwrite(save_name, stitched_img):
             logger.info(f"[LVP Stitch] image_stitcher() saved file {save_name}")
