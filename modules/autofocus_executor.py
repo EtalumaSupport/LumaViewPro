@@ -166,7 +166,7 @@ class AutofocusExecutor:
                         af_queue_size = self._autofocus_executor.protocol_queue_size()
                         logger.debug(f"[AF Watchdog] AF protocol queue: {af_queue_size}")
                     except Exception:
-                        pass
+                        logger.debug("[AF Watchdog] Failed to read protocol queue size", exc_info=True)
 
                 # Run one iteration
                 self._iterate()
@@ -345,7 +345,7 @@ class AutofocusExecutor:
                     try:
                         self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
                     except Exception:
-                        pass
+                        logger.warning("[AF] Failed to unschedule Kivy Clock iterator", exc_info=True)
 
                 # Move just underneath focus position to ensure we move UP to final position
                 self._move_absolute_position(pos=(best_focus_position-self._params['resolution']))
@@ -404,7 +404,7 @@ class AutofocusExecutor:
             if hasattr(self._autofocus_executor, 'protocol_queue_size') and self._autofocus_executor.protocol_queue_size() > 3:
                 return
         except Exception:
-            pass
+            logger.debug("[AF] Failed to check protocol queue size", exc_info=True)
 
         # Periodic maintenance: GC and watchdog logging every 60 seconds
         if not hasattr(self, '_last_gc_time'):
@@ -420,7 +420,7 @@ class AutofocusExecutor:
                 af_queue_size = self._autofocus_executor.protocol_queue_size()
                 logger.debug(f"[AF Watchdog] AF protocol queue: {af_queue_size}")
             except Exception:
-                pass
+                logger.debug("[AF Watchdog] Failed to read protocol queue size", exc_info=True)
 
         # Queue next iteration with callback to continue the loop
         self._autofocus_executor.protocol_put(IOTask(
@@ -517,7 +517,7 @@ class AutofocusExecutor:
             if self._use_kivy_clock:
                 self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
         except Exception:
-            pass
+            logger.warning("[AF] Failed to unschedule Kivy Clock iterator during stop", exc_info=True)
 
 
 

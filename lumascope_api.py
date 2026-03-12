@@ -14,6 +14,7 @@ import numpy as np
 from drivers.motorboard import MotorBoard
 from drivers.ledboard import LEDBoard
 from drivers.pyloncamera import PylonCamera
+from modules.exceptions import CaptureError, ConfigError
 try:
     from drivers.idscamera import IDSCamera
 except ImportError:
@@ -35,6 +36,14 @@ from modules.frame_validity import FrameValidity
 
 
 class Lumascope():
+
+    # --- Input validation constants ---
+    LED_MAX_MA = 1000       # Maximum LED current in milliamps (matches firmware CH_MAX)
+    LED_VALID_CHANNELS = range(6)  # Channels 0-5 (Blue, Green, Red, BF, PC, DF)
+    VALID_AXES = ('X', 'Y', 'Z', 'T')
+    # Absolute position bounds (um) — generous outer limits; per-axis travel
+    # limits are enforced by the motor board itself.
+    MOTOR_POSITION_LIMIT = 1_000_000  # 1 meter in um
 
     def __init__(self, simulate: bool = False, camera_type: str = "pylon"):
         """Initialize Microscope.
@@ -534,11 +543,19 @@ class Lumascope():
             channel: Channel number (0-5) or color name string.
             mA: Illumination current in milliamps.
             block: If True, wait for confirmation from the LED board.
+
+        Raises:
+            ValueError: If channel or mA is out of range.
         """
         if not self.led: return
 
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
+
+        if channel not in self.LED_VALID_CHANNELS:
+            raise ValueError(f"LED channel must be 0-5, got {channel}")
+        if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
+            raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
 
         self.led.led_on(channel, mA, block=block)
         self.frame_validity.invalidate('led')
@@ -548,11 +565,17 @@ class Lumascope():
 
         Args:
             channel: Channel number (0-5) or color name string.
+
+        Raises:
+            ValueError: If channel is out of range.
         """
         if not self.led: return
 
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
+
+        if channel not in self.LED_VALID_CHANNELS:
+            raise ValueError(f"LED channel must be 0-5, got {channel}")
 
         self.led.led_off(channel)
         self.frame_validity.invalidate('led')
@@ -563,10 +586,17 @@ class Lumascope():
         Args:
             channel: Channel number (0-5) or color name string.
             mA: Illumination current in milliamps.
+
+        Raises:
+            ValueError: If channel or mA is out of range.
         """
         if not self.led: return
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
+        if channel not in self.LED_VALID_CHANNELS:
+            raise ValueError(f"LED channel must be 0-5, got {channel}")
+        if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
+            raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
         self.led.led_on_fast(channel, mA)
         self.frame_validity.invalidate('led')
 
@@ -575,10 +605,15 @@ class Lumascope():
 
         Args:
             channel: Channel number (0-5) or color name string.
+
+        Raises:
+            ValueError: If channel is out of range.
         """
         if not self.led: return
         if isinstance(channel, str):
             channel = self.color2ch(color=channel)
+        if channel not in self.LED_VALID_CHANNELS:
+            raise ValueError(f"LED channel must be 0-5, got {channel}")
         self.led.led_off_fast(channel)
         self.frame_validity.invalidate('led')
 
@@ -852,7 +887,7 @@ class Lumascope():
             path = save_folder / filename
 
         else:
-            raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
+            raise ConfigError(f"tail_id_mode: {tail_id_mode} not implemented")
 
         return path
 
@@ -889,20 +924,20 @@ class Lumascope():
             dict: Metadata including channel, positions, exposure, gain, pixel size.
 
         Raises:
-            Exception: If objective, labware, or stage offset are not set.
+            ConfigError: If objective, labware, or stage offset are not set.
         """
         def _validate():
             if self._objective is None:
-                raise Exception(f"[SCOPE API ] Objective not set")
+                raise ConfigError(f"[SCOPE API ] Objective not set")
 
             if 'focal_length' not in self._objective:
-                raise Exception(f"[SCOPE API ] Objective focal length not provided")
+                raise ConfigError(f"[SCOPE API ] Objective focal length not provided")
 
             if self._labware is None:
-                raise Exception(f"[SCOPE API ] Labware not set")
+                raise ConfigError(f"[SCOPE API ] Labware not set")
 
             if self._stage_offset is None:
-                raise Exception(f"[SCOPE API ] Stage offset not set")
+                raise ConfigError(f"[SCOPE API ] Stage offset not set")
 
         _validate()
 
@@ -1502,7 +1537,16 @@ class Lumascope():
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             ignore_limits: If True, skip software limit checks.
+
+        Raises:
+            ValueError: If axis is invalid or pos is not numeric / out of bounds.
         """
+        if axis not in self.VALID_AXES:
+            raise ValueError(f"Axis must be one of {self.VALID_AXES}, got {axis!r}")
+        if not isinstance(pos, (int, float)):
+            raise ValueError(f"Position must be numeric, got {type(pos).__name__}")
+        if abs(pos) > self.MOTOR_POSITION_LIMIT:
+            raise ValueError(f"Position {pos} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
 
         #if not self.motion: return
         self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
@@ -1520,7 +1564,16 @@ class Lumascope():
             um (float): Distance to move in um.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
+
+        Raises:
+            ValueError: If axis is invalid or um is not numeric / out of bounds.
         """
+        if axis not in self.VALID_AXES:
+            raise ValueError(f"Axis must be one of {self.VALID_AXES}, got {axis!r}")
+        if not isinstance(um, (int, float)):
+            raise ValueError(f"Distance must be numeric, got {type(um).__name__}")
+        if abs(um) > self.MOTOR_POSITION_LIMIT:
+            raise ValueError(f"Distance {um} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
 
         #if not self.motion: return
         self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
@@ -2033,7 +2086,7 @@ class Lumascope():
             path = save_folder / filename
 
         else:
-            raise Exception(f"tail_id_mode: {tail_id_mode} not implemented")
+            raise ConfigError(f"tail_id_mode: {tail_id_mode} not implemented")
 
         return path
 
@@ -2044,16 +2097,16 @@ class Lumascope():
     ):
         def _validate():
             if objective is None:
-                raise Exception(f"[SCOPE API ] Objective not set")
+                raise ConfigError(f"[SCOPE API ] Objective not set")
 
             if 'focal_length' not in objective:
-                raise Exception(f"[SCOPE API ] Objective focal length not provided")
+                raise ConfigError(f"[SCOPE API ] Objective focal length not provided")
 
             if labware is None:
-                raise Exception(f"[SCOPE API ] Labware not set")
+                raise ConfigError(f"[SCOPE API ] Labware not set")
 
             if stage_offset is None:
-                raise Exception(f"[SCOPE API ] Stage offset not set")
+                raise ConfigError(f"[SCOPE API ] Stage offset not set")
 
         _validate()
 
@@ -2220,6 +2273,6 @@ class Lumascope():
             print(f'[SCOPE API ] Saving Image to {file_loc}')
         except Exception:
             print(f"[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist? {file_loc}")
-            raise Exception(f"Unable to save image to {file_loc}")
+            raise CaptureError(f"Unable to save image to {file_loc}")
 
         return file_loc

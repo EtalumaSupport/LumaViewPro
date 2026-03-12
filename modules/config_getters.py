@@ -40,6 +40,7 @@ def get_binning_from_ui() -> int:
     try:
         return int(_app_ctx.ctx.motion_settings.ids['microscope_settings_id'].ids['binning_spinner'].text)
     except Exception:
+        logger.warning("Failed to read binning from UI, defaulting to 1", exc_info=True)
         return 1
 
 
@@ -236,12 +237,14 @@ def get_protocol_time_params() -> dict:
     try:
         period = float(protocol_settings.ids['capture_period'].text)
     except Exception:
+        logger.warning("Failed to read capture period from UI, defaulting to 1", exc_info=True)
         period = 1
 
     period = datetime.timedelta(minutes=period)
     try:
         duration = float(protocol_settings.ids['capture_dur'].text)
     except Exception:
+        logger.warning("Failed to read capture duration from UI, defaulting to 1", exc_info=True)
         duration = 1
 
     duration = datetime.timedelta(hours=duration)

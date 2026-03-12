@@ -8,6 +8,7 @@ import lvp_logger
 from lvp_logger import logger
 
 from drivers.serialboard import SerialBoard
+from modules.exceptions import HardwareError
 from modules.motorconfig import MotorConfig
 
 
@@ -436,7 +437,7 @@ class MotorBoard(SerialBoard):
         AXES_CONFIG = self.axes_config
 
         if axis not in AXES_CONFIG:
-            raise Exception(f"Unsupported axis ({axis})")
+            raise HardwareError(f"Unsupported axis ({axis})")
 
         axis_config = AXES_CONFIG[axis]
 
@@ -579,11 +580,11 @@ class MotorBoard(SerialBoard):
         AXES_CONFIG = self.axes_config
         if axis not in AXES_CONFIG:
             logger.error(f"[XYZ Class ] MotorBoard.get_axis_limits(): Unsupported axis ({axis})")
-            raise Exception(f"Unsupported axis ({axis})")
+            raise HardwareError(f"Unsupported axis ({axis})")
 
         axis_config = AXES_CONFIG[axis]
         if 'limits' not in axis_config:
             logger.error(f"[XYZ Class ] MotorBoard.get_axis_limits(): No limits defined for axis ({axis})")
-            raise Exception(f"Axis {axis} does not have defined limits")
+            raise HardwareError(f"Axis {axis} does not have defined limits")
 
         return axis_config['limits']

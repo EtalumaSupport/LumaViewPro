@@ -212,6 +212,6 @@
         "host": "127.0.0.1",
         "port": 8000,
         "api_key": null,
-        "cors_origins": ["*"]
+        "cors_origins": ["http://localhost:*", "http://127.0.0.1:*"]
     }
 }

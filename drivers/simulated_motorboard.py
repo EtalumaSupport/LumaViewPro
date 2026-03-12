@@ -529,7 +529,8 @@ class SimulatedMotorBoard:
         return True
 
     def get_firmware_URL(self, owner, repo, path):
-        return f'https://api.github.com/repos/{owner}/{repo}/contents/{path}'
+        # Stub: no real URL construction needed in simulator
+        return ''
 
     def get_latest_firmware(self, firmware_url, auth_token):
         return {}

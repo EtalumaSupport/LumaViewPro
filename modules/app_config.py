@@ -29,7 +29,7 @@ def load_log_level():
                 logger.setLevel(level=log_level)
                 return
             except Exception:
-                pass
+                logger.warning("Failed to read log level from %s", settings_file, exc_info=True)
 
 
 def get_lvp_lock_port() -> int:
@@ -45,7 +45,7 @@ def get_lvp_lock_port() -> int:
             try:
                 return data['lvp_lock_port']
             except Exception:
-                pass
+                logger.warning("Failed to read lvp_lock_port from %s", settings_file, exc_info=True)
 
     return DEFAULT_LVP_LOCK_PORT
 
@@ -64,7 +64,7 @@ def load_autofocus_log_enable():
                     autofocus_functions.enable_af_score_logging(enable=True)
                 return
             except Exception:
-                pass
+                logger.warning("Failed to read autofocus log setting from %s", settings_file, exc_info=True)
 
 
 def load_mode() -> bool:
@@ -82,6 +82,6 @@ def load_mode() -> bool:
                     logger.info("Enabling engineering mode")
                     return True
             except Exception:
-                pass
+                logger.warning("Failed to read mode from %s", settings_file, exc_info=True)
 
     return False

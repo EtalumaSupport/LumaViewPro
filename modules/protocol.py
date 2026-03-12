@@ -12,6 +12,7 @@ import re
 import copy
 
 from lvp_logger import logger
+from modules.exceptions import ProtocolError
 
 import modules.color_channels as color_channels
 import modules.common_utils as common_utils
@@ -360,7 +361,7 @@ class Protocol:
             return
         
         if step_idx >= self.num_steps():
-            raise Exception(f"Cannot delete step idx {step_idx}. Protocol only has {self.num_steps()}.")
+            raise ProtocolError(f"Cannot delete step idx {step_idx}. Protocol only has {self.num_steps()}.")
         
         self._config['steps'].drop(index=step_idx, axis=0, inplace=True)
         self._config['steps'].reset_index(drop=True, inplace=True)
@@ -401,10 +402,10 @@ class Protocol:
             step_name: str,
     ):
         if step_idx < 0:
-                raise Exception(f"Step idx must be > 0")
+                raise ProtocolError(f"Step idx must be > 0")
             
         if step_idx >= self.num_steps():
-            raise Exception(f"Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.")
+            raise ProtocolError(f"Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.")
 
         Protocol.sanitize_step_name(step_name)
         self._config['steps'].at[step_idx, "Name"] = step_name
@@ -422,10 +423,10 @@ class Protocol:
     ):
         def _validate_inputs():
             if step_idx < 0:
-                raise Exception(f"Step idx must be > 0")
+                raise ProtocolError(f"Step idx must be > 0")
             
             if step_idx >= self.num_steps():
-                raise Exception(f"Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.")
+                raise ProtocolError(f"Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.")
             
         _validate_inputs()
 
@@ -462,16 +463,16 @@ class Protocol:
         
         def _validate_inputs():
             if (before_step is None) and (after_step is None):
-                raise Exception(f"Must specify after_step or before_step")
+                raise ProtocolError(f"Must specify after_step or before_step")
             
             if (before_step is not None) and (after_step is not None):
-                raise Exception(f"Must specify only after_step or before_step, not both")
+                raise ProtocolError(f"Must specify only after_step or before_step, not both")
             
             if (before_step is not None) and (before_step < 0):
-                raise Exception(f"before_step cannot be < 0")
+                raise ProtocolError(f"before_step cannot be < 0")
             
             if (after_step is not None) and (after_step > self.num_steps()):
-                raise Exception(f"after_step cannot be > num_steps")
+                raise ProtocolError(f"after_step cannot be > num_steps")
             
         _validate_inputs()
         
@@ -548,10 +549,10 @@ class Protocol:
     ):
         def _validate():
             if idx < 0:
-                raise Exception(f"Step index cannot be < 0")
+                raise ProtocolError(f"Step index cannot be < 0")
             
             if idx >= self.num_steps():
-                raise Exception(f"Step idx {idx} does not exist. Protocol only has {self.num_steps()}.")
+                raise ProtocolError(f"Step idx {idx} does not exist. Protocol only has {self.num_steps()}.")
 
         _validate(
 
@@ -1138,7 +1139,18 @@ class Protocol:
         Raises ProtocolFormatError on format issues
         """
         
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+        MAX_STEP_COUNT = 10_000
+
         config = {}
+
+        # Check file size before reading
+        file_size = os.path.getsize(file_path)
+        if file_size > MAX_FILE_SIZE:
+            raise ValueError(
+                f"Protocol file exceeds maximum size of {MAX_FILE_SIZE // (1024*1024)} MB "
+                f"({file_size:,} bytes). File may be corrupt."
+            )
 
         # Filter out blank lines
         file_content = None
@@ -1382,6 +1394,12 @@ class Protocol:
 
         config['steps'] = protocol_df
         config['custom_step_count'] = 0
+
+        if len(protocol_df) > MAX_STEP_COUNT:
+            raise ValueError(
+                f"Protocol contains {len(protocol_df):,} steps, exceeding the maximum of "
+                f"{MAX_STEP_COUNT:,}. File may be corrupt."
+            )
 
         return cls(
             tiling_configs_file_loc=tiling_configs_file_loc,
