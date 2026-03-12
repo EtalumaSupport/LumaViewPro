@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import tifffile as tf
 
-from modules.color_channels import ColorChannel
+from modules.common_utils import ColorChannel
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 

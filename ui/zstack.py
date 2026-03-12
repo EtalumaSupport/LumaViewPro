@@ -25,7 +25,7 @@ from modules.config_ui_getters import (
     is_image_saving_enabled,
 )
 from modules.protocol import Protocol
-from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.tiling_config import TilingConfig
 from modules.ui_helpers import (
     _handle_ui_for_led,

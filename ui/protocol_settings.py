@@ -38,7 +38,7 @@ from modules.config_ui_getters import (
     is_image_saving_enabled,
 )
 from modules.protocol import Protocol
-from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask
 from modules.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig

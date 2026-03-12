@@ -7,6 +7,7 @@ Covers:
   2. config_getters → config_ui_getters rename
   3. stitch_algorithms.py cleanup (feature_stitch, color_transfer, crop_to_content)
   4. Dead code removal (position_stitcher removed from stitcher.py)
+  5. Tiny file consolidation — enums/classes merged into parent modules
 """
 
 import importlib
@@ -177,3 +178,85 @@ class TestStitcherDeadCodeRemoved:
         from modules.stitcher import Stitcher
         assert hasattr(Stitcher, '_simple_position_stitcher'), \
             "_simple_position_stitcher() should still exist"
+
+
+# ---------------------------------------------------------------------------
+# 5. Tiny file consolidation — merged into parent modules
+# ---------------------------------------------------------------------------
+
+class TestTinyFileConsolidation:
+    """Verify tiny files were deleted and their contents moved to parent modules."""
+
+    DELETED_FILES = [
+        'stitcher_helper.py',
+        'processing_utils.py',
+        'protocol_step.py',
+        'color_channels.py',
+        'json_helper.py',
+        'protocol_post_processing_functions.py',
+        'sequenced_capture_run_modes.py',
+    ]
+
+    def test_deleted_files_are_gone(self):
+        import os
+        modules_dir = os.path.join(os.path.dirname(__file__), '..', 'modules')
+        for filename in self.DELETED_FILES:
+            path = os.path.join(modules_dir, filename)
+            assert not os.path.exists(path), f"{filename} should be deleted"
+
+    def test_color_channel_in_common_utils(self):
+        from modules.common_utils import ColorChannel
+        assert ColorChannel.Blue.value == 0
+        assert ColorChannel.Lumi.value == 6
+        assert len(ColorChannel) == 7
+
+    def test_custom_jsonizer_in_common_utils(self):
+        import json
+        import numpy as np
+        from modules.common_utils import CustomJSONizer
+        data = {'a': np.int64(42), 'b': np.float64(3.14), 'c': np.bool_(True)}
+        result = json.loads(json.dumps(data, cls=CustomJSONizer))
+        assert result == {'a': 42, 'b': 3.14, 'c': True}
+
+    def test_post_function_in_common_utils(self):
+        from modules.common_utils import PostFunction
+        assert PostFunction.COMPOSITE.value == "Composite"
+        assert PostFunction.HYPERSTACK.value == "Hyperstack"
+        assert "Stitched" in PostFunction.list_values()
+
+    def test_sequenced_capture_run_mode_in_executor(self):
+        """Verify SequencedCaptureRunMode is defined in sequenced_capture_executor.py."""
+        import os
+        path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'sequenced_capture_executor.py')
+        with open(path) as f:
+            content = f.read()
+        assert 'class SequencedCaptureRunMode' in content
+        assert "FULL_PROTOCOL = 'full_protocol'" in content
+        assert "SINGLE_SCAN = 'single_scan'" in content
+
+    def test_no_imports_reference_old_modules(self):
+        """Scan all .py files for imports of deleted modules (should be zero)."""
+        import os
+        import glob
+        old_modules = [
+            'modules.color_' + 'channels',
+            'modules.json_' + 'helper',
+            'modules.protocol_post_processing_' + 'functions',
+            'modules.sequenced_capture_run_' + 'modes',
+            'modules.stitcher_' + 'helper',
+            'modules.processing_' + 'utils',
+            'modules.protocol_' + 'step',
+        ]
+        root = os.path.join(os.path.dirname(__file__), '..')
+        violations = []
+        for py_file in glob.glob(os.path.join(root, '**', '*.py'), recursive=True):
+            if '__pycache__' in py_file or 'test_architecture' in py_file:
+                continue
+            with open(py_file) as f:
+                for i, line in enumerate(f, 1):
+                    if line.strip().startswith('#'):
+                        continue
+                    for old_mod in old_modules:
+                        if old_mod in line:
+                            violations.append(f"{os.path.relpath(py_file, root)}:{i} ({old_mod})")
+        assert not violations, f"Files still importing deleted modules: {violations}"

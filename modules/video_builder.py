@@ -9,7 +9,7 @@ import pandas as pd
 
 import modules.image_utils as image_utils
 import modules.common_utils as common_utils
-from modules.protocol_post_processing_functions import PostFunction
+from modules.common_utils import PostFunction
 from modules.protocol_post_processing_executor import ProtocolPostProcessingExecutor
 from modules.protocol_post_record import ProtocolPostRecord
 

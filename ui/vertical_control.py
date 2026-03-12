@@ -20,7 +20,7 @@ from modules.config_ui_getters import (
 )
 from modules.debounce import debounce
 from modules.protocol import Protocol
-from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask
 from modules.tiling_config import TilingConfig
 from modules.ui_helpers import (

@@ -8,7 +8,7 @@ import pathlib
 import numpy as np
 import pandas as pd
 
-from modules.protocol_post_processing_functions import PostFunction
+from modules.common_utils import PostFunction
 
 from lvp_logger import logger
 

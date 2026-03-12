@@ -68,7 +68,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 from lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_executor import SequencedCaptureExecutor
-from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.autofocus_executor import AutofocusExecutor
 from modules.protocol import Protocol
 

@@ -8,7 +8,7 @@ import pandas as pd
 import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.protocol_post_processing_functions import PostFunction
+from modules.common_utils import PostFunction
 from modules.protocol_post_record import ProtocolPostRecord
 
 from lvp_logger import logger

@@ -1,8 +1,58 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import enum
+import json
 import os
 import pathlib
 import re
+
+import numpy as np
+
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+
+@enum.unique
+class ColorChannel(enum.Enum):
+    Blue = 0
+    Green = 1
+    Red = 2
+    BF = 3
+    PC = 4
+    DF = 5
+    Lumi = 6
+
+
+@enum.unique
+class PostFunction(enum.Enum):
+    COMPOSITE = "Composite"
+    STITCHED = "Stitched"
+    ZPROJECT = "ZProject"
+    VIDEO = "Video"
+    HYPERSTACK = "Hyperstack"
+
+    @classmethod
+    def list_values(cls):
+        return list(map(lambda c: c.value, cls))
+
+
+# ---------------------------------------------------------------------------
+# JSON serialization
+# ---------------------------------------------------------------------------
+
+class CustomJSONizer(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        elif isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+
+        return super().default(obj)
 
 
 def generate_default_step_name(

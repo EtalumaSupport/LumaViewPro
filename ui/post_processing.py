@@ -24,7 +24,7 @@ from modules.sequential_io_executor import IOTask
 from modules.stitcher import Stitcher
 from modules.composite_generation import CompositeGeneration
 from modules.video_builder import VideoBuilder
-from modules.json_helper import CustomJSONizer
+from modules.common_utils import CustomJSONizer
 import modules.zprojector as zprojector
 import modules.post_processing as post_processing
 import modules.image_utils as image_utils

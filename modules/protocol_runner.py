@@ -28,8 +28,7 @@ import typing
 from lvp_logger import logger
 import modules.common_utils as common_utils
 from modules.protocol import Protocol
-from modules.sequenced_capture_executor import SequencedCaptureExecutor
-from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+from modules.sequenced_capture_executor import SequencedCaptureExecutor, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.autofocus_executor import AutofocusExecutor
 

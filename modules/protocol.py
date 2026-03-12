@@ -14,7 +14,7 @@ import copy
 from lvp_logger import logger
 from modules.exceptions import ProtocolError
 
-import modules.color_channels as color_channels
+import modules.common_utils as color_channels
 import modules.common_utils as common_utils
 import modules.labware_loader as labware_loader
 from modules.tiling_config import TilingConfig

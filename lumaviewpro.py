@@ -142,10 +142,10 @@ if __name__ == "__main__":
     import modules.objectives_loader as objectives_loader
     from modules.protocol import Protocol, ProtocolFormatError
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
-    from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+    from modules.sequenced_capture_executor import SequencedCaptureRunMode
     from modules.stack_builder import StackBuilder
     from modules.zstack_config import ZStackConfig
-    from modules.json_helper import CustomJSONizer
+    from modules.common_utils import CustomJSONizer
     from modules.timedelta_formatter import strfdelta
     import modules.imagej_helper as imagej_helper
     import modules.zprojector as zprojector

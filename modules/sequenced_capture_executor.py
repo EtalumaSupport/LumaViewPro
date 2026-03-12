@@ -40,7 +40,14 @@ import modules.labware_loader as labware_loader
 from modules.autofocus_executor import AutofocusExecutor
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
-from modules.sequenced_capture_run_modes import SequencedCaptureRunMode
+
+
+class SequencedCaptureRunMode(enum.Enum):
+    FULL_PROTOCOL = 'full_protocol'
+    SINGLE_SCAN = 'single_scan'
+    SINGLE_ZSTACK = 'single_zstack'
+    SINGLE_AUTOFOCUS_SCAN = 'single_autofocus_scan'
+    SINGLE_AUTOFOCUS = 'single_autofocus'
 from modules.video_writer import VideoWriter
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from lvp_logger import logger

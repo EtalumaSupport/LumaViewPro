@@ -2,13 +2,14 @@
 
 import abc
 import datetime
+import enum
 import pathlib
 
 import cv2
 import pandas as pd
 
+from modules.common_utils import PostFunction
 from modules.objectives_loader import ObjectiveLoader
-from modules.protocol_post_processing_functions import PostFunction
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_record import ProtocolPostRecord
 import modules.image_utils as image_utils
