@@ -1077,7 +1077,7 @@ class PostProcessingAccordion(BoxLayout):
         super().__init__(**kwargs)
         self.name = self.__class__.__name__
         self.post = post_processing.PostProcessing()
-        #stitching params (see more info in image_stitcher.py):
+        #stitching params (see stitch_algorithms.py for feature-based stitching):
         #self.raw_images_folder = settings['save_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.raw_images_folder = './capture/' # I'm guessing not ./capture/ because that would have frames over time already (to make video)
         self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined

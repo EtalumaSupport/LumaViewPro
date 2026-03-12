@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for image stitcher modules — both legacy (image_stitcher.py) and current (stitcher.py)."""
+"""Tests for stitcher modules — stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
 
 import pathlib
 import tempfile
@@ -11,10 +11,10 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Legacy image_stitcher.py — inlined functions (replaced color_transfer, imutils)
+# stitch_algorithms.py — feature-based stitching, color transfer, border crop
 # ---------------------------------------------------------------------------
 
-from modules.image_stitcher import _image_stats, _color_transfer, _grab_contours, zoom_frame
+from modules.stitch_algorithms import _image_stats, color_transfer, _grab_contours, crop_to_content
 
 
 class TestImageStats:
@@ -43,19 +43,19 @@ class TestImageStats:
 
 
 class TestColorTransfer:
-    """Test _color_transfer — LAB color distribution transfer (Reinhard et al.)."""
+    """Test color_transfer — LAB color distribution transfer (Reinhard et al.)."""
 
     def test_output_shape_matches_target(self):
         source = np.full((50, 50, 3), 200, dtype=np.uint8)
         target = np.full((80, 60, 3), 100, dtype=np.uint8)
-        result = _color_transfer(source, target)
+        result = color_transfer(source, target)
         assert result.shape == target.shape
         assert result.dtype == np.uint8
 
     def test_identical_images_unchanged(self):
         # Uniform images have zero std — division guard returns identity-like result
         img = np.full((50, 50, 3), 128, dtype=np.uint8)
-        result = _color_transfer(img.copy(), img.copy())
+        result = color_transfer(img.copy(), img.copy())
         assert result.shape == img.shape
         assert result.dtype == np.uint8
         # With zero-std guard, uniform → uniform (LAB round-trip may shift slightly)
@@ -65,14 +65,14 @@ class TestColorTransfer:
         # Non-uniform identical images → result ≈ input
         rng = np.random.RandomState(7)
         img = rng.randint(80, 180, (50, 50, 3), dtype=np.uint8)
-        result = _color_transfer(img.copy(), img.copy())
+        result = color_transfer(img.copy(), img.copy())
         assert np.allclose(result, img, atol=5)
 
     def test_different_colors_shifts_target(self):
         # Bright source, dark target → result should be brighter than original target
         source = np.full((50, 50, 3), 220, dtype=np.uint8)
         target = np.full((50, 50, 3), 50, dtype=np.uint8)
-        result = _color_transfer(source, target)
+        result = color_transfer(source, target)
         # Result's mean brightness should be closer to source than original target
         assert result.mean() > target.mean()
 
@@ -80,7 +80,7 @@ class TestColorTransfer:
         rng = np.random.RandomState(123)
         source = rng.randint(50, 200, (30, 30, 3), dtype=np.uint8)
         target = rng.randint(50, 200, (30, 30, 3), dtype=np.uint8)
-        result = _color_transfer(source, target)
+        result = color_transfer(source, target)
         assert result.shape == target.shape
         # Values should be valid uint8
         assert result.min() >= 0
@@ -118,14 +118,14 @@ class TestGrabContours:
         assert 55 <= w <= 65
 
 
-class TestZoomFrame:
-    """Test zoom_frame — crops stitched image to content area."""
+class TestCropToContent:
+    """Test crop_to_content — crops stitched image to content area."""
 
     def test_crops_black_border(self):
         # Create an image with content in the center and black border
         img = np.zeros((200, 300, 3), dtype=np.uint8)
         img[40:160, 60:240] = 128  # gray content area
-        result = zoom_frame(img)
+        result = crop_to_content(img)
         # Result should be smaller than input (border removed)
         assert result.shape[0] < img.shape[0]
         assert result.shape[1] < img.shape[1]
@@ -135,7 +135,7 @@ class TestZoomFrame:
     def test_full_content_image(self):
         # No border → result ≈ input size (only the 10px border padding matters)
         img = np.full((100, 100, 3), 200, dtype=np.uint8)
-        result = zoom_frame(img)
+        result = crop_to_content(img)
         # Should be close to original dimensions (±20 from the added border)
         assert abs(result.shape[0] - 100) <= 22
         assert abs(result.shape[1] - 100) <= 22
