@@ -721,6 +721,54 @@ class FirmwareDiagnostics:
     def _motor_ok(self):
         return self.motor_board is not None and getattr(self.motor_board, 'found', False)
 
+    def _enter_engineering(self):
+        """Enter LED engineering mode (send FACTORY + Y confirmation)."""
+        if not self._led_ok():
+            return False
+        board = self.led_board
+        ser = getattr(board, 'driver', None)
+        if not ser:
+            return False
+        lock = getattr(board, '_lock', None)
+        if lock:
+            lock.acquire()
+        try:
+            old_timeout = ser.timeout
+            ser.timeout = 5
+            ser.write(b'FACTORY\r\n')
+            time.sleep(0.3)
+            # Drain prompt lines (echo + "Do you accept...")
+            for _ in range(10):
+                line = ser.readline()
+                if not line:
+                    break
+            # Send Y confirmation
+            ser.write(b'Y\r\n')
+            time.sleep(0.3)
+            # Drain engineering mode banner
+            for _ in range(20):
+                line = ser.readline()
+                if not line:
+                    break
+                decoded = line.decode('utf-8', 'ignore').strip()
+                if 'Engineering Mode' in decoded:
+                    ser.timeout = old_timeout
+                    return True
+            ser.timeout = old_timeout
+            return True  # Assume success even if banner not found
+        except Exception as e:
+            logger.warning(f"Enter engineering mode failed: {e}")
+            return False
+        finally:
+            if lock:
+                lock.release()
+
+    def _exit_engineering(self):
+        """Exit LED engineering mode (send Q)."""
+        if not self._led_ok():
+            return
+        self._cmd(self.led_board, 'Q')
+
     def _cmd(self, board, command, timeout=None):
         """Send command and return response string, or error string."""
         if board is None:
@@ -782,7 +830,10 @@ class FirmwareDiagnostics:
     # -- High-level collectors --
 
     def get_led_info(self):
-        return self._cmd(self.led_board, 'INFO')
+        return self._read_multiline(
+            self.led_board, 'INFO', timeout=5,
+            end_markers=['RESET CAUSE', 'POWER-ON', 'HARD', 'WDT', 'CALIBRATION'],
+        )
 
     def get_motor_info(self):
         return self._cmd(self.motor_board, 'INFO')
@@ -826,12 +877,19 @@ class FirmwareDiagnostics:
         if not self._led_ok():
             return 'LED board not connected'
         info = self.get_led_info()
-        if not info or not any(f'v{v}.' in str(info) for v in ['2', '3', '4']):
+        if not info or not re.search(r'v[2-9]\.\d', str(info)):
             return f'LED firmware too old for SELFTEST (info: {info})'
-        return self._read_multiline(self.led_board, 'SELFTEST', timeout=90)
+        self._enter_engineering()
+        try:
+            return self._read_multiline(self.led_board, 'SELFTEST', timeout=90)
+        finally:
+            self._exit_engineering()
 
     def get_led_readings(self):
-        return self._cmd(self.led_board, 'LEDREADS')
+        return self._read_multiline(
+            self.led_board, 'LEDREADS', timeout=30,
+            end_markers=['LED7 LED_K', 'AIN1)', 'ERROR'],
+        )
 
     def get_voltages(self):
         return self._cmd(self.motor_board, 'VOLTAGE')
@@ -969,33 +1027,23 @@ class FirmwareDiagnostics:
 
         results = {'raw_response': raw, 'rails': {}, 'passed': True}
 
-        # Parse voltage response — try common formats
-        # Expected: something like "5V=5.18 3.3V=3.31 1.2V=1.24"
-        # or "5V: 5.18V  3.3V: 3.31V  1.2V: 1.24V"
+        # Parse voltage response — format: "24V=OK  5V=N/A  3V3=N/A  1V2=N/A"
+        # or "24V=OK  5V=5.18  3V3=3.31  1V2=1.24"
         for rail_name, nominal in VOLTAGE_NOMINAL.items():
             reading = None
             # Try to find this rail in the response
-            for sep in ['=', ':', ' ']:
-                if rail_name in raw:
-                    # Extract the numeric value after the rail name
-                    idx = raw.index(rail_name)
-                    after = raw[idx + len(rail_name):]
-                    # Strip separators and 'V' suffix
-                    after = after.lstrip('=: ')
-                    # Extract first numeric token
-                    num_str = ''
-                    for ch in after:
-                        if ch.isdigit() or ch == '.' or (ch == '-' and not num_str):
-                            num_str += ch
-                        elif num_str:
-                            break
-                    if num_str:
-                        try:
-                            reading = float(num_str)
-                        except ValueError:
-                            pass
-                    if reading is not None:
-                        break
+            if rail_name in raw:
+                idx = raw.index(rail_name)
+                after = raw[idx + len(rail_name):]
+                after = after.lstrip('=: ')
+                # Stop at next whitespace or rail name — don't read into next value
+                token = after.split()[0] if after.split() else ''
+                token = token.rstrip('V')  # Strip trailing 'V' unit
+                if token and token not in ('N/A', 'OK', 'MISSING', 'ERROR'):
+                    try:
+                        reading = float(token)
+                    except ValueError:
+                        pass
 
             if reading is None:
                 results['rails'][rail_name] = {
@@ -1026,40 +1074,35 @@ class FirmwareDiagnostics:
         """Read all LED channels with LEDs off, check for leakage current.
 
         Returns dict with per-channel readings and pass/fail.
+        Requires engineering mode (enters/exits automatically).
         """
-        raw = self.get_led_readings()
+        if not self._led_ok():
+            return {'error': 'LED board not connected', 'passed': False}
+        self._enter_engineering()
+        try:
+            raw = self.get_led_readings()
+        finally:
+            self._exit_engineering()
         if not raw or 'not connected' in raw.lower() or 'Error' in raw:
             return {'error': raw, 'passed': False}
 
         results = {'raw_response': raw, 'channels': {}, 'passed': True}
 
-        # Parse LEDREADS response — format varies by firmware version
-        # Try to extract per-channel I_SENS values
+        # Parse LEDREADS response — v2.0+ format:
+        # "LED0 I_SENS  (AIN14): 0.0234V  ->     0.3 mA"
+        # "LED0 LED_K   (AIN15): 2.0833V"
         for ch in range(8):
             reading = None
-            # Look for patterns like "CH0: I_SENS=0.02" or "LED0 I_SENS 0.02"
-            for pattern in [f'CH{ch}', f'LED{ch}', f'ch{ch}', f'led{ch}']:
-                if pattern.upper() in raw.upper():
-                    idx = raw.upper().index(pattern.upper())
-                    after = raw[idx:]
-                    # Find I_SENS or a numeric value
-                    if 'I_SENS' in after.upper():
-                        sens_idx = after.upper().index('I_SENS')
-                        num_part = after[sens_idx + 6:sens_idx + 20]
-                        num_part = num_part.lstrip('=: ')
-                        num_str = ''
-                        for c in num_part:
-                            if c.isdigit() or c == '.' or c == '-':
-                                num_str += c
-                            elif num_str:
-                                break
-                        if num_str:
-                            try:
-                                reading = float(num_str)
-                            except ValueError:
-                                pass
-                    if reading is not None:
-                        break
+            # Look for "LEDx I_SENS ... -> <value> mA"
+            m = re.search(
+                rf'LED{ch}\s+I_SENS\s+\(AIN\d+\):\s*[\d.]+V\s*->\s*([-\d.]+)\s*mA',
+                raw,
+            )
+            if m:
+                try:
+                    reading = float(m.group(1))
+                except ValueError:
+                    pass
 
             status = 'PASS'
             if reading is not None and abs(reading) > LED_LEAKAGE_WARN_MA:
@@ -1394,8 +1437,13 @@ class TechSupportReport:
                 with open(d / f'{label}_config_UNAVAILABLE.txt', 'w') as f:
                     f.write(
                         f"Could not read config files from {label} board.\n"
-                        f"Board may not be connected or raw REPL unavailable.\n"
+                        f"Board may not be connected or raw REPL entry failed.\n"
                     )
+                    if label == 'led':
+                        f.write(
+                            "Note: LED board raw REPL may require a power cycle "
+                            "before config files can be read (SPI state issue).\n"
+                        )
                 continue
 
             board_dir = d / label
@@ -2209,8 +2257,8 @@ def main():
             report.motor_board = report.diag.motor_board
         if mot_ok:
             print()
-            print("  ** The stage will be homed and moved during testing. **")
-            print("  ** Please remove any samples from the stage.         **")
+            print("  ** The stage will be homed and moved during testing.  **")
+            print("  ** This process may take 5-10 minutes to complete.    **")
             try:
                 input("  Press Enter to continue (Ctrl-C to cancel)...")
             except KeyboardInterrupt:
