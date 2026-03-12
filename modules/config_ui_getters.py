@@ -1,16 +1,19 @@
 # Copyright Etaluma, Inc.
 """
-Configuration getter functions extracted from lumaviewpro.py.
+UI-dependent configuration getter functions.
 
-These functions read UI state (Kivy widget values) and return
-configuration dicts / tuples consumed throughout LumaViewPro.
+These functions read Kivy widget state and return configuration
+dicts / tuples. They require a running GUI and cannot be used in
+headless or REST API mode.
+
+For GUI-independent equivalents, see config_helpers.py.
 """
 
 import datetime
 import logging
 import pathlib
 
-logger = logging.getLogger('LVP.modules.config_getters')
+logger = logging.getLogger('LVP.modules.config_ui_getters')
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -264,11 +267,14 @@ def create_hyperstacks_if_needed():
     image_capture_config = get_image_capture_config_from_ui()
     if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
         from kivy.clock import Clock
-        from ui.notification_popup import show_notification_popup
-        Clock.schedule_once(lambda dt: show_notification_popup(
-            title='Saving Hyperstacks',
-            message='Building ImageJ Hyperstacks from captured data.\nThis may take several minutes for large datasets.'
-        ), 0)
+        try:
+            from ui.notification_popup import show_notification_popup
+            Clock.schedule_once(lambda dt: show_notification_popup(
+                title='Saving Hyperstacks',
+                message='Building ImageJ Hyperstacks from captured data.\nThis may take several minutes for large datasets.'
+            ), 0)
+        except ImportError:
+            logger.info("Building ImageJ Hyperstacks from captured data")
         _, objective = get_current_objective_info()
         stack_builder = StackBuilder(
             has_turret=ctx.scope.has_turret(),

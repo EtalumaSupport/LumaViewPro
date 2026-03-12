@@ -188,7 +188,7 @@ class ScopeDisplay(Image):
                 x_dist_pixel = texture_click_pos_x - texture_width/2 # Positive means to the right of center
                 y_dist_pixel = texture_click_pos_y - texture_height/2 # Positive means above center
 
-                from modules.config_getters import get_current_objective_info, get_binning_from_ui
+                from modules.config_ui_getters import get_current_objective_info, get_binning_from_ui
                 from modules.ui_helpers import move_relative_position
                 _, objective = get_current_objective_info()
                 pixel_size_um = common_utils.get_pixel_size(
@@ -304,7 +304,7 @@ class ScopeDisplay(Image):
         active_layer_config = None
         open_layer = None
         try:
-            from modules.config_getters import get_active_layer_config
+            from modules.config_ui_getters import get_active_layer_config
             active_layer, active_layer_config = get_active_layer_config()
         except Exception:
             pass

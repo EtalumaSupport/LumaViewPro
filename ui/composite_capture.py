@@ -37,7 +37,7 @@ class CompositeCapture(FloatLayout):
 
     # Gets the current well label (ex. A1, C2, ...)
     def get_well_label(self):
-        from modules.config_getters import get_selected_labware
+        from modules.config_ui_getters import get_selected_labware
 
         ctx = _app_ctx.ctx
         _, labware = get_selected_labware()
@@ -71,7 +71,7 @@ class CompositeCapture(FloatLayout):
             CompositeCapture._capturing.clear()
 
     def _live_capture_impl(self):
-        from modules.config_getters import get_layer_configs
+        from modules.config_ui_getters import get_layer_configs
 
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
 

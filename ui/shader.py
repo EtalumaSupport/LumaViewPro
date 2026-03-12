@@ -145,7 +145,7 @@ void main (void) {
 
     def on_touch_down(self, touch, *args):
         logger.info('[LVP Main  ] ShaderViewer.on_touch_down()')
-        from modules.config_getters import get_current_objective_info
+        from modules.config_ui_getters import get_current_objective_info
         ctx = _app_ctx.ctx
 
         ZOOM_BLOCKERS = [ctx.image_settings, ctx.motion_settings]
@@ -262,7 +262,7 @@ void main (void) {
     def _update_status_bar(self, dt):
         """Periodic status bar update (~5 Hz)."""
         try:
-            from modules.config_getters import get_current_objective_info, get_binning_from_ui, get_selected_labware
+            from modules.config_ui_getters import get_current_objective_info, get_binning_from_ui, get_selected_labware
             ctx = _app_ctx.ctx
             status_label = ctx.lumaview.ids.get('status_bar_id')
             if status_label is None:

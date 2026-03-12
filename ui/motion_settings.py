@@ -8,7 +8,7 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-from modules.config_getters import get_current_objective_info, get_selected_labware
+from modules.config_ui_getters import get_current_objective_info, get_selected_labware
 from modules.debounce import debounce
 from modules.sequential_io_executor import IOTask
 from modules.ui_helpers import move_absolute_position, move_home, move_relative_position

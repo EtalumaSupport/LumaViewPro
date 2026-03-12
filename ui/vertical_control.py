@@ -7,7 +7,7 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-from modules.config_getters import (
+from modules.config_ui_getters import (
     get_active_layer_config,
     get_auto_gain_settings,
     get_binning_from_ui,

@@ -20,7 +20,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-from modules.config_getters import (
+from modules.config_ui_getters import (
     create_hyperstacks_if_needed,
     get_active_layer_config,
     get_auto_gain_settings,

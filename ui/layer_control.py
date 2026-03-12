@@ -668,7 +668,7 @@ class LayerControl(BoxLayout):
 
         if not ignore_auto_gain:
             if not protocol_running_global.is_set():
-                from modules.config_getters import get_auto_gain_settings
+                from modules.config_ui_getters import get_auto_gain_settings
                 autogain_settings = get_auto_gain_settings()
                 camera_executor.put(IOTask(
                     action=lumaview.scope.set_auto_gain,

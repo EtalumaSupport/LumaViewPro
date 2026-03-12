@@ -294,7 +294,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         This runs on the main thread (via Clock.schedule_once), so we snapshot
         all UI-dependent values here before handing off to background threads.
         """
-        from modules.config_getters import (
+        from modules.config_ui_getters import (
             get_active_layer_config, get_image_capture_config_from_ui,
             get_current_objective_info, get_binning_from_ui,
         )

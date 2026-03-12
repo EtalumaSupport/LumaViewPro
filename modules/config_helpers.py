@@ -235,7 +235,7 @@ def block_wait_for_threads(futures: list, log_loc: str = "LVP") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Headless config getters — GUI-free equivalents of config_getters.py
+# Headless config getters — GUI-free equivalents of config_ui_getters.py
 #
 # These read from the settings dict (or scope object) instead of Kivy widgets.
 # Used by the REST API and any non-GUI context.

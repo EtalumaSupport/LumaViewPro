@@ -363,7 +363,7 @@ from modules.step_navigation import go_to_step, go_to_step_update_ui  # noqa: E4
 
 
 
-from modules.config_getters import (  # noqa: E402 — extracted functions
+from modules.config_ui_getters import (  # noqa: E402 — extracted functions
     get_binning_from_ui, get_zstack_params, get_zstack_positions,
     get_layer_configs, get_active_layer_config, get_stim_configs,
     get_enabled_stim_configs, get_current_plate_position,

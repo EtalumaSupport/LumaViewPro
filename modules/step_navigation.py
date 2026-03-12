@@ -27,9 +27,12 @@ def go_to_step(
     include_move: bool = True,
     called_from_protocol: bool = True
 ):
-    from modules.config_getters import get_selected_labware
+    from modules.config_ui_getters import get_selected_labware
     from modules.ui_helpers import move_absolute_position
-    from ui.notification_popup import show_notification_popup
+    try:
+        from ui.notification_popup import show_notification_popup
+    except ImportError:
+        show_notification_popup = None
 
     ctx = _app_ctx.ctx
     settings = ctx.settings
@@ -77,7 +80,8 @@ def go_to_step(
                 logger.error(f"Cannot move turret for step {step_idx}. No position found with objective {step_objective_id}")
 
                 error_msg = f"Cannot move turret to step {step_idx}. No objective position found matching step's objective: {step_objective_id}. Please check objective settings."
-                Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Objective Not Set", message=error_msg), 0)
+                if show_notification_popup is not None:
+                    Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Objective Not Set", message=error_msg), 0)
 
         # Move into position
         if ctx.scope.motion.driver:
