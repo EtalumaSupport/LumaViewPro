@@ -352,7 +352,11 @@ class TestSerialErrorRateLimiting:
     """
 
     def test_first_error_is_logged(self):
-        """First serial error should always be logged."""
+        """First serial error should always be logged.
+
+        H-17: SerialTimeoutException now logs at WARNING level (not ERROR),
+        because timeouts are transient and the driver stays open.
+        """
         mock_log = MagicMock()
         board = _make_serial_board()
         board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
@@ -360,30 +364,36 @@ class TestSerialErrorRateLimiting:
         with patch.object(serialboard, 'logger', mock_log):
             board.exchange_command('TEST')
 
-        mock_log.error.assert_called_once()
+        mock_log.warning.assert_called()
 
     def test_rapid_errors_are_suppressed(self):
-        """Errors within the rate-limit window should be suppressed."""
+        """Errors within the rate-limit window should be suppressed.
+
+        H-17: Timeouts log at WARNING level and driver stays open.
+        """
         mock_log = MagicMock()
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
         with patch.object(serialboard, 'logger', mock_log):
-            # First call — should log
+            # First call — should log warning
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
             board.exchange_command('TEST1')
-            assert mock_log.error.call_count == 1
+            assert mock_log.warning.call_count == 1
 
             # Second call immediately after — should be suppressed
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
             board.exchange_command('TEST2')
-            assert mock_log.error.call_count == 1, \
+            assert mock_log.warning.call_count == 1, \
                 "Second error within rate-limit window should be suppressed (bug #539)"
 
     def test_error_logged_after_interval(self):
-        """Errors after the rate-limit interval should be logged again."""
+        """Errors after the rate-limit interval should be logged again.
+
+        H-17: Timeouts log at WARNING level and driver stays open.
+        """
         mock_log = MagicMock()
         mock_time = MagicMock()
         board = _make_serial_board()
@@ -396,14 +406,14 @@ class TestSerialErrorRateLimiting:
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
             board.exchange_command('TEST1')
-            assert mock_log.error.call_count == 1
+            assert mock_log.warning.call_count == 1
 
             # Second error at t=3 (past 2s interval) — should be logged
             mock_time.return_value = 103.0
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
             board.exchange_command('TEST2')
-            assert mock_log.error.call_count == 2, \
+            assert mock_log.warning.call_count == 2, \
                 "Error after rate-limit interval should be logged"
 
     def test_write_fast_errors_also_rate_limited(self):
@@ -443,22 +453,29 @@ class TestSerialErrorRateLimiting:
             board.exchange_command('TEST2')
             assert mock_log.error.call_count == 1
 
-    def test_driver_still_closed_when_suppressed(self):
-        """Even when log is suppressed, driver must still be closed."""
+    def test_driver_stays_open_on_timeout(self):
+        """H-17: Timeout is transient — driver stays open for retry.
+
+        Only fatal exceptions (IOError, OSError, generic Exception) close
+        the driver. SerialTimeoutException keeps it open.
+        """
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
-        # First error — triggers log + close
+        # Timeout — driver stays open
         mock_driver1 = board.driver
         board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
         board.exchange_command('TEST1')
-        mock_driver1.close.assert_called()
-        assert board.driver is None
+        mock_driver1.close.assert_not_called()
+        assert board.driver is not None
 
-        # Second error — log suppressed but close still happens
-        board.driver = _make_mock_serial()
-        mock_driver2 = board.driver
-        board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
-        board.exchange_command('TEST2')
-        mock_driver2.close.assert_called()
+    def test_driver_closed_on_fatal_exception(self):
+        """Fatal exceptions (generic Exception) still close the driver."""
+        board = _make_serial_board()
+        board._error_log_interval = 2.0
+
+        mock_driver1 = board.driver
+        board.driver.write.side_effect = Exception("USB disconnected")
+        board.exchange_command('TEST1')
+        mock_driver1.close.assert_called()
         assert board.driver is None

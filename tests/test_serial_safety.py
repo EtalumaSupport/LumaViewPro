@@ -169,14 +169,18 @@ class TestLEDBoardLocking:
         resp = board.exchange_command('LED0_100')
         assert resp is None
 
-    def test_driver_closed_on_timeout(self):
-        """Driver should be closed (not just set to None) on timeout."""
+    def test_driver_stays_open_on_timeout(self):
+        """H-17: Timeout is transient — driver stays open for retry.
+
+        Only fatal exceptions close the driver. SerialTimeoutException
+        keeps it open so the next command can succeed without reconnecting.
+        """
         board = self._make_board()
         mock_driver = board.driver
         board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
         board.exchange_command('LED0_100')
-        mock_driver.close.assert_called()
-        assert board.driver is None
+        mock_driver.close.assert_not_called()
+        assert board.driver is not None
 
     def test_write_fast_uses_same_lock(self):
         """_write_command_fast should acquire _lock, preventing interleave."""
