@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import datetime
+import enum
 import pathlib
 import shutil
 import time
@@ -46,6 +47,38 @@ import threading
 
 import modules.app_context as _app_ctx
 from modules.settings_init import settings
+
+
+class ProtocolState(enum.Enum):
+    """Protocol execution state machine.
+
+    Valid transitions:
+        IDLE     -> RUNNING              (run() called)
+        RUNNING  -> SCANNING             (scan started)
+        RUNNING  -> COMPLETING           (all scans done, cleanup starting)
+        RUNNING  -> ERROR                (unrecoverable error)
+        SCANNING -> RUNNING              (scan finished, back to inter-scan wait)
+        SCANNING -> COMPLETING           (abort/error during scan)
+        SCANNING -> ERROR                (unrecoverable error during scan)
+        COMPLETING -> IDLE               (cleanup finished)
+        ERROR    -> IDLE                 (cleanup finished after error)
+    """
+
+    IDLE = "idle"
+    RUNNING = "running"
+    SCANNING = "scanning"
+    COMPLETING = "completing"
+    ERROR = "error"
+
+
+# Allowed state transitions: {from_state: {set of valid to_states}}
+_PROTOCOL_STATE_TRANSITIONS: dict[ProtocolState, set[ProtocolState]] = {
+    ProtocolState.IDLE: {ProtocolState.RUNNING},
+    ProtocolState.RUNNING: {ProtocolState.SCANNING, ProtocolState.COMPLETING, ProtocolState.ERROR},
+    ProtocolState.SCANNING: {ProtocolState.RUNNING, ProtocolState.COMPLETING, ProtocolState.ERROR},
+    ProtocolState.COMPLETING: {ProtocolState.IDLE},
+    ProtocolState.ERROR: {ProtocolState.IDLE},
+}
 
 
 """
@@ -125,6 +158,7 @@ class SequencedCaptureExecutor:
 
         self._scope = scope
         self._run_trigger_source = None
+        self._state = ProtocolState.IDLE
         self._reset_vars()
         self._grease_redistribution_done = True
 
@@ -135,11 +169,40 @@ class SequencedCaptureExecutor:
     def set_scope(self, scope: Lumascope):
         self._scope = scope
 
+    def _set_state(self, new_state: ProtocolState) -> None:
+        """Transition to *new_state* with validation.
+
+        Raises ``ValueError`` if the transition is not allowed by
+        ``_PROTOCOL_STATE_TRANSITIONS``.
+        """
+        old_state = self._state
+        if old_state == new_state:
+            return  # no-op
+        allowed = _PROTOCOL_STATE_TRANSITIONS.get(old_state, set())
+        if new_state not in allowed:
+            msg = (
+                f"[{self.LOGGER_NAME}] Invalid state transition: "
+                f"{old_state.value} -> {new_state.value} "
+                f"(allowed: {', '.join(s.value for s in allowed)})"
+            )
+            logger.error(msg)
+            raise ValueError(msg)
+        self._state = new_state
+        logger.debug(
+            f"[{self.LOGGER_NAME}] State: {old_state.value} -> {new_state.value}"
+        )
+
+    @property
+    def protocol_state(self) -> ProtocolState:
+        """Current protocol state (read-only)."""
+        return self._state
+
     def _reset_vars(
         self
     ):
         self._run_dir = None
         self._run_trigger_source = None
+        # Keep _run_in_progress for backward compatibility (computed from _state)
         self._run_in_progress = False
         self._curr_step = 0
         self._n_scans = 0
@@ -421,6 +484,7 @@ class SequencedCaptureExecutor:
 
         self._run_trigger_source = run_trigger_source
         with self._run_lock:
+            self._set_state(ProtocolState.RUNNING)
             self._run_in_progress = True
         self.camera_executor.disable()
         self.protocol_executor.protocol_start()
@@ -437,6 +501,20 @@ class SequencedCaptureExecutor:
         A 'scan' is one complete iteration through all steps in the protocol.
         This loop runs until all scans are complete.
         """
+        try:
+            self._run_loop_inner()
+        except Exception as ex:
+            logger.error(f"[PROTOCOL] Unhandled exception in run loop: {ex}", exc_info=True)
+        finally:
+            # Safety net: ensure cleanup always runs so LEDs are turned off,
+            # protocol state is reset, and resources are released even if an
+            # unhandled exception occurs.  _cleanup() is idempotent (guarded
+            # by _cleanup_lock and _run_in_progress check) so duplicate calls
+            # from the normal path are harmless.
+            self._cleanup()
+
+    def _run_loop_inner(self):
+        """Inner run loop body, called by _run_loop with crash-recovery wrapper."""
         last_maintenance_time = time.monotonic()
         last_connection_check = time.monotonic()
 
@@ -449,6 +527,8 @@ class SequencedCaptureExecutor:
                     try:
                         if not self._scope.are_all_connected():
                             logger.error("[PROTOCOL] Hardware disconnected during run — aborting protocol")
+                            if self._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
+                                self._set_state(ProtocolState.ERROR)
                             self._cleanup()
                             break
                     except Exception as ex:
@@ -514,6 +594,7 @@ class SequencedCaptureExecutor:
 
                 self._go_to_step(step_idx=self._curr_step)
                 self._scan_in_progress.set()
+                self._set_state(ProtocolState.SCANNING)
                 self._auto_gain_deadline = time.monotonic() + self._autogain_settings['max_duration'].total_seconds()
 
                 start_scan_time = datetime.datetime.now()
@@ -534,9 +615,13 @@ class SequencedCaptureExecutor:
                 
                 # Clear the flag so we know scan is done
                 self._scan_in_progress.clear()
-                
+                if self._state == ProtocolState.SCANNING:
+                    self._set_state(ProtocolState.RUNNING)
+
             except Exception as ex:
                 logger.error(f"[Protocol] Error during run loop: {ex}", exc_info=True)
+                if self._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
+                    self._set_state(ProtocolState.ERROR)
                 self._cleanup()
                 break
 
@@ -641,21 +726,18 @@ class SequencedCaptureExecutor:
             Clock.schedule_once(lambda dt: self._z_ui_update_func(float(step['Z'])), 0)
 
         # Set camera settings
-        # self._io_executor.protocol_put(IOTask(
-        #     action=self._scope.set_auto_gain,
-        #     kwargs={
-        #         "state": step['Auto_Gain'],
-        #         "settings": self._autogain_settings,
-        #     }
-        # ))
-
         if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
             return
-        
-        self._scope.set_auto_gain(
-            state=step['Auto_Gain'],
-            settings=self._autogain_settings,
-        )
+
+        fut = self._io_executor.protocol_put(IOTask(
+            action=self._scope.set_auto_gain,
+            kwargs={
+                "state": step['Auto_Gain'],
+                "settings": self._autogain_settings,
+            }
+        ), return_future=True)
+        if fut:
+            fut.result(timeout=5)
 
         if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
             return
@@ -663,15 +745,21 @@ class SequencedCaptureExecutor:
         self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
 
         if not step['Auto_Gain']:
-            #self._io_executor.protocol_put(IOTask(action=self._scope.set_gain, args=(step['Gain'])))
             if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
                 return
-            self._scope.set_gain(step['Gain'])
+            fut = self._io_executor.protocol_put(IOTask(
+                action=self._scope.set_gain, args=(step['Gain'],)
+            ), return_future=True)
+            if fut:
+                fut.result(timeout=5)
             # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
-            #self._io_executor.protocol_put(IOTask(action=self._scope.set_exposure_time, args=(step['Exposure'])))
             if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
                 return
-            self._scope.set_exposure_time(step['Exposure'])
+            fut = self._io_executor.protocol_put(IOTask(
+                action=self._scope.set_exposure_time, args=(step['Exposure'],)
+            ), return_future=True)
+            if fut:
+                fut.result(timeout=5)
 
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
         if step['Auto_Focus'] and not self._autofocus_executor.complete() and not self._autofocus_executor.in_progress():
@@ -772,14 +860,15 @@ class SequencedCaptureExecutor:
         self._autofocus_executor.reset()
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
-            # self._io_executor.protocol_put(IOTask(
-            #     action=self._scope.set_auto_gain,
-            #     kwargs={
-            #         "state":False,
-            #         "settings":self._autogain_settings
-            #     }
-            # ))
-            self._scope.set_auto_gain(state=False, settings=self._autogain_settings,)
+            fut = self._io_executor.protocol_put(IOTask(
+                action=self._scope.set_auto_gain,
+                kwargs={
+                    "state": False,
+                    "settings": self._autogain_settings,
+                }
+            ), return_future=True)
+            if fut:
+                fut.result(timeout=5)
 
         num_steps = self._protocol.num_steps()
         if self._curr_step < num_steps-1:
@@ -804,7 +893,10 @@ class SequencedCaptureExecutor:
 
     def run_in_progress(self) -> bool:
         with self._run_lock:
-            return self._run_in_progress
+            # Derive from both legacy flag and state for safety during transition
+            return self._run_in_progress or self._state in (
+                ProtocolState.RUNNING, ProtocolState.SCANNING, ProtocolState.COMPLETING
+            )
     
 
     def run_trigger_source(self) -> str:
@@ -928,34 +1020,34 @@ class SequencedCaptureExecutor:
 
 
     def _leds_off(self):
-        self._scope.leds_off()
+        fut = self._io_executor.protocol_put(IOTask(
+            action=self._scope.leds_off
+        ), return_future=True)
+        if fut:
+            fut.result(timeout=5)
         if 'leds_off' in self._callbacks:
             self._callbacks['leds_off']()
 
-    
+
     def _led_on(self, color: str, illumination: float, block: bool=True):
         if self._protocol_ended.is_set():
             return
-        
-        self._scope.led_on(
-            channel=self._scope.color2ch(color),
-            mA=illumination,
-            block=block
-        )
+
+        fut = self._io_executor.protocol_put(IOTask(
+            action=self._scope.led_on,
+            kwargs={
+                "channel": self._scope.color2ch(color),
+                "mA": illumination,
+                "block": block,
+            },
+        ), return_future=True)
+        if fut:
+            fut.result(timeout=5)
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
 
         if 'led_state' in self._callbacks:
             self._callbacks['led_state'](layer=color, enabled=True)
-
-        # else:
-        #     self._io_executor.protocol_put(IOTask(
-        #         action=self._scope.led_on,
-        #         kwargs={
-        #             "channel":self._scope.color2ch(color),
-        #             "mA":illumination
-        #         },
-        #     ))
 
 
     def _cleanup(self):
@@ -969,6 +1061,10 @@ class SequencedCaptureExecutor:
     def _cleanup_inner(self):
         if not self._run_in_progress:
             return
+
+        # Transition to COMPLETING (or stay in ERROR if that's how we got here)
+        if self._state not in (ProtocolState.COMPLETING, ProtocolState.ERROR, ProtocolState.IDLE):
+            self._set_state(ProtocolState.COMPLETING)
 
         # if self._use_tiff_stacks:
         #     self._protocol.remove_zstack_starts_and_ends()
@@ -1055,6 +1151,9 @@ class SequencedCaptureExecutor:
 
         with self._run_lock:
             self._run_in_progress = False
+            # Transition back to IDLE from COMPLETING or ERROR
+            if self._state in (ProtocolState.COMPLETING, ProtocolState.ERROR):
+                self._set_state(ProtocolState.IDLE)
 
         # Handle file queue completion with deferred callback
         if self.file_io_executor.is_protocol_queue_active():
