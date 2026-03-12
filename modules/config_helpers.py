@@ -232,3 +232,115 @@ def block_wait_for_threads(futures: list, log_loc: str = "LVP") -> None:
             future.result()
         except Exception as e:
             logger.error(f"{log_loc} ] Thread Error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Headless config getters — GUI-free equivalents of config_getters.py
+#
+# These read from the settings dict (or scope object) instead of Kivy widgets.
+# Used by the REST API and any non-GUI context.
+# ---------------------------------------------------------------------------
+
+def get_binning_from_settings(settings: dict) -> int:
+    """Read binning size from settings dict (no UI needed)."""
+    try:
+        return int(settings.get('binning_size', 1))
+    except (ValueError, TypeError):
+        return 1
+
+
+def get_frame_dimensions_from_settings(settings: dict) -> dict:
+    """Read frame dimensions from settings dict (no UI needed)."""
+    frame = settings.get('frame', {})
+    return {
+        'width': int(frame.get('width', 1900)),
+        'height': int(frame.get('height', 1900)),
+    }
+
+
+def get_protocol_time_params_from_settings(settings: dict) -> dict:
+    """Read protocol time params from settings dict (no UI needed).
+
+    Returns dict with 'period' and 'duration' as timedelta objects.
+    """
+    protocol = settings.get('protocol', {})
+    period_minutes = float(protocol.get('period', 1))
+    duration_hours = float(protocol.get('duration', 1))
+    return {
+        'period': datetime.timedelta(minutes=period_minutes),
+        'duration': datetime.timedelta(hours=duration_hours),
+    }
+
+
+def get_image_capture_config_from_settings(settings: dict) -> dict:
+    """Read image capture config from settings dict (no UI needed)."""
+    output_format = settings.get('image_output_format', {})
+    return {
+        'output_format': {
+            'live': output_format.get('live', 'TIFF'),
+            'sequenced': output_format.get('sequenced', 'TIFF'),
+        },
+        'use_full_pixel_depth': settings.get('use_full_pixel_depth', False),
+    }
+
+
+def get_selected_labware_from_settings(
+    settings: dict,
+    wellplate_loader,
+) -> tuple[str, object]:
+    """Read selected labware from settings dict (no UI needed).
+
+    Returns (labware_id, wellplate_object) or (None, None) on failure.
+    """
+    labware_id = settings.get('protocol', {}).get('labware', '')
+    if not labware_id:
+        return None, None
+    try:
+        labware_obj = wellplate_loader.get_plate(plate_key=labware_id)
+        return labware_id, labware_obj
+    except Exception:
+        logger.warning(f"Could not load labware '{labware_id}'")
+        return None, None
+
+
+def get_zstack_params_from_settings(settings: dict) -> dict:
+    """Read z-stack params from settings dict (no UI needed)."""
+    zstack = settings.get('protocol', {}).get('zstack', {})
+    return {
+        'range': float(zstack.get('range', 0)),
+        'step_size': float(zstack.get('step_size', 1)),
+        'z_reference': zstack.get('z_reference', 'center'),
+    }
+
+
+def get_sequenced_capture_config_from_settings(
+    settings: dict,
+    objective_helper,
+    wellplate_loader=None,
+) -> dict:
+    """Build sequenced capture config from settings dict (no UI needed).
+
+    This is the headless equivalent of config_getters.get_sequenced_capture_config_from_ui().
+    """
+    objective_id, _ = get_current_objective_info(settings, objective_helper)
+    time_params = get_protocol_time_params_from_settings(settings)
+    labware_id = settings.get('protocol', {}).get('labware', '')
+    tiling = settings.get('protocol', {}).get('tiling', '1x1')
+    use_zstacking = settings.get('protocol', {}).get('use_zstacking', False)
+    frame_dimensions = get_frame_dimensions_from_settings(settings)
+    zstack_params = get_zstack_params_from_settings(settings)
+    layer_configs = get_layer_configs(settings)
+
+    return {
+        'labware_id': labware_id,
+        'objective_id': objective_id,
+        'zstack_params': zstack_params,
+        'use_zstacking': use_zstacking,
+        'tiling': tiling,
+        'layer_configs': layer_configs,
+        'period': time_params['period'],
+        'duration': time_params['duration'],
+        'frame_dimensions': frame_dimensions,
+        'binning_size': get_binning_from_settings(settings),
+        'stim_config': get_stim_configs(settings),
+    }
