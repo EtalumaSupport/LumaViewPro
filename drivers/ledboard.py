@@ -61,12 +61,15 @@ class LEDBoard(SerialBoard):
         self.exchange_command(command)
 
     def leds_disable(self):
-        with self._state_lock:
-            for color in self.led_ma:
-                self.led_ma[color] = -1
-
         command = 'LEDS_ENF'
-        self.exchange_command(command)
+        response = self.exchange_command(command)
+
+        if response is not None:
+            with self._state_lock:
+                for color in self.led_ma:
+                    self.led_ma[color] = -1
+        else:
+            logger.warning('[LED Class ] leds_disable() got no response')
 
     def get_status(self):
         command = 'STATUS'
@@ -112,11 +115,15 @@ class LEDBoard(SerialBoard):
         If block=True, verify correct callback before returning (with timeout)
         """
         color = self.ch2color(channel=channel)
-        with self._state_lock:
-            self.led_ma[color] = mA
 
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
         response = self.exchange_command(command)
+
+        if response is not None:
+            with self._state_lock:
+                self.led_ma[color] = mA
+        else:
+            logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}) got no response')
 
         def check_each_substr(substrings, result):
             for sub_str in substrings:
@@ -131,15 +138,22 @@ class LEDBoard(SerialBoard):
                     logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) timed out after {timeout}s')
                     break
                 response = self.exchange_command(command)
+                if response is not None:
+                    with self._state_lock:
+                        self.led_ma[color] = mA
 
     def led_off(self, channel):
         """ Turn off LED at channel number """
         color = self.ch2color(channel=channel)
-        with self._state_lock:
-            self.led_ma[color] = -1
 
         command = 'LED' + str(int(channel)) + '_OFF'
-        self.exchange_command(command)
+        response = self.exchange_command(command)
+
+        if response is not None:
+            with self._state_lock:
+                self.led_ma[color] = -1
+        else:
+            logger.warning(f'[LED Class ] led_off(ch={channel}) got no response')
 
     def led_on_fast(self, channel, mA):
         """Fast write-only version of led_on for time-critical toggling."""
@@ -159,12 +173,15 @@ class LEDBoard(SerialBoard):
 
     def leds_off(self):
         """ Turn off all LEDs """
-        with self._state_lock:
-            for color in self.led_ma:
-                self.led_ma[color] = -1
-
         command = 'LEDS_OFF'
-        self.exchange_command(command)
+        response = self.exchange_command(command)
+
+        if response is not None:
+            with self._state_lock:
+                for color in self.led_ma:
+                    self.led_ma[color] = -1
+        else:
+            logger.warning('[LED Class ] leds_off() got no response')
 
     def leds_off_fast(self):
         """Fast write-only version to turn off all LEDs."""

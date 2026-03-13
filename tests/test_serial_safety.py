@@ -70,6 +70,8 @@ def _make_mock_serial(**overrides):
     mock.readline.return_value = b"OK\r\n"
     mock.write.return_value = None
     mock.close.return_value = None
+    mock.in_waiting = 0
+    mock.read.return_value = b""
     for k, v in overrides.items():
         setattr(mock, k, v)
     return mock
@@ -1316,7 +1318,7 @@ class TestLEDBoardStateLock:
         return board
 
     def test_led_on_uses_state_lock(self):
-        """led_on() should acquire _state_lock when updating led_ma."""
+        """led_on() should acquire _state_lock when updating led_ma (after serial succeeds)."""
         board = self._make_board()
         acquired = []
         original_lock = board._state_lock
@@ -1334,8 +1336,15 @@ class TestLEDBoardStateLock:
         assert 'enter' in acquired, "_state_lock was not acquired during led_on()"
         assert board.led_ma['Blue'] == 100
 
+    def test_led_on_no_state_update_on_failure(self):
+        """led_on() should NOT update state cache if serial returns None."""
+        board = self._make_board()
+        board.driver.write.side_effect = serial.SerialTimeoutException('write timeout')
+        board.led_on(channel=0, mA=100)
+        assert board.led_ma['Blue'] == -1, "State cache should not update on serial failure"
+
     def test_led_off_uses_state_lock(self):
-        """led_off() should acquire _state_lock when updating led_ma."""
+        """led_off() should acquire _state_lock when updating led_ma (after serial succeeds)."""
         board = self._make_board()
         board.led_ma['Blue'] = 200
         acquired = []
@@ -1352,6 +1361,14 @@ class TestLEDBoardStateLock:
         board.led_off(channel=0)
         assert 'enter' in acquired
         assert board.led_ma['Blue'] == -1
+
+    def test_led_off_no_state_update_on_failure(self):
+        """led_off() should NOT update state cache if serial returns None."""
+        board = self._make_board()
+        board.led_ma['Blue'] = 200
+        board.driver.write.side_effect = serial.SerialTimeoutException('write timeout')
+        board.led_off(channel=0)
+        assert board.led_ma['Blue'] == 200, "State cache should not update on serial failure"
 
     def test_get_led_states_returns_consistent_snapshot(self):
         """get_led_states() should return a consistent snapshot under _state_lock."""
@@ -1441,6 +1458,115 @@ class TestLEDBoardStateLock:
         board.led_ma['Green'] = 150
         assert board.is_led_on('Green') is True
         assert board.is_led_on('BF') is False
+
+
+class TestSerialDesyncRecovery:
+    """Verify that serial response desync is recovered via input buffer flush.
+
+    Scenario: if readline() times out (returns b""), the firmware's response
+    sits in the input buffer. Without the flush fix, the next exchange_command
+    reads the stale response, creating a permanent desync cascade.
+    """
+
+    def _make_board(self):
+        board = LEDBoard.__new__(LEDBoard)
+        board.found = False
+        board._lock = threading.RLock()
+        board._label = '[LED Class ]'
+        board.port = '/dev/fake'
+        board.baudrate = 115200
+        board.bytesize = serial.EIGHTBITS
+        board.parity = serial.PARITY_NONE
+        board.stopbits = serial.STOPBITS_ONE
+        board.timeout = 0.1
+        board.write_timeout = 0.1
+        board.driver = _make_mock_serial()
+        board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
+        board._state_lock = threading.Lock()
+        board._last_error_log_time = 0.0
+        board._error_log_interval = 2.0
+        return board
+
+    def test_stale_buffer_flushed_before_write(self):
+        """exchange_command should flush stale input bytes before writing."""
+        board = self._make_board()
+        # Simulate 20 stale bytes sitting in the input buffer
+        board.driver.in_waiting = 20
+        board.driver.readline.return_value = b"OK\r\n"
+
+        response = board.exchange_command('STATUS')
+
+        # Verify stale data was read (flushed) before the command was written
+        board.driver.read.assert_called_once_with(20)
+        assert response == 'OK'
+
+    def test_no_flush_when_buffer_empty(self):
+        """exchange_command should not flush when input buffer is empty."""
+        board = self._make_board()
+        board.driver.in_waiting = 0
+        board.driver.readline.return_value = b"OK\r\n"
+
+        response = board.exchange_command('STATUS')
+
+        board.driver.read.assert_not_called()
+        assert response == 'OK'
+
+    def test_rapid_led_on_off_state_consistent(self):
+        """Rapid led_on/leds_off cycling (25x) should keep state consistent.
+
+        This reproduces the characterization test pattern that caused LED
+        dropout: 25 iterations of leds_off -> led_on -> leds_off.
+        """
+        board = self._make_board()
+        board.driver.in_waiting = 0
+
+        for i in range(25):
+            board.leds_off()
+            assert board.led_ma['BF'] == -1, f"Iteration {i}: BF should be off after leds_off"
+            board.led_on(channel=3, mA=20)
+            assert board.led_ma['BF'] == 20, f"Iteration {i}: BF should be 20 after led_on"
+            board.leds_off()
+            assert board.led_ma['BF'] == -1, f"Iteration {i}: BF should be off after final leds_off"
+
+    def test_rapid_led_cycling_with_timeouts(self):
+        """LED state stays correct even when some commands timeout.
+
+        Simulates intermittent serial timeouts during rapid cycling.
+        With the flush fix, stale responses are cleared before each command.
+        """
+        board = self._make_board()
+        call_count = [0]
+        original_readline = board.driver.readline
+
+        def flaky_readline():
+            call_count[0] += 1
+            # Every 7th readline returns empty (simulates timeout)
+            if call_count[0] % 7 == 0:
+                return b""
+            return b"OK\r\n"
+
+        board.driver.readline = flaky_readline
+        # After a timeout, stale bytes appear in buffer
+        stale_count = [0]
+        def dynamic_in_waiting():
+            # After a timeout, simulate stale data
+            if call_count[0] > 0 and call_count[0] % 7 == 1:
+                return 15  # stale bytes from missed response
+            return 0
+        type(board.driver).in_waiting = property(lambda self: dynamic_in_waiting())
+
+        # Run 25 cycles — should not crash or desync
+        successes = 0
+        for i in range(25):
+            board.leds_off()
+            board.led_on(channel=3, mA=20)
+            if board.led_ma['BF'] == 20:
+                successes += 1
+            board.leds_off()
+
+        # Most cycles should succeed (some may fail due to simulated timeouts)
+        # The key is: no crashes, no permanent desync cascade
+        assert successes > 15, f"Only {successes}/25 cycles succeeded — desync cascade?"
 
 
 class TestMotorBoardStateLock:

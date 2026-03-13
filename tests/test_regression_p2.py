@@ -80,6 +80,8 @@ def _make_mock_serial(**overrides):
     mock.readline.return_value = b"OK\r\n"
     mock.write.return_value = None
     mock.close.return_value = None
+    mock.in_waiting = 0
+    mock.read.return_value = b""
     for k, v in overrides.items():
         setattr(mock, k, v)
     return mock

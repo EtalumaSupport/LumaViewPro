@@ -175,6 +175,15 @@ class SerialBoard:
 
             stream = command.encode('utf-8') + b"\n"
             try:
+                # Flush any stale data in the input buffer before writing.
+                # If a previous readline() timed out, the firmware's response
+                # is still sitting in the buffer and would be misread as this
+                # command's response, causing a permanent desync cascade.
+                stale = self.driver.in_waiting
+                if stale > 0:
+                    discarded = self.driver.read(stale)
+                    logger.debug(f'{self._label} Flushed {stale} stale bytes: {discarded!r}')
+
                 self.driver.write(stream)
                 resp_lines = []
                 for _ in range(response_numlines):
