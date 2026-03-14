@@ -1060,6 +1060,13 @@ class SequencedCaptureExecutor:
         if self._state not in (ProtocolState.COMPLETING, ProtocolState.ERROR, ProtocolState.IDLE):
             self._set_state(ProtocolState.COMPLETING)
 
+        # Signal the scan/protocol loops to stop BEFORE turning off LEDs.
+        # Without this, the scan loop (running in the protocol_executor thread)
+        # can race with cleanup: _leds_off() turns LEDs off, then _led_on()
+        # in _scan_iterate turns them back on before _protocol_ended is set.
+        self._protocol_ended.set()
+        self._scan_in_progress.clear()
+
         try:
             self._cancel_all_scheduled_events()
         except Exception as ex:

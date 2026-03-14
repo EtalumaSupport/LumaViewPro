@@ -341,6 +341,83 @@ class TestSimulatedMotorBoard:
         pos = board.current_pos('Z')
         assert abs(pos - 3000) < 1
 
+    # --- detect_present_axes tests ---
+
+    def test_detect_present_axes_ls850(self):
+        """LS850 should have X, Y, Z (no turret)."""
+        board = SimulatedMotorBoard(model='LS850')
+        axes = board.detect_present_axes()
+        assert 'X' in axes
+        assert 'Y' in axes
+        assert 'Z' in axes
+        assert 'T' not in axes
+
+    def test_detect_present_axes_ls820t(self):
+        """LS820T should have Z and T (no XY stage)."""
+        board = SimulatedMotorBoard(model='LS820T')
+        axes = board.detect_present_axes()
+        assert 'Z' in axes
+        assert 'T' in axes
+        assert 'X' not in axes
+        assert 'Y' not in axes
+
+    def test_detect_present_axes_ls850t(self):
+        """LS850T should have X, Y, Z, and T."""
+        board = SimulatedMotorBoard(model='LS850T')
+        axes = board.detect_present_axes()
+        assert 'X' in axes
+        assert 'Y' in axes
+        assert 'Z' in axes
+        assert 'T' in axes
+
+    # --- current_pos_steps / target_pos_steps tests ---
+
+    def test_current_pos_steps(self):
+        """After a move, current_pos_steps returns raw microstep position."""
+        board = SimulatedMotorBoard()
+        target_um = 5000
+        board.move_abs_pos('Z', target_um, overshoot_enabled=False)
+        steps = board.current_pos_steps('Z')
+        assert isinstance(steps, int)
+        expected_steps = board.z_um2ustep(target_um)
+        assert steps == expected_steps
+
+    def test_target_pos_steps(self):
+        """target_pos_steps returns raw target microstep position."""
+        board = SimulatedMotorBoard()
+        target_um = 7000
+        board.move_abs_pos('Z', target_um, overshoot_enabled=False)
+        steps = board.target_pos_steps('Z')
+        assert isinstance(steps, int)
+        expected_steps = board.z_um2ustep(target_um)
+        assert steps == expected_steps
+
+    # --- homing return value tests ---
+
+    def test_zhome_returns_bool(self):
+        """zhome() should return True on success."""
+        board = SimulatedMotorBoard()
+        result = board.zhome()
+        assert result is True
+
+    def test_xyhome_returns_bool(self):
+        """xyhome() should return True on success."""
+        board = SimulatedMotorBoard()
+        result = board.xyhome()
+        assert result is True
+
+    def test_thome_returns_bool(self):
+        """thome() should return True on success."""
+        board = SimulatedMotorBoard(model='LS850T')
+        result = board.thome()
+        assert result is True
+
+    def test_thome_no_turret(self):
+        """thome() on a non-turret model should still return True."""
+        board = SimulatedMotorBoard(model='LS850')
+        result = board.thome()
+        assert result is True
+
 
 # ---------------------------------------------------------------------------
 # Multi-Model Tests — verify all microscope models work correctly

@@ -366,12 +366,19 @@ class SimulatedMotorBoard:
     def zhome(self):
         resp = self.exchange_command('ZHOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.zhome() -> {resp}')
+        if resp is None:
+            return False
+        return 'successful' in resp.lower() or 'complete' in resp.lower()
 
     def xyhome(self):
         resp = self.exchange_command('HOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.xyhome() -> {resp}')
-        if resp is not None and 'XYZ home complete' in resp:
+        if resp is None:
+            return False
+        if 'XYZ home complete' in resp:
             self.initial_homing_complete = True
+            return True
+        return False
 
     def has_xyhomed(self):
         return self.initial_homing_complete
@@ -382,8 +389,14 @@ class SimulatedMotorBoard:
     def thome(self):
         resp = self.exchange_command('THOME')
         logger.info(f'[XYZ Sim   ] SimulatedMotorBoard.thome() -> {resp}')
-        if resp is not None and 'T home successful' in resp:
+        if resp is None:
+            return False
+        if 'T home successful' in resp:
             self.initial_t_homing_complete = True
+            return True
+        if 'not present' in resp.lower():
+            return True
+        return False
 
     def has_turret(self) -> bool:
         return self._has_turret
@@ -566,13 +579,13 @@ class SimulatedMotorBoard:
 
     def current_pos_steps(self, axis):
         """Get current position in raw microsteps."""
-        with self._lock:
-            return self._positions.get(axis, 0)
+        with self.thread_lock:
+            return self._actual.get(axis, 0)
 
     def target_pos_steps(self, axis):
         """Get target position in raw microsteps."""
-        with self._lock:
-            return self._targets.get(axis, 0)
+        with self.thread_lock:
+            return self._target.get(axis, 0)
 
     # ------------------------------------------------------------------
     # Raw REPL stubs (match SerialBoard API surface)

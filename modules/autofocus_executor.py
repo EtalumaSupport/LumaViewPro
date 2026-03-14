@@ -307,8 +307,25 @@ class AutofocusExecutor:
                 self._last_progress_ts = time.monotonic()
                 return
 
+            # Early termination: if score has dropped well below the pass
+            # peak for 2+ consecutive positions, we've passed the focus and
+            # can skip the rest of this sweep.
+            early_stop = False
+            if len(self._af_data_pass) >= 4:
+                pass_scores = [d['score'] for d in self._af_data_pass
+                               if np.isfinite(d['score'])]
+                if pass_scores:
+                    pass_max = max(pass_scores)
+                    if pass_max > 0:
+                        recent = pass_scores[-2:]
+                        if all(s < pass_max * 0.5 for s in recent):
+                            early_stop = True
+                            logger.info(f"[AF] Early termination: score dropped to "
+                                        f"{recent[-1]:.0f} ({recent[-1]/pass_max*100:.0f}% "
+                                        f"of peak {pass_max:.0f})")
+
             # Measure next step?
-            if next_target <= self._params['z_max']:
+            if next_target <= self._params['z_max'] and not early_stop:
                 self._move_relative_position(pos=resolution)
                 return
 
@@ -496,8 +513,42 @@ class AutofocusExecutor:
             logger.warning("Autofocus: all focus scores are NaN/infinite — returning first position")
             return df['position'].iloc[0]
         max_score_idx = valid['score'].idxmax()
-        max_position = valid['position'].loc[max_score_idx]
-        return max_position
+        raw_best = valid['position'].loc[max_score_idx]
+
+        # Gaussian peak fitting for sub-step interpolation.
+        # Fit ln(score) = a*z^2 + b*z + c to points above 50% of peak.
+        # Peak of the Gaussian is at z = -b/(2a), giving sub-step resolution.
+        try:
+            z_vals = valid['position'].values.astype(float)
+            scores = valid['score'].values.astype(float)
+            peak_score = scores.max()
+
+            if peak_score > 0:
+                threshold = peak_score * 0.5
+                mask = scores > threshold
+                if np.sum(mask) >= 5:
+                    z_fit = z_vals[mask]
+                    s_fit = scores[mask]
+                    s_fit_safe = np.clip(s_fit, 1.0, None)
+                    log_s = np.log(s_fit_safe)
+                    coeffs = np.polyfit(z_fit, log_s, 2)
+                    a, b, c = coeffs
+                    if a < 0:  # concave-down = valid Gaussian peak
+                        fit_z = -b / (2 * a)
+                        # Sanity: fit peak must be within the measured range
+                        z_min, z_max = z_vals.min(), z_vals.max()
+                        if z_min <= fit_z <= z_max:
+                            shift = abs(fit_z - raw_best)
+                            logger.info(f"[AF] Gaussian fit: {fit_z:.2f} um "
+                                        f"(raw max: {raw_best:.2f}, shift: {shift:.2f} um)")
+                            return float(fit_z)
+                        else:
+                            logger.debug(f"[AF] Gaussian fit {fit_z:.2f} outside range "
+                                         f"[{z_min:.2f}, {z_max:.2f}], using raw max")
+        except Exception as ex:
+            logger.debug(f"[AF] Gaussian fit failed ({ex}), using raw max")
+
+        return raw_best
 
 
     def _reset_state(self):
