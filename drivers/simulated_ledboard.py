@@ -254,3 +254,24 @@ class SimulatedLEDBoard:
         if ch in self._channel_states:
             return float(self._channel_states[ch])
         return 0.0
+
+    # ------------------------------------------------------------------
+    # Raw REPL stubs (match SerialBoard API surface)
+    # ------------------------------------------------------------------
+    def enter_raw_repl(self):
+        return True
+
+    def exit_raw_repl(self):
+        pass
+
+    def repl_list_files(self):
+        return []
+
+    def repl_read_file(self, filename, verify=True):
+        return None
+
+    def repl_write_file(self, filename, data):
+        return True
+
+    def verify_firmware_running(self, timeout=10):
+        return 'Simulated firmware running'

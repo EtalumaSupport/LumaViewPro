@@ -550,3 +550,47 @@ class SimulatedMotorBoard:
         if 'limits' not in self.axes_config[axis]:
             raise Exception(f"Axis {axis} does not have defined limits")
         return self.axes_config[axis]['limits']
+
+    # ------------------------------------------------------------------
+    # New MotorBoard methods (2026-03-13)
+    # ------------------------------------------------------------------
+    def detect_present_axes(self):
+        """Return list of axes present on this board."""
+        axes = ['Z']  # Z always present
+        if self._fullinfo.get('model', '').startswith('LS85'):
+            axes = ['X', 'Y', 'Z']
+        model = self._fullinfo.get('model', '')
+        if model.endswith('T'):
+            axes.append('T')
+        return axes
+
+    def current_pos_steps(self, axis):
+        """Get current position in raw microsteps."""
+        with self._lock:
+            return self._positions.get(axis, 0)
+
+    def target_pos_steps(self, axis):
+        """Get target position in raw microsteps."""
+        with self._lock:
+            return self._targets.get(axis, 0)
+
+    # ------------------------------------------------------------------
+    # Raw REPL stubs (match SerialBoard API surface)
+    # ------------------------------------------------------------------
+    def enter_raw_repl(self):
+        return True
+
+    def exit_raw_repl(self):
+        pass
+
+    def repl_list_files(self):
+        return []
+
+    def repl_read_file(self, filename, verify=True):
+        return None
+
+    def repl_write_file(self, filename, data):
+        return True
+
+    def verify_firmware_running(self, timeout=10):
+        return 'Simulated firmware running'

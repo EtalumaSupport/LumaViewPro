@@ -144,6 +144,49 @@ class MotorBoard(SerialBoard):
             info = self._fullinfo
         return info['model']
 
+    def detect_present_axes(self):
+        """Detect which axes are present on this board.
+
+        Parses FULLINFO response for 'X present: True' etc.
+        Returns list of axis letters, e.g. ['X', 'Y', 'Z', 'T'] or ['Z', 'T'].
+        """
+        resp = self.exchange_command('FULLINFO')
+        if resp is None:
+            return []
+        axes = []
+        for axis in ('X', 'Y', 'Z', 'T'):
+            if f'{axis} present: True' in resp or f'{axis} present:True' in resp:
+                axes.append(axis)
+        return axes
+
+    def current_pos_steps(self, axis):
+        """Get current position in raw microsteps (no unit conversion).
+
+        Returns int or None on failure.
+        """
+        try:
+            response = self.exchange_command('ACTUAL_R' + axis)
+            if response is None:
+                return None
+            return int(response)
+        except (ValueError, TypeError) as e:
+            logger.warning(f'[XYZ Class ] current_pos_steps({axis}) failed: {e}')
+            return None
+
+    def target_pos_steps(self, axis):
+        """Get target position in raw microsteps (no unit conversion).
+
+        Returns int or None on failure.
+        """
+        try:
+            response = self.exchange_command('TARGET_R' + axis)
+            if response is None:
+                return None
+            return int(response)
+        except (ValueError, TypeError) as e:
+            logger.warning(f'[XYZ Class ] target_pos_steps({axis}) failed: {e}')
+            return None
+
     #----------------------------------------------------------
     # Acceleration control functions
     #----------------------------------------------------------
@@ -285,9 +328,16 @@ class MotorBoard(SerialBoard):
         return ustep
 
     def zhome(self):
-        """ Home the objective """
+        """Home the objective. Returns True on success, False on failure."""
         resp = self.exchange_command('ZHOME')
         logger.info(f'[XYZ Class ] MotorBoard.zhome() -> {resp}')
+        if resp is None:
+            logger.error('[XYZ Class ] zhome(): no response (timeout or disconnect)')
+            return False
+        success = 'successful' in resp.lower() or 'complete' in resp.lower()
+        if not success:
+            logger.error(f'[XYZ Class ] zhome() failed: {resp}')
+        return success
 
     #----------------------------------------------------------
     # XY Stage Functions
@@ -305,12 +355,18 @@ class MotorBoard(SerialBoard):
         return ustep
 
     def xyhome(self):
-        """ Home the stage which also homes the objective first """
+        """Home the stage (also homes objective first). Returns True on success."""
         resp = self.exchange_command('HOME')
         logger.info(f'[XYZ Class ] MotorBoard.xyhome() -> {resp}', extra={'force_error': True})
-        if (resp is not None) and ('XYZ home complete' in resp):
+        if resp is None:
+            logger.error('[XYZ Class ] xyhome(): no response (timeout or disconnect)')
+            return False
+        if 'XYZ home complete' in resp:
             with self._state_lock:
                 self.initial_homing_complete = True
+            return True
+        logger.error(f'[XYZ Class ] xyhome() failed: {resp}')
+        return False
 
     def has_xyhomed(self):
         with self._state_lock:
@@ -348,12 +404,21 @@ class MotorBoard(SerialBoard):
         return usteps
 
     def thome(self):
-        """ Home the turret, need to test if functional in hardware"""
+        """Home the turret. Returns True on success."""
         resp = self.exchange_command('THOME')
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}', extra={'force_error': True})
-        if (resp is not None) and ('T home successful' in resp):
+        if resp is None:
+            logger.error('[XYZ Class ] thome(): no response (timeout or disconnect)')
+            return False
+        if 'T home successful' in resp:
             with self._state_lock:
                 self.initial_t_homing_complete = True
+            return True
+        # "T not present" is not a failure — board just doesn't have a turret
+        if 'not present' in resp.lower():
+            return True
+        logger.error(f'[XYZ Class ] thome() failed: {resp}')
+        return False
 
     def has_turret(self) -> bool:
         with self._state_lock:

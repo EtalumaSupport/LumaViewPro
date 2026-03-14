@@ -4,7 +4,8 @@ SerialBoard — base class for RP2040-based serial controllers.
 
 Shared infrastructure for LEDBoard and MotorBoard: port discovery,
 connect/disconnect, firmware version detection, serial exchange with
-auto-reconnect and echo handling.
+auto-reconnect and echo handling, and raw REPL file operations
+(config backup, firmware flash, INI updates).
 """
 
 import re
@@ -13,6 +14,15 @@ import serial
 import serial.tools.list_ports as list_ports
 from lvp_logger import logger
 import threading
+
+from drivers.raw_repl import (
+    enter_raw_repl as _enter_raw_repl,
+    exit_raw_repl as _exit_raw_repl,
+    list_files as _list_files,
+    read_file as _read_file,
+    write_file as _write_file,
+    verify_firmware_running as _verify_firmware_running,
+)
 
 
 class SerialBoard:
@@ -36,6 +46,7 @@ class SerialBoard:
         self.stopbits = serial.STOPBITS_ONE
         self.timeout = timeout
         self.write_timeout = write_timeout
+        self._in_raw_repl = False
         self._find_port()
 
     def _find_port(self):
@@ -148,11 +159,19 @@ class SerialBoard:
     # ------------------------------------------------------------------
     # Serial communication
     # ------------------------------------------------------------------
-    def exchange_command(self, command, response_numlines=1):
+    def exchange_command(self, command, response_numlines=1, timeout=None):
         """Send command and read response(s).
 
         Handles auto-reconnect, LED echo detection (RE: prefix),
         multi-line responses, and firmware error logging.
+
+        Args:
+            command: Serial command string to send.
+            response_numlines: Number of response lines to read.
+            timeout: Per-call read timeout in seconds. If provided,
+                temporarily overrides the board's default timeout for
+                this call only. Useful for long-running commands like
+                HOME (5-15s) or CALIBRATE (30-60s).
         """
         with self._lock:
             if self.driver is None:
@@ -172,6 +191,12 @@ class SerialBoard:
                 if elapsed < min_interval:
                     time.sleep(min_interval - elapsed)
                 self._last_command_time = time.monotonic()
+
+            # Per-call timeout override
+            saved_timeout = None
+            if timeout is not None and self.driver is not None:
+                saved_timeout = self.driver.timeout
+                self.driver.timeout = timeout
 
             stream = command.encode('utf-8') + b"\n"
             try:
@@ -223,6 +248,10 @@ class SerialBoard:
                     self._last_error_log_time = now
                 self._close_driver()
 
+            finally:
+                if saved_timeout is not None and self.driver is not None:
+                    self.driver.timeout = saved_timeout
+
             return None
 
     def _write_command_fast(self, command: str):
@@ -248,3 +277,83 @@ class SerialBoard:
                     logger.error(f'{self._label} _write_command_fast({command}) failed: {e}')
                     self._last_error_log_time = now
                 self._close_driver()
+
+    # ------------------------------------------------------------------
+    # Raw REPL — file operations on board filesystem
+    # ------------------------------------------------------------------
+    def enter_raw_repl(self):
+        """Interrupt firmware and enter MicroPython raw REPL.
+
+        While in raw REPL, normal commands (exchange_command) cannot be
+        used. Call exit_raw_repl() when done to reboot the firmware.
+
+        Returns True on success, False on failure.
+        """
+        with self._lock:
+            if self.driver is None:
+                self._open_serial()
+            if _enter_raw_repl(self.driver):
+                self._in_raw_repl = True
+                logger.info(f'{self._label} Entered raw REPL')
+                return True
+            logger.error(f'{self._label} Failed to enter raw REPL')
+            return False
+
+    def exit_raw_repl(self):
+        """Exit raw REPL and reboot firmware.
+
+        After exit, the board reboots and firmware resumes. The serial
+        connection remains open — call exchange_command() normally after.
+        """
+        with self._lock:
+            if self.driver is None:
+                return
+            _exit_raw_repl(self.driver)
+            self._in_raw_repl = False
+            logger.info(f'{self._label} Exited raw REPL, firmware rebooting')
+
+    def repl_list_files(self):
+        """List files on board filesystem (must be in raw REPL).
+
+        Returns list of filenames, or empty list on failure.
+        """
+        with self._lock:
+            if not self._in_raw_repl or self.driver is None:
+                logger.error(f'{self._label} repl_list_files: not in raw REPL')
+                return []
+            return _list_files(self.driver)
+
+    def repl_read_file(self, filename, verify=True):
+        """Read a file from the board (must be in raw REPL).
+
+        Returns file contents as bytes, or None on failure.
+        """
+        with self._lock:
+            if not self._in_raw_repl or self.driver is None:
+                logger.error(f'{self._label} repl_read_file: not in raw REPL')
+                return None
+            return _read_file(self.driver, filename, verify=verify)
+
+    def repl_write_file(self, filename, data):
+        """Write a file to the board with SHA256 verification (must be in raw REPL).
+
+        Atomic write with backup: writes to .tmp, verifies SHA256,
+        backs up existing file to .bak, then renames.
+
+        Returns True on success, False on failure.
+        """
+        with self._lock:
+            if not self._in_raw_repl or self.driver is None:
+                logger.error(f'{self._label} repl_write_file: not in raw REPL')
+                return False
+            return _write_file(self.driver, filename, data)
+
+    def verify_firmware_running(self, timeout=10):
+        """Verify firmware is responding after raw REPL exit.
+
+        Returns firmware response string, or None if not responding.
+        """
+        with self._lock:
+            if self.driver is None:
+                return None
+            return _verify_firmware_running(self.driver, timeout=timeout)
