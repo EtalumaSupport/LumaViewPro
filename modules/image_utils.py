@@ -216,11 +216,39 @@ def color_channel_to_colormap_type(color_channel: str | ColorChannel) -> LvpColo
     return lut[color_channel]
 
 
+def get_tiff_colormap(colormap: LvpColormap, dtype):
+    """Build a TIFF colormap array for PALETTE photometric (8-bit only).
+
+    Returns a (3, 256) array suitable for tifffile's ``colormap`` parameter.
+    Only used for 8-bit false-color images — Windows Preview supports PALETTE
+    with uint8 but NOT with uint16.
+    """
+    if dtype not in ('uint8', np.uint8):
+        raise NotImplementedError(f"TIFF colormap only supported for uint8, got {dtype}")
+
+    max_value = np.iinfo(np.uint8).max + 1  # 256
+
+    if colormap == LvpColormap.GRAY:
+        return np.tile(np.arange(0, max_value, 1, dtype=np.uint8), (3, 1))
+
+    cmap_array = np.zeros((3, 256), dtype=np.uint8)
+    if colormap == LvpColormap.RED:
+        cmap_array[0] = np.arange(0, max_value, 1, dtype=np.uint8)
+    elif colormap == LvpColormap.GREEN:
+        cmap_array[1] = np.arange(0, max_value, 1, dtype=np.uint8)
+    elif colormap == LvpColormap.BLUE:
+        cmap_array[2] = np.arange(0, max_value, 1, dtype=np.uint8)
+    else:
+        raise NotImplementedError(f"Unsupported colormap: {colormap}")
+    return cmap_array
+
+
 def get_imagej_lut(colormap: LvpColormap):
     """Build an ImageJ-style LUT: (3, 256) uint8 array.
 
     Stored in ImageJ metadata (not TIFF tag 320), so Windows Preview sees
     plain MINISBLACK grayscale while ImageJ auto-applies the color LUT.
+    Used for 16-bit images where PALETTE photometric breaks Windows Preview.
     """
     ramp = np.arange(256, dtype=np.uint8)
     zeros = np.zeros(256, dtype=np.uint8)
@@ -327,16 +355,25 @@ def write_tiff(
             )
 
         else:
-            # All single-channel images use MINISBLACK photometric for maximum
-            # compatibility (Windows Preview, ImageJ, FIJI, etc.). Channel color
-            # info is preserved in metadata (Channel.Name / Channel.Modality)
-            # so viewers like ImageJ can still apply colored LUTs.
+            # 8-bit fluorescence: PALETTE photometric with colormap — gives
+            # false color in both Windows Preview and ImageJ.
+            # 16-bit fluorescence: MINISBLACK photometric — Windows Preview
+            # compatible (shows grayscale). Color via ImageJ LUT metadata
+            # (imagej type) or OME Channel metadata (ome type).
+            # BF/PC/DF: always MINISBLACK, no colormap needed.
+            colormap_array = None
+            if data.dtype == np.uint8 and color in ('Red', 'Green', 'Blue', 'Lumi'):
+                colormap_type = color_channel_to_colormap_type(color_channel=color)
+                if colormap_type != LvpColormap.GRAY:
+                    colormap_array = get_tiff_colormap(colormap=colormap_type, dtype=data.dtype)
+
             tif.write(
                 data,
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f"LumaViewPro {version}",
+                colormap=colormap_array,
                 extratags=support_data['extratags'],
                 **support_data['options'],
             )
@@ -355,7 +392,14 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         photometric = tf.PHOTOMETRIC.MINISBLACK
         modality = color
     elif color in ('Red', 'Green', 'Blue', 'Lumi'):
-        photometric = tf.PHOTOMETRIC.MINISBLACK
+        # 8-bit: PALETTE with colormap — works in Windows Preview and ImageJ.
+        # 16-bit: MINISBLACK — Windows Preview can't handle PALETTE with uint16.
+        #         Color is provided via ImageJ LUT metadata (ImageJ type) or
+        #         OME Channel metadata (OME type).
+        if data.dtype == np.uint8:
+            photometric = tf.PHOTOMETRIC.PALETTE
+        else:
+            photometric = tf.PHOTOMETRIC.MINISBLACK
         modality = 'MIF'
     else:
         raise ValueError(f"Unexpected color value ({color}) for tiff data generation")
