@@ -335,27 +335,16 @@ def write_tiff(
             )
 
         else:
-
-            colormap_type = color_channel_to_colormap_type(color_channel=color)
-            colormap_array = get_tiff_colormap(
-                colormap=colormap_type,
-                dtype=data.dtype,
-            )
-            # Ref: https://forum.image.sc/t/saving-tiff-stack-with-a-colormap-with-tifffile-library/101788
-            if data.dtype == np.uint16:
-                support_data['extratags'].append((320, tifffile_dtypes['SHORT'], 0, colormap_array.tobytes(), True))
-                colormap_array = None
-            elif (data.dtype == np.uint8) and (colormap_type == LvpColormap.GRAY):
-                # Note: tifffile doesn't support colormaps with 8-bit image and photometric is 'minisblack', so just disable
-                colormap_array = None
-
+            # All single-channel images use MINISBLACK photometric for maximum
+            # compatibility (Windows Preview, ImageJ, FIJI, etc.). Channel color
+            # info is preserved in metadata (Channel.Name / Channel.Modality)
+            # so viewers like ImageJ can still apply colored LUTs.
             tif.write(
                 data,
                 resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f"LumaViewPro {version}",
-                colormap=colormap_array,
                 extratags=support_data['extratags'],
                 **support_data['options'],
             )
@@ -374,7 +363,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         photometric = tf.PHOTOMETRIC.MINISBLACK
         modality = color
     elif color in ('Red', 'Green', 'Blue', 'Lumi'):
-        photometric = tf.PHOTOMETRIC.PALETTE
+        photometric = tf.PHOTOMETRIC.MINISBLACK
         modality = 'MIF'
     else:
         raise ValueError(f"Unexpected color value ({color}) for tiff data generation")

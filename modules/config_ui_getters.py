@@ -266,22 +266,41 @@ def create_hyperstacks_if_needed():
     ctx = _app_ctx.ctx
     image_capture_config = get_image_capture_config_from_ui()
     if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+        import threading
         from kivy.clock import Clock
+
+        popup = None
         try:
             from ui.notification_popup import show_notification_popup
-            Clock.schedule_once(lambda dt: show_notification_popup(
+            popup = show_notification_popup(
                 title='Saving Hyperstacks',
                 message='Building ImageJ Hyperstacks from captured data.\nThis may take several minutes for large datasets.'
-            ), 0)
+            )
         except ImportError:
-            logger.info("Building ImageJ Hyperstacks from captured data")
+            pass
+
+        logger.info("Building ImageJ Hyperstacks from captured data")
         _, objective = get_current_objective_info()
-        stack_builder = StackBuilder(
-            has_turret=ctx.scope.has_turret(),
-        )
-        stack_builder.load_folder(
-            path=ctx.sequenced_capture_executor.run_dir(),
-            tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json",
-            binning_size=get_binning_from_ui(),
-            focal_length=objective['focal_length'],
-        )
+        run_dir = ctx.sequenced_capture_executor.run_dir()
+        tiling_loc = pathlib.Path(ctx.source_path) / "data" / "tiling.json"
+        binning = get_binning_from_ui()
+        has_turret = ctx.scope.has_turret()
+        focal_length = objective['focal_length']
+
+        def _build():
+            try:
+                stack_builder = StackBuilder(has_turret=has_turret)
+                stack_builder.load_folder(
+                    path=run_dir,
+                    tiling_configs_file_loc=tiling_loc,
+                    binning_size=binning,
+                    focal_length=focal_length,
+                )
+                logger.info("Hyperstack creation complete")
+            except Exception:
+                logger.exception("Error building hyperstacks")
+            finally:
+                if popup:
+                    Clock.schedule_once(lambda dt: popup.dismiss(), 0)
+
+        threading.Thread(target=_build, daemon=True).start()

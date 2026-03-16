@@ -26,6 +26,7 @@ def show_notification_popup(title: str, message: str):
     )
     ok_button.bind(on_release=popup.dismiss)
     popup.open()
+    return popup
 
 
 def show_confirmation_w_ack_popup(title: str, message: str, ack_button_text: str, on_ack: typing.Callable):
