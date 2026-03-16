@@ -1237,7 +1237,7 @@ class TechSupportReport:
         # Resolve board/camera references
         if scope is not None:
             self.led_board = getattr(scope, 'led', None) or getattr(scope, 'led_board', None)
-            self.motor_board = getattr(scope, 'motor', None) or getattr(scope, 'motor_board', None)
+            self.motor_board = getattr(scope, 'motion', None) or getattr(scope, 'motor', None) or getattr(scope, 'motor_board', None)
             self.camera = getattr(scope, 'camera', None)
         elif session is not None:
             self.led_board = getattr(session, 'led_board', None)
