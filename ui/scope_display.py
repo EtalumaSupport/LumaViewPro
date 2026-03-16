@@ -47,6 +47,13 @@ class ScopeDisplay(Image):
         self._fps_last_time = time.monotonic()
         self._fps_value = 0.0
 
+        # Engineering stats timing (2x per second)
+        self._eng_stats_last_time = 0.0
+
+        # Bullseye frame rate cap (15 FPS — CPU-intensive LUT rendering)
+        self._bullseye_min_interval = 1.0 / 15
+        self._bullseye_last_time = 0.0
+
         self._contrast_stretcher = ContrastStretcher(
             window_len=3,
             bottom_pct=0.3,
@@ -404,13 +411,10 @@ class ScopeDisplay(Image):
 
 
         if ctx.engineering_mode:
-            # Snapshot debug counter before scheduling increment on main thread
-            debug_counter = self._debug_counter + 1
-            if debug_counter == 30:
-                debug_counter = 0
-            Clock.schedule_once(self._increment_debug_counter, 0)
-
-            if debug_counter % 10 == 0:
+            # Engineering stats: 2x per second (time-based, not frame-based)
+            now_eng = time.monotonic()
+            if now_eng - self._eng_stats_last_time >= 0.5 and not self.use_bullseye:
+                self._eng_stats_last_time = now_eng
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
                 af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)
@@ -419,10 +423,13 @@ class ScopeDisplay(Image):
                     Clock.schedule_once(lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0)
 
         if ctx.engineering_mode and self.use_bullseye:
-            image_bullseye = self.transform_to_bullseye_prealloc(image=image)
-            bullseye_bytes = image_bullseye.tobytes()
-            bullseye_shape = image_bullseye.shape
-            Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape: self.create_and_set_bullseye_texture(b, s), 0)
+            now_be = time.monotonic()
+            if now_be - self._bullseye_last_time >= self._bullseye_min_interval:
+                self._bullseye_last_time = now_be
+                image_bullseye = self.transform_to_bullseye_prealloc(image=image)
+                bullseye_bytes = image_bullseye.tobytes()
+                bullseye_shape = image_bullseye.shape
+                Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape: self.create_and_set_bullseye_texture(b, s), 0)
 
         if not self.use_bullseye:
             if self.use_live_image_histogram_equalization:
