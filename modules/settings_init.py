@@ -3,9 +3,9 @@ import os
 import json
 
 
-global settings
+settings = None
 
-global debug_setting
+debug_setting = None
 
 # Required top-level keys that must exist in a valid settings file.
 # Missing keys cause hard-to-debug runtime errors downstream.

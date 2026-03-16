@@ -16,6 +16,7 @@ Usage
     session = ScopeSession.create_headless(settings=settings)
 """
 
+import os
 import threading
 
 from lvp_logger import logger
@@ -123,7 +124,17 @@ class ScopeSession:
 
         if settings is None:
             from modules.settings_init import settings as default_settings
-            settings = default_settings.copy()
+            if default_settings is not None:
+                settings = default_settings.copy()
+            else:
+                # Settings not loaded yet (e.g. headless/test usage) — load from disk
+                import json
+                settings_path = os.path.join(source_path, "data", "settings.json")
+                if os.path.exists(settings_path):
+                    with open(settings_path) as f:
+                        settings = json.load(f)
+                else:
+                    settings = {}
 
         scope = lumascope_api.Lumascope(simulate=True)
 
