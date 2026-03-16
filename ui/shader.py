@@ -260,19 +260,35 @@ void main (void) {
 
 
     def _update_status_bar(self, dt):
-        """Periodic status bar update (~5 Hz)."""
+        """Periodic status bar update (~5 Hz).
+
+        FPS is shown in the window title bar to avoid overlapping the side
+        panel.  Pixel and plate coordinates are shown in the on-image overlay
+        only when the mouse is hovering over the live view.
+        """
         try:
+            from kivy.core.window import Window
             from modules.config_ui_getters import get_current_objective_info, get_binning_from_ui, get_selected_labware
             ctx = _app_ctx.ctx
             status_label = ctx.lumaview.ids.get('status_bar_id')
-            if status_label is None:
-                return
 
             scope_display = self.ids.get('scope_display_id')
             fps = scope_display._fps_value if scope_display else 0
 
-            parts = [f'FPS: {fps:.1f}']
+            # Update window title with FPS (only when not showing a
+            # temporary status like "Homing" or "Recording Video")
+            current_title = Window.title
+            base_title = f"Lumaview Pro {ctx.version}"
+            if current_title.startswith(base_title) and '|' not in current_title:
+                Window.set_title(f"{base_title}   |   FPS: {fps:.1f}")
+            elif '|   FPS:' in current_title:
+                Window.set_title(f"{base_title}   |   FPS: {fps:.1f}")
 
+            # Overlay: only pixel/plate coords on hover
+            if status_label is None:
+                return
+
+            parts = []
             if self._mouse_over_image:
                 parts.append(f'Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})')
 
