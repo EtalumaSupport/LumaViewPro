@@ -209,7 +209,7 @@ class MotorBoard(SerialBoard):
             resp = self.exchange_command(command)
 
             # In case firmware doesn't support retrieving the acceleration limits
-            if resp.startswith("ERROR"):
+            if resp is None or resp.startswith("ERROR"):
                 raise ValueError(f"Firmware returned ERROR for {command}")
 
             # Extra protection for now in case motorboard responds with a different string that doesnt start with ERROR
@@ -220,8 +220,10 @@ class MotorBoard(SerialBoard):
             resp = DEFAULT_ACCELERATION_LIMIT
             using_default = True
 
-        using_default_str = "-> default" if using_default else ""
-        logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp} {using_default_str}')
+        if using_default:
+            logger.debug(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): firmware does not support, using default {DEFAULT_ACCELERATION_LIMIT}')
+        else:
+            logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp}')
 
         return int(resp)
 

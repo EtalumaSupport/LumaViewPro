@@ -43,21 +43,22 @@ class AutofocusExecutor:
         self.ui_update_func = ui_update_func
 
         self._af_in_progress = threading.Event()
+        self._kivy_clock_module = None
+
+        if self._use_kivy_clock:
+            self._kivy_clock_module = importlib.import_module('kivy.clock')
 
         self._reset_state()
 
         if not self._scope.camera.active:
             return
 
-        if self._use_kivy_clock:
-            self._kivy_clock_module = importlib.import_module('kivy.clock')
-
         self._objective_loader = ObjectiveLoader()
         self._reset_state()
 
 
     def reset(self):
-        if self._use_kivy_clock and hasattr(self, '_iterator_scheduled') and self._iterator_scheduled is not None:
+        if self._use_kivy_clock and self._kivy_clock_module and hasattr(self, '_iterator_scheduled') and self._iterator_scheduled is not None:
             self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
             self._iterator_scheduled = None
         self._reset_state()

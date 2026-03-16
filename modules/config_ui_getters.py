@@ -41,7 +41,11 @@ def is_image_saving_enabled() -> bool:
 
 def get_binning_from_ui() -> int:
     try:
-        return int(_app_ctx.ctx.motion_settings.ids['microscope_settings_id'].ids['binning_spinner'].text)
+        text = _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].ids['binning_spinner'].text
+        # Spinner text may be formatted as "1x1", "2x2", etc. — extract the first number.
+        if 'x' in text:
+            text = text.split('x')[0]
+        return int(text)
     except Exception:
         logger.warning("Failed to read binning from UI, defaulting to 1", exc_info=True)
         return 1
