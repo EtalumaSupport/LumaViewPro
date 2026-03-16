@@ -216,32 +216,24 @@ def color_channel_to_colormap_type(color_channel: str | ColorChannel) -> LvpColo
     return lut[color_channel]
 
 
-def get_tiff_colormap(colormap: LvpColormap, dtype):
-    if dtype in ('uint8', np.uint8):
-        dtype = np.uint8
-        step_size = 2**0
-    elif dtype in ('uint16', np.uint16):
-        dtype = np.uint16
-        step_size = 2**8
-    else:
-        raise NotImplementedError(f"Unsupported dtype for colormap: {dtype}")
+def get_imagej_lut(colormap: LvpColormap):
+    """Build an ImageJ-style LUT: (3, 256) uint8 array.
 
-    max_value = np.iinfo(dtype).max + 1
-
+    Stored in ImageJ metadata (not TIFF tag 320), so Windows Preview sees
+    plain MINISBLACK grayscale while ImageJ auto-applies the color LUT.
+    """
+    ramp = np.arange(256, dtype=np.uint8)
+    zeros = np.zeros(256, dtype=np.uint8)
     if colormap == LvpColormap.GRAY:
-        cmap_array = np.tile(np.arange(0, max_value, step_size, dtype=dtype), (3, 1))
+        return np.stack([ramp, ramp, ramp])
+    elif colormap == LvpColormap.RED:
+        return np.stack([ramp, zeros, zeros])
+    elif colormap == LvpColormap.GREEN:
+        return np.stack([zeros, ramp, zeros])
+    elif colormap == LvpColormap.BLUE:
+        return np.stack([zeros, zeros, ramp])
     else:
-        cmap_array = np.zeros((3,2**8), dtype=dtype)
-        if colormap == LvpColormap.RED:
-            cmap_array[0] = np.arange(0, max_value, step_size, dtype=dtype)
-        elif colormap == LvpColormap.GREEN:
-            cmap_array[1] = np.arange(0, max_value, step_size, dtype=dtype)
-        elif colormap == LvpColormap.BLUE:
-            cmap_array[2] = np.arange(0, max_value, step_size, dtype=dtype)
-        else:
-            raise NotImplementedError(f"Unsupported colormap: {colormap}")
-
-    return cmap_array
+        raise NotImplementedError(f"Unsupported colormap: {colormap}")
 
 
 def write_tiff(
@@ -413,7 +405,7 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         'Plane': plane,
     }
 
-    # ImageJ adds unit, channel modality, and document block
+    # ImageJ adds unit, channel modality, LUT, and document block
     if image_type == 'imagej':
         tiff_metadata['unit'] = 'um'
         tiff_metadata['Channel']['Modality'] = [modality]
@@ -423,6 +415,12 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
             'WellLabel': metadata.get('well_label', ''),
             'WellSite': metadata.get('well_site', ''),
         }
+        # Embed color LUT in ImageJ metadata (not TIFF tag 320).
+        # Windows Preview ignores ImageJ metadata → sees MINISBLACK → works.
+        # ImageJ reads its own metadata → auto-applies color LUT → shows color.
+        colormap_type = color_channel_to_colormap_type(color_channel=color)
+        lut = get_imagej_lut(colormap_type)
+        tiff_metadata['LUTs'] = [lut]
         options = dict(
             photometric=photometric,
             compression='deflate',
