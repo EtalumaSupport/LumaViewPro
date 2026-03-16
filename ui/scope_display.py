@@ -299,9 +299,11 @@ class ScopeDisplay(Image):
         if ctx is None:
             return
 
-        # Backpressure: avoid flooding the scope display executor if it is still draining
+        # Backpressure: skip this frame if the display worker hasn't finished the
+        # previous one yet.  A depth of 1 ensures we always show a recent frame
+        # instead of draining a stale queue (which causes perceived lag).
         try:
-            if hasattr(ctx.scope_display_thread_executor, 'queue_size') and ctx.scope_display_thread_executor.queue_size() > 3:
+            if hasattr(ctx.scope_display_thread_executor, 'queue_size') and ctx.scope_display_thread_executor.queue_size() > 1:
                 return
         except Exception:
             pass
