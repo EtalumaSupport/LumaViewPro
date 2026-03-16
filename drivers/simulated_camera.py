@@ -482,6 +482,35 @@ class SimulatedCamera(Camera):
 
         return True, self._last_grab_ts
 
+    def grab_latest(self):
+        """Single-copy grab for display pipeline (overrides Camera.grab_latest).
+
+        SimulatedCamera doesn't use ImageHandlerBase, so we override
+        to generate and return the image directly.
+        """
+        if not self._grabbing:
+            return False, None, None
+
+        if self._grab_delay > 0:
+            time.sleep(self._grab_delay)
+
+        if self._test_pattern == 'image_cycle':
+            exposure_s = self._exposure_us / 1_000_000.0
+            now = time.monotonic()
+            last = getattr(self, '_last_frame_time', 0.0)
+            if now - last < exposure_s:
+                with self._lock:
+                    img = self.array.copy() if self.array.size > 0 else None
+                return True, img, self._last_grab_ts
+            self._last_frame_time = now
+
+        with self._lock:
+            self.array = self._generate_image()
+            self._last_grab_ts = datetime.datetime.now()
+            img = self.array.copy()
+
+        return True, img, self._last_grab_ts
+
     def grab_new_capture(self, timeout):
         """Generate a fresh image (blocking with timeout)."""
         if not self._grabbing:

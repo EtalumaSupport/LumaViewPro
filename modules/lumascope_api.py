@@ -834,11 +834,13 @@ class Lumascope():
         if not self.camera or not self.camera.active:
             return False
 
-        grab_status, grab_image_ts = self.camera.grab()
-        if not grab_status:
+        # Single-copy grab: grab_latest() returns the image directly,
+        # avoiding the extra copy that grab() + get_array() would make.
+        # This saves ~2.3MB copy + 1 lock acquisition per frame.
+        grab_status, tmp, grab_image_ts = self.camera.grab_latest()
+        if not grab_status or tmp is None:
             return False
 
-        tmp = self.camera.get_array()  # thread-safe copy
         with self._state_lock:
             self._frame_buffer = tmp
 

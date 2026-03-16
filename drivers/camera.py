@@ -309,6 +309,37 @@ class Camera(ABC):
         with self._array_lock:
             return self.array.copy() if self.array.size > 0 else self.array
 
+    def grab_latest(self):
+        """Grab the latest frame and return it in one operation (single copy).
+
+        Combines grab() + get_array() but avoids the second copy.
+        The returned image is already a copy from the image handler,
+        safe to use without further copying.
+
+        Returns:
+            (success: bool, image: np.ndarray | None, timestamp: datetime | None)
+        """
+        with self._state_lock:
+            if self._active is None or self._device_removed:
+                return False, None, None
+
+        if not self.cam_image_handler:
+            return False, None, None
+
+        try:
+            result, image, image_ts = self.cam_image_handler.get_last_image()
+            if not result or image is None:
+                return False, None, None
+
+            # Store for other consumers (e.g. recording), but the returned
+            # image IS the copy — callers don't need get_array().
+            with self._array_lock:
+                self.array = image
+            return True, image, image_ts
+        except Exception as ex:
+            logger.exception(f"[CAM Class ] grab_latest() failed: {ex}")
+            return False, None, None
+
     @abstractmethod
     def grab_new_capture(self, timeout: float):
         pass
