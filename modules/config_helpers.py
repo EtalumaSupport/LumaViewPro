@@ -281,6 +281,7 @@ def get_image_capture_config_from_settings(settings: dict) -> dict:
             'sequenced': output_format.get('sequenced', 'TIFF'),
         },
         'use_full_pixel_depth': settings.get('use_full_pixel_depth', False),
+        'false_color_16bit': settings.get('false_color_16bit', False),
     }
 
 

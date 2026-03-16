@@ -276,6 +276,19 @@ def write_tiff(
     if extratags is None:
         extratags = []
 
+    # Convert 16-bit fluorescence to 3-channel RGB for false color in all viewers.
+    # This increases file size ~3x but provides color in Windows Preview and FIJI.
+    # Reads from user settings; defaults to off if settings unavailable.
+    if (data.dtype == np.uint16
+            and not is_color_image(data)
+            and color in ('Red', 'Green', 'Blue', 'Lumi')):
+        try:
+            from modules import app_context as _app_ctx
+            if _app_ctx.ctx.settings.get('false_color_16bit', False):
+                data = add_false_color(data, color)
+        except Exception:
+            pass
+
     kwargs = {}
     # Enable BigTIFF for datasets >3.8 GB to prevent silent corruption at 4 GB boundary
     data_size_bytes = data.nbytes

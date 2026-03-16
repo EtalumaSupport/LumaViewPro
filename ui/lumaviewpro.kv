@@ -2148,6 +2148,28 @@
 				size_hint_y: None
 				height: '30dp'
 				Label:
+					font_size: '12sp'
+					text: 'False Color in Saved 12-bit'
+					tooltip_text: 'Save 12-bit fluorescence images as 3-channel\nRGB for false color in all viewers.\nIncreases file size ~3x.'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: false_color_16bit_btn
+					tooltip_text: 'Save 12-bit fluorescence as 3-channel RGB\nfor false color in all viewers (3x file size)'
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_false_color_16bit_state()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
 					text: 'Live Image Format'
 					tooltip_text: 'Choose between TIFF and OME-TIFF\nfor live image capture'
 					halign: 'left'

@@ -228,6 +228,11 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['enable_full_pixel_depth_btn'].state = 'normal'
             self.update_full_pixel_depth_state()
 
+            if settings.get('false_color_16bit', False):
+                self.ids['false_color_16bit_btn'].state = 'down'
+            else:
+                self.ids['false_color_16bit_btn'].state = 'normal'
+
             if 'separate_folder_per_channel' in settings:
                 if settings['separate_folder_per_channel']:
                     self.ids['separate_folder_per_channel_id'].state = 'down'
@@ -515,6 +520,10 @@ class MicroscopeSettings(BoxLayout):
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
 
+    def update_false_color_16bit_state(self):
+        settings = _app_ctx.ctx.settings
+        enabled = self.ids['false_color_16bit_btn'].state == 'down'
+        settings['false_color_16bit'] = enabled
 
     def select_live_image_output_format(self):
         settings = _app_ctx.ctx.settings
