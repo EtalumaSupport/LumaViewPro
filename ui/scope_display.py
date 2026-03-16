@@ -50,6 +50,14 @@ class ScopeDisplay(Image):
         # Engineering stats timing (2x per second)
         self._eng_stats_last_time = 0.0
 
+        # Performance instrumentation (enabled via settings.debug_mode)
+        self._perf_log_interval = 5.0   # seconds between perf reports
+        self._perf_log_last_time = 0.0
+        self._perf_grab_times = []
+        self._perf_process_times = []
+        self._perf_blit_schedule_times = []
+        self._perf_skipped_frames = 0
+
         # Bullseye frame rate cap (15 FPS — CPU-intensive LUT rendering)
         self._bullseye_min_interval = 1.0 / 15
         self._bullseye_last_time = 0.0
@@ -304,6 +312,7 @@ class ScopeDisplay(Image):
         # instead of draining a stale queue (which causes perceived lag).
         try:
             if hasattr(ctx.scope_display_thread_executor, 'queue_size') and ctx.scope_display_thread_executor.queue_size() > 1:
+                self._perf_skipped_frames += 1
                 return
         except Exception:
             pass
@@ -390,10 +399,12 @@ class ScopeDisplay(Image):
             ctx.scope._scale_bar['color'] = active_layer
 
         # Likely not an IO call as image will be stored in buffer
+        t_grab_start = time.monotonic()
         image = ctx.scope.get_image_from_buffer(force_to_8bit=True)
         #image = ctx.scope.image_buffer
         if (image is False) or (image.size == 0) :
             return
+        t_grab_end = time.monotonic()
 
         # FPS tracking
         self._fps_frame_count += 1
@@ -434,13 +445,38 @@ class ScopeDisplay(Image):
                 Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape: self.create_and_set_bullseye_texture(b, s), 0)
 
         if not self.use_bullseye:
+            t_process_start = time.monotonic()
             if self.use_live_image_histogram_equalization:
                 image = self._contrast_stretcher.update(image)
 
             # Convert to bytes on worker thread, blit on main thread
             image_bytes = image.tobytes()
+            t_process_end = time.monotonic()
             image_shape = image.shape
             Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape: self.create_and_set_texture(b, s), 0)
+
+            # Performance instrumentation (when debug_mode enabled in settings)
+            if isinstance(ctx.settings, dict) and ctx.settings.get('debug_mode', False):
+                self._perf_grab_times.append(t_grab_end - t_grab_start)
+                self._perf_process_times.append(t_process_end - t_process_start)
+                now_perf = time.monotonic()
+                if now_perf - self._perf_log_last_time >= self._perf_log_interval:
+                    self._perf_log_last_time = now_perf
+                    n = len(self._perf_grab_times)
+                    if n > 0:
+                        avg_grab = sum(self._perf_grab_times) / n * 1000
+                        avg_proc = sum(self._perf_process_times) / n * 1000
+                        max_grab = max(self._perf_grab_times) * 1000
+                        max_proc = max(self._perf_process_times) * 1000
+                        logger.info(
+                            f'[PERF] {n} frames in {self._perf_log_interval:.0f}s: '
+                            f'grab={avg_grab:.1f}ms (max {max_grab:.1f}ms), '
+                            f'process+tobytes={avg_proc:.1f}ms (max {max_proc:.1f}ms), '
+                            f'skipped={self._perf_skipped_frames}'
+                        )
+                    self._perf_grab_times.clear()
+                    self._perf_process_times.clear()
+                    self._perf_skipped_frames = 0
 
         if self.record:
             ctx.lumaview.live_capture()

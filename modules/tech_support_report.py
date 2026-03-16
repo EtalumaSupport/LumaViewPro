@@ -479,13 +479,10 @@ def _collect_device_manager_full():
 # Raw REPL file transfer (Thonny-style) — delegated to drivers.raw_repl
 # ---------------------------------------------------------------------------
 
-from drivers.raw_repl import (
-    enter_raw_repl as _enter_raw_repl,
-    raw_exec as _raw_repl_exec,
-    exit_raw_repl as _exit_raw_repl,
-    list_files as _list_files_via_raw_repl,
-    read_file as _read_file_via_raw_repl,
-)
+
+# Raw REPL file operations are accessed through the board's production
+# driver methods (board.enter_raw_repl(), board.repl_list_files(), etc.)
+# rather than importing raw_repl functions directly.
 
 
 # ---------------------------------------------------------------------------
@@ -722,46 +719,23 @@ class FirmwareDiagnostics:
         return self.motor_board is not None and getattr(self.motor_board, 'found', False)
 
     def _enter_engineering(self):
-        """Enter LED engineering mode (send FACTORY + Y confirmation)."""
+        """Enter LED engineering mode (send FACTORY + Y confirmation).
+
+        Uses the production driver's exchange_command() for all serial I/O.
+        """
         if not self._led_ok():
             return False
         board = self.led_board
-        ser = getattr(board, 'driver', None)
-        if not ser:
-            return False
-        lock = getattr(board, '_lock', None)
-        if lock:
-            lock.acquire()
         try:
-            old_timeout = ser.timeout
-            ser.timeout = 5
-            ser.write(b'FACTORY\r\n')
+            # Send FACTORY — firmware echoes prompt and waits for Y/N
+            board.exchange_command('FACTORY', response_numlines=1, timeout=5)
             time.sleep(0.3)
-            # Drain prompt lines (echo + "Do you accept...")
-            for _ in range(10):
-                line = ser.readline()
-                if not line:
-                    break
-            # Send Y confirmation
-            ser.write(b'Y\r\n')
-            time.sleep(0.3)
-            # Drain engineering mode banner
-            for _ in range(20):
-                line = ser.readline()
-                if not line:
-                    break
-                decoded = line.decode('utf-8', 'ignore').strip()
-                if 'Engineering Mode' in decoded:
-                    ser.timeout = old_timeout
-                    return True
-            ser.timeout = old_timeout
-            return True  # Assume success even if banner not found
+            # Send Y confirmation — firmware enters engineering mode
+            resp = board.exchange_command('Y', response_numlines=1, timeout=5)
+            return True
         except Exception as e:
             logger.warning(f"Enter engineering mode failed: {e}")
             return False
-        finally:
-            if lock:
-                lock.release()
 
     def _exit_engineering(self):
         """Exit LED engineering mode (send Q)."""
@@ -770,62 +744,32 @@ class FirmwareDiagnostics:
         self._cmd(self.led_board, 'Q')
 
     def _cmd(self, board, command, timeout=None):
-        """Send command and return response string, or error string."""
+        """Send command and return response string, or error string.
+
+        Uses the production driver's exchange_command() which supports
+        per-call timeout natively.
+        """
         if board is None:
             return 'Board not connected'
         try:
-            if timeout and hasattr(board, 'driver') and board.driver:
-                old = board.driver.timeout
-                board.driver.timeout = timeout
-                try:
-                    return board.exchange_command(command) or 'None'
-                finally:
-                    board.driver.timeout = old
-            return board.exchange_command(command) or 'None'
+            return board.exchange_command(command, timeout=timeout) or 'None'
         except Exception as e:
             return f'Error: {e}'
 
     def _read_multiline(self, board, command, timeout=60, end_markers=None):
-        """Send command and read multi-line response (for SELFTEST etc.)."""
-        if board is None or not getattr(board, 'driver', None):
+        """Send command and read multi-line response (for SELFTEST etc.).
+
+        Uses the production driver's exchange_multiline() for all serial I/O.
+        """
+        if board is None:
             return 'Board not connected'
         if end_markers is None:
             end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
-        lock = getattr(board, '_lock', None)
-        if lock:
-            lock.acquire()
         try:
-            old_timeout = board.driver.timeout
-            board.driver.timeout = timeout
-            board.driver.write(command.encode('utf-8') + b'\n')
-            lines = []
-            start = time.time()
-            while time.time() - start < timeout:
-                raw = board.driver.readline()
-                if not raw:
-                    break
-                line = raw.decode('utf-8', 'ignore').strip()
-                # Skip RE: echo
-                if line.startswith('RE:'):
-                    continue
-                if line:
-                    lines.append(line)
-                if any(m in line.upper() for m in end_markers):
-                    # Drain a few more lines
-                    for _ in range(5):
-                        extra = board.driver.readline()
-                        if extra:
-                            decoded = extra.decode('utf-8', 'ignore').strip()
-                            if decoded and not decoded.startswith('RE:'):
-                                lines.append(decoded)
-                    break
-            board.driver.timeout = old_timeout
-            return '\n'.join(lines) or 'No response'
+            result = board.exchange_multiline(command, timeout=timeout, end_markers=end_markers)
+            return result or 'No response'
         except Exception as e:
             return f'Error: {e}'
-        finally:
-            if lock:
-                lock.release()
 
     # -- High-level collectors --
 
@@ -919,35 +863,34 @@ class FirmwareDiagnostics:
     def read_config_files(self, board, label=''):
         """Read config files from a board via raw REPL (Thonny-style).
 
+        Uses the production driver's raw REPL methods (enter_raw_repl,
+        repl_list_files, repl_read_file, exit_raw_repl) instead of
+        accessing the serial port directly.
+
         Interrupts running firmware, reads config files, then soft-resets.
         Returns dict of {filename: bytes} or None.
         """
-        if board is None or not getattr(board, 'driver', None):
+        if board is None:
+            return None
+        if not hasattr(board, 'enter_raw_repl'):
             return None
 
-        ser = board.driver
-        # Simulators use a truthy sentinel (True), not a real serial port
-        if not hasattr(ser, 'write'):
-            return None
         result = {}
-
         try:
-            if not _enter_raw_repl(ser):
+            if not board.enter_raw_repl():
                 logger.warning(f"Could not enter raw REPL on {label} board")
                 return None
 
-            # List files on the board
-            files = _list_files_via_raw_repl(ser)
+            files = board.repl_list_files()
             logger.info(f"Files on {label} board: {files}")
 
-            # Read each config file (skip main.py, boot.py, etc.)
             for fname in files:
                 if fname in FIRMWARE_EXCLUDE_FILES:
                     continue
                 ext = os.path.splitext(fname)[1].lower()
                 if ext not in FIRMWARE_CONFIG_EXTENSIONS:
                     continue
-                content = _read_file_via_raw_repl(ser, fname)
+                content = board.repl_read_file(fname)
                 if content is not None:
                     result[fname] = content
                     logger.info(f"  Read {label}/{fname} ({len(content)} bytes)")
@@ -955,7 +898,7 @@ class FirmwareDiagnostics:
         except Exception as e:
             logger.warning(f"Raw REPL file read error ({label}): {e}")
         finally:
-            _exit_raw_repl(ser)
+            board.exit_raw_repl()
 
         return result if result else None
 

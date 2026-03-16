@@ -254,6 +254,86 @@ class SerialBoard:
 
             return None
 
+    def exchange_multiline(self, command, timeout=60, end_markers=None):
+        """Send command and read variable-length multi-line response.
+
+        Reads lines until an end marker is found, no more data arrives,
+        or the overall timeout expires.  LED echo lines (RE: prefix) are
+        automatically stripped.
+
+        Args:
+            command: Serial command string to send.
+            timeout: Overall timeout in seconds for the entire response.
+            end_markers: List of strings to check for in each line
+                (case-insensitive). When found, reads a few more drain
+                lines then stops.  Defaults to common completion markers.
+
+        Returns:
+            Joined multi-line string, or None on error.
+        """
+        if end_markers is None:
+            end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
+
+        with self._lock:
+            if self.driver is None:
+                try:
+                    self.connect()
+                except Exception as e:
+                    logger.error(f'{self._label} exchange_multiline({command}) reconnect failed: {e}')
+                    return None
+            if self.driver is None:
+                return None
+
+            saved_timeout = self.driver.timeout
+            self.driver.timeout = min(timeout, 5.0)  # per-readline timeout
+
+            try:
+                # Flush stale data
+                stale = self.driver.in_waiting
+                if stale > 0:
+                    self.driver.read(stale)
+
+                self.driver.write(command.encode('utf-8') + b'\n')
+                lines = []
+                start = time.monotonic()
+                while time.monotonic() - start < timeout:
+                    raw = self.driver.readline()
+                    if not raw:
+                        if lines:
+                            break
+                        continue
+                    line = raw.decode('utf-8', 'ignore').strip()
+                    if line.startswith('RE:'):
+                        continue
+                    if line:
+                        lines.append(line)
+                    if any(m in line.upper() for m in [em.upper() for em in end_markers]):
+                        # Drain a few trailing lines
+                        for _ in range(5):
+                            extra = self.driver.readline()
+                            if extra:
+                                decoded = extra.decode('utf-8', 'ignore').strip()
+                                if decoded and not decoded.startswith('RE:'):
+                                    lines.append(decoded)
+                        break
+
+                result = '\n'.join(lines) or None
+                logger.debug(f'{self._label} exchange_multiline({command}) -> {len(lines)} lines')
+                return result
+
+            except serial.SerialTimeoutException:
+                logger.warning(f'{self._label} exchange_multiline({command}) timeout')
+                return '\n'.join(lines) if lines else None
+
+            except Exception as e:
+                logger.error(f'{self._label} exchange_multiline({command}) failed: {e}')
+                self._close_driver()
+                return None
+
+            finally:
+                if self.driver is not None:
+                    self.driver.timeout = saved_timeout
+
     def _write_command_fast(self, command: str):
         """Write-only fast path: send command without reading a response."""
         with self._lock:

@@ -88,6 +88,7 @@ class Lumascope():
                 self.camera: Camera = SimulatedCamera(
                     z_position_func=lambda: self.motion.current_pos('Z') if self.motion else 5000.0,
                 )
+                self.camera.load_cycle_images()
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
             elif camera_type == "ids":
                 self.camera: Camera = IDSCamera()

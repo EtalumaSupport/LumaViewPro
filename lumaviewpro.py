@@ -818,6 +818,15 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:
             logger.warning(f'[LVP Main  ] Engineering plugin failed to register: {e}')
 
+        # CPU profiling — enabled via debug_mode in settings.json
+        # On exit, dumps a .profile file to logs/profile/ that can be
+        # viewed with: pip install snakeviz && snakeviz <file>.profile
+        if settings.get('debug_mode', False):
+            global profiling_helper
+            profiling_helper = profiling_utils.ProfilingHelper()
+            profiling_helper.enable()
+            logger.info('[LVP Main  ] cProfile enabled (debug_mode=true) — will dump on exit')
+
         return lumaview
 
     def _on_resize(self, window, w, h):

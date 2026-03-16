@@ -8,6 +8,7 @@ supports the full Camera ABC interface.
 """
 
 import datetime
+import pathlib
 import threading
 import time
 from typing import Callable
@@ -59,7 +60,12 @@ class SimulatedCamera(Camera):
         self._last_grab_ts = None
 
         # Synthetic image state — can be set externally for test scenarios
-        self._test_pattern = 'gradient'  # 'gradient', 'black', 'white', 'noise', 'focus_target'
+        # 'gradient', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
+        self._test_pattern = 'gradient'
+
+        # Image cycling: load real images from data/sim_images/ and cycle through
+        self._cycle_images = []       # List of numpy arrays (grayscale)
+        self._cycle_index = 0
 
         # Z-dependent focus simulation
         self._z_position = 5000.0       # Current Z position (um)
@@ -87,6 +93,71 @@ class SimulatedCamera(Camera):
             raise ValueError(f"Unknown timing mode: {mode!r}. Use 'fast' or 'realistic'.")
         self._grab_delay = preset['grab_delay']
         self._timing_mode = mode
+
+    def load_cycle_images(self, image_dir=None):
+        """Load images from a directory for cycling through in simulate mode.
+
+        Images are resized to match the camera resolution and converted
+        to grayscale. If no directory is provided, checks data/sim_images/.
+        If no images are found, generates 4 synthetic patterns instead.
+
+        Args:
+            image_dir: Path to directory containing image files (png, jpg, tiff).
+                       If None, uses data/sim_images/ relative to the app root.
+        """
+        images = []
+
+        if image_dir is None:
+            # Try default location
+            for candidate in [
+                pathlib.Path(__file__).resolve().parent.parent / 'data' / 'sim_images',
+                pathlib.Path('.') / 'data' / 'sim_images',
+            ]:
+                if candidate.is_dir():
+                    image_dir = candidate
+                    break
+
+        if image_dir is not None:
+            image_dir = pathlib.Path(image_dir)
+            if image_dir.is_dir():
+                try:
+                    from PIL import Image as PILImage
+                    for ext in ('*.png', '*.jpg', '*.jpeg', '*.tif', '*.tiff'):
+                        for fp in sorted(image_dir.glob(ext)):
+                            try:
+                                pil_img = PILImage.open(fp).convert('L')
+                                h = self._height // self._binning
+                                w = self._width // self._binning
+                                pil_img = pil_img.resize((w, h), PILImage.LANCZOS)
+                                images.append(np.array(pil_img, dtype=np.uint8))
+                                logger.info(f'[SimCamera ] Loaded cycle image: {fp.name}')
+                            except Exception as e:
+                                logger.warning(f'[SimCamera ] Could not load {fp}: {e}')
+                except ImportError:
+                    logger.warning('[SimCamera ] Pillow not available — cannot load cycle images')
+
+        if not images:
+            # Generate 4 synthetic patterns as fallback
+            h = self._height // self._binning
+            w = self._width // self._binning
+            # 1: Horizontal gradient
+            images.append(np.tile(np.linspace(0, 255, w, dtype=np.uint8), (h, 1)))
+            # 2: Vertical gradient
+            images.append(np.tile(np.linspace(0, 255, h, dtype=np.uint8).reshape(-1, 1), (1, w)))
+            # 3: Radial gradient (bullseye-like)
+            y, x = np.ogrid[-h//2:h//2, -w//2:w//2]
+            r = np.sqrt(x.astype(float)**2 + y.astype(float)**2)
+            images.append(((r / r.max()) * 255).astype(np.uint8))
+            # 4: Checkerboard
+            block = 40
+            checker = np.indices((h, w)).sum(axis=0) // block % 2
+            images.append((checker * 200 + 30).astype(np.uint8))
+            logger.info(f'[SimCamera ] Generated {len(images)} synthetic cycle images')
+
+        self._cycle_images = images
+        self._cycle_index = 0
+        self._test_pattern = 'image_cycle'
+        logger.info(f'[SimCamera ] Image cycling enabled with {len(images)} images')
 
     # ------------------------------------------------------------------
     # Connection
@@ -348,7 +419,23 @@ class SimulatedCamera(Camera):
         # Scale brightness by exposure and gain
         brightness = min(1.0, (self._exposure_us / 1_000_000.0) * self._gain * 10.0)
 
-        if self._test_pattern == 'black':
+        if self._test_pattern == 'image_cycle' and self._cycle_images:
+            # Cycle through loaded/generated images
+            src = self._cycle_images[self._cycle_index % len(self._cycle_images)]
+            self._cycle_index += 1
+            # Resize if binning changed since load
+            if src.shape != (h, w):
+                # Simple nearest-neighbor resize via slicing
+                src_h, src_w = src.shape
+                y_idx = np.linspace(0, src_h - 1, h, dtype=int)
+                x_idx = np.linspace(0, src_w - 1, w, dtype=int)
+                src = src[np.ix_(y_idx, x_idx)]
+            # Scale to target dtype and apply brightness
+            if dtype == np.uint16:
+                img = (src.astype(np.float32) / 255.0 * max_val * brightness).astype(dtype)
+            else:
+                img = (src.astype(np.float32) * brightness).clip(0, max_val).astype(dtype)
+        elif self._test_pattern == 'black':
             img = np.zeros((h, w), dtype=dtype)
         elif self._test_pattern == 'white':
             img = np.full((h, w), max_val, dtype=dtype)
@@ -366,12 +453,28 @@ class SimulatedCamera(Camera):
         return img
 
     def grab(self):
-        """Return the last generated image (non-blocking)."""
+        """Return the last generated image (non-blocking).
+
+        When image cycling is active, simulates realistic camera behavior:
+        a new frame isn't available until the exposure time has elapsed.
+        This matches real cameras where grab() returns the latest buffered
+        frame and the frame rate is limited by exposure time.
+        """
         if not self._grabbing:
             return False, None
 
         if self._grab_delay > 0:
             time.sleep(self._grab_delay)
+
+        # Gate frame delivery on exposure time (realistic simulation)
+        if self._test_pattern == 'image_cycle':
+            exposure_s = self._exposure_us / 1_000_000.0
+            now = time.monotonic()
+            last = getattr(self, '_last_frame_time', 0.0)
+            if now - last < exposure_s:
+                # Not enough time has passed — return the previous frame
+                return True, self._last_grab_ts
+            self._last_frame_time = now
 
         with self._lock:
             self.array = self._generate_image()

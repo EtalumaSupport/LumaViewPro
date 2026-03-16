@@ -275,54 +275,51 @@ void main (void) {
             scope_display = self.ids.get('scope_display_id')
             fps = scope_display._fps_value if scope_display else 0
 
-            # Update window title with FPS unless a temporary status
-            # (Homing, Recording, Writing) is being shown.
+            # Build title bar: FPS + XY location (on hover)
             current_title = Window.title
             base_title = f"Lumaview Pro {ctx.version}"
             temp_statuses = ('Homing', 'Recording', 'Writing')
             has_temp_status = any(s in current_title for s in temp_statuses)
+
             if not has_temp_status:
-                Window.set_title(f"{base_title}   |   FPS: {fps:.1f}")
+                title_parts = [f"FPS: {fps:.1f}"]
 
-            # Overlay: only pixel/plate coords on hover
-            if status_label is None:
-                return
+                if self._mouse_over_image:
+                    title_parts.append(f'Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})')
 
-            parts = []
-            if self._mouse_over_image:
-                parts.append(f'Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})')
-
-                # Convert pixel offset from image center to plate coordinates
-                try:
-                    _, objective = get_current_objective_info()
-                    pixel_size_um = common_utils.get_pixel_size(
-                        focal_length=objective['focal_length'],
-                        binning_size=get_binning_from_ui(),
-                    )
-                    tex_w, tex_h = scope_display.texture_size
-                    # Pixel distance from center
-                    dx_px = self._mouse_pixel_x - tex_w / 2
-                    dy_px = self._mouse_pixel_y - tex_h / 2
-                    dx_um = dx_px * pixel_size_um
-                    dy_um = dy_px * pixel_size_um
-
-                    if ctx.lumaview.scope.motion.driver:
-                        pos = ctx.lumaview.scope.get_current_position(axis=None)
-                        # Stage coords of the cursor point
-                        cursor_sx = pos['X'] + dx_um
-                        cursor_sy = pos['Y'] - dy_um  # image Y is inverted vs stage Y
-                        _, labware = get_selected_labware()
-                        px, py = ctx.coordinate_transformer.stage_to_plate(
-                            labware=labware,
-                            stage_offset=ctx.settings['stage_offset'],
-                            sx=cursor_sx,
-                            sy=cursor_sy,
+                    # Convert pixel offset from image center to plate coordinates
+                    try:
+                        _, objective = get_current_objective_info()
+                        pixel_size_um = common_utils.get_pixel_size(
+                            focal_length=objective['focal_length'],
+                            binning_size=get_binning_from_ui(),
                         )
-                        parts.append(f'Plate: ({px:.2f}, {py:.2f}) mm')
-                except Exception:
-                    pass
+                        tex_w, tex_h = scope_display.texture_size
+                        dx_px = self._mouse_pixel_x - tex_w / 2
+                        dy_px = self._mouse_pixel_y - tex_h / 2
+                        dx_um = dx_px * pixel_size_um
+                        dy_um = dy_px * pixel_size_um
 
-            status_label.text = '  |  '.join(parts)
+                        if ctx.lumaview.scope.motion.driver:
+                            pos = ctx.lumaview.scope.get_current_position(axis=None)
+                            cursor_sx = pos['X'] + dx_um
+                            cursor_sy = pos['Y'] - dy_um
+                            _, labware = get_selected_labware()
+                            px, py = ctx.coordinate_transformer.stage_to_plate(
+                                labware=labware,
+                                stage_offset=ctx.settings['stage_offset'],
+                                sx=cursor_sx,
+                                sy=cursor_sy,
+                            )
+                            title_parts.append(f'Plate: ({px:.2f}, {py:.2f}) mm')
+                    except Exception:
+                        pass
+
+                Window.set_title(f"{base_title}   |   {'   |   '.join(title_parts)}")
+
+            # Clear the on-image overlay (coordinates now in title bar)
+            if status_label is not None:
+                status_label.text = ''
         except Exception:
             pass
 

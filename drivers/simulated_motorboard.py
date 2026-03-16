@@ -165,7 +165,7 @@ class SimulatedMotorBoard:
         if self._cmd_delay > 0:
             time.sleep(self._cmd_delay)
 
-    def exchange_command(self, command, response_numlines=1):
+    def exchange_command(self, command, response_numlines=1, timeout=None):
         with self.thread_lock:
             if self.driver is None:
                 try:
@@ -195,6 +195,10 @@ class SimulatedMotorBoard:
             if response_numlines == 1:
                 return response
             return [response]
+
+    def exchange_multiline(self, command, timeout=60, end_markers=None):
+        """Simulated multi-line response."""
+        return self.exchange_command(command)
 
     def _handle_command(self, command):
         cmd = command.strip()

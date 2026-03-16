@@ -104,7 +104,7 @@ class SimulatedLEDBoard:
         if self._delay > 0:
             time.sleep(self._delay)
 
-    def exchange_command(self, command):
+    def exchange_command(self, command, response_numlines=1, timeout=None):
         with self._lock:
             if self.driver is None:
                 try:
@@ -132,6 +132,10 @@ class SimulatedLEDBoard:
             response = f"RE: {command}"
             logger.debug(f'[LED Sim   ] exchange_command({command}) -> {response}')
             return response
+
+    def exchange_multiline(self, command, timeout=60, end_markers=None):
+        """Simulated multi-line response."""
+        return self.exchange_command(command)
 
     def _write_command_fast(self, command: str):
         with self._lock:
