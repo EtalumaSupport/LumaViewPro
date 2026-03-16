@@ -462,9 +462,12 @@ def generate_tiff_data(data, metadata: dict, image_type: str, color: str,):
         # Embed color LUT in ImageJ metadata (not TIFF tag 320).
         # Windows Preview ignores ImageJ metadata → sees MINISBLACK → works.
         # ImageJ reads its own metadata → auto-applies color LUT → shows color.
+        # mode='color' tells FIJI to apply the LUT (otherwise defaults to grayscale).
         colormap_type = color_channel_to_colormap_type(color_channel=color)
         lut = get_imagej_lut(colormap_type)
         tiff_metadata['LUTs'] = [lut]
+        if colormap_type != LvpColormap.GRAY:
+            tiff_metadata['mode'] = 'color'
         options = dict(
             photometric=photometric,
             compression='deflate',
