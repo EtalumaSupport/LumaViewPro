@@ -295,6 +295,7 @@ def write_tiff(
     use_bigtiff = data_size_bytes > 3.8 * 1024 * 1024 * 1024
     if ome:
         kwargs = {
+            'ome': True,
             'bigtiff': use_bigtiff,
         }
     elif not video_frame:

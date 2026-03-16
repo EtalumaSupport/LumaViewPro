@@ -275,13 +275,13 @@ void main (void) {
             scope_display = self.ids.get('scope_display_id')
             fps = scope_display._fps_value if scope_display else 0
 
-            # Update window title with FPS (only when not showing a
-            # temporary status like "Homing" or "Recording Video")
+            # Update window title with FPS unless a temporary status
+            # (Homing, Recording, Writing) is being shown.
             current_title = Window.title
             base_title = f"Lumaview Pro {ctx.version}"
-            if current_title.startswith(base_title) and '|' not in current_title:
-                Window.set_title(f"{base_title}   |   FPS: {fps:.1f}")
-            elif '|   FPS:' in current_title:
+            temp_statuses = ('Homing', 'Recording', 'Writing')
+            has_temp_status = any(s in current_title for s in temp_statuses)
+            if not has_temp_status:
                 Window.set_title(f"{base_title}   |   FPS: {fps:.1f}")
 
             # Overlay: only pixel/plate coords on hover

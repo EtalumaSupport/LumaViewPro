@@ -187,6 +187,12 @@ class ProtocolSettings(FloatLayout):
         self.select_labware()
         self.update_step_ui()
 
+        # Restore BF AF for fluorescence toggle
+        if settings.get('protocol', {}).get('bf_af_for_fluorescence', False):
+            self.ids['bf_af_for_fluorescence_btn'].state = 'down'
+        else:
+            self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
+
 
     # Update Protocol Period
     def update_period(self):
@@ -1080,6 +1086,13 @@ class ProtocolSettings(FloatLayout):
     def debug_func(self):
         ctx = _app_ctx.ctx
         logger.error(f"DEBUG VAL: {ctx.lumaview.scope.get_led_status()}")
+
+    def update_bf_af_for_fluorescence(self):
+        """Toggle: use BF autofocus result for all fluorescence channels."""
+        ctx = _app_ctx.ctx
+        enabled = self.ids['bf_af_for_fluorescence_btn'].state == 'down'
+        ctx.settings['protocol']['bf_af_for_fluorescence'] = enabled
+        logger.info(f'[Protocol  ] BF AF for fluorescence: {enabled}')
 
     def run_autofocus_scan_from_ui(self):
         from ui.notification_popup import show_notification_popup

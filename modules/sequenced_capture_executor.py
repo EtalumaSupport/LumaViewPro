@@ -597,6 +597,9 @@ class SequencedCaptureExecutor:
                     pass  # If we can't check, proceed anyway
 
                 self._go_to_step(step_idx=self._curr_step)
+                # Guard: if cleanup already ran (e.g. button spam), don't proceed
+                if self._protocol_ended.is_set() or self._state == ProtocolState.IDLE:
+                    break
                 self._scan_in_progress.set()
                 self._set_state(ProtocolState.SCANNING)
                 self._auto_gain_deadline = time.monotonic() + self._autogain_settings['max_duration'].total_seconds()
@@ -624,8 +627,11 @@ class SequencedCaptureExecutor:
 
             except Exception as ex:
                 logger.error(f"[Protocol] Error during run loop: {ex}", exc_info=True)
-                if self._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
-                    self._set_state(ProtocolState.ERROR)
+                if self._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE, ProtocolState.ERROR):
+                    try:
+                        self._set_state(ProtocolState.ERROR)
+                    except ValueError:
+                        pass  # State already transitioned (e.g., concurrent cleanup)
                 self._cleanup()
                 break
 
@@ -764,6 +770,23 @@ class SequencedCaptureExecutor:
 
         _t_led_done = time.monotonic()
         logger.debug(f"[TIMING] Step {self._curr_step} LED on: {(_t_led_done - _t_led_start)*1000:.1f}ms")
+
+        # BF AF for fluorescence: skip AF on non-BF channels and use the last BF AF Z result
+        bf_af_for_fluor = False
+        try:
+            bf_af_for_fluor = _app_ctx.ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence', False)
+        except Exception:
+            pass
+        if bf_af_for_fluor and step['Auto_Focus'] and step['Color'] != 'BF':
+            # Use the BF autofocus Z result if available
+            if self._autofocus_executor.best_focus_position() is not None:
+                if self._update_z_pos_from_autofocus:
+                    new_z_pos = self._autofocus_executor.best_focus_position()
+                    self._protocol.modify_step_z_height(step_idx=self._curr_step, z=new_z_pos)
+                logger.info(f'[Capture   ] Skipping AF on {step["Color"]} — using BF result Z={self._autofocus_executor.best_focus_position()}')
+                # Skip AF and fall through to capture
+                step = dict(step)
+                step['Auto_Focus'] = False
 
         # If the autofocus is selected, is not currently running and has not completed, begin autofocus
         if step['Auto_Focus'] and not self._autofocus_executor.complete() and not self._autofocus_executor.in_progress():
@@ -1023,8 +1046,8 @@ class SequencedCaptureExecutor:
             self._callbacks['leds_off']()
 
 
-    def _led_on(self, color: str, illumination: float, block: bool=True):
-        if self._protocol_ended.is_set():
+    def _led_on(self, color: str, illumination: float, block: bool=True, force: bool=False):
+        if self._protocol_ended.is_set() and not force:
             return
 
         fut = self._io_executor.protocol_put(IOTask(
@@ -1079,7 +1102,7 @@ class SequencedCaptureExecutor:
                 self._leds_off()
                 for color, color_data in self._original_led_states.items():
                     if color_data['enabled']:
-                        self._led_on(color=color, illumination=color_data['illumination'], block=True)
+                        self._led_on(color=color, illumination=color_data['illumination'], block=True, force=True)
             else:
                 logger.error(f"Unsupported LEDs state at end value: {self._leds_state_at_end}")
         except Exception as ex:

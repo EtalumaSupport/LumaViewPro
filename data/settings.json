@@ -172,7 +172,8 @@
             "max_duration_seconds": 1.0,
             "min_gain": 0.0,
             "max_gain": 20.0
-        }
+        },
+        "bf_af_for_fluorescence": false
     },
     "binning": {
         "size": "1x1"

@@ -1453,6 +1453,28 @@
 			#         background_down: './data/icons/R_down.png'
 			#         on_release: root.exposures_up_button()
 					
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'Use BF Focus for Fluorescence'
+					tooltip_text: 'When enabled, autofocus runs only on the\nBrightfield channel and applies the result\nto all fluorescence channels at each well.'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: bf_af_for_fluorescence_btn
+					tooltip_text: 'Use Brightfield autofocus result\nfor all fluorescence channels'
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_bf_af_for_fluorescence()
+
 			RoundedToggleButton:
 				id: run_autofocus_btn
 				text: 'Autofocus All Steps'
@@ -2126,50 +2148,6 @@
 				size_hint_y: None
 				height: '30dp'
 				Label:
-					font_size: '12sp'
-					text: 'Enable Full Pixel Depth'
-					tooltip_text: 'Choose between 8 and 12 bit depth images'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				ToggleButton:
-					id: enable_full_pixel_depth_btn
-					tooltip_text: 'Save all images as 12-bit tiff'
-					size_hint: None, None
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_full_pixel_depth_state()
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					font_size: '12sp'
-					text: 'False Color in Saved 12-bit'
-					tooltip_text: 'Save 12-bit fluorescence images as 3-channel\nRGB for false color in all viewers.\nIncreases file size ~3x.'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				ToggleButton:
-					id: false_color_16bit_btn
-					tooltip_text: 'Save 12-bit fluorescence as 3-channel RGB\nfor false color in all viewers (3x file size)'
-					size_hint: None, None
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_false_color_16bit_state()
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
 					text: 'Live Image Format'
 					tooltip_text: 'Choose between TIFF and OME-TIFF\nfor live image capture'
 					halign: 'left'
@@ -2226,6 +2204,71 @@
 					text_autoupdate: True
 					on_text: root.select_video_recording_format()
 					values: ('mp4', 'Frames')
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: '12 Bit Mode'
+					tooltip_text: 'Capture and save images at 12-bit depth\n(4096 levels) instead of 8-bit (256 levels)'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: enable_full_pixel_depth_btn
+					tooltip_text: 'Save all images as 12-bit TIFF'
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_full_pixel_depth_state()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					font_size: '12sp'
+					text: 'False Color in Saved 12-bit'
+					tooltip_text: 'Save 12-bit fluorescence images as 3-channel\nRGB for false color in all viewers.\nIncreases file size ~3x.'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				ToggleButton:
+					id: false_color_16bit_btn
+					tooltip_text: 'Save 12-bit fluorescence as 3-channel RGB\nfor false color in all viewers (3x file size)'
+					size_hint: None, None
+					size: '45dp', '30dp'
+					border: 0, 0, 0, 0
+					valign: 'middle'
+					background_normal: './data/icons/ToggleL.png'
+					background_down: './data/icons/ToggleRW.png'
+					on_release: root.update_false_color_16bit_state()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp'
+				Label:
+					text: 'Binning'
+					tooltip_text: 'Add adjacent pixels together for increased sensitivity\nsacrificing resolution'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+					font_size: '12sp'
+				Spinner:
+					id: binning_spinner
+					sync_height: True
+					text: 'Select'
+					font_size:'12sp'
+					option_cls: "SpinnerOption0"
+					text_autoupdate: True
+					on_release: root.load_binning_sizes()
+					on_text: root.select_binning_size()
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -2324,28 +2367,6 @@
 
 
 			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Binning'
-					tooltip_text: 'Add adjacent pixels together for increased sensitivity\nsacrificing resolution'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-					font_size: '12sp'
-				Spinner:
-					id: binning_spinner
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					text_autoupdate: True
-					on_release: root.load_binning_sizes()
-					on_text: root.select_binning_size()
-
-			BoxLayout:
-
 				orientation: 'horizontal'
 				size_hint_y: None
 				height: '30dp'
