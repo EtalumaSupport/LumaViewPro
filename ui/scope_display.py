@@ -469,7 +469,7 @@ class ScopeDisplay(Image):
                 if open_layer is not None:
                     Clock.schedule_once(lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0)
 
-        if ctx.engineering_mode and self.use_bullseye:
+        if self.use_bullseye:
             now_be = time.monotonic()
             if now_be - self._bullseye_last_time >= self._bullseye_min_interval:
                 self._bullseye_last_time = now_be
@@ -477,6 +477,9 @@ class ScopeDisplay(Image):
                 bullseye_bytes = image_bullseye.tobytes()
                 bullseye_shape = image_bullseye.shape
                 Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape: self.create_and_set_bullseye_texture(b, s), 0)
+            else:
+                # Bullseye frame-rate cap skipped this frame — keep the loop alive
+                self._schedule_next()
 
         if not self.use_bullseye:
             t_process_start = time.monotonic()
