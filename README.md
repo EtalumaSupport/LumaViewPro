@@ -76,7 +76,7 @@ To report bugs or request features, please open an issue on [GitHub Issues](http
 - **Camera SDK**: [Basler Pylon](https://docs.baslerweb.com/pylon-software-suite) (included in the Windows installer, must be installed separately when running from source)
 - **OS**: Windows 10/11, macOS, Linux (see note below)
 
-**macOS note:** pypylon 4.0.0 wheels require macOS 14.0 (Sonoma) or later on Apple Silicon (ARM64). Intel Macs support macOS 11+. Check the [Basler Pylon page](https://www.baslerweb.com/en-us/software/pylon/) for the latest compatibility information.
+**macOS note:** pypylon 4.0.0 wheels are limited to macOS 14 (Sonoma) on Apple Silicon (ARM64) — macOS 15 (Sequoia) and later are **not yet supported**. Intel Macs support macOS 11+. Check the [Basler Pylon page](https://www.baslerweb.com/en-us/software/pylon/) for the latest compatibility information.
 
 ## Installation from Source
 
