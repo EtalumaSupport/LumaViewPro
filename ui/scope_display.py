@@ -61,6 +61,7 @@ class ScopeDisplay(Image):
         self._perf_grab_times = []
         self._perf_process_times = []
         self._perf_blit_schedule_times = []
+        self._perf_blit_delays = []
         self._perf_skipped_frames = 0
 
         # Bullseye frame rate cap (15 FPS — CPU-intensive LUT rendering)
@@ -503,16 +504,22 @@ class ScopeDisplay(Image):
                     max_proc = max(self._perf_process_times) * 1000
                     avg_queue = sum(self._perf_blit_schedule_times) / max(1, len(self._perf_blit_schedule_times)) * 1000
                     t_total = now_perf - (now_perf - self._perf_log_interval)
+                    kivy_fps = Clock.get_fps()
+                    kivy_rfps = Clock.get_rfps()
+                    display_fps = self._display_fps_value
+                    avg_blit_delay = sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1 if self._perf_blit_delays else 0
+                    max_blit_delay = max(self._perf_blit_delays) if self._perf_blit_delays else 0
                     logger.info(
-                        f'[PERF] {n} frames in {self._perf_log_interval:.0f}s ({n/self._perf_log_interval:.1f} FPS): '
-                        f'queue_wait={avg_queue:.1f}ms, '
-                        f'grab={avg_grab:.1f}ms (max {max_grab:.1f}ms), '
-                        f'process+tobytes={avg_proc:.1f}ms (max {max_proc:.1f}ms), '
-                        f'eng_stats={t_eng_stats*1000:.1f}ms'
+                        f'[PERF] worker={n/self._perf_log_interval:.1f} display={display_fps:.1f} '
+                        f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
+                        f'queue={avg_queue:.1f}ms grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
+                        f'proc={avg_proc:.1f}ms(max {max_proc:.1f}) '
+                        f'blit_delay={avg_blit_delay:.1f}ms(max {max_blit_delay:.0f}) eng={t_eng_stats*1000:.1f}ms'
                     )
                 self._perf_grab_times.clear()
                 self._perf_process_times.clear()
                 self._perf_blit_schedule_times.clear()
+                self._perf_blit_delays.clear()
                 self._perf_skipped_frames = 0
 
         if self.record:
@@ -544,7 +551,8 @@ class ScopeDisplay(Image):
     def create_and_set_texture(self, image_bytes, shape, scheduled_time=0):
         if scheduled_time:
             blit_delay = (time.monotonic() - scheduled_time) * 1000
-            if blit_delay > 50:
+            self._perf_blit_delays.append(blit_delay)
+            if blit_delay > 100:
                 logger.warning(f'[PERF] Blit callback delayed {blit_delay:.0f}ms (main thread congested)')
         size = (shape[1], shape[0])
         if not hasattr(self, '_mono_texture') or self._mono_texture is None or self._mono_texture.size != size:
