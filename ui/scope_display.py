@@ -42,10 +42,15 @@ class ScopeDisplay(Image):
         self._bullseye_rgb_buf = None
         self._bullseye_buf_shape = None
 
-        # FPS tracking
+        # FPS tracking — worker thread (frames grabbed)
         self._fps_frame_count = 0
         self._fps_last_time = time.monotonic()
         self._fps_value = 0.0
+
+        # Display FPS tracking — main thread (frames actually rendered on screen)
+        self._display_fps_count = 0
+        self._display_fps_last_time = time.monotonic()
+        self._display_fps_value = 0.0
 
         # Engineering stats timing (2x per second)
         self._eng_stats_last_time = 0.0
@@ -487,6 +492,7 @@ class ScopeDisplay(Image):
             self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
+        self._count_display_fps()
 
     def create_and_set_texture(self, image_bytes, shape):
         size = (shape[1], shape[0])
@@ -494,8 +500,19 @@ class ScopeDisplay(Image):
             self._mono_texture = Texture.create(size=size, colorfmt='luminance')
         self._mono_texture.blit_buffer(image_bytes, colorfmt='luminance', bufferfmt='ubyte')
         self.texture = self._mono_texture
+        self._count_display_fps()
 
 
+
+    def _count_display_fps(self):
+        """Track actual rendered frame rate (called on main thread after blit)."""
+        self._display_fps_count += 1
+        now = time.monotonic()
+        elapsed = now - self._display_fps_last_time
+        if elapsed >= 1.0:
+            self._display_fps_value = self._display_fps_count / elapsed
+            self._display_fps_count = 0
+            self._display_fps_last_time = now
 
     def get_true_gain_exp(self, layer):
         ctx = _app_ctx.ctx

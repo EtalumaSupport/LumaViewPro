@@ -644,3 +644,82 @@ class TestPyprojectConfig:
         content = (root / 'pyproject.toml').read_text()
         assert '[tool.pytest.ini_options]' in content
         assert '[tool.coverage.run]' in content
+
+
+# ===========================================================================
+# 9. Position cache — push-based, zero serial I/O
+# ===========================================================================
+
+class TestPositionCache:
+    """Verify push-based position cache in Lumascope API.
+
+    The position cache eliminates serial polling from the GUI layer.
+    Positions are updated on move commands and after homing — the GUI
+    reads from cache with zero hardware calls.
+    """
+
+    def test_initial_cache_is_zero(self, sim_scope):
+        """Cache starts at 0 for all axes before any moves."""
+        assert sim_scope.get_target_position('X') == 0.0
+        assert sim_scope.get_target_position('Y') == 0.0
+        assert sim_scope.get_target_position('Z') == 0.0
+
+    def test_move_absolute_updates_cache(self, sim_scope):
+        """move_absolute_position should push the new position into the cache."""
+        sim_scope.move_absolute_position('Z', 5000.0)
+        assert sim_scope.get_target_position('Z') == 5000.0
+
+    def test_move_absolute_only_updates_target_axis(self, sim_scope):
+        """Moving Z should not affect X or Y cache."""
+        sim_scope.move_absolute_position('Z', 5000.0)
+        assert sim_scope.get_target_position('X') == 0.0
+        assert sim_scope.get_target_position('Y') == 0.0
+
+    def test_move_relative_updates_cache(self, sim_scope):
+        """move_relative_position should accumulate into the cache."""
+        sim_scope.move_absolute_position('X', 1000.0)
+        sim_scope.move_relative_position('X', 500.0)
+        assert sim_scope.get_target_position('X') == 1500.0
+
+    def test_move_relative_negative(self, sim_scope):
+        """Negative relative moves should subtract from cache."""
+        sim_scope.move_absolute_position('Z', 3000.0)
+        sim_scope.move_relative_position('Z', -1000.0)
+        assert sim_scope.get_target_position('Z') == 2000.0
+
+    def test_get_all_axes(self, sim_scope):
+        """get_target_position(None) returns dict of all axes."""
+        sim_scope.move_absolute_position('X', 100.0)
+        sim_scope.move_absolute_position('Y', 200.0)
+        sim_scope.move_absolute_position('Z', 300.0)
+        result = sim_scope.get_target_position()
+        assert isinstance(result, dict)
+        assert result['X'] == 100.0
+        assert result['Y'] == 200.0
+        assert result['Z'] == 300.0
+
+    def test_get_current_position_matches_target(self, sim_scope):
+        """get_current_position reads from the same cache as get_target_position."""
+        sim_scope.move_absolute_position('Z', 7777.0)
+        assert sim_scope.get_current_position('Z') == 7777.0
+
+    def test_refresh_after_homing(self, sim_scope):
+        """refresh_position_cache syncs cache from hardware (used after homing)."""
+        # Directly set the simulated motor's internal position to simulate homing
+        # The simulated motor stores positions in microsteps; target_pos() converts.
+        # Use move_abs_pos to set a known position, then verify refresh reads it.
+        sim_scope.motion.move_abs_pos('Z', 5000.0)
+        # Cache still has old value since we bypassed move_absolute_position
+        assert sim_scope.get_target_position('Z') != 5000.0
+        # Now refresh from hardware
+        sim_scope.refresh_position_cache()
+        # Should now match what the motor reports
+        pos = sim_scope.get_target_position('Z')
+        assert abs(pos - 5000.0) < 1.0  # allow microstep rounding
+
+    def test_cache_returns_copy(self, sim_scope):
+        """get_target_position(None) should return a copy, not the internal dict."""
+        result = sim_scope.get_target_position()
+        result['X'] = 99999.0
+        # Internal cache should be unaffected
+        assert sim_scope.get_target_position('X') == 0.0

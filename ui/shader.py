@@ -273,7 +273,8 @@ void main (void) {
             status_label = ctx.lumaview.ids.get('status_bar_id')
 
             scope_display = self.ids.get('scope_display_id')
-            fps = scope_display._fps_value if scope_display else 0
+            # Use display FPS (actual rendered frames), not worker FPS (grabbed frames)
+            fps = scope_display._display_fps_value if scope_display else 0
 
             # Title bar and coordinate overlay disabled for performance
             # investigation. Window.set_title() on SDL2/Windows triggers

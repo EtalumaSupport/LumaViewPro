@@ -206,12 +206,6 @@ class Stage(Widget):
         if not hasattr(ctx, 'settings') or ctx.settings is None:
             return
 
-        # Invalidate position cache so this tick fetches fresh data.
-        # The actual refresh happens on the IO thread in draw_labware_io_calculations().
-        # get_xy_targets (also on the IO thread) benefits from the same cache.
-        if hasattr(ctx, 'scope') and ctx.scope is not None:
-            ctx.scope.invalidate_position_cache()
-
         # Get all IO out of the way immediately as well as calculating drawing parameters
         ctx.io_executor.put(IOTask(action=self.draw_labware_io_calculations, args=(full_redraw,)))
 
@@ -450,8 +444,7 @@ class Stage(Widget):
 
         try:
             if scope.has_xyhomed():
-                # Refresh the position cache once — all reads below are free
-                scope._refresh_position_cache()
+                # Position cache auto-refreshes on first read if stale (>80ms)
                 x_target = scope.get_target_position('X')
                 y_target = scope.get_target_position('Y')
                 x_max, y_max = self._stage_limits_um()
