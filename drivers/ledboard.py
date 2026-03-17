@@ -56,6 +56,15 @@ class LEDBoard(SerialBoard):
     #                and MA is numerical representation of mA
     # LED off:      'LED' channel '_OFF' where channel is numbers 0 through 5, or S (plural/all)
 
+    # v3.0 STUB: LED command builders for JSON Lines protocol
+    # When v3.0 is active, commands will use structured JSON format:
+    #   {"cmd": "LED_ON", "ch": 0, "mA": 100}
+    #   {"cmd": "LED_OFF", "ch": 0}
+    #   {"cmd": "LEDS_OFF"}
+    #   {"cmd": "LED_ENABLE"}
+    #   {"cmd": "LED_DISABLE"}
+    # Currently all commands use the legacy text format.
+
     def leds_enable(self):
         command = 'LEDS_ENT'
         self.exchange_command(command)

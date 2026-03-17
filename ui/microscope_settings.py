@@ -638,10 +638,9 @@ class MicroscopeSettings(BoxLayout):
 
     def load_binning_sizes(self):
         spinner = self.ids['binning_spinner']
-        # Use camera profile if available, otherwise default
+        # Use Lumascope API to get available binning sizes
         try:
-            camera = _app_ctx.ctx.lumaview.scope.camera
-            sizes = camera.profile.binning_sizes
+            sizes = _app_ctx.ctx.lumaview.scope.get_available_binning_sizes()
         except Exception:
             logger.warning('[LVP Main  ] Could not read camera binning sizes, using defaults.')
             sizes = [1, 2, 4]

@@ -26,6 +26,7 @@ class SimulatedLEDBoard:
 
     def __init__(self, delay: float = 0.0, timing: str = 'fast',
                  firmware_version: str = '2.0.1',
+                 protocol_version: str = 'legacy',  # v3.0 STUB: 'legacy' or 'v3'
                  fail_after: int | None = None,
                  fail_on: set | None = None,
                  **kwargs):
@@ -37,6 +38,7 @@ class SimulatedLEDBoard:
         self.driver = True  # truthy sentinel — not a real serial port
         self._delay = delay
         self.firmware_version = firmware_version  # Configurable for testing old firmware paths
+        self.protocol_version = protocol_version  # v3.0 STUB: for future v3.0 simulation testing
 
         # Failure injection
         self._fail_after = fail_after          # disconnect after N commands

@@ -811,8 +811,20 @@ class LumaViewProApp(TooltipMixin, App):
         # Engineering plugin hook — adds engineering tab when installed
         try:
             import etaluma_engineering
+            # Check version compatibility
+            REQUIRED_PLUGIN_VERSION = "0.1.0"
+            plugin_version = getattr(etaluma_engineering, '__version__', '0.0.0')
+            if plugin_version < REQUIRED_PLUGIN_VERSION:
+                logger.warning(f'[LVP Main  ] Engineering plugin {plugin_version} outdated, '
+                               f'need {REQUIRED_PLUGIN_VERSION}. '
+                               f'Please update: pip install -e path/to/etaluma-engineering')
             etaluma_engineering.register(ctx)
-            logger.info('[LVP Main  ] Engineering plugin loaded')
+            # Auto-enable engineering mode when plugin is present
+            if not ENGINEERING_MODE:
+                ENGINEERING_MODE = True
+                lumaview.scope.engineering_mode = True
+                logger.info('[LVP Main  ] Engineering mode auto-enabled (plugin detected)')
+            logger.info(f'[LVP Main  ] Engineering plugin v{plugin_version} loaded')
         except ImportError:
             pass  # Expected — plugin not installed
         except Exception as e:

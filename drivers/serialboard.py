@@ -12,6 +12,7 @@ import re
 import time
 import serial
 import serial.tools.list_ports as list_ports
+from enum import Enum
 from lvp_logger import logger
 import threading
 
@@ -23,6 +24,11 @@ from drivers.raw_repl import (
     write_file as _write_file,
     verify_firmware_running as _verify_firmware_running,
 )
+
+
+class ProtocolVersion(Enum):
+    LEGACY = "legacy"  # All pre-v3.0 firmware (including v2.0 dev builds)
+    V3 = "v3"          # v3.0 JSON Lines protocol
 
 
 class SerialBoard:
@@ -47,6 +53,7 @@ class SerialBoard:
         self.timeout = timeout
         self.write_timeout = write_timeout
         self._in_raw_repl = False
+        self.protocol_version = ProtocolVersion.LEGACY
         self._find_port()
 
     def _find_port(self):
@@ -130,9 +137,21 @@ class SerialBoard:
     # Firmware version
     # ------------------------------------------------------------------
     def _detect_firmware_version(self):
-        """Query INFO and parse firmware version string."""
+        """Query INFO and parse firmware version string.
+
+        Also detects protocol version: if INFO response starts with '{'
+        it's v3.0 JSON Lines; otherwise LEGACY.
+        """
         try:
             resp = self.exchange_command('INFO')
+            if resp:
+                # v3.0 STUB: JSON Lines protocol detection
+                # v3.0 firmware responds with JSON: {"cmd": "INFO", ...}
+                if resp.lstrip().startswith('{'):
+                    self.protocol_version = ProtocolVersion.V3
+                    logger.info(f'{self._label} Detected v3.0 JSON Lines protocol')
+                else:
+                    self.protocol_version = ProtocolVersion.LEGACY
             if resp and ' v' in resp:
                 match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
                 if match:
@@ -144,6 +163,7 @@ class SerialBoard:
         except Exception as e:
             logger.debug(f'{self._label} version detection failed: {e}')
             self.firmware_version = None
+            self.protocol_version = ProtocolVersion.LEGACY
 
     @property
     def is_v2(self) -> bool:
@@ -155,6 +175,22 @@ class SerialBoard:
             return major >= 2
         except (ValueError, IndexError):
             return False
+
+    def _build_command(self, cmd):
+        """Build command string for current protocol version."""
+        # v3.0 STUB: JSON command format
+        # if self.protocol_version == ProtocolVersion.V3:
+        #     import json
+        #     return json.dumps({"cmd": cmd}) + "\n"
+        return cmd + "\n"
+
+    def _parse_response(self, response):
+        """Parse response for current protocol version."""
+        # v3.0 STUB: JSON Lines response parsing
+        # if self.protocol_version == ProtocolVersion.V3:
+        #     import json
+        #     return json.loads(response)
+        return response
 
     # ------------------------------------------------------------------
     # Serial communication

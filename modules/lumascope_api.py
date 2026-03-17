@@ -768,6 +768,15 @@ class Lumascope():
         """
         self._stage_offset = stage_offset
 
+    def get_available_binning_sizes(self):
+        """Return list of binning sizes supported by connected camera."""
+        if not self.camera or not self.camera.active:
+            return [1]
+        try:
+            return self.camera.profile.binning_sizes
+        except (AttributeError, TypeError):
+            return [1]
+
     def set_binning_size(self, size):
         """Set camera pixel binning size.
 

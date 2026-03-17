@@ -101,6 +101,14 @@ class MotorBoard(SerialBoard):
                 logger.error(f'[XYZ Class ] MotorBoard.connect() failed: {e}')
 
 
+    # v3.0 STUB: Motor command builders for JSON Lines protocol
+    # When v3.0 is active, commands will use structured JSON format:
+    #   {"cmd": "HOME", "axes": ["X", "Y", "Z"]}
+    #   {"cmd": "MOVE", "axis": "Z", "target": 12345}
+    #   {"cmd": "STATUS", "axis": "Z"}
+    #   {"cmd": "SPI", "axis": "Z", "addr": "0x6A", "payload": "0x00"}
+    # Currently all commands use the legacy text format.
+
     # Firmware 1-14-2023 commands include
     # 'QUIT'
     # 'INFO'
