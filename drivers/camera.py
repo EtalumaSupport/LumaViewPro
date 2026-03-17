@@ -28,12 +28,17 @@ class ImageHandlerBase:
         self._failed_grabs = 0
 
     def get_last_image(self):
-        """Return (success, image_copy, timestamp). Thread-safe, copy-on-read."""
+        """Return (success, image, timestamp). Thread-safe.
+
+        No copy needed here — the stored frame is already a copy from the SDK
+        callback (GetArray().copy() in Pylon, copy() in IDS). _store_frame()
+        replaces the reference (not in-place), so the returned array remains
+        valid even after the next frame arrives.
+        """
         with self._frame_lock:
             if not self.last_result:
                 return False, None, None
-            img = self.last_img.copy() if self.last_img is not None else None
-            return True, img, self.last_img_ts
+            return True, self.last_img, self.last_img_ts
 
     def reset(self):
         """Clear frame buffer and failure counter."""
