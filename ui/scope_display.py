@@ -186,6 +186,7 @@ class ScopeDisplay(Image):
     def stop(self):
         self.paused.set()
         self._display_running = False
+        Clock.unschedule(self._pull_next_frame)
         logger.info('[LVP Main  ] ScopeDisplay.stop()')
 
 
