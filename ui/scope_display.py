@@ -348,9 +348,10 @@ class ScopeDisplay(Image):
                     break
 
         from modules.sequential_io_executor import IOTask
+        dispatch_time = time.monotonic()
         ctx.scope_display_thread_executor.put(IOTask(
             self.update_scopedisplay_thread,
-            args=(active_layer, active_layer_config, open_layer),
+            args=(active_layer, active_layer_config, open_layer, dispatch_time),
         ))
 
     def update_scopedisplay(self, dt=0):
@@ -399,8 +400,10 @@ class ScopeDisplay(Image):
         if self._debug_counter == 30:
             self._debug_counter = 0
 
-    def update_scopedisplay_thread(self, active_layer, active_layer_config, open_layer):
+    def update_scopedisplay_thread(self, active_layer, active_layer_config, open_layer, dispatch_time=0):
         ctx = _app_ctx.ctx
+        t_worker_start = time.monotonic()
+        t_queue_wait = t_worker_start - dispatch_time if dispatch_time else 0
 
         # Snapshot counter value before scheduling increment on main thread
         display_counter = self._display_update_counter + 1
@@ -430,6 +433,9 @@ class ScopeDisplay(Image):
             return
         t_grab_end = time.monotonic()
 
+        # Record queue wait for perf logging
+        self._perf_blit_schedule_times.append(t_queue_wait)
+
         # FPS tracking
         self._fps_frame_count += 1
         now = time.monotonic()
@@ -447,14 +453,17 @@ class ScopeDisplay(Image):
                 ctx.camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(active_layer,)))
 
 
+        t_eng_stats = 0
         if ctx.engineering_mode:
             # Engineering stats: 2x per second (time-based, not frame-based)
             now_eng = time.monotonic()
             if now_eng - self._eng_stats_last_time >= 0.5 and not self.use_bullseye:
                 self._eng_stats_last_time = now_eng
+                t_eng_start = time.monotonic()
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
                 af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)
+                t_eng_stats = time.monotonic() - t_eng_start
 
                 if open_layer is not None:
                     Clock.schedule_once(lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0)
@@ -477,30 +486,34 @@ class ScopeDisplay(Image):
             image_bytes = image.tobytes()
             t_process_end = time.monotonic()
             image_shape = image.shape
-            Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape: self.create_and_set_texture(b, s), 0)
+            t_blit_scheduled = time.monotonic()
+            Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled: self.create_and_set_texture(b, s, ts), 0)
 
-            # Performance instrumentation (when debug_mode enabled in settings)
-            if isinstance(ctx.settings, dict) and ctx.settings.get('debug_mode', False):
-                self._perf_grab_times.append(t_grab_end - t_grab_start)
-                self._perf_process_times.append(t_process_end - t_process_start)
-                now_perf = time.monotonic()
-                if now_perf - self._perf_log_last_time >= self._perf_log_interval:
-                    self._perf_log_last_time = now_perf
-                    n = len(self._perf_grab_times)
-                    if n > 0:
-                        avg_grab = sum(self._perf_grab_times) / n * 1000
-                        avg_proc = sum(self._perf_process_times) / n * 1000
-                        max_grab = max(self._perf_grab_times) * 1000
-                        max_proc = max(self._perf_process_times) * 1000
-                        logger.info(
-                            f'[PERF] {n} frames in {self._perf_log_interval:.0f}s: '
-                            f'grab={avg_grab:.1f}ms (max {max_grab:.1f}ms), '
-                            f'process+tobytes={avg_proc:.1f}ms (max {max_proc:.1f}ms), '
-                            f'skipped={self._perf_skipped_frames}'
-                        )
-                    self._perf_grab_times.clear()
-                    self._perf_process_times.clear()
-                    self._perf_skipped_frames = 0
+            # Performance instrumentation — always active
+            self._perf_grab_times.append(t_grab_end - t_grab_start)
+            self._perf_process_times.append(t_process_end - t_process_start)
+            now_perf = time.monotonic()
+            if now_perf - self._perf_log_last_time >= self._perf_log_interval:
+                self._perf_log_last_time = now_perf
+                n = len(self._perf_grab_times)
+                if n > 0:
+                    avg_grab = sum(self._perf_grab_times) / n * 1000
+                    avg_proc = sum(self._perf_process_times) / n * 1000
+                    max_grab = max(self._perf_grab_times) * 1000
+                    max_proc = max(self._perf_process_times) * 1000
+                    avg_queue = sum(self._perf_blit_schedule_times) / max(1, len(self._perf_blit_schedule_times)) * 1000
+                    t_total = now_perf - (now_perf - self._perf_log_interval)
+                    logger.info(
+                        f'[PERF] {n} frames in {self._perf_log_interval:.0f}s ({n/self._perf_log_interval:.1f} FPS): '
+                        f'queue_wait={avg_queue:.1f}ms, '
+                        f'grab={avg_grab:.1f}ms (max {max_grab:.1f}ms), '
+                        f'process+tobytes={avg_proc:.1f}ms (max {max_proc:.1f}ms), '
+                        f'eng_stats={t_eng_stats*1000:.1f}ms'
+                    )
+                self._perf_grab_times.clear()
+                self._perf_process_times.clear()
+                self._perf_blit_schedule_times.clear()
+                self._perf_skipped_frames = 0
 
         if self.record:
             ctx.lumaview.live_capture()
@@ -528,7 +541,11 @@ class ScopeDisplay(Image):
         self._count_display_fps()
         self._schedule_next()
 
-    def create_and_set_texture(self, image_bytes, shape):
+    def create_and_set_texture(self, image_bytes, shape, scheduled_time=0):
+        if scheduled_time:
+            blit_delay = (time.monotonic() - scheduled_time) * 1000
+            if blit_delay > 50:
+                logger.warning(f'[PERF] Blit callback delayed {blit_delay:.0f}ms (main thread congested)')
         size = (shape[1], shape[0])
         if not hasattr(self, '_mono_texture') or self._mono_texture is None or self._mono_texture.size != size:
             self._mono_texture = Texture.create(size=size, colorfmt='luminance')

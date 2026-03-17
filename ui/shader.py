@@ -111,7 +111,8 @@ void main (void) {
         self._active_key_presses = set()
 
         # Status bar: mouse position tracking (throttled to ~5 Hz)
-        self._status_bar_trigger = Clock.create_trigger(self._update_status_bar, 0.2, interval=True)
+        # 1 Hz update — throttled to minimize Window.set_title() overhead on SDL2/Windows
+        self._status_bar_trigger = Clock.create_trigger(self._update_status_bar, 1.0, interval=True)
         self._status_bar_trigger()
         self._mouse_pixel_x = -1
         self._mouse_pixel_y = -1
@@ -262,25 +263,23 @@ void main (void) {
     def _update_status_bar(self, dt):
         """Periodic status bar update (~5 Hz).
 
-        FPS is shown in the window title bar to avoid overlapping the side
-        panel.  Pixel and plate coordinates are shown in the on-image overlay
-        only when the mouse is hovering over the live view.
+        FPS is shown in the window title bar (engineering mode only, throttled
+        to 1 Hz to avoid SDL2/Windows redraw overhead).
         """
         try:
-            from kivy.core.window import Window
-            from modules.config_ui_getters import get_current_objective_info, get_binning_from_ui, get_selected_labware
             ctx = _app_ctx.ctx
-            status_label = ctx.lumaview.ids.get('status_bar_id')
+            if ctx is None:
+                return
 
-            scope_display = self.ids.get('scope_display_id')
-            # Use display FPS (actual rendered frames), not worker FPS (grabbed frames)
-            fps = scope_display._display_fps_value if scope_display else 0
-
-            # Title bar and coordinate overlay disabled for performance
-            # investigation. Window.set_title() on SDL2/Windows triggers
-            # window manager redraws (~0.9ms each, 270 calls in 64s profile).
-            # TODO: Re-enable once main thread bottleneck is resolved.
-            pass
+            if ctx.engineering_mode:
+                from kivy.core.window import Window
+                scope_display = self.ids.get('scope_display_id')
+                if scope_display:
+                    display_fps = scope_display._display_fps_value
+                    worker_fps = scope_display._fps_value
+                    Window.set_title(
+                        f'LumaViewPro — Display: {display_fps:.0f} FPS | Worker: {worker_fps:.0f} FPS'
+                    )
         except Exception:
             pass
 

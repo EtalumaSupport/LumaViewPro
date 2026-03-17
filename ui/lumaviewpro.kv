@@ -245,25 +245,6 @@
             size: '40dp', '40dp'
             on_release: root.one2one_image()
 
-    # Status bar overlay — FPS + cursor position
-    Label:
-        id: status_bar_id
-        text: ''
-        font_size: '12sp'
-        color: 1, 1, 1, 0.85
-        size_hint: None, None
-        size: self.texture_size[0] + dp(16), dp(22)
-        pos: dp(5), root.height - dp(27)
-        halign: 'left'
-        valign: 'middle'
-        text_size: None, self.height
-        canvas.before:
-            Color:
-                rgba: 0, 0, 0, 0.5
-            RoundedRectangle:
-                pos: self.pos
-                size: self.size
-                radius: [dp(4)]
 
 
 # ShaderViewer - Shaded Live Camera view
