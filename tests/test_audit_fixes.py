@@ -723,3 +723,106 @@ class TestPositionCache:
         result['X'] = 99999.0
         # Internal cache should be unaffected
         assert sim_scope.get_target_position('X') == 0.0
+
+
+# ===========================================================================
+# 8. Axis state model — push-based state tracking (zero serial I/O)
+# ===========================================================================
+
+class TestAxisState:
+    """Verify axis state transitions in the Lumascope API."""
+
+    def test_initial_state_is_unknown(self, sim_scope):
+        """All axes start in UNKNOWN state before homing."""
+        from modules.lumascope_api import AxisState
+        for ax in ('X', 'Y', 'Z', 'T'):
+            assert sim_scope.get_axis_state(ax) == AxisState.UNKNOWN
+
+    def test_axis_state_idle_after_move_with_wait(self, sim_scope):
+        """After move_absolute_position with wait_until_complete, axis is IDLE."""
+        from modules.lumascope_api import AxisState
+        sim_scope.move_absolute_position('Z', 1000, wait_until_complete=True)
+        assert sim_scope.get_axis_state('Z') == AxisState.IDLE
+
+    def test_axis_state_moving_during_fire_and_forget(self, sim_scope):
+        """After move without wait, axis should be MOVING (or IDLE if simulated completes instantly)."""
+        from modules.lumascope_api import AxisState
+        sim_scope.move_absolute_position('Z', 500, wait_until_complete=False)
+        state = sim_scope.get_axis_state('Z')
+        # In simulation, the move completes instantly, but the state should be MOVING
+        # since we haven't polled. The is_moving() call will reconcile.
+        assert state == AxisState.MOVING
+
+    def test_axis_state_homing_zhome(self, sim_scope):
+        """After zhome, Z axis should be IDLE (homing is blocking)."""
+        from modules.lumascope_api import AxisState
+        sim_scope.zhome()
+        assert sim_scope.get_axis_state('Z') == AxisState.IDLE
+
+    def test_axis_state_homing_xyhome(self, sim_scope):
+        """After xyhome, X/Y/Z axes should be IDLE."""
+        from modules.lumascope_api import AxisState
+        sim_scope.xyhome()
+        for ax in ('X', 'Y', 'Z'):
+            assert sim_scope.get_axis_state(ax) == AxisState.IDLE
+
+    def test_axis_state_homing_thome(self, sim_scope):
+        """After thome, T axis should be IDLE."""
+        from modules.lumascope_api import AxisState
+        sim_scope.thome()
+        assert sim_scope.get_axis_state('T') == AxisState.IDLE
+
+    def test_is_any_axis_moving_false_when_all_idle(self, sim_scope):
+        """is_any_axis_moving() returns False when all axes are IDLE."""
+        from modules.lumascope_api import AxisState
+        # Home all axes to set them IDLE
+        sim_scope.zhome()
+        sim_scope.xyhome()
+        assert not sim_scope.is_any_axis_moving()
+
+    def test_is_any_axis_moving_true_when_moving(self, sim_scope):
+        """is_any_axis_moving() returns True when an axis is MOVING."""
+        from modules.lumascope_api import AxisState
+        sim_scope.move_absolute_position('Z', 1000, wait_until_complete=False)
+        assert sim_scope.is_any_axis_moving()
+
+    def test_is_moving_reconciles_state(self, sim_scope):
+        """is_moving() should reconcile state from firmware when axes are MOVING."""
+        from modules.lumascope_api import AxisState
+        sim_scope.move_absolute_position('Z', 1000, wait_until_complete=False)
+        # In simulation, the move completes instantly. is_moving() should detect
+        # that firmware says arrived and update state to IDLE.
+        result = sim_scope.is_moving()
+        assert result is False
+        assert sim_scope.get_axis_state('Z') == AxisState.IDLE
+
+    def test_disconnect_sets_unknown(self, sim_scope):
+        """After disconnect, all axes should be UNKNOWN."""
+        from modules.lumascope_api import AxisState
+        sim_scope.zhome()  # Set to IDLE first
+        sim_scope.disconnect()
+        for ax in ('X', 'Y', 'Z', 'T'):
+            assert sim_scope.get_axis_state(ax) == AxisState.UNKNOWN
+
+    def test_axes_present(self, sim_scope):
+        """axes_present() returns the correct set of axes."""
+        axes = sim_scope.axes_present()
+        assert set(axes) == {'X', 'Y', 'Z', 'T'}
+
+    def test_has_axis(self, sim_scope):
+        """has_axis() returns correct values."""
+        assert sim_scope.has_axis('Z') is True
+        assert sim_scope.has_axis('Q') is False
+
+    def test_move_relative_state_tracking(self, sim_scope):
+        """move_relative_position tracks axis state correctly."""
+        from modules.lumascope_api import AxisState
+        sim_scope.move_relative_position('Z', 100, wait_until_complete=True)
+        assert sim_scope.get_axis_state('Z') == AxisState.IDLE
+
+    def test_xycenter_state_tracking(self, sim_scope):
+        """xycenter sets X/Y to IDLE after completion."""
+        from modules.lumascope_api import AxisState
+        sim_scope.xycenter()
+        assert sim_scope.get_axis_state('X') == AxisState.IDLE
+        assert sim_scope.get_axis_state('Y') == AxisState.IDLE

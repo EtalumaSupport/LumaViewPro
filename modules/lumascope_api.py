@@ -35,6 +35,14 @@ from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from modules.frame_validity import FrameValidity
 
 
+class AxisState:
+    """Possible states for a motion axis."""
+    UNKNOWN = 'unknown'    # Not homed / state not known
+    IDLE = 'idle'          # At known position, not moving
+    MOVING = 'moving'      # Move commanded, not yet arrived
+    HOMING = 'homing'      # Homing sequence in progress
+
+
 class Lumascope():
 
     # --- Input validation constants ---
@@ -61,6 +69,13 @@ class Lumascope():
         # The 10 Hz UI polling loops read from cache with zero serial I/O.
         self._pos_cache_lock = threading.Lock()
         self._pos_cache = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
+
+        # Axis state — push-based, tracks UNKNOWN/IDLE/MOVING/HOMING per axis.
+        # Updated by move/home methods. Consumers read state instead of polling
+        # firmware via serial, eliminating 4+ serial round-trips per is_moving() call.
+        self._axis_state_lock = threading.Lock()
+        self._axis_state = {'X': AxisState.UNKNOWN, 'Y': AxisState.UNKNOWN,
+                            'Z': AxisState.UNKNOWN, 'T': AxisState.UNKNOWN}
 
         # LED Control Board
         try:
@@ -251,6 +266,79 @@ class Lumascope():
         with self._state_lock:
             return dict(self._scale_bar)
 
+    # --- Axis state accessors (zero serial I/O) ---
+
+    def get_axis_state(self, axis: str) -> str:
+        """Get the current state of an axis.
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T").
+
+        Returns:
+            str: One of AxisState.UNKNOWN, IDLE, MOVING, HOMING.
+        """
+        with self._axis_state_lock:
+            return self._axis_state.get(axis, AxisState.UNKNOWN)
+
+    def _set_axis_state(self, axis: str, state: str):
+        """Set the state of an axis (internal use only)."""
+        with self._axis_state_lock:
+            self._axis_state[axis] = state
+
+    def is_any_axis_moving(self) -> bool:
+        """Check if any axis is currently MOVING or HOMING.
+
+        Reads from the in-memory state dict — zero serial I/O.
+
+        Returns:
+            bool: True if any axis is in MOVING or HOMING state.
+        """
+        with self._axis_state_lock:
+            return any(
+                s in (AxisState.MOVING, AxisState.HOMING)
+                for s in self._axis_state.values()
+            )
+
+    def axes_present(self) -> list[str]:
+        """Get list of axis names known to this scope.
+
+        Built dynamically from the axis state dict (which is populated
+        from VALID_AXES at init, and could be extended for external axes).
+
+        Returns:
+            list[str]: e.g. ['X', 'Y', 'Z', 'T']
+        """
+        with self._axis_state_lock:
+            return list(self._axis_state.keys())
+
+    def has_axis(self, axis: str) -> bool:
+        """Check if a given axis is present.
+
+        Args:
+            axis: Axis name.
+
+        Returns:
+            bool: True if axis exists in the state model.
+        """
+        with self._axis_state_lock:
+            return axis in self._axis_state
+
+    def travel_limit_um(self, axis: str) -> float:
+        """Get the travel limit for an axis in um.
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T").
+
+        Returns:
+            float: Travel limit in um, or MOTOR_POSITION_LIMIT if unknown.
+        """
+        if not self.motion or not self.motion.driver:
+            return float(self.MOTOR_POSITION_LIMIT)
+        try:
+            return float(self.motion.motorconfig.travel_limit_um(axis))
+        except Exception:
+            return float(self.MOTOR_POSITION_LIMIT)
+
     # --- CR-6: Exclusive lock for multi-step hardware operations ---
 
     @contextlib.contextmanager
@@ -275,6 +363,12 @@ class Lumascope():
     def disconnect(self):
         """Disconnect from all hardware (LED, motion, camera)."""
         logger.info('[SCOPE API ] Disconnecting from microscope...')
+
+        # Set all axes to UNKNOWN before disconnecting
+        with self._axis_state_lock:
+            for ax in self._axis_state:
+                self._axis_state[ax] = AxisState.UNKNOWN
+
         if self.led is not None:
             self.led.disconnect()
             self.led = None
@@ -1420,16 +1514,22 @@ class Lumascope():
     def zhome(self):
         """Home the Z axis (focus)."""
         #if not self.motion: return
+        self._set_axis_state('Z', AxisState.HOMING)
         with self.reference_position_logger():
             self.motion.zhome()
+        self._set_axis_state('Z', AxisState.IDLE)
         self.refresh_position_cache()
 
     def xyhome(self):
         """Home the XY axes (stage). Z axis and turret always home first."""
         #if not self.motion: return
+        for ax in ('X', 'Y', 'Z'):
+            self._set_axis_state(ax, AxisState.HOMING)
         with self.reference_position_logger():
             self.is_homing = True
             self.motion.xyhome()
+        for ax in ('X', 'Y', 'Z'):
+            self._set_axis_state(ax, AxisState.IDLE)
         self.refresh_position_cache()
 
         return
@@ -1455,7 +1555,11 @@ class Lumascope():
         """Move the XY stage to center position."""
 
         #if not self.motion: return
+        self._set_axis_state('X', AxisState.MOVING)
+        self._set_axis_state('Y', AxisState.MOVING)
         self.motion.xycenter()
+        self._set_axis_state('X', AxisState.IDLE)
+        self._set_axis_state('Y', AxisState.IDLE)
         self.refresh_position_cache()
 
 
@@ -1480,9 +1584,11 @@ class Lumascope():
         #    return
 
         # Move turret
+        self._set_axis_state('T', AxisState.HOMING)
         with self.reference_position_logger():
             with self.safe_turret_mover():
                 self.motion.thome()
+        self._set_axis_state('T', AxisState.IDLE)
         self.refresh_position_cache()
 
     def has_thomed(self):
@@ -1609,6 +1715,7 @@ class Lumascope():
             raise ValueError(f"Position {pos} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
 
         #if not self.motion: return
+        self._set_axis_state(axis, AxisState.MOVING)
         self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
         with self._pos_cache_lock:
             self._pos_cache[axis] = float(pos)
@@ -1616,6 +1723,7 @@ class Lumascope():
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
+            self._set_axis_state(axis, AxisState.IDLE)
 
 
     def move_relative_position(self, axis, um, wait_until_complete=False, overshoot_enabled: bool = False):
@@ -1638,6 +1746,7 @@ class Lumascope():
             raise ValueError(f"Distance {um} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
 
         #if not self.motion: return
+        self._set_axis_state(axis, AxisState.MOVING)
         self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
         with self._pos_cache_lock:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
@@ -1645,6 +1754,7 @@ class Lumascope():
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
+            self._set_axis_state(axis, AxisState.IDLE)
 
 
     def get_home_status(self, axis):
@@ -1757,31 +1867,54 @@ class Lumascope():
     def is_moving(self):
         """Check if any axis is currently moving.
 
+        First checks the in-memory axis state (zero serial I/O). If no axis
+        is marked MOVING/HOMING, returns False immediately. Falls back to
+        firmware query only when state says an axis is moving but overshoot
+        status needs checking.
+
         Returns:
             bool: True if any axis has not reached its target or overshoot is active.
         """
         # If not communicating with motor board
         if not self.motion.driver: return False
 
-        # Check each axis
+        # Fast path: check in-memory state first
+        if not self.is_any_axis_moving() and not self.get_overshoot():
+            return False
+
+        # State says something is moving — confirm via firmware
+        # (needed for fire-and-forget moves and overshoot)
         x_status = self.get_target_status('X')
         y_status = self.get_target_status('Y')
         z_status = self.get_target_status('Z')
         t_status = self.get_target_status('T')
 
         if x_status and y_status and z_status and t_status and not self.get_overshoot():
+            # Firmware says everything arrived — update state
+            with self._axis_state_lock:
+                for ax in self._axis_state:
+                    if self._axis_state[ax] == AxisState.MOVING:
+                        self._axis_state[ax] = AxisState.IDLE
             return False
         else:
             return True
 
 
     def wait_until_finished_moving(self):
-        """Block until all axes have reached their target positions."""
+        """Block until all axes have reached their target positions.
 
+        When complete, marks all MOVING axes as IDLE in the state model.
+        """
         if not self.motion.driver: return
 
         while self.is_moving():
             time.sleep(0.05)
+
+        # Ensure all axes are marked IDLE after waiting
+        with self._axis_state_lock:
+            for ax in self._axis_state:
+                if self._axis_state[ax] == AxisState.MOVING:
+                    self._axis_state[ax] = AxisState.IDLE
 
         return
 
