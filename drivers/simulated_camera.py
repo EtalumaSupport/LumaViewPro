@@ -417,7 +417,12 @@ class SimulatedCamera(Camera):
             max_val = 255
 
         # Scale brightness by exposure and gain
-        brightness = min(1.0, (self._exposure_us / 1_000_000.0) * self._gain * 10.0)
+        raw = (self._exposure_us / 1_000_000.0) * max(1.0, self._gain) * 10.0
+        brightness = min(1.0, raw)
+        # For image cycling, apply a floor so patterns are visible even at
+        # short default exposures (2ms → raw=0.02, floor lifts to 0.5)
+        if self._test_pattern == 'image_cycle':
+            brightness = max(0.5, brightness)
 
         if self._test_pattern == 'image_cycle' and self._cycle_images:
             # Cycle through loaded/generated images

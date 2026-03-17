@@ -56,6 +56,18 @@ class Lumascope():
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._objectives_loader = objectives_loader.ObjectiveLoader()
 
+        # Position cache — eliminates redundant serial round-trips for
+        # the 10 Hz UI polling loops (stage display, XY text boxes).
+        # Updated by _refresh_position_cache(), read by get_target/current_position().
+        # TODO: evaluate whether callers actually need target position or
+        #       if current position alone would suffice (target was originally
+        #       used to highlight the selected well on the stage display).
+        import threading as _threading
+        self._pos_cache_lock = _threading.Lock()
+        self._pos_cache_target = {}   # {'X': float, 'Y': float, 'Z': float, 'T': float}
+        self._pos_cache_current = {}  # {'X': float, 'Y': float, 'Z': float, 'T': float}
+        self._pos_cache_valid = False
+
         # LED Control Board
         try:
             if simulate:
@@ -1510,8 +1522,46 @@ class Lumascope():
         return self.motion.has_turret()
 
 
+    def _refresh_position_cache(self):
+        """Fetch all axis positions from hardware and update the cache.
+
+        Called from the IO thread by the 10 Hz polling loops.  All subsequent
+        reads from get_target_position / get_current_position on the same tick
+        are served from cache with zero serial overhead.
+        """
+        if not self.motion or not self.motion.driver:
+            return
+
+        target = {}
+        current = {}
+        for ax in ('X', 'Y', 'Z', 'T'):
+            try:
+                target[ax] = self.motion.target_pos(axis=ax)
+            except Exception:
+                target[ax] = 0
+            try:
+                current[ax] = self.motion.current_pos(axis=ax)
+            except Exception:
+                current[ax] = 0
+
+        with self._pos_cache_lock:
+            self._pos_cache_target = target
+            self._pos_cache_current = current
+            self._pos_cache_valid = True
+
+    def invalidate_position_cache(self):
+        """Mark cached positions as stale.
+
+        Called after motion commands so the next read fetches fresh data.
+        """
+        with self._pos_cache_lock:
+            self._pos_cache_valid = False
+
     def get_target_position(self, axis=None):
         """Get the target position for an axis (where it is commanded to go).
+
+        Reads from the position cache when available, falling back to a
+        direct serial query if the cache is stale.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
@@ -1521,9 +1571,19 @@ class Lumascope():
                 axis positions. Returns 0 if motion board inactive, None if
                 axis T requested but no turret present.
         """
+        if not self.motion or not self.motion.driver:
+            return 0
 
-        if not self.motion.driver: return 0
+        # Try cache first
+        with self._pos_cache_lock:
+            if self._pos_cache_valid and self._pos_cache_target:
+                if axis is None:
+                    return dict(self._pos_cache_target)
+                if (not self.motion.has_turret()) and (axis == 'T'):
+                    return None
+                return self._pos_cache_target.get(axis, 0)
 
+        # Cache miss — direct serial query (fallback)
         if axis is None:
             positions = {}
             for ax in ('X', 'Y', 'Z', 'T'):
@@ -1533,11 +1593,13 @@ class Lumascope():
         if (not self.motion.has_turret()) and (axis == 'T'):
             return None
 
-        position = self.motion.target_pos(axis)
-        return position
+        return self.motion.target_pos(axis)
 
     def get_current_position(self, axis=None):
         """Get the current actual position for an axis.
+
+        Reads from the position cache when available, falling back to a
+        direct serial query if the cache is stale.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
@@ -1546,17 +1608,24 @@ class Lumascope():
             float | dict: Position in um for a single axis, or dict of all
                 axis positions. Returns 0 if motion board inactive.
         """
+        if not self.motion or not self.motion.driver:
+            return 0
 
-        if not self.motion.driver: return 0
+        # Try cache first
+        with self._pos_cache_lock:
+            if self._pos_cache_valid and self._pos_cache_current:
+                if axis is None:
+                    return dict(self._pos_cache_current)
+                return self._pos_cache_current.get(axis, 0)
 
+        # Cache miss — direct serial query (fallback)
         if axis is None:
             positions = {}
             for ax in ('X', 'Y', 'Z', 'T'):
                 positions[ax] = self.motion.current_pos(axis=ax)
             return positions
 
-        position = self.motion.current_pos(axis)
-        return position
+        return self.motion.current_pos(axis)
 
 
     def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True, ignore_limits: bool = False):
@@ -1581,6 +1650,7 @@ class Lumascope():
 
         #if not self.motion: return
         self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
+        self.invalidate_position_cache()
         self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
 
         if wait_until_complete is True:
@@ -1608,6 +1678,7 @@ class Lumascope():
 
         #if not self.motion: return
         self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+        self.invalidate_position_cache()
         self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
 
         if wait_until_complete is True:
