@@ -79,6 +79,11 @@ class ScopeDisplay(Image):
         self._debug_counter = 0
         self._display_update_counter = 0
 
+        # Pull-based display loop state
+        self._display_running = False
+        self._last_frame_time = 0.0
+        self._min_frame_interval = 1.0 / 30  # derived from fps setting
+
         # Crosshair canvas overlay (drawn on top of texture, not into pixels)
         self._crosshair_group = InstructionGroup()
         self.canvas.after.add(self._crosshair_group)
@@ -169,17 +174,18 @@ class ScopeDisplay(Image):
         else:
             self.fps = 30
 
-        logger.info('[LVP Main  ] Clock.schedule_interval(self.update, 1.0 / self.fps)')
+        self._min_frame_interval = 1.0 / max(1, self.fps)
         self.paused.clear()
 
-        Clock.unschedule(self.update_scopedisplay)
-        Clock.schedule_interval(self.update_scopedisplay, 1.0 / self.fps)
+        if not self._display_running:
+            self._display_running = True
+            logger.info(f'[LVP Main  ] ScopeDisplay: pull-based loop started ({self.fps} FPS cap)')
+            Clock.schedule_once(self._pull_next_frame, 0)
 
     def stop(self):
         self.paused.set()
+        self._display_running = False
         logger.info('[LVP Main  ] ScopeDisplay.stop()')
-        logger.info('[LVP Main  ] Clock.unschedule(self.update)')
-        Clock.unschedule(self.update_scopedisplay)
 
 
     def touch(self, target: Widget, event: MotionEvent):
@@ -307,20 +313,22 @@ class ScopeDisplay(Image):
         return self._bullseye_rgb_buf
 
 
-    def update_scopedisplay(self, dt=0):
-        ctx = _app_ctx.ctx
-        if ctx is None:
+    def _pull_next_frame(self, dt=0):
+        """Pull-based display loop entry point. Called on main thread.
+
+        Schedules the next frame grab on the display worker. The worker
+        calls _schedule_next() when done, which re-invokes this method
+        after enforcing the minimum frame interval. This naturally adapts
+        to the system's actual throughput — no timer overrun possible.
+        """
+        if not self._display_running or self.paused.is_set():
             return
 
-        # Backpressure: skip this frame if the display worker hasn't finished the
-        # previous one yet.  A depth of 1 ensures we always show a recent frame
-        # instead of draining a stale queue (which causes perceived lag).
-        try:
-            if hasattr(ctx.scope_display_thread_executor, 'queue_size') and ctx.scope_display_thread_executor.queue_size() > 1:
-                self._perf_skipped_frames += 1
-                return
-        except Exception:
-            pass
+        ctx = _app_ctx.ctx
+        if ctx is None:
+            # Not ready yet — retry shortly
+            Clock.schedule_once(self._pull_next_frame, 0.1)
+            return
 
         # Capture widget state on the main thread (Kivy widgets are not thread-safe)
         active_layer = None
@@ -344,6 +352,15 @@ class ScopeDisplay(Image):
             self.update_scopedisplay_thread,
             args=(active_layer, active_layer_config, open_layer),
         ))
+
+    def update_scopedisplay(self, dt=0):
+        """Trigger a one-shot display update (used as callback by protocol executors).
+
+        In the pull-based loop, this simply kicks a frame grab if the loop
+        isn't already running. Safe to call from Clock.schedule_once or as
+        a direct callback.
+        """
+        self._pull_next_frame(dt)
 
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         ctx = _app_ctx.ctx
@@ -390,10 +407,10 @@ class ScopeDisplay(Image):
         Clock.schedule_once(self._increment_display_counter, 0)
 
         if not ctx.scope.camera_is_connected():
-            if self.camera_disconnected_display_set:
-                return
-
-            Clock.schedule_once(lambda dt: self.set_camera_disconnected_display(), 0)
+            if not self.camera_disconnected_display_set:
+                Clock.schedule_once(lambda dt: self.set_camera_disconnected_display(), 0)
+            # No frame — retry after a short delay
+            Clock.schedule_once(self._pull_next_frame, 0.2)
             return
 
         if self.camera_disconnected_display_set:
@@ -408,6 +425,8 @@ class ScopeDisplay(Image):
         image = ctx.scope.get_image_from_buffer(force_to_8bit=True)
         #image = ctx.scope.image_buffer
         if (image is False) or (image.size == 0) :
+            # No new frame available — retry after minimum interval
+            Clock.schedule_once(self._pull_next_frame, self._min_frame_interval)
             return
         t_grab_end = time.monotonic()
 
@@ -486,6 +505,20 @@ class ScopeDisplay(Image):
         if self.record:
             ctx.lumaview.live_capture()
 
+    def _schedule_next(self):
+        """Schedule the next frame grab, enforcing minimum frame interval.
+
+        Called on the main thread after blit completes. Computes how long
+        to wait before the next grab to respect the FPS cap.
+        """
+        if not self._display_running or self.paused.is_set():
+            return
+        now = time.monotonic()
+        elapsed = now - self._last_frame_time
+        self._last_frame_time = now
+        wait = max(0, self._min_frame_interval - elapsed)
+        Clock.schedule_once(self._pull_next_frame, wait)
+
     def create_and_set_bullseye_texture(self, image_bytes, shape):
         size = (shape[1], shape[0])
         if not hasattr(self, '_bullseye_texture') or self._bullseye_texture is None or self._bullseye_texture.size != size:
@@ -493,6 +526,7 @@ class ScopeDisplay(Image):
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
         self._count_display_fps()
+        self._schedule_next()
 
     def create_and_set_texture(self, image_bytes, shape):
         size = (shape[1], shape[0])
@@ -501,6 +535,7 @@ class ScopeDisplay(Image):
         self._mono_texture.blit_buffer(image_bytes, colorfmt='luminance', bufferfmt='ubyte')
         self.texture = self._mono_texture
         self._count_display_fps()
+        self._schedule_next()
 
 
 

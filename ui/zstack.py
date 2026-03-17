@@ -193,7 +193,7 @@ class ZStack(FloatLayout):
             'set_writing_title': set_writing_title,
             'reset_title': reset_title,
             'pause_live_ui': lambda: (
-                Clock.unschedule(ctx.scope_display.update_scopedisplay),
+                ctx.scope_display.stop(),
                 Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
             ),
             'resume_live_ui': lambda: (

@@ -1148,7 +1148,7 @@ class ProtocolSettings(FloatLayout):
             'update_scope_display': ctx.scope_display.update_scopedisplay,
             # Pause live UI during recording-heavy runs for throughput
             'pause_live_ui': lambda: (
-                Clock.unschedule(ctx.scope_display.update_scopedisplay),
+                ctx.scope_display.stop(),
                 Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
             ),
             'resume_live_ui': lambda: (
@@ -1348,7 +1348,7 @@ class ProtocolSettings(FloatLayout):
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
             'pause_live_ui': lambda: (
-                Clock.unschedule(ctx.scope_display.update_scopedisplay),
+                ctx.scope_display.stop(),
                 Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
             ),
             'resume_live_ui': lambda: (
@@ -1521,7 +1521,7 @@ class ProtocolSettings(FloatLayout):
             'leds_off': _handle_ui_for_leds_off,
             'led_state': _handle_ui_for_led,
             'pause_live_ui': lambda: (
-                Clock.unschedule(ctx.scope_display.update_scopedisplay),
+                ctx.scope_display.stop(),
                 Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
             ),
             'resume_live_ui': lambda: (
