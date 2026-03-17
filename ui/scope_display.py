@@ -545,6 +545,7 @@ class ScopeDisplay(Image):
             self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
+        self.canvas.ask_update()
         self._count_display_fps()
         self._schedule_next()
 
@@ -559,6 +560,7 @@ class ScopeDisplay(Image):
             self._mono_texture = Texture.create(size=size, colorfmt='luminance')
         self._mono_texture.blit_buffer(image_bytes, colorfmt='luminance', bufferfmt='ubyte')
         self.texture = self._mono_texture
+        self.canvas.ask_update()
         self._count_display_fps()
         self._schedule_next()
 
