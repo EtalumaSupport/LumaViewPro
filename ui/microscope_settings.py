@@ -249,7 +249,7 @@ class MicroscopeSettings(BoxLayout):
             try:
                 # Model name and max exposure are now set during camera connect().
                 # Just read the already-computed max exposure here.
-                max_exposure = lumaview.scope.camera.get_max_exposure()
+                max_exposure = lumaview.scope.camera_max_exposure
             except Exception as e:
                 logger.error(f"Error getting camera information (Camera may not be connected): {e}")
                 logger.warning(f"Maximum Exposure defaulted to 1000 ms")
@@ -514,9 +514,9 @@ class MicroscopeSettings(BoxLayout):
         ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
 
         if use_full_pixel_depth:
-            ctx.lumaview.scope.camera.set_pixel_format('Mono12')
+            ctx.lumaview.scope.set_pixel_format('Mono12')
         else:
-            ctx.lumaview.scope.camera.set_pixel_format('Mono8')
+            ctx.lumaview.scope.set_pixel_format('Mono8')
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
 
@@ -784,11 +784,11 @@ class MicroscopeSettings(BoxLayout):
         height = int(min(current_frame_size['height'], lumaview.scope.get_max_height()))
 
         try:
-            min_frame_size = lumaview.scope.camera.get_min_frame_size()
+            min_frame_size = lumaview.scope.camera_min_frame_size
             width = max(width, min_frame_size['width'])
             height = max(height, min_frame_size['height'])
 
-            max_frame_size = lumaview.scope.camera.get_max_frame_size()
+            max_frame_size = lumaview.scope.camera_max_frame_size
             width = min(width, max_frame_size['width'])
             height = min(height, max_frame_size['height'])
         except Exception:

@@ -84,7 +84,7 @@ def go_to_step(
                     Clock.schedule_once(lambda dt: show_notification_popup(title="Protocol Objective Not Set", message=error_msg), 0)
 
         # Move into position
-        if ctx.scope.motion.driver:
+        if ctx.scope.motor_connected:
             if not called_from_protocol:
                 if turret_pos is not None:
                     io_executor.put(IOTask(action=move_absolute_position,kwargs={"axis":'T',"pos": turret_pos,"protocol": False}))

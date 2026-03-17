@@ -299,8 +299,7 @@ class TestBlockWaitForThreads:
 class TestGetCurrentPlatePosition:
     def test_returns_zeros_when_no_driver(self):
         scope = MagicMock()
-        scope.motion = MagicMock()
-        scope.motion.driver = None
+        scope.motion = None  # No motor board connected
         result = config_helpers.get_current_plate_position(
             scope, _make_settings(), MagicMock(), MagicMock(),
         )

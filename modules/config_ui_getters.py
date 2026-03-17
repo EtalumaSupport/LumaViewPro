@@ -125,7 +125,7 @@ def get_enabled_stim_configs() -> dict:
 
 def get_current_plate_position():
     ctx = _app_ctx.ctx
-    if not ctx.scope.motion.driver:
+    if not ctx.scope.motor_connected:
         logger.error(f"Cannot retrieve current plate position")
         return {
             'x': 0,

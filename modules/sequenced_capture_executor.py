@@ -495,7 +495,7 @@ class SequencedCaptureExecutor:
         self._io_executor.protocol_start()
         self.file_io_executor.protocol_start()
         # Not IO
-        self._scope.camera.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
+        self._scope.update_auto_gain_target_brightness(self._autogain_settings['target_brightness'])
 
         # Start the main run loop which manages all scan timing and execution
         self.protocol_executor.protocol_put(IOTask(action=self._run_loop))
@@ -698,12 +698,10 @@ class SequencedCaptureExecutor:
         
         step = self._protocol.step(idx=self._curr_step)
 
-        x_status = self._scope.get_target_status('X')
-        y_status = self._scope.get_target_status('Y')
-        z_status = self._scope.get_target_status('Z')
-
         # Check if target location has not been reached yet
-        if (not x_status) or (not y_status) or (not z_status) or self._scope.get_overshoot():
+        # Uses is_moving() which checks in-memory axis state first (zero serial I/O
+        # when all axes are IDLE), falling back to firmware only when needed.
+        if self._scope.is_moving():
             if time.monotonic() - self._step_start_time > self.STEP_TIMEOUT_SECONDS:
                 logger.error(f"[PROTOCOL] Step {self._curr_step} timed out waiting for motion ({self.STEP_TIMEOUT_SECONDS}s) — skipping step")
                 # Force advance to next step
@@ -1219,7 +1217,7 @@ class SequencedCaptureExecutor:
         video_as_frames = self._video_as_frames
 
         if not step['Auto_Gain']:
-            with self._scope.camera.update_camera_config():
+            with self._scope.update_camera_config():
                 self._scope.set_gain(step['Gain'])
                 self._scope.set_exposure_time(step['Exposure'])
 
@@ -1282,11 +1280,12 @@ class SequencedCaptureExecutor:
                 # Disable autogain and then reenable it only for the first frame
                 if step["Auto_Gain"]:
                     self._scope.set_auto_gain(state=False, settings=self._autogain_settings)
-                    self._scope.camera.auto_gain_once(state=True, 
-                                                      target_brightness=self._autogain_settings['target_brightness'], 
-                                                      min_gain=self._autogain_settings['min_gain'], 
-                                                      max_gain=self._autogain_settings['max_gain']
-                                                      )
+                    self._scope.auto_gain_once(
+                        state=True,
+                        target_brightness=self._autogain_settings['target_brightness'],
+                        min_gain=self._autogain_settings['min_gain'],
+                        max_gain=self._autogain_settings['max_gain'],
+                    )
 
                 duration_sec = step['Video Config']['duration']
 
@@ -1338,7 +1337,7 @@ class SequencedCaptureExecutor:
                         Clock.schedule_once(lambda dt, p=progress: self._callbacks['set_recording_title'](progress=p), 0)
 
                     if not self.protocol_executor.is_protocol_running():
-                        self._scope.leds_off()
+                        self._leds_off()
                         if "reset_title" in self._callbacks:
                             Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
                         return
@@ -1386,7 +1385,7 @@ class SequencedCaptureExecutor:
                 if captured_frames == 0:
                     logger.warning("[PROTOCOL] Zero frames captured during video recording — skipping write")
                     self._video_write_finished.set()
-                    self._scope.leds_off()
+                    self._leds_off()
                     return
 
                 calculated_fps = max(1, int(captured_frames / duration_sec))
@@ -1396,7 +1395,7 @@ class SequencedCaptureExecutor:
                 logger.info(f"Protocol-Video] Video FPS: {calculated_fps}")
                 logger.info("Protocol-Video] Writing video...")
 
-                self._scope.leds_off()
+                self._leds_off()
 
                 self.file_io_executor.protocol_put(IOTask(
                     action=self._write_capture,
@@ -1444,7 +1443,7 @@ class SequencedCaptureExecutor:
                             "capture_time": datetime.datetime.now(),
                         }
                     ))
-                    self._scope.leds_off()
+                    self._leds_off()
                     return
 
                 logger.info(f"Protocol Image Captured: {name}")
@@ -1478,10 +1477,10 @@ class SequencedCaptureExecutor:
                 }
             ))
 
-        
-        self._scope.leds_off()
 
-            
+        self._leds_off()
+
+
 
                 
     

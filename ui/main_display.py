@@ -64,7 +64,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         io_executor = ctx.io_executor
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        if self.scope.camera.active is None:
+        if not self.scope.camera_active:
             return
 
         if scope_display.play:
@@ -142,7 +142,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             logger.warning('[LVP Main  ] Recording already in progress, ignoring duplicate record_init()')
             return
 
-        if self.scope.camera.active is None:
+        if not self.scope.camera_active:
             return
 
         # Atomically claim the recording operation
@@ -163,8 +163,8 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             max_duration = 30
 
         # Clamp the FPS to be no faster than the exposure rate
-        frame_size = self.scope.camera.get_frame_size()
-        exposure = self.scope.camera.get_exposure_t()
+        frame_size = self.scope.camera_frame_size
+        exposure = self.scope.camera_exposure_ms
         exposure_freq = 1.0 / (exposure / 1000)
         video_fps = min(exposure_freq, max_fps)
 
@@ -630,14 +630,14 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
     def fit_image(self):
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
-        if self.scope.camera.active is None:
+        if not self.scope.camera_active:
             return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0,0)
 
     def one2one_image(self):
         logger.info('[LVP Main  ] MainDisplay.one2one_image()')
-        if self.scope.camera.active is None:
+        if not self.scope.camera_active:
             return
         scope = _app_ctx.ctx.scope
         w = self.width

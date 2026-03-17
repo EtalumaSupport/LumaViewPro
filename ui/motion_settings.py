@@ -197,11 +197,10 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         try:
             scope = ctx.lumaview.scope
-            mc = scope.motion.motorconfig
             x_target = scope.get_target_position('X')
-            x_target = np.clip(x_target, 0, mc.travel_limit_um('X'))
+            x_target = np.clip(x_target, 0, scope.travel_limit_um('X'))
             y_target = scope.get_target_position('Y')
-            y_target = np.clip(y_target, 0, mc.travel_limit_um('Y'))
+            y_target = np.clip(y_target, 0, scope.travel_limit_um('Y'))
         except Exception:
             logger.exception('[LVP Main  ] Error talking to Motor board.')
             return None
@@ -478,7 +477,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.home()')
 
-        if ctx.lumaview.scope.motion.driver: # motor controller is actively connected
+        if ctx.lumaview.scope.motor_connected: # motor controller is actively connected
             ctx.io_executor.put(IOTask(move_home, kwargs={'axis':'XY'}))
 
             # Firmware seems to move the turret back to position 1 when performing XY homing

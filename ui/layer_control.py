@@ -222,8 +222,8 @@ class LayerControl(BoxLayout):
 
     def get_gain_exposure(self, init, state):
         ctx = _app_ctx.ctx
-        actual_gain = ctx.scope.camera.get_gain()
-        actual_exp = ctx.scope.camera.get_exposure_t()
+        actual_gain = ctx.scope.camera_gain
+        actual_exp = ctx.scope.camera_exposure_ms
 
         return (init, state, actual_gain, actual_exp)
 

@@ -88,8 +88,7 @@ class Stage(Widget):
         """Return (x_max_um, y_max_um) from motorconfig, with fallback defaults."""
         ctx = _app_ctx.ctx
         if ctx is not None and hasattr(ctx, 'scope') and ctx.scope is not None:
-            mc = ctx.scope.motion.motorconfig
-            return (mc.travel_limit_um('X'), mc.travel_limit_um('Y'))
+            return (ctx.scope.travel_limit_um('X'), ctx.scope.travel_limit_um('Y'))
         return (120000.0, 80000.0)
 
 

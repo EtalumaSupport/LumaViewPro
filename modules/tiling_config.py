@@ -92,9 +92,8 @@ class TilingConfig:
         import modules.app_context as _app_ctx
         ctx = _app_ctx.ctx
         if ctx is not None and ctx.scope is not None:
-            mc = ctx.scope.motion.motorconfig
-            x_center = mc.travel_limit_um('X') / 2
-            y_center = mc.travel_limit_um('Y') / 2
+            x_center = ctx.scope.travel_limit_um('X') / 2
+            y_center = ctx.scope.travel_limit_um('Y') / 2
         else:
             x_center = 60000
             y_center = 40000

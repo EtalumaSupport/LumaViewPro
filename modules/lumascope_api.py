@@ -77,6 +77,25 @@ class Lumascope():
         self._axis_state = {'X': AxisState.UNKNOWN, 'Y': AxisState.UNKNOWN,
                             'Z': AxisState.UNKNOWN, 'T': AxisState.UNKNOWN}
 
+        # Per-axis arrival events — set when axis transitions from MOVING to IDLE.
+        # Waiters call event.wait() instead of polling serial.
+        self._arrival_events = {ax: threading.Event() for ax in self.VALID_AXES}
+        for ev in self._arrival_events.values():
+            ev.set()  # Start as "arrived" (not moving)
+
+        # Motion monitor wakeup — set when any axis starts MOVING, cleared when
+        # all axes are back to IDLE. The monitor thread sleeps on this.
+        self._motion_wake = threading.Event()
+
+        # Start the motion monitor thread (detects axis arrival via firmware query)
+        self._motion_monitor_stop = threading.Event()
+        self._motion_monitor_thread = threading.Thread(
+            target=self._motion_monitor_loop,
+            name='motion-monitor',
+            daemon=True,
+        )
+        self._motion_monitor_thread.start()
+
         # LED Control Board
         try:
             if simulate:
@@ -165,6 +184,81 @@ class Lumascope():
             'color': None,
         }
 
+        # Camera state cache — push-based, not polled.
+        # Updated when camera connects and after every set_gain/set_exposure/etc.
+        # UI reads from cache with zero SDK calls.
+        self._camera_cache_lock = threading.Lock()
+        self._camera_cache = {
+            'active': False,
+            'gain': 0.0,
+            'exposure_ms': 0.0,
+            'frame_size': {'width': 0, 'height': 0},
+            'max_frame_size': {'width': 0, 'height': 0},
+            'min_frame_size': {'width': 0, 'height': 0},
+            'max_exposure': 0.0,
+            'pixel_format': None,
+            'binning': 1,
+        }
+        self._populate_camera_cache()
+
+
+    # --- Motion monitor (Phase 1A) ---
+
+    _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
+
+    def _motion_monitor_loop(self):
+        """Background thread: polls firmware for axis arrival at 50 Hz.
+
+        Sleeps on ``_motion_wake`` when all axes are IDLE. Wakes when any
+        axis transitions to MOVING. Polls ``get_target_status()`` per
+        MOVING axis and transitions them to IDLE on arrival. This is the
+        single place where firmware target-status queries happen during
+        normal operation — all other code reads the in-memory axis state.
+        """
+        while not self._motion_monitor_stop.is_set():
+            # Sleep until something starts moving (or shutdown)
+            self._motion_wake.wait()
+            if self._motion_monitor_stop.is_set():
+                break
+
+            # Poll moving axes until all arrive
+            while not self._motion_monitor_stop.is_set():
+                moving_axes = []
+                with self._axis_state_lock:
+                    moving_axes = [
+                        ax for ax, st in self._axis_state.items()
+                        if st == AxisState.MOVING
+                    ]
+
+                if not moving_axes:
+                    # Also check overshoot — if overshoot is active,
+                    # the monitor should keep running
+                    if self.motion and hasattr(self.motion, 'overshoot') and self.motion.overshoot:
+                        time.sleep(self._MOTION_POLL_INTERVAL)
+                        continue
+                    # All axes arrived — go back to sleep
+                    self._motion_wake.clear()
+                    break
+
+                # Query firmware for each MOVING axis
+                for ax in moving_axes:
+                    if self._motion_monitor_stop.is_set():
+                        break
+                    try:
+                        if self.motion and self.motion.driver and self.get_target_status(ax):
+                            # Axis has arrived — transition to IDLE
+                            self._set_axis_state(ax, AxisState.IDLE)
+                    except Exception as e:
+                        logger.warning(f'[SCOPE API ] Motion monitor: target_status({ax}) failed: {e}')
+
+                time.sleep(self._MOTION_POLL_INTERVAL)
+
+    def _stop_motion_monitor(self):
+        """Stop the motion monitor thread (called during disconnect)."""
+        self._motion_monitor_stop.set()
+        self._motion_wake.set()  # unblock if sleeping
+        if self._motion_monitor_thread.is_alive():
+            self._motion_monitor_thread.join(timeout=1.0)
 
     def _load_camera_timing(self):
         """Load per-camera timing config if available.
@@ -191,6 +285,82 @@ class Lumascope():
             logger.info(f'[SCOPE API ] Loaded camera timing config from {timing_path}')
         except Exception as e:
             logger.warning(f'[SCOPE API ] Failed to load camera timing config: {e}')
+
+    # --- Camera state cache accessors (zero SDK calls) ---
+
+    def _populate_camera_cache(self):
+        """Populate camera cache from hardware. Called at init and on reconnect."""
+        if not self.camera or not self.camera.active:
+            with self._camera_cache_lock:
+                self._camera_cache['active'] = False
+            return
+
+        try:
+            cache = {
+                'active': True,
+                'gain': self.camera.get_gain() or 0.0,
+                'exposure_ms': self.camera.get_exposure_t() or 0.0,
+                'frame_size': self.camera.get_frame_size() or {'width': 0, 'height': 0},
+                'max_frame_size': self.camera.get_max_frame_size() or {'width': 0, 'height': 0},
+                'min_frame_size': self.camera.get_min_frame_size() or {'width': 0, 'height': 0},
+                'max_exposure': self.camera.get_max_exposure() or 0.0,
+                'pixel_format': self.camera.get_pixel_format() if hasattr(self.camera, 'get_pixel_format') else None,
+                'binning': self.camera.get_binning_size() if hasattr(self.camera, 'get_binning_size') else 1,
+            }
+            with self._camera_cache_lock:
+                self._camera_cache.update(cache)
+            logger.info('[SCOPE API ] Camera cache populated')
+        except Exception as e:
+            logger.warning(f'[SCOPE API ] Failed to populate camera cache: {e}')
+            with self._camera_cache_lock:
+                self._camera_cache['active'] = bool(self.camera and self.camera.active)
+
+    def _invalidate_camera_cache(self):
+        """Mark camera cache as inactive (e.g. on disconnect)."""
+        with self._camera_cache_lock:
+            self._camera_cache['active'] = False
+
+    @property
+    def camera_active(self) -> bool:
+        """Whether the camera is connected and active (reads cache)."""
+        with self._camera_cache_lock:
+            return self._camera_cache['active']
+
+    @property
+    def camera_gain(self) -> float:
+        """Current camera gain in dB (reads cache)."""
+        with self._camera_cache_lock:
+            return self._camera_cache['gain']
+
+    @property
+    def camera_exposure_ms(self) -> float:
+        """Current camera exposure time in ms (reads cache)."""
+        with self._camera_cache_lock:
+            return self._camera_cache['exposure_ms']
+
+    @property
+    def camera_frame_size(self) -> dict:
+        """Current camera frame size as {'width': int, 'height': int} (reads cache)."""
+        with self._camera_cache_lock:
+            return dict(self._camera_cache['frame_size'])
+
+    @property
+    def camera_max_frame_size(self) -> dict:
+        """Maximum camera frame size (reads cache)."""
+        with self._camera_cache_lock:
+            return dict(self._camera_cache['max_frame_size'])
+
+    @property
+    def camera_min_frame_size(self) -> dict:
+        """Minimum camera frame size (reads cache)."""
+        with self._camera_cache_lock:
+            return dict(self._camera_cache['min_frame_size'])
+
+    @property
+    def camera_max_exposure(self) -> float:
+        """Maximum camera exposure time in ms (reads cache)."""
+        with self._camera_cache_lock:
+            return self._camera_cache['max_exposure']
 
     # --- CR-2: Thread-safe properties for shared state ---
 
@@ -281,9 +451,23 @@ class Lumascope():
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
     def _set_axis_state(self, axis: str, state: str):
-        """Set the state of an axis (internal use only)."""
+        """Set the state of an axis (internal use only).
+
+        When transitioning to MOVING/HOMING, clears the axis arrival event
+        and wakes the motion monitor. When transitioning to IDLE, sets the
+        arrival event so waiters unblock.
+        """
         with self._axis_state_lock:
             self._axis_state[axis] = state
+
+        if state in (AxisState.MOVING, AxisState.HOMING):
+            # Clear arrival event — axis is now in motion
+            self._arrival_events[axis].clear()
+            # Wake the motion monitor to start polling
+            self._motion_wake.set()
+        elif state == AxisState.IDLE:
+            # Signal arrival — unblocks any wait_for_axis() callers
+            self._arrival_events[axis].set()
 
     def is_any_axis_moving(self) -> bool:
         """Check if any axis is currently MOVING or HOMING.
@@ -339,6 +523,31 @@ class Lumascope():
         except Exception:
             return float(self.MOTOR_POSITION_LIMIT)
 
+    @property
+    def motor_connected(self) -> bool:
+        """Whether the motor controller is connected (replaces scope.motion.driver checks)."""
+        return bool(self.motion and self.motion.driver)
+
+    def lens_focal_length(self) -> float:
+        """Get tube lens focal length from motorconfig.
+
+        Returns:
+            float: Focal length in mm (default 47.8).
+        """
+        if not self.motion or not self.motion.driver:
+            return 47.8
+        return self.motion.motorconfig.lens_focal_length()
+
+    def pixel_size(self) -> float:
+        """Get camera pixel size from motorconfig.
+
+        Returns:
+            float: Pixel size in um/pixel (default 2.0).
+        """
+        if not self.motion or not self.motion.driver:
+            return 2.0
+        return self.motion.motorconfig.pixel_size()
+
     # --- CR-6: Exclusive lock for multi-step hardware operations ---
 
     @contextlib.contextmanager
@@ -364,10 +573,16 @@ class Lumascope():
         """Disconnect from all hardware (LED, motion, camera)."""
         logger.info('[SCOPE API ] Disconnecting from microscope...')
 
+        # Stop the motion monitor before disconnecting the motor board
+        self._stop_motion_monitor()
+
         # Set all axes to UNKNOWN before disconnecting
         with self._axis_state_lock:
             for ax in self._axis_state:
                 self._axis_state[ax] = AxisState.UNKNOWN
+        # Set all arrival events so any blocked waiters unblock
+        for ev in self._arrival_events.values():
+            ev.set()
 
         if self.led is not None:
             self.led.disconnect()
@@ -380,6 +595,7 @@ class Lumascope():
         if self.camera is not None:
             self.camera.disconnect()
             self.camera = None
+        self._invalidate_camera_cache()
 
         logger.info('[SCOPE API ] Microscope disconnected')
 
@@ -598,7 +814,11 @@ class Lumascope():
         """
         if not self.camera or not self.camera.active:
             return False
-        return self.camera.set_pixel_format(pixel_format)
+        result = self.camera.set_pixel_format(pixel_format)
+        if result:
+            with self._camera_cache_lock:
+                self._camera_cache['pixel_format'] = pixel_format
+        return result
 
     def get_supported_pixel_formats(self) -> tuple:
         """Get the list of supported camera pixel formats.
@@ -1370,6 +1590,8 @@ class Lumascope():
 
         if not self.camera or not self.camera.active: return
         self.camera.set_frame_size(w, h)
+        with self._camera_cache_lock:
+            self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
 
     def get_frame_size(self):
         """Get the current camera frame size.
@@ -1402,6 +1624,8 @@ class Lumascope():
         if not self.camera or not self.camera.active: return
         self.camera.gain(gain)
         self.frame_validity.invalidate('gain')
+        with self._camera_cache_lock:
+            self._camera_cache['gain'] = float(gain)
 
     def set_auto_gain(self, state: bool, settings: dict):
         """Enable or disable automatic gain adjustment.
@@ -1430,6 +1654,8 @@ class Lumascope():
         if not self.camera or not self.camera.active: return
         self.camera.exposure_t(t)
         self.frame_validity.invalidate('exposure')
+        with self._camera_cache_lock:
+            self._camera_cache['exposure_ms'] = float(t)
 
     def get_exposure_time(self):
         """Get the current camera exposure time.
@@ -1453,6 +1679,47 @@ class Lumascope():
         self.camera.auto_exposure_t(state)
         self.frame_validity.invalidate('exposure')
 
+    def update_auto_gain_target_brightness(self, target_brightness: float):
+        """Set the auto-gain target brightness on the camera.
+
+        Args:
+            target_brightness: Target brightness value (0.0–1.0).
+        """
+        if not self.camera or not self.camera.active:
+            return
+        self.camera.update_auto_gain_target_brightness(target_brightness)
+
+    def auto_gain_once(self, state: bool, target_brightness: float,
+                       min_gain: float, max_gain: float):
+        """Run auto-gain for a single frame on the camera.
+
+        Args:
+            state: True to enable one-shot auto-gain.
+            target_brightness: Target brightness (0.0–1.0).
+            min_gain: Minimum gain in dB.
+            max_gain: Maximum gain in dB.
+        """
+        if not self.camera or not self.camera.active:
+            return
+        self.camera.auto_gain_once(
+            state=state,
+            target_brightness=target_brightness,
+            min_gain=min_gain,
+            max_gain=max_gain,
+        )
+
+    def update_camera_config(self):
+        """Context manager for batched camera config updates.
+
+        Usage::
+
+            with scope.update_camera_config():
+                scope.set_gain(5.0)
+                scope.set_exposure_time(100)
+        """
+        if not self.camera or not self.camera.active:
+            return contextlib.nullcontext()
+        return self.camera.update_camera_config()
 
     def camera_is_connected(self) -> bool:
         """Check if the camera is active and connected.
@@ -1867,56 +2134,47 @@ class Lumascope():
     def is_moving(self):
         """Check if any axis is currently moving.
 
-        First checks the in-memory axis state (zero serial I/O). If no axis
-        is marked MOVING/HOMING, returns False immediately. Falls back to
-        firmware query only when state says an axis is moving but overshoot
-        status needs checking.
+        Reads from in-memory axis state — zero serial I/O. The motion
+        monitor thread handles firmware queries and state transitions.
 
         Returns:
-            bool: True if any axis has not reached its target or overshoot is active.
+            bool: True if any axis is MOVING/HOMING or overshoot is active.
         """
-        # If not communicating with motor board
-        if not self.motion.driver: return False
-
-        # Fast path: check in-memory state first
-        if not self.is_any_axis_moving() and not self.get_overshoot():
+        if not self.motion or not self.motion.driver:
             return False
-
-        # State says something is moving — confirm via firmware
-        # (needed for fire-and-forget moves and overshoot)
-        x_status = self.get_target_status('X')
-        y_status = self.get_target_status('Y')
-        z_status = self.get_target_status('Z')
-        t_status = self.get_target_status('T')
-
-        if x_status and y_status and z_status and t_status and not self.get_overshoot():
-            # Firmware says everything arrived — update state
-            with self._axis_state_lock:
-                for ax in self._axis_state:
-                    if self._axis_state[ax] == AxisState.MOVING:
-                        self._axis_state[ax] = AxisState.IDLE
-            return False
-        else:
+        if self.is_any_axis_moving():
             return True
+        if self.get_overshoot():
+            return True
+        return False
 
-
-    def wait_until_finished_moving(self):
+    def wait_until_finished_moving(self, timeout: float = 120.0):
         """Block until all axes have reached their target positions.
 
-        When complete, marks all MOVING axes as IDLE in the state model.
+        Waits on per-axis arrival events set by the motion monitor thread.
+        Zero serial I/O from the calling thread — all firmware queries
+        happen on the monitor thread at 50 Hz.
+
+        Args:
+            timeout: Maximum seconds to wait (default 120s).
+
+        Returns:
+            bool: True if all axes arrived, False if timed out.
         """
-        if not self.motion.driver: return
+        if not self.motion or not self.motion.driver:
+            return True
 
-        while self.is_moving():
-            time.sleep(0.05)
+        deadline = time.monotonic() + timeout
+        for ax in self.VALID_AXES:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning(f'[SCOPE API ] wait_until_finished_moving timed out on axis {ax}')
+                return False
+            if not self._arrival_events[ax].wait(timeout=remaining):
+                logger.warning(f'[SCOPE API ] wait_until_finished_moving timed out on axis {ax}')
+                return False
 
-        # Ensure all axes are marked IDLE after waiting
-        with self._axis_state_lock:
-            for ax in self._axis_state:
-                if self._axis_state[ax] == AxisState.MOVING:
-                    self._axis_state[ax] = AxisState.IDLE
-
-        return
+        return True
 
 
     def set_acceleration_limit(self, val_pct: int):

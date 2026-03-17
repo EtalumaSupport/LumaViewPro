@@ -50,7 +50,7 @@ class AutofocusExecutor:
 
         self._reset_state()
 
-        if not self._scope.camera.active:
+        if not self._scope.camera_active:
             return
 
         self._objective_loader = ObjectiveLoader()
@@ -247,10 +247,9 @@ class AutofocusExecutor:
             if not self._af_in_progress.is_set():
                 return
 
-            if not self._scope.get_target_status('Z'):
-                return
-
-            if self._scope.get_overshoot():
+            # Check if Z is still moving (in-memory state check, zero serial I/O
+            # when IDLE). Covers both target arrival and overshoot.
+            if self._scope.is_moving():
                 return
 
             if not self._autofocus_executor.is_protocol_running():

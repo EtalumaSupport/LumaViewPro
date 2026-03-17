@@ -516,8 +516,8 @@ class ScopeDisplay(Image):
 
     def get_true_gain_exp(self, layer):
         ctx = _app_ctx.ctx
-        actual_gain = ctx.scope.camera.get_gain()
-        actual_exp = ctx.scope.camera.get_exposure_t()
+        actual_gain = ctx.scope.camera_gain
+        actual_exp = ctx.scope.camera_exposure_ms
         Clock.schedule_once(lambda dt: self.update_auto_gain_ui(layer, actual_gain, actual_exp), 0)
 
     def update_auto_gain_ui(self, layer, actual_gain, actual_exp):

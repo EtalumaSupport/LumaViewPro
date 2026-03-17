@@ -786,14 +786,14 @@ class TestAxisState:
         sim_scope.move_absolute_position('Z', 1000, wait_until_complete=False)
         assert sim_scope.is_any_axis_moving()
 
-    def test_is_moving_reconciles_state(self, sim_scope):
-        """is_moving() should reconcile state from firmware when axes are MOVING."""
+    def test_monitor_reconciles_state(self, sim_scope):
+        """Motion monitor thread should detect arrival and set state to IDLE."""
         from modules.lumascope_api import AxisState
         sim_scope.move_absolute_position('Z', 1000, wait_until_complete=False)
-        # In simulation, the move completes instantly. is_moving() should detect
-        # that firmware says arrived and update state to IDLE.
-        result = sim_scope.is_moving()
-        assert result is False
+        # In simulation, the move completes instantly. The motion monitor thread
+        # detects arrival at 50Hz and transitions state to IDLE.
+        sim_scope.wait_until_finished_moving(timeout=2.0)
+        assert not sim_scope.is_moving()
         assert sim_scope.get_axis_state('Z') == AxisState.IDLE
 
     def test_disconnect_sets_unknown(self, sim_scope):

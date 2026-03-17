@@ -288,9 +288,8 @@ def get_pixel_size(
     import modules.app_context as _app_ctx
     ctx = _app_ctx.ctx
     if ctx is not None and ctx.scope is not None:
-        mc = ctx.scope.motion.motorconfig
-        tube_focal_length = mc.lens_focal_length()
-        pixel_width = mc.pixel_size()
+        tube_focal_length = ctx.scope.lens_focal_length()
+        pixel_width = ctx.scope.pixel_size()
     else:
         tube_focal_length = 47.8  # Etaluma default [mm]
         pixel_width = 2.0         # Basler default [um/pixel]

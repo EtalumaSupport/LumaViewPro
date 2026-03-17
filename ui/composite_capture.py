@@ -211,7 +211,7 @@ class CompositeCapture(FloatLayout):
 
         live_histo_off()
 
-        if ctx.scope.camera.active is None:
+        if not ctx.scope.camera_active:
             return
 
         scope_display = self.ids['viewer_id'].ids['scope_display_id']
