@@ -27,6 +27,7 @@ if sys.version_info < (3, 11):
 
 # General
 
+import atexit
 import copy
 import logging
 import datetime
@@ -486,36 +487,29 @@ class LumaViewProApp(TooltipMixin, App):
                 io_q = io_executor.queue_size() if hasattr(io_executor, 'queue_size') else -1
                 cam_q = camera_executor.queue_size() if hasattr(camera_executor, 'queue_size') else -1
                 prot_q = protocol_executor.queue_size() if hasattr(protocol_executor, 'protocol_queue_size') else -1
-                file_q = file_io_executor.queue_size() if hasattr(file_io_executor, 'protocol_queue_size') else -1
-                af_q = autofocus_thread_executor.queue_size() if hasattr(autofocus_thread_executor, 'protocol_queue_size') else -1
+                file_q = file_io_executor.queue_size() if hasattr(file_io_executor, 'queue_size') else -1
+                af_q = autofocus_thread_executor.queue_size() if hasattr(autofocus_thread_executor, 'queue_size') else -1
                 sd_q = scope_display_thread_executor.queue_size() if hasattr(scope_display_thread_executor, 'queue_size') else -1
-                stage_q = 0   # consolidated into io_executor
-                turret_q = 0  # consolidated into io_executor
                 reset_q = reset_executor.queue_size() if hasattr(reset_executor, 'queue_size') else -1
-                io_pq = io_executor.protocol_queue_size() if hasattr(io_executor, 'protocol_queue_size') else -1
-                cam_pq = camera_executor.protocol_queue_size() if hasattr(camera_executor, 'protocol_queue_size') else -1
-                prot_pq = protocol_executor.protocol_queue_size() if hasattr(protocol_executor, 'protocol_queue_size') else -1
-                file_pq = file_io_executor.protocol_queue_size() if hasattr(file_io_executor, 'protocol_queue_size') else -1
-                af_pq = autofocus_thread_executor.protocol_queue_size() if hasattr(autofocus_thread_executor, 'protocol_queue_size') else -1
-                sd_pq = scope_display_thread_executor.protocol_queue_size() if hasattr(scope_display_thread_executor, 'protocol_queue_size') else -1
-                stage_pq = 0  # consolidated into io_executor
-                turret_pq = 0 # consolidated into io_executor
-                reset_pq = reset_executor.protocol_queue_size() if hasattr(reset_executor, 'protocol_queue_size') else -1
 
-                logger.error(f"[Watchdog] Queues - IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q} SD:{sd_q} STAGE:{stage_q} TURRET:{turret_q} RESET:{reset_q}")
-                logger.error(f"[Watchdog] Protocol Queues - IO:{io_pq} CAM:{cam_pq} PROT:{prot_pq} FILE:{file_pq} AF:{af_pq} SD:{sd_pq} STAGE:{stage_pq} TURRET:{turret_pq} RESET:{reset_pq}")
+                # Only log at warning level when any queue is backing up
+                total_q = sum(q for q in [io_q, cam_q, prot_q, file_q, af_q, sd_q, reset_q] if q > 0)
+                if total_q > 10:
+                    logger.warning(f"[Watchdog  ] Queue backlog ({total_q} total) — IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q} SD:{sd_q} RESET:{reset_q}")
+                else:
+                    logger.debug(f"[Watchdog  ] Queues — IO:{io_q} CAM:{cam_q} PROT:{prot_q} FILE:{file_q} AF:{af_q} SD:{sd_q} RESET:{reset_q}")
 
                 # If scopedisplay backlog is growing and appears stale, prune it to keep UI responsive
                 if sd_q is not None and sd_q > 20:
                     try:
                         scope_display_thread_executor.clear_pending()
-                        logger.warning("[Watchdog] Cleared ScopeDisplay pending queue to prevent backlog")
+                        logger.warning("[Watchdog  ] Cleared ScopeDisplay pending queue to prevent backlog")
                     except Exception:
                         pass
             except Exception:
                 pass
 
-        #Clock.schedule_interval(_executor_watchdog, 60)
+        Clock.schedule_interval(_executor_watchdog, 60)
 
         load_log_level()
         load_autofocus_log_enable()
@@ -575,6 +569,19 @@ class LumaViewProApp(TooltipMixin, App):
             lumaview.camera_temps_event = Clock.schedule_interval(lambda dt: lumaview.log_camera_temps(), 14400)  # Log every 4 hours
 
         scope_leds_off()
+
+        # Register emergency shutdown handler — ensures LEDs are off and serial
+        # ports released even if the app crashes or is killed. This is safety-
+        # critical: LEDs left on can overheat samples.
+        def _emergency_shutdown():
+            try:
+                if lumaview and lumaview.scope:
+                    lumaview.scope.leds_off()
+                    lumaview.scope.disconnect()
+                    logger.info('[LVP Main  ] atexit: emergency shutdown complete (LEDs off, disconnected)')
+            except Exception:
+                pass  # Best-effort — logging may already be torn down
+        atexit.register(_emergency_shutdown)
 
         if getattr(sys, 'frozen', False):
             pyi_splash.close()

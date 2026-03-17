@@ -81,7 +81,12 @@ class IOTask:
                 threading.current_thread().name = self.name
                 if not callable(self.action):
                     logger.warning(f"{self.name} Worker received non-callable action: {str(self.action)}")
+                t_start = time.monotonic()
                 res = self.action(*self.args, **self.kwargs)
+                elapsed = time.monotonic() - t_start
+                if elapsed > 5.0:
+                    action_name = getattr(self.action, '__name__', str(self.action))
+                    logger.warning(f"[IOTask    ] Slow task ({elapsed:.1f}s): {action_name} on {self.name}")
                 return res, None
             except Exception as e:
                 logger.error(f"Uncaught Thread Exception in {self.name} Worker: {e}", exc_info=True)
