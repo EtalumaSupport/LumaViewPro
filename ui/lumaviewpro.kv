@@ -2426,7 +2426,7 @@
 				ModSlider:
 					id: live_view_fps_slider
 					min: 5
-					max: 60
+					max: 65
 					value: 30
 					step: 5
 					cursor_size: '20dp','20dp'
@@ -2442,8 +2442,7 @@
 					font_size: '12sp'
 					padding: ['4dp', (self.height-self.line_height)/2]
 					halign: 'right'
-					input_filter: 'int'
-					text: format(int(live_view_fps_slider.value))
+					text: 'Max' if int(live_view_fps_slider.value) > 60 else format(int(live_view_fps_slider.value))
 					readonly: True
 
 			BoxLayout:

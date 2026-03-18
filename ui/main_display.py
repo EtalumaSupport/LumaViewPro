@@ -42,6 +42,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.recording_event = None
         self.recording_complete_event = None
         self.recording_title_update = None
+        self._last_recorded_frame_ts = None  # For duplicate frame detection during recording
         self.writing_progress_update = None
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
@@ -162,7 +163,9 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             max_fps = 40
             max_duration = 30
 
-        # Clamp the FPS to be no faster than the exposure rate
+        # Record at camera rate — duplicate frame detection in record_helper()
+        # prevents storing the same frame twice. max_fps only used for
+        # final video playback FPS calculation, not capture throttling.
         frame_size = self.scope.camera_frame_size
         exposure = self.scope.camera_exposure_ms
         exposure_freq = 1.0 / (exposure / 1000)
@@ -239,13 +242,18 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
 
         self.current_captured_frames = 0
         self.timestamps = []
+        self._last_recorded_frame_ts = None  # Reset duplicate detection
 
         logger.info(f"Manual-Video] Capturing video...")
 
+        # Schedule recording at camera exposure rate (not capped to max_fps).
+        # Duplicate frame detection in record_helper() naturally handles the case
+        # where the timer fires faster than the camera delivers new frames.
+        capture_interval = 1.0 / exposure_freq
         # Schedule title updates to show recording progress
         self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)  # Update every 100ms
-        self.recording_check = Clock.schedule_interval(self.check_recording_state, seconds_per_frame)
-        self.recording_event = Clock.schedule_interval(self._enqueue_recording_frame, seconds_per_frame)
+        self.recording_check = Clock.schedule_interval(self.check_recording_state, capture_interval)
+        self.recording_event = Clock.schedule_interval(self._enqueue_recording_frame, capture_interval)
 
     def _enqueue_recording_frame(self, dt=None):
         """Enqueue a recording frame task without creating closure."""
@@ -609,7 +617,19 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         else:
             force_to_8bit = False
 
-        image = self.scope.get_image(force_to_8bit=force_to_8bit)
+        # Use get_image_from_buffer() instead of get_image() — avoids the extra
+        # get_array() copy (~8MB at 4K) and the retry sleep loop. Returns the
+        # latest frame reference directly via grab_latest().
+        result = self.scope.get_image_from_buffer(force_to_8bit=force_to_8bit)
+        if result is None or result[0] is False:
+            return
+        image, frame_ts = result
+
+        # Skip duplicate frames — if camera hasn't delivered a new frame since
+        # last recording, don't waste a memmap slot on identical data.
+        if frame_ts is not None and frame_ts == self._last_recorded_frame_ts:
+            return
+        self._last_recorded_frame_ts = frame_ts
 
         if isinstance(image, np.ndarray):
 

@@ -46,7 +46,6 @@ logger = logging.getLogger('LVP.ui.scope_display')
 
 
 class ScopeDisplay(Image):
-    record = BooleanProperty(False)
     play = BooleanProperty(True)
 
     def __init__(self, **kwargs):
@@ -105,7 +104,7 @@ class ScopeDisplay(Image):
         # Pull-based display loop state
         self._display_running = False
         self._display_generation = 0  # Incremented on each start() to invalidate stale callbacks
-        self._last_frame_time = 0.0
+        self._cycle_start_time = 0.0  # When _pull_next_frame() was called (full cycle timing)
         self._last_frame_ts = None  # Camera timestamp of last displayed frame
         self._min_frame_interval = 1.0 / 30  # derived from fps setting
 
@@ -199,13 +198,18 @@ class ScopeDisplay(Image):
         else:
             self.fps = 30
 
-        self._min_frame_interval = 1.0 / max(1, self.fps)
+        # fps=0 means uncapped — run as fast as the pipeline allows
+        if self.fps == 0:
+            self._min_frame_interval = 0
+        else:
+            self._min_frame_interval = 1.0 / max(1, self.fps)
         self._display_generation += 1
         self.paused.clear()
 
         if not self._display_running:
             self._display_running = True
-            logger.info(f'[LVP Main  ] ScopeDisplay: pull-based loop started ({self.fps} FPS cap)')
+            fps_label = "uncapped" if self.fps == 0 else f"{self.fps} FPS cap"
+            logger.info(f'[LVP Main  ] ScopeDisplay: pull-based loop started ({fps_label})')
         Clock.schedule_once(self._pull_next_frame, 0)
 
     def stop(self):
@@ -350,6 +354,8 @@ class ScopeDisplay(Image):
         """
         if not self._display_running or self.paused.is_set():
             return
+
+        self._cycle_start_time = time.monotonic()
 
         ctx = _app_ctx.ctx
         if ctx is None:
@@ -565,20 +571,17 @@ class ScopeDisplay(Image):
                     self._perf_blit_delays.clear()
             
 
-        if self.record:
-            ctx.lumaview.live_capture()
-
     def _schedule_next(self):
         """Schedule the next frame grab, enforcing minimum frame interval.
 
-        Called on the main thread after blit completes. Computes how long
-        to wait before the next grab to respect the FPS cap.
+        Called on the main thread after blit completes. Measures elapsed time
+        from the START of the current cycle (_pull_next_frame) to account for
+        the full pipeline: dispatch → worker grab → worker process → blit.
         """
         if not self._display_running or self.paused.is_set():
             return
         now = time.monotonic()
-        elapsed = now - self._last_frame_time
-        self._last_frame_time = now
+        elapsed = now - self._cycle_start_time
         wait = max(0, self._min_frame_interval - elapsed)
         Clock.schedule_once(self._pull_next_frame, wait)
 

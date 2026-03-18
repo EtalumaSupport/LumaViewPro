@@ -163,9 +163,12 @@ class MicroscopeSettings(BoxLayout):
     def live_view_fps_slider(self):
         ctx = _app_ctx.ctx
         fps_val = int(self.ids['live_view_fps_slider'].value)
+        # Values above 60 mean "uncapped" — store 0 as sentinel
+        if fps_val > 60:
+            fps_val = 0
         ctx.live_view_fps = fps_val
         ctx.settings['live_view_fps'] = fps_val
-        logger.info(f'[LVP Main  ] Live view FPS set to {fps_val}')
+        logger.info(f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}')
 
         # Restart scope display with new FPS
         scope_display = ctx.scope_display
@@ -269,8 +272,10 @@ class MicroscopeSettings(BoxLayout):
             else:
                 ctx.live_view_fps = 30
 
-            logger.info(f"[LVP Main  ] Live view FPS set to {ctx.live_view_fps}")
-            self.ids['live_view_fps_slider'].value = ctx.live_view_fps
+            fps_label = "Max (uncapped)" if ctx.live_view_fps == 0 else str(ctx.live_view_fps)
+            logger.info(f"[LVP Main  ] Live view FPS set to {fps_label}")
+            # fps=0 (uncapped) maps to slider position 65 ("Max")
+            self.ids['live_view_fps_slider'].value = 65 if ctx.live_view_fps == 0 else ctx.live_view_fps
 
             acceleration_limit = settings['motion']['acceleration_max_pct']
             self.ids['acceleration_pct_slider'].value = acceleration_limit
