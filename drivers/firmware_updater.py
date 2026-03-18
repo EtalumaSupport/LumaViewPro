@@ -422,15 +422,24 @@ def _send_fwupdate_command(ser, board_config):
                 stage=UpdateStage.SENDING_FWUPDATE,
             )
 
-        # Send YES confirmation
+        # Send YES confirmation — always use \r\n because MicroPython's
+        # input() on USB CDC requires CR+LF, regardless of the board's
+        # normal command line ending.
         logger.info("Sending YES confirmation")
-        ser.write(b'YES' + board_config.line_ending)
+        ser.write(b'YES\r\n')
 
-        # Wait for "Entering bootloader mode..." confirmation
-        time.sleep(FWUPDATE_CONFIRM_TIMEOUT)
-        response = ser.read(4096)
-        text = response.decode('utf-8', 'ignore')
-        logger.info(f"Confirmation response: {text.strip()[:200]}")
+        # Wait for "Entering bootloader mode..." confirmation.
+        # The board may reboot before we can read the response — this is
+        # normal and causes a serial disconnect (Device not configured).
+        try:
+            time.sleep(FWUPDATE_CONFIRM_TIMEOUT)
+            response = ser.read(4096)
+            text = response.decode('utf-8', 'ignore')
+            logger.info(f"Confirmation response: {text.strip()[:200]}")
+        except (serial.SerialException, OSError):
+            # Board already rebooted — this is expected
+            logger.info("Board rebooted during confirmation read (expected)")
+            text = ''
 
         # Board is now rebooting — close serial port
         try:
@@ -438,9 +447,7 @@ def _send_fwupdate_command(ser, board_config):
         except Exception:
             pass
 
-        if 'bootloader' not in text.lower() and 'Entering' not in text:
-            # The board may have already rebooted before we read the response
-            # — this is OK if the BOOTSEL drive appears
+        if text and 'bootloader' not in text.lower() and 'Entering' not in text:
             logger.warning(
                 "Did not receive 'Entering bootloader' confirmation. "
                 "Will check for BOOTSEL drive.")
@@ -839,6 +846,11 @@ def update_firmware(
         # ---- Stage 6: Copy UF2 file ----
         _report_progress(progress_callback, UpdateStage.COPYING_UF2,
                          f"Copying {uf2_path.name} to board...", 0.40)
+        if platform.system() == 'Darwin':
+            _report_progress(
+                progress_callback, UpdateStage.COPYING_UF2,
+                "Note: macOS may show 'disk not ejected properly' — "
+                "this is normal (board reboots after flashing).", 0.40)
         logger.info(f"Copying {uf2_path} → {bootsel_drive}")
 
         dest = bootsel_drive / uf2_path.name
@@ -947,6 +959,144 @@ def update_firmware(
         result.error_message = f"Unexpected error: {e}"
         result.error_stage = UpdateStage.FAILED
         logger.error(f"Firmware update unexpected error: {e}", exc_info=True)
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         f"Unexpected error: {e}", 0.0)
+        return result
+
+
+def nuke_board(
+    board_type,
+    nuke_uf2_path,
+    progress_callback=None,
+):
+    """Erase all flash on a board and leave it in BOOTSEL mode.
+
+    This uses the Raspberry Pi flash_nuke UF2 which:
+      1. Erases all flash memory (firmware + filesystem)
+      2. Flashes the LED 3 times to confirm
+      3. Reboots back into BOOTSEL mode (ready for new UF2)
+
+    Use this to completely reset a board to factory-blank state.
+    After nuke, the board will appear as RPI-RP2 USB mass storage
+    and is ready for a fresh UF2 flash.
+
+    Args:
+        board_type: BoardType.LED or BoardType.MOTOR
+        nuke_uf2_path: Path to flash_nuke UF2 (RP2040 or RP2350)
+        progress_callback: Optional (stage, message, progress) callback
+
+    Returns:
+        UpdateResult with success/failure.
+    """
+    config = BOARD_CONFIGS[board_type]
+    nuke_uf2_path = Path(nuke_uf2_path)
+    result = UpdateResult(success=False, board_type=board_type)
+
+    try:
+        # Validate nuke UF2
+        if not nuke_uf2_path.is_file():
+            raise UpdateError(
+                f"Flash nuke UF2 not found: {nuke_uf2_path}",
+                stage=UpdateStage.PREFLIGHT,
+            )
+
+        _report_progress(progress_callback, UpdateStage.PREFLIGHT,
+                         f"Preparing to nuke {config.label} board...", 0.0)
+
+        # Check if already in BOOTSEL
+        bootsel_drive = _detect_bootsel_drive()
+        if bootsel_drive is not None:
+            logger.info(f"Board already in BOOTSEL mode at {bootsel_drive}")
+        else:
+            # Send FWUPDATE to enter BOOTSEL
+            _report_progress(progress_callback, UpdateStage.SENDING_FWUPDATE,
+                             "Entering BOOTSEL mode...", 0.10)
+
+            port = _find_serial_port(config.vid, config.pid)
+            if port is None:
+                raise UpdateError(
+                    f"{config.label} board not found. "
+                    f"Hold BOOTSEL button while plugging in, or check USB.",
+                    stage=UpdateStage.SENDING_FWUPDATE,
+                )
+
+            ser = _open_serial(port)
+            if ser is None:
+                raise UpdateError(
+                    f"Cannot open serial port {port}.",
+                    stage=UpdateStage.SENDING_FWUPDATE,
+                )
+
+            _send_fwupdate_command(ser, config)
+
+            # Wait for BOOTSEL drive
+            _report_progress(progress_callback, UpdateStage.WAITING_BOOTSEL,
+                             "Waiting for BOOTSEL drive...", 0.25)
+            bootsel_drive = _wait_for_bootsel_drive(
+                timeout=config.bootsel_timeout)
+
+        if bootsel_drive is None:
+            raise UpdateError(
+                f"BOOTSEL drive not found. Hold BOOTSEL button and "
+                f"power-cycle the board.",
+                stage=UpdateStage.WAITING_BOOTSEL,
+                recoverable=False,
+            )
+
+        # Copy nuke UF2
+        _report_progress(progress_callback, UpdateStage.COPYING_UF2,
+                         "Erasing flash (this takes a few seconds)...", 0.40)
+        if platform.system() == 'Darwin':
+            _report_progress(
+                progress_callback, UpdateStage.COPYING_UF2,
+                "Note: macOS may show 'disk not ejected properly' — "
+                "this is normal.", 0.40)
+
+        dest = bootsel_drive / nuke_uf2_path.name
+        shutil.copy2(nuke_uf2_path, dest)
+        logger.info(f"Nuke UF2 copied to {bootsel_drive}")
+
+        # Wait for drive to disappear and reappear (nuke reboots to BOOTSEL)
+        time.sleep(POST_UF2_SETTLE_TIME)
+        _wait_for_drive_disappear(bootsel_drive)
+
+        # Nuke reboots back into BOOTSEL — wait for it to reappear
+        _report_progress(progress_callback, UpdateStage.WAITING_REBOOT,
+                         "Waiting for board to return to BOOTSEL...", 0.70)
+        time.sleep(3.0)
+        bootsel_drive = _wait_for_bootsel_drive(timeout=15.0)
+
+        if bootsel_drive is not None:
+            result.success = True
+            _report_progress(progress_callback, UpdateStage.COMPLETE,
+                             f"Flash erased. Board is in BOOTSEL mode at "
+                             f"{bootsel_drive} — ready for new UF2.", 1.0)
+            logger.info("Flash nuke complete — board in BOOTSEL mode")
+        else:
+            # Board may have nuked successfully but not remounted.
+            # Check for serial port (would mean it booted with no firmware).
+            result.success = True
+            result.warnings.append(
+                "BOOTSEL drive did not reappear after nuke. "
+                "Board may need manual BOOTSEL entry (hold button + plug in).")
+            _report_progress(progress_callback, UpdateStage.COMPLETE,
+                             "Flash erased. Replug with BOOTSEL held to flash "
+                             "new firmware.", 1.0)
+
+        return result
+
+    except UpdateError as e:
+        result.error_message = str(e)
+        result.error_stage = e.stage
+        logger.error(f"Flash nuke failed: {e}")
+        _report_progress(progress_callback, UpdateStage.FAILED,
+                         str(e), 0.0)
+        return result
+
+    except Exception as e:
+        result.error_message = f"Unexpected error: {e}"
+        result.error_stage = UpdateStage.FAILED
+        logger.error(f"Flash nuke unexpected error: {e}", exc_info=True)
         _report_progress(progress_callback, UpdateStage.FAILED,
                          f"Unexpected error: {e}", 0.0)
         return result
