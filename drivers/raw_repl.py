@@ -347,10 +347,10 @@ def read_file(serial_port, filename, verify=True):
     Returns file contents as bytes, or None on failure.
     """
     code = (
-        "import ubinascii\n"
+        "try:\n import binascii\nexcept:\n import ubinascii as binascii\n"
         f"with open({filename!r}, 'rb') as f:\n"
         " d = f.read()\n"
-        "print(ubinascii.b2a_base64(d).decode(), end='')"
+        "print(binascii.b2a_base64(d).decode(), end='')"
     )
 
     def _do_read():
@@ -438,7 +438,9 @@ def write_file(serial_port, filename, data):
     # writes to temp file, verifies SHA256, does atomic rename.
     # Kept minimal to reduce code compilation time on RP2040.
     helper_code = (
-        f"import sys,os,uhashlib as H,ubinascii as B\n"
+        f"import sys,os\n"
+        f"try:\n import hashlib as H\nexcept:\n import uhashlib as H\n"
+        f"try:\n import binascii as B\nexcept:\n import ubinascii as B\n"
         f"try:\n os.remove({tmp_name!r})\nexcept:\n pass\n"
         f"d=sys.stdin.buffer.read({file_size})\n"
         f"f=open({tmp_name!r},'wb')\nf.write(d)\nf.close()\n"
