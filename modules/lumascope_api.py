@@ -1158,17 +1158,18 @@ class Lumascope():
             force_to_8bit: Convert 12-bit images to 8-bit output.
 
         Returns:
-            numpy.ndarray | False: Image array, or False if camera inactive or grab failed.
+            tuple: (image, timestamp) where image is numpy.ndarray and timestamp
+                   is from the camera SDK, or (False, None) if unavailable.
         """
         if not self.camera or not self.camera.active:
-            return False
+            return False, None
 
         # Single-copy grab: grab_latest() returns the image directly,
         # avoiding the extra copy that grab() + get_array() would make.
         # This saves ~2.3MB copy + 1 lock acquisition per frame.
         grab_status, tmp, grab_image_ts = self.camera.grab_latest()
         if not grab_status or tmp is None:
-            return False
+            return False, None
 
         with self._state_lock:
             self._frame_buffer = tmp
@@ -1188,7 +1189,7 @@ class Lumascope():
         if force_to_8bit and tmp.dtype != np.uint8:
             tmp = image_utils.convert_12bit_to_8bit(tmp)
 
-        return tmp
+        return tmp, grab_image_ts
 
     def get_next_save_path(self, path):
         """ GETS THE NEXT SAVE PATH GIVEN AN EXISTING SAVE PATH

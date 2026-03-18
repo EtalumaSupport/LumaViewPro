@@ -34,7 +34,7 @@ class Histogram(Widget):
         bins = 128
 
         if ctx.scope.camera_active:
-            image = ctx.scope.get_image_from_buffer(force_to_8bit=True)
+            image, _ = ctx.scope.get_image_from_buffer(force_to_8bit=True)
             if image is None or image is False:
                 return
 

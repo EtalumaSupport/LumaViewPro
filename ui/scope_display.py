@@ -82,7 +82,9 @@ class ScopeDisplay(Image):
 
         # Pull-based display loop state
         self._display_running = False
+        self._display_generation = 0  # Incremented on each start() to invalidate stale callbacks
         self._last_frame_time = 0.0
+        self._last_frame_ts = None  # Camera timestamp of last displayed frame
         self._min_frame_interval = 1.0 / 30  # derived from fps setting
 
         # Crosshair canvas overlay (drawn on top of texture, not into pixels)
@@ -176,12 +178,13 @@ class ScopeDisplay(Image):
             self.fps = 30
 
         self._min_frame_interval = 1.0 / max(1, self.fps)
+        self._display_generation += 1
         self.paused.clear()
 
         if not self._display_running:
             self._display_running = True
             logger.info(f'[LVP Main  ] ScopeDisplay: pull-based loop started ({self.fps} FPS cap)')
-            Clock.schedule_once(self._pull_next_frame, 0)
+        Clock.schedule_once(self._pull_next_frame, 0)
 
     def stop(self):
         self.paused.set()
@@ -351,9 +354,10 @@ class ScopeDisplay(Image):
 
         from modules.sequential_io_executor import IOTask
         dispatch_time = time.monotonic()
+        gen = self._display_generation
         ctx.scope_display_thread_executor.put(IOTask(
             self.update_scopedisplay_thread,
-            args=(active_layer, active_layer_config, open_layer, dispatch_time),
+            args=(active_layer, active_layer_config, open_layer, dispatch_time, gen),
         ))
 
     def update_scopedisplay(self, dt=0):
@@ -402,8 +406,13 @@ class ScopeDisplay(Image):
         if self._debug_counter == 30:
             self._debug_counter = 0
 
-    def update_scopedisplay_thread(self, active_layer, active_layer_config, open_layer, dispatch_time=0):
+    def update_scopedisplay_thread(self, active_layer, active_layer_config, open_layer, dispatch_time=0, generation=0):
         ctx = _app_ctx.ctx
+
+        # Drop stale callbacks from a previous start()/stop() cycle
+        if generation != self._display_generation:
+            return
+
         t_worker_start = time.monotonic()
         t_queue_wait = t_worker_start - dispatch_time if dispatch_time else 0
 
@@ -427,12 +436,17 @@ class ScopeDisplay(Image):
 
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()
-        image = ctx.scope.get_image_from_buffer(force_to_8bit=True)
-        #image = ctx.scope.image_buffer
-        if (image is False) or (image.size == 0) :
+        image, frame_ts = ctx.scope.get_image_from_buffer(force_to_8bit=True)
+        if (image is False) or (image is None) or (image.size == 0):
             # No new frame available — retry after minimum interval
             Clock.schedule_once(self._pull_next_frame, self._min_frame_interval)
             return
+
+        # Skip duplicate frames (same camera timestamp = same data)
+        if frame_ts is not None and frame_ts == self._last_frame_ts:
+            Clock.schedule_once(self._pull_next_frame, self._min_frame_interval)
+            return
+        self._last_frame_ts = frame_ts
         t_grab_end = time.monotonic()
 
         # Record queue wait for perf logging
@@ -477,7 +491,8 @@ class ScopeDisplay(Image):
                 image_bullseye = self.transform_to_bullseye_prealloc(image=image)
                 bullseye_bytes = image_bullseye.tobytes()
                 bullseye_shape = image_bullseye.shape
-                Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape: self.create_and_set_bullseye_texture(b, s), 0)
+                g = generation
+                Clock.schedule_once(lambda dt, b=bullseye_bytes, s=bullseye_shape, gen=g: self.create_and_set_bullseye_texture(b, s, gen), 0)
             else:
                 # Bullseye frame-rate cap skipped this frame — keep the loop alive
                 self._schedule_next()
@@ -492,7 +507,8 @@ class ScopeDisplay(Image):
             t_process_end = time.monotonic()
             image_shape = image.shape
             t_blit_scheduled = time.monotonic()
-            Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled: self.create_and_set_texture(b, s, ts), 0)
+            g = generation
+            Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: self.create_and_set_texture(b, s, ts, gen), 0)
 
             # Performance instrumentation — always active
             self._perf_grab_times.append(t_grab_end - t_grab_start)
@@ -543,9 +559,10 @@ class ScopeDisplay(Image):
         wait = max(0, self._min_frame_interval - elapsed)
         Clock.schedule_once(self._pull_next_frame, wait)
 
-    def create_and_set_bullseye_texture(self, image_bytes, shape):
+    def create_and_set_bullseye_texture(self, image_bytes, shape, generation=0):
+        if generation != self._display_generation:
+            return  # Stale callback from previous start/stop cycle
         size = (shape[1], shape[0])
-        if not hasattr(self, '_bullseye_texture') or self._bullseye_texture is None or self._bullseye_texture.size != size:
             self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
@@ -553,7 +570,9 @@ class ScopeDisplay(Image):
         self._count_display_fps()
         self._schedule_next()
 
-    def create_and_set_texture(self, image_bytes, shape, scheduled_time=0):
+    def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0):
+        if generation != self._display_generation:
+            return  # Stale callback from previous start/stop cycle
         if scheduled_time:
             blit_delay = (time.monotonic() - scheduled_time) * 1000
             self._perf_blit_delays.append(blit_delay)
