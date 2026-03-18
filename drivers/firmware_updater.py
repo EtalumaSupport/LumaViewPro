@@ -166,8 +166,6 @@ BOARD_CONFIGS = {
 # Timing constants — conservative for field reliability
 # ---------------------------------------------------------------------------
 
-FWUPDATE_RESPONSE_TIMEOUT = 5.0    # Wait for FWUPDATE prompt
-FWUPDATE_CONFIRM_TIMEOUT = 3.0     # Wait for "Entering bootloader..."
 BOOTSEL_POLL_INTERVAL = 1.0        # Poll interval for drive detection
 SERIAL_POLL_INTERVAL = 1.0         # Poll interval for port detection
 POST_UF2_SETTLE_TIME = 3.0         # Wait after UF2 copy for drive to disappear
@@ -393,7 +391,10 @@ def _wait_for_serial_port(vid, pid, timeout=30.0):
 # ---------------------------------------------------------------------------
 
 def _send_fwupdate_command(ser, board_config):
-    """Send FWUPDATE command with YES confirmation.
+    """Send FWUPDATE command to reboot into BOOTSEL mode.
+
+    Firmware v3.0.4+ reboots immediately on FWUPDATE (no confirmation).
+    The board disconnects from USB and reappears as RPI-RP2 mass storage.
 
     After this call, the serial port is invalid (board is rebooting).
     Closes the serial port before returning.
@@ -405,52 +406,26 @@ def _send_fwupdate_command(ser, board_config):
         ser.read(4096)
         time.sleep(0.2)
 
-        # Send FWUPDATE
+        # Send FWUPDATE — board reboots immediately into BOOTSEL
         logger.info(f"Sending FWUPDATE to {board_config.label} board")
         ser.write(b'FWUPDATE' + board_config.line_ending)
 
-        # Wait for the confirmation prompt
-        time.sleep(FWUPDATE_RESPONSE_TIMEOUT)
-        response = ser.read(4096)
-        text = response.decode('utf-8', 'ignore')
-        logger.info(f"FWUPDATE response: {text.strip()[:200]}")
-
-        if 'YES' not in text and 'confirm' not in text.lower():
-            raise UpdateError(
-                f"FWUPDATE did not prompt for confirmation. "
-                f"Response: {text.strip()[:200]}",
-                stage=UpdateStage.SENDING_FWUPDATE,
-            )
-
-        # Send YES confirmation — always use \r\n because MicroPython's
-        # input() on USB CDC requires CR+LF, regardless of the board's
-        # normal command line ending.
-        logger.info("Sending YES confirmation")
-        ser.write(b'YES\r\n')
-
-        # Wait for "Entering bootloader mode..." confirmation.
-        # The board may reboot before we can read the response — this is
-        # normal and causes a serial disconnect (Device not configured).
+        # Give the board a moment to process and reboot
         try:
-            time.sleep(FWUPDATE_CONFIRM_TIMEOUT)
+            time.sleep(2.0)
             response = ser.read(4096)
             text = response.decode('utf-8', 'ignore')
-            logger.info(f"Confirmation response: {text.strip()[:200]}")
+            if text.strip():
+                logger.info(f"FWUPDATE response: {text.strip()[:200]}")
         except (serial.SerialException, OSError):
             # Board already rebooted — this is expected
-            logger.info("Board rebooted during confirmation read (expected)")
-            text = ''
+            logger.info("Board rebooted after FWUPDATE (expected)")
 
-        # Board is now rebooting — close serial port
+        # Close serial port
         try:
             ser.close()
         except Exception:
             pass
-
-        if text and 'bootloader' not in text.lower() and 'Entering' not in text:
-            logger.warning(
-                "Did not receive 'Entering bootloader' confirmation. "
-                "Will check for BOOTSEL drive.")
 
     except UpdateError:
         raise
