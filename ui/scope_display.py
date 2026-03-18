@@ -1,4 +1,26 @@
 # Copyright Etaluma, Inc.
+"""
+ScopeDisplay — pull-based image display loop.
+
+Image Pipeline (sensor → screen):
+  1. Camera SDK callback → ImageHandler._store_frame()     [1 copy: SDK buffer → numpy]
+  2. grab_latest() → returns stored reference               [0 copies]
+  3. get_image_from_buffer():
+     - scale bar overlay (in-place on the reference)        [0 copies]
+     - 12→8 bit LUT conversion (if force_to_8bit)           [1 copy: LUT indexing]
+  4. Worker thread: contrast stretch / bullseye LUT          [1 copy: LUT indexing]
+  5. image.tobytes() → blit_buffer() to GPU texture          [1 copy: tobytes]
+
+Copy budget:
+  8-bit path:  SDK(1) + tobytes(1)                    = 2 copies
+  12-bit path: SDK(1) + 12→8 LUT(1) + tobytes(1)     = 3 copies
+
+Threading model:
+  - Main thread (Kivy): _pull_next_frame(), create_and_set_texture(), _schedule_next()
+  - Worker thread (scope_display_thread_executor): update_scopedisplay_thread()
+  - Generation counter prevents stale callbacks after stop()/start() cycles
+  - _schedule_next() enforces FPS cap via Clock.schedule_once delay
+"""
 import logging
 import threading
 import time
@@ -62,7 +84,7 @@ class ScopeDisplay(Image):
         self._perf_process_times = []
         self._perf_blit_schedule_times = []
         self._perf_blit_delays = []
-        self._perf_skipped_frames = 0
+
 
         # Bullseye frame rate cap (15 FPS — CPU-intensive LUT rendering)
         self._bullseye_min_interval = 1.0 / 15
@@ -449,8 +471,9 @@ class ScopeDisplay(Image):
         self._last_frame_ts = frame_ts
         t_grab_end = time.monotonic()
 
-        # Record queue wait for perf logging
-        self._perf_blit_schedule_times.append(t_queue_wait)
+        # Record queue wait for perf logging (debug only)
+        if logger.isEnabledFor(logging.DEBUG):
+            self._perf_blit_schedule_times.append(t_queue_wait)
 
         # FPS tracking
         self._fps_frame_count += 1
@@ -510,37 +533,37 @@ class ScopeDisplay(Image):
             g = generation
             Clock.schedule_once(lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: self.create_and_set_texture(b, s, ts, gen), 0)
 
-            # Performance instrumentation — always active
-            self._perf_grab_times.append(t_grab_end - t_grab_start)
-            self._perf_process_times.append(t_process_end - t_process_start)
-            now_perf = time.monotonic()
-            if now_perf - self._perf_log_last_time >= self._perf_log_interval:
-                self._perf_log_last_time = now_perf
-                n = len(self._perf_grab_times)
-                if n > 0:
-                    avg_grab = sum(self._perf_grab_times) / n * 1000
-                    avg_proc = sum(self._perf_process_times) / n * 1000
-                    max_grab = max(self._perf_grab_times) * 1000
-                    max_proc = max(self._perf_process_times) * 1000
-                    avg_queue = sum(self._perf_blit_schedule_times) / max(1, len(self._perf_blit_schedule_times)) * 1000
-                    t_total = now_perf - (now_perf - self._perf_log_interval)
-                    kivy_fps = Clock.get_fps()
-                    kivy_rfps = Clock.get_rfps()
-                    display_fps = self._display_fps_value
-                    avg_blit_delay = sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1 if self._perf_blit_delays else 0
-                    max_blit_delay = max(self._perf_blit_delays) if self._perf_blit_delays else 0
-                    logger.info(
-                        f'[PERF] worker={n/self._perf_log_interval:.1f} display={display_fps:.1f} '
-                        f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
-                        f'queue={avg_queue:.1f}ms grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
-                        f'proc={avg_proc:.1f}ms(max {max_proc:.1f}) '
-                        f'blit_delay={avg_blit_delay:.1f}ms(max {max_blit_delay:.0f}) eng={t_eng_stats*1000:.1f}ms'
-                    )
-                self._perf_grab_times.clear()
-                self._perf_process_times.clear()
-                self._perf_blit_schedule_times.clear()
-                self._perf_blit_delays.clear()
-                self._perf_skipped_frames = 0
+            # Performance instrumentation — only when DEBUG logging enabled
+            if logger.isEnabledFor(logging.DEBUG):
+                self._perf_grab_times.append(t_grab_end - t_grab_start)
+                self._perf_process_times.append(t_process_end - t_process_start)
+                now_perf = time.monotonic()
+                if now_perf - self._perf_log_last_time >= self._perf_log_interval:
+                    self._perf_log_last_time = now_perf
+                    n = len(self._perf_grab_times)
+                    if n > 0:
+                        avg_grab = sum(self._perf_grab_times) / n * 1000
+                        avg_proc = sum(self._perf_process_times) / n * 1000
+                        max_grab = max(self._perf_grab_times) * 1000
+                        max_proc = max(self._perf_process_times) * 1000
+                        avg_queue = sum(self._perf_blit_schedule_times) / max(1, len(self._perf_blit_schedule_times)) * 1000
+                        kivy_fps = Clock.get_fps()
+                        kivy_rfps = Clock.get_rfps()
+                        display_fps = self._display_fps_value
+                        avg_blit_delay = sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1 if self._perf_blit_delays else 0
+                        max_blit_delay = max(self._perf_blit_delays) if self._perf_blit_delays else 0
+                        logger.debug(
+                            f'[PERF] worker={n/self._perf_log_interval:.1f} display={display_fps:.1f} '
+                            f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
+                            f'queue={avg_queue:.1f}ms grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
+                            f'proc={avg_proc:.1f}ms(max {max_proc:.1f}) '
+                            f'blit_delay={avg_blit_delay:.1f}ms(max {max_blit_delay:.0f}) eng={t_eng_stats*1000:.1f}ms'
+                        )
+                    self._perf_grab_times.clear()
+                    self._perf_process_times.clear()
+                    self._perf_blit_schedule_times.clear()
+                    self._perf_blit_delays.clear()
+            
 
         if self.record:
             ctx.lumaview.live_capture()
@@ -563,7 +586,7 @@ class ScopeDisplay(Image):
         if generation != self._display_generation:
             return  # Stale callback from previous start/stop cycle
         size = (shape[1], shape[0])
-            self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
+        self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
         self.canvas.ask_update()
@@ -573,11 +596,11 @@ class ScopeDisplay(Image):
     def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0):
         if generation != self._display_generation:
             return  # Stale callback from previous start/stop cycle
-        if scheduled_time:
+        if scheduled_time and logger.isEnabledFor(logging.DEBUG):
             blit_delay = (time.monotonic() - scheduled_time) * 1000
             self._perf_blit_delays.append(blit_delay)
             if blit_delay > 100:
-                logger.warning(f'[PERF] Blit callback delayed {blit_delay:.0f}ms (main thread congested)')
+                logger.debug(f'[PERF] Blit callback delayed {blit_delay:.0f}ms (main thread congested)')
         size = (shape[1], shape[0])
         if not hasattr(self, '_mono_texture') or self._mono_texture is None or self._mono_texture.size != size:
             self._mono_texture = Texture.create(size=size, colorfmt='luminance')

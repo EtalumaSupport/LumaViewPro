@@ -1154,6 +1154,13 @@ class Lumascope():
         ):
         """Grab the latest buffered frame from the camera without forcing a new capture.
 
+        Copy budget (per frame):
+          - grab_latest(): 0 copies (returns reference from ImageHandler)
+          - add_scale_bar(): 0 copies (modifies array in-place)
+          - convert_12bit_to_8bit(): 1 copy (LUT indexing creates new array)
+          - Total: 0 copies (8-bit) or 1 copy (12-bit with force_to_8bit)
+          The caller adds 1 more copy via tobytes() for GPU blit.
+
         Args:
             force_to_8bit: Convert 12-bit images to 8-bit output.
 
