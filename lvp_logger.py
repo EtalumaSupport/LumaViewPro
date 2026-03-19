@@ -76,6 +76,8 @@ ERRORS_LOG_FILE = os.path.join(log_dir, 'lumaviewpro_errors.log')
 
 REST_API_LOG_FILE = os.path.join(log_dir, 'lumaviewpro_rest_api.log')
 SERIAL_LOG_FILE = os.path.join(log_dir, 'serial.log')
+AUTOFOCUS_LOG_FILE = os.path.join(log_dir, 'autofocus.log')
+API_LOG_FILE = os.path.join(log_dir, 'api.log')
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
@@ -244,6 +246,81 @@ serial_file_handler.addFilter(ThreadPauseFilter())
 serial_logger.addHandler(serial_file_handler)
 # Also send serial errors/warnings to the errors log
 serial_logger.addHandler(error_file_handler)
+
+# Autofocus log — dedicated file for AF sweep data, scores, timing.
+# Engineering mode only — handler attached via enable_engineering_logs().
+af_logger = logging.getLogger('LVP.autofocus')
+af_logger.setLevel(logging.INFO)
+af_logger.propagate = False  # Keep AF data out of the main log
+# Always send AF errors to the errors log
+af_logger.addHandler(error_file_handler)
+
+class AFFormatter(logging.Formatter):
+    """Compact format for autofocus log."""
+    def __init__(self):
+        super().__init__(
+            fmt='%(asctime)s.%(msecs)03d %(message)s',
+            datefmt='%H:%M:%S',
+        )
+
+_af_file_handler = RotatingFileHandler(
+    AUTOFOCUS_LOG_FILE,
+    mode='a',
+    maxBytes=5*1024*1024,
+    backupCount=2,
+    encoding=None,
+    delay=True,  # Don't create file until first write
+)
+_af_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+_af_file_handler.setFormatter(AFFormatter())
+_af_file_handler.addFilter(ThreadPauseFilter())
+
+# API log — internal Lumascope API calls (state-changing operations).
+# Engineering mode only — handler attached via enable_engineering_logs().
+api_logger = logging.getLogger('LVP.api')
+api_logger.setLevel(logging.INFO)
+api_logger.propagate = False  # Keep API traffic out of the main log
+# Always send API errors to the errors log
+api_logger.addHandler(error_file_handler)
+
+class APIFormatter(logging.Formatter):
+    """Compact format for API log."""
+    def __init__(self):
+        super().__init__(
+            fmt='%(asctime)s.%(msecs)03d %(message)s',
+            datefmt='%H:%M:%S',
+        )
+
+_api_file_handler = RotatingFileHandler(
+    API_LOG_FILE,
+    mode='a',
+    maxBytes=5*1024*1024,
+    backupCount=2,
+    encoding=None,
+    delay=True,  # Don't create file until first write
+)
+_api_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+_api_file_handler.setFormatter(APIFormatter())
+_api_file_handler.addFilter(ThreadPauseFilter())
+
+def enable_engineering_logs(enabled: bool):
+    """Attach/detach file handlers for engineering-mode-only logs.
+
+    Called once after engineering mode is determined. When disabled,
+    the loggers exist but have no file handler — logging calls are
+    essentially free (no I/O).
+    """
+    if enabled:
+        if _af_file_handler not in af_logger.handlers:
+            af_logger.addHandler(_af_file_handler)
+        if _api_file_handler not in api_logger.handlers:
+            api_logger.addHandler(_api_file_handler)
+        logger.info('[Logger  ] Engineering logs enabled (autofocus.log, api.log)')
+    else:
+        if _af_file_handler in af_logger.handlers:
+            af_logger.removeHandler(_af_file_handler)
+        if _api_file_handler in api_logger.handlers:
+            api_logger.removeHandler(_api_file_handler)
 
 logger.addHandler(file_handler)
 logger.addHandler(error_file_handler)

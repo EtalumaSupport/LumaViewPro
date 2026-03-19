@@ -842,6 +842,10 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:
             logger.warning(f'[LVP Main  ] Engineering plugin failed to register: {e}')
 
+        # Enable engineering-only log files (autofocus.log, api.log)
+        from lvp_logger import enable_engineering_logs
+        enable_engineering_logs(ENGINEERING_MODE)
+
         # CPU profiling — enabled via debug_mode in settings.json
         # On exit, dumps a .profile file to logs/profile/ that can be
         # viewed with: pip install snakeviz && snakeviz <file>.profile

@@ -26,6 +26,10 @@ from drivers.simulated_ledboard import SimulatedLEDBoard
 
 # Import additional libraries
 from lvp_logger import logger, version
+import logging as _logging
+
+_api_log = _logging.getLogger('LVP.api')
+
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.coord_transformations as coord_transformations
@@ -788,6 +792,7 @@ class Lumascope():
 
             if self.camera:
                 self.camera.set_binning_size(size=size)
+            _api_log.info(f'set_binning {size}x{size}')
         except Exception as ex:
             logger.exception(f"[SCOPE API ] Error setting binning size: {ex}")
 
@@ -916,6 +921,7 @@ class Lumascope():
 
         self.led.led_on(channel, mA, block=block)
         self.frame_validity.invalidate('led')
+        _api_log.info(f'led_on ch={channel} mA={mA}')
 
     def led_off(self, channel):
         """Turn off an LED channel.
@@ -936,6 +942,7 @@ class Lumascope():
 
         self.led.led_off(channel)
         self.frame_validity.invalidate('led')
+        _api_log.info(f'led_off ch={channel}')
 
     def led_on_fast(self, channel, mA):
         """Turn on an LED with write-only (no read-back) for time-critical pulses.
@@ -985,6 +992,7 @@ class Lumascope():
         if not self.led: return
         self.led.leds_off()
         self.frame_validity.invalidate('led')
+        _api_log.info('leds_off')
 
     def get_led_status(self):
         """Get the LED board status register."""
@@ -1643,6 +1651,7 @@ class Lumascope():
         self.frame_validity.invalidate('gain')
         with self._camera_cache_lock:
             self._camera_cache['gain'] = float(gain)
+        _api_log.info(f'set_gain {gain}dB')
 
     def set_auto_gain(self, state: bool, settings: dict):
         """Enable or disable automatic gain adjustment.
@@ -1673,6 +1682,7 @@ class Lumascope():
         self.frame_validity.invalidate('exposure')
         with self._camera_cache_lock:
             self._camera_cache['exposure_ms'] = float(t)
+        _api_log.info(f'set_exposure {t}ms')
 
     def get_exposure_time(self):
         """Get the current camera exposure time.
@@ -1798,15 +1808,18 @@ class Lumascope():
     def zhome(self):
         """Home the Z axis (focus)."""
         #if not self.motion: return
+        _api_log.info('zhome START')
         self._set_axis_state('Z', AxisState.HOMING)
         with self.reference_position_logger():
             self.motion.zhome()
         self._set_axis_state('Z', AxisState.IDLE)
         self.refresh_position_cache()
+        _api_log.info('zhome DONE')
 
     def xyhome(self):
         """Home the XY axes (stage). Z axis and turret always home first."""
         #if not self.motion: return
+        _api_log.info('xyhome START')
         for ax in ('X', 'Y', 'Z'):
             self._set_axis_state(ax, AxisState.HOMING)
         with self.reference_position_logger():
@@ -1815,6 +1828,7 @@ class Lumascope():
         for ax in ('X', 'Y', 'Z'):
             self._set_axis_state(ax, AxisState.IDLE)
         self.refresh_position_cache()
+        _api_log.info('xyhome DONE')
 
         return
 
@@ -1868,12 +1882,14 @@ class Lumascope():
         #    return
 
         # Move turret
+        _api_log.info('thome START')
         self._set_axis_state('T', AxisState.HOMING)
         with self.reference_position_logger():
             with self.safe_turret_mover():
                 self.motion.thome()
         self._set_axis_state('T', AxisState.IDLE)
         self.refresh_position_cache()
+        _api_log.info('thome DONE')
 
     def has_thomed(self):
         """Check if the turret has been homed since startup.
@@ -2004,6 +2020,8 @@ class Lumascope():
         with self._pos_cache_lock:
             self._pos_cache[axis] = float(pos)
         self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
+        _api_log.info(f'move_abs {axis}={pos:.1f}um'
+                      f'{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
@@ -2035,6 +2053,8 @@ class Lumascope():
         with self._pos_cache_lock:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
         self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
+        _api_log.info(f'move_rel {axis}={um:+.1f}um'
+                      f'{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()

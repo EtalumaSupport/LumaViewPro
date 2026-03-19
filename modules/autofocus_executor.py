@@ -2,6 +2,7 @@
 
 import datetime
 import importlib
+import logging
 import pathlib
 import time
 import typing
@@ -9,6 +10,8 @@ import typing
 from lvp_logger import logger
 
 import threading
+
+_af_log = logging.getLogger('LVP.autofocus')
 
 from matplotlib.figure import Figure
 import numpy as np
@@ -145,6 +148,13 @@ class AutofocusExecutor:
         )
 
         self._calculate_params()
+        self._af_start_time = time.monotonic()
+        self._af_pass_num = 0
+        _af_log.info(f'--- AF START objective={objective_id} '
+                     f'center={self._params["center"]:.1f} '
+                     f'range={self._params["range"]:.1f} '
+                     f'step={self._params["resolution"]:.1f} '
+                     f'z=[{self._params["z_min"]:.1f}, {self._params["z_max"]:.1f}] ---')
         self._move_absolute_position(pos=self._params['z_min'])
 
         # Queue single IOTask that runs the entire autofocus loop
@@ -197,6 +207,7 @@ class AutofocusExecutor:
         if not self._af_in_progress.is_set():
             return
         logger.info('[AF] Autofocus cancelled by request')
+        _af_log.info('--- AF CANCELLED ---')
         self._af_in_progress.clear()
         self._is_focusing = False
         self._autofocus_executor.protocol_end()
@@ -294,6 +305,7 @@ class AutofocusExecutor:
                     'score': focus_score,
                 }
             )
+            _af_log.info(f'  Z={current_pos:.2f} score={focus_score:.1f}')
 
             if not self._autofocus_executor.is_protocol_running():
                 self._is_focusing = False
@@ -330,6 +342,12 @@ class AutofocusExecutor:
                 return
 
             # Pass is complete
+            self._af_pass_num += 1
+            n_pts = len(self._af_data_pass)
+            pass_scores = [d['score'] for d in self._af_data_pass]
+            peak = max(pass_scores) if pass_scores else 0
+            _af_log.info(f'  PASS {self._af_pass_num} complete: {n_pts} pts, '
+                         f'step={resolution:.2f}, peak={peak:.1f}')
 
             # Adjust the resolution
             prev_resolution = self._params['resolution']
@@ -350,6 +368,7 @@ class AutofocusExecutor:
             scores = df['score']
             if scores.max() == 0 or scores.isna().all():
                 logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) — aborting, keeping current Z position")
+                _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
                 self._is_focusing = False
                 self._is_complete = True
                 self._best_focus_position = self._params['center']
@@ -367,7 +386,12 @@ class AutofocusExecutor:
                 # Move just underneath focus position to ensure we move UP to final position
                 self._move_absolute_position(pos=(best_focus_position-self._params['resolution']))
 
+                af_elapsed = (time.monotonic() - self._af_start_time) * 1000
                 logger.info(f"[AF] Autofocus complete. Best focus position: {best_focus_position} um")
+                _af_log.info(f'--- AF DONE best={best_focus_position:.2f}um '
+                             f'passes={self._af_pass_num} '
+                             f'total={len(self._af_data_full)} pts '
+                             f'({af_elapsed:.0f}ms) ---')
 
                 self._move_absolute_position(pos=best_focus_position)
 
