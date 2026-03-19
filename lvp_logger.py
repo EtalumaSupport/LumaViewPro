@@ -75,6 +75,7 @@ LOG_FILE = os.path.join(log_dir, 'lumaviewpro.log')
 ERRORS_LOG_FILE = os.path.join(log_dir, 'lumaviewpro_errors.log')
 
 REST_API_LOG_FILE = os.path.join(log_dir, 'lumaviewpro_rest_api.log')
+SERIAL_LOG_FILE = os.path.join(log_dir, 'serial.log')
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
@@ -213,6 +214,36 @@ class RestAPIFilter(logging.Filter):
         return bool(getattr(record, 'api_request', False))
 
 rest_api_handler.addFilter(RestAPIFilter())
+
+# Serial log — dedicated file for all serial command/response traffic with timing.
+# Uses its own logger (LVP.serial) with propagate=False so serial traffic
+# does NOT appear in the main log.  Errors still go to the errors log.
+serial_logger = logging.getLogger('LVP.serial')
+serial_logger.setLevel(logging.INFO)
+serial_logger.propagate = False  # Keep serial traffic out of the main log
+
+class SerialFormatter(logging.Formatter):
+    """Compact format for serial log: timestamp board command → response (timing)."""
+    def __init__(self):
+        super().__init__(
+            fmt='%(asctime)s.%(msecs)03d %(message)s',
+            datefmt='%H:%M:%S',
+        )
+
+serial_file_handler = RotatingFileHandler(
+    SERIAL_LOG_FILE,
+    mode='a',
+    maxBytes=5*1024*1024,
+    backupCount=2,
+    encoding=None,
+    delay=False,
+)
+serial_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+serial_file_handler.setFormatter(SerialFormatter())
+serial_file_handler.addFilter(ThreadPauseFilter())
+serial_logger.addHandler(serial_file_handler)
+# Also send serial errors/warnings to the errors log
+serial_logger.addHandler(error_file_handler)
 
 logger.addHandler(file_handler)
 logger.addHandler(error_file_handler)

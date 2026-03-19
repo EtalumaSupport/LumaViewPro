@@ -8,6 +8,7 @@ auto-reconnect and echo handling, and raw REPL file operations
 (config backup, firmware flash, INI updates).
 """
 
+import logging
 import re
 import time
 import serial
@@ -15,6 +16,8 @@ import serial.tools.list_ports as list_ports
 from enum import Enum
 from lvp_logger import logger
 import threading
+
+_serial_log = logging.getLogger('LVP.serial')
 
 from drivers.raw_repl import (
     enter_raw_repl as _enter_raw_repl,
@@ -344,7 +347,7 @@ class SerialBoard:
                 try:
                     self.connect()
                 except Exception as e:
-                    logger.error(f'{self._label} exchange_command({command}) reconnect failed: {e}')
+                    _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
                     return None
 
             if self.driver is None:
@@ -366,6 +369,7 @@ class SerialBoard:
 
             cmd_upper = command.strip().upper()
             stream = command.encode('utf-8') + b"\n"
+            t_start = time.monotonic()
             try:
                 # Flush any stale data in the input buffer before writing.
                 # If a previous readline() timed out, the firmware's response
@@ -374,7 +378,7 @@ class SerialBoard:
                 stale = self.driver.in_waiting
                 if stale > 0:
                     discarded = self.driver.read(stale)
-                    logger.debug(f'{self._label} Flushed {stale} stale bytes: {discarded!r}')
+                    _serial_log.info(f'{self._label} FLUSH {stale}B: {discarded!r}')
 
                 self.driver.write(stream)
                 resp_lines = []
@@ -398,32 +402,36 @@ class SerialBoard:
                 if remaining > 0:
                     self.driver.read(remaining)
 
-                # Truncate debug output to avoid logging large binary/config responses
+                elapsed_ms = (time.monotonic() - t_start) * 1000
+
+                # Serial log: compact command → response with timing
                 resp_repr = repr(response)
                 if len(resp_repr) > 200:
                     resp_repr = resp_repr[:200] + '...'
-                logger.debug(f'{self._label} exchange_command({command}) -> {resp_repr}')
+                _serial_log.info(f'{self._label} {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
 
                 resp_str = str(response)
                 if 'ERROR' in resp_str or 'FAIL' in resp_str or 'exceeds safe' in resp_str:
-                    logger.warning(f'{self._label} Firmware error for {command}: {response}')
+                    _serial_log.warning(f'{self._label} FIRMWARE ERROR: {command} -> {response}')
 
                 return response
 
             except serial.SerialTimeoutException:
+                elapsed_ms = (time.monotonic() - t_start) * 1000
                 now = time.monotonic()
                 last = getattr(self, '_last_error_log_time', 0.0)
                 interval = getattr(self, '_error_log_interval', 2.0)
                 if now - last >= interval:
-                    logger.warning(f'{self._label} exchange_command({command}) Serial Timeout')
+                    _serial_log.warning(f'{self._label} {command} -> TIMEOUT ({elapsed_ms:.1f}ms)')
                     self._last_error_log_time = now
 
             except Exception as e:
+                elapsed_ms = (time.monotonic() - t_start) * 1000
                 now = time.monotonic()
                 last = getattr(self, '_last_error_log_time', 0.0)
                 interval = getattr(self, '_error_log_interval', 2.0)
                 if now - last >= interval:
-                    logger.error(f'{self._label} exchange_command({command}) failed: {e}')
+                    _serial_log.error(f'{self._label} {command} -> EXCEPTION: {e} ({elapsed_ms:.1f}ms)')
                     self._last_error_log_time = now
                 self._close_driver()
 
@@ -458,7 +466,7 @@ class SerialBoard:
                 try:
                     self.connect()
                 except Exception as e:
-                    logger.error(f'{self._label} exchange_multiline({command}) reconnect failed: {e}')
+                    _serial_log.error(f'{self._label} {command} -> RECONNECT FAILED: {e}')
                     return None
             if self.driver is None:
                 return None
@@ -467,11 +475,13 @@ class SerialBoard:
             self.driver.timeout = min(timeout, 5.0)  # per-readline timeout
 
             cmd_upper = command.strip().upper()
+            t_start = time.monotonic()
             try:
                 # Flush stale data
                 stale = self.driver.in_waiting
                 if stale > 0:
                     self.driver.read(stale)
+                    _serial_log.info(f'{self._label} FLUSH {stale}B')
 
                 self.driver.write(command.encode('utf-8') + b'\n')
                 lines = []
@@ -498,16 +508,19 @@ class SerialBoard:
                                     lines.append(decoded)
                         break
 
+                elapsed_ms = (time.monotonic() - t_start) * 1000
                 result = '\n'.join(lines) or None
-                logger.debug(f'{self._label} exchange_multiline({command}) -> {len(lines)} lines')
+                _serial_log.info(f'{self._label} {command} -> {len(lines)} lines ({elapsed_ms:.1f}ms)')
                 return result
 
             except serial.SerialTimeoutException:
-                logger.warning(f'{self._label} exchange_multiline({command}) timeout')
+                elapsed_ms = (time.monotonic() - t_start) * 1000
+                _serial_log.warning(f'{self._label} {command} -> TIMEOUT ({elapsed_ms:.1f}ms)')
                 return '\n'.join(lines) if lines else None
 
             except Exception as e:
-                logger.error(f'{self._label} exchange_multiline({command}) failed: {e}')
+                elapsed_ms = (time.monotonic() - t_start) * 1000
+                _serial_log.error(f'{self._label} {command} -> EXCEPTION: {e} ({elapsed_ms:.1f}ms)')
                 self._close_driver()
                 return None
 
