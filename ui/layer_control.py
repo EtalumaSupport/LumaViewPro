@@ -257,6 +257,11 @@ class LayerControl(BoxLayout):
             if (not init) and (not state):
                 settings[self.layer]['gain'] = gain
                 settings[self.layer]['exp'] = exp
+                # Update sliders/text to show the auto-adjusted values
+                self.ids['gain_slider'].value = gain
+                self.ids['gain_text'].text = str(round(gain, 1))
+                self.ids['exp_slider'].value = float(np.clip(exp, self.ids['exp_slider'].min, self.ids['exp_slider'].max))
+                self.ids['exp_text'].text = str(round(exp, 2))
 
             settings[self.layer]['auto_gain'] = state
             self.apply_settings()
