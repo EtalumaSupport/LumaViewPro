@@ -732,10 +732,12 @@ class SequencedCaptureExecutor:
 
         _t_cam_start = time.monotonic()
         fut = self._io_executor.protocol_put(IOTask(
-            action=self._scope.set_auto_gain,
+            action=self._scope.apply_layer_camera_settings,
             kwargs={
-                "state": step['Auto_Gain'],
-                "settings": self._autogain_settings,
+                'gain': step['Gain'],
+                'exposure_ms': step['Exposure'],
+                'auto_gain': step['Auto_Gain'],
+                'auto_gain_settings': self._autogain_settings if step['Auto_Gain'] else None,
             }
         ), return_future=True)
         if fut:
@@ -747,23 +749,6 @@ class SequencedCaptureExecutor:
         _t_led_start = time.monotonic()
         logger.debug(f"[TIMING] Step {self._curr_step} camera settings: {(_t_led_start - _t_cam_start)*1000:.1f}ms")
         self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
-
-        if not step['Auto_Gain']:
-            if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
-                return
-            fut = self._io_executor.protocol_put(IOTask(
-                action=self._scope.set_gain, args=(step['Gain'],)
-            ), return_future=True)
-            if fut:
-                fut.result(timeout=5)
-            # 2023-12-18 Instead of using only auto gain, now it's auto gain + exp. If auto gain is enabled, then don't set exposure time
-            if self._protocol_ended.is_set() or not self._scan_in_progress.is_set():
-                return
-            fut = self._io_executor.protocol_put(IOTask(
-                action=self._scope.set_exposure_time, args=(step['Exposure'],)
-            ), return_future=True)
-            if fut:
-                fut.result(timeout=5)
 
         _t_led_done = time.monotonic()
         logger.debug(f"[TIMING] Step {self._curr_step} LED on: {(_t_led_done - _t_led_start)*1000:.1f}ms")

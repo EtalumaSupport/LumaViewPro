@@ -79,6 +79,7 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 
 ```python
 from lumascope_api import Lumascope
+from modules.scope_init_config import ScopeInitConfig
 
 # Real hardware
 scope = Lumascope()
@@ -88,6 +89,30 @@ scope = Lumascope(simulate=True)
 
 # IDS camera instead of Basler Pylon
 scope = Lumascope(camera_type="ids")
+```
+
+### Scope Configuration (initialize)
+
+Call `scope.initialize(config)` once after construction to go from "connected" to "ready-to-use". Sets all scope-level hardware in a single call. Does NOT set per-layer camera settings (gain, exposure, auto-gain).
+
+```python
+# From LVP settings dict (used by GUI startup and reconnect):
+config = ScopeInitConfig.from_settings(settings, labware)
+scope.initialize(config)
+
+# Or construct directly (REST API / scripts):
+config = ScopeInitConfig(
+    labware=labware_obj,
+    objective_id="10x Oly",
+    turret_config=None,
+    binning_size=1,
+    frame_width=3840,
+    frame_height=2160,
+    acceleration_pct=100,
+    stage_offset={'x': 0, 'y': 0},
+    scale_bar_enabled=False,
+)
+scope.initialize(config)
 ```
 
 ### Connection
@@ -117,7 +142,10 @@ scope.led_on_fast('Red', 100)
 scope.led_off_fast('Red')
 scope.leds_off_fast()
 
-# State queries
+# State queries (read driver cache, no serial I/O)
+scope.led_enabled('Blue')        # True if channel is on
+scope.led_illumination('Blue')   # Current mA, or -1 if off
+scope.led_states                 # All channels: {color: {enabled, illumination}}
 scope.get_led_ma('Blue')         # Current mA setting
 scope.get_led_state('Blue')      # {'enabled': True, 'illumination': 200}
 scope.get_led_states()           # All channels
@@ -212,6 +240,12 @@ scope.get_frame_size()           # {'width': ..., 'height': ...}
 # Binning
 scope.set_binning_size(2)        # 2x2 binning
 scope.get_binning_size()         # Current binning factor
+
+# Batched layer settings (gain + exposure + auto-gain in one call)
+scope.apply_layer_camera_settings(
+    gain=5.0, exposure_ms=50,
+    auto_gain=False, auto_gain_settings=None
+)
 
 # Camera info
 scope.camera_is_connected()      # True if camera connected
@@ -521,7 +555,7 @@ A1_BF	60000	40000	5000	False	BF	False	100	10	False	50	1	10x Oly	A1		-1	False	-1	
 
 ## Testing
 
-**655 tests total** (635 passed, 20 skipped) across 14 test files.
+**980 tests total** (958 passed, 20 skipped, 2 xfail) across 14 test files.
 
 ```bash
 # Run all tests (no hardware needed)

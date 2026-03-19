@@ -671,28 +671,20 @@ class LayerControl(BoxLayout):
         gain = settings[self.layer]['gain']
 
         if not protocol_running_global.is_set():
-            camera_executor.put(IOTask(action=lumaview.scope.set_gain, args=(gain,)))
-            camera_executor.put(IOTask(action=lumaview.scope.set_exposure_time, args=(exposure,)))
-        #lumaview.scope.set_gain(gain)
-        #lumaview.scope.set_exposure_time(exposure)
-
-        # update gain to currently selected settings
-        # -----------------------------------------------------
-        auto_gain_enabled = settings[self.layer]['auto_gain']
-
-        if not ignore_auto_gain:
-            if not protocol_running_global.is_set():
+            auto_gain_enabled = settings[self.layer]['auto_gain']
+            autogain_settings = None
+            if not ignore_auto_gain:
                 from modules.config_ui_getters import get_auto_gain_settings
                 autogain_settings = get_auto_gain_settings()
-                camera_executor.put(IOTask(
-                    action=lumaview.scope.set_auto_gain,
-                    args=(auto_gain_enabled,),
-                    kwargs={
-                        "settings": autogain_settings
-                    }
-                )
-                )
-                #lumaview.scope.set_auto_gain(auto_gain_enabled, settings=autogain_settings)
+            camera_executor.put(IOTask(
+                action=lumaview.scope.apply_layer_camera_settings,
+                kwargs={
+                    'gain': gain,
+                    'exposure_ms': exposure,
+                    'auto_gain': auto_gain_enabled,
+                    'auto_gain_settings': autogain_settings,
+                }
+            ))
 
         # update false color to currently selected settings and shader
         # -----------------------------------------------------

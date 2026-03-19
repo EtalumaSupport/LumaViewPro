@@ -206,6 +206,31 @@ class Lumascope():
         self._populate_camera_cache()
 
 
+    def initialize(self, config) -> None:
+        """Configure scope from connected to ready-to-use.
+
+        Call once after construction.  Sets all scope-level hardware
+        configuration.  Does NOT set per-layer camera settings (gain,
+        exposure, auto-gain) — those are the caller's responsibility
+        for the active layer.
+
+        Args:
+            config: ScopeInitConfig instance with all scope-level settings.
+        """
+        self.leds_off()
+        self.set_labware(config.labware)
+        if config.turret_config:
+            self.set_turret_config(config.turret_config)
+        self.set_objective(config.objective_id)
+        self.set_binning_size(config.binning_size)
+        self.set_frame_size(config.frame_width, config.frame_height)
+        self.set_stage_offset(config.stage_offset)
+        self.set_scale_bar(enabled=config.scale_bar_enabled)
+        if self.motion:
+            self.set_acceleration_limit(val_pct=config.acceleration_pct)
+        logger.info('[SCOPE API ] Scope initialized')
+
+
     # --- Motion monitor (Phase 1A) ---
 
     _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
@@ -873,6 +898,26 @@ class Lumascope():
         return self.led.get_led_ma(color=color)
 
 
+    def led_enabled(self, color: str) -> bool:
+        """Whether a specific LED channel is currently on (reads driver cache)."""
+        if not self.led:
+            return False
+        state = self.led.get_led_state(color=color)
+        return state.get('enabled', False) if isinstance(state, dict) else False
+
+    def led_illumination(self, color: str) -> float:
+        """Current mA for an LED channel, or -1 if off (reads driver cache)."""
+        if not self.led:
+            return -1
+        return self.led.get_led_ma(color=color)
+
+    @property
+    def led_states(self) -> dict:
+        """Snapshot of all LED states {color: {enabled, illumination}} (reads driver cache)."""
+        if not self.led:
+            return {}
+        return self.led.get_led_states()
+
     def get_led_state(self, color: str):
         """Get the on/off state and illumination for an LED channel.
 
@@ -880,9 +925,10 @@ class Lumascope():
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
-            dict: LED state and illumination (mA), or -1 if unavailable.
+            dict: LED state and illumination (mA), or empty dict if unavailable.
         """
-        if not self.led: return -1
+        if not self.led:
+            return {'enabled': False, 'illumination': -1}
 
         return self.led.get_led_state(color=color)
 
@@ -891,9 +937,10 @@ class Lumascope():
         """Get state and illumination for all LED channels.
 
         Returns:
-            dict: Mapping of color to state/illumination dict, or -1 if unavailable.
+            dict: Mapping of color to state/illumination dict, or empty dict if unavailable.
         """
-        if not self.led: return -1
+        if not self.led:
+            return {}
 
         return self.led.get_led_states()
 
@@ -1705,6 +1752,29 @@ class Lumascope():
         if not self.camera or not self.camera.active: return
         self.camera.auto_exposure_t(state)
         self.frame_validity.invalidate('exposure')
+
+    def apply_layer_camera_settings(self, gain: float, exposure_ms: float,
+                                     auto_gain: bool = False,
+                                     auto_gain_settings: dict | None = None) -> None:
+        """Apply per-layer camera settings in a single batched call.
+
+        Sets gain, exposure, and auto-gain state. Replaces 3 separate
+        IOTask queues with a single call for atomicity.
+
+        Args:
+            gain: Camera gain in dB.
+            exposure_ms: Exposure time in milliseconds.
+            auto_gain: Whether auto-gain is enabled for this layer.
+            auto_gain_settings: Dict with target_brightness, min_gain, max_gain
+                               (required if auto_gain is True).
+        """
+        if not self.camera or not self.camera.active:
+            return
+        self.set_gain(gain)
+        self.set_exposure_time(exposure_ms)
+        if auto_gain_settings is not None:
+            self.set_auto_gain(auto_gain, settings=auto_gain_settings)
+        _api_log.info(f'apply_layer_camera_settings gain={gain}dB exp={exposure_ms}ms auto_gain={auto_gain}')
 
     def update_auto_gain_target_brightness(self, target_brightness: float):
         """Set the auto-gain target brightness on the camera.
