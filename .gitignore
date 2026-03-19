@@ -9,6 +9,10 @@ logs/
 capture/
 script_testing.py
 venv*/
+run.bat
+run_simulate.bat
+run.sh
+run_simulate.sh
 build/
 dist/
 tmp/

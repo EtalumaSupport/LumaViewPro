@@ -1,90 +1,160 @@
 #!/bin/bash
 # LumaViewPro macOS install script
-# Installs Python dependencies. Camera SDK (Basler Pylon) must be installed separately.
+# Scans for Python 3.11-3.13, creates a venv, installs dependencies.
+# Camera SDK (Basler Pylon) must be installed separately.
 #
 # Usage:
-#   bash scripts/install_mac.sh          # Install directly
-#   bash scripts/install_mac.sh --venv   # Install in a virtual environment
+#   bash scripts/install_mac.sh
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+VENV_DIR="$PROJECT_DIR/venv"
 
-MIN_MAJOR=3
-MIN_MINOR=11
-MAX_MINOR=13
+echo "========================================="
+echo " LumaViewPro Installer"
+echo "========================================="
+echo ""
 
-USE_VENV=false
-if [ "$1" = "--venv" ]; then
-    USE_VENV=true
+# --- Scan for available Python versions ---
+FOUND=()
+FOUND_CMDS=()
+
+for minor in 13 12 11; do
+    # Check python3.XX first (brew, pyenv, etc.)
+    cmd="python3.$minor"
+    if command -v "$cmd" &>/dev/null; then
+        ver=$($cmd -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+        FOUND+=("$ver")
+        FOUND_CMDS+=("$cmd")
+    fi
+done
+
+# If nothing found via versioned commands, try python3 on PATH
+if [ ${#FOUND[@]} -eq 0 ]; then
+    if command -v python3 &>/dev/null; then
+        py_minor=$(python3 -c "import sys; print(sys.version_info.minor)")
+        if [ "$py_minor" -ge 11 ] && [ "$py_minor" -le 13 ]; then
+            ver=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
+            FOUND+=("$ver")
+            FOUND_CMDS+=("python3")
+        else
+            echo "Error: Python 3.$py_minor found, but LumaViewPro requires 3.11, 3.12, or 3.13."
+            echo "Install a supported version:"
+            echo "  brew install python@3.13"
+            echo "  or: https://www.python.org/downloads/macos/"
+            exit 1
+        fi
+    else
+        echo "Error: No Python installation found."
+        echo "Install Python 3.11+:"
+        echo "  brew install python@3.13"
+        echo "  or: https://www.python.org/downloads/macos/"
+        exit 1
+    fi
 fi
 
-# --- Check Python version ---
-if ! command -v python3 &> /dev/null; then
-    echo "Error: python3 not found."
-    echo "Install Python 3.11+ from https://www.python.org/downloads/macos/"
-    echo "  or: brew install python@3.13"
-    exit 1
+echo "Found Python installations:"
+echo ""
+for i in "${!FOUND[@]}"; do
+    n=$((i + 1))
+    echo "  [$n] Python ${FOUND[$i]}  (${FOUND_CMDS[$i]})"
+done
+
+# Default to first found (newest)
+BEST_IDX=0
+BEST_VER="${FOUND[0]}"
+BEST_CMD="${FOUND_CMDS[0]}"
+
+echo ""
+
+# --- Let user choose if multiple versions found ---
+if [ ${#FOUND[@]} -gt 1 ]; then
+    echo "Which Python should LumaViewPro use?"
+    echo "  Press Enter for the recommended version [Python $BEST_VER]"
+    echo ""
+    read -p "Choose [1-${#FOUND[@]}] or Enter for default: " CHOICE
+
+    if [ -n "$CHOICE" ]; then
+        idx=$((CHOICE - 1))
+        if [ "$idx" -ge 0 ] && [ "$idx" -lt ${#FOUND[@]} ]; then
+            BEST_IDX=$idx
+            BEST_VER="${FOUND[$idx]}"
+            BEST_CMD="${FOUND_CMDS[$idx]}"
+        fi
+    fi
+
+    echo "Using Python $BEST_VER"
+else
+    echo "Using Python $BEST_VER"
 fi
 
-PY_VERSION=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-PY_MAJOR=$(python3 -c "import sys; print(sys.version_info.major)")
-PY_MINOR=$(python3 -c "import sys; print(sys.version_info.minor)")
+echo ""
 
-if [ "$PY_MAJOR" -ne "$MIN_MAJOR" ] || [ "$PY_MINOR" -lt "$MIN_MINOR" ] || [ "$PY_MINOR" -gt "$MAX_MINOR" ]; then
-    echo "Error: Python $PY_VERSION found, but LumaViewPro requires Python 3.11, 3.12, or 3.13."
-    echo "Install a supported version from https://www.python.org/downloads/macos/"
-    exit 1
+# --- Check for existing venv ---
+if [ -f "$VENV_DIR/bin/python" ]; then
+    echo "Virtual environment already exists at $VENV_DIR"
+    echo ""
+    read -p "Recreate it? [y/N]: " RECREATE
+    if [ "$RECREATE" = "y" ] || [ "$RECREATE" = "Y" ]; then
+        echo "Removing old virtual environment..."
+        rm -rf "$VENV_DIR"
+    else
+        echo "Updating existing virtual environment..."
+        "$VENV_DIR/bin/python" -m pip install --upgrade pip --quiet
+        "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
+        echo ""
+        echo "Update complete!"
+        exit 0
+    fi
 fi
 
-echo "Found Python $PY_VERSION"
+# --- Create virtual environment ---
+echo "Creating virtual environment with Python $BEST_VER..."
+$BEST_CMD -m venv "$VENV_DIR"
 
 # --- Install dependencies ---
-if [ "$USE_VENV" = true ]; then
-    VENV_DIR="$PROJECT_DIR/venv"
-    if [ -d "$VENV_DIR" ]; then
-        echo "Virtual environment already exists at $VENV_DIR"
-    else
-        echo "Creating virtual environment..."
-        python3 -m venv "$VENV_DIR"
-    fi
-    echo "Installing dependencies in virtual environment..."
-    "$VENV_DIR/bin/pip" install --upgrade pip
-    "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
-else
-    echo "Installing dependencies..."
-    python3 -m pip install --upgrade pip
-    python3 -m pip install -r "$PROJECT_DIR/requirements.txt"
-fi
+echo ""
+echo "Installing dependencies..."
+"$VENV_DIR/bin/python" -m pip install --upgrade pip --quiet
+"$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/requirements.txt"
 
 # --- Verify installation ---
 echo ""
-echo "Verifying installation..."
-if [ "$USE_VENV" = true ]; then
-    "$VENV_DIR/bin/python" -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
-else
-    python3 -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
-fi
+echo "Verifying core packages..."
+"$VENV_DIR/bin/python" -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
+
+# --- Create run script ---
+cat > "$PROJECT_DIR/run.sh" << 'RUNEOF'
+#!/bin/bash
+cd "$(dirname "$0")"
+venv/bin/python lumaviewpro.py "$@"
+RUNEOF
+chmod +x "$PROJECT_DIR/run.sh"
+
+cat > "$PROJECT_DIR/run_simulate.sh" << 'RUNEOF'
+#!/bin/bash
+cd "$(dirname "$0")"
+venv/bin/python lumaviewpro.py --simulate "$@"
+RUNEOF
+chmod +x "$PROJECT_DIR/run_simulate.sh"
 
 echo ""
 echo "========================================="
 echo " LumaViewPro installation complete!"
 echo "========================================="
 echo ""
-if [ "$USE_VENV" = true ]; then
-    echo "To run LumaViewPro:"
-    echo "  cd $PROJECT_DIR"
-    echo "  source venv/bin/activate"
-    echo "  python lumaviewpro.py"
-else
-    echo "To run LumaViewPro:"
-    echo "  cd $PROJECT_DIR"
-    echo "  python3 lumaviewpro.py"
-fi
+echo "  Python:  $BEST_VER"
+echo "  Venv:    $VENV_DIR"
 echo ""
-echo "To run in simulate mode (no hardware):"
-echo "  python lumaviewpro.py --simulate"
+echo "  To run LumaViewPro:"
+echo "    ./run.sh"
+echo "    or: venv/bin/python lumaviewpro.py"
 echo ""
-echo "Note: Basler Pylon SDK must be installed separately"
-echo "  https://docs.baslerweb.com/pylon-software-suite"
+echo "  To run in simulate mode (no hardware):"
+echo "    ./run_simulate.sh"
+echo "    or: venv/bin/python lumaviewpro.py --simulate"
+echo ""
+echo "  Note: Basler Pylon SDK must be installed separately"
+echo "    https://docs.baslerweb.com/pylon-software-suite"
