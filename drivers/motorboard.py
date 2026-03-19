@@ -555,7 +555,6 @@ class MotorBoard(SerialBoard):
         # Read target position in um
         pos = self.target_pos(axis)
         self.move_abs_pos(axis, pos+um, overshoot_enabled=overshoot_enabled)
-        logger.info('[XYZ Class ] MotorBoard.move_rel_pos('+axis+','+str(um)+') succeeded')
 
     #----------------------------------------------------------
     # Ramp and Reference Switch Status Register
