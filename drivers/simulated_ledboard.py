@@ -270,6 +270,9 @@ class SimulatedLEDBoard:
     def exit_raw_repl(self):
         pass
 
+    def repl_exec(self, code, timeout=10):
+        return (b'', b'')
+
     def repl_list_files(self):
         return []
 

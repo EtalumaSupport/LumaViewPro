@@ -1058,6 +1058,9 @@ class TestLEDFirmwareVersion:
         board.led_ma = {'BF': -1, 'PC': -1, 'DF': -1, 'Red': -1, 'Blue': -1, 'Green': -1}
         board._state_lock = threading.Lock()
         board.firmware_version = None
+        board.firmware_date = None
+        board.firmware_responding = False
+        board.protocol_version = None
         board._last_error_log_time = 0.0
         board._error_log_interval = 2.0
         return board
@@ -1065,10 +1068,12 @@ class TestLEDFirmwareVersion:
     def test_detect_v2_firmware(self):
         """Should parse v2.0.1 from INFO response."""
         board = self._make_board()
-        # INFO command reads two lines (echo + result)
+        # exchange_command('INFO', response_numlines=6) reads up to 6 lines;
+        # first line is echo (RE: prefix), rest are content or empty (timeout).
         board.driver.readline.side_effect = [
             b"RE: INFO\r\n",
             b"Firmware:     2026-03-06 v2.0.1\r\n",
+            b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n",
         ]
         board._detect_firmware_version()
         assert board.firmware_version == '2.0.1'
@@ -1080,6 +1085,7 @@ class TestLEDFirmwareVersion:
         board.driver.readline.side_effect = [
             b"RE: INFO\r\n",
             b"EL-0925 Gen3 LED Controller\r\n",
+            b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n",
         ]
         board._detect_firmware_version()
         assert board.firmware_version is None
@@ -1091,6 +1097,7 @@ class TestLEDFirmwareVersion:
         board.driver.readline.side_effect = [
             b"RE: INFO\r\n",
             b"Firmware:     2026-01-15 v2.0.0\r\n",
+            b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n",
         ]
         board._detect_firmware_version()
         assert board.firmware_version == '2.0.0'
@@ -1102,6 +1109,7 @@ class TestLEDFirmwareVersion:
         board.driver.readline.side_effect = [
             b"RE: INFO\r\n",
             b"Firmware: v1.5.0\r\n",
+            b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n",
         ]
         board._detect_firmware_version()
         assert board.firmware_version == '1.5.0'
@@ -1112,6 +1120,7 @@ class TestLEDFirmwareVersion:
         board = self._make_board()
         board.driver.readline.side_effect = [
             b"Firmware:     2027-01-01 v3.0.0\r\n",
+            b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n", b"\r\n",
         ]
         board._detect_firmware_version()
         assert board.firmware_version == '3.0.0'
@@ -1490,8 +1499,11 @@ class TestSerialDesyncRecovery:
     def test_stale_buffer_flushed_before_write(self):
         """exchange_command should flush stale input bytes before writing."""
         board = self._make_board()
-        # Simulate 20 stale bytes sitting in the input buffer
-        board.driver.in_waiting = 20
+        # Simulate 20 stale bytes sitting in the input buffer initially,
+        # then 0 after the flush (PropertyMock cycles through values).
+        # The post-response drain also checks in_waiting, so we need
+        # 20 for the pre-flush, then 0 for the post-response drain.
+        type(board.driver).in_waiting = PropertyMock(side_effect=[20, 0])
         board.driver.readline.return_value = b"OK\r\n"
 
         response = board.exchange_command('STATUS')

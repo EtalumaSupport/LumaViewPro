@@ -363,7 +363,7 @@ class TestSerialErrorRateLimiting:
         board = _make_serial_board()
         board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
 
-        with patch.object(serialboard, 'logger', mock_log):
+        with patch.object(serialboard, '_serial_log', mock_log):
             board.exchange_command('TEST')
 
         mock_log.warning.assert_called()
@@ -377,7 +377,7 @@ class TestSerialErrorRateLimiting:
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
-        with patch.object(serialboard, 'logger', mock_log):
+        with patch.object(serialboard, '_serial_log', mock_log):
             # First call — should log warning
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException("timeout")
@@ -401,7 +401,7 @@ class TestSerialErrorRateLimiting:
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
-        with patch.object(serialboard, 'logger', mock_log), \
+        with patch.object(serialboard, '_serial_log', mock_log), \
              patch.object(serialboard.time, 'monotonic', mock_time):
             # First error at t=0
             mock_time.return_value = 100.0
@@ -443,7 +443,7 @@ class TestSerialErrorRateLimiting:
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
-        with patch.object(serialboard, 'logger', mock_log):
+        with patch.object(serialboard, '_serial_log', mock_log):
             # First generic error
             board.driver.write.side_effect = Exception("USB disconnected")
             board.exchange_command('TEST1')
