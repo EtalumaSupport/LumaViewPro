@@ -55,6 +55,9 @@ if __name__ == "__main__":
     simulate_mode = '--simulate' in sys.argv
     if simulate_mode:
         sys.argv.remove('--simulate')
+    no_engineering = '--no-engineering' in sys.argv
+    if no_engineering:
+        sys.argv.remove('--no-engineering')
 
     ############################################################################
     #---------------------Directory Initialization-----------------------------#
@@ -827,9 +830,11 @@ class LumaViewProApp(TooltipMixin, App):
                                f'Please update: pip install -e path/to/etaluma-engineering')
             etaluma_engineering.register(ctx)
             # Auto-enable engineering mode when plugin is present
-            if not ENGINEERING_MODE:
+            # (unless --no-engineering was passed on command line)
+            if not ENGINEERING_MODE and not no_engineering:
                 ENGINEERING_MODE = True
                 lumaview.scope.engineering_mode = True
+                ctx.engineering_mode = True
                 logger.info('[LVP Main  ] Engineering mode auto-enabled (plugin detected)')
             logger.info(f'[LVP Main  ] Engineering plugin v{plugin_version} loaded')
         except ImportError:

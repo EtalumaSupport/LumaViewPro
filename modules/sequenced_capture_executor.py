@@ -1238,6 +1238,14 @@ class SequencedCaptureExecutor:
         else:
             combined_prefix = step['Name']
 
+        # In engineering mode, include turret position in filename
+        turret_pos = None
+        if self._scope.engineering_mode and self._scope.has_turret():
+            try:
+                turret_pos = int(self._scope.get_current_position('T'))
+            except Exception:
+                pass
+
         name = common_utils.generate_default_step_name(
             well_label=step['Well'],
             color=step['Color'],
@@ -1247,6 +1255,7 @@ class SequencedCaptureExecutor:
             objective_short_name=objective_short_name,
             tile_label=step['Tile'],
             video=is_video,
+            turret_position=turret_pos,
         )
         # Ensure the filename base has no invalid path characters
         try:

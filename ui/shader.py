@@ -271,15 +271,16 @@ void main (void) {
             if ctx is None:
                 return
 
-            if ctx.engineering_mode:
-                from kivy.core.window import Window
-                scope_display = self.ids.get('scope_display_id')
-                if scope_display:
-                    display_fps = scope_display._display_fps_value
-                    worker_fps = scope_display._fps_value
-                    Window.set_title(
-                        f'LumaViewPro — Display: {display_fps:.0f} FPS | Worker: {worker_fps:.0f} FPS'
-                    )
+            from kivy.core.window import Window
+            scope_display = self.ids.get('scope_display_id')
+            if scope_display:
+                capture_fps = scope_display._capture_fps_value
+                display_fps = scope_display._display_fps_value
+                title = f'LumaViewPro — Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
+                if ctx.engineering_mode:
+                    mbps = scope_display._camera_mbps
+                    title += f' | {mbps:.1f} MB/s'
+                Window.set_title(title)
         except Exception:
             pass
 

@@ -68,6 +68,7 @@ def generate_default_step_name(
     zprojection: str | None = None,
     stack: bool = False,
     hyperstack: bool = False,
+    turret_position: int | None = None,
 ):
     if custom_name_prefix not in (None, ""):
         name = f"{custom_name_prefix}"
@@ -83,6 +84,9 @@ def generate_default_step_name(
 
     if objective_short_name not in (None, "", -1):
         name = f"{name}_{objective_short_name}"
+
+    if turret_position is not None:
+        name = f"{name}_Turret{turret_position}"
 
     if z_height_idx not in (None, "", -1):
         if not f"_Z{z_height_idx}" in name:

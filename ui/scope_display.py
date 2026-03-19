@@ -63,15 +63,19 @@ class ScopeDisplay(Image):
         self._bullseye_rgb_buf = None
         self._bullseye_buf_shape = None
 
-        # FPS tracking — worker thread (frames grabbed)
-        self._fps_frame_count = 0
-        self._fps_last_time = time.monotonic()
-        self._fps_value = 0.0
+        # FPS tracking — capture thread (frames grabbed from camera)
+        self._capture_fps_count = 0
+        self._capture_fps_last_time = time.monotonic()
+        self._capture_fps_value = 0.0
 
         # Display FPS tracking — main thread (frames actually rendered on screen)
         self._display_fps_count = 0
         self._display_fps_last_time = time.monotonic()
         self._display_fps_value = 0.0
+
+        # Camera data rate (MB/s) — computed from capture FPS and frame size
+        self._camera_mbps = 0.0
+        self._last_frame_nbytes = 0
 
         # Engineering stats timing (2x per second)
         self._eng_stats_last_time = 0.0
@@ -481,14 +485,16 @@ class ScopeDisplay(Image):
         if logger.isEnabledFor(logging.DEBUG):
             self._perf_blit_schedule_times.append(t_queue_wait)
 
-        # FPS tracking
-        self._fps_frame_count += 1
+        # Capture FPS tracking + camera data rate
+        self._capture_fps_count += 1
+        self._last_frame_nbytes = image.nbytes
         now = time.monotonic()
-        elapsed = now - self._fps_last_time
+        elapsed = now - self._capture_fps_last_time
         if elapsed >= 1.0:
-            self._fps_value = self._fps_frame_count / elapsed
-            self._fps_frame_count = 0
-            self._fps_last_time = now
+            self._capture_fps_value = self._capture_fps_count / elapsed
+            self._camera_mbps = (self._capture_fps_value * self._last_frame_nbytes) / (1024 * 1024)
+            self._capture_fps_count = 0
+            self._capture_fps_last_time = now
 
         if display_counter % 10 == 0:
             Clock.schedule_once(self._reset_display_counter, 0)
@@ -558,8 +564,9 @@ class ScopeDisplay(Image):
                         display_fps = self._display_fps_value
                         avg_blit_delay = sum(self._perf_blit_delays) / max(1, len(self._perf_blit_delays)) * 1 if self._perf_blit_delays else 0
                         max_blit_delay = max(self._perf_blit_delays) if self._perf_blit_delays else 0
+                        capture_fps = self._capture_fps_value
                         logger.debug(
-                            f'[PERF] worker={n/self._perf_log_interval:.1f} display={display_fps:.1f} '
+                            f'[PERF] capture={capture_fps:.1f} display={display_fps:.1f} '
                             f'kivy={kivy_fps:.0f}/{kivy_rfps:.0f} FPS | '
                             f'queue={avg_queue:.1f}ms grab={avg_grab:.1f}ms(max {max_grab:.1f}) '
                             f'proc={avg_proc:.1f}ms(max {max_proc:.1f}) '
@@ -616,12 +623,18 @@ class ScopeDisplay(Image):
 
 
     def _count_display_fps(self):
-        """Track actual rendered frame rate (called on main thread after blit)."""
+        """Track actual rendered frame rate (called on main thread after blit).
+
+        Capped at capture FPS — display cannot render more frames than
+        the camera produces, any excess is measurement window jitter.
+        """
         self._display_fps_count += 1
         now = time.monotonic()
         elapsed = now - self._display_fps_last_time
         if elapsed >= 1.0:
-            self._display_fps_value = self._display_fps_count / elapsed
+            raw_display_fps = self._display_fps_count / elapsed
+            self._display_fps_value = min(raw_display_fps, self._capture_fps_value) \
+                if self._capture_fps_value > 0 else raw_display_fps
             self._display_fps_count = 0
             self._display_fps_last_time = now
 
