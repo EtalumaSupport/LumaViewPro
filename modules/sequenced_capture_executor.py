@@ -16,6 +16,7 @@ import gc
 import queue
 
 from modules.sequenced_capture_writer import write_capture
+from modules.video_capture import VideoCaptureSession, write_video
 
 try:
     from kivy.clock import Clock
@@ -149,8 +150,6 @@ class SequencedCaptureExecutor:
         self._cpu_pool = cpu_pool
         self._video_write_finished = threading.Event()
         self._video_write_finished.set()
-        self._stim_start_event = threading.Event()
-        self._stim_stop_event = threading.Event()
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -871,9 +870,6 @@ class SequencedCaptureExecutor:
                 _t_capture_done = time.monotonic()
                 logger.debug(f"[TIMING] Step {self._curr_step} capture+save: {(_t_capture_done - _t_capture_start)*1000:.1f}ms")
 
-                self._stim_stop_event.set()
-
-
                 # Protocol record creation and adding is handled in capture method
 
 
@@ -1163,9 +1159,6 @@ class SequencedCaptureExecutor:
         self._scan_in_progress.clear()
         self._protocol_ended.set()
 
-        self._stim_start_event.clear()
-        self._stim_stop_event.set()
-
         self._io_executor.protocol_end()
         self.protocol_executor.protocol_end()
         self.autofocus_io_executor.protocol_end()
@@ -1286,129 +1279,21 @@ class SequencedCaptureExecutor:
             use_full_pixel_depth = self._image_capture_config['use_full_pixel_depth']
 
             if is_video:
-                # Drain stale frames before video capture starts
-                while self._scope.frame_validity.frames_until_valid() > 0:
-                    self._scope.get_image(force_new_capture=True)
-                    self._scope.frame_validity.count_frame()
-                # Additional settle for auto-gain first frame
-                time.sleep(max(step['Exposure']/1000, 0.05))
-                # Disable autogain and then reenable it only for the first frame
-                if step["Auto_Gain"]:
-                    self._scope.set_auto_gain(state=False, settings=self._autogain_settings)
-                    self._scope.auto_gain_once(
-                        state=True,
-                        target_brightness=self._autogain_settings['target_brightness'],
-                        min_gain=self._autogain_settings['min_gain'],
-                        max_gain=self._autogain_settings['max_gain'],
-                    )
+                session = VideoCaptureSession(
+                    scope=self._scope,
+                    step=step,
+                    autogain_settings=self._autogain_settings,
+                    is_protocol_running_fn=self.protocol_executor.is_protocol_running,
+                    callbacks=self._callbacks,
+                    leds_off_fn=self._leds_off,
+                )
+                video_result = session.capture()
 
-                duration_sec = step['Video Config']['duration']
-
-                # Clamp the FPS to be no faster than the exposure rate
-                exposure = step['Exposure']
-                exposure_freq = 1.0 / (exposure / 1000)
-                fps = min(exposure_freq, 40)
-                
-                if video_as_frames:
-                    save_folder = save_folder / f"{name}"
-
-                else:    
-                    output_file_loc = save_folder / f"{name}.mp4"
-
-                start_ts = time.time()
-                stop_ts = start_ts + duration_sec
-                expected_frames = fps * duration_sec
-                captured_frames = 0
-                seconds_per_frame = 1.0 / fps
-                video_images = queue.Queue(maxsize=500)
-
-                stim_threads = []
-
-                for color in step['Stim_Config']:
-                    stim_config = step['Stim_Config'][color]
-                    if stim_config['enabled']:
-                        stim_thread = threading.Thread(target=self._stimulate, args=(color, stim_config, self._stim_start_event, self._stim_stop_event))
-                        stim_threads.append(stim_thread)
-                        stim_thread.start()
-
-                if "set_recording_title" in self._callbacks:
-                    Clock.schedule_once(lambda dt: self._callbacks['set_recording_title'](progress=0), 0)
-
-                logger.info(f"Protocol-Video] Capturing video...")
-
-                progress = 0
-                if sys.platform.startswith('win'):
-                    try:
-                        ctypes.windll.winmm.timeBeginPeriod(1)
-                    except Exception:
-                        pass
-                self._stim_stop_event.clear()
-                self._stim_start_event.set()
-
-                while time.time() < stop_ts:
-                    curr_time = time.time()
-                    progress = (curr_time - start_ts) / duration_sec * 100
-                    if "set_recording_title" in self._callbacks:
-                        Clock.schedule_once(lambda dt, p=progress: self._callbacks['set_recording_title'](progress=p), 0)
-
-                    if not self.protocol_executor.is_protocol_running():
-                        self._leds_off()
-                        if "reset_title" in self._callbacks:
-                            Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
-                        return
-
-                    # Currently only support 8-bit images for video
-                    force_to_8bit = True
-                    image = self._scope.get_image(force_to_8bit=force_to_8bit)
-
-                    if isinstance(image, np.ndarray):
-
-                        # Should never be used since forcing images to 8-bit
-                        if image.dtype == np.uint16:
-                            image = image_utils.convert_12bit_to_16bit(image)
-
-                        # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
-                        if (image.dtype != np.uint16) and (step['False_Color']):
-                            image = image_utils.add_false_color(array=image, color=use_color)
-
-                        image = np.flip(image, 0)
-
-                        try:
-                            video_images.put_nowait((image, datetime.datetime.now()))
-                        except queue.Full:
-                            logger.warning(f"[Protocol-Video] Frame queue full ({video_images.maxsize}), dropping frame")
-                            continue
-
-                        captured_frames += 1
-
-                    # Some process is slowing the video-process down (getting fewer frames than expected if delay of seconds_per_frame), so a shorter sleep time can be used
-                    time.sleep(seconds_per_frame*0.9)
-
-                if sys.platform.startswith('win'):
-                    try:
-                        ctypes.windll.winmm.timeEndPeriod(1)
-                    except Exception:
-                        pass
-                self._stim_stop_event.set()
-                self._stim_start_event.clear()  # Reset start event for next step
-
-                for stim_thread in stim_threads:
-                    stim_thread.join(timeout=5.0)
-                    if stim_thread.is_alive():
-                        logger.warning(f"[PROTOCOL] Stim thread did not exit within 5s timeout")
-
-                if captured_frames == 0:
-                    logger.warning("[PROTOCOL] Zero frames captured during video recording — skipping write")
+                if video_result is None:
+                    # Cancelled or zero frames — skip write
                     self._video_write_finished.set()
                     self._leds_off()
                     return
-
-                calculated_fps = max(1, int(captured_frames / duration_sec))
-
-                logger.info(f"Protocol-Video] Images present in video array: {not video_images.empty()}")
-                logger.info(f"Protocol-Video] Captured Frames: {captured_frames}")
-                logger.info(f"Protocol-Video] Video FPS: {calculated_fps}")
-                logger.info("Protocol-Video] Writing video...")
 
                 self._leds_off()
 
@@ -1417,19 +1302,16 @@ class SequencedCaptureExecutor:
                     kwargs={
                         "is_video": is_video,
                         "video_as_frames": video_as_frames,
-                        "video_images": video_images,
+                        "video_result": video_result,
                         "save_folder": save_folder,
                         "use_color": use_color,
                         "name": name,
-                        "calculated_fps": calculated_fps,
                         "output_format": output_format,
                         "step": step,
                         "captured_image": None,
                         "step_index": self._curr_step,
                         "scan_count": self._scan_count,
                         "capture_time": datetime.datetime.now(),
-                        "duration_sec": duration_sec,
-                        "captured_frames": captured_frames
                     }
                 ))
 
@@ -1466,21 +1348,15 @@ class SequencedCaptureExecutor:
                 self.file_io_executor.protocol_put(IOTask(
                     action=self._write_capture,
                     kwargs={
-                        "is_video": is_video,
-                        "video_as_frames": video_as_frames,
-                        "video_images": None,
                         "save_folder": save_folder,
                         "use_color": use_color,
                         "name": name,
-                        "calculated_fps": None,
                         "output_format": output_format,
                         "step": step,
                         "captured_image": captured_image,
                         "step_index": self._curr_step,
                         "scan_count": self._scan_count,
                         "capture_time": datetime.datetime.now(),
-                        "duration_sec": 0.0,
-                        "captured_frames": 1
                     }
                 ))
         
@@ -1500,133 +1376,37 @@ class SequencedCaptureExecutor:
                 
     
     def _write_capture(self,
-                       is_video=False, 
-                       video_as_frames=False, 
-                       video_images: queue.Queue=None, 
+                       is_video=False,
+                       video_as_frames=False,
+                       video_result=None,
                        save_folder=None,
                        use_color=None,
                        name=None,
-                       calculated_fps=None,
                        output_format=None,
                        step=None,
                        captured_image=None,
                        step_index=None,
                        scan_count=None,
                        capture_time=None,
-                       duration_sec=0.0,
-                       captured_frames=1
                        ):
-        
+
         if self._enable_image_saving:
             if is_video:
-                if "set_writing_title" in self._callbacks:
-                    Clock.schedule_once(lambda dt: self._callbacks['set_writing_title'](progress=0), 0)
-
                 try:
-                    if video_as_frames:
-                        frame_num = 0
-                        capture_result = save_folder
-                        if not save_folder.exists():
-                            save_folder.mkdir(exist_ok=True, parents=True)
-
-                        while not video_images.empty():
-
-                            progress = frame_num / max(1, captured_frames) * 100
-                            if "set_writing_title" in self._callbacks:
-                                Clock.schedule_once(lambda dt, p=progress: self._callbacks['set_writing_title'](progress=p), 0)
-
-                            image_pair = video_images.get_nowait()
-                            frame_num += 1
-
-                            image = image_pair[0]
-                            ts = image_pair[1]
-
-                            del image_pair
-
-                            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-
-                            image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
-
-                            del image
-                            video_images.task_done()
-
-                            frame_name = f"{name}_Frame_{frame_num:04}"
-
-                            output_file_loc = save_folder / f"{frame_name}.tiff"
-
-                            metadata = {
-                                "datetime": ts.strftime("%Y:%m:%d %H:%M:%S"),
-                                "timestamp": ts.strftime("%Y:%m:%d %H:%M:%S.%f"),
-                                "frame_num": frame_num
-                            }
-
-                            try:
-                                image_utils.write_tiff(
-                                    data=image_w_timestamp,
-                                    metadata=metadata,
-                                    file_loc=output_file_loc,
-                                    video_frame=True,
-                                    ome=False,
-                                    color=step['Color']
-                                )
-                            except Exception as e:
-                                logger.error(f"Protocol-Video] Failed to write frame {frame_num}: {e}")
-
-                        # Ensure queue is fully drained before deletion
-                        try:
-                            while not video_images.empty():
-                                video_images.get_nowait()
-                                video_images.task_done()
-                        except Exception:
-                            pass
-                        del video_images
-
-                    else:
-                        output_file_loc = save_folder / f"{name}.mp4v"
-                        video_writer = VideoWriter(
-                            output_file_loc=output_file_loc,
-                            fps=calculated_fps,
-                            include_timestamp_overlay=True
-                        )
-                        try:
-                            frame_num = 0
-                            while not video_images.empty():
-                                progress = frame_num / max(1, captured_frames) * 100
-                                if "set_writing_title" in self._callbacks:
-                                    Clock.schedule_once(lambda dt, p=progress: self._callbacks['set_writing_title'](progress=p), 0)
-
-                                try:
-                                    image_pair = video_images.get_nowait()
-                                    video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
-                                    del image_pair
-                                    video_images.task_done()
-                                    frame_num += 1
-                                except Exception as e:
-                                    logger.error(f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
-                        finally:
-                            video_writer.finish()
-                            del video_writer
-
-                        # Ensure queue is fully drained before deletion
-                        try:
-                            while not video_images.empty():
-                                video_images.get_nowait()
-                                video_images.task_done()
-                        except Exception:
-                            pass
-                        del video_images
-
-                        capture_result = output_file_loc
-
+                    capture_result = write_video(
+                        result=video_result,
+                        save_folder=save_folder,
+                        name=name,
+                        video_as_frames=video_as_frames,
+                        step=step,
+                        callbacks=self._callbacks,
+                    )
                 finally:
                     self._video_write_finished.set()
 
-                if "reset_title" in self._callbacks:
-                    Clock.schedule_once(lambda dt: self._callbacks['reset_title'](), 0)
+                captured_frames = video_result.captured_frames
+                duration_sec = video_result.duration_sec
 
-                logger.info("Protocol-Video] Video writing finished.")
-                logger.info(f"Protocol-Video] Video saved at {capture_result}")
-            
             else:
                 if captured_image is False:
                     logger.warning(f"[PROTOCOL] _write_capture: captured_image is False, recording as capture_failed")
@@ -1689,118 +1469,3 @@ class SequencedCaptureExecutor:
 
     
 
-    def _stimulate(self, color: str, stim_config: dict, start_event: threading.Event, stop_event: threading.Event):
-        if not stim_config['enabled']:
-            return
-
-        logger.info(f"[STIMULATOR] Stimulating {color} with {stim_config}")
-
-        illumination = stim_config['illumination']
-        frequency = stim_config['frequency']
-        pulse_width = stim_config['pulse_width']
-        pulse_count = stim_config['pulse_count']
-
-        # Optional: reduce Windows timer quantum to 1 ms during stimulation
-        time_period_set = False
-        if sys.platform.startswith('win'):
-            try:
-                ctypes.windll.winmm.timeBeginPeriod(1)
-                time_period_set = True
-            except Exception:
-                time_period_set = False
-
-        try:
-            period_s = 1.0 / float(frequency)
-            pulse_s = float(pulse_width) / 1000.0
-
-            # Use fast path LED toggles if available via API
-            def led_on_fast():
-                #logger.info(f"[STIMULATOR] {color} LED ON")
-                if hasattr(self._scope, 'led_on_fast'):
-                    self._scope.led_on_fast(channel=self._scope.color2ch(color=color), mA=illumination)
-                else:
-                    self._scope.led_on(channel=self._scope.color2ch(color=color), mA=illumination)
-
-            def led_off_fast():
-                #logger.info(f"[STIMULATOR] {color} LED OFF")
-                if hasattr(self._scope, 'led_off_fast'):
-                    self._scope.led_off_fast(channel=self._scope.color2ch(color=color))
-                else:
-                    self._scope.led_off(channel=self._scope.color2ch(color=color))
-
-            start_epoch = time.perf_counter()
-            
-            start_event.wait()
-            logger.info(f"[STIMULATOR] stim_start_event set for {color}")
-
-            end_reason = "pulse_count_reached"
-
-            pulses_executed = 0
-
-            for i in range(pulse_count):
-                if stop_event.is_set():
-                    logger.info(f"[STIMULATOR] {color} stop event set, ending stimulation.")
-                    end_reason = "stop_event_set"
-                    break
-
-                # Target times for this pulse
-                on_time = start_epoch + i * period_s
-                off_time = on_time + pulse_s
-                next_period_time = start_epoch + (i + 1) * period_s
-
-                # Sleep until on_time (coarse) then spin
-                while True:
-                    now = time.perf_counter()
-                    remaining = on_time - now
-                    if remaining <= 0:
-                        break
-                    if remaining > 0.003:
-                        time.sleep(remaining - 0.002)
-                    else:
-                        time.sleep(0.0001)  # yield CPU instead of busy-wait
-
-                led_on_fast()
-
-                pulses_executed += 1
-
-                # Sleep/spin until off_time
-                while True:
-                    now = time.perf_counter()
-                    remaining = off_time - now
-                    if remaining <= 0:
-                        break
-                    if remaining > 0.003:
-                        time.sleep(remaining - 0.002)
-                    else:
-                        time.sleep(0.0001)  # yield CPU instead of busy-wait
-
-                led_off_fast()
-
-                # Maintain period; wait until next_period_time
-                while True:
-                    now = time.perf_counter()
-                    remaining = next_period_time - now
-                    if remaining <= 0:
-                        break
-                    if remaining > 0.003:
-                        time.sleep(remaining - 0.002)
-                    else:
-                        time.sleep(0.0001)  # yield CPU instead of busy-wait
-
-        finally:
-            if sys.platform.startswith('win') and time_period_set:
-                try:
-                    ctypes.windll.winmm.timeEndPeriod(1)
-                except Exception:
-                    pass
-            
-            logger.info(f"[STIMULATOR] {color} stimulation ended after executing {pulses_executed} pulses.")
-            logger.info(f"[STIMULATOR] {color} Ended due to {end_reason}")
-            # Ensure LED off at the end
-            try:
-                if hasattr(self._scope, 'led_off_fast'):
-                    self._scope.led_off_fast(channel=self._scope.color2ch(color=color))
-                else:
-                    self._scope.led_off(channel=self._scope.color2ch(color=color))
-            except Exception:
-                pass
