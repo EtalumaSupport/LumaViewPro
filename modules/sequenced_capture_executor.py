@@ -1097,10 +1097,16 @@ class SequencedCaptureExecutor:
             if self._leds_state_at_end == "off":
                 self._leds_off()
             elif self._leds_state_at_end == "return_to_original":
-                self._leds_off()
+                # Restore original LED states directly — don't turn off first
+                # to avoid a visible flash (off then on) during autofocus
+                any_restored = False
                 for color, color_data in self._original_led_states.items():
                     if color_data['enabled']:
                         self._led_on(color=color, illumination=color_data['illumination'], block=True, force=True)
+                        any_restored = True
+                if not any_restored:
+                    # No LEDs were originally on — turn everything off
+                    self._leds_off()
             else:
                 logger.error(f"Unsupported LEDs state at end value: {self._leds_state_at_end}")
         except Exception as ex:
