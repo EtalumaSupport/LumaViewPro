@@ -145,7 +145,7 @@ void main (void) {
 
 
     def on_touch_down(self, touch, *args):
-        logger.info('[LVP Main  ] ShaderViewer.on_touch_down()')
+        logger.debug('[LVP Main  ] ShaderViewer.on_touch_down()')
         from modules.config_ui_getters import get_current_objective_info
         ctx = _app_ctx.ctx
 

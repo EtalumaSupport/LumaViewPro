@@ -554,14 +554,8 @@ class LumaViewProApp(TooltipMixin, App):
             #thread_pool.submit(move_absolute_position, axis='T', pos=turret_position, wait_until_complete=True)
             #move_absolute_position(axis='T', pos=turret_position, wait_until_complete=True)
 
-        # Set initial objective from settings (enables scale bar, pixel size calc)
-        try:
-            lumaview.scope.set_objective(objective_id=settings['objective_id'])
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Failed to set initial objective: {e}')
-
-        layer_obj = ctx.image_settings.layer_lookup(layer='BF')
-        layer_obj.apply_settings()
+        # Objective and LEDs already set by scope.initialize() in load_settings().
+        # BF apply_settings will be called by complete_initialization() → accordion_collapse().
 
         config_helpers.log_system_metrics(settings)  # Log once on startup
 
@@ -570,8 +564,6 @@ class LumaViewProApp(TooltipMixin, App):
         if lumaview.scope.camera_is_connected():
             lumaview.log_camera_temps()  # Log once on startup
             lumaview.camera_temps_event = Clock.schedule_interval(lambda dt: lumaview.log_camera_temps(), 14400)  # Log every 4 hours
-
-        scope_leds_off()
 
         # Register emergency shutdown handler — ensures LEDs are off and serial
         # ports released even if the app crashes or is killed. This is safety-

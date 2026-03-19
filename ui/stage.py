@@ -131,7 +131,7 @@ class Stage(Widget):
         self._motion_enabled = enabled
 
     def on_touch_down(self, touch):
-        logger.info('[LVP Main  ] Stage.on_touch_down()')
+        logger.debug('[LVP Main  ] Stage.on_touch_down()')
 
         if not self._motion_enabled:
             return

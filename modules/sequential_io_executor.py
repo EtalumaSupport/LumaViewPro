@@ -245,13 +245,14 @@ class SequentialIOExecutor:
         logger.info(f"{self.name} Protocol Started")
 
     def protocol_end(self):
-
+        was_running = self.protocol_running.is_set()
         self.protocol_running.clear()
         # Clear completion callback when protocol ends prematurely
         self.protocol_complete_callback = None
         self.protocol_complete_cb_args = ()
         self.protocol_complete_cb_kwargs = {}
-        logger.info(f"{self.name} Protocol Ended")
+        if was_running:
+            logger.info(f"{self.name} Protocol Ended")
 
     def protocol_finish_then_end(self):
         self.protocol_finish.set()

@@ -354,8 +354,6 @@ class ImageSettings(BoxLayout):
         if ctx.initializing:
             return
 
-        logger.info('[LVP Main  ] ImageSettings.accordion_collapse()')
-
         # turn off the camera update and all LEDs
         scope_display = ctx.scope_display
         # scope_display.stop()

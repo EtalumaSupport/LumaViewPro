@@ -18,6 +18,7 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 from modules.config_ui_getters import get_binning_from_ui, get_current_frame_dimensions, get_selected_labware
 from modules.common_utils import CustomJSONizer
+from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
 from modules.ui_helpers import move_absolute_position, move_home, scope_leds_off
@@ -67,15 +68,9 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope = lumascope_api.Lumascope(camera_type=settings['camera_type'], simulate=ctx.simulate_mode)
         labware_id, labware = get_selected_labware()
 
-        # Set all variables that were already set at init
-        lumaview.scope.set_labware(labware)
-
-        if lumaview.scope.has_turret():
-            lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
-
-        lumaview.scope.set_scale_bar(enabled=settings['scale_bar']['enabled'])
-        lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
-        lumaview.scope.set_binning_size(size=binning.binning_size_str_to_int(text=settings['binning']['size']))
+        # Single hardware initialization call
+        config = ScopeInitConfig.from_settings(settings, labware)
+        lumaview.scope.initialize(config)
 
         ctx.sequenced_capture_executor.set_scope(lumaview.scope)
         ctx.autofocus_executor.set_scope(lumaview.scope)
@@ -280,23 +275,19 @@ class MicroscopeSettings(BoxLayout):
 
             acceleration_limit = settings['motion']['acceleration_max_pct']
             self.ids['acceleration_pct_slider'].value = acceleration_limit
-            self.acceleration_pct_slider()
+            self.ids['acceleration_pct_text'].text = str(acceleration_limit)
 
-            # Set Frame Size
-            # Multiplying frame size by the binning size to account for the select_binning_size() call
-            # Effectively sets the frame size to the size it was prior to pixel binning, then bins
+            # Set Frame Size UI
             binning_size_str = settings['binning']['size']
             binning_size = binning.binning_size_str_to_int(text=binning_size_str)
 
             self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
             self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
-            lumaview.scope.set_frame_size(settings['frame']['width'] * binning_size,
-                                            settings['frame']['height'] * binning_size)
 
-            # Pixel Binning
+            # Pixel Binning — UI recalculation only, scope.set_binning_size()
+            # handled by scope.initialize() below
             self.ids['binning_spinner'].text = binning_size_str
             self.select_binning_size()
-            lumaview.scope.set_stage_offset(stage_offset=settings['stage_offset'])
 
             objective_id = settings['objective_id']
 
@@ -308,8 +299,6 @@ class MicroscopeSettings(BoxLayout):
                 if objective_id not in turret_objectives:
                     logger.warning(f"Startup objective {objective_id} not found in turret objectives ({turret_objectives}).")
 
-                lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
-
             self.ids['objective_spinner'].text = objective_id
 
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
@@ -319,8 +308,6 @@ class MicroscopeSettings(BoxLayout):
             objective_helper = ctx.objective_helper
             objective = objective_helper.get_objective_info(objective_id=objective_id)
             self.ids['magnification_id'].text = f"{objective['magnification']}"
-
-            lumaview.scope.set_objective(objective_id=objective_id)
 
             # Load previous turret position objectives
             for turret_pos, objective_id in settings["turret_objectives"].items():
@@ -336,7 +323,13 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['enable_scale_bar_btn'].state = 'down'
             else:
                 self.ids['enable_scale_bar_btn'].state = 'normal'
-            self.update_scale_bar_state()
+
+            # Single hardware initialization call — replaces scattered
+            # scope.set_frame_size / set_binning_size / set_stage_offset /
+            # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
+            labware_id, labware = get_selected_labware()
+            config = ScopeInitConfig.from_settings(settings, labware)
+            lumaview.scope.initialize(config)
 
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
@@ -664,7 +657,6 @@ class MicroscopeSettings(BoxLayout):
         new_binning_size_str = self.ids['binning_spinner'].text
 
         new_binning_size = binning.binning_size_str_to_int(new_binning_size_str)
-        lumaview.scope.set_binning_size(size=new_binning_size)
         settings['binning']['size'] = new_binning_size_str
         ratio = new_binning_size / orig_binning_size
         new_frame_size = {
@@ -673,6 +665,12 @@ class MicroscopeSettings(BoxLayout):
         }
         self.ids['frame_width_id'].text = str(new_frame_size['width'])
         self.ids['frame_height_id'].text = str(new_frame_size['height'])
+
+        # During app init, scope.initialize() handles all hardware calls
+        if ctx.initializing:
+            return
+
+        lumaview.scope.set_binning_size(size=new_binning_size)
         self.frame_size()
 
 
