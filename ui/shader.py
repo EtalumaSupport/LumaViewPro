@@ -168,6 +168,7 @@ void main (void) {
                 try:
                     _, objective = get_current_objective_info()
                 except Exception:
+                    logger.debug('[LVP Main  ] Scroll-to-focus: objective info unavailable')
                     return
 
                 if 'shift' in self._active_key_presses:
@@ -281,8 +282,8 @@ void main (void) {
                     mbps = scope_display._camera_mbps
                     title += f' | {mbps:.1f} MB/s'
                 Window.set_title(title)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f'[LVP Main  ] Status bar update failed: {e}')
 
 
     def current_false_color(self) -> str:

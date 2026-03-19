@@ -324,6 +324,7 @@ class XYStageControl(BoxLayout):
         try:
             x_pos = float(x_pos)
         except Exception:
+            logger.debug(f'[LVP Main  ] Invalid X position input: {x_pos!r}')
             return
 
         # x_pos is the the plate position in mm
@@ -353,6 +354,7 @@ class XYStageControl(BoxLayout):
         try:
             y_pos = float(y_pos)
         except Exception:
+            logger.debug(f'[LVP Main  ] Invalid Y position input: {y_pos!r}')
             return
 
         # y_pos is the the plate position in mm

@@ -129,6 +129,7 @@ class LayerControl(BoxLayout):
         try:
             ill_val = float(self.ids['ill_text'].text)
         except Exception:
+            logger.debug(f'[LVP Main  ] Invalid illumination input: {self.ids["ill_text"].text!r}')
             return
 
         illumination = float(np.clip(ill_val, ill_min, ill_max))
@@ -159,6 +160,7 @@ class LayerControl(BoxLayout):
         try:
             sum_val = int(self.ids['sum_text'].text)
         except Exception:
+            logger.debug(f'[LVP Main  ] Invalid sum input: {self.ids["sum_text"].text!r}')
             return
 
         total = int(np.clip(sum_val, sum_min, sum_max))
@@ -185,6 +187,7 @@ class LayerControl(BoxLayout):
         try:
             duration_val = int(self.ids['video_duration_text'].text)
         except Exception:
+            logger.debug(f'[LVP Main  ] Invalid video duration input: {self.ids["video_duration_text"].text!r}')
             return
 
         duration = int(np.clip(duration_val, duration_min, duration_max))
@@ -287,6 +290,7 @@ class LayerControl(BoxLayout):
         try:
             gain_val = float(self.ids['gain_text'].text)
         except Exception:
+            logger.debug(f'[LVP Main  ] Invalid gain input: {self.ids["gain_text"].text!r}')
             return
 
         gain = float(np.clip(gain_val, gain_min, gain_max))
@@ -311,6 +315,7 @@ class LayerControl(BoxLayout):
         try:
             composite_threshold_val = float(self.ids['composite_threshold_text'].text)
         except Exception:
+            logger.debug(f'[LVP Main  ] Invalid composite threshold input: {self.ids["composite_threshold_text"].text!r}')
             return
 
         composite_threshold = float(np.clip(composite_threshold_val, composite_threshold_min, composite_threshold_max))
@@ -349,6 +354,7 @@ class LayerControl(BoxLayout):
         try:
             exp_val = float(self.ids['exp_text'].text)
         except Exception:
+            logger.debug(f'[LVP Main  ] Invalid exposure input: {self.ids["exp_text"].text!r}')
             return
 
         exposure = float(np.clip(exp_val, exp_min, exp_max))

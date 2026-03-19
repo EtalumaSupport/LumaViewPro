@@ -374,8 +374,8 @@ class ScopeDisplay(Image):
         try:
             from modules.config_ui_getters import get_active_layer_config
             active_layer, active_layer_config = get_active_layer_config()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f'[LVP Main  ] Active layer detection failed: {e}')
 
         if ctx.engineering_mode:
             for layer in common_utils.get_layers():

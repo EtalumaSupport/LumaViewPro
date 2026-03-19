@@ -140,6 +140,7 @@ class MicroscopeSettings(BoxLayout):
         try:
             acc_val = int(self.ids['acceleration_pct_text'].text)
         except Exception:
+            logger.debug(f'[LVP Main  ] Invalid acceleration input: {self.ids["acceleration_pct_text"].text!r}')
             return
 
         acc_val = int(np.clip(acc_val, acc_min, acc_max))
