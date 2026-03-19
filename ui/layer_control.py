@@ -225,8 +225,11 @@ class LayerControl(BoxLayout):
 
     def get_gain_exposure(self, init, state):
         ctx = _app_ctx.ctx
-        actual_gain = ctx.scope.camera_gain
-        actual_exp = ctx.scope.camera_exposure_ms
+        # Read directly from camera hardware, not cache.
+        # During auto-gain, the SDK adjusts gain/exposure but doesn't
+        # update the cache — cache still has the pre-auto-gain values.
+        actual_gain = ctx.scope.get_gain()
+        actual_exp = ctx.scope.get_exposure_time()
 
         return (init, state, actual_gain, actual_exp)
 

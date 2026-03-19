@@ -206,7 +206,6 @@ class AutofocusExecutor:
         """Cancel an in-progress autofocus run."""
         if not self._af_in_progress.is_set():
             return
-        logger.info('[AF] Autofocus cancelled by request')
         _af_log.info('--- AF CANCELLED ---')
         self._af_in_progress.clear()
         self._is_focusing = False
@@ -332,9 +331,8 @@ class AutofocusExecutor:
                         recent = pass_scores[-2:]
                         if all(s < pass_max * 0.5 for s in recent):
                             early_stop = True
-                            logger.info(f"[AF] Early termination: score dropped to "
-                                        f"{recent[-1]:.0f} ({recent[-1]/pass_max*100:.0f}% "
-                                        f"of peak {pass_max:.0f})")
+                            _af_log.info(f'  EARLY STOP: score {recent[-1]:.0f} '
+                                        f'({recent[-1]/pass_max*100:.0f}% of peak {pass_max:.0f})')
 
             # Measure next step?
             if next_target <= self._params['z_max'] and not early_stop:
@@ -387,7 +385,6 @@ class AutofocusExecutor:
                 self._move_absolute_position(pos=(best_focus_position-self._params['resolution']))
 
                 af_elapsed = (time.monotonic() - self._af_start_time) * 1000
-                logger.info(f"[AF] Autofocus complete. Best focus position: {best_focus_position} um")
                 _af_log.info(f'--- AF DONE best={best_focus_position:.2f}um '
                              f'passes={self._af_pass_num} '
                              f'total={len(self._af_data_full)} pts '
@@ -563,14 +560,14 @@ class AutofocusExecutor:
                         z_min, z_max = z_vals.min(), z_vals.max()
                         if z_min <= fit_z <= z_max:
                             shift = abs(fit_z - raw_best)
-                            logger.info(f"[AF] Gaussian fit: {fit_z:.2f} um "
-                                        f"(raw max: {raw_best:.2f}, shift: {shift:.2f} um)")
+                            _af_log.info(f'  FIT: {fit_z:.2f}um '
+                                        f'(raw max: {raw_best:.2f}, shift: {shift:.2f}um)')
                             return float(fit_z)
                         else:
-                            logger.debug(f"[AF] Gaussian fit {fit_z:.2f} outside range "
-                                         f"[{z_min:.2f}, {z_max:.2f}], using raw max")
+                            _af_log.info(f'  FIT: {fit_z:.2f}um outside range '
+                                        f'[{z_min:.2f}, {z_max:.2f}], using raw max')
         except Exception as ex:
-            logger.debug(f"[AF] Gaussian fit failed ({ex}), using raw max")
+            _af_log.info(f'  FIT: failed ({ex}), using raw max')
 
         return raw_best
 
