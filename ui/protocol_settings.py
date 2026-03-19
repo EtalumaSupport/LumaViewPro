@@ -891,7 +891,24 @@ class ProtocolSettings(FloatLayout):
         if not any(lc['acquire'] is not None for lc in layer_configs.values()):
             return
 
-        for layer, layer_config in layer_configs.items():
+        # Use custom channel order from settings if configured,
+        # otherwise fall back to default get_layers() order.
+        # This controls the order channels are added as protocol steps,
+        # which matters for composite imaging association.
+        settings = ctx.settings
+        channel_order = settings.get('step_channel_order', None)
+        if channel_order:
+            # Only include channels that are in layer_configs
+            ordered_layers = [ch for ch in channel_order if ch in layer_configs]
+            # Append any channels not in the custom order
+            for ch in layer_configs:
+                if ch not in ordered_layers:
+                    ordered_layers.append(ch)
+        else:
+            ordered_layers = list(layer_configs.keys())
+
+        for layer in ordered_layers:
+            layer_config = layer_configs[layer]
             if layer_config['acquire'] is None:
                 continue
 
