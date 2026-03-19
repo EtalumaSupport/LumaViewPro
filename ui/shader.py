@@ -277,7 +277,7 @@ void main (void) {
             if scope_display:
                 capture_fps = scope_display._capture_fps_value
                 display_fps = scope_display._display_fps_value
-                title = f'LumaViewPro — Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
+                title = f'LumaViewPro {ctx.version} — Capture: {capture_fps:.0f} | Display: {display_fps:.0f} FPS'
                 if ctx.engineering_mode:
                     mbps = scope_display._camera_mbps
                     title += f' | {mbps:.1f} MB/s'
