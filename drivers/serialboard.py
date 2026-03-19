@@ -33,7 +33,7 @@ class ProtocolVersion(Enum):
 
 class SerialBoard:
 
-    def __init__(self, vid, pid, label, timeout=0.1, write_timeout=0.1):
+    def __init__(self, vid, pid, label, timeout=0.1, write_timeout=0.1, port=None):
         self._lock = threading.RLock()
         self._vid = vid
         self._pid = pid
@@ -41,6 +41,8 @@ class SerialBoard:
         self.found = False
         self.port = None
         self.firmware_version = None
+        self.firmware_date = None
+        self.firmware_responding = False
         self.driver = None
         self._last_error_log_time = 0.0
         self._error_log_interval = 2.0  # seconds between repeated error logs
@@ -54,7 +56,11 @@ class SerialBoard:
         self.write_timeout = write_timeout
         self._in_raw_repl = False
         self.protocol_version = ProtocolVersion.LEGACY
-        self._find_port()
+        if port is not None:
+            self.port = port
+            self.found = True
+        else:
+            self._find_port()
 
     def _find_port(self):
         """Search for serial port matching VID/PID."""
@@ -82,10 +88,90 @@ class SerialBoard:
             timeout=self.timeout,
             write_timeout=self.write_timeout)
 
+    def _drain_serial(self):
+        """Drain all pending data from the serial buffer."""
+        for _ in range(50):
+            n = self.driver.in_waiting
+            if n > 0:
+                self.driver.read(n)
+                time.sleep(0.05)
+            else:
+                saved = self.driver.timeout
+                self.driver.timeout = 0.2
+                leftover = self.driver.read(4096)
+                self.driver.timeout = saved
+                if not leftover:
+                    break
+
     def _reset_firmware(self):
-        """Send Ctrl-D reset and detect firmware version."""
-        self.driver.write(b'\x04\n')
-        logger.debug(f'{self._label} Port initial state: %r' % self.driver.readline())
+        """Ensure firmware is running and detect version.
+
+        Handles all common states the board might be in on connect:
+          - Normal operation (main.py running) — drain stale data, detect
+          - Friendly REPL (>>> prompt) — Ctrl-D soft reset to restart
+          - Raw REPL (Thonny left it here) — Ctrl-B to exit, then Ctrl-D
+          - Boot output still arriving — drain before commands
+          - Old firmware with WDT — Ctrl-D kills WDT timer, so skip it
+
+        Strategy: drain stale buffer, try version detection via INFO.
+        If that fails (board in REPL, Thonny, etc.), do recovery
+        with soft reset. If THAT fails (old firmware WDT killed by
+        Ctrl-D), retry with Ctrl-C only (no soft reset).
+        """
+        # Step 1: Drain stale data from boot or previous session
+        self._drain_serial()
+
+        # Step 2: Flush board's input buffer — USB CDC enumeration can
+        # leave stale bytes (e.g. \x00) that arrive after our drain and
+        # get prepended to the first real command. A blank newline makes
+        # the board process (and reject) any partial garbage, clearing
+        # its input state.
+        self.driver.write(b'\n')
+        time.sleep(0.1)
+        self._drain_serial()
+
+        # Step 3: Try version detection — works if firmware is running
+        self._detect_firmware_version()
+        if self.firmware_responding:
+            return  # Firmware running (version may or may not be parseable)
+
+        # Step 4: Firmware not responding — try full recovery with soft reset
+        # This handles: REPL prompt, raw REPL (Thonny), hung state
+        logger.info(f'{self._label} Firmware not responding — attempting recovery (with soft reset)')
+        self.driver.write(b'\x03')  # Ctrl-C: interrupt
+        time.sleep(0.2)
+        self.driver.write(b'\x03')  # Ctrl-C again
+        time.sleep(0.2)
+        self.driver.write(b'\x02')  # Ctrl-B: exit raw REPL (Thonny recovery)
+        time.sleep(0.2)
+        self.driver.write(b'\x04')  # Ctrl-D: soft reset → restarts main.py
+        time.sleep(5.0)             # Wait for firmware to fully boot
+
+        # Drain all boot output (motor firmware prints SPI init, etc.)
+        self._drain_serial()
+
+        # Step 5: Retry version detection after recovery
+        self._detect_firmware_version()
+        if self.firmware_responding:
+            return  # Recovery with soft reset worked
+
+        # Step 6: Soft reset may have killed the WDT on old firmware
+        # (pre-v3.0.4 LED firmware has 8388ms WDT — Ctrl-D kills the
+        # Timer that feeds it, causing the board to reset mid-recovery).
+        # Try again with Ctrl-C only (interrupt without soft reset).
+        # This keeps the WDT timer alive while interrupting main.py.
+        logger.info(f'{self._label} Soft reset recovery failed — retrying without soft reset (WDT-safe)')
+        self.driver.write(b'\x03')  # Ctrl-C: interrupt
+        time.sleep(0.2)
+        self.driver.write(b'\x03')  # Ctrl-C again
+        time.sleep(0.5)
+        self._drain_serial()
+
+        # Send a blank line to exit any partial REPL state, then try INFO
+        self.driver.write(b'\n')
+        time.sleep(0.2)
+        self._drain_serial()
+
         self._detect_firmware_version()
 
     # ------------------------------------------------------------------
@@ -99,8 +185,10 @@ class SerialBoard:
                 self._reset_firmware()
                 if self.firmware_version is not None:
                     logger.info(f'{self._label} Connected (firmware v{self.firmware_version})')
+                elif self.firmware_date is not None:
+                    logger.info(f'{self._label} Connected (legacy firmware, date={self.firmware_date})')
                 else:
-                    logger.info(f'{self._label} Connected (legacy firmware)')
+                    logger.info(f'{self._label} Connected (legacy firmware, no version info)')
             except Exception as e:
                 self._close_driver()
                 logger.error(f'{self._label} connect() failed: {e}')
@@ -139,30 +227,72 @@ class SerialBoard:
     def _detect_firmware_version(self):
         """Query INFO and parse firmware version string.
 
+        Reads multiple response lines to handle both motor (single-line
+        INFO) and LED (multi-line INFO where version is on "Firmware:" line).
+        Uses a short per-read timeout (0.5s) to avoid wasting time when
+        the board sends fewer lines than requested.
+
         Also detects protocol version: if INFO response starts with '{'
         it's v3.0 JSON Lines; otherwise LEGACY.
+
+        Sets:
+            firmware_version: Parsed version string (e.g. "3.0.3") or None
+            firmware_date: Parsed date string (e.g. "2024-02-01") or None
+            firmware_responding: True if board sent a meaningful INFO response
         """
         try:
-            resp = self.exchange_command('INFO')
-            if resp:
-                # v3.0 STUB: JSON Lines protocol detection
-                # v3.0 firmware responds with JSON: {"cmd": "INFO", ...}
-                if resp.lstrip().startswith('{'):
-                    self.protocol_version = ProtocolVersion.V3
-                    logger.info(f'{self._label} Detected v3.0 JSON Lines protocol')
-                else:
-                    self.protocol_version = ProtocolVersion.LEGACY
-            if resp and ' v' in resp:
-                match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
-                if match:
-                    self.firmware_version = match.group(1)
-                    logger.info(f'{self._label} Firmware version: {self.firmware_version}')
-                    return
-            self.firmware_version = None
-            logger.info(f'{self._label} Legacy firmware (no version string)')
+            # Use a short timeout for version detection — we don't want
+            # to block for the board's default timeout (could be 2-30s)
+            # on each of the 6 readline() calls. 0.5s per line is enough
+            # for USB CDC response delivery.
+            resp_lines = self.exchange_command('INFO', response_numlines=6,
+                                              timeout=0.5)
+            if isinstance(resp_lines, list):
+                resp = '\n'.join(resp_lines)
+            else:
+                resp = resp_lines or ''
+
+            # Check if we got any meaningful content (not just empty lines)
+            resp_stripped = resp.strip()
+            if not resp_stripped:
+                self.firmware_version = None
+                self.firmware_responding = False
+                logger.info(f'{self._label} No response from INFO')
+                return
+
+            # Board is responding — mark it even if we can't parse a version
+            self.firmware_responding = True
+
+            # v3.0 STUB: JSON Lines protocol detection
+            if resp_stripped.startswith('{'):
+                self.protocol_version = ProtocolVersion.V3
+                logger.info(f'{self._label} Detected v3.0 JSON Lines protocol')
+            else:
+                self.protocol_version = ProtocolVersion.LEGACY
+
+            # Try to parse version number (v3.0+ firmware)
+            match = re.search(r'v(\d+\.\d+(?:\.\d+)?)', resp)
+            if match:
+                self.firmware_version = match.group(1)
+                logger.info(f'{self._label} Firmware version: {self.firmware_version}')
+            else:
+                self.firmware_version = None
+
+            # Try to parse firmware date (all firmware formats)
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', resp)
+            if date_match:
+                self.firmware_date = date_match.group(1)
+                logger.info(f'{self._label} Firmware date: {self.firmware_date}')
+
+            if self.firmware_version:
+                logger.info(f'{self._label} Firmware v{self.firmware_version} detected')
+            else:
+                logger.info(f'{self._label} Legacy firmware (no version string, date={self.firmware_date})')
+
         except Exception as e:
             logger.debug(f'{self._label} version detection failed: {e}')
             self.firmware_version = None
+            self.firmware_responding = False
             self.protocol_version = ProtocolVersion.LEGACY
 
     @property
@@ -234,6 +364,7 @@ class SerialBoard:
                 saved_timeout = self.driver.timeout
                 self.driver.timeout = timeout
 
+            cmd_upper = command.strip().upper()
             stream = command.encode('utf-8') + b"\n"
             try:
                 # Flush any stale data in the input buffer before writing.
@@ -249,12 +380,24 @@ class SerialBoard:
                 resp_lines = []
                 for _ in range(response_numlines):
                     line = self.driver.readline().decode("utf-8", "ignore").strip()
-                    # Auto-detect and drain LED echo
-                    if line.startswith('RE:'):
+                    # Auto-detect and drain echoes:
+                    # - LED board: "RE: INFO" prefix
+                    # - Motor board: raw echo of command via MicroPython input()
+                    if line.startswith('RE:') or line.upper() == cmd_upper:
                         line = self.driver.readline().decode("utf-8", "ignore").strip()
                     resp_lines.append(line)
 
                 response = resp_lines[0] if response_numlines == 1 else resp_lines
+
+                # Drain any remaining data from multi-line response bursts.
+                # Old firmware (pre-v3.0) sends multi-line INFO/STATUS even
+                # when we only requested 1 line. Without this drain, leftover
+                # lines pollute the next command's response.
+                time.sleep(0.02)  # Brief pause for remaining lines to arrive
+                remaining = self.driver.in_waiting
+                if remaining > 0:
+                    self.driver.read(remaining)
+
                 # Truncate debug output to avoid logging large binary/config responses
                 resp_repr = repr(response)
                 if len(resp_repr) > 200:
@@ -323,6 +466,7 @@ class SerialBoard:
             saved_timeout = self.driver.timeout
             self.driver.timeout = min(timeout, 5.0)  # per-readline timeout
 
+            cmd_upper = command.strip().upper()
             try:
                 # Flush stale data
                 stale = self.driver.in_waiting
@@ -339,7 +483,8 @@ class SerialBoard:
                             break
                         continue
                     line = raw.decode('utf-8', 'ignore').strip()
-                    if line.startswith('RE:'):
+                    # Skip echo lines (LED "RE:" prefix or raw motor echo)
+                    if line.startswith('RE:') or line.upper() == cmd_upper:
                         continue
                     if line:
                         lines.append(line)
@@ -397,18 +542,23 @@ class SerialBoard:
     # ------------------------------------------------------------------
     # Raw REPL — file operations on board filesystem
     # ------------------------------------------------------------------
-    def enter_raw_repl(self):
+    def enter_raw_repl(self, soft_reset=True):
         """Interrupt firmware and enter MicroPython raw REPL.
 
         While in raw REPL, normal commands (exchange_command) cannot be
         used. Call exit_raw_repl() when done to reboot the firmware.
+
+        Args:
+            soft_reset: If True (default), soft-reset after entering raw REPL
+                for a clean MicroPython state. Set to False for old firmware
+                with WDT (soft reset kills the Timer that feeds WDT).
 
         Returns True on success, False on failure.
         """
         with self._lock:
             if self.driver is None:
                 self._open_serial()
-            if _enter_raw_repl(self.driver):
+            if _enter_raw_repl(self.driver, soft_reset=soft_reset):
                 self._in_raw_repl = True
                 logger.info(f'{self._label} Entered raw REPL')
                 return True
@@ -463,6 +613,18 @@ class SerialBoard:
                 logger.error(f'{self._label} repl_write_file: not in raw REPL')
                 return False
             return _write_file(self.driver, filename, data)
+
+    def repl_exec(self, code, timeout=10):
+        """Execute arbitrary code in raw REPL (must be in raw REPL).
+
+        Returns (stdout, stderr) as bytes tuple, or None on error.
+        """
+        with self._lock:
+            if not self._in_raw_repl or self.driver is None:
+                logger.error(f'{self._label} repl_exec: not in raw REPL')
+                return None
+            from drivers.raw_repl import raw_exec as _raw_exec
+            return _raw_exec(self.driver, code, timeout=timeout)
 
     def verify_firmware_running(self, timeout=10):
         """Verify firmware is responding after raw REPL exit.

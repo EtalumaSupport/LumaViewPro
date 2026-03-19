@@ -32,6 +32,27 @@ class LEDBoard(SerialBoard):
             logger.error('[LED Class ] Failed to connect to LED controller')
             raise
 
+        # Safety: immediately turn off all LEDs after connecting.
+        # Old crashed LED firmware (pre-v3.0.4) can leave all LEDs stuck on
+        # at full current (~500mA × 6 channels = 3A), causing thermal damage
+        # to the board (measured 62°C). New v3.0.4+ firmware initializes LEDs
+        # off on boot, but this guard protects against old firmware and
+        # interrupted previous sessions.
+        self._safety_leds_off()
+
+    def _safety_leds_off(self):
+        """Turn off all LEDs immediately after connect (thermal safety).
+
+        Uses fire-and-forget write to minimize delay. If the board doesn't
+        respond, this is a best-effort attempt — the board may be in a
+        state where it can't process commands.
+        """
+        try:
+            self._write_command_fast('LEDS_OFF')
+            logger.info('[LED Class ] Safety LEDS_OFF sent on connect')
+        except Exception as e:
+            logger.warning(f'[LED Class ] Safety LEDS_OFF failed: {e}')
+
     _COLOR_TO_CH = {
         'Blue': 0, 'Green': 1, 'Red': 2,
         'BF': 3, 'PC': 4, 'DF': 5,

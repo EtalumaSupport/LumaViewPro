@@ -246,13 +246,13 @@ def enter_raw_repl(serial_port, soft_reset=True):
 
 
 def raw_exec(serial_port, code, timeout=10):
-    """Execute Python code in raw REPL and return stdout output.
+    """Execute Python code in raw REPL and return (stdout, stderr).
 
     The raw REPL protocol:
       1. Send code in chunks (256 bytes, 10ms delay) followed by Ctrl+D
       2. Board responds: OK<stdout output>\\x04<stderr output>\\x04
 
-    Returns stdout as bytes, or None on error.
+    Returns (stdout, stderr) as bytes tuple, or None on error.
     """
     old_timeout = serial_port.timeout
     serial_port.timeout = timeout
@@ -289,7 +289,7 @@ def raw_exec(serial_port, code, timeout=10):
             logger.warning(
                 f"Raw REPL stderr: {stderr.decode('utf-8', 'ignore').strip()}")
 
-        return stdout
+        return (stdout, stderr)
     except Exception as e:
         logger.warning(f"Raw REPL exec error: {e}")
         return None
@@ -325,11 +325,12 @@ def list_files(serial_port):
     Returns list of filenames, or empty list on failure.
     """
     code = "import os\nfor f in os.listdir('/'):\n print(f)"
-    stdout = raw_exec(serial_port, code, timeout=5)
-    if stdout is None:
+    result = raw_exec(serial_port, code, timeout=5)
+    if result is None:
         logger.info(
             "os.listdir failed — filesystem may be unavailable on this board")
         return []
+    stdout, _stderr = result
     return [line.strip() for line in stdout.decode('utf-8', 'ignore').split('\n')
             if line.strip()]
 
@@ -354,9 +355,10 @@ def read_file(serial_port, filename, verify=True):
     )
 
     def _do_read():
-        stdout = raw_exec(serial_port, code, timeout=10)
-        if stdout is None:
+        result = raw_exec(serial_port, code, timeout=10)
+        if result is None:
             return None
+        stdout, _stderr = result
         try:
             return base64.b64decode(stdout.strip())
         except Exception as e:
