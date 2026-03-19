@@ -221,11 +221,11 @@ class Protocol:
                 errors.append(
                     f"{label}: Objective '{obj}' not found in objectives.json")
 
-            # Exposure
+            # Exposure — 0 is valid (blank/placeholder steps)
             try:
                 exposure = float(step.get('Exposure', 0))
-                if exposure <= 0:
-                    errors.append(f"{label}: Exposure must be > 0, got {exposure}")
+                if exposure < 0:
+                    errors.append(f"{label}: Exposure must be >= 0, got {exposure}")
             except (ValueError, TypeError):
                 errors.append(f"{label}: Exposure is not a valid number")
 
