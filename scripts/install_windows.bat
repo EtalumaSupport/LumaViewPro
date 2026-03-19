@@ -51,7 +51,7 @@ exit /b 1
 
 :have_python
 REM Show what we found
-%BEST_PY% -c "import sys; v=sys.version_info; print('Python %d.%d.%d' % (v.major, v.minor, v.micro))"
+%BEST_PY% -c "import sys; v=sys.version_info; print('Python '+str(v.major)+'.'+str(v.minor)+'.'+str(v.micro))"
 echo Using: %BEST_PY%
 echo.
 
