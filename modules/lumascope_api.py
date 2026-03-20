@@ -557,6 +557,7 @@ class Lumascope():
         """Whether the motor controller is connected (replaces scope.motion.driver checks)."""
         return bool(self.motion and self.motion.driver)
 
+    @property
     def led_connected(self) -> bool:
         """Whether the LED controller is connected (replaces scope.led checks)."""
         return bool(self.led and self.led.driver)
@@ -2106,7 +2107,7 @@ class Lumascope():
         Returns:
             float: Current position in um. 0 if motor not connected.
         """
-        if not self.motor_connected():
+        if not self.motor_connected:
             return 0.0
         return self.motion.current_pos(axis)
 
@@ -2480,8 +2481,8 @@ class Lumascope():
         instance._motion_monitor_thread.start()
 
         logger.info('[SCOPE API ] Diagnostic scope created '
-                    f'(LED={instance.led_connected()}, '
-                    f'Motor={instance.motor_connected()})')
+                    f'(LED={instance.led_connected}, '
+                    f'Motor={instance.motor_connected})')
         return instance
 
     def get_camera_profile_info(self) -> dict | None:

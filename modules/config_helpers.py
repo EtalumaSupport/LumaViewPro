@@ -137,7 +137,7 @@ def get_current_plate_position(
     Returns:
         dict with keys 'x', 'y', 'z' in plate coordinates (um).
     """
-    if not scope.motor_connected():
+    if not scope.motor_connected:
         logger.error("Cannot retrieve current plate position")
         return {'x': 0, 'y': 0, 'z': 0}
 

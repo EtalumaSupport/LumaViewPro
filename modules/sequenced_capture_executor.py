@@ -1248,7 +1248,7 @@ class SequencedCaptureExecutor:
             pass
 
         # Illuminate
-        if self._scope.led_connected():
+        if self._scope.led_connected:
             self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
             logger.info(f"[{self.LOGGER_NAME} ] scope.led_on({step['Color']}, {step['Illumination']})")
         else:

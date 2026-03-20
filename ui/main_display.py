@@ -71,7 +71,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         if scope_display.play:
             scope_display.play = False
             scope_display.stop()
-            if self.scope.led_connected():
+            if self.scope.led_connected:
                 self.led_on_before_pause = self.scope.get_led_state(color=common_utils.get_opened_layer(ctx.image_settings))['enabled']
                 scope_commands.leds_off(self.scope, io_executor)
                 layer_obj = ctx.image_settings.layer_lookup(layer=common_utils.get_opened_layer(ctx.image_settings))
