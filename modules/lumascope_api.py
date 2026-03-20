@@ -2090,6 +2090,26 @@ class Lumascope():
             return self._pos_cache.get(axis, 0.0)
 
 
+    def get_actual_position(self, axis: str) -> float:
+        """Query the actual hardware position via serial (not cached).
+
+        Unlike get_current_position() which returns the last commanded
+        target, this queries the motor controller for where it actually is
+        right now. Use during continuous motion sweeps where the stage is
+        moving and the cache doesn't reflect the true position.
+
+        Costs one serial round-trip (~5ms).
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T").
+
+        Returns:
+            float: Current position in um. 0 if motor not connected.
+        """
+        if not self.motor_connected():
+            return 0.0
+        return self.motion.current_pos(axis)
+
     def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True, ignore_limits: bool = False):
         """Move an axis to an absolute position.
 
