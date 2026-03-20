@@ -557,6 +557,10 @@ class Lumascope():
         """Whether the motor controller is connected (replaces scope.motion.driver checks)."""
         return bool(self.motion and self.motion.driver)
 
+    def led_connected(self) -> bool:
+        """Whether the LED controller is connected (replaces scope.led checks)."""
+        return bool(self.led and self.led.driver)
+
     def lens_focal_length(self) -> float:
         """Get tube lens focal length from motorconfig.
 

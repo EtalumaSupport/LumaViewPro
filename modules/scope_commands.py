@@ -26,7 +26,7 @@ def leds_off(scope, executor, callback=None):
         executor: SequentialIOExecutor for serial command dispatch
         callback: Optional callback invoked after LEDs are turned off
     """
-    if not scope.led:
+    if not scope.led_connected():
         logger.warning('[ScopeCmd  ] LED controller not available.')
         return
 
@@ -45,7 +45,7 @@ def led_on(scope, executor, channel, illumination, callback=None, cb_kwargs=None
         callback: Optional callback invoked after LED is turned on
         cb_kwargs: Optional keyword arguments for callback
     """
-    if not scope.led:
+    if not scope.led_connected():
         logger.warning('[ScopeCmd  ] LED controller not available.')
         return
 
@@ -67,7 +67,7 @@ def led_off(scope, executor, channel, callback=None, cb_kwargs=None):
         callback: Optional callback invoked after LED is turned off
         cb_kwargs: Optional keyword arguments for callback
     """
-    if not scope.led:
+    if not scope.led_connected():
         logger.warning('[ScopeCmd  ] LED controller not available.')
         return
 
@@ -89,7 +89,7 @@ def led_on_sync(scope, executor, channel, illumination, timeout=5):
         illumination: Illumination level (mA)
         timeout: Seconds to wait for completion
     """
-    if not scope.led:
+    if not scope.led_connected():
         logger.warning('[ScopeCmd  ] LED controller not available.')
         return
 
@@ -107,7 +107,7 @@ def leds_off_sync(scope, executor, timeout=5):
         executor: SequentialIOExecutor
         timeout: Seconds to wait for completion
     """
-    if not scope.led:
+    if not scope.led_connected():
         logger.warning('[ScopeCmd  ] LED controller not available.')
         return
 

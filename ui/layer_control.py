@@ -602,7 +602,7 @@ class LayerControl(BoxLayout):
 
     def update_led_toggle_ui(self):
         ctx = _app_ctx.ctx
-        if ctx.scope.led:
+        if ctx.scope.led_connected():
             led_state = ctx.scope.get_led_state(color=self.layer)
             if led_state['enabled']:
                 self.ids['enable_led_btn'].state = 'down'
