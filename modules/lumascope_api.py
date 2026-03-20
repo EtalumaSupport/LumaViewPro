@@ -2285,7 +2285,12 @@ class Lumascope():
 
 
     def set_acceleration_limit(self, val_pct: int):
-        self.motion.set_acceleration_limits(val_pct=val_pct)
+        if self.motion is None:
+            return
+        try:
+            self.motion.set_acceleration_limits(val_pct=val_pct)
+        except Exception:
+            pass  # Legacy firmware doesn't support acceleration limits
 
 
     def get_microscope_model(self):
