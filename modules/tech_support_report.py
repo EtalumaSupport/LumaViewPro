@@ -688,28 +688,18 @@ class FirmwareDiagnostics:
     def connect_standalone(self):
         """Auto-detect and connect to boards (standalone mode).
 
-        Board constructors auto-connect, so we just check .found after init.
+        Uses Lumascope.create_diagnostic() to connect through the proper
+        API layer instead of importing drivers directly.
         """
         try:
-            from drivers.ledboard import LEDBoard
-            self.led_board = LEDBoard()
-            if self.led_board.found:
-                logger.info("LED board connected")
-            else:
-                self.led_board = None
+            from modules.lumascope_api import Lumascope
+            scope = Lumascope.create_diagnostic()
+            self.led_board = scope.led
+            self.motor_board = scope.motion
+            self._diagnostic_scope = scope  # Keep reference so boards stay alive
         except Exception as e:
-            logger.warning(f"LED board: {e}")
+            logger.warning(f"Diagnostic scope creation failed: {e}")
             self.led_board = None
-
-        try:
-            from drivers.motorboard import MotorBoard
-            self.motor_board = MotorBoard()
-            if self.motor_board.found:
-                logger.info("Motor board connected")
-            else:
-                self.motor_board = None
-        except Exception as e:
-            logger.warning(f"Motor board: {e}")
             self.motor_board = None
 
     def _led_ok(self):
@@ -1599,12 +1589,13 @@ class TechSupportReport:
                 except Exception as e:
                     info[attr] = f'Error: {e}'
 
-        # Basler Pylon: try to read DeviceTemperature via pylon API
-        if hasattr(self.camera, 'cam') and hasattr(self.camera.cam, 'DeviceTemperature'):
-            try:
-                info['DeviceTemperature'] = self.camera.cam.DeviceTemperature.Value
-            except Exception as e:
-                info['DeviceTemperature'] = f'Error: {e}'
+        # Read all temperature sensors through the camera driver API
+        try:
+            temps = self.camera.get_all_temperatures()
+            for name, temp_c in temps.items():
+                info[f'Temperature_{name}'] = temp_c
+        except Exception as e:
+            info['Temperature'] = f'Error: {e}'
 
         with open(d / 'camera_info.txt', 'w') as f:
             f.write("Camera Information\n" + "=" * 40 + "\n\n")

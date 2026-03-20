@@ -2376,6 +2376,94 @@ class Lumascope():
             'connected': True,
         }
 
+    def get_camera_temperatures(self) -> dict:
+        """Get all camera temperature sensor readings.
+
+        Returns:
+            dict: Mapping of sensor name to temperature in °C.
+            Empty dict if camera is inactive or has no temperature sensors.
+        """
+        if not self.camera or not self.camera.active:
+            return {}
+        try:
+            return self.camera.get_all_temperatures()
+        except Exception:
+            return {}
+
+    @classmethod
+    def create_diagnostic(cls):
+        """Create a minimal Lumascope for diagnostics (no camera init).
+
+        Connects to LED and motor boards only. For use by tools like
+        the tech support report that need board access without the full
+        application stack.
+
+        Returns:
+            Lumascope: Instance with led/motion connected, camera=None.
+        """
+        instance = cls.__new__(cls)
+        # Minimal init — just enough for board communication
+        instance._simulated = False
+        instance._objectives_loader = objectives_loader.ObjectiveLoader()
+        instance._coordinate_transformer = coord_transformations.CoordinateTransformer()
+
+        # Threading infrastructure
+        instance._pos_cache_lock = threading.Lock()
+        instance._pos_cache = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
+        instance._axis_state_lock = threading.Lock()
+        instance._axis_state = {ax: AxisState.UNKNOWN for ax in cls.VALID_AXES}
+        instance._arrival_events = {ax: threading.Event() for ax in cls.VALID_AXES}
+        for ev in instance._arrival_events.values():
+            ev.set()
+        instance._motion_wake = threading.Event()
+        instance._motion_monitor_stop = threading.Event()
+        instance._motion_monitor_thread = threading.Thread(
+            target=instance._motion_monitor_loop,
+            name='motion-monitor', daemon=True,
+        )
+
+        # Camera cache
+        instance._camera_cache_lock = threading.Lock()
+        instance._camera_cache = {
+            'active': False, 'gain': 0.0, 'exposure_ms': 20.0,
+            'frame_size': {'width': 0, 'height': 0},
+            'max_frame_size': {'width': 0, 'height': 0},
+            'min_frame_size': {'width': 0, 'height': 0},
+            'max_exposure': 0.0,
+        }
+
+        # State locks
+        instance._state_lock = threading.Lock()
+        instance._homing_event = threading.Event()
+        instance._objective = None
+        instance._objective_id = None
+
+        # Connect boards
+        try:
+            instance.led = LEDBoard()
+            if not instance.led.found:
+                instance.led = None
+        except Exception:
+            instance.led = None
+
+        try:
+            instance.motion = MotorBoard()
+            if not instance.motion.found:
+                instance.motion = None
+        except Exception:
+            instance.motion = None
+
+        instance.camera = None
+        instance._image_buffer = None
+        instance._frame_buffer = None
+
+        instance._motion_monitor_thread.start()
+
+        logger.info('[SCOPE API ] Diagnostic scope created '
+                    f'(LED={instance.led_connected()}, '
+                    f'Motor={instance.motor_connected()})')
+        return instance
+
     def get_camera_profile_info(self) -> dict | None:
         """Get detailed camera profile information for display.
 
