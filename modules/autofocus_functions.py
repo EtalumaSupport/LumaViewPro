@@ -112,7 +112,7 @@ def warmup_jit():
     try:
         dummy = np.zeros((4, 4), dtype=np.uint16)
         focus_vollath4_numba(dummy)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f'Numba JIT warmup failed (AF may be slower): {e}')
 
 warmup_jit()

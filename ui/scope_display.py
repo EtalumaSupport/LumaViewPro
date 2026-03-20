@@ -39,7 +39,6 @@ from kivy.input import MotionEvent
 
 from modules.contrast_stretcher import ContrastStretcher
 import modules.common_utils as common_utils
-import modules.autofocus_functions as autofocus_functions
 import modules.app_context as _app_ctx
 
 logger = logging.getLogger('LVP.ui.scope_display')
@@ -513,7 +512,7 @@ class ScopeDisplay(Image):
                 t_eng_start = time.monotonic()
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
-                af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)
+                af_score = ctx.scope.compute_focus_score(image)
                 t_eng_stats = time.monotonic() - t_eng_start
 
                 if open_layer is not None:

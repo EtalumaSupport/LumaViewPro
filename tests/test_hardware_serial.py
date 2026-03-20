@@ -60,8 +60,8 @@ class TestLEDSerialBenchmark:
         # Ensure LEDs are off after test
         try:
             board.leds_off()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f'WARNING: Failed to turn off LEDs in fixture teardown: {e}')
 
     def test_exchange_command_latency(self, led):
         """Measure round-trip time for exchange_command."""
@@ -217,8 +217,8 @@ class TestConcurrentSerialAccess:
         yield board
         try:
             board.leds_off()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f'WARNING: Failed to turn off LEDs in fixture teardown: {e}')
 
     def test_concurrent_led_commands(self, led):
         """Multiple threads sending LED commands should not corrupt state."""

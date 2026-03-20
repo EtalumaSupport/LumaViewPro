@@ -1,11 +1,14 @@
 # Copyright Etaluma, Inc.
 """Application environment initialization — paths, version, platform detection."""
 
+import logging
 import os
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+
+_logger = logging.getLogger('LVP.app_environment')
 
 
 @dataclass
@@ -41,8 +44,8 @@ def init_environment(main_file: str) -> AppEnvironment:
     try:
         with open(os.path.join(script_path, "version.txt")) as f:
             version = f.readlines()[0].strip()
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug(f'Failed to read version.txt: {e}')
 
     # Get git commit hash for build identification
     build_hash = ""
@@ -54,8 +57,8 @@ def init_environment(main_file: str) -> AppEnvironment:
         )
         if result.returncode == 0:
             build_hash = result.stdout.strip()
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug(f'Failed to get git hash: {e}')
 
     if build_hash:
         version = f"{version} ({build_hash})"
