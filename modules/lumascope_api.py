@@ -698,7 +698,16 @@ class Lumascope():
         Args:
             objective_id: Objective identifier (e.g. "4x", "10x", "20x").
         """
+        self._objective_id = objective_id
         self._objective = self._objectives_loader.get_objective_info(objective_id=objective_id)
+
+    def get_current_objective_id(self) -> str | None:
+        """Get the ID of the currently active objective.
+
+        Returns:
+            str | None: e.g. '20x Oly', or None if not set.
+        """
+        return getattr(self, '_objective_id', None)
 
     def get_objective_info(self, objective_id: str):
         """Get objective metadata by ID.
