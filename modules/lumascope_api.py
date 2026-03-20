@@ -727,6 +727,19 @@ class Lumascope():
         """
         return self._objective
 
+    def compute_focus_score(self, image):
+        """Compute focus score (Vollath F4) on an image.
+
+        Args:
+            image: numpy array (grayscale).
+
+        Returns:
+            float: Focus score. Higher = sharper.
+        """
+        return autofocus_functions.focus_function(
+            image=image, skip_score_logging=True
+        )
+
     def set_turret_config(self, turret_config: dict[int,str]) -> None:
         """Set the turret objective configuration.
 
@@ -2349,6 +2362,31 @@ class Lumascope():
             'pixel_format': self.camera.get_pixel_format(),
             'connected': True,
         }
+
+    def get_camera_profile_info(self) -> dict | None:
+        """Get detailed camera profile information for display.
+
+        Returns:
+            dict with model, sensor, pixel_size_um, shutter, resolution,
+            gain_range, max_exposure, binning_sizes. None if no camera.
+        """
+        if not self.camera or not self.camera.active:
+            return None
+        try:
+            profile = self.camera.profile
+            return {
+                'model': profile.model_name,
+                'sensor': profile.sensor,
+                'pixel_size_um': profile.pixel_size_um,
+                'shutter': profile.shutter,
+                'resolution': profile.native_resolution,
+                'gain_min_db': profile.gain.total_min_db,
+                'gain_max_db': profile.gain.total_max_db,
+                'max_exposure_ms': self.camera_max_exposure,
+                'binning_sizes': profile.binning_sizes,
+            }
+        except Exception:
+            return None
 
     def get_system_info(self) -> dict:
         """Get consolidated system information for all hardware.
