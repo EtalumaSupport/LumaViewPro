@@ -266,8 +266,13 @@ class AutofocusExecutor:
                 self._is_focusing = False
                 return
 
-            # Sleep for at least 75ms to ensure that the camera is ready for the next capture
-            #time.sleep(max(self._params['exposure']/1000, 0.075))
+            # Wait for mechanical settle after motor reports arrival.
+            # With Vstop=1000 the motor may still be decelerating through
+            # the last microsteps when target_reached fires. Drain 2 frames
+            # to let the stage physically stop before scoring.
+            # TODO: reduce/remove after Vstop is lowered in firmware
+            self._scope.get_image(force_new_capture=True)  # drain frame 1
+            self._scope.get_image(force_new_capture=True)  # drain frame 2
 
             image = False
             num_retries = 5
