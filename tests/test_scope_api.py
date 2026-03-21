@@ -12,7 +12,7 @@ import datetime
 import sys
 import threading
 from concurrent.futures import Future
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, PropertyMock, call, patch
 
 import pytest
 
@@ -91,6 +91,8 @@ def _make_mock_scope(led_available=True):
     """Build a mock scope object."""
     scope = MagicMock()
     scope.led = led_available
+    type(scope).led_connected = PropertyMock(return_value=bool(led_available))
+    type(scope).motor_connected = PropertyMock(return_value=True)
     scope.motion = MagicMock()
     scope.motion.driver = True
     scope.leds_off = MagicMock()
@@ -300,6 +302,7 @@ class TestGetCurrentPlatePosition:
     def test_returns_zeros_when_no_driver(self):
         scope = MagicMock()
         scope.motion = None  # No motor board connected
+        type(scope).motor_connected = PropertyMock(return_value=False)
         result = config_helpers.get_current_plate_position(
             scope, _make_settings(), MagicMock(), MagicMock(),
         )
