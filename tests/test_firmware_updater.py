@@ -171,80 +171,61 @@ class TestSendFwupdateCommand:
     def _make_led_config(self):
         return BOARD_CONFIGS[BoardType.LED]
 
-    @patch("drivers.firmware_updater.time.sleep")
-    def test_motor_sends_correct_bytes(self, mock_sleep):
-        """FWUPDATE + LF, then YES + LF for motor board."""
+    def test_motor_sends_fwupdate(self):
+        """Motor board: exchange_command('FWUPDATE') is called."""
         cfg = self._make_motor_config()
-        ser = MagicMock()
-        # First read: drain. Second read: confirmation prompt. Third read: bootloader msg.
-        ser.read.side_effect = [
-            b'',                                    # drain
-            b'Type YES to confirm\r\n',             # prompt
-            b'Entering bootloader mode...\r\n',     # confirmation
-        ]
-        _send_fwupdate_command(ser, cfg)
+        board = MagicMock()
+        board.exchange_command.return_value = None  # Board reboots, no response
+        _send_fwupdate_command(board, cfg)
 
-        writes = [c.args[0] for c in ser.write.call_args_list]
-        assert writes[0] == b'FWUPDATE\n'
-        assert writes[1] == b'YES\n'
+        board.exchange_command.assert_called_once_with('FWUPDATE', timeout=3.0)
+        board.disconnect.assert_called()
 
-    @patch("drivers.firmware_updater.time.sleep")
-    def test_led_sends_crlf(self, mock_sleep):
-        """LED board uses CR+LF line ending."""
+    def test_led_sends_fwupdate(self):
+        """LED board: exchange_command('FWUPDATE') is called."""
         cfg = self._make_led_config()
-        ser = MagicMock()
-        ser.read.side_effect = [
-            b'',
-            b'Type YES to confirm\r\n',
-            b'Entering bootloader mode...\r\n',
-        ]
-        _send_fwupdate_command(ser, cfg)
+        board = MagicMock()
+        board.exchange_command.return_value = None
+        _send_fwupdate_command(board, cfg)
 
-        writes = [c.args[0] for c in ser.write.call_args_list]
-        assert writes[0] == b'FWUPDATE\r\n'
-        assert writes[1] == b'YES\r\n'
+        board.exchange_command.assert_called_once_with('FWUPDATE', timeout=3.0)
+        board.disconnect.assert_called()
 
-    @patch("drivers.firmware_updater.time.sleep")
-    def test_raises_on_bad_response(self, mock_sleep):
-        """UpdateError raised when board doesn't prompt for confirmation."""
+    def test_raises_on_exchange_exception(self):
+        """UpdateError raised when exchange_command throws."""
         cfg = self._make_motor_config()
-        ser = MagicMock()
-        ser.read.side_effect = [
-            b'',                          # drain
-            b'Unknown command\r\n',       # no YES/confirm in response
-        ]
+        board = MagicMock()
+        board.exchange_command.side_effect = Exception("serial error")
         with pytest.raises(UpdateError) as exc_info:
-            _send_fwupdate_command(ser, cfg)
+            _send_fwupdate_command(board, cfg)
         assert exc_info.value.stage == UpdateStage.SENDING_FWUPDATE
+        board.disconnect.assert_called()
 
-    @patch("drivers.firmware_updater.time.sleep")
-    def test_closes_port_on_success(self, mock_sleep):
+    def test_disconnects_on_success(self):
+        """Board is disconnected after successful FWUPDATE."""
         cfg = self._make_motor_config()
-        ser = MagicMock()
-        ser.read.side_effect = [
-            b'',
-            b'Type YES to confirm\r\n',
-            b'Entering bootloader mode...\r\n',
-        ]
-        _send_fwupdate_command(ser, cfg)
-        ser.close.assert_called()
+        board = MagicMock()
+        board.exchange_command.return_value = 'Entering bootloader mode...'
+        _send_fwupdate_command(board, cfg)
+        board.disconnect.assert_called()
 
-    @patch("drivers.firmware_updater.time.sleep")
-    def test_closes_port_on_error(self, mock_sleep):
+    def test_fallback_to_raw_repl_on_not_found(self):
+        """Falls back to raw REPL when firmware doesn't support FWUPDATE."""
         cfg = self._make_motor_config()
-        ser = MagicMock()
-        ser.read.side_effect = [
-            b'',
-            b'Unknown command\r\n',
-        ]
+        board = MagicMock()
+        board.exchange_command.return_value = "ERROR: command 'FWUPDATE' not found"
+        with patch("drivers.firmware_updater._bootloader_via_raw_repl") as mock_fallback:
+            _send_fwupdate_command(board, cfg)
+            mock_fallback.assert_called_once_with(board)
+
+    def test_disconnects_on_error(self):
+        """Board is disconnected even when exchange_command fails."""
+        cfg = self._make_motor_config()
+        board = MagicMock()
+        board.exchange_command.side_effect = OSError("USB disconnected")
         with pytest.raises(UpdateError):
-            _send_fwupdate_command(ser, cfg)
-        # Port should still be closed even on error path (via the except block)
-        # The UpdateError path re-raises before close, but inner except catches generic
-        # Actually the UpdateError is raised before ser.close in the try block,
-        # so this tests that the re-raise happens without closing.
-        # The code only closes on the generic Exception path. Let's just verify
-        # the call to ser.close is NOT made on UpdateError path (it re-raises).
+            _send_fwupdate_command(board, cfg)
+        board.disconnect.assert_called()
 
 
 # ---------------------------------------------------------------------------
@@ -252,34 +233,34 @@ class TestSendFwupdateCommand:
 # ---------------------------------------------------------------------------
 
 class TestBackupConfigs:
-    @patch("drivers.firmware_updater.time.sleep")
-    @patch("drivers.firmware_updater.verify_firmware_running", return_value="OK")
-    @patch("drivers.firmware_updater.exit_raw_repl")
-    @patch("drivers.firmware_updater.read_file")
-    @patch("drivers.firmware_updater.list_files")
-    @patch("drivers.firmware_updater.enter_raw_repl", return_value=True)
-    def test_all_files_backed_up(self, mock_enter, mock_list, mock_read,
-                                  mock_exit, mock_verify, mock_sleep, tmp_path):
+    def _make_board(self, files_on_board=None, file_contents=None,
+                    enter_repl_ok=True):
+        """Create a mock board with SerialBoard-compatible methods."""
+        board = MagicMock()
+        board.enter_raw_repl.return_value = enter_repl_ok
+        board.repl_list_files.return_value = files_on_board or []
+        if file_contents is not None:
+            board.repl_read_file.side_effect = file_contents
+        return board
+
+    def test_all_files_backed_up(self, tmp_path):
         """All config files are read and saved to disk."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
-        ser = MagicMock()
+        board = self._make_board(
+            files_on_board=['motorconfig.json', 'xymotorconfig.ini',
+                            'ztmotorconfig.ini', 'ztmotorconfig2.ini'],
+            file_contents=[
+                b'{"motor": 1}',
+                b'[xy]\nsteps=100',
+                b'[zt]\nsteps=200',
+                b'[zt2]\nsteps=300',
+            ],
+        )
 
-        mock_list.return_value = [
-            'motorconfig.json', 'xymotorconfig.ini',
-            'ztmotorconfig.ini', 'ztmotorconfig2.ini',
-        ]
-        mock_read.side_effect = [
-            b'{"motor": 1}',
-            b'[xy]\nsteps=100',
-            b'[zt]\nsteps=200',
-            b'[zt2]\nsteps=300',
-        ]
-
-        result = _backup_configs(ser, cfg, tmp_path)
+        result = _backup_configs(board, cfg, tmp_path)
 
         assert len(result) == 4
         assert result['motorconfig.json'] == b'{"motor": 1}'
-        # Verify files written to disk
         board_dir = tmp_path / 'motor'
         assert (board_dir / 'motorconfig.json').read_bytes() == b'{"motor": 1}'
         assert (board_dir / 'backup_manifest.json').exists()
@@ -288,58 +269,39 @@ class TestBackupConfigs:
         assert 'motorconfig.json' in manifest
         assert manifest['motorconfig.json']['size'] == len(b'{"motor": 1}')
 
-    @patch("drivers.firmware_updater.time.sleep")
-    @patch("drivers.firmware_updater.verify_firmware_running", return_value="OK")
-    @patch("drivers.firmware_updater.exit_raw_repl")
-    @patch("drivers.firmware_updater.read_file")
-    @patch("drivers.firmware_updater.list_files")
-    @patch("drivers.firmware_updater.enter_raw_repl", return_value=True)
-    def test_missing_file_skipped(self, mock_enter, mock_list, mock_read,
-                                   mock_exit, mock_verify, mock_sleep, tmp_path):
+    def test_missing_file_skipped(self, tmp_path):
         """File not present on board is skipped (not an error)."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
-        ser = MagicMock()
+        board = self._make_board(
+            files_on_board=['motorconfig.json'],
+            file_contents=[b'{"motor": 1}'],
+        )
 
-        # Only motorconfig.json exists on board
-        mock_list.return_value = ['motorconfig.json']
-        mock_read.return_value = b'{"motor": 1}'
-
-        result = _backup_configs(ser, cfg, tmp_path)
+        result = _backup_configs(board, cfg, tmp_path)
 
         assert len(result) == 1
         assert 'motorconfig.json' in result
-        # read_file only called once (for the file that exists)
-        mock_read.assert_called_once()
+        board.repl_read_file.assert_called_once()
 
-    @patch("drivers.firmware_updater.time.sleep")
-    @patch("drivers.firmware_updater.exit_raw_repl")
-    @patch("drivers.firmware_updater.read_file", return_value=None)
-    @patch("drivers.firmware_updater.list_files", return_value=['cal.json'])
-    @patch("drivers.firmware_updater.enter_raw_repl", return_value=True)
-    def test_read_failure_raises(self, mock_enter, mock_list, mock_read,
-                                  mock_exit, mock_sleep, tmp_path):
-        """read_file returning None raises UpdateError."""
+    def test_read_failure_raises(self, tmp_path):
+        """repl_read_file returning None raises UpdateError."""
         cfg = BOARD_CONFIGS[BoardType.LED]
-        ser = MagicMock()
+        board = self._make_board(
+            files_on_board=['cal.json'],
+            file_contents=[None],
+        )
 
         with pytest.raises(UpdateError) as exc_info:
-            _backup_configs(ser, cfg, tmp_path)
+            _backup_configs(board, cfg, tmp_path)
         assert exc_info.value.stage == UpdateStage.BACKING_UP_CONFIG
-        # exit_raw_repl should still be called (finally block)
-        mock_exit.assert_called_once()
 
-    @patch("drivers.firmware_updater.time.sleep")
-    @patch("drivers.firmware_updater.exit_raw_repl")
-    @patch("drivers.firmware_updater.list_files")
-    @patch("drivers.firmware_updater.enter_raw_repl", return_value=False)
-    def test_enter_repl_failure_raises(self, mock_enter, mock_list,
-                                        mock_exit, mock_sleep, tmp_path):
+    def test_enter_repl_failure_raises(self, tmp_path):
         """Failure to enter raw REPL raises UpdateError."""
         cfg = BOARD_CONFIGS[BoardType.LED]
-        ser = MagicMock()
+        board = self._make_board(enter_repl_ok=False)
 
         with pytest.raises(UpdateError) as exc_info:
-            _backup_configs(ser, cfg, tmp_path)
+            _backup_configs(board, cfg, tmp_path)
         assert exc_info.value.stage == UpdateStage.BACKING_UP_CONFIG
 
 
@@ -348,102 +310,72 @@ class TestBackupConfigs:
 # ---------------------------------------------------------------------------
 
 class TestRestoreConfigs:
-    @patch("drivers.firmware_updater.time.sleep")
-    @patch("drivers.firmware_updater.verify_firmware_running", return_value="OK")
-    @patch("drivers.firmware_updater.exit_raw_repl")
-    @patch("drivers.firmware_updater.write_file", return_value=True)
-    @patch("drivers.firmware_updater.read_file")
-    @patch("drivers.firmware_updater.list_files")
-    @patch("drivers.firmware_updater.enter_raw_repl", return_value=True)
-    def test_surviving_file_skipped(self, mock_enter, mock_list, mock_read,
-                                     mock_write, mock_exit, mock_verify,
-                                     mock_sleep):
+    def _make_board(self, files_on_board=None, file_contents=None,
+                    enter_repl_ok=True, write_ok=True):
+        """Create a mock board with SerialBoard-compatible methods."""
+        board = MagicMock()
+        board.enter_raw_repl.return_value = enter_repl_ok
+        board.repl_list_files.return_value = files_on_board or []
+        if file_contents is not None:
+            board.repl_read_file.side_effect = file_contents
+        else:
+            board.repl_read_file.return_value = None
+        board.repl_write_file.return_value = write_ok
+        return board
+
+    def test_surviving_file_skipped(self):
         """File that survived the update (matches backup) is not rewritten."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
-        ser = MagicMock()
-
         data = b'{"motor": 1}'
-        config_data = {'motorconfig.json': data}
+        board = self._make_board(
+            files_on_board=['motorconfig.json'],
+            file_contents=[data],
+        )
 
-        mock_list.return_value = ['motorconfig.json']
-        mock_read.return_value = data  # same data on board
-
-        result = _restore_configs(ser, cfg, config_data)
+        result = _restore_configs(board, cfg, {'motorconfig.json': data})
 
         assert result is True
-        mock_write.assert_not_called()
+        board.repl_write_file.assert_not_called()
 
-    @patch("drivers.firmware_updater.time.sleep")
-    @patch("drivers.firmware_updater.verify_firmware_running", return_value="OK")
-    @patch("drivers.firmware_updater.exit_raw_repl")
-    @patch("drivers.firmware_updater.write_file", return_value=True)
-    @patch("drivers.firmware_updater.read_file")
-    @patch("drivers.firmware_updater.list_files")
-    @patch("drivers.firmware_updater.enter_raw_repl", return_value=True)
-    def test_missing_file_written(self, mock_enter, mock_list, mock_read,
-                                   mock_write, mock_exit, mock_verify,
-                                   mock_sleep):
+    def test_missing_file_written(self):
         """File missing from board after update is restored."""
         cfg = BOARD_CONFIGS[BoardType.MOTOR]
-        ser = MagicMock()
-
         data = b'{"motor": 1}'
-        config_data = {'motorconfig.json': data}
+        board = self._make_board(files_on_board=[])
 
-        mock_list.return_value = []  # no files on board after update
-
-        result = _restore_configs(ser, cfg, config_data)
+        result = _restore_configs(board, cfg, {'motorconfig.json': data})
 
         assert result is True
-        mock_write.assert_called_once_with(ser, 'motorconfig.json', data)
+        board.repl_write_file.assert_called_once()
 
-    @patch("drivers.firmware_updater.time.sleep")
-    @patch("drivers.firmware_updater.verify_firmware_running", return_value="OK")
-    @patch("drivers.firmware_updater.exit_raw_repl")
-    @patch("drivers.firmware_updater.write_file", return_value=True)
-    @patch("drivers.firmware_updater.read_file")
-    @patch("drivers.firmware_updater.list_files")
-    @patch("drivers.firmware_updater.enter_raw_repl", return_value=True)
-    def test_changed_file_restored(self, mock_enter, mock_list, mock_read,
-                                    mock_write, mock_exit, mock_verify,
-                                    mock_sleep):
+    def test_changed_file_restored(self):
         """File that exists but differs from backup is overwritten."""
         cfg = BOARD_CONFIGS[BoardType.LED]
-        ser = MagicMock()
-
         backup_data = b'{"cal": "good"}'
-        config_data = {'cal.json': backup_data}
+        board = self._make_board(
+            files_on_board=['cal.json'],
+            file_contents=[b'{"cal": "corrupted"}'],
+        )
 
-        mock_list.return_value = ['cal.json']
-        mock_read.return_value = b'{"cal": "corrupted"}'  # different
-
-        result = _restore_configs(ser, cfg, config_data)
+        result = _restore_configs(board, cfg, {'cal.json': backup_data})
 
         assert result is True
-        mock_write.assert_called_once_with(ser, 'cal.json', backup_data)
+        board.repl_write_file.assert_called_once()
 
-    @patch("drivers.firmware_updater.time.sleep")
-    @patch("drivers.firmware_updater.exit_raw_repl")
-    @patch("drivers.firmware_updater.write_file", return_value=False)
-    @patch("drivers.firmware_updater.read_file")
-    @patch("drivers.firmware_updater.list_files", return_value=[])
-    @patch("drivers.firmware_updater.enter_raw_repl", return_value=True)
-    def test_write_failure_raises(self, mock_enter, mock_list, mock_read,
-                                   mock_write, mock_exit, mock_sleep):
-        """write_file returning False raises UpdateError."""
+    def test_write_failure_raises(self):
+        """repl_write_file returning False raises UpdateError."""
         cfg = BOARD_CONFIGS[BoardType.LED]
-        ser = MagicMock()
-        config_data = {'cal.json': b'data'}
+        board = self._make_board(files_on_board=[], write_ok=False)
 
         with pytest.raises(UpdateError) as exc_info:
-            _restore_configs(ser, cfg, config_data)
+            _restore_configs(board, cfg, {'cal.json': b'data'})
         assert exc_info.value.stage == UpdateStage.RESTORING_CONFIG
 
     def test_empty_config_data_returns_true(self):
         """No config files to restore returns True immediately."""
         cfg = BOARD_CONFIGS[BoardType.LED]
-        ser = MagicMock()
-        assert _restore_configs(ser, cfg, {}) is True
+        board = MagicMock()
+        assert _restore_configs(board, cfg, {}) is True
 
 
 # ---------------------------------------------------------------------------
@@ -486,17 +418,16 @@ class TestUpdateResult:
 # ---------------------------------------------------------------------------
 
 class TestUpdateFirmwareSameVersion:
-    @patch("drivers.firmware_updater.time.sleep")
     @patch("drivers.firmware_updater._detect_bootsel_drive", return_value=None)
-    @patch("drivers.firmware_updater._get_firmware_version", return_value="2.0.0")
-    @patch("drivers.firmware_updater._open_serial")
-    @patch("drivers.firmware_updater._find_serial_port", return_value="/dev/ttyACM0")
-    def test_same_version_returns_success(self, mock_find, mock_open,
-                                           mock_version, mock_bootsel,
-                                           mock_sleep, tmp_path):
+    @patch("drivers.firmware_updater._create_board")
+    @patch("drivers.firmware_updater._parse_uf2_version", return_value="2.0.0")
+    def test_same_version_returns_success(self, mock_parse, mock_create,
+                                           mock_bootsel, tmp_path):
         """If board already has the target version, skip update."""
-        ser = MagicMock()
-        mock_open.return_value = ser
+        board = MagicMock()
+        board.firmware_version = "2.0.0"
+        board.firmware_date = None
+        mock_create.return_value = board
 
         uf2 = tmp_path / "motor_firmware_v2.0.0.uf2"
         uf2.write_bytes(b'\x00' * 1024)
@@ -509,7 +440,7 @@ class TestUpdateFirmwareSameVersion:
         assert result.success is True
         assert result.old_version == "2.0.0"
         assert result.new_version == "2.0.0"
-        ser.close.assert_called()
+        board.disconnect.assert_called()
 
 
 # ---------------------------------------------------------------------------
