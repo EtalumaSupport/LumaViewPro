@@ -161,6 +161,7 @@ class Lumascope():
         self._homing_event = threading.Event()       # set => homing in progress
         self._capturing_event = threading.Event()    # set => capture in progress
         self._focusing_event = threading.Event()     # set => autofocus in progress
+        self._turreting_event = threading.Event()    # set => turret move in progress
 
         # Initialize scope status
         self._capture_return = False     # Will be image if capture is ready to pull, else False
@@ -404,6 +405,18 @@ class Lumascope():
             self._homing_event.set()
         else:
             self._homing_event.clear()
+
+    @property
+    def is_turreting(self) -> bool:
+        """True while the turret is moving."""
+        return self._turreting_event.is_set()
+
+    @is_turreting.setter
+    def is_turreting(self, value: bool):
+        if value:
+            self._turreting_event.set()
+        else:
+            self._turreting_event.clear()
 
     @property
     def is_capturing(self) -> bool:
@@ -1941,11 +1954,6 @@ class Lumascope():
         """
         return self.motion.has_xyhomed()
 
-    def xyhome_iterate(self):
-        if not self.is_moving():
-            self.is_homing = False
-            self.xyhome_timer.cancel()
-
     def xycenter(self):
         """Move the XY stage to center position."""
 
@@ -2491,6 +2499,7 @@ class Lumascope():
         # State locks
         instance._state_lock = threading.Lock()
         instance._homing_event = threading.Event()
+        instance._turreting_event = threading.Event()
         instance._objective = None
         instance._objective_id = None
 
