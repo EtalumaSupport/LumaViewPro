@@ -324,6 +324,44 @@ class MotorBoard(SerialBoard):
 
 
     #----------------------------------------------------------
+    # Precision mode — controls motor stop accuracy
+    #----------------------------------------------------------
+
+    # TMC5072 VSTOP register addresses per axis.
+    # VSTOP sets the velocity threshold for declaring "stopped" —
+    # lower = more accurate final position, slightly slower settle.
+    _VSTOP_ADDR = {
+        'X': 0x2B,  # VSTOP_M1 on XY chip
+        'Y': 0x4B,  # VSTOP_M2 on XY chip
+        'Z': 0x4B,  # VSTOP_M2 on ZT chip
+        'T': 0x2B,  # VSTOP_M1 on ZT chip
+    }
+    _VSTOP_NORMAL = 1000    # factory default — fast but overshoots
+    _VSTOP_PRECISION = 100  # accurate stop position
+
+    def set_precision_mode(self, axis: str, enabled: bool):
+        """Set motor precision mode for an axis.
+
+        Precision mode uses a lower VSTOP threshold so the motor fully
+        decelerates before reporting target reached. Use for autofocus
+        fine passes and any measurement that needs accurate positioning.
+
+        Normal mode uses a higher VSTOP for faster moves where overshoot
+        is acceptable (coarse AF pass, user jogging, homing approach).
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T").
+            enabled: True for precise positioning, False for speed.
+        """
+        if axis not in self._VSTOP_ADDR:
+            logger.warning(f'[XYZ Class ] set_precision_mode: invalid axis {axis}')
+            return
+        vstop = self._VSTOP_PRECISION if enabled else self._VSTOP_NORMAL
+        addr = self._VSTOP_ADDR[axis]
+        self.spi_write(axis, addr, str(vstop))
+        logger.info(f'[XYZ Class ] {axis} precision_mode={enabled} (VSTOP={vstop})')
+
+    #----------------------------------------------------------
     # Z (Focus) Functions
     # Stock actuator = 0.30 mm pitch.  (1 rev/0.30 mm) x (200 steps/rev) x (256 usteps/step) = 170667 ustep/mm
     #----------------------------------------------------------

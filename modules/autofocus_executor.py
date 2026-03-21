@@ -187,6 +187,7 @@ class AutofocusExecutor:
 
             except Exception as ex:
                 # Any unexpected AF error: cleanup so UI is not stuck
+                self._scope.set_motor_precision_mode('Z', False)
                 self._autofocus_executor.protocol_end()
                 self._autofocus_executor.clear_protocol_pending()
                 self._is_focusing = False
@@ -207,6 +208,7 @@ class AutofocusExecutor:
         if not self._af_in_progress.is_set():
             return
         _af_log.info('--- AF CANCELLED ---')
+        self._scope.set_motor_precision_mode('Z', False)
         self._af_in_progress.clear()
         self._is_focusing = False
         self._autofocus_executor.protocol_end()
@@ -372,6 +374,7 @@ class AutofocusExecutor:
             if scores.max() == 0 or scores.isna().all():
                 logger.warning("Autofocus: degenerate focus curve (all scores zero or NaN) — aborting, keeping current Z position")
                 _af_log.warning('--- AF ABORT: degenerate curve (all scores zero/NaN) ---')
+                self._scope.set_motor_precision_mode('Z', False)
                 self._is_focusing = False
                 self._is_complete = True
                 self._best_focus_position = self._params['center']
@@ -412,6 +415,9 @@ class AutofocusExecutor:
                     except Exception as ex:
                         logger.warning(f"[AF] Failed to queue autofocus data save: {ex}")
 
+                # Restore normal motor mode after fine pass
+                self._scope.set_motor_precision_mode('Z', False)
+
                 self._is_focusing = False
                 self._is_complete = True
 
@@ -434,6 +440,10 @@ class AutofocusExecutor:
 
             if self._params['resolution'] == af_min:
                 self._last_pass = True
+                # Enable precision mode for the fine pass — accurate
+                # motor stopping for reliable focus measurements
+                self._scope.set_motor_precision_mode('Z', True)
+                _af_log.info('  PRECISION MODE ON for fine pass')
 
 
     def _tick_iterate(self, dt=None):

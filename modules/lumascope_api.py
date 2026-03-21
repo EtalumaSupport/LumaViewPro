@@ -2111,6 +2111,22 @@ class Lumascope():
             return 0.0
         return self.motion.current_pos(axis)
 
+    def set_motor_precision_mode(self, axis: str, enabled: bool):
+        """Set motor precision mode for an axis.
+
+        Precision mode uses accurate but slightly slower motor stopping.
+        Use before autofocus fine passes or any measurement requiring
+        precise Z positioning. Disable for coarse moves where speed
+        matters more than final position accuracy.
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T").
+            enabled: True for precise positioning, False for speed.
+        """
+        if not self.motor_connected:
+            return
+        self.motion.set_precision_mode(axis, enabled)
+
     def write_motor_register(self, axis: str, address: int, value: int):
         """Write a TMC5072 register via SPI.
 

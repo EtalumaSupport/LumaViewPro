@@ -538,6 +538,9 @@ class SimulatedMotorBoard:
     def spi_write(self, axis: str, addr: int, payload: str) -> str:
         return 'SPI OK'
 
+    def set_precision_mode(self, axis: str, enabled: bool):
+        pass  # No-op for simulator
+
     # ------------------------------------------------------------------
     # Firmware (stubs)
     # ------------------------------------------------------------------
