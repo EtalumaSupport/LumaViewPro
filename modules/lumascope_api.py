@@ -2111,6 +2111,25 @@ class Lumascope():
             return 0.0
         return self.motion.current_pos(axis)
 
+    def write_motor_register(self, axis: str, address: int, value: int):
+        """Write a TMC5072 register via SPI.
+
+        Low-level access for engineering/characterization. Uses the
+        firmware's SPI command to write directly to the motor controller.
+
+        Args:
+            axis: Axis name ("X", "Y", "Z", "T").
+            address: Register address (e.g. 0x4B for VSTOP_M2).
+            value: Register value (unsigned 32-bit).
+
+        Returns:
+            str: Response from firmware, or None on failure.
+        """
+        if not self.motor_connected:
+            return None
+        cmd = f'SPI{axis}0x{address:02X}{value}'
+        return self.motion.exchange_command(cmd)
+
     def move_absolute_position(self, axis, pos, wait_until_complete=False, overshoot_enabled: bool = True, ignore_limits: bool = False):
         """Move an axis to an absolute position.
 
