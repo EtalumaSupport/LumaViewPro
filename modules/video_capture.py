@@ -136,6 +136,11 @@ class VideoCaptureSession:
                     0)
 
             if not self._is_protocol_running():
+                # Stop stim threads BEFORE turning off LEDs to prevent
+                # stim pulses from re-enabling LEDs after leds_off()
+                self._stim_stop_event.set()
+                for t in stim_threads:
+                    t.join(timeout=2.0)
                 self._leds_off()
                 if "reset_title" in self._callbacks:
                     from kivy.clock import Clock
@@ -377,6 +382,20 @@ class StimulationController:
         pulse_width = stim_config['pulse_width']
         pulse_count = stim_config['pulse_count']
 
+        # Validate stim parameters before starting pulse train
+        if not isinstance(frequency, (int, float)) or frequency <= 0:
+            logger.error(f"[STIMULATOR] {color}: invalid frequency {frequency} Hz — must be > 0. Skipping stimulation.")
+            return
+        if not isinstance(pulse_width, (int, float)) or pulse_width <= 0:
+            logger.error(f"[STIMULATOR] {color}: invalid pulse_width {pulse_width} ms — must be > 0. Skipping stimulation.")
+            return
+        if not isinstance(pulse_count, int) or pulse_count <= 0:
+            logger.error(f"[STIMULATOR] {color}: invalid pulse_count {pulse_count} — must be > 0. Skipping stimulation.")
+            return
+        if not isinstance(illumination, (int, float)) or illumination <= 0:
+            logger.error(f"[STIMULATOR] {color}: invalid illumination {illumination} mA — must be > 0. Skipping stimulation.")
+            return
+
         # Optional: reduce Windows timer quantum to 1 ms during stimulation
         time_period_set = False
         if sys.platform.startswith('win'):
@@ -389,6 +408,11 @@ class StimulationController:
         try:
             period_s = 1.0 / float(frequency)
             pulse_s = float(pulse_width) / 1000.0
+
+            # Guard: pulse width must be shorter than period
+            if pulse_s >= period_s:
+                logger.warning(f"[STIMULATOR] {color}: pulse_width ({pulse_width}ms) >= period ({period_s*1000:.1f}ms). Clamping pulse to 90% of period.")
+                pulse_s = period_s * 0.9
             ch = self._scope.color2ch(color=color)
 
             # Use fast path LED toggles if available via API
