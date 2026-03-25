@@ -1161,7 +1161,6 @@ class Lumascope():
             stop_time = start_time + timeout
 
             while True:
-                all_ones_failed = False
                 if force_new_capture:
                     grab_status, grab_image_ts = self.camera.grab_new_capture(new_capture_timeout)
                 else:
@@ -1171,35 +1170,37 @@ class Lumascope():
                     self.frame_validity.count_frame()
                     tmp = self.camera.get_array()  # thread-safe copy
 
-                    if all_ones_check:
+                    if all_ones_check and np.all(tmp == np.iinfo(tmp.dtype).max):
+                        # Saturated frame — retry once to confirm, then accept.
+                        # Saturated images are valid data (exposure/illumination
+                        # too high), not a camera error. Don't loop until timeout.
+                        retry_status, _ = self.camera.grab_new_capture(new_capture_timeout) if force_new_capture else self.camera.grab()
+                        if retry_status:
+                            self.frame_validity.count_frame()
+                            retry_frame = self.camera.get_array()
+                            if not np.all(retry_frame == np.iinfo(retry_frame.dtype).max):
+                                tmp = retry_frame  # retry was OK, use it
+                            else:
+                                logger.debug("[SCOPE API ] get_image: saturated frame confirmed on retry")
 
-                        if np.all(tmp == np.iinfo(tmp.dtype).max):
-                            all_ones_failed = True
-                            logger.warning(f"[SCOPE API ] get_image all_ones_check failed")
-
-                    if not all_ones_failed:
-                        if earliest_image_ts is None:
-                            tmp_buffer.append(tmp)
-                            break
-
-                        if grab_image_ts > earliest_image_ts:
-                            tmp_buffer.append(tmp)
-                            break
-
-                        logger.warning(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
-
-
-                # In case of timeout, if we hit the timeout because of the all ones check, then just let it continue and return the all ones image
-                if datetime.datetime.now() > stop_time:
-                    if not all_ones_failed:
-                        logger.error(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded")
-                        return False
-                    else:
-                        logger.warning(f"[SCOPE API ] get_image timeout stop_time ({stop_time}) exceeded with all_ones_failed")
+                    # Accept the frame
+                    if earliest_image_ts is None:
+                        tmp_buffer.append(tmp)
                         break
 
+                    if grab_image_ts > earliest_image_ts:
+                        tmp_buffer.append(tmp)
+                        break
+
+                    logger.warning(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
+
+                # Timeout — no valid grab within the window
+                if datetime.datetime.now() > stop_time:
+                    logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
+                    return False
+
                 if not grab_status:
-                    logger.error(f"[SCOPE API ] get_image grab failed, retrying")
+                    logger.debug("[SCOPE API ] get_image grab failed, retrying")
 
                 time.sleep(0.05)
 
