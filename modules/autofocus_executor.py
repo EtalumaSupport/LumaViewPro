@@ -294,7 +294,17 @@ class AutofocusExecutor:
                 self._is_focusing = False
                 return
 
+            # Detect dark/blank frames — would score 0, corrupting the curve.
+            # Retry once; if still dark, accept (may be genuinely dark sample).
+            mean_intensity = float(np.mean(image))
+            if mean_intensity < 1.0:
+                _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
+                retry = self._scope.get_image(force_new_capture=True)
+                if isinstance(retry, np.ndarray):
+                    image = retry
+
             # Use center quarter of image for focusing
+            height, width = image.shape
             image = image[int(height/4):int(3*height/4),int(width/4):int(3*width/4)]
 
             focus_score = autofocus_functions.focus_function(image=image)

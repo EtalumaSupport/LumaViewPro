@@ -1006,7 +1006,8 @@ class Lumascope():
         if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
             raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
 
-        self.led.led_on(channel, mA, block=block)
+        with self._hw_lock:
+            self.led.led_on(channel, mA, block=block)
         self.frame_validity.invalidate('led')
         _api_log.info(f'led_on ch={channel} mA={mA}')
 
@@ -1077,7 +1078,8 @@ class Lumascope():
     def leds_off(self):
         """Turn off all LEDs."""
         if not self.led: return
-        self.led.leds_off()
+        with self._hw_lock:
+            self.led.leds_off()
         self.frame_validity.invalidate('led')
         _api_log.info('leds_off')
 
@@ -1161,19 +1163,32 @@ class Lumascope():
             stop_time = start_time + timeout
 
             while True:
-                if force_new_capture:
-                    grab_status, grab_image_ts = self.camera.grab_new_capture(new_capture_timeout)
-                else:
-                    grab_status, grab_image_ts = self.camera.grab()
+                # Acquire hw_lock for camera grab — prevents concurrent
+                # set_gain/set_exposure from another thread mid-frame.
+                with self._hw_lock:
+                    if force_new_capture:
+                        grab_status, grab_image_ts = self.camera.grab_new_capture(new_capture_timeout)
+                    else:
+                        grab_status, grab_image_ts = self.camera.grab()
 
-                if grab_status:
-                    self.frame_validity.count_frame()
-                    tmp = self.camera.get_array()  # thread-safe copy
+                    if grab_status:
+                        self.frame_validity.count_frame()
+                        tmp = self.camera.get_array()  # thread-safe copy
 
-                    if all_ones_check and np.all(tmp == np.iinfo(tmp.dtype).max):
-                        # Saturated frame — retry once to confirm, then accept.
-                        # Saturated images are valid data (exposure/illumination
-                        # too high), not a camera error. Don't loop until timeout.
+                if not grab_status:
+                    # Timeout — no valid grab within the window
+                    if datetime.datetime.now() > stop_time:
+                        logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
+                        return False
+                    logger.debug("[SCOPE API ] get_image grab failed, retrying")
+                    time.sleep(0.05)
+                    continue
+
+                if all_ones_check and np.all(tmp == np.iinfo(tmp.dtype).max):
+                    # Saturated frame — retry once to confirm, then accept.
+                    # Saturated images are valid data (exposure/illumination
+                    # too high), not a camera error. Don't loop until timeout.
+                    with self._hw_lock:
                         retry_status, _ = self.camera.grab_new_capture(new_capture_timeout) if force_new_capture else self.camera.grab()
                         if retry_status:
                             self.frame_validity.count_frame()
@@ -1183,25 +1198,21 @@ class Lumascope():
                             else:
                                 logger.debug("[SCOPE API ] get_image: saturated frame confirmed on retry")
 
-                    # Accept the frame
-                    if earliest_image_ts is None:
-                        tmp_buffer.append(tmp)
-                        break
+                # Accept the frame
+                if earliest_image_ts is None:
+                    tmp_buffer.append(tmp)
+                    break
 
-                    if grab_image_ts > earliest_image_ts:
-                        tmp_buffer.append(tmp)
-                        break
+                if grab_image_ts > earliest_image_ts:
+                    tmp_buffer.append(tmp)
+                    break
 
-                    logger.warning(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
+                logger.warning(f"[SCOPE API ] get_image earliest_image_time {earliest_image_ts} not met -> Image TS: {grab_image_ts}")
 
-                # Timeout — no valid grab within the window
+                # Timestamp not met — check timeout then retry
                 if datetime.datetime.now() > stop_time:
                     logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
                     return False
-
-                if not grab_status:
-                    logger.debug("[SCOPE API ] get_image grab failed, retrying")
-
                 time.sleep(0.05)
 
             if sum_count > 1:
@@ -1735,7 +1746,8 @@ class Lumascope():
         """
 
         if not self.camera or not self.camera.active: return
-        self.camera.gain(gain)
+        with self._hw_lock:
+            self.camera.gain(gain)
         self.frame_validity.invalidate('gain')
         with self._camera_cache_lock:
             self._camera_cache['gain'] = float(gain)
@@ -1766,7 +1778,8 @@ class Lumascope():
         """
 
         if not self.camera or not self.camera.active: return
-        self.camera.exposure_t(t)
+        with self._hw_lock:
+            self.camera.exposure_t(t)
         self.frame_validity.invalidate('exposure')
         with self._camera_cache_lock:
             self._camera_cache['exposure_ms'] = float(t)
