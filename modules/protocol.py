@@ -251,6 +251,8 @@ class Protocol:
                 sum_count = int(step.get('Sum', 1))
                 if sum_count < 1:
                     errors.append(f"{label}: Sum must be >= 1, got {sum_count}")
+                elif sum_count > 100:
+                    logger.warning(f"[PROTOCOL] {label}: Sum count {sum_count} is unusually high (> 100). This may cause long capture times.")
             except (ValueError, TypeError):
                 errors.append(f"{label}: Sum is not a valid integer")
 

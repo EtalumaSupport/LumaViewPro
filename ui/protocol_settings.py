@@ -945,6 +945,24 @@ class ProtocolSettings(FloatLayout):
             else:
                 ordered_layers = list(layer_configs.keys())
 
+            stim_configs = get_stim_configs()
+
+            # H5: Warn about invalid stim configs at insert time
+            for stim_color, sc in stim_configs.items():
+                if not isinstance(sc, dict) or not sc.get('enabled', False):
+                    continue
+                freq = sc.get('frequency', 0)
+                if not isinstance(freq, (int, float)) or freq <= 0:
+                    logger.warning(f"[UI] Stim channel {stim_color}: frequency {freq} Hz is invalid (must be > 0). Disabling channel.")
+                    sc['enabled'] = False
+                exp = sc.get('exposure', 0)
+                if isinstance(exp, (int, float)) and exp == 0 and sc.get('enabled', False):
+                    logger.warning(f"[UI] Stim channel {stim_color}: exposure is 0. This may produce no visible pulses.")
+                illum = sc.get('illumination', 0)
+                if isinstance(illum, (int, float)) and illum <= 0 and sc.get('enabled', False):
+                    logger.warning(f"[UI] Stim channel {stim_color}: illumination {illum} mA is invalid (must be > 0). Disabling channel.")
+                    sc['enabled'] = False
+
             for layer in ordered_layers:
                 layer_config = layer_configs[layer]
                 if layer_config['acquire'] is None:
@@ -954,7 +972,7 @@ class ProtocolSettings(FloatLayout):
                     step_name=None,
                     layer=layer,
                     layer_config=layer_config,
-                    stim_configs=get_stim_configs(),
+                    stim_configs=stim_configs,
                     plate_position=plate_position,
                     objective_id=objective_id,
                     before_step=before_step,

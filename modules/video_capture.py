@@ -104,6 +104,7 @@ class VideoCaptureSession:
                     self._scope, color, stim_config)
                 t = threading.Thread(
                     target=controller.run,
+                    name=f"stim-{color}",
                     args=(self._stim_start_event, self._stim_stop_event))
                 stim_threads.append(t)
                 t.start()
@@ -114,7 +115,7 @@ class VideoCaptureSession:
                 lambda dt: self._callbacks['set_recording_title'](progress=0),
                 0)
 
-        logger.info("Protocol-Video] Capturing video...")
+        logger.info("[PROTOCOL-VIDEO] Capturing video...")
 
         if sys.platform.startswith('win'):
             try:
@@ -166,7 +167,7 @@ class VideoCaptureSession:
                     video_images.put_nowait((image, datetime.datetime.now()))
                 except queue.Full:
                     logger.warning(
-                        f"[Protocol-Video] Frame queue full "
+                        f"[PROTOCOL-VIDEO] Frame queue full "
                         f"({video_images.maxsize}), dropping frame")
                     continue
 
@@ -188,7 +189,7 @@ class VideoCaptureSession:
             t.join(timeout=5.0)
             if t.is_alive():
                 logger.warning(
-                    "[PROTOCOL] Stim thread did not exit within 5s timeout")
+                    f"[STIMULATOR] Stim thread {t.name} did not exit within 5s timeout")
 
         if captured_frames == 0:
             logger.warning(
@@ -198,10 +199,10 @@ class VideoCaptureSession:
 
         calculated_fps = max(1, int(captured_frames / duration_sec))
 
-        logger.info(f"Protocol-Video] Images present in video array: "
+        logger.info(f"[PROTOCOL-VIDEO] Images present in video array: "
                     f"{not video_images.empty()}")
-        logger.info(f"Protocol-Video] Captured Frames: {captured_frames}")
-        logger.info(f"Protocol-Video] Video FPS: {calculated_fps}")
+        logger.info(f"[PROTOCOL-VIDEO] Captured Frames: {captured_frames}")
+        logger.info(f"[PROTOCOL-VIDEO] Video FPS: {calculated_fps}")
 
         return VideoCaptureResult(
             captured_frames=captured_frames,
@@ -244,7 +245,7 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
         Clock.schedule_once(
             lambda dt: callbacks['set_writing_title'](progress=0), 0)
 
-    logger.info("Protocol-Video] Writing video...")
+    logger.info("[PROTOCOL-VIDEO] Writing video...")
 
     try:
         if video_as_frames:
@@ -293,7 +294,7 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
                     )
                 except Exception as e:
                     logger.error(
-                        f"Protocol-Video] Failed to write frame "
+                        f"[PROTOCOL-VIDEO] Failed to write frame "
                         f"{frame_num}: {e}")
 
             _drain_queue(video_images)
@@ -325,7 +326,7 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
                         frame_num += 1
                     except Exception as e:
                         logger.error(
-                            f"Protocol-Video] FAILED TO WRITE FRAME: {e}")
+                            f"[PROTOCOL-VIDEO] FAILED TO WRITE FRAME: {e}")
             finally:
                 video_writer.finish()
                 del video_writer
@@ -339,8 +340,8 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
     if "reset_title" in callbacks:
         Clock.schedule_once(lambda dt: callbacks['reset_title'](), 0)
 
-    logger.info("Protocol-Video] Video writing finished.")
-    logger.info(f"Protocol-Video] Video saved at {capture_result}")
+    logger.info("[PROTOCOL-VIDEO] Video writing finished.")
+    logger.info(f"[PROTOCOL-VIDEO] Video saved at {capture_result}")
 
     return capture_result
 
@@ -395,6 +396,10 @@ class StimulationController:
         if not isinstance(illumination, (int, float)) or illumination <= 0:
             logger.error(f"[STIMULATOR] {color}: invalid illumination {illumination} mA — must be > 0. Skipping stimulation.")
             return
+        MAX_STIM_CURRENT_MA = 1000
+        if illumination > MAX_STIM_CURRENT_MA:
+            logger.warning(f"[STIMULATOR] {color}: illumination {illumination}mA exceeds max {MAX_STIM_CURRENT_MA}mA. Clamping.")
+            illumination = MAX_STIM_CURRENT_MA
 
         # Optional: reduce Windows timer quantum to 1 ms during stimulation
         time_period_set = False
@@ -461,7 +466,11 @@ class StimulationController:
                     else:
                         time.sleep(0.0001)
 
-                led_on_fast()
+                try:
+                    led_on_fast()
+                except Exception as ex:
+                    logger.error(f"[STIMULATOR] {color}: led_on_fast failed on pulse {i}: {ex}")
+                    break
                 pulses_executed += 1
 
                 # Sleep/spin until off_time
@@ -475,7 +484,11 @@ class StimulationController:
                     else:
                         time.sleep(0.0001)
 
-                led_off_fast()
+                try:
+                    led_off_fast()
+                except Exception as ex:
+                    logger.error(f"[STIMULATOR] {color}: led_off_fast failed on pulse {i}: {ex}")
+                    break
 
                 # Maintain period; wait until next_period_time
                 while True:
@@ -507,5 +520,5 @@ class StimulationController:
                     self._scope.led_off_fast(channel=ch)
                 else:
                     self._scope.led_off(channel=ch)
-            except Exception:
-                pass
+            except Exception as ex:
+                logger.error(f"[STIMULATOR] {color}: failed to turn off LED in cleanup: {ex}")

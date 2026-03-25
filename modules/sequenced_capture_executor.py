@@ -929,16 +929,19 @@ class SequencedCaptureExecutor:
 
             self._scope.move_absolute_position('X', sx)
             self._target_x_pos = sx
-            Clock.schedule_once(lambda dt: self._callbacks['move_position']('X'), 0)
+            if 'move_position' in self._callbacks:
+                Clock.schedule_once(lambda dt: self._callbacks['move_position']('X'), 0)
 
             self._scope.move_absolute_position('Y', sy)
             self._target_y_pos = sy
-            Clock.schedule_once(lambda dt: self._callbacks['move_position']('Y'), 0)
+            if 'move_position' in self._callbacks:
+                Clock.schedule_once(lambda dt: self._callbacks['move_position']('Y'), 0)
 
             if z is not None:
                 self._scope.move_absolute_position('Z', z)
                 self._target_z_pos = z
-                Clock.schedule_once(lambda dt: self._callbacks['move_position']('Z'), 0)
+                if 'move_position' in self._callbacks:
+                    Clock.schedule_once(lambda dt: self._callbacks['move_position']('Z'), 0)
 
 
     STEP_TIMEOUT_SECONDS = 120  # Max time to wait for a single step (motion + capture)
@@ -974,6 +977,7 @@ class SequencedCaptureExecutor:
 
     def _grease_redist_w_pos(self):
         axis='Z'
+        _t_start = time.monotonic()
         z_orig = self._scope.get_current_position(axis=axis)
         self._scope.move_absolute_position(
             axis=axis,
@@ -994,6 +998,12 @@ class SequencedCaptureExecutor:
 
         if 'move_position' in self._callbacks:
             self._callbacks['move_position'](axis)
+
+        elapsed = time.monotonic() - _t_start
+        if elapsed > 30:
+            logger.warning(f"[PROTOCOL] Grease redistribution took {elapsed:.1f}s (> 30s threshold)")
+        else:
+            logger.debug(f"[PROTOCOL] Grease redistribution completed in {elapsed:.1f}s")
 
         self._grease_redistribution_done = True
 
