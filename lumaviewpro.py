@@ -624,7 +624,7 @@ class LumaViewProApp(TooltipMixin, App):
         logger.info('[LVP Main  ] LumaViewProApp.build()', extra={'force_error': True})
 
         logger.info('[LVP Main  ] -----------------------------------------')
-        logger.info('[LVP Main  ] Code Compiled On: %s', current_time)
+        logger.info(f'[LVP Main  ] Version: {version}')
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         logger.info('[LVP Main  ] -----------------------------------------')
 
@@ -653,6 +653,16 @@ class LumaViewProApp(TooltipMixin, App):
         global ctx
 
         self.icon = './data/icons/icon.png'
+
+        # Window title: always show version + build date.
+        # Show git commit hash only in beta versions (for bug reports).
+        _version = version
+        _is_beta = 'beta' in _version.lower()
+        if not _is_beta and '(' in _version:
+            # Strip git hash from non-beta: "4.0.1 (abc1234)" → "4.0.1"
+            _version = _version.split(' (')[0]
+        self.title = f'LumaViewPro {_version}'
+        logger.info(f'[LVP Main  ] Window title: {self.title}')
 
         # Load engineering mode early so _init_ui() methods see the correct value
         global ENGINEERING_MODE
