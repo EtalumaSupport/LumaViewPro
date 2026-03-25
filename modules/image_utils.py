@@ -708,6 +708,10 @@ def add_timestamp(image, timestamp_str: str, in_place: bool = True):
 
     if not in_place:
         image = image.copy()
+    # Ensure array is C-contiguous — np.flip() produces non-contiguous
+    # views that OpenCV rejects with "Layout incompatible with cv::Mat"
+    if not image.flags['C_CONTIGUOUS']:
+        image = np.ascontiguousarray(image)
     cv2.rectangle(
         image,
         (left_offset, top_offset),
