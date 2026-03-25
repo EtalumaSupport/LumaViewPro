@@ -576,11 +576,14 @@ class LayerControl(BoxLayout):
         pos = settings[self.layer]['focus']
         move_absolute_position('Z', pos)  # set current z height in usteps
 
+    _suppressing_led_log = False  # Class-level flag to prevent duplicate logging
+
     def update_led_state(self, apply_settings=True):
         settings = _app_ctx.ctx.settings
         camera_executor = _app_ctx.ctx.camera_executor
         enabled = True if self.ids['enable_led_btn'].state == 'down' else False
-        gui_logger.toggle(f'LED_{self.layer}', enabled)
+        if not LayerControl._suppressing_led_log:
+            gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['ill']
 
         if apply_settings:
@@ -612,10 +615,14 @@ class LayerControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.scope.led_connected:
             led_state = ctx.scope.get_led_state(color=self.layer)
-            if led_state['enabled']:
-                self.ids['enable_led_btn'].state = 'down'
-            else:
-                self.ids['enable_led_btn'].state = 'normal'
+            LayerControl._suppressing_led_log = True
+            try:
+                if led_state['enabled']:
+                    self.ids['enable_led_btn'].state = 'down'
+                else:
+                    self.ids['enable_led_btn'].state = 'normal'
+            finally:
+                LayerControl._suppressing_led_log = False
 
 
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
@@ -640,10 +647,14 @@ class LayerControl(BoxLayout):
 
         def disable_leds_for_other_layers(dt=None):
             if self.ids['enable_led_btn'].state == 'down': # if the button is down
-                for layer in common_utils.get_layers():
-                    if layer != self.layer:
-                        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                        layer_obj.ids['enable_led_btn'].state = 'normal'
+                LayerControl._suppressing_led_log = True
+                try:
+                    for layer in common_utils.get_layers():
+                        if layer != self.layer:
+                            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+                            layer_obj.ids['enable_led_btn'].state = 'normal'
+                finally:
+                    LayerControl._suppressing_led_log = False
 
 
 
