@@ -310,7 +310,21 @@ def enable_engineering_logs(enabled: bool):
     Called once after engineering mode is determined. When disabled,
     the loggers exist but have no file handler — logging calls are
     essentially free (no I/O).
+
+    WORKAROUND: During beta releases, always enable engineering logs
+    for maximum debugging visibility. Remove this override after
+    beta stabilization and gate behind engineering mode again.
     """
+    # WORKAROUND: Force-enable during beta for field debugging
+    import re
+    try:
+        with open(os.path.join(os.path.dirname(__file__), 'version.txt')) as _vf:
+            _ver = _vf.read().strip()
+        if 'beta' in _ver.lower():
+            enabled = True
+    except Exception:
+        pass
+
     if enabled:
         if _af_file_handler not in af_logger.handlers:
             af_logger.addHandler(_af_file_handler)
