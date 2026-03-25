@@ -639,10 +639,8 @@ class LumaViewProApp(TooltipMixin, App):
         global lumaview
         global cell_count_content
         global graphing_controls
-        global video_creation_controls
-        global stitch_controls
-        global zprojection_controls
-        global composite_gen_controls
+        # video_creation_controls, stitch_controls, zprojection_controls,
+        # composite_gen_controls — now registered directly on ctx by their __init__
         global stage
         global wellplate_loader
         global coordinate_transformer
@@ -799,13 +797,8 @@ class LumaViewProApp(TooltipMixin, App):
         # load settings file (must be after motion_settings is wired)
         ctx.motion_settings.ids['microscope_settings_id'].load_settings("./data/current.json")
 
-        # Copy post_processing self-registration values (set during widget tree construction
-        # before ctx existed via `import lumaviewpro; lumaviewpro.X = self`)
-        import lumaviewpro as _lvp_mod
-        ctx.stitch_controls = getattr(_lvp_mod, 'stitch_controls', None)
-        ctx.zprojection_controls = getattr(_lvp_mod, 'zprojection_controls', None)
-        ctx.composite_gen_controls = getattr(_lvp_mod, 'composite_gen_controls', None)
-        ctx.video_creation_controls = getattr(_lvp_mod, 'video_creation_controls', None)
+        # Post-processing widgets now register directly on ctx in their __init__
+        # (stitch_controls, zprojection_controls, composite_gen_controls, video_creation_controls)
 
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)
