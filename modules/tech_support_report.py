@@ -681,9 +681,10 @@ class CameraBandwidthTest:
 class FirmwareDiagnostics:
     """Talks to LED and motor boards to collect diagnostic data."""
 
-    def __init__(self, led_board=None, motor_board=None):
-        self.led_board = led_board
-        self.motor_board = motor_board
+    def __init__(self, scope=None):
+        self._scope = scope
+        self.led_board = getattr(scope, 'led', None) if scope else None
+        self.motor_board = getattr(scope, 'motion', None) if scope else None
 
     def connect_standalone(self):
         """Auto-detect and connect to boards (standalone mode).
@@ -694,11 +695,12 @@ class FirmwareDiagnostics:
         try:
             from modules.lumascope_api import Lumascope
             scope = Lumascope.create_diagnostic()
+            self._scope = scope
             self.led_board = scope.led
             self.motor_board = scope.motion
-            self._diagnostic_scope = scope  # Keep reference so boards stay alive
         except Exception as e:
             logger.warning(f"Diagnostic scope creation failed: {e}")
+            self._scope = None
             self.led_board = None
             self.motor_board = None
 
@@ -1164,26 +1166,38 @@ class TechSupportReport:
 
     def __init__(self, scope=None, session=None,
                  led_board=None, motor_board=None, camera=None):
-        self.scope = scope
-        self.session = session
-
-        # Resolve board/camera references
+        # Store scope as primary interface — avoid extracting raw driver
+        # objects at this level.  FirmwareDiagnostics handles board access.
         if scope is not None:
-            self.led_board = getattr(scope, 'led', None) or getattr(scope, 'led_board', None)
-            self.motor_board = getattr(scope, 'motion', None) or getattr(scope, 'motor', None) or getattr(scope, 'motor_board', None)
-            self.camera = getattr(scope, 'camera', None)
+            self.scope = scope
         elif session is not None:
-            self.led_board = getattr(session, 'led_board', None)
-            self.motor_board = getattr(session, 'motor_board', None)
-            self.camera = getattr(session, 'camera', None)
+            # Legacy ScopeSession wrapper — build a minimal scope-like object
+            self.scope = session
         else:
-            self.led_board = led_board
-            self.motor_board = motor_board
-            self.camera = camera
+            self.scope = None
 
-        self.diag = FirmwareDiagnostics(self.led_board, self.motor_board)
+        # FirmwareDiagnostics owns the board references.  In integrated
+        # mode it extracts them from scope; standalone callers pass raw
+        # boards only when no scope is available.
+        if self.scope is not None:
+            self.diag = FirmwareDiagnostics(scope=self.scope)
+        elif led_board is not None or motor_board is not None:
+            # Standalone with explicit boards (no scope)
+            diag = FirmwareDiagnostics()
+            diag.led_board = led_board
+            diag.motor_board = motor_board
+            self.diag = diag
+        else:
+            # No scope, no boards — standalone will call diag.connect_standalone()
+            self.diag = FirmwareDiagnostics()
+
         self._cancelled = False
         self._meta = {}
+
+    @property
+    def _camera(self):
+        """Get camera through scope API (returns None if unavailable)."""
+        return getattr(self.scope, 'camera', None)
 
     def cancel(self):
         self._cancelled = True
@@ -1299,7 +1313,7 @@ class TechSupportReport:
             self._check_cancel()
 
             # 19. Bandwidth test (optional)  (80-94%)
-            if include_bw and self.camera is not None:
+            if include_bw and self._camera is not None:
                 cb(81, "Running camera bandwidth test (this takes a while)...")
                 self._step_bandwidth(tmp, cb)
                 self._check_cancel()
@@ -1364,7 +1378,7 @@ class TechSupportReport:
         d = tmp / 'firmware_configs'
         d.mkdir()
 
-        for board, label in [(self.led_board, 'led'), (self.motor_board, 'motor')]:
+        for board, label in [(self.diag.led_board, 'led'), (self.diag.motor_board, 'motor')]:
             files = self.diag.read_config_files(board, label)
             if files is None:
                 with open(d / f'{label}_config_UNAVAILABLE.txt', 'w') as f:
@@ -1519,7 +1533,7 @@ class TechSupportReport:
 
         # Run latency test once per board, write both text and JSON from same data
         results = {}
-        for board, label in [(self.led_board, 'LED'), (self.motor_board, 'Motor')]:
+        for board, label in [(self.diag.led_board, 'LED'), (self.diag.motor_board, 'Motor')]:
             results[label] = self.diag.measure_serial_latency(board, 'INFO')
 
         with open(d / 'serial_latency.txt', 'w') as f:
@@ -1573,7 +1587,8 @@ class TechSupportReport:
         d = tmp / 'camera_info'
         d.mkdir()
 
-        if self.camera is None:
+        camera = self._camera
+        if camera is None:
             (d / 'no_camera.txt').write_text("No camera available.\n")
             return
 
@@ -1583,15 +1598,15 @@ class TechSupportReport:
                      'get_frame_rate', 'get_gain', 'get_exposure',
                      'get_temperature', 'get_sensor_temperature',
                      'get_device_temperature']:
-            if hasattr(self.camera, attr):
+            if hasattr(camera, attr):
                 try:
-                    info[attr] = getattr(self.camera, attr)()
+                    info[attr] = getattr(camera, attr)()
                 except Exception as e:
                     info[attr] = f'Error: {e}'
 
         # Read all temperature sensors through the camera driver API
         try:
-            temps = self.camera.get_all_temperatures()
+            temps = camera.get_all_temperatures()
             for name, temp_c in temps.items():
                 info[f'Temperature_{name}'] = temp_c
         except Exception as e:
@@ -1599,7 +1614,7 @@ class TechSupportReport:
 
         with open(d / 'camera_info.txt', 'w') as f:
             f.write("Camera Information\n" + "=" * 40 + "\n\n")
-            f.write(f"Camera type: {type(self.camera).__name__}\n\n")
+            f.write(f"Camera type: {type(camera).__name__}\n\n")
             for key, val in info.items():
                 label = key.replace('get_', '').replace('_', ' ').title()
                 f.write(f"  {label}: {val}\n")
@@ -1895,7 +1910,7 @@ class TechSupportReport:
         def bw_cb(pct, msg):
             cb(81 + int(pct * 0.13), f"Bandwidth: {msg}")
 
-        bw = CameraBandwidthTest(self.camera)
+        bw = CameraBandwidthTest(self._camera)
         results = bw.run(progress_callback=bw_cb)
 
         with open(d / 'results.json', 'w') as f:
@@ -2199,10 +2214,7 @@ def main():
                     print("  Please include this report and contact techsupport@etaluma.com")
                     print()
 
-        if led_ok:
-            report.led_board = report.diag.led_board
-        if mot_ok:
-            report.motor_board = report.diag.motor_board
+        # Boards are owned by report.diag — no need to copy them to report
         if mot_ok:
             print()
             print("  ** The stage will be homed and moved during testing.  **")
