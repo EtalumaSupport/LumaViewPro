@@ -582,9 +582,19 @@ class AutofocusExecutor:
                         z_min, z_max = z_vals.min(), z_vals.max()
                         if z_min <= fit_z <= z_max:
                             shift = abs(fit_z - raw_best)
-                            _af_log.info(f'  FIT: {fit_z:.2f}um '
-                                        f'(raw max: {raw_best:.2f}, shift: {shift:.2f}um)')
-                            return float(fit_z)
+                            # Sanity: fit shift must be less than the step
+                            # spacing between measured points. A larger shift
+                            # means the fit is extrapolating beyond the data
+                            # — likely an asymmetric curve fooling the Gaussian.
+                            z_diffs = np.diff(np.sort(z_vals))
+                            max_shift = np.median(z_diffs) * 2 if len(z_diffs) > 0 else float('inf')
+                            if shift <= max_shift:
+                                _af_log.info(f'  FIT: {fit_z:.2f}um '
+                                            f'(raw max: {raw_best:.2f}, shift: {shift:.2f}um)')
+                                return float(fit_z)
+                            else:
+                                _af_log.info(f'  FIT: {fit_z:.2f}um shift {shift:.2f}um '
+                                            f'exceeds max {max_shift:.2f}um, using raw max')
                         else:
                             _af_log.info(f'  FIT: {fit_z:.2f}um outside range '
                                         f'[{z_min:.2f}, {z_max:.2f}], using raw max')
