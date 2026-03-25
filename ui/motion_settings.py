@@ -243,7 +243,11 @@ class XYStageControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] fine_left: no objective info: {e}')
+            return
         fine = objective['xy_fine']
         ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', -fine)))
 
@@ -253,7 +257,11 @@ class XYStageControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.fine_right()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] fine_right: no objective info: {e}')
+            return
         fine = objective['xy_fine']
         ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', fine)))
 
@@ -263,7 +271,11 @@ class XYStageControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.coarse_left()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] coarse_left: no objective info: {e}')
+            return
         coarse = objective['xy_coarse']
         ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', -coarse)))
 
@@ -273,7 +285,11 @@ class XYStageControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.coarse_right()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] coarse_right: no objective info: {e}')
+            return
         coarse = objective['xy_coarse']
         ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', coarse)))
 
@@ -283,7 +299,11 @@ class XYStageControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.fine_back()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] fine_back: no objective info: {e}')
+            return
         fine = objective['xy_fine']
         ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', -fine)))
 
@@ -293,7 +313,11 @@ class XYStageControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.fine_fwd()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] fine_fwd: no objective info: {e}')
+            return
         fine = objective['xy_fine']
         ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', fine)))
 
@@ -303,7 +327,11 @@ class XYStageControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.coarse_back()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] coarse_back: no objective info: {e}')
+            return
         coarse = objective['xy_coarse']
         ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', -coarse)))
 
@@ -313,7 +341,11 @@ class XYStageControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] XYStageControl.coarse_fwd()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] coarse_fwd: no objective info: {e}')
+            return
         coarse = objective['xy_coarse']
         ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', coarse)))
 
@@ -477,16 +509,21 @@ class XYStageControl(BoxLayout):
 
     @debounce(1.0)
     def home(self):
-        gui_logger.button('HOME_XY')
-        ctx = _app_ctx.ctx
-        logger.info('[LVP Main  ] XYStageControl.home()')
+        try:
+            gui_logger.button('HOME_XY')
+            ctx = _app_ctx.ctx
+            logger.info('[LVP Main  ] XYStageControl.home()')
 
-        if ctx.lumaview.scope.motor_connected: # motor controller is actively connected
-            ctx.io_executor.put(IOTask(move_home, kwargs={'axis':'XY'}))
+            if ctx.lumaview.scope.motor_connected: # motor controller is actively connected
+                ctx.io_executor.put(IOTask(move_home, kwargs={'axis':'XY'}))
 
-            # Firmware seems to move the turret back to position 1 when performing XY homing
-            # Use this command to make sure the UI is in-sync
-            ctx.motion_settings.ids['verticalcontrol_id'].turret_select(selected_position=1)
+                # Firmware seems to move the turret back to position 1 when performing XY homing
+                # Use this command to make sure the UI is in-sync
+                ctx.motion_settings.ids['verticalcontrol_id'].turret_select(selected_position=1)
 
-        else:
-            logger.warning('[LVP Main  ] Motion controller not available.')
+            else:
+                logger.warning('[LVP Main  ] Motion controller not available.')
+        except Exception as e:
+            logger.error(f'[UI] home failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
+            show_notification_popup(title="Error", message=str(e))

@@ -117,7 +117,11 @@ class VerticalControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] coarse_up: no objective info: {e}')
+            return
         coarse = objective['z_coarse']
         ctx.io_executor.put(IOTask(
             action=move_relative_position,
@@ -133,7 +137,11 @@ class VerticalControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] fine_up: no objective info: {e}')
+            return
         fine = objective['z_fine']
         ctx.io_executor.put(IOTask(
             action=move_relative_position,
@@ -149,7 +157,11 @@ class VerticalControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] fine_down: no objective info: {e}')
+            return
         fine = objective['z_fine']
         ctx.io_executor.put(IOTask(
             action=move_relative_position,
@@ -165,7 +177,11 @@ class VerticalControl(BoxLayout):
         if ctx.protocol_running.is_set():
             return
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
-        _, objective = get_current_objective_info()
+        try:
+            _, objective = get_current_objective_info()
+        except Exception as e:
+            logger.warning(f'[Motion] coarse_down: no objective info: {e}')
+            return
         coarse = objective['z_coarse']
         ctx.io_executor.put(IOTask(
             action=move_relative_position,
@@ -236,10 +252,15 @@ class VerticalControl(BoxLayout):
 
     @debounce(1.0)
     def home(self):
-        gui_logger.button('HOME_Z')
-        ctx = _app_ctx.ctx
-        logger.info('[LVP Main  ] VerticalControl.home()')
-        ctx.io_executor.put(IOTask(action=move_home, kwargs={"axis":'Z'}))
+        try:
+            gui_logger.button('HOME_Z')
+            ctx = _app_ctx.ctx
+            logger.info('[LVP Main  ] VerticalControl.home()')
+            ctx.io_executor.put(IOTask(action=move_home, kwargs={"axis":'Z'}))
+        except Exception as e:
+            logger.error(f'[UI] home failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
+            show_notification_popup(title="Error", message=str(e))
         #move_home(axis='Z')
 
     def load_objective_from_settings(self):
@@ -254,38 +275,43 @@ class VerticalControl(BoxLayout):
 
 
     def select_objective(self):
-        gui_logger.select('OBJECTIVE', self.ids['objective_spinner2'].text)
-        ctx = _app_ctx.ctx
-        logger.info('[LVP Main  ] VerticalControl.select_objective()')
-        settings = ctx.settings
+        try:
+            gui_logger.select('OBJECTIVE', self.ids['objective_spinner2'].text)
+            ctx = _app_ctx.ctx
+            logger.info('[LVP Main  ] VerticalControl.select_objective()')
+            settings = ctx.settings
 
-        # Update objective stored in settings
-        objective_id = self.ids['objective_spinner2'].text
-        objective = ctx.objective_helper.get_objective_info(objective_id=objective_id)
-        settings['objective_id'] = objective_id
+            # Update objective stored in settings
+            objective_id = self.ids['objective_spinner2'].text
+            objective = ctx.objective_helper.get_objective_info(objective_id=objective_id)
+            settings['objective_id'] = objective_id
 
-        # Update magnification UI info
-        microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-        microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
+            # Update magnification UI info
+            microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
+            microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
 
-        # Update selected to be consistent with other selector
-        ms_objective_spinner = microscope_settings_id.ids['objective_spinner']
-        ms_objective_spinner.text = objective_id
+            # Update selected to be consistent with other selector
+            ms_objective_spinner = microscope_settings_id.ids['objective_spinner']
+            ms_objective_spinner.text = objective_id
 
-        # Set objective in lumascope
-        if ctx.lumaview.scope.has_turret():
-            ctx.lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
+            # Set objective in lumascope
+            if ctx.lumaview.scope.has_turret():
+                ctx.lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
 
-        ctx.lumaview.scope.set_objective(objective_id=objective_id)
+            ctx.lumaview.scope.set_objective(objective_id=objective_id)
 
-        # Update UI FOV
-        fov_size = common_utils.get_field_of_view(
-            focal_length=objective['focal_length'],
-            frame_size=settings['frame'],
-            binning_size=get_binning_from_ui(),
-        )
-        microscope_settings_id.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
-        microscope_settings_id.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
+            # Update UI FOV
+            fov_size = common_utils.get_field_of_view(
+                focal_length=objective['focal_length'],
+                frame_size=settings['frame'],
+                binning_size=get_binning_from_ui(),
+            )
+            microscope_settings_id.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
+            microscope_settings_id.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
+        except Exception as e:
+            logger.error(f'[UI] select_objective failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
+            show_notification_popup(title="Error", message=str(e))
 
 
     def _reset_run_autofocus_button(self, **kwargs):
@@ -621,40 +647,45 @@ class VerticalControl(BoxLayout):
 
     @debounce(0.5)
     def turret_select(self, selected_position, protocol=False):
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        if not ctx.lumaview.scope.has_thomed():
+        try:
+            ctx = _app_ctx.ctx
+            settings = ctx.settings
+            if not ctx.lumaview.scope.has_thomed():
+                if not protocol:
+                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.thome))
+                else:
+                    ctx.lumaview.scope.thome()
+
+            if not isinstance(selected_position, int) and not isinstance(selected_position, float):
+                if not selected_position.isdigit():
+                    selected_position = 1
+            else:
+                selected_position = int(selected_position)
+
             if not protocol:
-                ctx.io_executor.put(IOTask(ctx.lumaview.scope.thome))
+                ctx.io_executor.put(IOTask(ctx.lumaview.scope.tmove, kwargs={'position':selected_position}))
             else:
-                ctx.lumaview.scope.thome()
+                ctx.lumaview.scope.tmove(position=selected_position)
 
-        if not isinstance(selected_position, int) and not isinstance(selected_position, float):
-            if not selected_position.isdigit():
-                selected_position = 1
-        else:
-            selected_position = int(selected_position)
+            for available_position in range(1,5):
+                if selected_position == available_position:
+                    state = 'down'
 
-        if not protocol:
-            ctx.io_executor.put(IOTask(ctx.lumaview.scope.tmove, kwargs={'position':selected_position}))
-        else:
-            ctx.lumaview.scope.tmove(position=selected_position)
+                    # Check if an objective has been saved to that turret
+                    turret_position_objective = settings["turret_objectives"][selected_position]
+                    if turret_position_objective is not None:
+                        # If an objective has been assigned to the turret position, change to that objective
+                        Clock.schedule_once(lambda dt: self.update_spinner_text(selected_position), 0)
+                        Clock.schedule_once(lambda dt: self.select_objective(), 0)
 
-        for available_position in range(1,5):
-            if selected_position == available_position:
-                state = 'down'
+                else:
+                    state = 'normal'
 
-                # Check if an objective has been saved to that turret
-                turret_position_objective = settings["turret_objectives"][selected_position]
-                if turret_position_objective is not None:
-                    # If an objective has been assigned to the turret position, change to that objective
-                    Clock.schedule_once(lambda dt: self.update_spinner_text(selected_position), 0)
-                    Clock.schedule_once(lambda dt: self.select_objective(), 0)
-
-            else:
-                state = 'normal'
-
-        Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
+            Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
+        except Exception as e:
+            logger.error(f'[UI] turret_select failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
+            show_notification_popup(title="Error", message=str(e))
 
     def update_spinner_text(self, selected_position):
         settings = _app_ctx.ctx.settings

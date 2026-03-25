@@ -737,35 +737,40 @@ class MicroscopeSettings(BoxLayout):
 
 
     def select_objective(self):
-        objective_id = self.ids['objective_spinner'].text
-        gui_logger.select('OBJECTIVE', objective_id)
-        logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
-        ctx = _app_ctx.ctx
+        try:
+            objective_id = self.ids['objective_spinner'].text
+            gui_logger.select('OBJECTIVE', objective_id)
+            logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
+            ctx = _app_ctx.ctx
 
-        lumaview = ctx.lumaview
-        settings = ctx.settings
-        objective_helper = ctx.objective_helper
-        objective = objective_helper.get_objective_info(objective_id=objective_id)
-        settings['objective_id'] = objective_id
-        microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-        microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
+            lumaview = ctx.lumaview
+            settings = ctx.settings
+            objective_helper = ctx.objective_helper
+            objective = objective_helper.get_objective_info(objective_id=objective_id)
+            settings['objective_id'] = objective_id
+            microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
+            microscope_settings_id.ids['magnification_id'].text = f"{objective['magnification']}"
 
-        # Update selected to be consistent with other selector
-        vc_objective_spinner = ctx.motion_settings.ids['verticalcontrol_id'].ids['objective_spinner2']
-        vc_objective_spinner.text = objective_id
+            # Update selected to be consistent with other selector
+            vc_objective_spinner = ctx.motion_settings.ids['verticalcontrol_id'].ids['objective_spinner2']
+            vc_objective_spinner.text = objective_id
 
-        if lumaview.scope.has_turret():
-            lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
+            if lumaview.scope.has_turret():
+                lumaview.scope.set_turret_config(turret_config=settings["turret_objectives"])
 
-        lumaview.scope.set_objective(objective_id=objective_id)
+            lumaview.scope.set_objective(objective_id=objective_id)
 
-        fov_size = common_utils.get_field_of_view(
-            focal_length=objective['focal_length'],
-            frame_size=settings['frame'],
-            binning_size=get_binning_from_ui(),
-        )
-        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
-        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
+            fov_size = common_utils.get_field_of_view(
+                focal_length=objective['focal_length'],
+                frame_size=settings['frame'],
+                binning_size=get_binning_from_ui(),
+            )
+            self.ids['field_of_view_width_id'].text = str(round(fov_size['width'],0))
+            self.ids['field_of_view_height_id'].text = str(round(fov_size['height'],0))
+        except Exception as e:
+            logger.error(f'[UI] select_objective failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
+            show_notification_popup(title="Error", message=str(e))
 
     def frame_size(self):
         logger.info('[LVP Main  ] MicroscopeSettings.frame_size()')

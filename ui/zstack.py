@@ -110,119 +110,124 @@ class ZStack(FloatLayout):
 
 
     def run_zstack_acquire_from_ui(self):
-        logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
-        ctx = _app_ctx.ctx
+        try:
+            logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
+            ctx = _app_ctx.ctx
 
-        live_histo_off()
+            live_histo_off()
 
-        settings = ctx.settings
+            settings = ctx.settings
 
-        trigger_source = 'zstack'
-        run_not_started_func = self._reset_run_zstack_acquire_button
-        run_complete_func = self._zstack_run_complete
+            trigger_source = 'zstack'
+            run_not_started_func = self._reset_run_zstack_acquire_button
+            run_complete_func = self._zstack_run_complete
 
-        run_trigger_source = ctx.sequenced_capture_executor.run_trigger_source()
-        if ctx.sequenced_capture_executor.run_in_progress() and \
-            (run_trigger_source != trigger_source):
-            run_not_started_func()
-            logger.warning(f"Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}")
-            return
+            run_trigger_source = ctx.sequenced_capture_executor.run_trigger_source()
+            if ctx.sequenced_capture_executor.run_in_progress() and \
+                (run_trigger_source != trigger_source):
+                run_not_started_func()
+                logger.warning(f"Cannot start Z-Stack acquire. Run already in progress from {run_trigger_source}")
+                return
 
-        if self.ids['zstack_aqr_btn'].state == 'normal':
-            self._cleanup_at_end_of_acquire()
-            return
+            if self.ids['zstack_aqr_btn'].state == 'normal':
+                self._cleanup_at_end_of_acquire()
+                return
 
-        # Note: This will be quickly overwritten by the remaining number of scans
-        self.ids['zstack_aqr_btn'].text = 'Running Z-Stack'
+            # Note: This will be quickly overwritten by the remaining number of scans
+            self.ids['zstack_aqr_btn'].text = 'Running Z-Stack'
 
-        config = get_sequenced_capture_config_from_ui()
+            config = get_sequenced_capture_config_from_ui()
 
-        labware_id, _ = get_selected_labware()
-        objective_id, _ = get_current_objective_info()
-        zstack_positions_valid, _ = get_zstack_positions()
-        zstack_params = get_zstack_params()
-        active_layer, active_layer_config = get_active_layer_config()
-        active_layer_config['acquire'] = "image"
+            labware_id, _ = get_selected_labware()
+            objective_id, _ = get_current_objective_info()
+            zstack_positions_valid, _ = get_zstack_positions()
+            zstack_params = get_zstack_params()
+            active_layer, active_layer_config = get_active_layer_config()
+            active_layer_config['acquire'] = "image"
 
-        if not zstack_positions_valid:
-            logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
-            run_not_started_func()
-            return
+            if not zstack_positions_valid:
+                logger.info('[LVP Main  ] ZStack.acquire_zstack() -> No Z-Stack positions configured')
+                run_not_started_func()
+                return
 
-        curr_position = get_current_plate_position()
-        curr_position.update({'name': 'ZStack'})
+            curr_position = get_current_plate_position()
+            curr_position.update({'name': 'ZStack'})
 
-        positions = [
-            curr_position,
-        ]
+            positions = [
+                curr_position,
+            ]
 
-        tiling_config = TilingConfig(
-            tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json",
-        )
+            tiling_config = TilingConfig(
+                tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json",
+            )
 
-        config = {
-            'labware_id': labware_id,
-            'positions': positions,
-            'objective_id': objective_id,
-            'zstack_params': zstack_params,
-            'use_zstacking': True,
-            'tiling': tiling_config.no_tiling_label(),
-            'layer_configs': {active_layer: active_layer_config},
-            'period': None,
-            'duration': None,
-            'frame_dimensions': get_current_frame_dimensions(),
-            'binning_size': get_binning_from_ui(),
-            'stim_config': get_stim_configs(),
-        }
+            config = {
+                'labware_id': labware_id,
+                'positions': positions,
+                'objective_id': objective_id,
+                'zstack_params': zstack_params,
+                'use_zstacking': True,
+                'tiling': tiling_config.no_tiling_label(),
+                'layer_configs': {active_layer: active_layer_config},
+                'period': None,
+                'duration': None,
+                'frame_dimensions': get_current_frame_dimensions(),
+                'binning_size': get_binning_from_ui(),
+                'stim_config': get_stim_configs(),
+            }
 
-        zstack_sequence = Protocol.from_config(
-            input_config=config,
-            tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json"
-        )
+            zstack_sequence = Protocol.from_config(
+                input_config=config,
+                tiling_configs_file_loc=pathlib.Path(ctx.source_path) / "data" / "tiling.json"
+            )
 
-        autogain_settings = get_auto_gain_settings()
+            autogain_settings = get_auto_gain_settings()
 
-        callbacks = {
-            'move_position': _handle_ui_update_for_axis,
-            'update_scope_display': ctx.scope_display.update_scopedisplay,
-            'run_complete': run_complete_func,
-            'leds_off': _handle_ui_for_leds_off,
-            'led_state': _handle_ui_for_led,
-            'reset_autofocus_btns': update_autofocus_selection_after_protocol,
-            'set_recording_title': set_recording_title,
-            'set_writing_title': set_writing_title,
-            'reset_title': reset_title,
-            'pause_live_ui': lambda: (
-                ctx.scope_display.stop(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
-            ),
-            'resume_live_ui': lambda: (
-                ctx.scope_display.start(),
-                Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
-                Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1)
-            ),
-        }
+            callbacks = {
+                'move_position': _handle_ui_update_for_axis,
+                'update_scope_display': ctx.scope_display.update_scopedisplay,
+                'run_complete': run_complete_func,
+                'leds_off': _handle_ui_for_leds_off,
+                'led_state': _handle_ui_for_led,
+                'reset_autofocus_btns': update_autofocus_selection_after_protocol,
+                'set_recording_title': set_recording_title,
+                'set_writing_title': set_writing_title,
+                'reset_title': reset_title,
+                'pause_live_ui': lambda: (
+                    ctx.scope_display.stop(),
+                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui)
+                ),
+                'resume_live_ui': lambda: (
+                    ctx.scope_display.start(),
+                    Clock.unschedule(ctx.motion_settings.update_xy_stage_control_gui),
+                    Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1)
+                ),
+            }
 
-        parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
+            parent_dir = pathlib.Path(settings['live_folder']).resolve() / "Manual" / "Z-Stacks"
 
-        initial_position = get_current_plate_position()
-        image_capture_config = get_image_capture_config_from_ui()
+            initial_position = get_current_plate_position()
+            image_capture_config = get_image_capture_config_from_ui()
 
-        ctx.sequenced_capture_executor.run(
-            protocol=zstack_sequence,
-            run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-            run_trigger_source=trigger_source,
-            max_scans=1,
-            sequence_name='zstack',
-            parent_dir=parent_dir,
-            image_capture_config=image_capture_config,
-            enable_image_saving=is_image_saving_enabled(),
-            separate_folder_per_channel=False,
-            autogain_settings=autogain_settings,
-            callbacks=callbacks,
-            return_to_position=initial_position,
-            leds_state_at_end="off",
-            video_as_frames = settings['video_as_frames']
-        )
+            ctx.sequenced_capture_executor.run(
+                protocol=zstack_sequence,
+                run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
+                run_trigger_source=trigger_source,
+                max_scans=1,
+                sequence_name='zstack',
+                parent_dir=parent_dir,
+                image_capture_config=image_capture_config,
+                enable_image_saving=is_image_saving_enabled(),
+                separate_folder_per_channel=False,
+                autogain_settings=autogain_settings,
+                callbacks=callbacks,
+                return_to_position=initial_position,
+                leds_state_at_end="off",
+                video_as_frames = settings['video_as_frames']
+            )
 
-        set_last_save_folder(dir=ctx.sequenced_capture_executor.run_dir())
+            set_last_save_folder(dir=ctx.sequenced_capture_executor.run_dir())
+        except Exception as e:
+            logger.error(f'[UI] run_zstack_acquire_from_ui failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
+            show_notification_popup(title="Error", message=str(e))

@@ -59,36 +59,41 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 Clock.unschedule(self.camera_temps_event)
 
     def cam_toggle(self):
-        logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
+        try:
+            logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
 
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        io_executor = ctx.io_executor
+            ctx = _app_ctx.ctx
+            settings = ctx.settings
+            io_executor = ctx.io_executor
 
-        scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        if not self.scope.camera_active:
-            return
+            scope_display = self.ids['viewer_id'].ids['scope_display_id']
+            if not self.scope.camera_active:
+                return
 
-        if scope_display.play:
-            scope_display.play = False
-            scope_display.stop()
-            if self.scope.led_connected:
-                self.led_on_before_pause = self.scope.get_led_state(color=common_utils.get_opened_layer(ctx.image_settings))['enabled']
-                scope_commands.leds_off(self.scope, io_executor)
-                layer_obj = ctx.image_settings.layer_lookup(layer=common_utils.get_opened_layer(ctx.image_settings))
-                layer_obj.update_led_toggle_ui()
-        else:
-            if self.led_on_before_pause:
-                opened_layer = common_utils.get_opened_layer(ctx.image_settings)
-                io_executor.put(IOTask(
-                    action=self.scope.led_on,
-                    kwargs={'channel': self.scope.color2ch(opened_layer), 'mA': settings[opened_layer]['ill']}
-                ))
-                layer_obj = ctx.image_settings.layer_lookup(layer=opened_layer)
-                layer_obj.update_led_toggle_ui()
+            if scope_display.play:
+                scope_display.play = False
+                scope_display.stop()
+                if self.scope.led_connected:
+                    self.led_on_before_pause = self.scope.get_led_state(color=common_utils.get_opened_layer(ctx.image_settings))['enabled']
+                    scope_commands.leds_off(self.scope, io_executor)
+                    layer_obj = ctx.image_settings.layer_lookup(layer=common_utils.get_opened_layer(ctx.image_settings))
+                    layer_obj.update_led_toggle_ui()
+            else:
+                if self.led_on_before_pause:
+                    opened_layer = common_utils.get_opened_layer(ctx.image_settings)
+                    io_executor.put(IOTask(
+                        action=self.scope.led_on,
+                        kwargs={'channel': self.scope.color2ch(opened_layer), 'mA': settings[opened_layer]['ill']}
+                    ))
+                    layer_obj = ctx.image_settings.layer_lookup(layer=opened_layer)
+                    layer_obj.update_led_toggle_ui()
 
-            scope_display.play = True
-            scope_display.start()
+                scope_display.play = True
+                scope_display.start()
+        except Exception as e:
+            logger.error(f'[UI] cam_toggle failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
+            show_notification_popup(title="Error", message=str(e))
 
     def record_button(self):
         gui_logger.button('RECORD')
@@ -658,14 +663,19 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
         self.ids['viewer_id'].pos = (0,0)
 
     def one2one_image(self):
-        logger.info('[LVP Main  ] MainDisplay.one2one_image()')
-        if not self.scope.camera_active:
-            return
-        scope = _app_ctx.ctx.scope
-        w = self.width
-        h = self.height
-        scale_hor = float(scope.get_width()) / float(w)
-        scale_ver = float(scope.get_height()) / float(h)
-        scale = max(scale_hor, scale_ver)
-        self.ids['viewer_id'].scale = scale
-        self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))
+        try:
+            logger.info('[LVP Main  ] MainDisplay.one2one_image()')
+            if not self.scope.camera_active:
+                return
+            scope = _app_ctx.ctx.scope
+            w = self.width
+            h = self.height
+            scale_hor = float(scope.get_width()) / float(w)
+            scale_ver = float(scope.get_height()) / float(h)
+            scale = max(scale_hor, scale_ver)
+            self.ids['viewer_id'].scale = scale
+            self.ids['viewer_id'].pos = (int((w-scale*w)/2),int((h-scale*h)/2))
+        except Exception as e:
+            logger.error(f'[UI] one2one_image failed: {e}', exc_info=True)
+            from ui.notification_popup import show_notification_popup
+            show_notification_popup(title="Error", message=str(e))
