@@ -8,6 +8,30 @@ from dataclasses import dataclass, field
 # circular imports with lumaviewpro.py.
 ctx = None
 
+# Early registrations — widgets that register during KV tree construction
+# before ctx exists. Copied to ctx fields when ctx is created.
+_early_registrations = {}
+
+
+def register_early(name, value):
+    """Register a widget before ctx is created.
+
+    During Kivy's KV tree construction, widgets are created before
+    AppContext. This stores the registration and applies it to ctx
+    once ctx exists.
+    """
+    if ctx is not None:
+        setattr(ctx, name, value)
+    else:
+        _early_registrations[name] = value
+
+
+def apply_early_registrations():
+    """Copy early registrations to ctx. Called after ctx is created."""
+    for name, value in _early_registrations.items():
+        setattr(ctx, name, value)
+    _early_registrations.clear()
+
 
 @dataclass
 class AppContext:

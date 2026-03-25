@@ -797,6 +797,7 @@ class LumaViewProApp(TooltipMixin, App):
             focus_round=focus_round,
         )
         app_context.ctx = ctx  # Publish to module-level singleton for extracted modules
+        app_context.apply_early_registrations()  # Copy widgets registered during KV construction
 
         # Wire UI components now that widget tree exists
         ctx.viewer = lumaview.ids['viewer_id']
@@ -806,9 +807,6 @@ class LumaViewProApp(TooltipMixin, App):
 
         # load settings file (must be after motion_settings is wired)
         ctx.motion_settings.ids['microscope_settings_id'].load_settings("./data/current.json")
-
-        # Post-processing widgets now register directly on ctx in their __init__
-        # (stitch_controls, zprojection_controls, composite_gen_controls, video_creation_controls)
 
         # Creates and manages Tooltips
         self.init_tooltips(lumaview)

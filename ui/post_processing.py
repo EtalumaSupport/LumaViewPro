@@ -40,7 +40,7 @@ class StitchControls(BoxLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        _app_ctx.ctx.stitch_controls = self
+        _app_ctx.register_early('stitch_controls', self)
 
 
     def set_button_enabled_state(self, state: bool):
@@ -99,7 +99,7 @@ class ZProjectionControls(BoxLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        _app_ctx.ctx.zprojection_controls = self
+        _app_ctx.register_early('zprojection_controls', self)
         Clock.schedule_once(self._init_ui, 0)
         self.ij_initialized = False
         self.ij_buffer_event = None
@@ -225,7 +225,7 @@ class CompositeGenControls(BoxLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        _app_ctx.ctx.composite_gen_controls = self
+        _app_ctx.register_early('composite_gen_controls', self)
 
 
     @show_popup
@@ -295,7 +295,7 @@ class VideoCreationControls(BoxLayout):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        _app_ctx.ctx.video_creation_controls = self
+        _app_ctx.register_early('video_creation_controls', self)
 
 
     @show_popup
