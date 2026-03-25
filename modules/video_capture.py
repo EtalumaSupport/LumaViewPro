@@ -143,6 +143,9 @@ class VideoCaptureSession:
                 for t in stim_threads:
                     t.join(timeout=2.0)
                 self._leds_off()
+                # Drain queued frames to free memory on cancel
+                _drain_queue(video_images)
+                logger.info(f"[PROTOCOL-VIDEO] Cancelled — drained {captured_frames} queued frames")
                 if "reset_title" in self._callbacks:
                     from kivy.clock import Clock
                     Clock.schedule_once(
@@ -151,6 +154,13 @@ class VideoCaptureSession:
 
             # Currently only support 8-bit images for video
             image = self._scope.get_image(force_to_8bit=True)
+
+            if not isinstance(image, np.ndarray):
+                logger.warning(
+                    "[PROTOCOL-VIDEO] get_image() returned non-array "
+                    f"({type(image).__name__}) — camera may have disconnected. "
+                    "Ending video capture.")
+                break
 
             if isinstance(image, np.ndarray):
                 # Should never be used since forcing images to 8-bit

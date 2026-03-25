@@ -470,7 +470,8 @@ class SequencedCaptureExecutor:
         self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
         self._leds_state_at_end = leds_state_at_end
         self._video_as_frames = video_as_frames
-        self._autofocus_executor.reset()
+        if not self._autofocus_executor.run_in_progress():
+            self._autofocus_executor.reset()
 
         self._scan_iterate_running = False
         self._protocol_iterator = None
@@ -702,14 +703,12 @@ class SequencedCaptureExecutor:
         # when all axes are IDLE), falling back to firmware only when needed.
         if self._scope.is_moving():
             if time.monotonic() - self._step_start_time > self.STEP_TIMEOUT_SECONDS:
-                logger.error(f"[PROTOCOL] Step {self._curr_step} timed out waiting for motion ({self.STEP_TIMEOUT_SECONDS}s) — skipping step")
-                # Force advance to next step
-                num_steps = self._protocol.num_steps()
-                if self._curr_step < num_steps - 1:
-                    self._curr_step += 1
-                    self._go_to_step(step_idx=self._curr_step)
-                else:
-                    self._scan_in_progress.clear()
+                logger.error(f"[PROTOCOL] Step {self._curr_step} timed out waiting for motion ({self.STEP_TIMEOUT_SECONDS}s) — transitioning to ERROR state")
+                self._scan_in_progress.clear()
+                try:
+                    self._set_state(ProtocolState.ERROR)
+                except ValueError:
+                    pass  # Already in a terminal state
             return
         
         if not self._grease_redistribution_done:
@@ -863,7 +862,8 @@ class SequencedCaptureExecutor:
                 # off LEDs (such as in autofocus scan)
                 self._leds_off()
 
-        self._autofocus_executor.reset()
+        if not self._autofocus_executor.run_in_progress():
+            self._autofocus_executor.reset()
         # Disable autogain when moving between steps
         if step['Auto_Gain']:
             fut = self._io_executor.protocol_put(IOTask(
@@ -1216,7 +1216,12 @@ class SequencedCaptureExecutor:
                 self._scope.set_exposure_time(step['Exposure'])
 
         if self._scope.has_turret():
-            objective_short_name = self._scope.get_objective_info(objective_id=step["Objective"])['short_name']
+            obj_info = self._scope.get_objective_info(objective_id=step["Objective"])
+            if obj_info is not None:
+                objective_short_name = obj_info.get('short_name')
+            else:
+                logger.warning(f"[PROTOCOL] Turret available but no objective info for ID '{step['Objective']}' — using None for filename")
+                objective_short_name = None
         else:
             objective_short_name = None
         

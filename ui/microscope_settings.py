@@ -427,6 +427,7 @@ class MicroscopeSettings(BoxLayout):
 
                 video_config = settings[layer]['video_config']
                 DEFAULT_VIDEO_DURATION_SEC = 5
+                DEFAULT_VIDEO_FPS = 30
 
                 if video_config is None:
                     video_config = {}
@@ -434,6 +435,9 @@ class MicroscopeSettings(BoxLayout):
 
                 if 'duration' not in video_config:
                     video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
+
+                if 'fps' not in video_config or video_config['fps'] <= 0:
+                    video_config['fps'] = DEFAULT_VIDEO_FPS
 
                 settings[layer]['video_config'] = video_config
 

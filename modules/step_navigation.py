@@ -210,7 +210,8 @@ def go_to_step_update_ui(step):
     # set video config (e.g., duration) controls
     if 'Video Config' in step and isinstance(step['Video Config'], dict):
         vc = step['Video Config']
-        settings[color]['video_config'] = copy.deepcopy(vc)
+        with ctx.settings_lock:
+            settings[color]['video_config'] = copy.deepcopy(vc)
         if 'duration' in vc:
             layer_obj.ids['video_duration_text'].text = str(vc['duration'])
             layer_obj.ids['video_duration_slider'].value = float(vc['duration'])
@@ -221,7 +222,8 @@ def go_to_step_update_ui(step):
             # Update each channel's stim config
             for layer in step['Stim_Config']:
                 stim_config = step['Stim_Config'][layer]
-                settings[layer]['stim_config'] = copy.deepcopy(stim_config)
+                with ctx.settings_lock:
+                    settings[layer]['stim_config'] = copy.deepcopy(stim_config)
 
                 stim_layer_obj = ctx.image_settings.layer_lookup(layer=layer)
 
