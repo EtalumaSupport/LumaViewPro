@@ -84,6 +84,9 @@ class VideoCaptureSession:
 
         # Clamp the FPS to be no faster than the exposure rate
         exposure = step['Exposure']
+        if exposure <= 0:
+            exposure = 10  # fallback to 10ms if exposure is missing/zero
+            logger.warning(f"[PROTOCOL-VIDEO] Exposure is {step['Exposure']}, defaulting to {exposure}ms")
         exposure_freq = 1.0 / (exposure / 1000)
         fps = min(exposure_freq, 40)
 

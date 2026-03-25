@@ -1013,10 +1013,13 @@ class SequencedCaptureExecutor:
         Note: With the loop-based approach, most work happens in executor threads,
         so there's less to unschedule than before.
         """
-        if self._protocol_iterator is not None:
-            Clock.unschedule(self._protocol_iterator)
-        if self._scan_iterator is not None:
-            Clock.unschedule(self._scan_iterator)
+        try:
+            if self._protocol_iterator is not None:
+                Clock.unschedule(self._protocol_iterator)
+            if self._scan_iterator is not None:
+                Clock.unschedule(self._scan_iterator)
+        except Exception:
+            pass  # Safe to ignore — iterators may not be Clock-scheduled
 
 
     def _leds_off(self):
