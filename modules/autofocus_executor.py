@@ -325,24 +325,31 @@ class AutofocusExecutor:
                 self._last_progress_ts = time.monotonic()
                 return
 
-            # Early termination: if score has dropped well below the pass
-            # peak for 2+ consecutive positions, we've passed the focus and
-            # can skip the rest of this sweep.
-            early_stop = False
-            if len(self._af_data_pass) >= 4:
+            # INTENTIONAL: No early termination on the coarse pass. Real
+            # samples have multiple focal planes (cells + debris, thick tissue).
+            # Early stop could miss the global peak. The full range must
+            # always be swept. See AF_OPTIMIZATION_PLAN.md "Full Range Sweep Required".
+
+            # Extend scan if peak is at the edge — we need both sides
+            # of the peak for a reliable Gaussian fit. Keep going until
+            # we see 2 consecutive drops below 50% of peak.
+            if next_target > self._params['z_max'] and len(self._af_data_pass) >= 3:
                 pass_scores = [d['score'] for d in self._af_data_pass
                                if np.isfinite(d['score'])]
                 if pass_scores:
                     pass_max = max(pass_scores)
-                    if pass_max > 0:
+                    peak_idx = pass_scores.index(pass_max)
+                    # Peak is in the last 2 positions — extend the scan
+                    if peak_idx >= len(pass_scores) - 2 and pass_max > 0:
                         recent = pass_scores[-2:]
-                        if all(s < pass_max * 0.5 for s in recent):
-                            early_stop = True
-                            _af_log.info(f'  EARLY STOP: score {recent[-1]:.0f} '
-                                        f'({recent[-1]/pass_max*100:.0f}% of peak {pass_max:.0f})')
+                        if not all(s < pass_max * 0.5 for s in recent):
+                            self._params['z_max'] += resolution
+                            _af_log.info(f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}')
+                            self._move_relative_position(pos=resolution)
+                            return
 
             # Measure next step?
-            if next_target <= self._params['z_max'] and not early_stop:
+            if next_target <= self._params['z_max']:
                 self._move_relative_position(pos=resolution)
                 return
 
