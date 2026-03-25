@@ -35,7 +35,7 @@ def init_environment(main_file: str) -> AppEnvironment:
     basename = os.path.basename(main_file)
     script_path = abspath[:-len(basename)]
 
-    print(f"Script Location: {script_path}")
+    _logger.info(f"Script Location: {script_path}")
 
     windows_machine = os.name == "nt"
 
@@ -72,7 +72,7 @@ def init_environment(main_file: str) -> AppEnvironment:
 
     # Determine source_path (data directory)
     if windows_machine and lvp_installed:
-        print("Machine-Type - WINDOWS")
+        _logger.info("Machine-Type - WINDOWS")
         import userpaths
         documents_folder = userpaths.get_my_documents()
         # Use base version (without hash) for folder name
@@ -83,7 +83,7 @@ def init_environment(main_file: str) -> AppEnvironment:
             os.mkdir(lvp_appdata)
 
         source_path = lvp_appdata
-        print(f"Data Location: {source_path}")
+        _logger.info(f"Data Location: {source_path}")
 
         if not os.path.exists(os.path.join(lvp_appdata, "data")):
             shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
@@ -92,14 +92,14 @@ def init_environment(main_file: str) -> AppEnvironment:
             shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
 
     elif windows_machine and not lvp_installed:
-        print("Machine-Type - WINDOWS (not installed)")
+        _logger.info("Machine-Type - WINDOWS (not installed)")
         source_path = script_path
     else:
-        print("Machine-Type - NON-WINDOWS")
+        _logger.info("Machine-Type - NON-WINDOWS")
         source_path = script_path
 
     num_cores = os.cpu_count()
-    print(f"Num cores identified as {num_cores}")
+    _logger.info(f"Num cores identified as {num_cores}")
 
     return AppEnvironment(
         script_path=script_path,

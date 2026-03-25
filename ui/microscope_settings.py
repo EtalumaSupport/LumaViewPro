@@ -16,6 +16,7 @@ from kivy.uix.boxlayout import BoxLayout
 import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
+from modules import gui_logger
 from modules.config_ui_getters import get_binning_from_ui, get_current_frame_dimensions, get_selected_labware
 from modules.common_utils import CustomJSONizer
 from modules.scope_init_config import ScopeInitConfig
@@ -159,6 +160,7 @@ class MicroscopeSettings(BoxLayout):
     def live_view_fps_slider(self):
         ctx = _app_ctx.ctx
         fps_val = int(self.ids['live_view_fps_slider'].value)
+        gui_logger.slider('FPS', fps_val)
         # Values above 60 mean "uncapped" — store 0 as sentinel
         if fps_val > 60:
             fps_val = 0
@@ -680,6 +682,7 @@ class MicroscopeSettings(BoxLayout):
         spinner.values = list(self.scopes.keys())
 
     def select_scope(self):
+        gui_logger.select('SCOPE', self.ids['scope_spinner'].text)
         logger.info('[LVP Main  ] MicroscopeSettings.select_scope()')
         ctx = _app_ctx.ctx
         settings = ctx.settings
@@ -734,14 +737,14 @@ class MicroscopeSettings(BoxLayout):
 
 
     def select_objective(self):
+        objective_id = self.ids['objective_spinner'].text
+        gui_logger.select('OBJECTIVE', objective_id)
         logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
         ctx = _app_ctx.ctx
 
         lumaview = ctx.lumaview
         settings = ctx.settings
         objective_helper = ctx.objective_helper
-
-        objective_id = self.ids['objective_spinner'].text
         objective = objective_helper.get_objective_info(objective_id=objective_id)
         settings['objective_id'] = objective_id
         microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']

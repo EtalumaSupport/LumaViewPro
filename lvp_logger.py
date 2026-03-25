@@ -78,6 +78,7 @@ REST_API_LOG_FILE = os.path.join(log_dir, 'lumaviewpro_rest_api.log')
 SERIAL_LOG_FILE = os.path.join(log_dir, 'serial.log')
 AUTOFOCUS_LOG_FILE = os.path.join(log_dir, 'autofocus.log')
 API_LOG_FILE = os.path.join(log_dir, 'api.log')
+GUI_LOG_FILE = os.path.join(log_dir, 'gui_interactions.log')
 
 # CustomFormatter class enables change in log format depending on log level 
 class CustomFormatter(logging.Formatter):
@@ -325,6 +326,22 @@ def enable_engineering_logs(enabled: bool):
 logger.addHandler(file_handler)
 logger.addHandler(error_file_handler)
 logger.addHandler(rest_api_handler)
+
+# GUI interaction log — every user action for crash forensics
+# WORKAROUND: INFO level during beta. Move to DEBUG once stable.
+gui_handler = RotatingFileHandler(
+    GUI_LOG_FILE, maxBytes=5*1024*1024, backupCount=2, encoding='utf-8')
+gui_handler.setFormatter(CustomFormatter())
+gui_handler.setLevel(logging.INFO)
+gui_logger = logging.getLogger('LVP.gui_interactions')
+gui_logger.addHandler(gui_handler)
+gui_logger.propagate = False
+
+# Route Kivy framework errors to LVP main log + errors log
+kivy_logger = logging.getLogger('kivy')
+kivy_logger.addHandler(file_handler)
+kivy_logger.addHandler(error_file_handler)
+kivy_logger.propagate = False
 
 # Give LVP.* loggers the same file handlers so their output is captured
 _lvp_parent.addHandler(file_handler)

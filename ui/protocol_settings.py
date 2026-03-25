@@ -43,6 +43,7 @@ from modules.sequential_io_executor import IOTask
 from modules.step_navigation import go_to_step
 from modules.tiling_config import TilingConfig
 from modules.timedelta_formatter import strfdelta
+from modules import gui_logger
 from modules.ui_helpers import (
     _handle_ui_for_led,
     _handle_ui_for_leds_off,
@@ -405,10 +406,19 @@ class ProtocolSettings(FloatLayout):
 
         config = get_sequenced_capture_config_from_ui()
         source_path = ctx.source_path
-        protocol = Protocol.from_config(
-            input_config=config,
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
-        )
+        try:
+            protocol = Protocol.from_config(
+                input_config=config,
+                tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+            )
+        except Exception as e:
+            logger.error(f'[LVP Main  ] Protocol creation failed: {e}')
+            from ui.notification_popup import show_notification_popup
+            show_notification_popup(
+                title="Protocol Creation Error",
+                message=str(e),
+            )
+            return
 
         protocol_executor = _app_ctx.ctx.protocol_executor
         protocol_executor.put(IOTask(
@@ -498,6 +508,7 @@ class ProtocolSettings(FloatLayout):
 
     # Load Protocol from File
     def load_protocol(self, filepath="./data/new_default_protocol.tsv"):
+        gui_logger.protocol_action('LOAD', filepath)
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
         source_path = ctx.source_path
@@ -629,6 +640,7 @@ class ProtocolSettings(FloatLayout):
 
     # Save Protocol to File
     def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
+        gui_logger.protocol_action('SAVE', filepath)
         settings = _app_ctx.ctx.settings
 
         logger.info('[LVP Main  ] ProtocolSettings.save_protocol()')
@@ -1112,6 +1124,7 @@ class ProtocolSettings(FloatLayout):
         logger.info(f'[Protocol  ] BF AF for fluorescence: {enabled}')
 
     def run_autofocus_scan_from_ui(self):
+        gui_logger.protocol_action('AF_SCAN_START')
         from ui.notification_popup import show_notification_popup
 
         logger.info('[LVP Main  ] ProtocolSettings.run_autofocus_scan_from_ui()')
@@ -1476,6 +1489,7 @@ class ProtocolSettings(FloatLayout):
 
 
     def run_protocol_from_ui(self):
+        gui_logger.protocol_action('RUN')
         from ui.notification_popup import show_notification_popup
 
         logger.info('[LVP Main  ] ProtocolSettings.run_protocol_from_ui()')

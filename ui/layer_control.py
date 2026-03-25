@@ -10,6 +10,7 @@ from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+from modules import gui_logger
 import modules.scope_commands as scope_commands
 from modules.sequential_io_executor import IOTask
 
@@ -105,6 +106,8 @@ class LayerControl(BoxLayout):
         if not self._initializing:
             logger.info('[LVP Main  ] LayerControl.ill_slider()')
         illumination = round(self.ids['ill_slider'].value)  # Round to integer (step=1)
+        if not self._initializing:
+            gui_logger.slider(f'ILLUMINATION_{self.layer}', illumination)
         settings[self.layer]['ill'] = illumination
 
         if 'stim_config' in settings[self.layer]:
@@ -281,6 +284,8 @@ class LayerControl(BoxLayout):
         if not self._initializing:
             logger.info('[LVP Main  ] LayerControl.gain_slider()')
         gain = round(self.ids['gain_slider'].value, 1)  # Round to 1 decimal (step=0.1)
+        if not self._initializing:
+            gui_logger.slider(f'GAIN_{self.layer}', gain)
         settings[self.layer]['gain'] = gain
         # Update text only if changed to reduce ScrollView recalculations
         new_text = str(gain)
@@ -340,6 +345,8 @@ class LayerControl(BoxLayout):
         if not self._initializing:
             logger.info('[LVP Main  ] LayerControl.exp_slider()')
         exposure = round(self.ids['exp_slider'].value, 2)  # Round to 2 decimals (step=0.01)
+        if not self._initializing:
+            gui_logger.slider(f'EXPOSURE_{self.layer}', exposure)
         # exposure = 10 ** self.ids['exp_slider'].value # slider is log_10(ms)
         settings[self.layer]['exp'] = exposure        # exposure in ms
         # Update text only if changed to reduce ScrollView recalculations
@@ -573,6 +580,7 @@ class LayerControl(BoxLayout):
         settings = _app_ctx.ctx.settings
         camera_executor = _app_ctx.ctx.camera_executor
         enabled = True if self.ids['enable_led_btn'].state == 'down' else False
+        gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['ill']
 
         if apply_settings:

@@ -22,7 +22,11 @@ def load_log_level():
             continue
 
         with open(settings_file, 'r') as fp:
-            data = json.load(fp)
+            try:
+                data = json.load(fp)
+            except json.JSONDecodeError as e:
+                logger.warning(f'Failed to parse {settings_file}: {e}')
+                continue
 
             try:
                 log_level = logging.getLevelName(data['logging']['default']['level'])
@@ -40,7 +44,11 @@ def get_lvp_lock_port() -> int:
             continue
 
         with open(settings_file, 'r') as fp:
-            data = json.load(fp)
+            try:
+                data = json.load(fp)
+            except json.JSONDecodeError as e:
+                logger.warning(f'Failed to parse {settings_file}: {e}')
+                continue
 
             try:
                 return data['lvp_lock_port']
@@ -57,7 +65,11 @@ def load_autofocus_log_enable():
             continue
 
         with open(settings_file, 'r') as fp:
-            data = json.load(fp)
+            try:
+                data = json.load(fp)
+            except json.JSONDecodeError as e:
+                logger.warning(f'Failed to parse {settings_file}: {e}')
+                continue
 
             try:
                 if data['logging']['autofocus']:
@@ -74,7 +86,11 @@ def load_mode() -> bool:
             continue
 
         with open(settings_file, 'r') as fp:
-            data = json.load(fp)
+            try:
+                data = json.load(fp)
+            except json.JSONDecodeError as e:
+                logger.warning(f'Failed to parse {settings_file}: {e}')
+                continue
 
             try:
                 mode = data['mode']

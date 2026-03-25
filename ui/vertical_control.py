@@ -18,6 +18,7 @@ from modules.config_ui_getters import (
     get_selected_labware,
     get_stim_configs,
 )
+from modules import gui_logger
 from modules.debounce import debounce
 from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
@@ -235,6 +236,7 @@ class VerticalControl(BoxLayout):
 
     @debounce(1.0)
     def home(self):
+        gui_logger.button('HOME_Z')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.home()')
         ctx.io_executor.put(IOTask(action=move_home, kwargs={"axis":'Z'}))
@@ -252,6 +254,7 @@ class VerticalControl(BoxLayout):
 
 
     def select_objective(self):
+        gui_logger.select('OBJECTIVE', self.ids['objective_spinner2'].text)
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.select_objective()')
         settings = ctx.settings
@@ -328,6 +331,7 @@ class VerticalControl(BoxLayout):
 
 
     def run_autofocus_from_ui(self):
+        gui_logger.button('AUTOFOCUS')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.run_autofocus_from_ui()')
         settings = ctx.settings
@@ -542,6 +546,7 @@ class VerticalControl(BoxLayout):
 
     @debounce(1.0)
     def turret_home(self):
+        gui_logger.button('HOME_TURRET')
         ctx = _app_ctx.ctx
         def _on_turret_homed():
             Clock.schedule_once(lambda dt: self._reset_turret_buttons(), 0)

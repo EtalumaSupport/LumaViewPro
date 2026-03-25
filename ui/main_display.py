@@ -18,6 +18,7 @@ from kivy.clock import Clock
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+from modules import gui_logger
 import modules.image_utils as image_utils
 import modules.scope_commands as scope_commands
 from modules.sequential_io_executor import IOTask
@@ -90,6 +91,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
             scope_display.start()
 
     def record_button(self):
+        gui_logger.button('RECORD')
         from ui.notification_popup import show_notification_popup
 
         if self.recording.is_set():

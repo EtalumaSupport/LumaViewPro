@@ -3041,9 +3041,9 @@ class Lumascope():
                 color=color
             )
 
-            print(f'[SCOPE API ] Saving Image to {file_loc}')
+            logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
         except Exception:
-            print(f"[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist? {file_loc}")
+            logger.error(f"[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist? {file_loc}")
             raise CaptureError(f"Unable to save image to {file_loc}")
 
         return file_loc
