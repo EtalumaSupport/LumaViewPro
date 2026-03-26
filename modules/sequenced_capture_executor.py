@@ -546,6 +546,14 @@ class SequencedCaptureExecutor:
                     try:
                         if not self._scope.are_all_connected():
                             logger.error("[PROTOCOL] Hardware disconnected during run — aborting protocol")
+                            def _show_hw_error(dt):
+                                try:
+                                    from ui.notification_popup import show_notification_popup
+                                    show_notification_popup(title="Protocol Aborted",
+                                        message="Hardware disconnected during protocol run.")
+                                except Exception:
+                                    pass
+                            _schedule_ui(_show_hw_error)
                             if self._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                                 self._set_state(ProtocolState.ERROR)
                             self._cleanup()
@@ -650,6 +658,14 @@ class SequencedCaptureExecutor:
 
             except Exception as ex:
                 logger.error(f"[Protocol] Error during run loop: {ex}", exc_info=True)
+                err_msg = str(ex)
+                def _show_run_error(dt, m=err_msg):
+                    try:
+                        from ui.notification_popup import show_notification_popup
+                        show_notification_popup(title="Protocol Error", message=m)
+                    except Exception:
+                        pass
+                _schedule_ui(_show_run_error)
                 if self._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE, ProtocolState.ERROR):
                     try:
                         self._set_state(ProtocolState.ERROR)
@@ -695,6 +711,14 @@ class SequencedCaptureExecutor:
                 
             except Exception as ex:
                 logger.error(f"[Scan] Error during scan loop: {ex}", exc_info=True)
+                scan_err = str(ex)
+                def _show_scan_error(dt, m=scan_err):
+                    try:
+                        from ui.notification_popup import show_notification_popup
+                        show_notification_popup(title="Protocol Scan Error", message=m)
+                    except Exception:
+                        pass
+                _schedule_ui(_show_scan_error)
                 self._scan_in_progress.clear()
                 break
 
@@ -726,7 +750,15 @@ class SequencedCaptureExecutor:
         # when all axes are IDLE), falling back to firmware only when needed.
         if self._scope.is_moving():
             if time.monotonic() - self._step_start_time > self.STEP_TIMEOUT_SECONDS:
-                logger.error(f"[PROTOCOL] Step {self._curr_step} timed out waiting for motion ({self.STEP_TIMEOUT_SECONDS}s) — transitioning to ERROR state")
+                timeout_msg = f"Step {self._curr_step} timed out waiting for motion ({self.STEP_TIMEOUT_SECONDS}s)."
+                logger.error(f"[PROTOCOL] {timeout_msg} — transitioning to ERROR state")
+                def _show_timeout_error(dt, m=timeout_msg):
+                    try:
+                        from ui.notification_popup import show_notification_popup
+                        show_notification_popup(title="Protocol Error — Motion Timeout", message=m)
+                    except Exception:
+                        pass
+                _schedule_ui(_show_timeout_error)
                 self._scan_in_progress.clear()
                 try:
                     self._set_state(ProtocolState.ERROR)
