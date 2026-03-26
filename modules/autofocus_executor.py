@@ -9,6 +9,25 @@ import typing
 
 from lvp_logger import logger
 
+try:
+    from kivy.clock import Clock
+except ImportError:
+    class Clock:
+        @staticmethod
+        def schedule_once(func, timeout): func(0)
+
+
+def _schedule_ui(func, timeout=0):
+    """Schedule on Kivy main thread, or call directly in tests."""
+    try:
+        from kivy.base import EventLoop
+        if EventLoop.status == 'started':
+            Clock.schedule_once(func, timeout)
+            return
+    except Exception:
+        pass
+    func(0)
+
 import threading
 
 _af_log = logging.getLogger('LVP.autofocus')
@@ -197,10 +216,7 @@ class AutofocusExecutor:
                 import logging as _logging
                 _logging.getLogger().error(f"[AF] Error during loop: {ex}", exc_info=True)
                 if 'complete' in self._callbacks:
-                    if self._use_kivy_clock:
-                        self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
-                    else:
-                        self._callbacks['complete']()
+                    _schedule_ui(lambda dt: self._callbacks['complete']())
                 break
 
     def cancel(self):
@@ -250,7 +266,7 @@ class AutofocusExecutor:
         #     self._is_complete = False
         #     if 'complete' in self._callbacks:
         #         # Use UI thread to reset button if caller wired it
-        #         self._kivy_clock_module.Clock.schedule_once(lambda dt: self._callbacks['complete'](), 0)
+        #         self._kivy_clock_module._schedule_ui(lambda dt: self._callbacks['complete']())
         #     return
 
             if not self._is_focusing:
@@ -438,7 +454,7 @@ class AutofocusExecutor:
                 self._af_in_progress.clear()
 
                 if 'complete' in self._callbacks:
-                    self._callbacks['complete']()
+                    _schedule_ui(lambda dt: self._callbacks['complete']())
 
                 self._best_focus_position = best_focus_position
                 return
@@ -502,13 +518,13 @@ class AutofocusExecutor:
     def _move_absolute_position(self, pos):
         self._scope.move_absolute_position('Z', pos)
         if 'move_position' in self._callbacks:
-            self._callbacks['move_position']('Z')
+            _schedule_ui(lambda dt: self._callbacks['move_position']('Z'))
 
 
     def _move_relative_position(self, pos):
         self._scope.move_relative_position('Z', pos)
         if 'move_position' in self._callbacks:
-            self._callbacks['move_position']('Z')
+            _schedule_ui(lambda dt: self._callbacks['move_position']('Z'))
 
 
     def in_progress(self) -> bool:

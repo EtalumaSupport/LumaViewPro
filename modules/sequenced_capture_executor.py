@@ -21,14 +21,29 @@ from modules.video_capture import VideoCaptureSession, write_video
 try:
     from kivy.clock import Clock
 except ImportError:
-    # Dummy Clock for subprocess
+    # Dummy Clock for non-Kivy environments (subprocess without kivy installed).
     class Clock:
         @staticmethod
-        def schedule_once(func, timeout): pass
+        def schedule_once(func, timeout): func(0)
         @staticmethod
         def schedule_interval(func, interval): pass
-        @staticmethod
-        def unschedule(callback): pass
+
+
+def _schedule_ui(func, timeout=0):
+    """Schedule a function on the Kivy main thread, or call directly if
+    no Kivy event loop is running (e.g., in tests).
+    Same signature as Clock.schedule_once — func receives dt argument.
+    """
+    try:
+        from kivy.base import EventLoop
+        if EventLoop.status == 'started':
+            Clock.schedule_once(func, timeout)
+            return
+    except Exception:
+        pass
+    # No Kivy event loop — call directly (test/headless mode)
+    func(0)
+
 
 from modules.lumascope_api import Lumascope
 
@@ -560,17 +575,17 @@ class SequencedCaptureExecutor:
                 
                 # Time for next scan
                 if 'protocol_iterate_pre' in self._callbacks:
-                    Clock.schedule_once(
+                    _schedule_ui(
                         lambda dt: self._callbacks['protocol_iterate_pre'](
-                            remaining_scans=remaining_scans, 
+                            remaining_scans=remaining_scans,
                             interval=self._protocol.period()
-                        ), 0
+                        )
                     )
                 
                 # Initialize scan variables
                 self._curr_step = 0
                 if 'run_scan_pre' in self._callbacks:
-                    self._callbacks['run_scan_pre']()
+                    _schedule_ui(lambda dt: self._callbacks['run_scan_pre'](), 0)
                 
                 # Check disk space once per scan: 10 MB/image + 500 MB/video, minimum 2 GB
                 try:
@@ -618,7 +633,7 @@ class SequencedCaptureExecutor:
                 logger.debug(f"[{self.LOGGER_NAME}] Scan {self._scan_count}/{self._n_scans} completed")
                 
                 if 'scan_iterate_post' in self._callbacks and self._callbacks['scan_iterate_post'] is not None:
-                    Clock.schedule_once(lambda dt: self._callbacks['scan_iterate_post'](), 0)
+                    _schedule_ui(lambda dt: self._callbacks['scan_iterate_post'](), 0)
                 
                 # Clear the flag so we know scan is done
                 self._scan_in_progress.clear()
@@ -718,7 +733,7 @@ class SequencedCaptureExecutor:
             return
         
         if self._z_ui_update_func is not None:
-            Clock.schedule_once(lambda dt: self._z_ui_update_func(float(step['Z'])), 0)
+            _schedule_ui(lambda dt: self._z_ui_update_func(float(step['Z'])))
 
         # --- Pipeline timing instrumentation ---
         _t_settle = time.monotonic()
@@ -773,7 +788,7 @@ class SequencedCaptureExecutor:
         if step['Auto_Focus'] and not self._autofocus_executor.complete() and not self._autofocus_executor.in_progress():
 
             if 'autofocus_in_progress' in self._callbacks:
-                self._callbacks['autofocus_in_progress']()
+                _schedule_ui(lambda dt: self._callbacks['autofocus_in_progress'](), 0)
 
             af_executor_callbacks = {}
             if 'move_position' in self._callbacks:
@@ -819,7 +834,7 @@ class SequencedCaptureExecutor:
 
         # reset the is_complete flag on autofocus
         if 'autofocus_complete' in self._callbacks:
-            self._callbacks['autofocus_complete']()
+            _schedule_ui(lambda dt: self._callbacks['autofocus_complete'](), 0)
 
         if step["Auto_Focus"]:
             self._autofocus_count += 1
@@ -885,7 +900,7 @@ class SequencedCaptureExecutor:
             self._curr_step = min(self._curr_step+1, num_steps-1)
 
             if 'update_step_number' in self._callbacks:
-                Clock.schedule_once(lambda dt: self._callbacks['update_step_number'](self._curr_step+1), 0)
+                _schedule_ui(lambda dt: self._callbacks['update_step_number'](self._curr_step+1), 0)
             self._go_to_step(step_idx=self._curr_step)
             return
 
@@ -930,18 +945,18 @@ class SequencedCaptureExecutor:
             self._scope.move_absolute_position('X', sx)
             self._target_x_pos = sx
             if 'move_position' in self._callbacks:
-                Clock.schedule_once(lambda dt: self._callbacks['move_position']('X'), 0)
+                _schedule_ui(lambda dt: self._callbacks['move_position']('X'), 0)
 
             self._scope.move_absolute_position('Y', sy)
             self._target_y_pos = sy
             if 'move_position' in self._callbacks:
-                Clock.schedule_once(lambda dt: self._callbacks['move_position']('Y'), 0)
+                _schedule_ui(lambda dt: self._callbacks['move_position']('Y'), 0)
 
             if z is not None:
                 self._scope.move_absolute_position('Z', z)
                 self._target_z_pos = z
                 if 'move_position' in self._callbacks:
-                    Clock.schedule_once(lambda dt: self._callbacks['move_position']('Z'), 0)
+                    _schedule_ui(lambda dt: self._callbacks['move_position']('Z'), 0)
 
 
     STEP_TIMEOUT_SECONDS = 120  # Max time to wait for a single step (motion + capture)
@@ -987,7 +1002,7 @@ class SequencedCaptureExecutor:
         )
 
         if 'move_position' in self._callbacks:
-            self._callbacks['move_position'](axis)
+            _schedule_ui(lambda dt, a=axis: self._callbacks['move_position'](a))
 
         self._scope.move_absolute_position(
             axis=axis,
@@ -997,7 +1012,7 @@ class SequencedCaptureExecutor:
         )
 
         if 'move_position' in self._callbacks:
-            self._callbacks['move_position'](axis)
+            _schedule_ui(lambda dt, a=axis: self._callbacks['move_position'](a))
 
         elapsed = time.monotonic() - _t_start
         if elapsed > 30:
@@ -1035,7 +1050,7 @@ class SequencedCaptureExecutor:
             except Exception as ex:
                 logger.warning(f"[{self.LOGGER_NAME}] Direct leds_off fallback failed: {ex}")
         if 'leds_off' in self._callbacks:
-            self._callbacks['leds_off']()
+            _schedule_ui(lambda dt: self._callbacks['leds_off'](), 0)
 
 
     def _led_on(self, color: str, illumination: float, block: bool=True, force: bool=False):
@@ -1056,7 +1071,7 @@ class SequencedCaptureExecutor:
         time.sleep(0.005)
 
         if 'led_state' in self._callbacks:
-            self._callbacks['led_state'](layer=color, enabled=True)
+            _schedule_ui(lambda dt, c=color: self._callbacks['led_state'](layer=c, enabled=True))
 
 
     def _cleanup(self):
@@ -1105,6 +1120,7 @@ class SequencedCaptureExecutor:
                 logger.error(f"Unsupported LEDs state at end value: {self._leds_state_at_end}")
         except Exception as ex:
             logger.error(f"[PROTOCOL] Error restoring LED states during cleanup: {ex}")
+        logger.info(f"[{self.LOGGER_NAME}] Cleanup: LED/camera restore complete")
 
         # Always return autofocus states to initial
         try:
@@ -1121,7 +1137,7 @@ class SequencedCaptureExecutor:
                         settings[layer]["autofocus"] = layer_data
                 if self._callbacks.get('reset_autofocus_btns'):
                     # Updates autofocus buttons to their prior states
-                    Clock.schedule_once(lambda dt: self._callbacks['reset_autofocus_btns'](), 0)
+                    _schedule_ui(lambda dt: self._callbacks['reset_autofocus_btns'](), 0)
         except Exception as ex:
             logger.error(f"[PROTOCOL] Error restoring autofocus states during cleanup: {ex}")
 
@@ -1145,11 +1161,13 @@ class SequencedCaptureExecutor:
 
         try:
             if self._return_to_position is not None:
+                logger.info(f"[{self.LOGGER_NAME}] Cleanup: returning to position x={self._return_to_position['x']}, y={self._return_to_position['y']}, z={self._return_to_position['z']}")
                 self._default_move(
                     px=self._return_to_position['x'],
                     py=self._return_to_position['y'],
                     z=self._return_to_position['z'],
                 )
+                logger.info(f"[{self.LOGGER_NAME}] Cleanup: return-to-position move issued")
         except Exception as ex:
             logger.error(f"[PROTOCOL] Error returning to position during cleanup: {ex}")
 
@@ -1161,6 +1179,7 @@ class SequencedCaptureExecutor:
         self.protocol_executor.protocol_end()
         self.autofocus_io_executor.protocol_end()
         self.camera_executor.enable()
+        logger.info(f"[{self.LOGGER_NAME}] Cleanup: protocol_end called on all executors")
 
         self._io_executor.clear_protocol_pending()
         self.protocol_executor.clear_protocol_pending()
@@ -1172,25 +1191,29 @@ class SequencedCaptureExecutor:
                 self._set_state(ProtocolState.IDLE)
 
         # Handle file queue completion with deferred callback
-        if self.file_io_executor.is_protocol_queue_active():
+        _file_queue_active = self.file_io_executor.is_protocol_queue_active()
+        logger.info(f"[{self.LOGGER_NAME}] Cleanup: file queue active={_file_queue_active}")
+        if _file_queue_active:
             # Queue has pending work - call run_complete now for UI update,
             # but also register a deferred callback for final completion
             if 'run_complete' in self._callbacks:
-                self._callbacks['run_complete'](protocol=self._protocol)
+                _schedule_ui(lambda dt: self._callbacks['run_complete'](protocol=self._protocol), 0)
 
             # Register deferred callback for when queue actually drains
             if 'files_complete' in self._callbacks:
                 self.file_io_executor.set_protocol_complete_callback(
-                    callback=lambda: self._callbacks['files_complete'](protocol=self._protocol)
+                    callback=lambda: _schedule_ui(lambda dt: self._callbacks['files_complete'](protocol=self._protocol), 0)
                 )
             self.file_io_executor.protocol_finish_then_end()
+            logger.info(f"[{self.LOGGER_NAME}] Cleanup: callbacks scheduled (run_complete now, files_complete deferred)")
         else:
             # No pending work - call both callbacks immediately
             if 'run_complete' in self._callbacks:
-                self._callbacks['run_complete'](protocol=self._protocol)
+                _schedule_ui(lambda dt: self._callbacks['run_complete'](protocol=self._protocol), 0)
             if 'files_complete' in self._callbacks:
-                self._callbacks['files_complete'](protocol=self._protocol)
+                _schedule_ui(lambda dt: self._callbacks['files_complete'](protocol=self._protocol), 0)
             self.file_io_executor.protocol_finish_then_end()
+            logger.info(f"[{self.LOGGER_NAME}] Cleanup: callbacks scheduled (run_complete + files_complete immediate)")
 
 
     def _capture(
