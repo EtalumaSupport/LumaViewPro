@@ -891,7 +891,16 @@ class LumaViewProApp(TooltipMixin, App):
 
 
         logger.info("[LVP Main  ] lumaview.scope.leds_off()")
-        lumaview.scope.leds_off()
+        try:
+            # Use a thread with timeout to avoid blocking MainThread
+            # if workers still hold _hw_lock
+            t = threading.Thread(target=lumaview.scope.leds_off, daemon=True)
+            t.start()
+            t.join(timeout=2.0)  # Wait max 2 seconds
+            if t.is_alive():
+                logger.warning('[LVP Main  ] leds_off timed out during shutdown')
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] leds_off failed during shutdown: {e}')
 
         ctx.motion_settings.ids['microscope_settings_id'].save_settings("./data/current.json")
 

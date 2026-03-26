@@ -65,10 +65,11 @@ class CompositeCapture(FloatLayout):
             logger.warning('[LVP Main  ] Capture already in progress, ignoring')
             return
         CompositeCapture._capturing.set()
-        try:
-            self._live_capture_impl()
-        finally:
-            CompositeCapture._capturing.clear()
+        ctx = _app_ctx.ctx
+        ctx.camera_executor.put(IOTask(
+            action=self._live_capture_impl,
+            callback=lambda: CompositeCapture._capturing.clear()
+        ))
 
     def _live_capture_impl(self):
         from modules.config_ui_getters import get_layer_configs

@@ -7,6 +7,7 @@ import math
 import os
 import pathlib
 import threading
+import time
 
 import numpy as np
 
@@ -632,6 +633,7 @@ class MicroscopeSettings(BoxLayout):
         if isinstance(file, str) and (file[-5:].lower() != '.json'):
                 file = file+'.json'
 
+        t0 = time.monotonic()
         with ctx.settings_lock:
             settings_snapshot = copy.deepcopy(settings)
         # Resolve relative paths against source_path instead of relying on CWD
@@ -639,6 +641,9 @@ class MicroscopeSettings(BoxLayout):
             file = os.path.join(ctx.source_path, file)
         with open(file, "w") as write_file:
             json.dump(settings_snapshot, write_file, indent = 4, cls=CustomJSONizer)
+        dt = time.monotonic() - t0
+        if dt > 0.1:
+            logger.warning(f'[LVP Main  ] save_settings took {dt*1000:.0f}ms')
 
 
     def load_binning_sizes(self):
