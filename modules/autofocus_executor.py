@@ -268,13 +268,10 @@ class AutofocusExecutor:
                 self._is_focusing = False
                 return
 
-            # Wait for mechanical settle after motor reports arrival.
-            # With Vstop=1000 the motor may still be decelerating through
-            # the last microsteps when target_reached fires. Drain 2 frames
-            # to let the stage physically stop before scoring.
-            # TODO: reduce/remove after Vstop is lowered in firmware
-            self._scope.get_image(force_new_capture=True)  # drain frame 1
-            self._scope.get_image(force_new_capture=True)  # drain frame 2
+            # REMOVED: 2-frame drain was a workaround for VSTOP=1000 motor
+            # overshoot. Now that set_motor_precision_mode() sets VSTOP=100
+            # for the fine pass, the motor fully decelerates before reporting
+            # target_reached. The drain is no longer needed.
 
             image = False
             num_retries = 5

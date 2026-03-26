@@ -269,6 +269,7 @@ class PylonCamera(Camera):
                 camera.UserSetLoad.Execute()
                 self.set_pixel_format(pixel_format='Mono8')
                 self.auto_gain(state=False)
+                self.gain(0.0)  # Set explicit gain — camera default after UserSetLoad is undefined
                 camera.ReverseX.SetValue(True)
                 if not self._use_camera_emulation:
                     self.init_auto_gain_focus()

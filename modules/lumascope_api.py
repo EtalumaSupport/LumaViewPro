@@ -1778,6 +1778,9 @@ class Lumascope():
         """
 
         if not self.camera or not self.camera.active: return
+        if t < 0.1:
+            logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is very low — '
+                           f'image will be nearly black. Value should be in milliseconds.')
         with self._hw_lock:
             self.camera.exposure_t(t)
         self.frame_validity.invalidate('exposure')
