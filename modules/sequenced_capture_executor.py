@@ -604,10 +604,16 @@ class SequencedCaptureExecutor:
                                 estimated_mb += 5   # 1900x1900 8-bit TIFF ~3.6MB
                         required_mb = max(2048, estimated_mb)
                         if free_mb < required_mb:
-                            logger.error(
-                                f"[PROTOCOL] Insufficient disk space ({free_mb:.0f} MB free, "
-                                f"need {required_mb:.0f} MB for {num_steps} steps) — aborting protocol"
-                            )
+                            msg = (f"Insufficient disk space: {free_mb:.0f} MB free, "
+                                   f"need ~{required_mb:.0f} MB for {num_steps} steps.")
+                            logger.error(f"[PROTOCOL] {msg} — aborting protocol")
+                            def _show_disk_error(dt, m=msg):
+                                try:
+                                    from ui.notification_popup import show_notification_popup
+                                    show_notification_popup(title="Protocol Aborted", message=m)
+                                except Exception:
+                                    pass
+                            _schedule_ui(_show_disk_error)
                             self._protocol_ended.set()
                             break
                 except Exception:
