@@ -773,7 +773,7 @@ class SequencedCaptureExecutor:
             bf_af_for_fluor = _app_ctx.ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence', False)
         except Exception:
             pass
-        if bf_af_for_fluor and step['Auto_Focus'] and step['Color'] != 'BF':
+        if bf_af_for_fluor and step['Color'] != 'BF':
             # Use the BF autofocus Z result if available
             if self._autofocus_executor.best_focus_position() is not None:
                 if self._update_z_pos_from_autofocus:
