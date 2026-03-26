@@ -587,7 +587,9 @@ class SequencedCaptureExecutor:
                 if 'run_scan_pre' in self._callbacks:
                     _schedule_ui(lambda dt: self._callbacks['run_scan_pre'](), 0)
                 
-                # Check disk space once per scan: 10 MB/image + 500 MB/video, minimum 2 GB
+                # Check disk space once per scan: 5 MB/image + 50 MB/video, minimum 2 GB
+                # Previous estimates (10MB/image, 500MB/video) were too conservative
+                # and blocked protocols on 34GB free drives.
                 try:
                     if self._parent_dir is not None:
                         disk_usage = shutil.disk_usage(str(self._parent_dir))
@@ -597,9 +599,9 @@ class SequencedCaptureExecutor:
                         for i in range(num_steps):
                             step = self._protocol.step(idx=i)
                             if step.get('Acquire') == 'video':
-                                estimated_mb += 500
+                                estimated_mb += 50  # MP4 compressed, ~10-50MB typical
                             else:
-                                estimated_mb += 10
+                                estimated_mb += 5   # 1900x1900 8-bit TIFF ~3.6MB
                         required_mb = max(2048, estimated_mb)
                         if free_mb < required_mb:
                             logger.error(
