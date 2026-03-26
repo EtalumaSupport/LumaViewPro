@@ -968,7 +968,7 @@ class Protocol:
                         )
                         steps.append(step_dict)
                 
-                if zstack_slice is not None:
+                if use_zstacking and zstack_position_offsets:
                     zstack_group_id += 1
 
             if tile_label != "":
