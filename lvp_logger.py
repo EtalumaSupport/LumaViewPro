@@ -155,8 +155,8 @@ filename = '%s' % __file__
 file_handler = RotatingFileHandler(
     LOG_FILE,
     mode='a',
-    maxBytes=5*1024*1024,
-    backupCount=2,
+    maxBytes=20*1024*1024,
+    backupCount=5,
     encoding=None,
     delay=False,
 )
@@ -168,8 +168,8 @@ file_handler.addFilter(ThreadPauseFilter())
 error_file_handler = RotatingFileHandler(
     ERRORS_LOG_FILE,
     mode='a',
-    maxBytes=5*1024*1024,
-    backupCount=2,
+    maxBytes=20*1024*1024,
+    backupCount=5,
     encoding=None,
     delay=False,
 )
@@ -202,8 +202,8 @@ error_file_handler.addFilter(ErrorOrForcedFilter())
 rest_api_handler = RotatingFileHandler(
     REST_API_LOG_FILE,
     mode='a',
-    maxBytes=5*1024*1024,
-    backupCount=2,
+    maxBytes=20*1024*1024,
+    backupCount=5,
     encoding=None,
     delay=True,  # Don't create file until first REST API log message
 )
@@ -236,8 +236,8 @@ class SerialFormatter(logging.Formatter):
 serial_file_handler = RotatingFileHandler(
     SERIAL_LOG_FILE,
     mode='a',
-    maxBytes=5*1024*1024,
-    backupCount=2,
+    maxBytes=20*1024*1024,
+    backupCount=5,
     encoding=None,
     delay=False,
 )
@@ -267,8 +267,8 @@ class AFFormatter(logging.Formatter):
 _af_file_handler = RotatingFileHandler(
     AUTOFOCUS_LOG_FILE,
     mode='a',
-    maxBytes=5*1024*1024,
-    backupCount=2,
+    maxBytes=20*1024*1024,
+    backupCount=5,
     encoding=None,
     delay=True,  # Don't create file until first write
 )
@@ -295,8 +295,8 @@ class APIFormatter(logging.Formatter):
 _api_file_handler = RotatingFileHandler(
     API_LOG_FILE,
     mode='a',
-    maxBytes=5*1024*1024,
-    backupCount=2,
+    maxBytes=20*1024*1024,
+    backupCount=5,
     encoding=None,
     delay=True,  # Don't create file until first write
 )

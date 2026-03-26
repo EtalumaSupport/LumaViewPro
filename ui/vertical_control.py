@@ -276,8 +276,10 @@ class VerticalControl(BoxLayout):
 
     def select_objective(self):
         try:
-            gui_logger.select('OBJECTIVE', self.ids['objective_spinner2'].text)
             ctx = _app_ctx.ctx
+            # Only log objective changes from user interaction, not protocol
+            if not ctx.protocol_running or not ctx.protocol_running.is_set():
+                gui_logger.select('OBJECTIVE', self.ids['objective_spinner2'].text)
             logger.info('[LVP Main  ] VerticalControl.select_objective()')
             settings = ctx.settings
 
