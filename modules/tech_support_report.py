@@ -891,6 +891,14 @@ class FirmwareDiagnostics:
             logger.warning(f"Raw REPL file read error ({label}): {e}")
         finally:
             board.exit_raw_repl()
+            # Verify firmware restarted after raw REPL exit — the serial
+            # state may be dirty and normal commands (LED on/off) would
+            # fail silently without this check.
+            try:
+                board.verify_firmware_running(timeout=10)
+                logger.info(f"{label} board firmware verified after raw REPL")
+            except Exception as e:
+                logger.warning(f"{label} board firmware not responding after raw REPL: {e}")
 
         return result if result else None
 
