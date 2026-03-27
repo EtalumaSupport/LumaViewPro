@@ -1,20 +1,33 @@
-# Command-line parameters
+# LumaViewPro Windows Release Build Script
+#
+# Usage: .\build_win_release.ps1 [-CreateZip] [-Branch <name>]
+#
+# Clones the repo, reads version from version.txt, builds EXE via PyInstaller,
+# builds MSI via WiX, optionally builds Bundle with Pylon + Corretto MSIs.
+#
+# Prerequisites: Python 3, PyInstaller, WiX Toolset v6, Git
+
 param(
-    [switch]$CreateZip = $false
+    [switch]$CreateZip = $false,
+    [string]$Branch = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
-
-$branch = Read-Host -Prompt "Set branch"
-# Version is read from version.txt after cloning. Use a temp name for initial clone,
-# then rename after we know the version.
-$version = ""
-$lvp_base_w_version = "LumaViewPro-build"
-
-# Load MSI paths from config file if it exists
 $script_dir = Split-Path -Parent $PSCommandPath
+$build_root = Join-Path -Path $script_dir -ChildPath "build_output"
+
+# ---------------------------------------------------------------------------
+# 1. Get branch name
+# ---------------------------------------------------------------------------
+if (-not $Branch) {
+    $Branch = Read-Host -Prompt "Branch to build (e.g., 4.0.0-beta)"
+}
+
+# ---------------------------------------------------------------------------
+# 2. Load dependency paths from config (optional)
+# ---------------------------------------------------------------------------
 $config_file = Join-Path -Path $script_dir -ChildPath "config\build_dependencies.json"
 $pylon_msi = ""
 $corretto_msi = ""
@@ -23,108 +36,75 @@ $wix_bal_ext = ""
 if (Test-Path $config_file) {
     try {
         $config = Get-Content -Path $config_file -Raw | ConvertFrom-Json
-        
-        # Check if pylon path is configured and valid
         if ($config.pylon_driver_msi -and (Test-Path $config.pylon_driver_msi)) {
             $pylon_msi = $config.pylon_driver_msi
-            Write-Host "Using Pylon driver MSI from config: $pylon_msi"
-        } elseif ($config.pylon_driver_msi) {
-            Write-Host "Warning: Pylon driver MSI path in config is invalid: $($config.pylon_driver_msi)"
+            Write-Host "Pylon MSI: $pylon_msi"
         }
-        
-        # Check if corretto path is configured and valid
         if ($config.corretto_jdk_msi -and (Test-Path $config.corretto_jdk_msi)) {
             $corretto_msi = $config.corretto_jdk_msi
-            Write-Host "Using Corretto JDK MSI from config: $corretto_msi"
-        } elseif ($config.corretto_jdk_msi) {
-            Write-Host "Warning: Corretto JDK MSI path in config is invalid: $($config.corretto_jdk_msi)"
+            Write-Host "Corretto MSI: $corretto_msi"
         }
-        
-        # Check if WiX BAL extension path is configured and valid
         if ($config.wix_bal_extension -and (Test-Path $config.wix_bal_extension)) {
             $wix_bal_ext = $config.wix_bal_extension
-            Write-Host "Using WiX BAL extension from config: $wix_bal_ext"
-        } elseif ($config.wix_bal_extension) {
-            Write-Host "Warning: WiX BAL extension path in config is invalid: $($config.wix_bal_extension)"
         }
     } catch {
         Write-Host "Warning: Could not read config file: $_"
     }
-} else {
-    Write-Host "Config file not found at: $config_file"
-    Write-Host "You can create this file with pylon_driver_msi and corretto_jdk_msi paths to skip prompts"
 }
 
-# Prompt for any missing paths
 if (-not $pylon_msi) {
-    $pylon_msi = Read-Host -Prompt "Path to Pylon driver MSI (leave blank to skip bundle creation)"
+    $pylon_msi = Read-Host -Prompt "Path to Pylon driver MSI (blank to skip bundle)"
 }
 if (-not $corretto_msi) {
-    $corretto_msi = Read-Host -Prompt "Path to Amazon Corretto JDK MSI (leave blank to skip bundle creation)"
+    $corretto_msi = Read-Host -Prompt "Path to Amazon Corretto JDK MSI (blank to skip bundle)"
 }
 
-$starting_dir = Get-Location
-$working_dir = Join-Path -Path $starting_dir -ChildPath "tmp"
-$repo_dir = Join-Path -Path $working_dir -ChildPath  "$lvp_base_w_version"
-$artifact_dir = Join-Path -Path $working_dir -ChildPath "artifacts"
-$exe_artifacts_dir = Join-Path -Path $starting_dir -ChildPath "exe_artifacts"
+# ---------------------------------------------------------------------------
+# 3. Verify prerequisites
+# ---------------------------------------------------------------------------
+Write-Host "`n--- Checking prerequisites ---"
 
-Write-Host @"
-Current Dir:      $starting_dir
-Working Dir:      $working_dir
-Repo Dir:         $repo_dir
-Artifact Dir:     $artifact_dir
-Exe Artifacts:    $exe_artifacts_dir
-Version:          $version
-Create Zips:      $CreateZip
-Pylon MSI:        $pylon_msi
-Corretto MSI:     $corretto_msi
-"@
-
-# Verify WiX Toolset v6 is installed
-Write-Host "Verifying WiX Toolset v6 installation..."
 try {
-    $wix_version = & wix --version 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "WiX command failed"
-    }
-    Write-Host "WiX Toolset found: $wix_version"
-    
-    # Check if it's v6.x
-    if ($wix_version -notmatch "^v?6\.\d+") {
-        Write-Host "Warning: Expected WiX Toolset v6.x but found: $wix_version"
-        $continue = Read-Host "Continue anyway? (y/n)"
-        if ($continue -ne "y") {
-            Exit 1
-        }
-    }
+    $wix_ver = & wix --version 2>&1
+    Write-Host "WiX Toolset: $wix_ver"
 } catch {
-    Write-Host "Error: WiX Toolset v6 not found or not in PATH"
-    Write-Host "Please install WiX Toolset v6 from: https://wixtoolset.org/docs/intro/"
+    Write-Host "ERROR: WiX Toolset v6 not found. Install with: dotnet tool install --global wix"
     Exit 1
 }
 
-if (Test-Path $working_dir) {
-    Remove-Item $working_dir -Recurse -Force
+try {
+    $py_ver = & python --version 2>&1
+    Write-Host "Python: $py_ver"
+} catch {
+    Write-Host "ERROR: Python not found in PATH"
+    Exit 1
 }
 
-if (Test-Path $exe_artifacts_dir) {
-    Remove-Item $exe_artifacts_dir -Recurse -Force
+# ---------------------------------------------------------------------------
+# 4. Clean and create build directory
+# ---------------------------------------------------------------------------
+if (Test-Path $build_root) {
+    Write-Host "Cleaning previous build..."
+    Remove-Item $build_root -Recurse -Force
 }
+New-Item -Path $build_root -ItemType Directory -Force | Out-Null
 
-New-Item -Path $working_dir -ItemType Directory -Force | Out-Null
-New-Item -Path $repo_dir -ItemType Directory -Force | Out-Null
-New-Item -Path $artifact_dir -ItemType Directory -Force | Out-Null
-New-Item -Path $exe_artifacts_dir -ItemType Directory -Force | Out-Null
+# ---------------------------------------------------------------------------
+# 5. Clone repo
+# ---------------------------------------------------------------------------
+$clone_dir = Join-Path -Path $build_root -ChildPath "repo"
+Write-Host "`n--- Cloning $Branch ---"
+git clone --depth 1 --branch $Branch $repo_url $clone_dir
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: git clone failed"
+    Exit 1
+}
+Remove-Item "$clone_dir/.git*" -Recurse -Force
 
-echo "Cloning $repo_url@$branch for release"
-git clone --depth 1 --branch $branch $repo_url $repo_dir
-Remove-Item "$repo_dir/.git*" -Recurse -Force
-Set-Location -Path $repo_dir
-
-# Read version from version.txt — single source of truth.
-# Format: "4.0.0-beta2 (2026-03-27 16:35)" — extract the version part before the timestamp.
-$version_raw = (Get-Content -Path "$repo_dir/version.txt" -TotalCount 1).Trim()
+# ---------------------------------------------------------------------------
+# 6. Read version from version.txt
+# ---------------------------------------------------------------------------
+$version_raw = (Get-Content -Path "$clone_dir/version.txt" -TotalCount 1).Trim()
 if ($version_raw -match '^\S+') {
     $version = $matches[0]
 } else {
@@ -132,248 +112,160 @@ if ($version_raw -match '^\S+') {
     Exit 1
 }
 
-# Rename repo directory to include version (for WiX and output naming)
-$new_lvp_base = "LumaViewPro-$version"
-$new_repo_dir = Join-Path -Path $working_dir -ChildPath $new_lvp_base
-if ($repo_dir -ne $new_repo_dir) {
-    # Must leave the directory before renaming it
-    Set-Location -Path $working_dir
-    Rename-Item -Path $repo_dir -NewName $new_lvp_base
-    $repo_dir = $new_repo_dir
-}
-$lvp_base_w_version = $new_lvp_base
-Set-Location -Path $repo_dir
-Write-Host "Building version: $version (from version.txt: '$version_raw')"
+$product_name = "LumaViewPro-$version"
 
-echo "Adding license files to top-level"
+# WiX needs numeric-only version (x.x.x)
+$wix_version = $version
+if ($version -match '^(\d+\.\d+\.\d+)') {
+    $wix_version = $matches[1]
+}
+
+# Rename clone directory to include version
+$repo_dir = Join-Path -Path $build_root -ChildPath $product_name
+Rename-Item -Path $clone_dir -NewName $product_name
+$repo_dir = Join-Path -Path $build_root -ChildPath $product_name
+
+Write-Host "`n=========================================="
+Write-Host "Building: $product_name"
+Write-Host "Version:  $version (WiX: $wix_version)"
+Write-Host "Source:   $repo_dir"
+Write-Host "=========================================="
+
+# ---------------------------------------------------------------------------
+# 7. Copy license files
+# ---------------------------------------------------------------------------
+Set-Location -Path $repo_dir
 Copy-Item '.\licenses\*' -Destination '.\' -Force
 
-if ($CreateZip) {
-    Set-Location -Path $working_dir
-    echo "Creating .zip bundle of source..."
-    $compress = @{
-        Path = ".\$lvp_base_w_version"
-        CompressionLevel = "Optimal"
-        DestinationPath =  "$artifact_dir\$lvp_base_w_version-source.zip"
-    }
-    Compress-Archive @compress
+# ---------------------------------------------------------------------------
+# 8. Create source archives (optional)
+# ---------------------------------------------------------------------------
+$artifact_dir = Join-Path -Path $build_root -ChildPath "artifacts"
+New-Item -Path $artifact_dir -ItemType Directory -Force | Out-Null
 
-    echo "Creating .tar.gz bundle of source..."
-    tar czf "$artifact_dir\$lvp_base_w_version-source.tar.gz" ".\$lvp_base_w_version"
-} else {
-    echo "Skipping source zip creation (use -CreateZip to enable)"
+if ($CreateZip) {
+    Write-Host "`n--- Creating source archives ---"
+    Set-Location -Path $build_root
+    Compress-Archive -Path ".\$product_name" -DestinationPath "$artifact_dir\$product_name-source.zip" -CompressionLevel Optimal
+    tar czf "$artifact_dir\$product_name-source.tar.gz" ".\$product_name"
 }
 
-echo "Generating .exe..."
+# ---------------------------------------------------------------------------
+# 9. Build EXE with PyInstaller
+# ---------------------------------------------------------------------------
+Write-Host "`n--- Building EXE with PyInstaller ---"
 Set-Location -Path $repo_dir
 Copy-Item '.\scripts\appBuild\config\lumaviewpro_win_release.spec' '.\lumaviewpro.spec'
 pyinstaller --log-level INFO .\lumaviewpro.spec
 
-
-$orig_output_dir = ".\dist\lumaviewpro"
-$new_output_dir = ".\dist\$lvp_base_w_version"
-
-# Note: Encountered access denied issue when trying to use Rename-Item. For now
-# make a new directory and copy the contents instead.
-echo "Rename output directory"
-New-Item -Path $new_output_dir -ItemType Directory | Out-Null
-Copy-Item -Path "$orig_output_dir\*" -Destination $new_output_dir -Recurse
-
-# Convert to absolute path now while we're still in the correct directory
-$new_output_dir = Resolve-Path -Path $new_output_dir | Select-Object -ExpandProperty Path
-
-if ($CreateZip) {
-    echo "Creating .zip bundle of executable..."
-    $compress = @{
-        Path = $new_output_dir
-        CompressionLevel = "Optimal"
-        DestinationPath =  "$artifact_dir\$lvp_base_w_version.zip"
-    }
-    Compress-Archive @compress
-} else {
-    echo "Skipping executable zip creation (use -CreateZip to enable)"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: PyInstaller build failed"
+    Set-Location $script_dir
+    Exit 1
 }
 
-# Copy apache-maven from deps into the build output
-echo "Copying apache-maven from deps..."
-$script_dir = Split-Path -Parent $PSCommandPath
-$deps_dir = Join-Path -Path $script_dir -ChildPath "build_exe\deps"
-$maven_source = Join-Path -Path $deps_dir -ChildPath "apache-maven-3.9.8"
-$maven_dest = Join-Path -Path $new_output_dir -ChildPath "apache-maven-3.9.8"
+# Rename output directory
+$pyinstaller_output = ".\dist\lumaviewpro"
+$install_dir = ".\dist\$product_name"
+New-Item -Path $install_dir -ItemType Directory -Force | Out-Null
+Copy-Item -Path "$pyinstaller_output\*" -Destination $install_dir -Recurse
+$install_dir = Resolve-Path -Path $install_dir | Select-Object -ExpandProperty Path
 
+# Copy Apache Maven from deps
+$maven_source = Join-Path -Path $script_dir -ChildPath "build_exe\deps\apache-maven-3.9.8"
 if (Test-Path $maven_source) {
-    Copy-Item -Path $maven_source -Destination $maven_dest -Recurse -Force
-    echo "Apache Maven copied successfully"
+    Copy-Item -Path $maven_source -Destination (Join-Path -Path $install_dir -ChildPath "apache-maven-3.9.8") -Recurse -Force
+    Write-Host "Apache Maven copied to build output"
 } else {
     Write-Host "Warning: Apache Maven not found at $maven_source"
 }
 
-# Build MSI using WiX
-echo "Building MSI installer with WiX..."
-$script_dir = Split-Path -Parent $PSCommandPath
+if ($CreateZip) {
+    Compress-Archive -Path $install_dir -DestinationPath "$artifact_dir\$product_name.zip" -CompressionLevel Optimal
+}
+
+# ---------------------------------------------------------------------------
+# 10. Build MSI with WiX
+# ---------------------------------------------------------------------------
+Write-Host "`n--- Building MSI with WiX ---"
 $wix_dir = Join-Path -Path $script_dir -ChildPath "build_exe\wix"
-$package_output_dir = Join-Path -Path $exe_artifacts_dir -ChildPath "package"
-New-Item -Path $package_output_dir -ItemType Directory -Force | Out-Null
+$msi_output_dir = Join-Path -Path $build_root -ChildPath "installers"
+New-Item -Path $msi_output_dir -ItemType Directory -Force | Out-Null
+$msi_path = Join-Path -Path $msi_output_dir -ChildPath "$product_name.msi"
 
 Set-Location -Path $wix_dir
 
-# Build the MSI package
-echo "Running: wix build Package.wxs Folders.wxs..."
-
-# Absolute output path
-$abs_package_output = Join-Path -Path $package_output_dir -ChildPath "$lvp_base_w_version.msi"
-
-# WiX requires version in x.x.x format (numeric only), extract it from full version
-$wix_version = $version
-if ($version -match '^(\d+\.\d+\.\d+)') {
-    $wix_version = $matches[1]
-} else {
-    Write-Host "Warning: Version format may not be compatible with WiX: $version"
-}
-
-# Debug output
-Write-Host "Debug - Install Dir: $new_output_dir"
-Write-Host "Debug - Wix Dir: $wix_dir"
-Write-Host "Debug - Package Output: $abs_package_output"
-Write-Host "Debug - Product Name: $lvp_base_w_version"
-Write-Host "Debug - Version (full): $version"
-Write-Host "Debug - Version (WiX): $wix_version"
-
-# Build arguments as array to avoid parsing issues
-$wixArgs = @(
-    'build'
-    '-arch'
-    'x64'
-    '-d'
-    "InstallFolderDir=$new_output_dir"
-    '-d'
-    "ProjectDir=$wix_dir\"
-    '-d'
-    "ProductName=$lvp_base_w_version"
-    '-d'
-    "Version=$wix_version"
-    '-out'
-    $abs_package_output
-    'Package.wxs'
-    'Folders.wxs'
-)
-
-Write-Host "Debug - WiX Args:"
-$wixArgs | ForEach-Object { Write-Host "  $_" }
-
-# Try using native command with explicit quoting using --% stop-parsing token
-Write-Host "`nAttempting WiX build..."
 $wixExe = (Get-Command wix).Source
 & $wixExe build -arch x64 `
-    -d "InstallFolderDir=$new_output_dir" `
+    -d "InstallFolderDir=$install_dir" `
     -d "ProjectDir=$wix_dir\" `
-    -d "ProductName=$lvp_base_w_version" `
+    -d "ProductName=$product_name" `
     -d "Version=$wix_version" `
-    -out $abs_package_output `
+    -out $msi_path `
     Package.wxs Folders.wxs
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: MSI build failed"
-    Set-Location $starting_dir
+    Write-Host "ERROR: MSI build failed"
+    Set-Location $script_dir
     Exit 1
 }
+Write-Host "MSI built: $msi_path"
 
-echo "MSI built successfully: $package_output_dir\$lvp_base_w_version.msi"
+# ---------------------------------------------------------------------------
+# 11. Build Bundle/EXE with WiX (optional — needs Pylon + Corretto MSIs)
+# ---------------------------------------------------------------------------
+$bundle_path = ""
+if ($pylon_msi -and $corretto_msi -and (Test-Path $pylon_msi) -and (Test-Path $corretto_msi)) {
+    Write-Host "`n--- Building Bundle installer ---"
+    $bundle_path = Join-Path -Path $msi_output_dir -ChildPath "$product_name-setup.exe"
 
-# Build Bundle/EXE using WiX if dependencies are provided
-if ($pylon_msi -and $corretto_msi) {
-    # Validate that the MSI files exist
-    if (-not (Test-Path $pylon_msi)) {
-        Write-Host "Warning: Pylon MSI not found at: $pylon_msi"
-        Write-Host "Skipping bundle creation"
-    } elseif (-not (Test-Path $corretto_msi)) {
-        Write-Host "Warning: Corretto MSI not found at: $corretto_msi"
-        Write-Host "Skipping bundle creation"
+    # Find BAL extension
+    $deps_bal = Join-Path -Path $script_dir -ChildPath "build_exe\deps\WixToolset.BootstrapperApplications.wixext.dll"
+    if (Test-Path $deps_bal) {
+        $ext_ref = $deps_bal
+    } elseif ($wix_bal_ext) {
+        $ext_ref = $wix_bal_ext
     } else {
-        echo "Building Bundle installer with WiX..."
-        $bundle_output_dir = Join-Path -Path $exe_artifacts_dir -ChildPath "bundle"
-        New-Item -Path $bundle_output_dir -ItemType Directory -Force | Out-Null
+        # Try package manager
+        & wix extension add -g WixToolset.Bal.wixext 2>&1 | Out-Null
+        $ext_ref = "WixToolset.Bal.wixext"
+    }
 
-        echo "Running: wix build Bundle.wxs..."
-        
-        # Use absolute paths
-        $abs_bundle_output = Join-Path -Path $bundle_output_dir -ChildPath "$lvp_base_w_version-setup.exe"
-        
-        # Determine extension reference method
-        $extReference = ""
-        
-        # First, check deps folder for BAL extension
-        $script_dir_for_ext = Split-Path -Parent $PSCommandPath
-        $deps_bal_ext = Join-Path -Path $script_dir_for_ext -ChildPath "build_exe\deps\WixToolset.BootstrapperApplications.wixext.dll"
-        
-        if (Test-Path $deps_bal_ext) {
-            Write-Host "Using WiX BAL extension from deps folder: $deps_bal_ext"
-            $extReference = $deps_bal_ext
-        } elseif ($wix_bal_ext) {
-            Write-Host "Using custom WiX BAL extension from config: $wix_bal_ext"
-            $extReference = $wix_bal_ext
-        } else {
-            Write-Host "Using package manager for WiX BAL extension..."
-            
-            # Check if BAL extension is damaged and repair if needed
-            $extList = & wix extension list 2>&1 | Out-String
-            
-            if ($extList -match "damaged") {
-                Write-Host "BAL extension is damaged, removing and reinstalling..."
-                & wix extension remove -g WixToolset.Bal.wixext 2>&1 | Write-Host
-                Start-Sleep -Seconds 2
-            }
-            
-            # Ensure the BAL extension is installed globally
-            Write-Host "Installing WiX BAL extension..."
-            $extAddResult = & wix extension add -g WixToolset.Bal.wixext 2>&1
-            Write-Host $extAddResult
-            
-            # Verify installation
-            Write-Host "`nInstalled extensions:"
-            & wix extension list 2>&1 | Write-Host
-            
-            $extReference = "WixToolset.Bal.wixext"
-        }
-        
-        # Build using direct command to ensure proper extension loading
-        Write-Host "`nAttempting bundle build with BAL extension..."
-        $wixExe = (Get-Command wix).Source
-        & $wixExe build -arch x64 `
-            -ext $extReference `
-            -d "LVPInstallFolderDir=$new_output_dir" `
-            -d "LVPMsiDir=$abs_package_output" `
-            -d "PylonDriverDir=$pylon_msi" `
-            -d "CorretoMsiDir=$corretto_msi" `
-            -d "ProductName=$lvp_base_w_version" `
-            -d "ProductVersion=$wix_version" `
-            -out $abs_bundle_output `
-            Bundle.wxs
+    & $wixExe build -arch x64 `
+        -ext $ext_ref `
+        -d "LVPInstallFolderDir=$install_dir" `
+        -d "LVPMsiDir=$msi_path" `
+        -d "PylonDriverDir=$pylon_msi" `
+        -d "CorretoMsiDir=$corretto_msi" `
+        -d "ProductName=$product_name" `
+        -d "ProductVersion=$wix_version" `
+        -out $bundle_path `
+        Bundle.wxs
 
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Error: Bundle build failed"
-        } else {
-            echo "Bundle built successfully: $bundle_output_dir\$lvp_base_w_version-setup.exe"
-        }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Warning: Bundle build failed"
+        $bundle_path = ""
+    } else {
+        Write-Host "Bundle built: $bundle_path"
     }
 } else {
-    echo "Skipping bundle creation (Pylon and/or Corretto MSI paths not provided)"
+    Write-Host "`nSkipping bundle (Pylon and/or Corretto MSI not provided)"
 }
 
-Set-Location $starting_dir
+# ---------------------------------------------------------------------------
+# 12. Done
+# ---------------------------------------------------------------------------
+Set-Location $script_dir
 
-echo ""
-echo "=========================================="
-echo "Build Complete!"
-echo "=========================================="
-echo "MSI Package: $package_output_dir\$lvp_base_w_version.msi"
-$bundle_file = Join-Path -Path $exe_artifacts_dir -ChildPath "bundle\$lvp_base_w_version-setup.exe"
-if (Test-Path $bundle_file) {
-    echo "Bundle Setup: $bundle_file"
+Write-Host "`n=========================================="
+Write-Host "BUILD COMPLETE: $product_name"
+Write-Host "=========================================="
+Write-Host "MSI:    $msi_path"
+if ($bundle_path -and (Test-Path $bundle_path)) {
+    Write-Host "Bundle: $bundle_path"
 }
 if ($CreateZip) {
-    echo "Source Zip: $artifact_dir\$lvp_base_w_version-source.zip"
-    echo "Source Tar: $artifact_dir\$lvp_base_w_version-source.tar.gz"
-    echo "Executable Zip: $artifact_dir\$lvp_base_w_version.zip"
+    Write-Host "Source: $artifact_dir\$product_name-source.zip"
+    Write-Host "EXE:   $artifact_dir\$product_name.zip"
 }
-echo "=========================================="
+Write-Host "=========================================="
