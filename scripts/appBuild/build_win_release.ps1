@@ -8,10 +8,10 @@ $ErrorActionPreference = "Stop"
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 
 $branch = Read-Host -Prompt "Set branch"
-# Version is read from version.txt after cloning (below).
-# Placeholder until we have the repo.
+# Version is read from version.txt after cloning. Use a temp name for initial clone,
+# then rename after we know the version.
 $version = ""
-$lvp_base_w_version = ""
+$lvp_base_w_version = "LumaViewPro-build"
 
 # Load MSI paths from config file if it exists
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -112,10 +112,10 @@ if (Test-Path $exe_artifacts_dir) {
     Remove-Item $exe_artifacts_dir -Recurse -Force
 }
 
-New-Item -Path $working_dir -ItemType Directory | Out-Null
-New-Item -Path $repo_dir -ItemType Directory | Out-Null
-New-Item -Path $artifact_dir -ItemType Directory | Out-Null
-New-Item -Path $exe_artifacts_dir -ItemType Directory | Out-Null
+New-Item -Path $working_dir -ItemType Directory -Force | Out-Null
+New-Item -Path $repo_dir -ItemType Directory -Force | Out-Null
+New-Item -Path $artifact_dir -ItemType Directory -Force | Out-Null
+New-Item -Path $exe_artifacts_dir -ItemType Directory -Force | Out-Null
 
 echo "Cloning $repo_url@$branch for release"
 git clone --depth 1 --branch $branch $repo_url $repo_dir
@@ -123,7 +123,7 @@ Remove-Item "$repo_dir/.git*" -Recurse -Force
 Set-Location -Path $repo_dir
 
 # Read version from version.txt — single source of truth.
-# Format: "4.0.0-beta1 (2026-03-27 16:18)" — extract the version part before the timestamp.
+# Format: "4.0.0-beta2 (2026-03-27 16:35)" — extract the version part before the timestamp.
 $version_raw = (Get-Content -Path "$repo_dir/version.txt" -TotalCount 1).Trim()
 if ($version_raw -match '^\S+') {
     $version = $matches[0]
@@ -131,7 +131,15 @@ if ($version_raw -match '^\S+') {
     Write-Host "ERROR: Could not parse version from version.txt: '$version_raw'"
     Exit 1
 }
-$lvp_base_w_version = "LumaViewPro-$version"
+
+# Rename repo directory to include version (for WiX and output naming)
+$new_lvp_base = "LumaViewPro-$version"
+$new_repo_dir = Join-Path -Path $working_dir -ChildPath $new_lvp_base
+if ($repo_dir -ne $new_repo_dir) {
+    Rename-Item -Path $repo_dir -NewName $new_lvp_base
+    $repo_dir = $new_repo_dir
+}
+$lvp_base_w_version = $new_lvp_base
 Write-Host "Building version: $version (from version.txt: '$version_raw')"
 
 echo "Adding license files to top-level"
