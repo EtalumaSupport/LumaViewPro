@@ -1244,3 +1244,292 @@ class TestRealPathExecution:
         ])
         completed_b, _ = _run_and_wait(real_executor, proto_b, tmp_path / "run_b")
         assert completed_b, "Protocol B with real motion did not complete after A"
+
+
+# ===========================================================================
+# PART 7: Protocol Model Tests (validate_steps, modify, insert, delete)
+# ===========================================================================
+
+class TestProtocolValidation:
+    """Thorough validation testing — every field boundary."""
+
+    def test_valid_protocol_no_errors(self):
+        proto = _build_protocol([_make_step()])
+        errors = proto.validate_steps()
+        assert errors == [], f"Expected no errors, got: {errors}"
+
+    def test_all_valid_colors(self):
+        """Every valid color passes validation."""
+        for color in ["BF", "PC", "DF", "Red", "Green", "Blue"]:
+            proto = _build_protocol([_make_step(color=color)])
+            errors = proto.validate_steps()
+            color_errors = [e for e in errors if "Color" in e]
+            assert color_errors == [], f"Color '{color}' should be valid, got: {color_errors}"
+
+    def test_invalid_color_rejected(self):
+        proto = _build_protocol([_make_step(color="Ultraviolet")])
+        errors = proto.validate_steps()
+        assert any("Color" in e for e in errors)
+
+    def test_negative_exposure_rejected(self):
+        proto = _build_protocol([_make_step(exposure=-1.0)])
+        errors = proto.validate_steps()
+        assert any("Exposure" in e for e in errors)
+
+    def test_zero_exposure_valid(self):
+        """Zero exposure is valid (placeholder steps)."""
+        proto = _build_protocol([_make_step(exposure=0.0)])
+        errors = proto.validate_steps()
+        exp_errors = [e for e in errors if "Exposure" in e]
+        assert exp_errors == []
+
+    def test_negative_gain_rejected(self):
+        proto = _build_protocol([_make_step(gain=-1.0)])
+        errors = proto.validate_steps()
+        assert any("Gain" in e for e in errors)
+
+    def test_zero_gain_valid(self):
+        proto = _build_protocol([_make_step(gain=0.0)])
+        errors = proto.validate_steps()
+        gain_errors = [e for e in errors if "Gain" in e]
+        assert gain_errors == []
+
+    def test_illumination_over_1000_rejected(self):
+        proto = _build_protocol([_make_step(illumination=1001.0)])
+        errors = proto.validate_steps()
+        assert any("Illumination" in e for e in errors)
+
+    def test_illumination_1000_valid(self):
+        proto = _build_protocol([_make_step(illumination=1000.0)])
+        errors = proto.validate_steps()
+        ill_errors = [e for e in errors if "Illumination" in e]
+        assert ill_errors == []
+
+    def test_negative_illumination_rejected(self):
+        proto = _build_protocol([_make_step(illumination=-10.0)])
+        errors = proto.validate_steps()
+        assert any("Illumination" in e for e in errors)
+
+    def test_sum_zero_rejected(self):
+        proto = _build_protocol([_make_step(sum_count=0)])
+        errors = proto.validate_steps()
+        assert any("Sum" in e for e in errors)
+
+    def test_sum_one_valid(self):
+        proto = _build_protocol([_make_step(sum_count=1)])
+        errors = proto.validate_steps()
+        sum_errors = [e for e in errors if "Sum" in e]
+        assert sum_errors == []
+
+    def test_invalid_acquire_mode(self):
+        proto = _build_protocol([_make_step(acquire="timelapse")])
+        errors = proto.validate_steps()
+        assert any("Acquire" in e for e in errors)
+
+    def test_video_with_zero_fps_rejected(self):
+        proto = _build_protocol([_make_step(
+            acquire="video", video_config={"duration": 1.0, "fps": 0}
+        )])
+        errors = proto.validate_steps()
+        assert any("fps" in e for e in errors)
+
+    def test_video_with_zero_duration_rejected(self):
+        proto = _build_protocol([_make_step(
+            acquire="video", video_config={"duration": 0, "fps": 5}
+        )])
+        errors = proto.validate_steps()
+        assert any("duration" in e for e in errors)
+
+    def test_video_with_string_config_rejected(self):
+        proto = _build_protocol([_make_step(
+            acquire="video", video_config="not a dict"
+        )])
+        errors = proto.validate_steps()
+        assert any("Video Config" in e for e in errors)
+
+    def test_multiple_errors_reported(self):
+        """Multiple bad steps should all report errors."""
+        steps = [
+            _make_step(name="bad1", color="Invalid", exposure=-1.0),
+            _make_step(name="bad2", illumination=2000.0, gain=-5.0),
+        ]
+        proto = _build_protocol(steps)
+        errors = proto.validate_steps()
+        assert len(errors) >= 3, f"Expected at least 3 errors, got {len(errors)}: {errors}"
+
+
+class TestProtocolModification:
+    """Test modifying protocol steps after creation."""
+
+    def test_modify_step_z_height(self):
+        proto = _build_protocol([_make_step(z=5000.0)])
+        proto.modify_step_z_height(step_idx=0, z=6000.0)
+        assert proto.step(idx=0)["Z"] == pytest.approx(6000.0)
+
+    def test_modify_time_params(self):
+        proto = _build_protocol([_make_step()])
+        proto.modify_time_params(
+            period=datetime.timedelta(minutes=5),
+            duration=datetime.timedelta(hours=2),
+        )
+        assert proto.period() == datetime.timedelta(minutes=5)
+        assert proto.duration() == datetime.timedelta(hours=2)
+
+    def test_num_steps(self):
+        steps = [_make_step(name=f"s{i}") for i in range(5)]
+        proto = _build_protocol(steps)
+        assert proto.num_steps() == 5
+
+    def test_step_access_by_index(self):
+        steps = [
+            _make_step(name="first", color="BF"),
+            _make_step(name="second", color="Green"),
+            _make_step(name="third", color="Red"),
+        ]
+        proto = _build_protocol(steps)
+        assert proto.step(idx=0)["Color"] == "BF"
+        assert proto.step(idx=1)["Color"] == "Green"
+        assert proto.step(idx=2)["Color"] == "Red"
+
+    def test_labware_accessor(self):
+        proto = _build_protocol([_make_step()], labware="96 well microplate")
+        assert proto.labware() == "96 well microplate"
+
+    def test_capture_root_accessor(self):
+        proto = _build_protocol([_make_step()])
+        proto._config['capture_root'] = 'experiment_1'
+        assert proto.capture_root() == 'experiment_1'
+
+
+class TestProtocolSaveLoadFieldLevel:
+    """Verify every single field survives save/load at the field level."""
+
+    def test_every_field_preserved(self, tmp_path):
+        """Check that ALL 21 step fields round-trip correctly."""
+        sc = _stim_config_enabled(channels=["Red"])
+        vc = {"duration": 3.5, "fps": 15}
+        step = _make_step(
+            name="Test_Step_1",
+            x=12.345, y=67.89, z=4567.0,
+            color="Green",
+            illumination=234.5,
+            gain=3.7,
+            exposure=42.0,
+            auto_focus=True,
+            auto_gain=True,
+            false_color=True,
+            sum_count=5,
+            objective="20x Oly",
+            well="B3",
+            tile="T02",
+            z_slice=3,
+            tile_group_id=7,
+            zstack_group_id=4,
+            acquire="video",
+            video_config=vc,
+            stim_config=sc,
+        )
+        proto = _build_protocol([step])
+        reloaded = _save_and_reload(proto, tmp_path)
+
+        s = reloaded.step(idx=0)
+        assert s["Name"] == "Test_Step_1"
+        assert s["X"] == pytest.approx(12.345)
+        assert s["Y"] == pytest.approx(67.89)
+        assert s["Z"] == pytest.approx(4567.0)
+        assert s["Color"] == "Green"
+        assert s["Illumination"] == pytest.approx(234.5)
+        assert s["Gain"] == pytest.approx(3.7)
+        assert s["Exposure"] == pytest.approx(42.0)
+        assert s["Auto_Focus"] == True
+        assert s["Auto_Gain"] == True
+        assert s["False_Color"] == True
+        assert s["Sum"] == 5
+        assert s["Objective"] == "20x Oly"
+        assert s["Well"] == "B3"
+        assert s["Tile"] == "T02"
+        assert s["Z-Slice"] == 3
+        assert s["Tile Group ID"] == 7
+        assert s["Z-Stack Group ID"] == 4
+        assert s["Acquire"] == "video"
+        assert isinstance(s["Video Config"], dict)
+        assert s["Video Config"]["duration"] == 3.5
+        assert s["Video Config"]["fps"] == 15
+        assert isinstance(s["Stim_Config"], dict)
+        assert s["Stim_Config"]["Red"]["enabled"] is True
+
+
+# ===========================================================================
+# PART 8: Executor Edge Cases
+# ===========================================================================
+
+class TestExecutorEdgeCases:
+    """Edge cases in executor behavior."""
+
+    def test_empty_protocol_rejected(self, real_executor, scope, tmp_path):
+        """Empty protocol (0 steps) should not start."""
+        proto = _build_protocol([])
+        # run() should return without starting (no steps to execute)
+        done = threading.Event()
+        real_executor.run(
+            protocol=proto,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='empty_test',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks={'run_complete': lambda **kw: done.set()},
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+        # Should complete quickly (nothing to do)
+        import time
+        time.sleep(2.0)
+        assert not real_executor.run_in_progress(), "Executor should not be running for empty protocol"
+
+    def test_executor_state_idle_after_run(self, real_executor, scope, tmp_path):
+        """Executor returns to IDLE state after protocol completes."""
+        from modules.sequenced_capture_executor import ProtocolState
+        proto = _build_protocol([_make_step()])
+        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
+        assert completed
+        import time
+        time.sleep(0.5)
+        assert real_executor.protocol_state == ProtocolState.IDLE
+
+    def test_leds_off_after_protocol_real_path(self, real_executor, scope, tmp_path):
+        """All LEDs are off after protocol completes (real motion path)."""
+        proto = _build_protocol([
+            _make_step(color="Green", illumination=200.0),
+            _make_step(color="Red", illumination=150.0),
+        ])
+        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
+        assert completed
+        import time
+        time.sleep(0.5)
+        states = scope.get_led_states()
+        for color, state in states.items():
+            assert not state['enabled'], f"LED {color} still on after protocol"
+
+    def test_camera_settings_restored_after_protocol(self, real_executor, scope, tmp_path):
+        """Camera gain and exposure are restored after protocol."""
+        original_gain = scope.get_gain()
+        original_exposure = scope.get_exposure_time()
+
+        proto = _build_protocol([_make_step(gain=5.0, exposure=50.0)])
+        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
+        assert completed
+        import time
+        time.sleep(0.5)
+
+        restored_gain = scope.get_gain()
+        restored_exposure = scope.get_exposure_time()
+        assert restored_gain == pytest.approx(original_gain, abs=0.1), \
+            f"Gain not restored: {restored_gain} vs {original_gain}"
+        assert restored_exposure == pytest.approx(original_exposure, abs=0.1), \
+            f"Exposure not restored: {restored_exposure} vs {original_exposure}"
