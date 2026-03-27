@@ -188,11 +188,11 @@ class ProtocolSettings(FloatLayout):
         self.select_labware()
         self.update_step_ui()
 
-        # Restore BF AF for fluorescence toggle
-        if settings.get('protocol', {}).get('bf_af_for_fluorescence', False):
-            self.ids['bf_af_for_fluorescence_btn'].state = 'down'
-        else:
-            self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
+        # DISABLED: BF AF for fluorescence — not yet tested, hidden for 4.0.0.
+        # Force off regardless of saved settings to prevent untested code path.
+        if 'protocol' in settings:
+            settings['protocol']['bf_af_for_fluorescence'] = False
+        self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
 
 
     # Update Protocol Period

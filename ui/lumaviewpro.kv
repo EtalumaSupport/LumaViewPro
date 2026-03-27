@@ -1434,10 +1434,14 @@
 			#         background_down: './data/icons/R_down.png'
 			#         on_release: root.exposures_up_button()
 					
+			# HIDDEN: "Use BF Focus for Fluorescence" — not yet tested, disabled for 4.0.0 release.
+			# Re-enable after validation on hardware with multi-channel AF protocols.
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				height: '0dp'
+				opacity: 0
+				disabled: True
 				Label:
 					font_size: '12sp'
 					text: 'Use BF Focus for Fluorescence'
