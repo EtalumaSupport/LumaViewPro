@@ -197,19 +197,29 @@ class SerialBoard:
                 logger.error(f'{self._label} connect() failed: {e}')
 
     def disconnect(self):
-        """Close serial connection."""
+        """Close serial connection and clear cached state."""
         logger.info(f'{self._label} Disconnecting...')
         with self._lock:
             try:
                 if self.driver is not None:
                     self._close_driver()
                     self.port = None
+                    self._on_disconnect()
                     logger.info(f'{self._label} disconnect() succeeded')
                 else:
                     logger.info(f'{self._label} disconnect(): not connected')
             except Exception as e:
                 self._close_driver()
+                self._on_disconnect()
                 logger.error(f'{self._label} disconnect() failed: {e}')
+
+    def _on_disconnect(self):
+        """Hook for subclasses to clear cached state on disconnect.
+
+        Called under self._lock. Override in LEDBoard/MotorBoard to reset
+        state caches so reconnect doesn't use stale data.
+        """
+        pass
 
     def is_connected(self) -> bool:
         with self._lock:
