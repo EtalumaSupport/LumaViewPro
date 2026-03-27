@@ -185,9 +185,10 @@ class XYStageControl(BoxLayout):
 
     def update_gui(self, dt=0, full_redraw: bool = False):
         ctx = _app_ctx.ctx
-        if ctx.sequenced_capture_executor.run_in_progress():
-            return
-        # logger.info('[LVP Main  ] XYStageControl.update_gui()')
+        # Note: get_xy_targets() uses the push-based position cache (zero
+        # serial I/O), so it's safe to run during protocol execution.
+        # Previously this returned early during protocol, causing the plate
+        # crosshair to freeze until the protocol finished.
         ctx.io_executor.put(IOTask(
             action=self.get_xy_targets,
             callback=self.get_targets_ui_callback,
