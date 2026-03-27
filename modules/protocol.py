@@ -118,7 +118,17 @@ class Protocol:
                 
                 fp.write('\nSteps\n')
 
-                protocol_table_str = self.steps().to_csv(
+                # Serialize dict columns as JSON strings before writing to CSV.
+                # Without this, pandas uses Python repr (single quotes) which
+                # fails json.loads() on reload.
+                steps_df = self.steps().copy()
+                for col in ('Video Config', 'Stim_Config'):
+                    if col in steps_df.columns:
+                        steps_df[col] = steps_df[col].apply(
+                            lambda v: json.dumps(v) if isinstance(v, dict) else v
+                        )
+
+                protocol_table_str = steps_df.to_csv(
                     sep='\t',
                     lineterminator='\n',
                     index=False
