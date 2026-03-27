@@ -91,6 +91,14 @@ class Lumascope():
         # all axes are back to IDLE. The monitor thread sleeps on this.
         self._motion_wake = threading.Event()
 
+        # Position change listeners — push-based UI update mechanism.
+        # Each listener is called with (axis: str, target: float, state: str)
+        # whenever a position cache update or axis state transition occurs.
+        # Listeners are called from the thread that caused the change (typically
+        # the IO executor), so they MUST schedule UI work via Clock.schedule_once.
+        self._position_listeners_lock = threading.Lock()
+        self._position_listeners = []
+
         # Start the motion monitor thread (detects axis arrival via firmware query)
         self._motion_monitor_stop = threading.Event()
         self._motion_monitor_thread = threading.Thread(
@@ -492,12 +500,49 @@ class Lumascope():
         with self._axis_state_lock:
             return self._axis_state.get(axis, AxisState.UNKNOWN)
 
+    def add_position_listener(self, listener):
+        """Register a callback for position/state changes on any axis.
+
+        The listener is called with ``(axis, target_pos, state)`` whenever
+        the position cache or axis state changes.  It fires from the thread
+        that caused the change (IO executor, motion monitor, etc.), so
+        listeners **must** schedule any UI work via ``Clock.schedule_once``.
+
+        Args:
+            listener: ``callable(axis: str, target: float, state: str)``
+        """
+        with self._position_listeners_lock:
+            self._position_listeners.append(listener)
+
+    def remove_position_listener(self, listener):
+        """Unregister a position listener."""
+        with self._position_listeners_lock:
+            try:
+                self._position_listeners.remove(listener)
+            except ValueError:
+                pass
+
+    def _fire_position_listeners(self, axis: str):
+        """Notify all position listeners of a change on *axis*."""
+        with self._pos_cache_lock:
+            target = self._pos_cache.get(axis, 0.0)
+        with self._axis_state_lock:
+            state = self._axis_state.get(axis, AxisState.UNKNOWN)
+        with self._position_listeners_lock:
+            listeners = list(self._position_listeners)
+        for fn in listeners:
+            try:
+                fn(axis, target, state)
+            except Exception as ex:
+                _api_log.debug(f'position listener error: {ex}')
+
     def _set_axis_state(self, axis: str, state: str):
         """Set the state of an axis (internal use only).
 
         When transitioning to MOVING/HOMING, clears the axis arrival event
         and wakes the motion monitor. When transitioning to IDLE, sets the
-        arrival event so waiters unblock.
+        arrival event so waiters unblock.  Fires position listeners on every
+        transition.
         """
         with self._axis_state_lock:
             self._axis_state[axis] = state
@@ -510,6 +555,8 @@ class Lumascope():
         elif state == AxisState.IDLE:
             # Signal arrival — unblocks any wait_for_axis() callers
             self._arrival_events[axis].set()
+
+        self._fire_position_listeners(axis)
 
     def is_any_axis_moving(self) -> bool:
         """Check if any axis is currently MOVING or HOMING.
@@ -2071,6 +2118,8 @@ class Lumascope():
 
         with self._pos_cache_lock:
             self._pos_cache.update(positions)
+        for ax in positions:
+            self._fire_position_listeners(ax)
 
     def get_target_position(self, axis=None):
         """Get the target position for an axis (where it is commanded to go).
@@ -2200,6 +2249,7 @@ class Lumascope():
         self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
         with self._pos_cache_lock:
             self._pos_cache[axis] = float(pos)
+        self._fire_position_listeners(axis)  # Notify UI with new target position
         self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
         _api_log.info(f'move_abs {axis}={pos:.1f}um'
                       f'{" wait" if wait_until_complete else ""}')
@@ -2233,6 +2283,7 @@ class Lumascope():
         self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
         with self._pos_cache_lock:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
+        self._fire_position_listeners(axis)  # Notify UI with new target position
         self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
         _api_log.info(f'move_rel {axis}={um:+.1f}um'
                       f'{" wait" if wait_until_complete else ""}')
