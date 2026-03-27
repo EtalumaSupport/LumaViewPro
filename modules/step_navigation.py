@@ -145,6 +145,15 @@ def go_to_step(
 
 
 
+        # Force stage crosshair + position text update after step navigation.
+        # The move_position callback in _default_move normally handles this,
+        # but when go_to_step is used (all UI-triggered protocols), _default_move
+        # is bypassed. Schedule on main thread since go_to_step may be called
+        # from the protocol executor thread.
+        Clock.schedule_once(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
+        # Also force a stage widget redraw so the crosshair/well indicator moves
+        Clock.schedule_once(lambda dt: ctx.stage.draw_labware(), 0)
+
         Clock.schedule_once(lambda dt: go_to_step_update_ui(step), 0)
 
 
