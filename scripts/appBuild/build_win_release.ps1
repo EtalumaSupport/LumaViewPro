@@ -85,6 +85,10 @@ try {
 # ---------------------------------------------------------------------------
 # 4. Clean and create build directory
 # ---------------------------------------------------------------------------
+# Make sure we're not inside the build directory (can't delete what you're standing in)
+if ((Get-Location).Path -like "$build_root*") {
+    Set-Location $env:USERPROFILE
+}
 if (Test-Path $build_root) {
     Write-Host "Cleaning previous build..."
     Remove-Item $build_root -Recurse -Force
