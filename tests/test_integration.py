@@ -118,8 +118,11 @@ def _make_image_capture_config():
     }
 
 
+TILING_CONFIGS = pathlib.Path(__file__).parent.parent / "data" / "tiling.json"
+
+
 def _make_protocol(steps_config):
-    """Create a Protocol with the given steps.
+    """Create a real Protocol object with the given steps.
 
     steps_config: list of dicts with keys: color, illumination, gain, exposure,
         auto_gain, auto_focus, acquire, x, y, z, well, tile, z_slice,
@@ -163,21 +166,20 @@ def _make_protocol(steps_config):
             'Acquire': merged['acquire'],
             'Video Config': merged['video_config'],
             'Stim_Config': merged['stim_config'],
+            'Step Index': i,
         })
 
     df = pd.DataFrame(rows)
-    protocol = MagicMock(spec=Protocol)
-    protocol.num_steps.return_value = len(rows)
-    protocol.step.side_effect = lambda idx: pd.Series(rows[idx])
-    protocol.steps.return_value = df
-    protocol.period.return_value = datetime.timedelta(minutes=1)
-    protocol.duration.return_value = datetime.timedelta(minutes=1)
-    protocol.labware.return_value = '6 well microplate'
-    protocol.capture_root.return_value = ''
-    protocol.validate_for_run.return_value = []
-    protocol.validate_steps.return_value = []
-    protocol.to_file = MagicMock()
-    return protocol
+    config = {
+        'version': Protocol.CURRENT_VERSION,
+        'steps': df,
+        'period': datetime.timedelta(minutes=1),
+        'duration': datetime.timedelta(hours=1),
+        'labware_id': '6 well microplate',
+        'capture_root': '',
+        'tiling': '1x1',
+    }
+    return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
 
 
 def _wait_for_executor_idle(executor, timeout=5.0):
@@ -255,8 +257,14 @@ def executors():
 
 @pytest.fixture
 def executor(scope, executors):
-    """Create a SequencedCaptureExecutor with real simulated scope."""
-    # Use a mock autofocus executor for non-AF tests
+    """Create a SequencedCaptureExecutor with real simulated scope,
+    real WellPlateLoader, and real CoordinateTransformer."""
+    from modules.coord_transformations import CoordinateTransformer
+    from modules.labware_loader import WellPlateLoader
+
+    # Use a mock autofocus executor for non-AF tests.
+    # AF executor is the one mock we keep — real AF needs real camera focus
+    # simulation which is only set up in the af_executor fixture.
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
     mock_af.in_progress = MagicMock(return_value=False)
@@ -264,6 +272,7 @@ def executor(scope, executors):
     mock_af.is_running = MagicMock(return_value=False)
     mock_af.result = MagicMock(return_value=None)
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
+    mock_af.run_in_progress = MagicMock(return_value=False)
 
     exc = SequencedCaptureExecutor(
         scope=scope,
@@ -275,6 +284,8 @@ def executor(scope, executors):
         autofocus_io_executor=executors['autofocus'],
         autofocus_executor=mock_af,
     )
+    exc._wellplate_loader = WellPlateLoader()
+    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 
