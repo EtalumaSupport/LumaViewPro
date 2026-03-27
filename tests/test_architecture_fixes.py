@@ -224,15 +224,11 @@ class TestTinyFileConsolidation:
         assert PostFunction.HYPERSTACK.value == "Hyperstack"
         assert "Stitched" in PostFunction.list_values()
 
-    def test_sequenced_capture_run_mode_in_executor(self):
-        """Verify SequencedCaptureRunMode is defined in sequenced_capture_executor.py."""
-        import os
-        path = os.path.join(os.path.dirname(__file__), '..', 'modules', 'sequenced_capture_executor.py')
-        with open(path) as f:
-            content = f.read()
-        assert 'class SequencedCaptureRunMode' in content
-        assert "FULL_PROTOCOL = 'full_protocol'" in content
-        assert "SINGLE_SCAN = 'single_scan'" in content
+    def test_sequenced_capture_run_mode_importable_from_executor(self):
+        """Verify SequencedCaptureRunMode is importable from sequenced_capture_executor."""
+        from modules.sequenced_capture_executor import SequencedCaptureRunMode
+        assert SequencedCaptureRunMode.FULL_PROTOCOL.value == 'full_protocol'
+        assert SequencedCaptureRunMode.SINGLE_SCAN.value == 'single_scan'
 
     def test_no_imports_reference_old_modules(self):
         """Scan all .py files for imports of deleted modules (should be zero)."""
@@ -245,8 +241,9 @@ class TestTinyFileConsolidation:
             'modules.sequenced_capture_run_' + 'modes',
             'modules.stitcher_' + 'helper',
             'modules.processing_' + 'utils',
-            'modules.protocol_' + 'step',
         ]
+        # Deleted module that must not be confused with protocol_step_executor
+        old_protocol_step = 'modules.protocol_' + 'step'
         root = os.path.join(os.path.dirname(__file__), '..')
         violations = []
         for py_file in glob.glob(os.path.join(root, '**', '*.py'), recursive=True):
@@ -259,4 +256,10 @@ class TestTinyFileConsolidation:
                     for old_mod in old_modules:
                         if old_mod in line:
                             violations.append(f"{os.path.relpath(py_file, root)}:{i} ({old_mod})")
+                    # Check for deleted modules.protocol_step but not protocol_step_executor
+                    if old_protocol_step in line:
+                        # Only flag if it's not followed by '_' (which would be protocol_step_executor)
+                        import re
+                        if re.search(r'modules\.protocol_step(?!_)', line):
+                            violations.append(f"{os.path.relpath(py_file, root)}:{i} ({old_protocol_step})")
         assert not violations, f"Files still importing deleted modules: {violations}"

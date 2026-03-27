@@ -268,11 +268,11 @@ class TestProtocolFileLimits:
 @pytest.fixture
 def protocol_state_imports(_mock_heavy_deps):
     """Import ProtocolState and transitions after mocks are installed."""
-    from modules.sequenced_capture_executor import (
+    from modules.protocol_state_machine import (
         ProtocolState,
-        _PROTOCOL_STATE_TRANSITIONS,
+        PROTOCOL_STATE_TRANSITIONS,
     )
-    return ProtocolState, _PROTOCOL_STATE_TRANSITIONS
+    return ProtocolState, PROTOCOL_STATE_TRANSITIONS
 
 
 class TestProtocolStateTransitions:

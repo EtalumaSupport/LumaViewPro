@@ -1624,7 +1624,7 @@ class TestCleanupConcurrency:
 class TestDiskSpaceCheck:
     """P0-2: Protocol aborts when disk space is below 2 GB."""
 
-    @patch('modules.sequenced_capture_executor.shutil.disk_usage')
+    @patch('modules.protocol_run_loop.shutil.disk_usage')
     def test_low_disk_aborts_image_protocol(self, mock_disk_usage, executor, scope, tmp_path):
         """With very low disk space, image capture should abort without hanging."""
         fake_usage = MagicMock()
@@ -1635,7 +1635,7 @@ class TestDiskSpaceCheck:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not abort within timeout when disk space is low"
 
-    @patch('modules.sequenced_capture_executor.shutil.disk_usage')
+    @patch('modules.protocol_run_loop.shutil.disk_usage')
     def test_large_protocol_needs_more_than_2gb(self, mock_disk_usage, executor, scope, tmp_path):
         """300 image steps need 3 GB (300 * 10 MB), so 2.5 GB free should abort."""
         fake_usage = MagicMock()
@@ -1646,7 +1646,7 @@ class TestDiskSpaceCheck:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not abort within timeout when disk space is low for large protocol"
 
-    @patch('modules.sequenced_capture_executor.shutil.disk_usage')
+    @patch('modules.protocol_run_loop.shutil.disk_usage')
     def test_video_steps_need_500mb_each(self, mock_disk_usage, executor, scope, tmp_path):
         """5 video steps need 2.5 GB (5 * 500 MB), so 2.2 GB free should abort."""
         fake_usage = MagicMock()
@@ -1660,7 +1660,7 @@ class TestDiskSpaceCheck:
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, "Protocol did not abort for video steps requiring more disk space"
 
-    @patch('modules.sequenced_capture_executor.shutil.disk_usage', side_effect=OSError("disk error"))
+    @patch('modules.protocol_run_loop.shutil.disk_usage', side_effect=OSError("disk error"))
     def test_disk_check_exception_does_not_crash(self, mock_disk_usage, executor, scope, tmp_path):
         """If disk_usage raises OSError, protocol continues."""
         protocol = _make_single_step_protocol(color='BF')
@@ -1761,7 +1761,7 @@ class TestVideoQueueBounded:
                 super().__init__(*args, **kwargs)
                 created_queues.append(self)
 
-        with patch('modules.sequenced_capture_executor.queue.Queue', TrackingQueue):
+        with patch('modules.video_capture.queue.Queue', TrackingQueue):
             protocol = _make_single_step_protocol(
                 color='BF',
                 acquire='video',
