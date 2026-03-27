@@ -8,8 +8,10 @@ $ErrorActionPreference = "Stop"
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 
 $branch = Read-Host -Prompt "Set branch"
-$version = Read-Host -Prompt "Set version"
-$lvp_base_w_version = "LumaViewPro-$version"
+# Version is read from version.txt after cloning (below).
+# Placeholder until we have the repo.
+$version = ""
+$lvp_base_w_version = ""
 
 # Load MSI paths from config file if it exists
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -120,11 +122,17 @@ git clone --depth 1 --branch $branch $repo_url $repo_dir
 Remove-Item "$repo_dir/.git*" -Recurse -Force
 Set-Location -Path $repo_dir
 
-$version_in_file = Get-Content -Path "$repo_dir/version.txt" -TotalCount 1
-if ($version_in_file -ne $version) {
-    Write-Host "version.txt contents do not match supplied version"
+# Read version from version.txt — single source of truth.
+# Format: "4.0.0-beta1 (2026-03-27 16:18)" — extract the version part before the timestamp.
+$version_raw = (Get-Content -Path "$repo_dir/version.txt" -TotalCount 1).Trim()
+if ($version_raw -match '^\S+') {
+    $version = $matches[0]
+} else {
+    Write-Host "ERROR: Could not parse version from version.txt: '$version_raw'"
     Exit 1
 }
+$lvp_base_w_version = "LumaViewPro-$version"
+Write-Host "Building version: $version (from version.txt: '$version_raw')"
 
 echo "Adding license files to top-level"
 Copy-Item '.\licenses\*' -Destination '.\' -Force
