@@ -242,6 +242,40 @@ def executor(scope, executors):
     return exc
 
 
+@pytest.fixture
+def real_executor(scope, executors):
+    """Executor with REAL wellplate loader and coordinate transformer.
+
+    This exercises the full code path including move_abs_pos → axes_config,
+    which catches init bugs that mocked fixtures miss.
+    """
+    from modules.coord_transformations import CoordinateTransformer
+    from modules.labware_loader import WellPlateLoader
+
+    mock_af = MagicMock()
+    mock_af.reset = MagicMock()
+    mock_af.in_progress = MagicMock(return_value=False)
+    mock_af.complete = MagicMock(return_value=False)
+    mock_af.is_running = MagicMock(return_value=False)
+    mock_af.result = MagicMock(return_value=None)
+    mock_af.best_focus_position = MagicMock(return_value=5000.0)
+    mock_af.run_in_progress = MagicMock(return_value=False)
+
+    exc = SequencedCaptureExecutor(
+        scope=scope,
+        stage_offset={'x': 0.0, 'y': 0.0},
+        io_executor=executors['io'],
+        protocol_executor=executors['protocol'],
+        file_io_executor=executors['file_io'],
+        camera_executor=executors['camera'],
+        autofocus_io_executor=executors['autofocus'],
+        autofocus_executor=mock_af,
+    )
+    exc._wellplate_loader = WellPlateLoader()
+    exc._coordinate_transformer = CoordinateTransformer()
+    return exc
+
+
 def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     done = threading.Event()
     result_holder = {}
@@ -1107,3 +1141,106 @@ class TestExecuteLEDRestore:
         states = scope.get_led_states()
         for color, state in states.items():
             assert not state['enabled'], f"LED {color} still on after protocol"
+
+
+# ===========================================================================
+# PART 6: Real Path Tests (no mocking of drivers/transforms)
+# ===========================================================================
+
+class TestRealPathExecution:
+    """Tests using real_executor with real WellPlateLoader, CoordinateTransformer,
+    and simulated MotorBoard. These catch init/config bugs that mocked tests miss.
+
+    The axes_config AttributeError (2026-03-27) would have been caught here
+    because _default_move → scope.move_absolute_position → motion.move_abs_pos
+    accesses self.axes_config, which must be initialized in __init__.
+    """
+
+    def test_single_bf_real_motion(self, real_executor, scope, tmp_path):
+        """Single BF step with real coordinate transforms and motor movement."""
+        steps = [_make_step(color="BF", x=10.0, y=20.0, z=5000.0)]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
+        assert completed, "Single BF with real motion did not complete"
+
+    def test_multi_well_real_motion(self, real_executor, scope, tmp_path):
+        """Multi-well protocol with real XY coordinate transforms."""
+        steps = [
+            _make_step(name="A1_BF", well="A1", x=10.0, y=20.0),
+            _make_step(name="A2_BF", well="A2", x=30.0, y=20.0),
+            _make_step(name="B1_BF", well="B1", x=10.0, y=40.0),
+        ]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
+        assert completed, "Multi-well with real motion did not complete"
+
+    def test_multichannel_real_motion(self, real_executor, scope, tmp_path):
+        """BF + fluorescence with real LED and motor paths."""
+        steps = [
+            _make_step(name="A1_BF", color="BF", illumination=50.0),
+            _make_step(name="A1_Green", color="Green", illumination=200.0),
+            _make_step(name="A1_Red", color="Red", illumination=150.0),
+        ]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
+        assert completed, "Multi-channel with real motion did not complete"
+
+    def test_zstack_real_motion(self, real_executor, scope, tmp_path):
+        """Z-stack with real Z axis movement."""
+        steps = [
+            _make_step(name="A1_BF_Z0", z=4500.0, z_slice=0, zstack_group_id=1),
+            _make_step(name="A1_BF_Z1", z=5000.0, z_slice=1, zstack_group_id=1),
+            _make_step(name="A1_BF_Z2", z=5500.0, z_slice=2, zstack_group_id=1),
+        ]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
+        assert completed, "Z-stack with real motion did not complete"
+
+    def test_tiled_real_motion(self, real_executor, scope, tmp_path):
+        """2x2 tiling with real XY coordinate transforms."""
+        steps = [
+            _make_step(name="A1_BF_T00", tile="T00", tile_group_id=1, x=10.0, y=20.0),
+            _make_step(name="A1_BF_T01", tile="T01", tile_group_id=1, x=12.0, y=20.0),
+            _make_step(name="A1_BF_T10", tile="T10", tile_group_id=1, x=10.0, y=22.0),
+            _make_step(name="A1_BF_T11", tile="T11", tile_group_id=1, x=12.0, y=22.0),
+        ]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
+        assert completed, "2x2 tiling with real motion did not complete"
+
+    def test_save_load_run_real_motion(self, real_executor, scope, tmp_path):
+        """Full pipeline: create → save → reload → run with real motion."""
+        steps = [
+            _make_step(name="A1_BF", color="BF", x=10.0, y=20.0, z=5000.0),
+            _make_step(name="A1_Green", color="Green", x=10.0, y=20.0, z=5000.0),
+        ]
+        proto = _build_protocol(steps)
+        reloaded = _save_and_reload(proto, tmp_path / "save")
+        completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
+        assert completed, "Save→load→run with real motion did not complete"
+
+    def test_video_real_motion(self, real_executor, scope, tmp_path):
+        """Video capture with real motion path."""
+        steps = [_make_step(
+            acquire="video",
+            video_config={"duration": 0.3, "fps": 5},
+        )]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(real_executor, proto, tmp_path)
+        assert completed, "Video with real motion did not complete"
+
+    def test_back_to_back_real_motion(self, real_executor, scope, tmp_path):
+        """Two protocols back-to-back with real motion — verifies state cleanup."""
+        import time
+
+        proto_a = _build_protocol([_make_step(name="A1_BF", color="BF")])
+        completed_a, _ = _run_and_wait(real_executor, proto_a, tmp_path / "run_a")
+        assert completed_a, "Protocol A with real motion did not complete"
+
+        time.sleep(1.0)
+
+        proto_b = _build_protocol([
+            _make_step(name="B1_Green", color="Green", x=30.0, y=30.0),
+        ])
+        completed_b, _ = _run_and_wait(real_executor, proto_b, tmp_path / "run_b")
+        assert completed_b, "Protocol B with real motion did not complete after A"
