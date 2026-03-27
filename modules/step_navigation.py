@@ -255,8 +255,9 @@ def go_to_step_update_ui(step):
     else:
         layer_obj.ids['acquire_none'].active = True
 
-    # Set LED button state to match: 'down' if LED is on, 'normal' if off.
-    # The actual LED hardware command is sent in go_to_step() when
-    # protocol_led_on is True and not called_from_protocol.
-    if settings['protocol_led_on'] and not protocol_running_global.is_set():
+    # Set LED button state to show which channel is active for this step.
+    # During protocol: show the step's channel as 'down' so user sees which
+    # LED is being used, even though the actual on/off happens in the executor.
+    # Outside protocol: only if protocol_led_on is enabled (preview mode).
+    if protocol_running_global.is_set() or settings.get('protocol_led_on', False):
         layer_obj.ids['enable_led_btn'].state = 'down'
