@@ -1533,3 +1533,359 @@ class TestExecutorEdgeCases:
             f"Gain not restored: {restored_gain} vs {original_gain}"
         assert restored_exposure == pytest.approx(original_exposure, abs=0.1), \
             f"Exposure not restored: {restored_exposure} vs {original_exposure}"
+
+
+# ===========================================================================
+# PART 9: Protocol Mutation Tests (insert, delete, modify — the UI actions)
+# ===========================================================================
+
+def _layer_config(
+    autofocus=False, false_color=False, illumination=50.0,
+    gain=1.0, auto_gain=False, exposure=10.0, sum=1,
+    acquire='image', video_config=None,
+):
+    """Build a layer_config dict matching what the UI passes to Protocol.modify_step/insert_step."""
+    return {
+        'autofocus': autofocus,
+        'false_color': false_color,
+        'illumination': illumination,
+        'gain': gain,
+        'auto_gain': auto_gain,
+        'exposure': exposure,
+        'sum': sum,
+        'acquire': acquire,
+        'video_config': video_config or {'duration': 1, 'fps': 5},
+    }
+
+
+class TestProtocolInsertStep:
+    """Test insert_step — simulates user adding steps in the UI."""
+
+    def test_insert_first_step(self):
+        proto = _build_protocol([_make_step(name="existing")])
+        proto.insert_step(
+            step_name="new_step",
+            layer="Green",
+            layer_config=_layer_config(illumination=200.0),
+            plate_position={'x': 30.0, 'y': 40.0, 'z': 5000.0},
+            objective_id="10x Oly",
+            stim_configs=_default_stim_config(),
+            before_step=0,
+        )
+        assert proto.num_steps() == 2
+        assert proto.step(idx=0)["Name"] == "new_step"
+        assert proto.step(idx=0)["Color"] == "Green"
+        assert proto.step(idx=1)["Name"] == "existing"
+
+    def test_insert_after_last_step(self):
+        proto = _build_protocol([_make_step(name="first")])
+        proto.insert_step(
+            step_name="appended",
+            layer="Red",
+            layer_config=_layer_config(illumination=150.0),
+            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            objective_id="10x Oly",
+            stim_configs=_default_stim_config(),
+            before_step=None,
+            after_step=0,
+        )
+        assert proto.num_steps() == 2
+        assert proto.step(idx=0)["Name"] == "first"
+        assert proto.step(idx=1)["Name"] == "appended"
+        assert proto.step(idx=1)["Color"] == "Red"
+
+    def test_insert_between_steps(self):
+        proto = _build_protocol([
+            _make_step(name="step_0"),
+            _make_step(name="step_1"),
+        ])
+        proto.insert_step(
+            step_name="middle",
+            layer="BF",
+            layer_config=_layer_config(),
+            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            objective_id="10x Oly",
+            stim_configs=_default_stim_config(),
+            before_step=None,
+            after_step=0,
+        )
+        assert proto.num_steps() == 3
+        assert proto.step(idx=0)["Name"] == "step_0"
+        assert proto.step(idx=1)["Name"] == "middle"
+        assert proto.step(idx=2)["Name"] == "step_1"
+
+    def test_insert_with_video_config(self):
+        proto = _build_protocol([_make_step()])
+        vc = {'duration': 5.0, 'fps': 30}
+        proto.insert_step(
+            step_name="video_step",
+            layer="Red",
+            layer_config=_layer_config(acquire='video', video_config=vc),
+            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            objective_id="10x Oly",
+            stim_configs=_default_stim_config(),
+            before_step=None,
+            after_step=0,
+        )
+        step = proto.step(idx=1)
+        assert step["Acquire"] == "video"
+        assert isinstance(step["Video Config"], dict)
+        assert step["Video Config"]["fps"] == 30
+
+    def test_insert_with_stim_config(self):
+        proto = _build_protocol([_make_step()])
+        sc = _stim_config_enabled(channels=["Green"])
+        proto.insert_step(
+            step_name="stim_step",
+            layer="Red",
+            layer_config=_layer_config(acquire='video'),
+            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            objective_id="10x Oly",
+            stim_configs=sc,
+            before_step=None,
+            after_step=0,
+        )
+        step = proto.step(idx=1)
+        assert isinstance(step["Stim_Config"], dict)
+        assert step["Stim_Config"]["Green"]["enabled"] is True
+
+    def test_insert_save_load_run(self, real_executor, scope, tmp_path):
+        """Insert a step, save, reload, and run — full pipeline."""
+        proto = _build_protocol([_make_step(name="original", color="BF")])
+        proto.insert_step(
+            step_name="added_green",
+            layer="Green",
+            layer_config=_layer_config(illumination=200.0),
+            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            objective_id="10x Oly",
+            stim_configs=_default_stim_config(),
+            before_step=None,
+            after_step=0,
+        )
+        assert proto.num_steps() == 2
+
+        reloaded = _save_and_reload(proto, tmp_path / "save")
+        assert reloaded.num_steps() == 2
+        assert reloaded.step(idx=1)["Color"] == "Green"
+
+        completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
+        assert completed, "Inserted-step protocol did not complete"
+
+
+class TestProtocolDeleteStep:
+    """Test delete_step — simulates user removing steps in the UI."""
+
+    def test_delete_only_step(self):
+        proto = _build_protocol([_make_step()])
+        proto.delete_step(step_idx=0)
+        assert proto.num_steps() == 0
+
+    def test_delete_first_of_three(self):
+        proto = _build_protocol([
+            _make_step(name="a"), _make_step(name="b"), _make_step(name="c"),
+        ])
+        proto.delete_step(step_idx=0)
+        assert proto.num_steps() == 2
+        assert proto.step(idx=0)["Name"] == "b"
+        assert proto.step(idx=1)["Name"] == "c"
+
+    def test_delete_middle(self):
+        proto = _build_protocol([
+            _make_step(name="a"), _make_step(name="b"), _make_step(name="c"),
+        ])
+        proto.delete_step(step_idx=1)
+        assert proto.num_steps() == 2
+        assert proto.step(idx=0)["Name"] == "a"
+        assert proto.step(idx=1)["Name"] == "c"
+
+    def test_delete_last(self):
+        proto = _build_protocol([
+            _make_step(name="a"), _make_step(name="b"), _make_step(name="c"),
+        ])
+        proto.delete_step(step_idx=2)
+        assert proto.num_steps() == 2
+        assert proto.step(idx=1)["Name"] == "b"
+
+    def test_delete_all_one_by_one(self):
+        proto = _build_protocol([
+            _make_step(name="a"), _make_step(name="b"),
+        ])
+        proto.delete_step(step_idx=1)
+        proto.delete_step(step_idx=0)
+        assert proto.num_steps() == 0
+
+
+class TestProtocolModifyStep:
+    """Test modify_step — simulates user editing a step in the UI."""
+
+    def test_modify_color_and_illumination(self):
+        proto = _build_protocol([_make_step(color="BF", illumination=50.0)])
+        proto.modify_step(
+            step_idx=0,
+            step_name="modified",
+            layer="Green",
+            layer_config=_layer_config(illumination=300.0),
+            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            objective_id="10x Oly",
+            stim_configs=_default_stim_config(),
+        )
+        step = proto.step(idx=0)
+        assert step["Color"] == "Green"
+        assert step["Illumination"] == 300.0
+        assert step["Name"] == "modified"
+
+    def test_modify_to_video_with_stim(self):
+        proto = _build_protocol([_make_step(acquire="image")])
+        sc = _stim_config_enabled(channels=["Blue"])
+        vc = {'duration': 3.0, 'fps': 15}
+        proto.modify_step(
+            step_idx=0,
+            step_name="now_video",
+            layer="Red",
+            layer_config=_layer_config(acquire='video', video_config=vc),
+            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            objective_id="10x Oly",
+            stim_configs=sc,
+        )
+        step = proto.step(idx=0)
+        assert step["Acquire"] == "video"
+        assert step["Video Config"]["fps"] == 15
+        assert step["Stim_Config"]["Blue"]["enabled"] is True
+
+    def test_modify_save_load_run(self, real_executor, scope, tmp_path):
+        """Modify a step, save, reload, run."""
+        proto = _build_protocol([_make_step(color="BF")])
+        proto.modify_step(
+            step_idx=0,
+            step_name="modified_red",
+            layer="Red",
+            layer_config=_layer_config(illumination=200.0),
+            plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
+            objective_id="10x Oly",
+            stim_configs=_default_stim_config(),
+        )
+
+        reloaded = _save_and_reload(proto, tmp_path / "save")
+        assert reloaded.step(idx=0)["Color"] == "Red"
+
+        completed, _ = _run_and_wait(real_executor, reloaded, tmp_path)
+        assert completed
+
+
+class TestProtocolAutofocusModification:
+    """Test autofocus enable/disable on steps."""
+
+    def test_modify_autofocus_single_step(self):
+        proto = _build_protocol([_make_step(auto_focus=False)])
+        proto.modify_autofocus(step_idx=0, enabled=True)
+        assert proto.step(idx=0)["Auto_Focus"] == True
+
+    def test_modify_autofocus_all_steps(self):
+        proto = _build_protocol([
+            _make_step(name="a", auto_focus=False),
+            _make_step(name="b", auto_focus=False),
+            _make_step(name="c", auto_focus=True),
+        ])
+        proto.modify_autofocus_all_steps(enabled=True)
+        for i in range(3):
+            assert proto.step(idx=i)["Auto_Focus"] == True
+
+        proto.modify_autofocus_all_steps(enabled=False)
+        for i in range(3):
+            assert proto.step(idx=i)["Auto_Focus"] == False
+
+
+# ===========================================================================
+# PART 10: Lumascope API Direct Tests (LED, Motor, Camera)
+# ===========================================================================
+
+class TestLumascapeAPILed:
+    """Direct tests on Lumascope LED API with simulated hardware."""
+
+    def test_led_on_off(self, scope):
+        scope.led_on(channel=0, mA=100)
+        assert scope.led.is_led_on('Blue')
+        scope.led_off(channel=0)
+        assert not scope.led.is_led_on('Blue')
+
+    def test_led_on_by_color_name(self, scope):
+        scope.led_on(channel='Green', mA=200)
+        state = scope.get_led_state('Green')
+        assert state['enabled']
+        assert state['illumination'] == 200
+
+    def test_leds_off(self, scope):
+        scope.led_on(channel='BF', mA=50)
+        scope.led_on(channel='Red', mA=100)
+        scope.leds_off()
+        states = scope.get_led_states()
+        for color, state in states.items():
+            assert not state['enabled'], f"LED {color} still on after leds_off"
+
+    def test_led_current_validation(self, scope):
+        with pytest.raises(ValueError):
+            scope.led_on(channel=0, mA=-1)
+        with pytest.raises(ValueError):
+            scope.led_on(channel=0, mA=1001)
+
+    def test_led_channel_validation(self, scope):
+        with pytest.raises(ValueError):
+            scope.led_on(channel=99, mA=100)
+
+    def test_led_states_snapshot(self, scope):
+        scope.led_on(channel='Green', mA=200)
+        scope.led_on(channel='Red', mA=150)
+        states = scope.get_led_states()
+        assert states['Green']['enabled']
+        assert states['Green']['illumination'] == 200
+        assert states['Red']['enabled']
+        assert not states['BF']['enabled']
+
+
+class TestLumascapeAPIMotor:
+    """Direct tests on Lumascope motor API with simulated hardware."""
+
+    def test_move_absolute_z(self, scope):
+        scope.move_absolute_position('Z', 3000.0)
+        # Simulated motor moves instantly in fast mode
+        pos = scope.get_target_position('Z')
+        assert pos == pytest.approx(3000.0, abs=1.0)
+
+    def test_get_target_position_from_cache(self, scope):
+        """get_target_position uses cache — zero serial I/O."""
+        scope.move_absolute_position('Z', 5000.0)
+        pos = scope.get_target_position('Z')
+        assert pos == pytest.approx(5000.0, abs=1.0)
+
+    def test_all_axes_have_target(self, scope):
+        """All axes return a position (even if 0)."""
+        positions = scope.get_target_position(axis=None)
+        assert isinstance(positions, dict)
+        for ax in ('X', 'Y', 'Z'):
+            assert ax in positions
+
+
+class TestLumascapeAPICamera:
+    """Direct tests on Lumascope camera API with simulated hardware."""
+
+    def test_camera_connected(self, scope):
+        assert scope.camera_is_connected()
+
+    def test_get_image_returns_array(self, scope):
+        import numpy as np
+        img = scope.get_image()
+        assert isinstance(img, np.ndarray), f"get_image returned {type(img)}"
+        assert img.ndim == 2  # grayscale
+
+    def test_set_gain(self, scope):
+        scope.set_gain(5.0)
+        assert scope.get_gain() == pytest.approx(5.0, abs=0.1)
+
+    def test_set_exposure(self, scope):
+        scope.set_exposure_time(25.0)
+        assert scope.get_exposure_time() == pytest.approx(25.0, abs=0.1)
+
+    def test_capture_and_wait(self, scope):
+        import numpy as np
+        result = scope.capture_and_wait()
+        assert isinstance(result, np.ndarray), f"capture_and_wait returned {type(result)}"
