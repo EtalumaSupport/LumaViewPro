@@ -1028,7 +1028,8 @@ class Lumascope():
         if channel not in self.LED_VALID_CHANNELS:
             raise ValueError(f"LED channel must be 0-5, got {channel}")
 
-        self.led.led_off(channel)
+        with self._hw_lock:
+            self.led.led_off(channel)
         self.frame_validity.invalidate('led')
         _api_log.info(f'led_off ch={channel}')
 
@@ -1049,7 +1050,8 @@ class Lumascope():
             raise ValueError(f"LED channel must be 0-5, got {channel}")
         if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
             raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
-        self.led.led_on_fast(channel, mA)
+        with self._hw_lock:
+            self.led.led_on_fast(channel, mA)
         self.frame_validity.invalidate('led')
 
     def led_off_fast(self, channel):
@@ -1066,13 +1068,15 @@ class Lumascope():
             channel = self.color2ch(color=channel)
         if channel not in self.LED_VALID_CHANNELS:
             raise ValueError(f"LED channel must be 0-5, got {channel}")
-        self.led.led_off_fast(channel)
+        with self._hw_lock:
+            self.led.led_off_fast(channel)
         self.frame_validity.invalidate('led')
 
     def leds_off_fast(self):
         """Turn off all LEDs with write-only (no read-back) for time-critical pulses."""
         if not self.led: return
-        self.led.leds_off_fast()
+        with self._hw_lock:
+            self.led.leds_off_fast()
         self.frame_validity.invalidate('led')
 
     def leds_off(self):

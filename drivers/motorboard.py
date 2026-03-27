@@ -38,6 +38,14 @@ class MotorBoard(SerialBoard):
         # Backward-compatible alias for lock name
         self.thread_lock = self._lock
 
+    def _on_disconnect(self):
+        """Clear cached firmware info on disconnect (called under self._lock)."""
+        with self._state_lock:
+            self._fullinfo = None
+            self.initial_homing_complete = False
+            self.initial_t_homing_complete = False
+        logger.info('[XYZ Class ] Motor state cache cleared on disconnect')
+
         self.axes_config = {
             'Z': {
                 'limits': {
@@ -314,12 +322,23 @@ class MotorBoard(SerialBoard):
         return resp
 
 
-    def spi_write(self, axis: str, addr: int, payload: str) -> str:
+    def spi_write(self, axis: str, addr: int, payload: int | str) -> str:
+        """Write to TMC motor driver SPI register.
+
+        Args:
+            axis: Motor axis ('X', 'Y', 'Z', 'T').
+            addr: SPI register address (0x00-0x7F; write offset 0x80 added automatically).
+            payload: Value to write (decimal integer or string representation).
+        """
+        if axis not in ('X', 'Y', 'Z', 'T'):
+            raise ValueError(f"Invalid axis {axis!r}")
+        if not (0 <= addr <= 0x7F):
+            raise ValueError(f"SPI address 0x{addr:02X} out of range [0x00-0x7F]")
         WRITE_OFFSET = 0x80
         write_addr = addr + WRITE_OFFSET
-        command = f"SPI{axis}0x{write_addr:02x}{payload}"
+        command = f"SPI{axis}0x{write_addr:02x}{int(payload)}"
         resp = self.exchange_command(command)
-        logger.debug(f"[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}): {command} -> {resp}")
+        logger.debug(f"[XYZ Class ] MotorBoard.spi_write({axis}, 0x{addr:02x}, {payload}): {command} -> {resp}")
         return resp
 
 
@@ -483,14 +502,17 @@ class MotorBoard(SerialBoard):
     #----------------------------------------------------------
 
     def move(self, axis, steps):
-        """ Move the axis to an absolute position (in usteps)
-        compared to Home """
-        # logger.info('move', axis, steps)
+        """Move the axis to an absolute position (in usteps) compared to Home.
 
-        # logger.info('def move(self, axis, steps)', axis, steps)
+        This is a low-level function called by move_abs_pos() after limit
+        enforcement. Direct callers must ensure steps is within safe range.
+        """
+        if axis not in ('X', 'Y', 'Z', 'T'):
+            raise ValueError(f"Invalid axis {axis!r}")
         if steps < 0:
-            steps += 0x100000000 # twos compliment
-        #print(f"Axis: {axis} steps: {steps}")
+            steps += 0x100000000  # two's complement for firmware's unsigned integer format
+        if steps > 0xFFFFFFFF:
+            raise ValueError(f"Steps {steps} exceeds 32-bit range for axis {axis}")
         self.exchange_command('TARGET_W' + axis + str(steps))
 
         # target_pos = int(self.exchange_command('TARGET_R' + axis))

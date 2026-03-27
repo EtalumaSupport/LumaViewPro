@@ -53,6 +53,13 @@ class LEDBoard(SerialBoard):
         except Exception as e:
             logger.warning(f'[LED Class ] Safety LEDS_OFF failed: {e}')
 
+    def _on_disconnect(self):
+        """Clear LED state cache on disconnect (called under self._lock)."""
+        with self._state_lock:
+            for color in self.led_ma:
+                self.led_ma[color] = -1
+        logger.info('[LED Class ] LED state cache cleared on disconnect')
+
     _COLOR_TO_CH = {
         'Blue': 0, 'Green': 1, 'Red': 2,
         'BF': 3, 'PC': 4, 'DF': 5,
@@ -139,11 +146,22 @@ class LEDBoard(SerialBoard):
                         for color, mA in self.led_ma.items()}
         return snapshot
 
+    # Safety limits — defense-in-depth validation at driver level.
+    # The API layer (lumascope_api.py) also validates, but the driver
+    # must enforce independently in case of direct calls.
+    _MAX_CHANNEL = 5
+    _MAX_MA = 1000  # Firmware CH_MAX — absolute hardware limit
+
     def led_on(self, channel, mA, block=False, timeout: float = 5.0):
         """
         Turn on LED at channel number at mA power
         If block=True, verify correct callback before returning (with timeout)
         """
+        if not (0 <= int(channel) <= self._MAX_CHANNEL):
+            raise ValueError(f"LED channel {channel} out of range [0-{self._MAX_CHANNEL}]")
+        if not (0 <= int(mA) <= self._MAX_MA):
+            raise ValueError(f"LED current {mA} mA out of safe range [0-{self._MAX_MA}]")
+
         color = self.ch2color(channel=channel)
 
         command = 'LED' + str(int(channel)) + '_' + str(int(mA))
@@ -167,6 +185,7 @@ class LEDBoard(SerialBoard):
                 if time.monotonic() > deadline:
                     logger.warning(f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) timed out after {timeout}s')
                     break
+                time.sleep(0.01)  # Prevent busy-wait CPU burn
                 response = self.exchange_command(command)
                 if response is not None:
                     with self._state_lock:
@@ -187,6 +206,10 @@ class LEDBoard(SerialBoard):
 
     def led_on_fast(self, channel, mA):
         """Fast write-only version of led_on for time-critical toggling."""
+        if not (0 <= int(channel) <= self._MAX_CHANNEL):
+            raise ValueError(f"LED channel {channel} out of range [0-{self._MAX_CHANNEL}]")
+        if not (0 <= int(mA) <= self._MAX_MA):
+            raise ValueError(f"LED current {mA} mA out of safe range [0-{self._MAX_MA}]")
         color = self.ch2color(channel=channel)
         with self._state_lock:
             self.led_ma[color] = mA
