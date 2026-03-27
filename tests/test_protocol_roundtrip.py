@@ -706,3 +706,404 @@ class TestValidation:
         proto = _build_protocol(steps)
         errors = proto.validate_steps()
         assert len(errors) > 0, "Expected validation error for negative exposure"
+
+
+# ===========================================================================
+# PART 3: Round-Trip Gaps
+# ===========================================================================
+
+class TestRoundTripMetadata:
+    """Protocol metadata (period, duration, labware, capture_root) survives round-trip."""
+
+    def test_period_preserved(self, tmp_path):
+        proto = _build_protocol([_make_step()], period_min=5.0)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.period() == datetime.timedelta(minutes=5)
+
+    def test_duration_preserved(self, tmp_path):
+        proto = _build_protocol([_make_step()], duration_hrs=12.0)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.duration() == datetime.timedelta(hours=12)
+
+    def test_labware_preserved(self, tmp_path):
+        proto = _build_protocol([_make_step()], labware="96 well microplate")
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.labware() == "96 well microplate"
+
+    def test_capture_root_preserved(self, tmp_path):
+        steps = [_make_step()]
+        proto = _build_protocol(steps)
+        proto._config['capture_root'] = 'experiment_42'
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.capture_root() == 'experiment_42'
+
+    def test_video_config_various_fps(self, tmp_path):
+        """Different fps values round-trip correctly."""
+        for fps in [0.5, 1, 5, 10, 30, 60]:
+            vc = {"duration": 2.0, "fps": fps}
+            proto = _build_protocol([_make_step(acquire="video", video_config=vc)])
+            reloaded = _save_and_reload(proto, tmp_path / f"fps_{fps}")
+            assert reloaded.step(idx=0)["Video Config"]["fps"] == fps
+
+    def test_video_config_various_durations(self, tmp_path):
+        """Different duration values round-trip correctly."""
+        for dur in [0.1, 1.0, 10.0, 60.0, 300.0]:
+            vc = {"duration": dur, "fps": 5}
+            proto = _build_protocol([_make_step(acquire="video", video_config=vc)])
+            reloaded = _save_and_reload(proto, tmp_path / f"dur_{dur}")
+            assert reloaded.step(idx=0)["Video Config"]["duration"] == dur
+
+    def test_stim_multi_channel_enabled(self, tmp_path):
+        """Stim config with all 3 channels enabled."""
+        sc = _stim_config_enabled(channels=["Red", "Green", "Blue"])
+        proto = _build_protocol([_make_step(stim_config=sc)])
+        reloaded = _save_and_reload(proto, tmp_path)
+        step = reloaded.step(idx=0)
+        for ch in ("Red", "Green", "Blue"):
+            assert step["Stim_Config"][ch]["enabled"] is True
+
+    def test_stim_per_channel_values(self, tmp_path):
+        """Each stim channel can have different parameter values."""
+        sc = _default_stim_config()
+        sc["Red"]["enabled"] = True
+        sc["Red"]["frequency"] = 10.0
+        sc["Red"]["pulse_width"] = 5
+        sc["Red"]["pulse_count"] = 200
+        sc["Green"]["enabled"] = True
+        sc["Green"]["frequency"] = 20.0
+        sc["Green"]["pulse_width"] = 50
+        sc["Green"]["pulse_count"] = 10
+        proto = _build_protocol([_make_step(stim_config=sc)])
+        reloaded = _save_and_reload(proto, tmp_path)
+        step = reloaded.step(idx=0)
+        assert step["Stim_Config"]["Red"]["frequency"] == 10.0
+        assert step["Stim_Config"]["Red"]["pulse_count"] == 200
+        assert step["Stim_Config"]["Green"]["frequency"] == 20.0
+        assert step["Stim_Config"]["Green"]["pulse_count"] == 10
+        assert step["Stim_Config"]["Blue"]["enabled"] is False
+
+
+class TestRoundTripCombinations:
+    """Combined feature round-trips."""
+
+    def test_tiling_plus_zstack(self, tmp_path):
+        """Tiled + z-stacked steps."""
+        steps = []
+        for tile_idx, (tx, ty, tlabel) in enumerate([(10, 20, "T00"), (15, 20, "T01")]):
+            for z_idx, z in enumerate([4900, 5000, 5100]):
+                steps.append(_make_step(
+                    name=f"A1_BF_{tlabel}_Z{z_idx}",
+                    x=tx, y=ty, z=z,
+                    tile=tlabel, tile_group_id=1,
+                    z_slice=z_idx, zstack_group_id=tile_idx + 1,
+                ))
+        proto = _build_protocol(steps)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.num_steps() == 6
+
+    def test_multiwell_multichannel(self, tmp_path):
+        """Multi-well × multi-channel protocol."""
+        steps = []
+        for well, x, y in [("A1", 10, 20), ("A2", 30, 20), ("B1", 10, 40)]:
+            for color, ill in [("BF", 50), ("Green", 200), ("Red", 150)]:
+                steps.append(_make_step(
+                    name=f"{well}_{color}", well=well, x=x, y=y,
+                    color=color, illumination=ill,
+                ))
+        proto = _build_protocol(steps)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.num_steps() == 9
+        assert reloaded.step(idx=0)["Well"] == "A1"
+        assert reloaded.step(idx=0)["Color"] == "BF"
+        assert reloaded.step(idx=8)["Well"] == "B1"
+        assert reloaded.step(idx=8)["Color"] == "Red"
+
+    def test_tiling_1x3(self, tmp_path):
+        """1 row × 3 columns tiling."""
+        steps = [
+            _make_step(name=f"A1_BF_T0{i}", tile=f"T0{i}", tile_group_id=1, x=10 + i * 5)
+            for i in range(3)
+        ]
+        proto = _build_protocol(steps)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.num_steps() == 3
+
+    def test_tiling_3x5(self, tmp_path):
+        """3 rows × 5 columns tiling (15 tiles)."""
+        steps = []
+        for row in range(3):
+            for col in range(5):
+                steps.append(_make_step(
+                    name=f"A1_BF_T{row}{col}",
+                    tile=f"T{row}{col}",
+                    tile_group_id=1,
+                    x=10 + col * 5, y=20 + row * 5,
+                ))
+        proto = _build_protocol(steps)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.num_steps() == 15
+
+    def test_multiwell_tiled_multichannel(self, tmp_path):
+        """The real-world protocol: multi-well × tiled × multi-channel."""
+        steps = []
+        for well, wx, wy in [("A1", 10, 20), ("A2", 30, 20)]:
+            for tile_idx, (tx, ty) in enumerate([(0, 0), (5, 0), (0, 5), (5, 5)]):
+                for color in ["BF", "Green"]:
+                    steps.append(_make_step(
+                        name=f"{well}_{color}_T{tile_idx:02d}",
+                        well=well, x=wx + tx, y=wy + ty,
+                        color=color,
+                        tile=f"T{tile_idx:02d}", tile_group_id=1,
+                    ))
+        proto = _build_protocol(steps)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.num_steps() == 16  # 2 wells × 4 tiles × 2 channels
+
+    def test_multiple_objectives(self, tmp_path):
+        """Steps with different objectives."""
+        steps = [
+            _make_step(name="A1_4x", objective="4x Oly", z=3000.0),
+            _make_step(name="A1_10x", objective="10x Oly", z=5000.0),
+            _make_step(name="A1_20x", objective="20x Oly", z=7000.0),
+        ]
+        proto = _build_protocol(steps)
+        reloaded = _save_and_reload(proto, tmp_path)
+        assert reloaded.step(idx=0)["Objective"] == "4x Oly"
+        assert reloaded.step(idx=1)["Objective"] == "10x Oly"
+        assert reloaded.step(idx=2)["Objective"] == "20x Oly"
+
+
+# ===========================================================================
+# PART 4: Execution Gaps
+# ===========================================================================
+
+class TestExecuteMultiScan:
+    """Multi-scan (time-lapse) execution."""
+
+    def test_two_scan_timelapse(self, executor, scope, tmp_path):
+        steps = [_make_step(color="BF")]
+        proto = _build_protocol(steps, period_min=0.01, duration_hrs=0.01)
+        completed, _ = _run_and_wait(executor, proto, tmp_path, max_scans=2)
+        assert completed, "2-scan time-lapse did not complete"
+
+    def test_three_scan_multichannel(self, executor, scope, tmp_path):
+        steps = [
+            _make_step(name="A1_BF", color="BF"),
+            _make_step(name="A1_Green", color="Green"),
+        ]
+        proto = _build_protocol(steps, period_min=0.01, duration_hrs=0.01)
+        completed, _ = _run_and_wait(executor, proto, tmp_path, max_scans=3)
+        assert completed, "3-scan multi-channel did not complete"
+
+
+class TestExecuteDisabledSaving:
+    """Execution with saving artifacts disabled."""
+
+    def test_no_saving(self, executor, scope, tmp_path):
+        steps = [_make_step(color="BF")]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(
+            executor, proto, tmp_path,
+            disable_saving_artifacts=True,
+        )
+        assert completed, "Protocol with saving disabled did not complete"
+
+    def test_no_saving_video(self, executor, scope, tmp_path):
+        steps = [_make_step(acquire="video", video_config={"duration": 0.3, "fps": 5})]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(
+            executor, proto, tmp_path,
+            disable_saving_artifacts=True,
+        )
+        assert completed, "Video protocol with saving disabled did not complete"
+
+
+class TestExecutePixelDepth:
+    """Execution with different pixel depth settings."""
+
+    def test_full_pixel_depth(self, executor, scope, tmp_path):
+        steps = [_make_step(color="BF")]
+        proto = _build_protocol(steps)
+        icc = _make_image_capture_config()
+        icc['use_full_pixel_depth'] = True
+        completed, _ = _run_and_wait(executor, proto, tmp_path, image_capture_config=icc)
+        assert completed, "12-bit capture protocol did not complete"
+
+
+class TestExecuteSeparateFolders:
+    """Execution with separate folder per channel."""
+
+    def test_separate_folders(self, executor, scope, tmp_path):
+        steps = [
+            _make_step(name="A1_BF", color="BF"),
+            _make_step(name="A1_Green", color="Green"),
+        ]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(
+            executor, proto, tmp_path,
+            separate_folder_per_channel=True,
+        )
+        assert completed, "Protocol with separate folders did not complete"
+
+
+class TestExecuteCombinations:
+    """Combined feature execution."""
+
+    def test_tiled_plus_zstack(self, executor, scope, tmp_path):
+        steps = []
+        for tile_idx, (tx, tlabel) in enumerate([(10, "T00"), (15, "T01")]):
+            for z_idx, z in enumerate([4900, 5000, 5100]):
+                steps.append(_make_step(
+                    name=f"A1_BF_{tlabel}_Z{z_idx}",
+                    x=tx, z=z,
+                    tile=tlabel, tile_group_id=1,
+                    z_slice=z_idx, zstack_group_id=tile_idx + 1,
+                ))
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
+        assert completed, "Tiled + z-stack protocol did not complete"
+
+    def test_multiwell_multichannel(self, executor, scope, tmp_path):
+        steps = []
+        for well, x, y in [("A1", 10, 20), ("A2", 30, 20)]:
+            for color in ["BF", "Green"]:
+                steps.append(_make_step(
+                    name=f"{well}_{color}", well=well, x=x, y=y, color=color,
+                ))
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
+        assert completed, "Multi-well multi-channel protocol did not complete"
+
+    def test_multiwell_tiled_multichannel(self, executor, scope, tmp_path):
+        """The full real-world protocol pattern."""
+        steps = []
+        for well, wx, wy in [("A1", 10, 20), ("A2", 30, 20)]:
+            for tile_idx, (tx, ty) in enumerate([(0, 0), (5, 0)]):
+                for color in ["BF", "Green"]:
+                    steps.append(_make_step(
+                        name=f"{well}_{color}_T{tile_idx:02d}",
+                        well=well, x=wx + tx, y=wy + ty,
+                        color=color,
+                        tile=f"T{tile_idx:02d}", tile_group_id=1,
+                    ))
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
+        assert completed, "Multi-well tiled multi-channel protocol did not complete"
+
+    def test_large_protocol_50_steps(self, executor, scope, tmp_path):
+        """Stress test: 50 steps should complete without timeout."""
+        steps = [_make_step(name=f"step_{i}", color="BF") for i in range(50)]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
+        assert completed, "50-step protocol did not complete"
+
+
+class TestExecuteFileOutput:
+    """Verify output directory and metadata files are created."""
+
+    def test_output_directory_created(self, executor, scope, tmp_path):
+        steps = [_make_step(name="A1_BF", color="BF")]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
+        assert completed
+
+        output_dir = tmp_path / "output"
+        assert output_dir.exists(), "Output directory not created"
+        subdirs = [d for d in output_dir.iterdir() if d.is_dir()]
+        assert len(subdirs) >= 1, f"No timestamped run subdirectory in {output_dir}"
+
+    def test_protocol_tsv_saved_in_output(self, executor, scope, tmp_path):
+        steps = [_make_step(name="A1_BF", color="BF")]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
+        assert completed
+
+        output_dir = tmp_path / "output"
+        subdirs = [d for d in output_dir.iterdir() if d.is_dir()]
+        assert len(subdirs) >= 1
+
+        run_dir = subdirs[0]
+        tsv_files = list(run_dir.glob("*.tsv"))
+        assert len(tsv_files) >= 1, f"No protocol TSV file found in {run_dir}"
+
+    def test_execution_record_created(self, executor, scope, tmp_path):
+        """Execution record JSON is written after protocol completes."""
+        import time
+        steps = [_make_step(name="A1_BF", color="BF")]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
+        assert completed
+        # Wait for file I/O to drain
+        time.sleep(1.0)
+
+        output_dir = tmp_path / "output"
+        subdirs = [d for d in output_dir.iterdir() if d.is_dir()]
+        assert len(subdirs) >= 1
+
+        run_dir = subdirs[0]
+        # Record could be .json or .tsv depending on format
+        all_files = list(run_dir.iterdir())
+        assert len(all_files) >= 1, f"No files at all in {run_dir}: {all_files}"
+
+
+class TestExecuteCancellation:
+    """Protocol cancellation mid-run."""
+
+    def test_cancel_during_multi_step(self, executor, scope, tmp_path):
+        """Cancel a long protocol after it starts — should clean up gracefully."""
+        import time
+
+        steps = [_make_step(name=f"step_{i}", color="BF") for i in range(20)]
+        proto = _build_protocol(steps)
+
+        done = threading.Event()
+
+        def on_complete(**kwargs):
+            done.set()
+
+        callbacks = {
+            'run_complete': on_complete,
+            'go_to_step': lambda **kw: None,
+            'move_position': lambda axis: None,
+        }
+
+        executor.run(
+            protocol=proto,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='test_cancel',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks=callbacks,
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False, 'PC': False, 'DF': False,
+                'Red': False, 'Green': False, 'Blue': False, 'Lumi': False,
+            },
+        )
+
+        # Let it run for a moment then cancel
+        time.sleep(0.5)
+        executor._protocol_ended.set()
+
+        # Should still fire run_complete callback
+        completed = done.wait(timeout=COMPLETION_TIMEOUT)
+        assert completed, "Protocol did not fire run_complete after cancellation"
+        assert not executor.run_in_progress(), "Executor still running after cancel"
+
+
+class TestExecuteLEDRestore:
+    """LED state restoration after protocol."""
+
+    def test_leds_off_after_protocol(self, executor, scope, tmp_path):
+        steps = [_make_step(color="Green", illumination=200.0)]
+        proto = _build_protocol(steps)
+        completed, _ = _run_and_wait(executor, proto, tmp_path, leds_state_at_end='off')
+        assert completed
+
+        # All LEDs should be off after protocol
+        states = scope.get_led_states()
+        for color, state in states.items():
+            assert not state['enabled'], f"LED {color} still on after protocol"

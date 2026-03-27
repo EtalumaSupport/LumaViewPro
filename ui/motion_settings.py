@@ -185,10 +185,14 @@ class XYStageControl(BoxLayout):
 
     def update_gui(self, dt=0, full_redraw: bool = False):
         ctx = _app_ctx.ctx
-        # Note: get_xy_targets() uses the push-based position cache (zero
-        # serial I/O), so it's safe to run during protocol execution.
-        # Previously this returned early during protocol, causing the plate
-        # crosshair to freeze until the protocol finished.
+        if ctx.sequenced_capture_executor.run_in_progress():
+            # During protocol: update crosshair directly from position cache
+            # (zero serial I/O). Don't go through IO executor — its callback
+            # runs on a worker thread which can't touch Kivy widgets.
+            result = self.get_xy_targets()
+            self.get_targets_ui_callback(result=result)
+            return
+        # Normal (non-protocol): query via IO executor as before
         ctx.io_executor.put(IOTask(
             action=self.get_xy_targets,
             callback=self.get_targets_ui_callback,

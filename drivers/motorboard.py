@@ -38,14 +38,6 @@ class MotorBoard(SerialBoard):
         # Backward-compatible alias for lock name
         self.thread_lock = self._lock
 
-    def _on_disconnect(self):
-        """Clear cached firmware info on disconnect (called under self._lock)."""
-        with self._state_lock:
-            self._fullinfo = None
-            self.initial_homing_complete = False
-            self.initial_t_homing_complete = False
-        logger.info('[XYZ Class ] Motor state cache cleared on disconnect')
-
         self.axes_config = {
             'Z': {
                 'limits': {
@@ -78,6 +70,14 @@ class MotorBoard(SerialBoard):
         except Exception:
             logger.error('[XYZ Class ] Failed to connect to motor controller')
             raise
+
+    def _on_disconnect(self):
+        """Clear cached firmware info on disconnect (called under self._lock)."""
+        with self._state_lock:
+            self._fullinfo = None
+            self.initial_homing_complete = False
+            self.initial_t_homing_complete = False
+        logger.info('[XYZ Class ] Motor state cache cleared on disconnect')
 
     def connect(self):
         """ Try to connect to the motor controller based on the known VID/PID"""
