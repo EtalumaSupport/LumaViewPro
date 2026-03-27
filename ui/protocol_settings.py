@@ -1069,9 +1069,35 @@ class ProtocolSettings(FloatLayout):
 
 
     def _is_protocol_valid(self) -> bool:
+        from ui.notification_popup import show_notification_popup
+
         if self._protocol.num_steps() == 0:
             logger.warning('[LVP Main  ] Protocol has no steps.')
+            show_notification_popup(
+                title="Protocol Invalid",
+                message="Protocol has no steps. Add at least one step before running."
+            )
             return False
+
+        # Validate save folder is accessible
+        settings = _app_ctx.ctx.settings
+        live_folder = settings.get('live_folder')
+        if live_folder:
+            import pathlib
+            parent_dir = pathlib.Path(live_folder).resolve() / "ProtocolData"
+            try:
+                parent_dir.mkdir(parents=True, exist_ok=True)
+                # Test write permission
+                test_file = parent_dir / ".write_test"
+                test_file.touch()
+                test_file.unlink()
+            except (FileNotFoundError, PermissionError, OSError) as e:
+                logger.error(f'[LVP Main  ] Save folder not writable: {parent_dir}: {e}')
+                show_notification_popup(
+                    title="Save Path Error",
+                    message=f"Cannot write to save folder:\n{parent_dir}\n\nError: {e}"
+                )
+                return False
 
         return True
 
@@ -1370,7 +1396,19 @@ class ProtocolSettings(FloatLayout):
         reset_title()
 
 
+    _scan_starting = False  # Re-entry guard for double-click prevention
+
     def run_scan_from_ui(self):
+        if ProtocolSettings._scan_starting:
+            logger.warning('[LVP Main  ] run_scan_from_ui() ignored — already starting')
+            return
+        ProtocolSettings._scan_starting = True
+        try:
+            self._run_scan_from_ui_inner()
+        finally:
+            ProtocolSettings._scan_starting = False
+
+    def _run_scan_from_ui_inner(self):
         from ui.notification_popup import show_notification_popup
 
         logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
@@ -1541,7 +1579,21 @@ class ProtocolSettings(FloatLayout):
         reset_title()
 
 
+    _protocol_starting = False  # Re-entry guard for double-click prevention
+
     def run_protocol_from_ui(self):
+        # Prevent double-click: if we're already in the process of starting,
+        # ignore the second click entirely.
+        if ProtocolSettings._protocol_starting:
+            logger.warning('[LVP Main  ] run_protocol_from_ui() ignored — already starting')
+            return
+        ProtocolSettings._protocol_starting = True
+        try:
+            self._run_protocol_from_ui_inner()
+        finally:
+            ProtocolSettings._protocol_starting = False
+
+    def _run_protocol_from_ui_inner(self):
         try:
             gui_logger.protocol_action('RUN')
             from ui.notification_popup import show_notification_popup

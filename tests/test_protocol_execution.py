@@ -1637,9 +1637,9 @@ class TestDiskSpaceCheck:
 
     @patch('modules.protocol_run_loop.shutil.disk_usage')
     def test_large_protocol_needs_more_than_2gb(self, mock_disk_usage, executor, scope, tmp_path):
-        """300 image steps need 3 GB (300 * 10 MB), so 2.5 GB free should abort."""
+        """300 image steps need 2400 MB (300 * 8 MB), so 2.0 GB free should abort."""
         fake_usage = MagicMock()
-        fake_usage.free = 2500 * 1024 * 1024  # 2.5 GB — enough for 2 GB but not 300*10 MB = 3 GB
+        fake_usage.free = 2000 * 1024 * 1024  # 2.0 GB — below max(2048, 300*8=2400) = 2400 MB
         mock_disk_usage.return_value = fake_usage
 
         protocol = _make_multi_step_protocol([{'color': 'BF'} for _ in range(300)])
