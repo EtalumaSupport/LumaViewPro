@@ -136,10 +136,13 @@ if ($version_raw -match '^\S+') {
 $new_lvp_base = "LumaViewPro-$version"
 $new_repo_dir = Join-Path -Path $working_dir -ChildPath $new_lvp_base
 if ($repo_dir -ne $new_repo_dir) {
+    # Must leave the directory before renaming it
+    Set-Location -Path $working_dir
     Rename-Item -Path $repo_dir -NewName $new_lvp_base
     $repo_dir = $new_repo_dir
 }
 $lvp_base_w_version = $new_lvp_base
+Set-Location -Path $repo_dir
 Write-Host "Building version: $version (from version.txt: '$version_raw')"
 
 echo "Adding license files to top-level"
