@@ -206,6 +206,13 @@ class CompositeCapture(FloatLayout):
 
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
 
+        # Suspend video false coloring during composite capture.
+        # The video recorder applies a single false color (set at recording start)
+        # to ALL frames, but composite capture cycles through multiple channels.
+        # Without this, every frame records as the initial channel's color.
+        saved_video_false_color = getattr(self, 'video_false_color', None)
+        self.video_false_color = None
+
         # Log per-channel settings for composite debugging
         settings = ctx.settings
         for layer in (*common_utils.get_transmitted_layers(), *common_utils.get_fluorescence_layers()):
@@ -423,6 +430,9 @@ class CompositeCapture(FloatLayout):
             else:
                 opened_layer_obj.ids['enable_led_btn'].state = 'normal'
             opened_layer_obj.apply_settings(update_led=True)
+
+        # Restore video false color that was suspended during composite capture
+        self.video_false_color = saved_video_false_color
 
         CompositeCapture._capturing.clear()
         Clock.schedule_once(_restore_ui, 0)
