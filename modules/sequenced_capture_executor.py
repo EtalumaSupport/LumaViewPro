@@ -609,7 +609,7 @@ class SequencedCaptureExecutor:
                             if step.get('Acquire') == 'video':
                                 estimated_mb += 50  # MP4 compressed, ~10-50MB typical
                             else:
-                                estimated_mb += 5   # 1900x1900 8-bit TIFF ~3.6MB
+                                estimated_mb += 8   # 1900x1900 16-bit TIFF ~7.2 MB + metadata
                         required_mb = max(2048, estimated_mb)
                         if free_mb < required_mb:
                             msg = (f"Insufficient disk space: {free_mb:.0f} MB free, "
