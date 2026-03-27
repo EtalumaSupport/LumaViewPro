@@ -16,7 +16,9 @@ $ErrorActionPreference = "Stop"
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
-$build_root = Join-Path -Path $script_dir -ChildPath "build_output"
+# Build outside the repo to avoid nesting clones inside clones.
+# Uses C:\LumaViewPro-build (or user's temp drive if unavailable).
+$build_root = "C:\LumaViewPro-build"
 
 # ---------------------------------------------------------------------------
 # 1. Get branch name
