@@ -151,6 +151,7 @@ class LayerControl(BoxLayout):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.sum_slider()')
         total = int(self.ids['sum_slider'].value)
+        gui_logger.slider(f'SUM_{self.layer}', total)
         settings[self.layer]['sum'] = total
         self.apply_settings()
 
@@ -179,6 +180,7 @@ class LayerControl(BoxLayout):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.video_duration_slider()')
         duration = self.ids['video_duration_slider'].value
+        gui_logger.slider(f'VIDEO_DURATION_{self.layer}', duration)
         settings[self.layer]['video_config']['duration'] = duration
         self.apply_settings()
 
@@ -261,12 +263,23 @@ class LayerControl(BoxLayout):
             # print(f"Gain: {gain}    Exp: {exp}")
 
             if (not init) and (not state):
+                # Clamp exposure to slider range. Auto-gain can drive exposure
+                # to sub-millisecond values (e.g., 0.1ms on a bright field) which
+                # produces nearly black fluorescence images if the user then
+                # creates protocol steps from these settings. Floor at 1ms for
+                # fluorescence channels where sub-ms is never realistic.
+                exp_min = self.ids['exp_slider'].min
+                exp_max = self.ids['exp_slider'].max
+                if self.layer in ('Red', 'Green', 'Blue', 'Lumi'):
+                    exp_min = max(exp_min, 1.0)  # 1ms floor for fluorescence
+                exp = float(np.clip(exp, exp_min, exp_max))
+
                 settings[self.layer]['gain'] = gain
                 settings[self.layer]['exp'] = exp
                 # Update sliders/text to show the auto-adjusted values
                 self.ids['gain_slider'].value = gain
                 self.ids['gain_text'].text = str(round(gain, 1))
-                self.ids['exp_slider'].value = float(np.clip(exp, self.ids['exp_slider'].min, self.ids['exp_slider'].max))
+                self.ids['exp_slider'].value = exp
                 self.ids['exp_text'].text = str(round(exp, 2))
 
             settings[self.layer]['auto_gain'] = state
@@ -318,6 +331,7 @@ class LayerControl(BoxLayout):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.composite_threshold_slider()')
         composite_threshold = self.ids['composite_threshold_slider'].value
+        gui_logger.slider(f'COMPOSITE_THRESHOLD_{self.layer}', composite_threshold)
         settings[self.layer]['composite_brightness_threshold'] = composite_threshold
 
     def composite_threshold_text(self):
@@ -385,6 +399,7 @@ class LayerControl(BoxLayout):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_freq_slider()')
         frequency = self.ids['stim_freq_slider'].value
+        gui_logger.slider(f'STIM_FREQ_{self.layer}', frequency)
         try:
             settings[self.layer]['stim_config']['frequency'] = frequency
         except Exception as e:
@@ -395,6 +410,7 @@ class LayerControl(BoxLayout):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_slider()')
         pulse_count = self.ids['stim_pulse_count_slider'].value
+        gui_logger.slider(f'STIM_PULSE_COUNT_{self.layer}', pulse_count)
         try:
             settings[self.layer]['stim_config']['pulse_count'] = pulse_count
         except Exception as e:
@@ -405,6 +421,7 @@ class LayerControl(BoxLayout):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_slider()')
         pulse_width = self.ids['stim_pulse_width_slider'].value
+        gui_logger.slider(f'STIM_PULSE_WIDTH_{self.layer}', pulse_width)
         try:
             settings[self.layer]['stim_config']['pulse_width'] = pulse_width
         except Exception as e:
@@ -523,6 +540,8 @@ class LayerControl(BoxLayout):
     def update_stim_enable(self):
         settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.update_stim_enable()')
+        enabled = self.ids['stim_enable_btn'].active
+        gui_logger.toggle(f'STIM_{self.layer}', enabled)
         if self.ids['stim_enable_btn'].active:
             if "stim_config" in settings[self.layer]:
                 if settings[self.layer]['stim_config'] is not None:
@@ -550,6 +569,7 @@ class LayerControl(BoxLayout):
         settings[self.layer]['autofocus'] = self.ids['autofocus'].active
 
     def save_focus(self):
+        gui_logger.button(f'SAVE_FOCUS_{self.layer}')
         io_executor = _app_ctx.ctx.io_executor
         logger.info('[LVP Main  ] LayerControl.save_focus()')
         io_executor.put(IOTask(
@@ -564,6 +584,7 @@ class LayerControl(BoxLayout):
 
 
     def goto_focus(self):
+        gui_logger.button(f'GOTO_FOCUS_{self.layer}')
         io_executor = _app_ctx.ctx.io_executor
         logger.info('[LVP Main  ] LayerControl.goto_focus()')
         io_executor.put(IOTask(

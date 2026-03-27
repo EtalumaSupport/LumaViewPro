@@ -471,6 +471,19 @@ class LumaViewProApp(TooltipMixin, App):
             if ctx is not None:
                 ctx.ready = True
 
+                # Log initial per-channel settings for debugging
+                try:
+                    settings = ctx.settings
+                    for layer in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'):
+                        ls = settings.get(layer, {})
+                        logger.info(
+                            f'[INIT      ] {layer:6s}: gain={ls.get("gain", "?"):>6}, '
+                            f'exp={ls.get("exp", "?"):>8}ms, ill={ls.get("ill", "?"):>6}mA, '
+                            f'af={ls.get("autofocus", "?")}, acquire={ls.get("acquire", "?")}'
+                        )
+                except Exception:
+                    pass
+
             # Check if a protocol is loaded and has steps
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             if hasattr(protocol_settings, '_protocol') and protocol_settings._protocol is not None:

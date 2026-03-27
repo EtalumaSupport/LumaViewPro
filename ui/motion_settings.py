@@ -247,6 +247,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('XY_FINE_LEFT')
         logger.info('[LVP Main  ] XYStageControl.fine_left()')
         try:
             _, objective = get_current_objective_info()
@@ -261,6 +262,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('XY_FINE_RIGHT')
         logger.info('[LVP Main  ] XYStageControl.fine_right()')
         try:
             _, objective = get_current_objective_info()
@@ -275,6 +277,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('XY_COARSE_LEFT')
         logger.info('[LVP Main  ] XYStageControl.coarse_left()')
         try:
             _, objective = get_current_objective_info()
@@ -289,6 +292,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('XY_COARSE_RIGHT')
         logger.info('[LVP Main  ] XYStageControl.coarse_right()')
         try:
             _, objective = get_current_objective_info()
@@ -303,6 +307,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('XY_FINE_BACK')
         logger.info('[LVP Main  ] XYStageControl.fine_back()')
         try:
             _, objective = get_current_objective_info()
@@ -317,6 +322,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('XY_FINE_FWD')
         logger.info('[LVP Main  ] XYStageControl.fine_fwd()')
         try:
             _, objective = get_current_objective_info()
@@ -331,6 +337,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('XY_COARSE_BACK')
         logger.info('[LVP Main  ] XYStageControl.coarse_back()')
         try:
             _, objective = get_current_objective_info()
@@ -345,6 +352,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('XY_COARSE_FWD')
         logger.info('[LVP Main  ] XYStageControl.coarse_fwd()')
         try:
             _, objective = get_current_objective_info()
@@ -412,6 +420,7 @@ class XYStageControl(BoxLayout):
 
 
     def set_xbookmark(self):
+        gui_logger.button('SET_X_BOOKMARK')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.set_xbookmark()')
         ctx.io_executor.put(IOTask(action=self.ex_set_xbookmark))
@@ -436,6 +445,7 @@ class XYStageControl(BoxLayout):
         settings['bookmark']['x'] = plate_x
 
     def set_ybookmark(self):
+        gui_logger.button('SET_Y_BOOKMARK')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.set_ybookmark()')
 
@@ -459,6 +469,7 @@ class XYStageControl(BoxLayout):
         settings['bookmark']['y'] = plate_y
 
     def goto_xbookmark(self):
+        gui_logger.button('GOTO_X_BOOKMARK')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.goto_xbookmark()')
 
@@ -479,6 +490,7 @@ class XYStageControl(BoxLayout):
         ctx.io_executor.put(IOTask(move_absolute_position, args=('X', stage_x)))
 
     def goto_ybookmark(self):
+        gui_logger.button('GOTO_Y_BOOKMARK')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] XYStageControl.goto_ybookmark()')
 

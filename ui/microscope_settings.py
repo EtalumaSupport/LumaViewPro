@@ -127,6 +127,7 @@ class MicroscopeSettings(BoxLayout):
 
         logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_slider()')
         acc_val = self.ids['acceleration_pct_slider'].value
+        gui_logger.slider('ACCELERATION', acc_val)
         self.set_acceleration_limit(val_pct=acc_val)
 
 
@@ -488,11 +489,13 @@ class MicroscopeSettings(BoxLayout):
             self._seperate_folder_per_channel = True
         else:
             self._seperate_folder_per_channel = False
+        gui_logger.toggle('SEPARATE_FOLDERS', self._seperate_folder_per_channel)
 
         settings['separate_folder_per_channel'] = self._seperate_folder_per_channel
 
 
     def update_bullseye_state(self):
+        gui_logger.toggle('BULLSEYE', self.ids['enable_bullseye_btn_id'].state == 'down')
         if self.ids['enable_bullseye_btn_id'].state == 'down':
             _app_ctx.ctx.viewer.update_shader(false_color='BF')
             _app_ctx.ctx.scope_display.use_bullseye = True
@@ -516,6 +519,7 @@ class MicroscopeSettings(BoxLayout):
             use_full_pixel_depth = True
         else:
             use_full_pixel_depth = False
+        gui_logger.toggle('FULL_PIXEL_DEPTH', use_full_pixel_depth)
 
         ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
 
@@ -556,11 +560,14 @@ class MicroscopeSettings(BoxLayout):
             enabled = True
         else:
             enabled = False
+        gui_logger.toggle('SCALE_BAR', enabled)
 
         ctx.lumaview.scope.set_scale_bar(enabled=enabled)
         settings['scale_bar']['enabled'] = enabled
 
     def update_crosshairs_state(self):
+        enabled = self.ids['enable_crosshairs_btn'].state == 'down'
+        gui_logger.toggle('CROSSHAIRS', enabled)
         scope_display = _app_ctx.ctx.scope_display
         if self.ids['enable_crosshairs_btn'].state == 'down':
             scope_display.use_crosshairs = True

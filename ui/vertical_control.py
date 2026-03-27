@@ -116,6 +116,7 @@ class VerticalControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('Z_COARSE_UP')
         logger.info('[LVP Main  ] VerticalControl.coarse_up()')
         try:
             _, objective = get_current_objective_info()
@@ -136,6 +137,7 @@ class VerticalControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('Z_FINE_UP')
         logger.info('[LVP Main  ] VerticalControl.fine_up()')
         try:
             _, objective = get_current_objective_info()
@@ -156,6 +158,7 @@ class VerticalControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('Z_FINE_DOWN')
         logger.info('[LVP Main  ] VerticalControl.fine_down()')
         try:
             _, objective = get_current_objective_info()
@@ -176,6 +179,7 @@ class VerticalControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
+        gui_logger.button('Z_COARSE_DOWN')
         logger.info('[LVP Main  ] VerticalControl.coarse_down()')
         try:
             _, objective = get_current_objective_info()
@@ -214,6 +218,7 @@ class VerticalControl(BoxLayout):
         self._next_pos = None
 
     def set_bookmark(self):
+        gui_logger.button('SET_Z_BOOKMARK')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.set_bookmark()')
         ctx.io_executor.put(IOTask(action=self.ex_set_bookmark))
@@ -225,6 +230,7 @@ class VerticalControl(BoxLayout):
         settings['bookmark']['z'] = height
 
     def set_all_bookmarks(self):
+        gui_logger.button('SET_ALL_BOOKMARKS')
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.set_all_bookmarks()')
         ctx.io_executor.put(IOTask(action=self.ex_set_all_bookmarks))
@@ -243,6 +249,7 @@ class VerticalControl(BoxLayout):
         settings['Lumi']['focus'] = height
 
     def goto_bookmark(self):
+        gui_logger.button('GOTO_Z_BOOKMARK')
         ctx = _app_ctx.ctx
         settings = ctx.settings
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
@@ -594,6 +601,7 @@ class VerticalControl(BoxLayout):
     def set_turret_objective(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
+        gui_logger.select('TURRET_OBJECTIVE', self.ids['objective_spinner2'].text)
 
         selected_turret = None
         for position in range(1,5):
@@ -650,6 +658,8 @@ class VerticalControl(BoxLayout):
     @debounce(0.5)
     def turret_select(self, selected_position, protocol=False):
         try:
+            if not protocol:
+                gui_logger.button(f'TURRET_POS_{selected_position}')
             ctx = _app_ctx.ctx
             settings = ctx.settings
             if not ctx.lumaview.scope.has_thomed():

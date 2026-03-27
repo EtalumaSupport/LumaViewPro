@@ -258,6 +258,7 @@ class ProtocolSettings(FloatLayout):
         if labware is None:
             spinner = self.ids['labware_spinner']
             spinner.values = wellplate_loader.get_plate_list()
+            gui_logger.select('LABWARE', spinner.text)
             settings['protocol']['labware'] = spinner.text
         else:
             center_plate_str = 'Center Plate'
@@ -1411,6 +1412,7 @@ class ProtocolSettings(FloatLayout):
     def _run_scan_from_ui_inner(self):
         from ui.notification_popup import show_notification_popup
 
+        gui_logger.protocol_action('SCAN')
         logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
         trigger_source = 'scan'
         run_complete_func = self._scan_run_complete
@@ -1447,6 +1449,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         if self.ids['run_scan_btn'].state == 'normal':
+            gui_logger.protocol_action('ABORT_SCAN')
             logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui() - User ending scan early')
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
@@ -1633,6 +1636,7 @@ class ProtocolSettings(FloatLayout):
                 return
 
             if self.ids['run_protocol_btn'].state == 'normal':
+                gui_logger.protocol_action('ABORT_PROTOCOL')
                 self._cleanup_at_end_of_protocol(autofocus_scan=False)
                 return
 

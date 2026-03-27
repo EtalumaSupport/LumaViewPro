@@ -260,7 +260,9 @@ class ImageSettings(BoxLayout):
         ctx = _app_ctx.ctx
         for layer in common_utils.get_fluorescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
+            layer_obj.ids['exp_slider'].min = 1.0   # 1ms floor — sub-ms never realistic for fluorescence
             layer_obj.ids['exp_slider'].max = ctx.max_exposure
+            layer_obj.ids['exp_slider'].step = 1.0   # Integer steps only
 
         for layer in common_utils.get_transmitted_layers():
             layer_obj = self.layer_lookup(layer=layer)
@@ -272,7 +274,9 @@ class ImageSettings(BoxLayout):
 
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
+            layer_obj.ids['exp_slider'].min = 1.0   # 1ms floor
             layer_obj.ids['exp_slider'].max = ctx.max_exposure
+            layer_obj.ids['exp_slider'].step = 1.0   # Integer steps only
 
 
     def assign_led_button_down_images(self):
