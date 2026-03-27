@@ -186,8 +186,13 @@ class XYStageControl(BoxLayout):
     def update_gui(self, dt=0, full_redraw: bool = False):
         ctx = _app_ctx.ctx
         if ctx.sequenced_capture_executor.run_in_progress():
+            # During protocol: update crosshair directly from position cache
+            # (zero serial I/O). Don't go through IO executor — its callback
+            # runs on a worker thread which can't touch Kivy widgets.
+            result = self.get_xy_targets()
+            self.get_targets_ui_callback(result=result)
             return
-        # logger.info('[LVP Main  ] XYStageControl.update_gui()')
+        # Normal (non-protocol): query via IO executor as before
         ctx.io_executor.put(IOTask(
             action=self.get_xy_targets,
             callback=self.get_targets_ui_callback,

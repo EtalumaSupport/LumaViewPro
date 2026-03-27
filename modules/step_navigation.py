@@ -145,6 +145,15 @@ def go_to_step(
 
 
 
+        # Force stage crosshair + position text update after step navigation.
+        # The move_position callback in _default_move normally handles this,
+        # but when go_to_step is used (all UI-triggered protocols), _default_move
+        # is bypassed. Schedule on main thread since go_to_step may be called
+        # from the protocol executor thread.
+        Clock.schedule_once(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
+        # Also force a stage widget redraw so the crosshair/well indicator moves
+        Clock.schedule_once(lambda dt: ctx.stage.draw_labware(), 0)
+
         Clock.schedule_once(lambda dt: go_to_step_update_ui(step), 0)
 
 
@@ -255,8 +264,9 @@ def go_to_step_update_ui(step):
     else:
         layer_obj.ids['acquire_none'].active = True
 
-    # Set LED button state to match: 'down' if LED is on, 'normal' if off.
-    # The actual LED hardware command is sent in go_to_step() when
-    # protocol_led_on is True and not called_from_protocol.
-    if settings['protocol_led_on'] and not protocol_running_global.is_set():
+    # Set LED button state to show which channel is active for this step.
+    # During protocol: show the step's channel as 'down' so user sees which
+    # LED is being used, even though the actual on/off happens in the executor.
+    # Outside protocol: only if protocol_led_on is enabled (preview mode).
+    if protocol_running_global.is_set() or settings.get('protocol_led_on', False):
         layer_obj.ids['enable_led_btn'].state = 'down'

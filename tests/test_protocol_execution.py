@@ -128,6 +128,25 @@ def _make_image_capture_config():
     }
 
 
+TILING_CONFIGS = pathlib.Path(__file__).parent.parent / "data" / "tiling.json"
+
+
+def _build_real_protocol(rows, period_min=1.0, duration_hrs=1.0):
+    """Build a real Protocol object from a list of step dicts."""
+    import pandas as pd
+    df = pd.DataFrame(rows)
+    config = {
+        'version': Protocol.CURRENT_VERSION,
+        'steps': df,
+        'period': datetime.timedelta(minutes=period_min),
+        'duration': datetime.timedelta(hours=duration_hrs),
+        'labware_id': '6 well microplate',
+        'capture_root': '',
+        'tiling': '1x1',
+    }
+    return Protocol(tiling_configs_file_loc=TILING_CONFIGS, config=config)
+
+
 def _make_single_step_protocol(
     color='BF',
     auto_gain=False,
@@ -141,9 +160,7 @@ def _make_single_step_protocol(
     video_config=None,
     stim_config=None,
 ):
-    """Create a Protocol with a single step using pandas directly."""
-    import pandas as pd
-
+    """Create a real Protocol with a single step."""
     if video_config is None:
         video_config = {'duration': 1, 'fps': 5}
     if stim_config is None:
@@ -151,9 +168,7 @@ def _make_single_step_protocol(
 
     step = {
         'Name': 'A1_test',
-        'X': 10.0,
-        'Y': 20.0,
-        'Z': 5000.0,
+        'X': 10.0, 'Y': 20.0, 'Z': 5000.0,
         'Auto_Focus': auto_focus,
         'Color': color,
         'False_Color': false_color,
@@ -172,31 +187,17 @@ def _make_single_step_protocol(
         'Acquire': acquire,
         'Video Config': video_config,
         'Stim_Config': stim_config,
+        'Step Index': 0,
     }
-
-    df = pd.DataFrame([step])
-    protocol = MagicMock(spec=Protocol)
-    protocol.num_steps.return_value = 1
-    protocol.step.return_value = pd.Series(step)
-    protocol.steps.return_value = df
-    protocol.period.return_value = datetime.timedelta(minutes=1)
-    protocol.duration.return_value = datetime.timedelta(minutes=1)
-    protocol.labware.return_value = '6-well'
-    protocol.capture_root.return_value = ''
-    protocol.validate_for_run.return_value = []
-    protocol.validate_steps.return_value = []
-    protocol.to_file = MagicMock()
-    return protocol
+    return _build_real_protocol([step])
 
 
 def _make_multi_step_protocol(steps_config):
-    """Create a Protocol with multiple steps.
+    """Create a real Protocol with multiple steps.
 
     steps_config: list of dicts, each with keys like color, auto_gain, etc.
     Missing keys get defaults.
     """
-    import pandas as pd
-
     defaults = {
         'color': 'BF', 'auto_gain': False, 'auto_focus': False,
         'acquire': 'image', 'gain': 1.0, 'exposure': 10.0,
@@ -213,9 +214,7 @@ def _make_multi_step_protocol(steps_config):
         name = merged['name'] or f"step_{i}_{merged['color']}"
         rows.append({
             'Name': name,
-            'X': merged['x'],
-            'Y': merged['y'],
-            'Z': merged['z'],
+            'X': merged['x'], 'Y': merged['y'], 'Z': merged['z'],
             'Auto_Focus': merged['auto_focus'],
             'Color': merged['color'],
             'False_Color': merged['false_color'],
@@ -234,21 +233,9 @@ def _make_multi_step_protocol(steps_config):
             'Acquire': merged['acquire'],
             'Video Config': merged['video_config'],
             'Stim_Config': merged['stim_config'],
+            'Step Index': i,
         })
-
-    df = pd.DataFrame(rows)
-    protocol = MagicMock(spec=Protocol)
-    protocol.num_steps.return_value = len(rows)
-    protocol.step.side_effect = lambda idx: pd.Series(rows[idx])
-    protocol.steps.return_value = df
-    protocol.period.return_value = datetime.timedelta(minutes=1)
-    protocol.duration.return_value = datetime.timedelta(minutes=1)
-    protocol.labware.return_value = '6-well'
-    protocol.capture_root.return_value = ''
-    protocol.validate_for_run.return_value = []
-    protocol.validate_steps.return_value = []
-    protocol.to_file = MagicMock()
-    return protocol
+    return _build_real_protocol(rows)
 
 
 def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
@@ -312,10 +299,15 @@ def executors():
 
 @pytest.fixture
 def executor(scope, executors):
-    """Create a SequencedCaptureExecutor wired to simulated scope and real executors."""
-    # Mock the autofocus executor to avoid real AF logic.
-    # IMPORTANT: in_progress() and complete() must return False (not truthy MagicMock),
-    # otherwise _scan_iterate bails early thinking AF is running.
+    """Create a SequencedCaptureExecutor with real simulated scope,
+    real WellPlateLoader, and real CoordinateTransformer.
+
+    Only the AutofocusExecutor is mocked (real AF needs camera focus
+    simulation which is only set up in dedicated AF test fixtures).
+    """
+    from modules.coord_transformations import CoordinateTransformer
+    from modules.labware_loader import WellPlateLoader
+
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
     mock_af.in_progress = MagicMock(return_value=False)
@@ -323,6 +315,7 @@ def executor(scope, executors):
     mock_af.is_running = MagicMock(return_value=False)
     mock_af.result = MagicMock(return_value=None)
     mock_af.best_focus_position = MagicMock(return_value=5000.0)
+    mock_af.run_in_progress = MagicMock(return_value=False)
 
     exc = SequencedCaptureExecutor(
         scope=scope,
@@ -334,15 +327,8 @@ def executor(scope, executors):
         autofocus_io_executor=executors['autofocus'],
         autofocus_executor=mock_af,
     )
-
-    # Mock the wellplate loader and coordinate transformer so _default_move
-    # doesn't need real labware data from disk.
-    mock_loader = MagicMock()
-    mock_transformer = MagicMock()
-    mock_transformer.plate_to_stage = MagicMock(return_value=(0.0, 0.0))
-    exc._wellplate_loader = mock_loader
-    exc._coordinate_transformer = mock_transformer
-
+    exc._wellplate_loader = WellPlateLoader()
+    exc._coordinate_transformer = CoordinateTransformer()
     return exc
 
 
@@ -440,6 +426,7 @@ class TestSingleScanAutoFocusNoneResult:
 
     def test_z_height_not_modified_when_autofocus_returns_none(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
+        original_z = protocol.step(idx=0)['Z']
 
         af = executor._autofocus_executor
         af.complete.return_value = True
@@ -448,10 +435,9 @@ class TestSingleScanAutoFocusNoneResult:
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
-        # modify_step_z_height should NOT have been called with None
-        for call in protocol.modify_step_z_height.call_args_list:
-            assert call.kwargs.get('z') is not None, \
-                "modify_step_z_height should not be called with z=None"
+        # Z height should remain unchanged when autofocus returns None
+        assert protocol.step(idx=0)['Z'] == original_z, \
+            "Z height should not change when autofocus returns None"
 
 
 class TestSingleScanAutoGainAndAutoFocus:
@@ -520,8 +506,10 @@ class TestFullProtocol:
     def test_two_scans_complete(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
         # Override period to be very short so scans happen fast
-        protocol.period.return_value = datetime.timedelta(seconds=0.1)
-        protocol.duration.return_value = datetime.timedelta(seconds=1)
+        protocol.modify_time_params(
+            period=datetime.timedelta(seconds=0.1),
+            duration=datetime.timedelta(seconds=1),
+        )
 
         completed, _ = _run_and_wait(
             executor, protocol, tmp_path,
@@ -982,8 +970,10 @@ class TestFullProtocolWithTiling:
     def test_2_scans_2x2_tiles(self, executor, scope, tmp_path):
         steps = _make_tile_grid_steps(rows=2, cols=2)
         protocol = _make_multi_step_protocol(steps)
-        protocol.period.return_value = datetime.timedelta(seconds=0.1)
-        protocol.duration.return_value = datetime.timedelta(seconds=1)
+        protocol.modify_time_params(
+            period=datetime.timedelta(seconds=0.1),
+            duration=datetime.timedelta(seconds=1),
+        )
 
         completed, _ = _run_and_wait(
             executor, protocol, tmp_path,
@@ -1001,8 +991,10 @@ class TestFullProtocolMultiScanMultiChannel:
             {'color': 'BF'},
             {'color': 'Red'},
         ])
-        protocol.period.return_value = datetime.timedelta(seconds=0.1)
-        protocol.duration.return_value = datetime.timedelta(seconds=1)
+        protocol.modify_time_params(
+            period=datetime.timedelta(seconds=0.1),
+            duration=datetime.timedelta(seconds=1),
+        )
 
         completed, _ = _run_and_wait(
             executor, protocol, tmp_path,
@@ -1142,8 +1134,10 @@ class TestCancellationMidRun:
     def test_reset_during_multi_scan(self, executor, scope, tmp_path):
         """Start a long protocol and cancel it — should not hang."""
         protocol = _make_single_step_protocol(color='BF')
-        protocol.period.return_value = datetime.timedelta(seconds=0.1)
-        protocol.duration.return_value = datetime.timedelta(seconds=60)
+        protocol.modify_time_params(
+            period=datetime.timedelta(seconds=0.1),
+            duration=datetime.timedelta(seconds=60),
+        )
 
         done = threading.Event()
         result_holder = {}
