@@ -24,11 +24,32 @@ $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 Set-Location $root
 
 # ---------------------------------------------------------------------------
-# Ask for branch
+# Select branch
 # ---------------------------------------------------------------------------
 if (-not $Branch) {
-    $Branch = Read-Host -Prompt "Branch (e.g., 4.0.0-beta)"
+    $branches = @(
+        "4.0.0-beta"
+        "main"
+    )
+    Write-Host "`nAvailable branches:"
+    for ($i = 0; $i -lt $branches.Count; $i++) {
+        Write-Host "  [$($i+1)] $($branches[$i])"
+    }
+    Write-Host "  [0] Enter custom branch"
+    $choice = Read-Host -Prompt "Select branch (1-$($branches.Count), or 0 for custom)"
+    if ($choice -eq "0" -or -not $choice) {
+        $Branch = Read-Host -Prompt "Branch name"
+    } else {
+        $idx = [int]$choice - 1
+        if ($idx -ge 0 -and $idx -lt $branches.Count) {
+            $Branch = $branches[$idx]
+        } else {
+            Write-Host "Invalid selection"
+            Exit 1
+        }
+    }
 }
+Write-Host "Building branch: $Branch"
 
 # ---------------------------------------------------------------------------
 # Find prereqs (optional - bundle skipped if not found)
