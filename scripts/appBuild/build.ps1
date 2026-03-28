@@ -120,6 +120,26 @@ if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location 
 $install = ".\dist\$product"
 New-Item $install -ItemType Directory -Force | Out-Null
 Copy-Item ".\dist\lumaviewpro\*" -Destination $install -Recurse
+
+# Verify critical files exist in dist
+$icon_check = ".\dist\lumaviewpro\data\icons\icon.ico"
+if (-not (Test-Path $icon_check)) {
+    Write-Host "WARNING: icon.ico not found in PyInstaller output. Checking dist contents..."
+    Write-Host "dist\lumaviewpro\ top-level:"
+    Get-ChildItem ".\dist\lumaviewpro\" -ErrorAction SilentlyContinue | Select-Object -First 20
+    Write-Host "Looking for icon.ico anywhere in dist:"
+    Get-ChildItem ".\dist\" -Recurse -Filter "icon.ico" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  Found: $($_.FullName)" }
+
+    # PyInstaller may put data files inside _internal/ in v6.x
+    $internal_icon = ".\dist\lumaviewpro\_internal\data\icons\icon.ico"
+    if (Test-Path $internal_icon) {
+        Write-Host "Found icon in _internal — copying data folder to top level"
+        Copy-Item ".\dist\lumaviewpro\_internal\data" -Destination ".\dist\lumaviewpro\data" -Recurse -Force
+        # Re-copy to install dir
+        Copy-Item ".\dist\lumaviewpro\data" -Destination "$install\data" -Recurse -Force
+    }
+}
+
 $install = (Resolve-Path $install).Path
 
 # Copy Maven if available
