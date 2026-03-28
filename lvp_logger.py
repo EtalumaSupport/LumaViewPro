@@ -28,19 +28,29 @@ basename = os.path.basename(__file__)
 script_path = abspath[:-len(basename)]
 
 version = ""
-try:
-    with open(os.path.join(script_path, "version.txt")) as f:
-        version = f.readlines()[0].strip()
-except FileNotFoundError:
-    pass  # Expected when running from source without version.txt
-except Exception as e:
-    print(f"[lvp_logger] WARNING: Failed to read version.txt: {e}", file=sys.stderr)
+for _vpath in [os.path.join(script_path, "version.txt"), os.path.join(script_path, "..", "version.txt")]:
+    try:
+        with open(_vpath) as f:
+            version = f.readlines()[0].strip()
+            break
+    except FileNotFoundError:
+        continue
+    except Exception as e:
+        print(f"[lvp_logger] WARNING: Failed to read version.txt: {e}", file=sys.stderr)
 
 try:
     with open(os.path.join(script_path, "marker.lvpinstalled")) as f:
         lvp_installed = True
 except FileNotFoundError:
-    lvp_installed = False  # Expected when running from source
+    # PyInstaller 6.x puts scripts in _internal/, marker is one level up
+    try:
+        with open(os.path.join(script_path, "..", "marker.lvpinstalled")) as f:
+            lvp_installed = True
+    except FileNotFoundError:
+        lvp_installed = False  # Expected when running from source
+    except Exception as e:
+        print(f"[lvp_logger] WARNING: Failed to read marker.lvpinstalled (parent): {e}", file=sys.stderr)
+        lvp_installed = False
 except Exception as e:
     print(f"[lvp_logger] WARNING: Failed to read marker.lvpinstalled: {e}", file=sys.stderr)
     lvp_installed = False
