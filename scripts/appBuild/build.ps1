@@ -171,7 +171,6 @@ $msi = Join-Path $output_dir "$product.msi"
 
 $wixExe = (Get-Command wix).Source
 & $wixExe build -arch x64 `
-    -ext WixToolset.UI.wixext `
     -d "InstallFolderDir=$install" `
     -d "ProjectDir=$wix_dir\" `
     -d "ProductName=$product" `
