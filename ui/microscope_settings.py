@@ -203,12 +203,23 @@ class MicroscopeSettings(BoxLayout):
                 }
 
             try:
-                live_folder = pathlib.Path(settings['live_folder']).resolve()
+                live_folder = pathlib.Path(settings['live_folder'])
+                # Resolve relative paths against Documents app folder when installed,
+                # not CWD (which is Program Files and not writable).
+                if not live_folder.is_absolute():
+                    from lvp_logger import lvp_appdata
+                    live_folder = pathlib.Path(lvp_appdata) / live_folder
+                live_folder = live_folder.resolve()
                 live_folder.mkdir(exist_ok=True, parents=True)
 
             except Exception as e:
                 logger.warning(f"[LVP Main  ] Unable to find/create live image folder at {settings['live_folder']}: {e}")
-                live_folder = pathlib.Path('./capture').resolve()
+                try:
+                    from lvp_logger import lvp_appdata
+                    live_folder = pathlib.Path(lvp_appdata) / 'capture'
+                except Exception:
+                    live_folder = pathlib.Path.home() / 'Documents' / 'LumaViewPro' / 'capture'
+                live_folder = live_folder.resolve()
                 live_folder.mkdir(exist_ok=True, parents=True)
                 logger.info(f"[LVP Main  ] Defaulting live image folder to {str(live_folder)}")
 
