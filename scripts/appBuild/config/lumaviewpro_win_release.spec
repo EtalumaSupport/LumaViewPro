@@ -3,14 +3,23 @@
 from kivy_deps import sdl2, glew
 from PyInstaller.utils.hooks import copy_metadata
 
-block_cipher = None
 app_name = 'lumaviewpro'
 datas = [
-    ('.','.')
+    ('data', 'data'),
+    ('ui', 'ui'),
+    ('modules', 'modules'),
+    ('drivers', 'drivers'),
+    ('docs/licenses', 'docs/licenses'),
+    ('docs/LICENSE', 'docs'),
+    ('version.txt', '.'),
+    ('lvp_logger.py', '.'),
 ]
 
-for pkg in ('numpy','scyjava','imglyb','pyimagej'):
-    datas.extend(copy_metadata(pkg))
+for pkg in ('numpy', 'scyjava', 'imglyb', 'pyimagej'):
+    try:
+        datas.extend(copy_metadata(pkg))
+    except Exception:
+        pass  # Package may not be installed on all build machines
 
 
 hiddenimports = [
@@ -30,18 +39,15 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure, a.zipped_data)
 
 splash = Splash(
     'data/icons/etaluma_splash.png',
     binaries=a.binaries,
     datas=a.datas,
-    text_pos=(10,50),
+    text_pos=(10, 50),
     text_size=12,
     minify_script=True,
     always_on_top=True,
