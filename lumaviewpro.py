@@ -667,14 +667,15 @@ class LumaViewProApp(TooltipMixin, App):
 
         self.icon = './data/icons/icon.png'
 
-        # Window title: always show version + build date.
-        # Show git commit hash only in beta versions (for bug reports).
-        _version = version
-        _is_beta = 'beta' in _version.lower()
-        if not _is_beta and '(' in _version:
-            # Strip git hash from non-beta: "4.0.1 (abc1234)" → "4.0.1"
-            _version = _version.split(' (')[0]
-        self.title = f'LumaViewPro {_version}'
+        # Window title: version + build timestamp
+        _title_version = version
+        try:
+            _build_ts = _env.build_timestamp
+            if _build_ts:
+                _title_version = f"{version} ({_build_ts})"
+        except AttributeError:
+            pass
+        self.title = f'LumaViewPro {_title_version}'
         logger.info(f'[LVP Main  ] Window title: {self.title}')
 
         # Load engineering mode early so _init_ui() methods see the correct value
