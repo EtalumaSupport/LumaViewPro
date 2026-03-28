@@ -71,11 +71,16 @@ def init_environment(main_file: str) -> AppEnvironment:
             _logger.debug(f'Failed to get git hash: {e}')
 
     # Check if running as installed application
-    try:
-        with open(os.path.join(script_path, "marker.lvpinstalled")) as f:
-            lvp_installed = True
-    except Exception:
-        lvp_installed = False
+    # PyInstaller 6.x puts scripts in _internal/, marker is one level up
+    lvp_installed = False
+    for _mpath in [os.path.join(script_path, "marker.lvpinstalled"),
+                   os.path.join(script_path, "..", "marker.lvpinstalled")]:
+        try:
+            with open(_mpath) as f:
+                lvp_installed = True
+                break
+        except Exception:
+            continue
 
     # Determine source_path (data directory)
     if windows_machine and lvp_installed:
