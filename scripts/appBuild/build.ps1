@@ -112,7 +112,8 @@ if (Test-Path ".\docs\LICENSE") {
 $spec = ".\scripts\appBuild\config\lumaviewpro_win_release.spec"
 if (-not (Test-Path $spec)) { Write-Host "ERROR: Spec file not found: $spec"; Exit 1 }
 Copy-Item $spec ".\lumaviewpro.spec"
-pyinstaller --log-level INFO .\lumaviewpro.spec
+# Use python -m PyInstaller in case pyinstaller.exe isn't in PATH
+python -m PyInstaller --log-level INFO .\lumaviewpro.spec
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $root; Exit 1 }
 
 # Prepare install directory
