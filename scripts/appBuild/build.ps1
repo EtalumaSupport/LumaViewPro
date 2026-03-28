@@ -98,8 +98,14 @@ Rename-Item $clone $product
 # ---------------------------------------------------------------------------
 Write-Host "`n--- PyInstaller ---"
 Set-Location $src
+# License files may be in licenses/ (old) or docs/licenses/ (current)
 if (Test-Path ".\licenses") {
     Copy-Item ".\licenses\*" -Destination ".\" -Force
+} elseif (Test-Path ".\docs\licenses") {
+    Copy-Item ".\docs\licenses\*" -Destination ".\" -Force
+}
+if (Test-Path ".\docs\LICENSE") {
+    Copy-Item ".\docs\LICENSE" -Destination ".\" -Force
 }
 
 # The .spec file must be in the repo under scripts/appBuild/config/
