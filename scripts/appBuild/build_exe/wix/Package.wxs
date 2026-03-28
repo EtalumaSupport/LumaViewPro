@@ -15,6 +15,8 @@
 	<?endif ?>
 	
   <Package Name="$(var.ProductName)" Manufacturer="$(var.Manufacturer)" Version="$(var.Version)" Compressed="yes" UpgradeCode="90907569-ca5a-4e20-b393-2e042e9f8b93">
+    <!-- Embed cabinet files inside the MSI so it's a single file for distribution -->
+    <MediaTemplate EmbedCab="yes" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed. Please uninstall the newer version before installing this version." />
 	  <DirectoryRef Id="INSTALLFOLDER">
 		  <!-- 
