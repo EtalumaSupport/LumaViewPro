@@ -31,7 +31,7 @@ if (-not $Branch) {
 }
 
 # ---------------------------------------------------------------------------
-# Find prereqs (optional — bundle skipped if not found)
+# Find prereqs (optional - bundle skipped if not found)
 # ---------------------------------------------------------------------------
 $prereqs = Join-Path $root "prereqs"
 $pylon_msi = ""
@@ -45,8 +45,8 @@ if (Test-Path $prereqs) {
     if ($corretto_files) { $corretto_msi = $corretto_files[0].FullName; Write-Host "Found Corretto: $corretto_msi" }
 }
 
-if (-not $pylon_msi) { Write-Host "No Pylon MSI in prereqs\ — bundle will be skipped" }
-if (-not $corretto_msi) { Write-Host "No Corretto MSI in prereqs\ — bundle will be skipped" }
+if (-not $pylon_msi) { Write-Host "No Pylon MSI in prereqs\ - bundle will be skipped" }
+if (-not $corretto_msi) { Write-Host "No Corretto MSI in prereqs\ - bundle will be skipped" }
 
 # ---------------------------------------------------------------------------
 # Check tools
@@ -133,7 +133,7 @@ if (-not (Test-Path $icon_check)) {
     # PyInstaller may put data files inside _internal/ in v6.x
     $internal_icon = ".\dist\lumaviewpro\_internal\data\icons\icon.ico"
     if (Test-Path $internal_icon) {
-        Write-Host "Found icon in _internal — copying data folder to top level"
+        Write-Host "Found icon in _internal - copying data folder to top level"
         Copy-Item ".\dist\lumaviewpro\_internal\data" -Destination ".\dist\lumaviewpro\data" -Recurse -Force
         # Re-copy to install dir
         Copy-Item ".\dist\lumaviewpro\data" -Destination "$install\data" -Recurse -Force
