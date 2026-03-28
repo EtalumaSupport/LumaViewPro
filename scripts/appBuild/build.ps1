@@ -65,8 +65,13 @@ New-Item $tmp -ItemType Directory -Force | Out-Null
 
 Write-Host "`nCloning $Branch..."
 $clone = Join-Path $tmp "src"
-git clone --depth 1 --branch $Branch $repo_url $clone 2>&1 | Write-Host
-if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Clone failed"; Exit 1 }
+# Git writes progress to stderr which PowerShell treats as errors with ErrorActionPreference=Stop.
+# Temporarily relax error handling for the clone command.
+$ErrorActionPreference = "Continue"
+git clone --depth 1 --branch $Branch $repo_url $clone
+$clone_exit = $LASTEXITCODE
+$ErrorActionPreference = "Stop"
+if ($clone_exit -ne 0) { Write-Host "ERROR: Clone failed"; Exit 1 }
 Remove-Item "$clone\.git*" -Recurse -Force -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------------------
