@@ -916,7 +916,13 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:
             logger.warning(f'[LVP Main  ] leds_off failed during shutdown: {e}')
 
-        ctx.motion_settings.ids['microscope_settings_id'].save_settings("./data/current.json")
+        # Only save settings if hardware was connected this session.
+        # Without hardware, slider defaults (0.01ms) get written to current.json,
+        # corrupting the user's settings for the next real session.
+        if lumaview.scope.camera_is_connected() or lumaview.scope.motor_connected or lumaview.scope.led_connected:
+            ctx.motion_settings.ids['microscope_settings_id'].save_settings("./data/current.json")
+        else:
+            logger.info('[LVP Main  ] Skipping settings save - no hardware was connected')
 
         logger.info("[LVP Main  ] lumaview.scope.disconnect()")
         lumaview.scope.disconnect()
