@@ -25,6 +25,11 @@ git clone --depth 1 --branch $branch $repo_url _getscript
 Copy-Item "_getscript\scripts\appBuild\build.ps1" ".\build.ps1" -Force
 Copy-Item "_getscript\scripts\appBuild\update_build_script.ps1" ".\update_build_script.ps1" -Force
 Copy-Item "_getscript\scripts\appBuild\BUILD_INSTRUCTIONS.md" ".\BUILD_INSTRUCTIONS.md" -Force
+
+# Install Python dependencies (includes PyInstaller)
+Write-Host "`nInstalling Python dependencies..."
+pip install -r "_getscript\requirements-dev.txt"
+
 Remove-Item "_getscript" -Recurse -Force
 
 Write-Host ""
