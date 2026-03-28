@@ -98,7 +98,9 @@ Rename-Item $clone $product
 # ---------------------------------------------------------------------------
 Write-Host "`n--- PyInstaller ---"
 Set-Location $src
-Copy-Item ".\licenses\*" -Destination ".\" -Force
+if (Test-Path ".\licenses") {
+    Copy-Item ".\licenses\*" -Destination ".\" -Force
+}
 
 # The .spec file must be in the repo under scripts/appBuild/config/
 $spec = ".\scripts\appBuild\config\lumaviewpro_win_release.spec"
