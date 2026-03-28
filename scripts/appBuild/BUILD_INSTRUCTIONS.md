@@ -91,6 +91,18 @@ The beta number should increase with each EXE build so testers can identify whic
 
 ---
 
+## Updating the Build Script
+
+If `build.ps1` has been updated in the repo, re-grab it:
+```powershell
+cd C:\LumaViewPro
+git clone --depth 1 --branch 4.0.0-beta https://github.com/EtalumaSupport/LumaViewPro.git _getscript
+copy _getscript\scripts\appBuild\build.ps1 .\build.ps1 -Force
+rmdir _getscript -Recurse -Force
+```
+
+---
+
 ## Notes
 
 - Each build clones fresh from GitHub — you always build exactly what's pushed
