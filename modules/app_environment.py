@@ -100,8 +100,10 @@ def init_environment(main_file: str) -> AppEnvironment:
         if not os.path.exists(os.path.join(lvp_appdata, "data")):
             shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
 
-        if not os.path.exists(os.path.join(lvp_appdata, "logs")):
-            shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
+        # Create logs directory if it doesn't exist. The source logs/ folder may not
+        # exist in PyInstaller builds, so just create an empty directory structure.
+        logs_dir = os.path.join(lvp_appdata, "logs", "LVP_Log")
+        os.makedirs(logs_dir, exist_ok=True)
 
     elif windows_machine and not lvp_installed:
         _logger.info("Machine-Type - WINDOWS (not installed)")
