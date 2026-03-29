@@ -22,16 +22,16 @@ class LabwareLoader(object):
 class SlideLoader(LabwareLoader):
     """A class that stores and computes actions for slides labware"""
 
-    def __init__(self, *arg):
-        super(SlideLoader, self).__init__()
+    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
+        super(SlideLoader, self).__init__(*arg, source_path=source_path)
         self.covered = True
 
 
 class WellPlateLoader(LabwareLoader):
     """A class that stores and computes actions for wellplate labware"""
 
-    def __init__(self, *arg):
-        super(WellPlateLoader, self).__init__()
+    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
+        super(WellPlateLoader, self).__init__(*arg, source_path=source_path)
   
 
     def get_plate_list(self):
@@ -45,7 +45,7 @@ class WellPlateLoader(LabwareLoader):
 class PitriDishLoader(LabwareLoader):
     """A class that stores and computes actions for petri dish labware"""
 
-    def __init__(self, *arg):
-        super(PitriDishLoader, self).__init__()
+    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
+        super(PitriDishLoader, self).__init__(*arg, source_path=source_path)
         self.diameter = 100
         self.z = 20
