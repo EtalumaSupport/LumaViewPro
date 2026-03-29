@@ -527,8 +527,8 @@ class LumaViewProApp(TooltipMixin, App):
 
         Clock.schedule_interval(_executor_watchdog, 60)
 
-        load_log_level()
-        load_autofocus_log_enable()
+        load_log_level(source_path)
+        load_autofocus_log_enable(source_path)
         # load_mode() and engineering_mode assignment moved to build() for correct _init_ui timing
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
@@ -641,7 +641,7 @@ class LumaViewProApp(TooltipMixin, App):
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         logger.info('[LVP Main  ] -----------------------------------------')
 
-        self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port())
+        self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port(source_path))
         if not self._lvp_lock.lock():
             error_msg = "Another instance of LVP may already be running. Exiting."
             logger.error(f'[LVP Lock ] {error_msg}')
@@ -680,7 +680,7 @@ class LumaViewProApp(TooltipMixin, App):
 
         # Load engineering mode early so _init_ui() methods see the correct value
         global ENGINEERING_MODE
-        ENGINEERING_MODE = _load_mode()
+        ENGINEERING_MODE = _load_mode(source_path)
 
         stage = Stage()
 
@@ -701,10 +701,10 @@ class LumaViewProApp(TooltipMixin, App):
             raise
 
         # load labware file
-        wellplate_loader = labware_loader.WellPlateLoader()
+        wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         coordinate_transformer = coord_transformations.CoordinateTransformer()
 
-        objective_helper = objectives_loader.ObjectiveLoader()
+        objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
 
         # Create executors (previously at module level, moved here for init consolidation)
         global io_executor, camera_executor, temp_ij_executor, protocol_executor

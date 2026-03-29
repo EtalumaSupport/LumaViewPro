@@ -20,6 +20,7 @@ import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.config_ui_getters import get_binning_from_ui, get_current_frame_dimensions, get_selected_labware
 from modules.common_utils import CustomJSONizer
+from modules.path_utils import resolve_data_file
 from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
@@ -36,8 +37,7 @@ class MicroscopeSettings(BoxLayout):
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
 
         try:
-            _source = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            with open(os.path.join(_source, 'data', 'scopes.json'), "r") as read_file:
+            with open(resolve_data_file("scopes.json"), "r") as read_file:
                 self.scopes = json.load(read_file)
         except Exception:
             logger.exception('[LVP Main  ] Unable to read scopes.json.')

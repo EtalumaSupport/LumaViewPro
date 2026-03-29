@@ -85,7 +85,7 @@ class ScopeSession:
 
         try:
             from modules import labware_loader
-            wellplate_loader = labware_loader.WellPlateLoader()
+            wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         except Exception as e:
             logger.warning(f"[ScopeSession] Could not load wellplate loader: {e}")
 
@@ -97,7 +97,7 @@ class ScopeSession:
 
         try:
             from modules import objectives_loader
-            objective_helper = objectives_loader.ObjectiveLoader()
+            objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
         except Exception as e:
             logger.warning(f"[ScopeSession] Could not load objective helper: {e}")
 

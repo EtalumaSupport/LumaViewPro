@@ -1,19 +1,21 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import json
+import pathlib
 
 import modules.labware as labware
+from modules.path_utils import resolve_data_file
 
 class LabwareLoader(object):
     """A class that stores and computes actions for objective labware"""
 
-    def __init__(self, *arg):
+    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         self.x = 75
         self.y = 25
         self.z = 1
 
         # Load all Possible Labware from JSON
-        with open('./data/labware.json', "r") as read_file:
+        with open(resolve_data_file("labware.json", source_path=source_path), "r") as read_file:
             self.labware = json.load(read_file)
         
 
