@@ -2,7 +2,7 @@
 # Run from C:\LumaViewPro\
 
 param(
-    [string]$Branch = "4.0.0-beta"
+    [string]$Branch = "main"
 )
 
 $root = "C:\LumaViewPro"

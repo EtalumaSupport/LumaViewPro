@@ -3,13 +3,13 @@
 # Run this ONCE on a new build machine:
 #   1. Open PowerShell
 #   2. Paste this one line:
-#      irm https://raw.githubusercontent.com/EtalumaSupport/LumaViewPro/4.0.0-beta/scripts/appBuild/setup.ps1 | iex
+#      irm https://raw.githubusercontent.com/EtalumaSupport/LumaViewPro/main/scripts/appBuild/setup.ps1 | iex
 #
 # Or save this file and run it:
 #   .\setup.ps1
 
 $root = "C:\LumaViewPro"
-$branch = "4.0.0-beta"
+$branch = "main"
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 
 Write-Host "Setting up LumaViewPro build environment in $root"

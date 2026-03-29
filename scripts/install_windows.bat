@@ -87,18 +87,22 @@ REM --- Verify installation ---
 echo.
 echo Verifying core packages...
 call "%VENV_DIR%\Scripts\python" -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
+if errorlevel 1 (
+    echo.
+    echo Warning: Some core packages failed to import. Check output above.
+)
 
 REM --- Create run.bat in project root ---
 >"%PROJECT_DIR%\run.bat" (
     echo @echo off
     echo cd /d "%%~dp0"
-    echo call "venv\Scripts\python" lumaviewpro.py %%*
+    echo call "%%~dp0venv\Scripts\python.exe" lumaviewpro.py %%*
 )
 
 >"%PROJECT_DIR%\run_simulate.bat" (
     echo @echo off
     echo cd /d "%%~dp0"
-    echo call "venv\Scripts\python" lumaviewpro.py --simulate %%*
+    echo call "%%~dp0venv\Scripts\python.exe" lumaviewpro.py --simulate %%*
 )
 
 echo.

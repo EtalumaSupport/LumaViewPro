@@ -129,14 +129,14 @@ echo "Verifying core packages..."
 cat > "$PROJECT_DIR/run.sh" << 'RUNEOF'
 #!/bin/bash
 cd "$(dirname "$0")"
-venv/bin/python lumaviewpro.py "$@"
+"./venv/bin/python" lumaviewpro.py "$@"
 RUNEOF
 chmod +x "$PROJECT_DIR/run.sh"
 
 cat > "$PROJECT_DIR/run_simulate.sh" << 'RUNEOF'
 #!/bin/bash
 cd "$(dirname "$0")"
-venv/bin/python lumaviewpro.py --simulate "$@"
+"./venv/bin/python" lumaviewpro.py --simulate "$@"
 RUNEOF
 chmod +x "$PROJECT_DIR/run_simulate.sh"
 
