@@ -137,27 +137,7 @@ Copy-Item $spec ".\lumaviewpro.spec"
 python -m PyInstaller --log-level INFO .\lumaviewpro.spec
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $root; Exit 1 }
 
-# PyInstaller 6.x puts data files in _internal/ but the EXE's working directory
-# is the install root. Copy essential folders to top level BEFORE creating the
-# install directory, so everything is in place when we copy.
-$internal = ".\dist\lumaviewpro\_internal"
-if (Test-Path $internal) {
-    Write-Host "PyInstaller 6.x detected - copying data from _internal/ to top level"
-    foreach ($folder in @("data", "ui", "modules", "drivers", "docs")) {
-        $src_folder = Join-Path $internal $folder
-        $dst_folder = ".\dist\lumaviewpro\$folder"
-        if ((Test-Path $src_folder) -and -not (Test-Path $dst_folder)) {
-            Copy-Item $src_folder -Destination $dst_folder -Recurse -Force
-            Write-Host "  Copied $folder"
-        }
-    }
-    $vtxt = Join-Path $internal "version.txt"
-    if (Test-Path $vtxt) {
-        Copy-Item $vtxt -Destination ".\dist\lumaviewpro\version.txt" -Force
-    }
-}
-
-# Now create install directory with everything in place
+# Create install directory
 $install = ".\dist\$product"
 New-Item $install -ItemType Directory -Force | Out-Null
 Copy-Item ".\dist\lumaviewpro\*" -Destination $install -Recurse

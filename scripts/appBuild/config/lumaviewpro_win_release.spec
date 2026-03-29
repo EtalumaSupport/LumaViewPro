@@ -62,6 +62,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name=app_name,
+    contents_directory='.',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

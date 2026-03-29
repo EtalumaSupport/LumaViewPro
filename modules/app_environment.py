@@ -45,17 +45,15 @@ def init_environment(main_file: str) -> AppEnvironment:
     # Line 2 = build timestamp (display only, e.g., "2026-03-27 18:52")
     version = ""
     build_timestamp = ""
-    for _vpath in [os.path.join(script_path, "version.txt"), os.path.join(script_path, "..", "version.txt")]:
-        try:
-            with open(_vpath) as f:
-                lines = f.readlines()
-                version = lines[0].strip() if len(lines) > 0 else ""
-                build_timestamp = lines[1].strip() if len(lines) > 1 else ""
-                break
-        except FileNotFoundError:
-            continue
-        except Exception as e:
-            _logger.debug(f'Failed to read version.txt: {e}')
+    try:
+        with open(os.path.join(script_path, "version.txt")) as f:
+            lines = f.readlines()
+            version = lines[0].strip() if len(lines) > 0 else ""
+            build_timestamp = lines[1].strip() if len(lines) > 1 else ""
+    except FileNotFoundError:
+        pass  # Expected when running from source without version.txt
+    except Exception as e:
+        _logger.debug(f'Failed to read version.txt: {e}')
 
     # Get git commit hash for build identification (dev mode only)
     if not build_timestamp:
@@ -71,16 +69,12 @@ def init_environment(main_file: str) -> AppEnvironment:
             _logger.debug(f'Failed to get git hash: {e}')
 
     # Check if running as installed application
-    # PyInstaller 6.x puts scripts in _internal/, marker is one level up
     lvp_installed = False
-    for _mpath in [os.path.join(script_path, "marker.lvpinstalled"),
-                   os.path.join(script_path, "..", "marker.lvpinstalled")]:
-        try:
-            with open(_mpath) as f:
-                lvp_installed = True
-                break
-        except Exception:
-            continue
+    try:
+        with open(os.path.join(script_path, "marker.lvpinstalled")) as f:
+            lvp_installed = True
+    except Exception:
+        pass
 
     # Determine source_path (data directory)
     if windows_machine and lvp_installed:

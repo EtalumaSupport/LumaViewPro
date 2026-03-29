@@ -32,31 +32,21 @@ script_path = abspath[:-len(basename)]
 #   Line 2: build timestamp (e.g., "2026-03-27 18:52") - displayed in title bar only
 version = ""
 build_timestamp = ""
-for _vpath in [os.path.join(script_path, "version.txt"), os.path.join(script_path, "..", "version.txt")]:
-    try:
-        with open(_vpath) as f:
-            lines = f.readlines()
-            version = lines[0].strip() if len(lines) > 0 else ""
-            build_timestamp = lines[1].strip() if len(lines) > 1 else ""
-            break
-    except FileNotFoundError:
-        continue
-    except Exception as e:
-        print(f"[lvp_logger] WARNING: Failed to read version.txt: {e}", file=sys.stderr)
+try:
+    with open(os.path.join(script_path, "version.txt")) as f:
+        lines = f.readlines()
+        version = lines[0].strip() if len(lines) > 0 else ""
+        build_timestamp = lines[1].strip() if len(lines) > 1 else ""
+except FileNotFoundError:
+    pass  # Expected when running from source without version.txt
+except Exception as e:
+    print(f"[lvp_logger] WARNING: Failed to read version.txt: {e}", file=sys.stderr)
 
 try:
     with open(os.path.join(script_path, "marker.lvpinstalled")) as f:
         lvp_installed = True
 except FileNotFoundError:
-    # PyInstaller 6.x puts scripts in _internal/, marker is one level up
-    try:
-        with open(os.path.join(script_path, "..", "marker.lvpinstalled")) as f:
-            lvp_installed = True
-    except FileNotFoundError:
-        lvp_installed = False  # Expected when running from source
-    except Exception as e:
-        print(f"[lvp_logger] WARNING: Failed to read marker.lvpinstalled (parent): {e}", file=sys.stderr)
-        lvp_installed = False
+    lvp_installed = False  # Expected when running from source
 except Exception as e:
     print(f"[lvp_logger] WARNING: Failed to read marker.lvpinstalled: {e}", file=sys.stderr)
     lvp_installed = False
