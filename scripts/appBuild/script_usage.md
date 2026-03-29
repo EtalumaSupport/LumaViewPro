@@ -215,17 +215,14 @@ Then restart your PowerShell session.
 **Solution:** Check the `version.txt` file in the branch you're building and enter that exact version.
 
 ### Error: "Apache Maven not found"
-**Cause:** The `build_exe/deps/apache-maven-3.9.8` directory doesn't exist.
+**Cause:** The `dependencies/apache-maven-3.9.8` directory doesn't exist.
 
-**Solution:** Download Apache Maven 3.9.8 and extract it to `build_exe/deps/apache-maven-3.9.8/`
+**Solution:** Download Apache Maven 3.9.8 and extract it to `dependencies/apache-maven-3.9.8/`
 
 ### Bundle Creation Skipped
-**Cause:** Either Pylon or Corretto MSI path is missing or invalid.
+**Cause:** Pylon or Corretto MSI not found in `dependencies/`.
 
-**Solution:** 
-1. Verify paths in `config/build_dependencies.json` are correct
-2. Check that the MSI files actually exist at those locations
-3. Use absolute paths with double backslashes
+**Solution:** Place the MSI files in the `dependencies/` folder next to `build.ps1`. The script auto-detects them by filename pattern.
 
 ### WiX BAL Extension Errors
 **Cause:** The bundled WiX BAL extension in deps folder is missing or corrupted.

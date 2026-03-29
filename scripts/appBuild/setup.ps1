@@ -16,7 +16,7 @@ Write-Host "Setting up LumaViewPro build environment in $root"
 
 # Create folder structure
 New-Item -Path $root -ItemType Directory -Force | Out-Null
-New-Item -Path "$root\prereqs" -ItemType Directory -Force | Out-Null
+New-Item -Path "$root\dependencies" -ItemType Directory -Force | Out-Null
 Set-Location $root
 
 # Clone and extract build scripts
@@ -25,6 +25,7 @@ git clone --depth 1 --branch $branch $repo_url _getscript
 Copy-Item "_getscript\scripts\appBuild\build.ps1" ".\build.ps1" -Force
 Copy-Item "_getscript\scripts\appBuild\update_build_script.ps1" ".\update_build_script.ps1" -Force
 Copy-Item "_getscript\scripts\appBuild\BUILD_INSTRUCTIONS.md" ".\BUILD_INSTRUCTIONS.md" -Force
+Copy-Item "_getscript\scripts\appBuild\dependencies\README.md" ".\dependencies\README.md" -Force -ErrorAction SilentlyContinue
 
 # Install Python dependencies (includes PyInstaller)
 Write-Host "`nInstalling Python dependencies..."
@@ -38,7 +39,10 @@ Write-Host "  Setup complete!"
 Write-Host "======================================="
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  1. Put Pylon + Corretto MSIs in $root\prereqs\"
+Write-Host "  1. Put dependencies in $root\dependencies\ (see dependencies\README.md)"
+Write-Host "     - apache-maven-3.9.8\  (extract from Maven binary zip)"
+Write-Host "     - Pylon USB Camera Driver MSI  (optional, for bundle)"
+Write-Host "     - Amazon Corretto 8 JDK MSI    (optional, for bundle)"
 Write-Host "  2. Run: .\build.ps1"
 Write-Host ""
 Write-Host "To update build scripts later: .\update_build_script.ps1"

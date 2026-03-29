@@ -3,7 +3,7 @@
 # SETUP (one time):
 #   1. Create C:\LumaViewPro\
 #   2. Copy this script to C:\LumaViewPro\build.ps1
-#   3. Put Pylon and Corretto MSIs in C:\LumaViewPro\prereqs\
+#   3. Put dependencies in C:\LumaViewPro\dependencies\ (see dependencies\README.md)
 #
 # USAGE:
 #   cd C:\LumaViewPro
@@ -19,6 +19,7 @@ param(
 $ErrorActionPreference = "Stop"
 $root = "C:\LumaViewPro"
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
+$script_dir = Split-Path -Parent $PSCommandPath
 
 # Make sure we're not stuck inside a previous build
 Set-Location $root
@@ -52,22 +53,35 @@ if (-not $Branch) {
 Write-Host "Building branch: $Branch"
 
 # ---------------------------------------------------------------------------
-# Find prereqs (optional - bundle skipped if not found)
+# Find dependencies
 # ---------------------------------------------------------------------------
-$prereqs = Join-Path $root "prereqs"
-$pylon_msi = ""
-$corretto_msi = ""
-
-if (Test-Path $prereqs) {
-    $pylon_files = Get-ChildItem -Path $prereqs -Filter "*pylon*USB*.msi" -ErrorAction SilentlyContinue
-    if ($pylon_files) { $pylon_msi = $pylon_files[0].FullName; Write-Host "Found Pylon: $pylon_msi" }
-
-    $corretto_files = Get-ChildItem -Path $prereqs -Filter "*corretto*.msi" -ErrorAction SilentlyContinue
-    if ($corretto_files) { $corretto_msi = $corretto_files[0].FullName; Write-Host "Found Corretto: $corretto_msi" }
+# When run from C:\LumaViewPro\build.ps1, $script_dir = C:\LumaViewPro\
+# When run from repo, $script_dir = scripts\appBuild\
+# Either way, dependencies\ is next to the script.
+$deps = Join-Path $script_dir "dependencies"
+if (-not (Test-Path $deps)) {
+    # Also check repo layout (build.ps1 copied to $root, deps in repo)
+    $deps = Join-Path $root "dependencies"
 }
 
-if (-not $pylon_msi) { Write-Host "No Pylon MSI in prereqs\ - bundle will be skipped" }
-if (-not $corretto_msi) { Write-Host "No Corretto MSI in prereqs\ - bundle will be skipped" }
+$pylon_msi = ""
+$corretto_msi = ""
+$maven_dir = ""
+
+if (Test-Path $deps) {
+    $pylon_files = Get-ChildItem -Path $deps -Filter "*pylon*USB*.msi" -ErrorAction SilentlyContinue
+    if ($pylon_files) { $pylon_msi = $pylon_files[0].FullName; Write-Host "Found Pylon: $pylon_msi" }
+
+    $corretto_files = Get-ChildItem -Path $deps -Filter "*corretto*.msi" -ErrorAction SilentlyContinue
+    if ($corretto_files) { $corretto_msi = $corretto_files[0].FullName; Write-Host "Found Corretto: $corretto_msi" }
+
+    $maven_files = Get-ChildItem -Path $deps -Directory -Filter "apache-maven*" -ErrorAction SilentlyContinue
+    if ($maven_files) { $maven_dir = $maven_files[0].FullName; Write-Host "Found Maven: $maven_dir" }
+}
+
+if (-not $pylon_msi) { Write-Host "No Pylon MSI in dependencies\ - bundle will be skipped" }
+if (-not $corretto_msi) { Write-Host "No Corretto MSI in dependencies\ - bundle will be skipped" }
+if (-not $maven_dir) { Write-Host "Warning: Apache Maven not found in dependencies\ - ImageJ will not work in installed app" }
 
 # ---------------------------------------------------------------------------
 # Check tools
@@ -144,16 +158,10 @@ Copy-Item ".\dist\lumaviewpro\*" -Destination $install -Recurse
 $install = (Resolve-Path $install).Path
 
 # Copy Maven if available
-$script_dir = Split-Path -Parent $PSCommandPath
-$maven = Join-Path $script_dir "build_exe\deps\apache-maven-3.9.8"
-# Also check the cloned repo's copy
-$maven_repo = Join-Path $src "scripts\appBuild\build_exe\deps\apache-maven-3.9.8"
-if (Test-Path $maven) {
-    Copy-Item $maven -Destination "$install\apache-maven-3.9.8" -Recurse -Force
-} elseif (Test-Path $maven_repo) {
-    Copy-Item $maven_repo -Destination "$install\apache-maven-3.9.8" -Recurse -Force
-} else {
-    Write-Host "Warning: Apache Maven not found"
+if ($maven_dir) {
+    $maven_name = Split-Path $maven_dir -Leaf
+    Copy-Item $maven_dir -Destination "$install\$maven_name" -Recurse -Force
+    Write-Host "Maven copied to install directory"
 }
 
 # ---------------------------------------------------------------------------

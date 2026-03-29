@@ -19,6 +19,8 @@ tmp/
 .DS_Store
 notebooks/
 scripts/appBuild/build_exe/deps/apache-maven*/
+scripts/appBuild/dependencies/*
+!scripts/appBuild/dependencies/README.md
 scripts/appBuild/exe_artifacts/
 scripts/appBuild/tmp/
 .claude/settings.local.json

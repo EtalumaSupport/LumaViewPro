@@ -11,20 +11,25 @@
 ### 2. Create the build folder
 ```powershell
 mkdir C:\LumaViewPro
-mkdir C:\LumaViewPro\prereqs
+mkdir C:\LumaViewPro\dependencies
 ```
 
-### 3. Add dependency MSIs to prereqs folder
-Download and place in `C:\LumaViewPro\prereqs\`:
-- `pylon_USB_Camera_Driver.msi` — Basler Pylon camera driver
-- `amazon-corretto-8-xxx-jdk.msi` — Amazon Corretto 8 JDK (for ImageJ)
+### 3. Add dependencies
+Download and place in `C:\LumaViewPro\dependencies\`:
 
-The script auto-detects these by filename pattern. If they're missing, the Bundle installer is skipped but the MSI still builds.
+**Required:**
+- `apache-maven-3.9.8\` — Extract from [Apache Maven download](https://maven.apache.org/download.cgi) (Binary Zip Archive). Bundled into the installed app for ImageJ support.
+
+**Optional (for Bundle installer):**
+- `pylon_USB_Camera_Driver.msi` — [Basler Pylon SDK](https://docs.baslerweb.com/pylon-software-suite) USB Camera Driver
+- `amazon-corretto-8-xxx-jdk.msi` — [Amazon Corretto 8 JDK](https://docs.aws.amazon.com/corretto/latest/corretto-8-ug/downloads-list.html)
+
+If the Pylon/Corretto MSIs are missing, the Bundle installer is skipped but the standalone MSI still builds.
 
 ### 4. Get the build script
 ```powershell
 cd C:\LumaViewPro
-git clone --depth 1 --branch 4.0.0-beta https://github.com/EtalumaSupport/LumaViewPro.git _getscript
+git clone --depth 1 --branch main https://github.com/EtalumaSupport/LumaViewPro.git _getscript
 copy _getscript\scripts\appBuild\build.ps1 .\build.ps1
 rmdir _getscript -Recurse -Force
 ```
@@ -33,9 +38,11 @@ Your folder should look like:
 ```
 C:\LumaViewPro\
 ├── build.ps1
-└── prereqs\
-    ├── pylon_USB_Camera_Driver.msi
-    └── amazon-corretto-8-xxx-jdk.msi
+└── dependencies\
+    ├── README.md
+    ├── apache-maven-3.9.8\
+    ├── pylon_USB_Camera_Driver.msi      (optional)
+    └── amazon-corretto-8-xxx-jdk.msi    (optional)
 ```
 
 ---
@@ -47,15 +54,16 @@ cd C:\LumaViewPro
 .\build.ps1
 ```
 
-When prompted, enter the branch name (e.g., `4.0.0-beta`).
+Select the branch when prompted (e.g., `4.0.0-beta` or `main`).
 
 The script:
 1. Clones the branch from GitHub
 2. Reads the version from `version.txt` (e.g., `4.0.0-beta2`)
 3. Builds the EXE with PyInstaller
-4. Builds the MSI with WiX
-5. Builds the Bundle installer (if prereqs are present)
-6. Cleans up temp files
+4. Copies Apache Maven into the install directory
+5. Builds the MSI with WiX
+6. Builds the Bundle installer (if Pylon + Corretto MSIs are present)
+7. Cleans up temp files
 
 ### Output
 ```
@@ -70,7 +78,7 @@ C:\LumaViewPro\builds\LumaViewPro-4.0.0-beta2\
 
 The version in `version.txt` determines the build name. To bump the version:
 
-1. Edit `version.txt` in the repo (e.g., `4.0.0-beta3 (2026-03-28 09:00)`)
+1. Edit `version.txt` in the repo (e.g., `4.0.0-beta3`)
 2. Commit and push
 3. Run `.\build.ps1`
 
@@ -86,7 +94,8 @@ The beta number should increase with each EXE build so testers can identify whic
 | `python not found` | Install Python 3.12+, make sure it's in PATH |
 | `git clone failed` | Check branch name exists, check network |
 | `PyInstaller failed` | Run `pip install -r requirements.txt` and `pip install --upgrade pyinstaller` |
-| `Bundle skipped` | Put Pylon + Corretto MSIs in `C:\LumaViewPro\prereqs\` |
+| `Apache Maven not found` | Download Maven 3.9.8 and extract to `dependencies\apache-maven-3.9.8\` |
+| `Bundle skipped` | Put Pylon + Corretto MSIs in `dependencies\` |
 | `Permission denied` | Close any running LumaViewPro, try running PowerShell as Administrator |
 
 ---
@@ -96,7 +105,12 @@ The beta number should increase with each EXE build so testers can identify whic
 If `build.ps1` has been updated in the repo, re-grab it:
 ```powershell
 cd C:\LumaViewPro
-git clone --depth 1 --branch 4.0.0-beta https://github.com/EtalumaSupport/LumaViewPro.git _getscript
+.\update_build_script.ps1
+```
+
+Or manually:
+```powershell
+git clone --depth 1 --branch main https://github.com/EtalumaSupport/LumaViewPro.git _getscript
 copy _getscript\scripts\appBuild\build.ps1 .\build.ps1 -Force
 rmdir _getscript -Recurse -Force
 ```
