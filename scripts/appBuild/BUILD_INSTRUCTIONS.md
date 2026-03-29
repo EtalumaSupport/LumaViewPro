@@ -3,123 +3,128 @@
 ## One-Time Setup (Windows)
 
 ### 1. Install prerequisites
-- **Python 3.12+** with `pip install -r requirements.txt` and `pip install pyinstaller`
+- **Python 3.12+**
 - **Git** (in PATH)
 - **WiX Toolset v6**: `dotnet tool install --global wix`
 - **.NET SDK** (required for WiX)
 
+`build.ps1` creates a fresh temporary build virtual environment on every run and installs `requirements-dev.txt` itself, so there is no separate `setup.ps1` step and no global `pip install` step required for the build machine.
+
 ### 2. Create the build folder
+Pick any location; the build script runs relative to itself, with no hardcoded paths.
+
 ```powershell
-mkdir C:\LumaViewPro
-mkdir C:\LumaViewPro\dependencies
+mkdir D:\Builds\LumaViewPro
+mkdir D:\Builds\LumaViewPro\dependencies
 ```
 
 ### 3. Add dependencies
-Download and place in `C:\LumaViewPro\dependencies\`:
+Download and place these in your build folder's `dependencies\`:
 
 **Required:**
-- `apache-maven-3.9.8\` — Extract from [Apache Maven download](https://maven.apache.org/download.cgi) (Binary Zip Archive). Bundled into the installed app for ImageJ support.
+- `apache-maven-3.9.8\` - Extract from the Apache Maven binary zip. It is bundled into the installed app for ImageJ support.
 
 **Optional (for Bundle installer):**
-- `pylon_USB_Camera_Driver.msi` — [Basler Pylon SDK](https://docs.baslerweb.com/pylon-software-suite) USB Camera Driver
-- `amazon-corretto-8-xxx-jdk.msi` — [Amazon Corretto 8 JDK](https://docs.aws.amazon.com/corretto/latest/corretto-8-ug/downloads-list.html)
+- `pylon_USB_Camera_Driver.msi` - Basler Pylon USB Camera Driver MSI
+- `amazon-corretto-8-xxx-jdk.msi` - Amazon Corretto 8 JDK Windows x64 MSI
 
-If the Pylon/Corretto MSIs are missing, the Bundle installer is skipped but the standalone MSI still builds.
+If the Pylon or Corretto MSIs are missing, the Bundle installer is skipped but the standalone MSI still builds.
 
 ### 4. Get the build script
+
 ```powershell
-cd C:\LumaViewPro
+cd D:\Builds\LumaViewPro
 git clone --depth 1 --branch main https://github.com/EtalumaSupport/LumaViewPro.git _getscript
 copy _getscript\scripts\appBuild\build.ps1 .\build.ps1
+copy _getscript\scripts\appBuild\dependencies\README.md .\dependencies\README.md
 rmdir _getscript -Recurse -Force
 ```
 
 Your folder should look like:
-```
-C:\LumaViewPro\
-├── build.ps1
-└── dependencies\
-    ├── README.md
-    ├── apache-maven-3.9.8\
-    ├── pylon_USB_Camera_Driver.msi      (optional)
-    └── amazon-corretto-8-xxx-jdk.msi    (optional)
-```
 
----
+```text
+D:\Builds\LumaViewPro\
+|-- build.ps1
+`-- dependencies\
+    |-- README.md
+    |-- apache-maven-3.9.8\
+    |-- pylon_USB_Camera_Driver.msi      (optional)
+    `-- amazon-corretto-8-xxx-jdk.msi    (optional)
+```
 
 ## Building a Release
 
 ```powershell
-cd C:\LumaViewPro
+cd D:\Builds\LumaViewPro
 .\build.ps1
 ```
 
-Select the branch when prompted (e.g., `4.0.0-beta` or `main`).
+The script first shows the saved build directory and asks `Update build directory? [y/N]` so you can move the build root off the old `C:\LumaViewPro` path if you want. It remembers that choice in `.build_config` next to `build.ps1`.
+
+Select the branch when prompted, for example `4.0.0-beta` or `main`.
 
 The script:
-1. Clones the branch from GitHub
-2. Reads the version from `version.txt` (e.g., `4.0.0-beta2`)
-3. Builds the EXE with PyInstaller
-4. Copies Apache Maven into the install directory
-5. Builds the MSI with WiX
-6. Builds the Bundle installer (if Pylon + Corretto MSIs are present)
-7. Cleans up temp files
+1. Prompts for the build directory and remembers it
+2. Clones the selected branch from GitHub
+3. Reads the version from `version.txt` (for example `4.0.0-beta2`)
+4. Creates a fresh temporary build venv
+5. Installs `requirements-dev.txt` into that venv
+6. Builds the EXE with PyInstaller
+7. Copies Apache Maven into the install directory
+8. Builds the MSI with WiX
+9. Builds the Bundle installer if Pylon and Corretto MSIs are present
+10. Cleans up temp files
 
 ### Output
-```
-C:\LumaViewPro\builds\LumaViewPro-4.0.0-beta2\
-├── LumaViewPro-4.0.0-beta2.msi          ← standalone installer
-└── LumaViewPro-4.0.0-beta2-setup.exe    ← bundle with Pylon + Corretto
+All output is created next to `build.ps1`:
+
+```text
+D:\Builds\LumaViewPro\exe_artifacts\LumaViewPro-4.0.0-beta2\
+|-- LumaViewPro-4.0.0-beta2.msi
+`-- LumaViewPro-4.0.0-beta2-setup.exe
 ```
 
----
+Previous builds are preserved in `exe_artifacts\` and are not auto-deleted.
 
 ## Before Each Build
 
 The version in `version.txt` determines the build name. To bump the version:
 
-1. Edit `version.txt` in the repo (e.g., `4.0.0-beta3`)
+1. Edit `version.txt` in the repo, for example `4.0.0-beta3`
 2. Commit and push
 3. Run `.\build.ps1`
 
-The beta number should increase with each EXE build so testers can identify which build they're running.
-
----
+The beta number should increase with each EXE build so testers can identify which build they are running.
 
 ## Troubleshooting
 
 | Error | Fix |
 |-------|-----|
-| `wix not found` | `dotnet tool install --global wix`, restart PowerShell |
-| `python not found` | Install Python 3.12+, make sure it's in PATH |
-| `git clone failed` | Check branch name exists, check network |
-| `PyInstaller failed` | Run `pip install -r requirements.txt` and `pip install --upgrade pyinstaller` |
-| `Apache Maven not found` | Download Maven 3.9.8 and extract to `dependencies\apache-maven-3.9.8\` |
-| `Bundle skipped` | Put Pylon + Corretto MSIs in `dependencies\` |
-| `Permission denied` | Close any running LumaViewPro, try running PowerShell as Administrator |
-
----
+| `wix not found` | Run `dotnet tool install --global wix`, then restart PowerShell |
+| `python not found` | Install Python 3.12+ and make sure it is available through `py`, `python`, or `python3` |
+| `git clone failed` | Check that the branch exists and that the machine has network access |
+| `pip install failed` | The build venv is created fresh every run; verify internet access and that the pinned packages in `requirements.txt` and `requirements-dev.txt` are still available |
+| `PyInstaller failed` | Re-run the build after the dependency install step succeeds; PyInstaller is installed into the temporary build venv automatically |
+| `Apache Maven not found` | Download Maven 3.9.8 and extract it to `dependencies\apache-maven-3.9.8\` |
+| `Bundle skipped` | Put the Pylon and Corretto MSIs in `dependencies\` |
+| `Permission denied` | Close any running LumaViewPro instance and try PowerShell as Administrator |
 
 ## Updating the Build Script
 
-If `build.ps1` has been updated in the repo, re-grab it:
-```powershell
-cd C:\LumaViewPro
-.\update_build_script.ps1
-```
+If `build.ps1` has been updated in the repo, re-grab it manually:
 
-Or manually:
 ```powershell
 git clone --depth 1 --branch main https://github.com/EtalumaSupport/LumaViewPro.git _getscript
 copy _getscript\scripts\appBuild\build.ps1 .\build.ps1 -Force
+copy _getscript\scripts\appBuild\dependencies\README.md .\dependencies\README.md -Force
 rmdir _getscript -Recurse -Force
 ```
 
----
-
 ## Notes
 
-- Each build clones fresh from GitHub — you always build exactly what's pushed
-- Previous builds are preserved in `C:\LumaViewPro\builds\` (not auto-deleted)
-- Temp files in `C:\LumaViewPro\_tmp\` are auto-cleaned after each build
-- The build script can also accept the branch as a parameter: `.\build.ps1 -Branch 4.0.0-beta`
+- The build script uses paths relative to where `build.ps1` lives, with no hardcoded locations
+- Build dependencies are installed into a fresh temporary venv on every run
+- Each build clones fresh from GitHub, so you always build exactly what is pushed
+- Temp files in `_tmp\` are auto-cleaned after each build
+- The selected build root is remembered in `.build_config` next to `build.ps1`
+- The build script also accepts the branch as a parameter: `.\build.ps1 -Branch 4.0.0-beta`

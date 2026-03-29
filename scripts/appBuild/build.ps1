@@ -1,28 +1,89 @@
 # LumaViewPro Build Script
 #
 # SETUP (one time):
-#   1. Create C:\LumaViewPro\
-#   2. Copy this script to C:\LumaViewPro\build.ps1
-#   3. Put dependencies in C:\LumaViewPro\dependencies\ (see dependencies\README.md)
+#   1. Install tools: Python 3.12+, Git, WiX (dotnet tool install --global wix)
+#   2. Put dependencies in dependencies\ next to this script (see dependencies\README.md)
 #
 # USAGE:
-#   cd C:\LumaViewPro
-#   .\build.ps1
+#   .\build.ps1                          # interactive branch selection
+#   .\build.ps1 -Branch 4.0.0-beta      # specific branch
 #
-# That's it. It clones, builds EXE, builds MSI, builds Bundle.
-# Output: C:\LumaViewPro\builds\LumaViewPro-X.X.X\
+# Output: <build_dir>\exe_artifacts\LumaViewPro-X.X.X\
 
 param(
     [string]$Branch = ""
 )
 
 $ErrorActionPreference = "Stop"
-$root = "C:\LumaViewPro"
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
+$config_file = Join-Path $script_dir ".build_config"
+
+function Get-BuildPython {
+    $probe = "import json, sys; print(json.dumps({'executable': sys.executable, 'version': [sys.version_info[0], sys.version_info[1], sys.version_info[2]]}))"
+    $candidates = @(
+        @{ Label = "py -3.13"; Command = "py"; Args = @("-3.13") }
+        @{ Label = "py -3.12"; Command = "py"; Args = @("-3.12") }
+        @{ Label = "python"; Command = "python"; Args = @() }
+        @{ Label = "python3"; Command = "python3"; Args = @() }
+    )
+
+    foreach ($candidate in $candidates) {
+        try {
+            $result = & $candidate.Command @($candidate.Args + @("-c", $probe)) 2>$null
+            if ($LASTEXITCODE -ne 0 -or -not $result) { continue }
+
+            $info = $result | ConvertFrom-Json
+            $major = [int]$info.version[0]
+            $minor = [int]$info.version[1]
+            $patch = [int]$info.version[2]
+
+            if ($major -eq 3 -and $minor -ge 12) {
+                return [PSCustomObject]@{
+                    Label = $candidate.Label
+                    Command = $candidate.Command
+                    Args = $candidate.Args
+                    Executable = $info.executable
+                    Version = "$major.$minor.$patch"
+                }
+            }
+        } catch {
+            continue
+        }
+    }
+
+    return $null
+}
+
+# ---------------------------------------------------------------------------
+# Build directory selection
+# ---------------------------------------------------------------------------
+# Default to script location; user can override and it's saved for next time
+$build_dir = $script_dir
+if (Test-Path $config_file) {
+    $saved = (Get-Content $config_file -TotalCount 1).Trim()
+    if ($saved -and (Test-Path $saved)) { $build_dir = $saved }
+}
+
+Write-Host "`nBuild directory: $build_dir"
+$change = Read-Host -Prompt "Update build directory? [y/N]"
+if ($change -eq "y" -or $change -eq "Y") {
+    $new_dir = Read-Host -Prompt "Build directory"
+    if ($new_dir) {
+        New-Item -Path $new_dir -ItemType Directory -Force | Out-Null
+        $build_dir = (Resolve-Path $new_dir).Path
+    }
+}
+# Save preference
+Set-Content $config_file $build_dir
+
+# All build paths relative to build_dir
+$tmp = Join-Path $build_dir "_tmp"
+$artifacts = Join-Path $build_dir "exe_artifacts"
+$deps = Join-Path $script_dir "dependencies"
 
 # Make sure we're not stuck inside a previous build
-Set-Location $root
+Set-Location $build_dir
 
 # ---------------------------------------------------------------------------
 # Select branch
@@ -55,29 +116,23 @@ Write-Host "Building branch: $Branch"
 # ---------------------------------------------------------------------------
 # Find dependencies
 # ---------------------------------------------------------------------------
-# When run from C:\LumaViewPro\build.ps1, $script_dir = C:\LumaViewPro\
-# When run from repo, $script_dir = scripts\appBuild\
-# Either way, dependencies\ is next to the script.
-$deps = Join-Path $script_dir "dependencies"
-if (-not (Test-Path $deps)) {
-    # Also check repo layout (build.ps1 copied to $root, deps in repo)
-    $deps = Join-Path $root "dependencies"
-}
-
 $pylon_msi = ""
 $corretto_msi = ""
 $maven_dir = ""
 
-if (Test-Path $deps) {
-    $pylon_files = Get-ChildItem -Path $deps -Filter "*pylon*USB*.msi" -ErrorAction SilentlyContinue
-    if ($pylon_files) { $pylon_msi = $pylon_files[0].FullName; Write-Host "Found Pylon: $pylon_msi" }
-
-    $corretto_files = Get-ChildItem -Path $deps -Filter "*corretto*.msi" -ErrorAction SilentlyContinue
-    if ($corretto_files) { $corretto_msi = $corretto_files[0].FullName; Write-Host "Found Corretto: $corretto_msi" }
-
-    $maven_files = Get-ChildItem -Path $deps -Directory -Filter "apache-maven*" -ErrorAction SilentlyContinue
-    if ($maven_files) { $maven_dir = $maven_files[0].FullName; Write-Host "Found Maven: $maven_dir" }
+if (-not (Test-Path $deps)) {
+    New-Item $deps -ItemType Directory -Force | Out-Null
+    Write-Host "`nCreated dependencies\ folder. See dependencies\README.md for what to put there."
 }
+
+$pylon_files = Get-ChildItem -Path $deps -Filter "*pylon*USB*.msi" -ErrorAction SilentlyContinue
+if ($pylon_files) { $pylon_msi = $pylon_files[0].FullName; Write-Host "Found Pylon: $pylon_msi" }
+
+$corretto_files = Get-ChildItem -Path $deps -Filter "*corretto*.msi" -ErrorAction SilentlyContinue
+if ($corretto_files) { $corretto_msi = $corretto_files[0].FullName; Write-Host "Found Corretto: $corretto_msi" }
+
+$maven_files = Get-ChildItem -Path $deps -Directory -Filter "apache-maven*" -ErrorAction SilentlyContinue
+if ($maven_files) { $maven_dir = $maven_files[0].FullName; Write-Host "Found Maven: $maven_dir" }
 
 if (-not $pylon_msi) { Write-Host "No Pylon MSI in dependencies\ - bundle will be skipped" }
 if (-not $corretto_msi) { Write-Host "No Corretto MSI in dependencies\ - bundle will be skipped" }
@@ -88,20 +143,23 @@ if (-not $maven_dir) { Write-Host "Warning: Apache Maven not found in dependenci
 # ---------------------------------------------------------------------------
 Write-Host "`nChecking tools..."
 try { $v = & wix --version 2>&1; Write-Host "  WiX: $v" } catch { Write-Host "ERROR: WiX not found. Run: dotnet tool install --global wix"; Exit 1 }
-try { $v = & python --version 2>&1; Write-Host "  Python: $v" } catch { Write-Host "ERROR: Python not found"; Exit 1 }
 try { $v = & git --version 2>&1; Write-Host "  Git: $v" } catch { Write-Host "ERROR: Git not found"; Exit 1 }
+
+$python = Get-BuildPython
+if (-not $python) {
+    Write-Host "ERROR: Python 3.12+ not found. Install Python 3.12 or 3.13 and make sure it is available via py, python, or python3."
+    Exit 1
+}
+Write-Host "  Build Python: $($python.Version) [$($python.Executable)]"
 
 # ---------------------------------------------------------------------------
 # Clean previous temp, clone fresh
 # ---------------------------------------------------------------------------
-$tmp = Join-Path $root "_tmp"
 if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
 New-Item $tmp -ItemType Directory -Force | Out-Null
 
 Write-Host "`nCloning $Branch..."
 $clone = Join-Path $tmp "src"
-# Git writes progress to stderr which PowerShell treats as errors with ErrorActionPreference=Stop.
-# Temporarily relax error handling for the clone command.
 $ErrorActionPreference = "Continue"
 git clone --depth 1 --branch $Branch $repo_url $clone
 $clone_exit = $LASTEXITCODE
@@ -129,6 +187,35 @@ $src = Join-Path $tmp $product
 Rename-Item $clone $product
 
 # ---------------------------------------------------------------------------
+# Create build venv and install dependencies
+# ---------------------------------------------------------------------------
+Write-Host "`n--- Build Environment ---"
+$venv = Join-Path $tmp "buildvenv"
+Write-Host "Creating fresh build venv..."
+& $python.Command @($python.Args + @("-m", "venv", $venv))
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to create venv"; Exit 1 }
+
+$venv_python = Join-Path $venv "Scripts\python.exe"
+
+Write-Host "Installing build dependencies from scratch..."
+& $venv_python -m pip install --upgrade pip --quiet
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to upgrade pip in build venv"; Set-Location $build_dir; Exit 1 }
+
+if (Test-Path "$src\requirements-dev.txt") {
+    & $venv_python -m pip install -r "$src\requirements-dev.txt"
+} else {
+    & $venv_python -m pip install -r "$src\requirements.txt"
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip install failed"; Set-Location $build_dir; Exit 1 }
+
+    & $venv_python -m pip install pyinstaller
+}
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip install failed"; Set-Location $build_dir; Exit 1 }
+
+# Verify PyInstaller is available
+& $venv_python -m PyInstaller --version
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller not available in build venv"; Set-Location $build_dir; Exit 1 }
+
+# ---------------------------------------------------------------------------
 # Build EXE
 # ---------------------------------------------------------------------------
 Write-Host "`n--- PyInstaller ---"
@@ -145,17 +232,38 @@ if (Test-Path ".\docs\LICENSE") {
 
 # The .spec file must be in the repo under scripts/appBuild/config/
 $spec = ".\scripts\appBuild\config\lumaviewpro_win_release.spec"
-if (-not (Test-Path $spec)) { Write-Host "ERROR: Spec file not found: $spec"; Exit 1 }
+if (-not (Test-Path $spec)) { Write-Host "ERROR: Spec file not found: $spec"; Set-Location $build_dir; Exit 1 }
 Copy-Item $spec ".\lumaviewpro.spec"
-# Use python -m PyInstaller in case pyinstaller.exe isn't in PATH
-python -m PyInstaller --log-level INFO .\lumaviewpro.spec
-if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $root; Exit 1 }
+
+& $venv_python -m PyInstaller --log-level INFO .\lumaviewpro.spec
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
 
 # Create install directory
 $install = ".\dist\$product"
 New-Item $install -ItemType Directory -Force | Out-Null
 Copy-Item ".\dist\lumaviewpro\*" -Destination $install -Recurse
 $install = (Resolve-Path $install).Path
+
+# PyInstaller 6 may keep bundled resources under _internal even when the
+# application executable stays at the install root. WiX only needs these
+# assets at build time for branding, so detect whichever layout was produced.
+$installer_assets_dir = $install
+$installer_icon = Join-Path $installer_assets_dir "data\icons\icon.ico"
+if (-not (Test-Path $installer_icon)) {
+    $internal_assets_dir = Join-Path $install "_internal"
+    $internal_icon = Join-Path $internal_assets_dir "data\icons\icon.ico"
+    if (Test-Path $internal_icon) {
+        $installer_assets_dir = $internal_assets_dir
+        $installer_icon = $internal_icon
+        Write-Host "Using PyInstaller _internal assets for installer branding"
+    }
+}
+
+if (-not (Test-Path $installer_icon)) {
+    Write-Host "ERROR: Installer icon not found in either $install\data\icons or $install\_internal\data\icons"
+    Set-Location $build_dir
+    Exit 1
+}
 
 # Copy Maven if available
 if ($maven_dir) {
@@ -168,28 +276,28 @@ if ($maven_dir) {
 # Build MSI
 # ---------------------------------------------------------------------------
 Write-Host "`n--- WiX MSI ---"
-# WiX files are in the cloned repo
 $wix_dir = Join-Path $src "scripts\appBuild\build_exe\wix"
 Set-Location $wix_dir
 
-$output_dir = Join-Path $root "builds\$product"
+$output_dir = Join-Path $artifacts $product
 New-Item $output_dir -ItemType Directory -Force | Out-Null
 $msi = Join-Path $output_dir "$product.msi"
 
 $wixExe = (Get-Command wix).Source
 & $wixExe build -arch x64 `
     -d "InstallFolderDir=$install" `
+    -d "InstallerAssetsDir=$installer_assets_dir" `
     -d "ProjectDir=$wix_dir\" `
     -d "ProductName=$product" `
     -d "Version=$wix_ver" `
     -out $msi `
     Package.wxs Folders.wxs
 
-if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: MSI build failed"; Set-Location $root; Exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: MSI build failed"; Set-Location $build_dir; Exit 1 }
 Write-Host "MSI: $msi"
 
 # ---------------------------------------------------------------------------
-# Build Bundle (if prereqs available)
+# Build Bundle (if dependencies available)
 # ---------------------------------------------------------------------------
 $bundle = ""
 if ($pylon_msi -and $corretto_msi) {
@@ -206,6 +314,7 @@ if ($pylon_msi -and $corretto_msi) {
     & $wixExe build -arch x64 `
         -ext $ext `
         -d "LVPInstallFolderDir=$install" `
+        -d "InstallerAssetsDir=$installer_assets_dir" `
         -d "LVPMsiDir=$msi" `
         -d "PylonDriverDir=$pylon_msi" `
         -d "CorretoMsiDir=$corretto_msi" `
@@ -225,9 +334,9 @@ if ($pylon_msi -and $corretto_msi) {
 # ---------------------------------------------------------------------------
 # Done
 # ---------------------------------------------------------------------------
-Set-Location $root
+Set-Location $build_dir
 
-# Clean temp
+# Clean temp (venv + clone + build artifacts)
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "`n======================================="

@@ -23,4 +23,6 @@ scripts/appBuild/dependencies/*
 !scripts/appBuild/dependencies/README.md
 scripts/appBuild/exe_artifacts/
 scripts/appBuild/tmp/
+scripts/appBuild/_tmp/
+scripts/appBuild/.build_config
 .claude/settings.local.json
