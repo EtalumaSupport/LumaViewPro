@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""Video capture and stimulation — extracted from sequenced_capture_executor.py.
+"""Video capture and stimulation - extracted from sequenced_capture_executor.py.
 
 Self-contained video recording: frame capture loop, stimulation threads,
 and video writing (MP4 and TIFF-frame paths).
@@ -13,6 +13,7 @@ import queue
 import sys
 import threading
 import time
+from typing import NamedTuple
 
 import numpy as np
 
@@ -86,7 +87,10 @@ class VideoCaptureSession:
         exposure = step['Exposure']
         if exposure <= 0:
             exposure = 10  # fallback to 10ms if exposure is missing/zero
-            logger.warning(f"[PROTOCOL-VIDEO] Exposure is {step['Exposure']}, defaulting to {exposure}ms")
+            logger.warning(
+                f"[PROTOCOL-VIDEO] Exposure is {step['Exposure']}, "
+                f"defaulting to {exposure}ms"
+            )
         exposure_freq = 1.0 / (exposure / 1000)
         fps = min(exposure_freq, 40)
 
@@ -98,19 +102,24 @@ class VideoCaptureSession:
 
         use_color = step['Color'] if step['False_Color'] else 'BF'
 
-        # Start stimulation threads
-        stim_threads = []
-        for color in step['Stim_Config']:
-            stim_config = step['Stim_Config'][color]
-            if stim_config['enabled']:
-                controller = StimulationController(
-                    self._scope, color, stim_config)
-                t = threading.Thread(
-                    target=controller.run,
-                    name=f"stim-{color}",
-                    args=(self._stim_start_event, self._stim_stop_event))
-                stim_threads.append(t)
-                t.start()
+        # Start one stimulation scheduler thread for all enabled channels.
+        stim_thread = None
+        enabled_stim_configs = {
+            color: stim_config
+            for color, stim_config in step['Stim_Config'].items()
+            if stim_config['enabled']
+        }
+        if enabled_stim_configs:
+            scheduler = StimulationController(
+                self._scope,
+                enabled_stim_configs,
+            )
+            stim_thread = threading.Thread(
+                target=scheduler.run,
+                name="stim-scheduler",
+                args=(self._stim_start_event, self._stim_stop_event),
+            )
+            stim_thread.start()
 
         if "set_recording_title" in self._callbacks:
             from kivy.clock import Clock
@@ -140,15 +149,17 @@ class VideoCaptureSession:
                     0)
 
             if not self._is_protocol_running():
-                # Stop stim threads BEFORE turning off LEDs to prevent
+                # Stop stim thread BEFORE turning off LEDs to prevent
                 # stim pulses from re-enabling LEDs after leds_off()
                 self._stim_stop_event.set()
-                for t in stim_threads:
-                    t.join(timeout=2.0)
+                if stim_thread is not None:
+                    stim_thread.join(timeout=2.0)
                 self._leds_off()
                 # Drain queued frames to free memory on cancel
                 _drain_queue(video_images)
-                logger.info(f"[PROTOCOL-VIDEO] Cancelled — drained {captured_frames} queued frames")
+                logger.info(
+                    f"[PROTOCOL-VIDEO] Cancelled - drained {captured_frames} queued frames"
+                )
                 if "reset_title" in self._callbacks:
                     from kivy.clock import Clock
                     Clock.schedule_once(
@@ -161,7 +172,7 @@ class VideoCaptureSession:
             if not isinstance(image, np.ndarray):
                 logger.warning(
                     "[PROTOCOL-VIDEO] get_image() returned non-array "
-                    f"({type(image).__name__}) — camera may have disconnected. "
+                    f"({type(image).__name__}) - camera may have disconnected. "
                     "Ending video capture.")
                 break
 
@@ -198,16 +209,16 @@ class VideoCaptureSession:
         self._stim_stop_event.set()
         self._stim_start_event.clear()
 
-        for t in stim_threads:
-            t.join(timeout=5.0)
-            if t.is_alive():
+        if stim_thread is not None:
+            stim_thread.join(timeout=5.0)
+            if stim_thread.is_alive():
                 logger.warning(
-                    f"[STIMULATOR] Stim thread {t.name} did not exit within 5s timeout")
+                    "[STIMULATOR] Scheduler thread did not exit within 5s timeout")
 
         if captured_frames == 0:
             logger.warning(
                 "[PROTOCOL] Zero frames captured during video recording "
-                "— skipping write")
+                "- skipping write")
             return None
 
         calculated_fps = max(1, int(captured_frames / duration_sec))
@@ -369,53 +380,134 @@ def _drain_queue(q):
         pass
 
 
+class StimEdge(NamedTuple):
+    target_offset_s: float
+    action: str
+    channel: int
+    mA: float | None
+    color: str
+
+
 class StimulationController:
-    """Precise LED pulse train for optogenetic stimulation.
+    """Single-thread stim scheduler for all enabled optogenetic channels."""
 
-    Extracted from SequencedCaptureExecutor._stimulate().
-    """
+    _MAX_STIM_CURRENT_MA = 1000
+    _SORT_EPSILON_S = 1e-6
 
-    def __init__(self, scope, color, stim_config):
+    def __init__(self, scope, stim_configs):
         self._scope = scope
-        self._color = color
-        self._stim_config = stim_config
+        self._stim_configs = stim_configs
+        self._active_channels: list[tuple[str, int]] = []
+        self._edges = self._build_edge_schedule()
+
+    def _build_edge_schedule(self) -> list[StimEdge]:
+        edges = []
+        active_channels = {}
+
+        for color, stim_config in self._stim_configs.items():
+            if not stim_config.get('enabled'):
+                continue
+
+            illumination = stim_config.get('illumination')
+            frequency = stim_config.get('frequency')
+            pulse_width = stim_config.get('pulse_width')
+            pulse_count = stim_config.get('pulse_count')
+
+            if not isinstance(frequency, (int, float)) or frequency <= 0:
+                logger.error(f"[STIMULATOR] {color}: invalid frequency {frequency} Hz - must be > 0. Skipping stimulation.")
+                continue
+            if not isinstance(pulse_width, (int, float)) or pulse_width <= 0:
+                logger.error(f"[STIMULATOR] {color}: invalid pulse_width {pulse_width} ms - must be > 0. Skipping stimulation.")
+                continue
+            if not isinstance(pulse_count, int) or pulse_count <= 0:
+                logger.error(f"[STIMULATOR] {color}: invalid pulse_count {pulse_count} - must be > 0. Skipping stimulation.")
+                continue
+            if not isinstance(illumination, (int, float)) or illumination <= 0:
+                logger.error(f"[STIMULATOR] {color}: invalid illumination {illumination} mA - must be > 0. Skipping stimulation.")
+                continue
+
+            if illumination > self._MAX_STIM_CURRENT_MA:
+                logger.warning(f"[STIMULATOR] {color}: illumination {illumination}mA exceeds max {self._MAX_STIM_CURRENT_MA}mA. Clamping.")
+                illumination = self._MAX_STIM_CURRENT_MA
+
+            period_s = 1.0 / float(frequency)
+            pulse_s = float(pulse_width) / 1000.0
+            if pulse_s >= period_s:
+                logger.warning(f"[STIMULATOR] {color}: pulse_width ({pulse_width}ms) >= period ({period_s*1000:.1f}ms). Clamping pulse to 90% of period.")
+                pulse_s = period_s * 0.9
+
+            channel = self._scope.color2ch(color=color)
+            active_channels[color] = channel
+
+            for i in range(pulse_count):
+                on_time = i * period_s
+                off_time = on_time + pulse_s
+                edges.append(StimEdge(
+                    target_offset_s=on_time,
+                    action="on",
+                    channel=channel,
+                    mA=illumination,
+                    color=color,
+                ))
+                edges.append(StimEdge(
+                    target_offset_s=off_time,
+                    action="off",
+                    channel=channel,
+                    mA=None,
+                    color=color,
+                ))
+
+        self._active_channels = sorted(
+            active_channels.items(),
+            key=lambda item: item[1],
+        )
+        edges.sort(key=lambda edge: (
+            round(edge.target_offset_s / self._SORT_EPSILON_S),
+            0 if edge.action == "off" else 1,
+            edge.channel,
+        ))
+        return edges
+
+    def _wait_until(self, target_time: float, stop_event: threading.Event) -> bool:
+        while True:
+            if stop_event.is_set():
+                return False
+
+            now = time.perf_counter()
+            remaining = target_time - now
+            if remaining <= 0:
+                return True
+            if remaining > 0.003:
+                time.sleep(remaining - 0.002)
+            else:
+                time.sleep(0.0001)
+
+    def _dispatch_edge(self, edge: StimEdge):
+        if edge.action == "on":
+            if hasattr(self._scope, 'led_on_fast'):
+                self._scope.led_on_fast(channel=edge.channel, mA=edge.mA)
+            else:
+                self._scope.led_on(channel=edge.channel, mA=edge.mA)
+        else:
+            if hasattr(self._scope, 'led_off_fast'):
+                self._scope.led_off_fast(channel=edge.channel)
+            else:
+                self._scope.led_off(channel=edge.channel)
 
     def run(self, start_event: threading.Event,
             stop_event: threading.Event):
-        """Thread target. Runs pulse train until stop_event or
-        pulse_count reached."""
-        stim_config = self._stim_config
-        if not stim_config['enabled']:
+        """Thread target. Runs a merged pulse-edge schedule for all channels."""
+        if not self._edges:
             return
 
-        color = self._color
-        logger.info(f"[STIMULATOR] Stimulating {color} with {stim_config}")
+        enabled_colors = [color for color, _ in self._active_channels]
+        logger.info(f"[STIMULATOR] Starting merged scheduler for {enabled_colors}")
 
-        illumination = stim_config['illumination']
-        frequency = stim_config['frequency']
-        pulse_width = stim_config['pulse_width']
-        pulse_count = stim_config['pulse_count']
-
-        # Validate stim parameters before starting pulse train
-        if not isinstance(frequency, (int, float)) or frequency <= 0:
-            logger.error(f"[STIMULATOR] {color}: invalid frequency {frequency} Hz — must be > 0. Skipping stimulation.")
-            return
-        if not isinstance(pulse_width, (int, float)) or pulse_width <= 0:
-            logger.error(f"[STIMULATOR] {color}: invalid pulse_width {pulse_width} ms — must be > 0. Skipping stimulation.")
-            return
-        if not isinstance(pulse_count, int) or pulse_count <= 0:
-            logger.error(f"[STIMULATOR] {color}: invalid pulse_count {pulse_count} — must be > 0. Skipping stimulation.")
-            return
-        if not isinstance(illumination, (int, float)) or illumination <= 0:
-            logger.error(f"[STIMULATOR] {color}: invalid illumination {illumination} mA — must be > 0. Skipping stimulation.")
-            return
-        MAX_STIM_CURRENT_MA = 1000
-        if illumination > MAX_STIM_CURRENT_MA:
-            logger.warning(f"[STIMULATOR] {color}: illumination {illumination}mA exceeds max {MAX_STIM_CURRENT_MA}mA. Clamping.")
-            illumination = MAX_STIM_CURRENT_MA
-
-        # Optional: reduce Windows timer quantum to 1 ms during stimulation
         time_period_set = False
+        end_reason = "schedule_complete"
+        executed_edges = 0
+        lateness_ms = []
+
         if sys.platform.startswith('win'):
             try:
                 ctypes.windll.winmm.timeBeginPeriod(1)
@@ -424,96 +516,44 @@ class StimulationController:
                 time_period_set = False
 
         try:
-            period_s = 1.0 / float(frequency)
-            pulse_s = float(pulse_width) / 1000.0
+            while not start_event.wait(timeout=0.05):
+                if stop_event.is_set():
+                    end_reason = "stop_event_set_before_start"
+                    return
 
-            # Guard: pulse width must be shorter than period
-            if pulse_s >= period_s:
-                logger.warning(f"[STIMULATOR] {color}: pulse_width ({pulse_width}ms) >= period ({period_s*1000:.1f}ms). Clamping pulse to 90% of period.")
-                pulse_s = period_s * 0.9
-            ch = self._scope.color2ch(color=color)
-
-            # Use fast path LED toggles if available via API
-            def led_on_fast():
-                if hasattr(self._scope, 'led_on_fast'):
-                    self._scope.led_on_fast(channel=ch, mA=illumination)
-                else:
-                    self._scope.led_on(channel=ch, mA=illumination)
-
-            def led_off_fast():
-                if hasattr(self._scope, 'led_off_fast'):
-                    self._scope.led_off_fast(channel=ch)
-                else:
-                    self._scope.led_off(channel=ch)
+            if stop_event.is_set():
+                end_reason = "stop_event_set_before_start"
+                return
 
             start_epoch = time.perf_counter()
 
-            start_event.wait()
-            logger.info(
-                f"[STIMULATOR] stim_start_event set for {color}")
-
-            end_reason = "pulse_count_reached"
-            pulses_executed = 0
-
-            for i in range(pulse_count):
+            for edge in self._edges:
                 if stop_event.is_set():
-                    logger.info(
-                        f"[STIMULATOR] {color} stop event set, "
-                        f"ending stimulation.")
                     end_reason = "stop_event_set"
                     break
 
-                # Target times for this pulse
-                on_time = start_epoch + i * period_s
-                off_time = on_time + pulse_s
-                next_period_time = start_epoch + (i + 1) * period_s
-
-                # Sleep until on_time (coarse) then spin
-                while True:
-                    now = time.perf_counter()
-                    remaining = on_time - now
-                    if remaining <= 0:
-                        break
-                    if remaining > 0.003:
-                        time.sleep(remaining - 0.002)
-                    else:
-                        time.sleep(0.0001)
-
-                try:
-                    led_on_fast()
-                except Exception as ex:
-                    logger.error(f"[STIMULATOR] {color}: led_on_fast failed on pulse {i}: {ex}")
-                    break
-                pulses_executed += 1
-
-                # Sleep/spin until off_time
-                while True:
-                    now = time.perf_counter()
-                    remaining = off_time - now
-                    if remaining <= 0:
-                        break
-                    if remaining > 0.003:
-                        time.sleep(remaining - 0.002)
-                    else:
-                        time.sleep(0.0001)
-
-                try:
-                    led_off_fast()
-                except Exception as ex:
-                    logger.error(f"[STIMULATOR] {color}: led_off_fast failed on pulse {i}: {ex}")
+                if not self._wait_until(start_epoch + edge.target_offset_s, stop_event):
+                    end_reason = "stop_event_set"
                     break
 
-                # Maintain period; wait until next_period_time
-                while True:
-                    now = time.perf_counter()
-                    remaining = next_period_time - now
-                    if remaining <= 0:
-                        break
-                    if remaining > 0.003:
-                        time.sleep(remaining - 0.002)
-                    else:
-                        time.sleep(0.0001)
+                if stop_event.is_set():
+                    end_reason = "stop_event_set"
+                    break
 
+                dispatch_time = time.perf_counter()
+                lateness_ms.append(max(
+                    0.0,
+                    (dispatch_time - (start_epoch + edge.target_offset_s)) * 1000.0,
+                ))
+
+                try:
+                    self._dispatch_edge(edge)
+                except Exception as ex:
+                    end_reason = "dispatch_error"
+                    logger.error(f"[STIMULATOR] {edge.color}: {edge.action} edge failed: {ex}")
+                    break
+
+                executed_edges += 1
         finally:
             if sys.platform.startswith('win') and time_period_set:
                 try:
@@ -521,17 +561,21 @@ class StimulationController:
                 except Exception:
                     pass
 
+            for color, channel in self._active_channels:
+                try:
+                    if hasattr(self._scope, 'led_off_fast'):
+                        self._scope.led_off_fast(channel=channel)
+                    else:
+                        self._scope.led_off(channel=channel)
+                except Exception as ex:
+                    logger.error(f"[STIMULATOR] {color}: failed to turn off LED in cleanup: {ex}")
+
             logger.info(
-                f"[STIMULATOR] {color} stimulation ended after executing "
-                f"{pulses_executed} pulses.")
-            logger.info(
-                f"[STIMULATOR] {color} Ended due to {end_reason}")
-            # Ensure LED off at the end
-            try:
-                ch = self._scope.color2ch(color=color)
-                if hasattr(self._scope, 'led_off_fast'):
-                    self._scope.led_off_fast(channel=ch)
-                else:
-                    self._scope.led_off(channel=ch)
-            except Exception as ex:
-                logger.error(f"[STIMULATOR] {color}: failed to turn off LED in cleanup: {ex}")
+                f"[STIMULATOR] Merged scheduler ended after executing {executed_edges} edges. "
+                f"Reason: {end_reason}"
+            )
+            if lateness_ms:
+                logger.info(
+                    f"[STIMULATOR] Timing lateness mean={sum(lateness_ms)/len(lateness_ms):.3f}ms "
+                    f"max={max(lateness_ms):.3f}ms"
+                )
