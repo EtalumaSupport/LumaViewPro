@@ -24,5 +24,6 @@ scripts/appBuild/dependencies/*
 scripts/appBuild/exe_artifacts/
 scripts/appBuild/tmp/
 scripts/appBuild/_tmp/
+scripts/appBuild/buildvenv/
 scripts/appBuild/.build_config
 .claude/settings.local.json

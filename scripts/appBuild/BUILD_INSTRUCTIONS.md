@@ -8,7 +8,10 @@
 - **WiX Toolset v6**: `dotnet tool install --global wix`
 - **.NET SDK** (required for WiX)
 
-`build.ps1` creates a fresh temporary build virtual environment on every run and installs `requirements-dev.txt` itself, so there is no separate `setup.ps1` step and no global `pip install` step required for the build machine.
+`build.ps1` manages the build virtual environment itself and installs `requirements-dev.txt`, so there is no separate `setup.ps1` step and no global `pip install` step required for the build machine.
+`build.ps1` also prompts for package type:
+- `Dev` reuses a cached `buildvenv` for faster repeat packaging runs
+- `Release` recreates that build environment from scratch before packaging
 
 ### 2. Create the build folder
 Pick any location; the build script runs relative to itself, with no hardcoded paths.
@@ -52,7 +55,7 @@ D:\Builds\LumaViewPro\
     `-- amazon-corretto-8-xxx-jdk.msi    (optional)
 ```
 
-## Building a Release
+## Building a Package
 
 ```powershell
 cd D:\Builds\LumaViewPro
@@ -60,20 +63,22 @@ cd D:\Builds\LumaViewPro
 ```
 
 The script first shows the saved build directory and asks `Update build directory? [y/N]` so you can move the build root off the old `C:\LumaViewPro` path if you want. It remembers that choice in `.build_config` next to `build.ps1`.
+It then asks whether this is a `Dev` package or `Release` package. Dev builds reuse the cached `buildvenv`; release builds recreate it from scratch.
 
 Select the branch when prompted, for example `4.0.0-beta` or `main`.
 
 The script:
 1. Prompts for the build directory and remembers it
-2. Clones the selected branch from GitHub
-3. Reads the version from `version.txt` (for example `4.0.0-beta2`)
-4. Creates a fresh temporary build venv
-5. Installs `requirements-dev.txt` into that venv
-6. Builds the EXE with PyInstaller
-7. Copies Apache Maven into the install directory
-8. Builds the MSI with WiX
-9. Builds the Bundle installer if Pylon and Corretto MSIs are present
-10. Cleans up temp files
+2. Prompts for package type (`Dev` or `Release`)
+3. Clones the selected branch from GitHub
+4. Reads the version from `version.txt` (for example `4.0.0-beta2`)
+5. Reuses or recreates `buildvenv` depending on package type
+6. Installs `requirements-dev.txt` into that venv
+7. Builds the EXE with PyInstaller
+8. Copies Apache Maven into the install directory
+9. Builds the MSI with WiX
+10. Builds the Bundle installer if Pylon and Corretto MSIs are present
+11. Cleans up temp files
 
 ### Output
 All output is created next to `build.ps1`:
@@ -103,8 +108,8 @@ The beta number should increase with each EXE build so testers can identify whic
 | `wix not found` | Run `dotnet tool install --global wix`, then restart PowerShell |
 | `python not found` | Install Python 3.12+ and make sure it is available through `py`, `python`, or `python3` |
 | `git clone failed` | Check that the branch exists and that the machine has network access |
-| `pip install failed` | The build venv is created fresh every run; verify internet access and that the pinned packages in `requirements.txt` and `requirements-dev.txt` are still available |
-| `PyInstaller failed` | Re-run the build after the dependency install step succeeds; PyInstaller is installed into the temporary build venv automatically |
+| `pip install failed` | Verify internet access and that the pinned packages in `requirements.txt` and `requirements-dev.txt` are still available; use a `Release` package run to force a clean build environment if needed |
+| `PyInstaller failed` | Re-run the build after the dependency install step succeeds; PyInstaller is installed into the managed build venv automatically |
 | `Apache Maven not found` | Download Maven 3.9.8 and extract it to `dependencies\apache-maven-3.9.8\` |
 | `Bundle skipped` | Put the Pylon and Corretto MSIs in `dependencies\` |
 | `Permission denied` | Close any running LumaViewPro instance and try PowerShell as Administrator |
@@ -123,7 +128,7 @@ rmdir _getscript -Recurse -Force
 ## Notes
 
 - The build script uses paths relative to where `build.ps1` lives, with no hardcoded locations
-- Build dependencies are installed into a fresh temporary venv on every run
+- Dev builds reuse a cached `buildvenv`, while release builds recreate it from scratch
 - Each build clones fresh from GitHub, so you always build exactly what is pushed
 - Temp files in `_tmp\` are auto-cleaned after each build
 - The selected build root is remembered in `.build_config` next to `build.ps1`

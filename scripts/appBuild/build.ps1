@@ -11,7 +11,9 @@
 # Output: <build_dir>\exe_artifacts\LumaViewPro-X.X.X\
 
 param(
-    [string]$Branch = ""
+    [string]$Branch = "",
+    [ValidateSet("Dev", "Release")]
+    [string]$BuildType = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -77,10 +79,27 @@ if ($change -eq "y" -or $change -eq "Y") {
 # Save preference
 Set-Content $config_file $build_dir
 
+$build_type_prompt = $BuildType
+if (-not $build_type_prompt) {
+    Write-Host "`nPackage type:"
+    Write-Host "  [1] Dev package (reuse cached build environment when possible)"
+    Write-Host "  [2] Release package (recreate build environment from scratch)"
+    $build_type_choice = Read-Host -Prompt "Select package type [1/2] (default 1)"
+
+    switch ($build_type_choice) {
+        "2" { $build_type_prompt = "Release" }
+        default { $build_type_prompt = "Dev" }
+    }
+}
+
+$BuildType = $build_type_prompt
+Write-Host "Package type: $BuildType"
+
 # All build paths relative to build_dir
 $tmp = Join-Path $build_dir "_tmp"
 $artifacts = Join-Path $build_dir "exe_artifacts"
 $deps = Join-Path $script_dir "dependencies"
+$venv = Join-Path $build_dir "buildvenv"
 
 # Make sure we're not stuck inside a previous build
 Set-Location $build_dir
@@ -151,6 +170,7 @@ if (-not $python) {
     Exit 1
 }
 Write-Host "  Build Python: $($python.Version) [$($python.Executable)]"
+$wix_exe = (Get-Command wix).Source
 
 # ---------------------------------------------------------------------------
 # Clean previous temp, clone fresh
@@ -179,7 +199,7 @@ if ($version -match '^(\d+\.\d+\.\d+)') { $wix_ver = $matches[1] }
 
 Write-Host "`n======================================="
 Write-Host "  Building $product"
-Write-Host "  WiX version: $wix_ver"
+Write-Host "  Installer version: $wix_ver"
 Write-Host "======================================="
 
 # Rename source dir
@@ -190,23 +210,39 @@ Rename-Item $clone $product
 # Create build venv and install dependencies
 # ---------------------------------------------------------------------------
 Write-Host "`n--- Build Environment ---"
-$venv = Join-Path $tmp "buildvenv"
-Write-Host "Creating fresh build venv..."
-& $python.Command @($python.Args + @("-m", "venv", $venv))
-if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to create venv"; Exit 1 }
+$recreate_build_env = $BuildType -eq "Release"
+
+if ($recreate_build_env -and (Test-Path $venv)) {
+    Write-Host "Removing cached build environment for release build..."
+    Remove-Item $venv -Recurse -Force
+}
+
+$venv_python = Join-Path $venv "Scripts\python.exe"
+$venv_exists = Test-Path $venv_python
+
+if (-not $venv_exists) {
+    Write-Host "Creating build venv..."
+    & $python.Command @($python.Args + @("-m", "venv", $venv))
+    if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to create venv"; Exit 1 }
+} else {
+    Write-Host "Reusing cached build environment: $venv"
+}
 
 $venv_python = Join-Path $venv "Scripts\python.exe"
 
-Write-Host "Installing build dependencies from scratch..."
+Write-Host "Upgrading pip..."
 & $venv_python -m pip install --upgrade pip --quiet
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to upgrade pip in build venv"; Set-Location $build_dir; Exit 1 }
 
 if (Test-Path "$src\requirements-dev.txt") {
+    Write-Host "Installing build dependencies..."
     & $venv_python -m pip install -r "$src\requirements-dev.txt"
 } else {
+    Write-Host "Installing runtime dependencies..."
     & $venv_python -m pip install -r "$src\requirements.txt"
     if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip install failed"; Set-Location $build_dir; Exit 1 }
 
+    Write-Host "Installing PyInstaller..."
     & $venv_python -m pip install pyinstaller
 }
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: pip install failed"; Set-Location $build_dir; Exit 1 }
@@ -233,9 +269,17 @@ if (Test-Path ".\docs\LICENSE") {
 # The .spec file must be in the repo under scripts/appBuild/config/
 $spec = ".\scripts\appBuild\config\lumaviewpro_win_release.spec"
 if (-not (Test-Path $spec)) { Write-Host "ERROR: Spec file not found: $spec"; Set-Location $build_dir; Exit 1 }
+$spec_contents = Get-Content $spec -Raw
+if ($spec_contents -notmatch 'contents_directory\s*=\s*[''"]\.[''"]') {
+    Write-Host "ERROR: The cloned spec file does not set contents_directory='.'."
+    Write-Host "Push or build from a branch that contains the updated PyInstaller spec before creating a release build."
+    Set-Location $build_dir
+    Exit 1
+}
 Copy-Item $spec ".\lumaviewpro.spec"
 
-& $venv_python -m PyInstaller --log-level INFO .\lumaviewpro.spec
+Write-Host "Building executable..."
+& $venv_python -m PyInstaller --log-level WARN .\lumaviewpro.spec
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
 
 # Create install directory
@@ -283,8 +327,8 @@ $output_dir = Join-Path $artifacts $product
 New-Item $output_dir -ItemType Directory -Force | Out-Null
 $msi = Join-Path $output_dir "$product.msi"
 
-$wixExe = (Get-Command wix).Source
-& $wixExe build -arch x64 `
+Write-Host "Building MSI..."
+& $wix_exe build -arch x64 `
     -d "InstallFolderDir=$install" `
     -d "InstallerAssetsDir=$installer_assets_dir" `
     -d "ProjectDir=$wix_dir\" `
@@ -311,7 +355,8 @@ if ($pylon_msi -and $corretto_msi) {
     elseif (Test-Path $bal_script) { $ext = $bal_script }
     else { & wix extension add -g WixToolset.Bal.wixext 2>&1 | Out-Null; $ext = "WixToolset.Bal.wixext" }
 
-    & $wixExe build -arch x64 `
+    Write-Host "Building bundle..."
+    & $wix_exe build -arch x64 `
         -ext $ext `
         -d "LVPInstallFolderDir=$install" `
         -d "InstallerAssetsDir=$installer_assets_dir" `
@@ -336,7 +381,7 @@ if ($pylon_msi -and $corretto_msi) {
 # ---------------------------------------------------------------------------
 Set-Location $build_dir
 
-# Clean temp (venv + clone + build artifacts)
+# Clean temp (clone + logs + build artifacts)
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "`n======================================="
