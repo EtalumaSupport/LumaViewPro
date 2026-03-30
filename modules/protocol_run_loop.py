@@ -69,7 +69,7 @@ class ProtocolRunLoop:
         p = self._p
         last_connection_check = time.monotonic()
 
-        while p._run_in_progress and not p._protocol_ended.is_set():
+        while p._run_in_progress_event.is_set() and not p._protocol_ended.is_set():
             try:
                 # Periodic hardware connection check (every 30 seconds)
                 now = time.monotonic()

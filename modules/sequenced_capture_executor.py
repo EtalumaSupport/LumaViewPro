@@ -120,6 +120,7 @@ class SequencedCaptureExecutor:
         self._z_ui_update_func = z_ui_update_func
         self._scan_in_progress = threading.Event()
         self._protocol_ended = threading.Event()
+        self._run_in_progress_event = threading.Event()  # GIL-free safe replacement for _run_in_progress bool
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
         self._cpu_pool = cpu_pool
@@ -171,8 +172,7 @@ class SequencedCaptureExecutor:
     ):
         self._run_dir = None
         self._run_trigger_source = None
-        # Keep _run_in_progress for backward compatibility (computed from _state)
-        self._run_in_progress = False
+        self._run_in_progress_event.clear()
         self._curr_step = 0
         self._n_scans = 0
         self._scan_count = 0
@@ -329,7 +329,7 @@ class SequencedCaptureExecutor:
 
 
     def reset(self):
-        if not self._run_in_progress:
+        if not self._run_in_progress_event.is_set():
             return
         
         self._cleanup()
@@ -370,7 +370,7 @@ class SequencedCaptureExecutor:
         initial_autofocus_states: dict | None = None,
     ):
         with self._run_lock:
-            if self._run_in_progress:
+            if self._run_in_progress_event.is_set():
                 logger.error(f"[{self.LOGGER_NAME} ] Cannot start new run, run already in progress")
                 return
 
@@ -462,13 +462,13 @@ class SequencedCaptureExecutor:
             execution_record=self._protocol_execution_record,
             leds_off_fn=self._step_executor.leds_off,
             led_on_fn=self._step_executor.led_on,
-            is_run_in_progress_fn=lambda: self._run_in_progress,
+            is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
         )
 
         self._run_trigger_source = run_trigger_source
         with self._run_lock:
             self._set_state(ProtocolState.RUNNING)
-            self._run_in_progress = True
+            self._run_in_progress_event.set()
         self.camera_executor.disable()
         self.protocol_executor.protocol_start()
         self._io_executor.protocol_start()
@@ -482,7 +482,7 @@ class SequencedCaptureExecutor:
     def run_in_progress(self) -> bool:
         with self._run_lock:
             # Derive from both legacy flag and state for safety during transition
-            return self._run_in_progress or self._state in (
+            return self._run_in_progress_event.is_set() or self._state in (
                 ProtocolState.RUNNING, ProtocolState.SCANNING, ProtocolState.COMPLETING
             )
     
@@ -514,7 +514,7 @@ class SequencedCaptureExecutor:
             self._cleanup_lock.release()
 
     def _cleanup_inner(self):
-        if not self._run_in_progress:
+        if not self._run_in_progress_event.is_set():
             return
 
         run_cleanup(
@@ -543,7 +543,7 @@ class SequencedCaptureExecutor:
             autofocus_io_executor=self.autofocus_io_executor,
             file_io_executor=self.file_io_executor,
             camera_executor=self.camera_executor,
-            set_run_in_progress_fn=lambda v: setattr(self, '_run_in_progress', v),
+            set_run_in_progress_fn=lambda v: self._run_in_progress_event.set() if v else self._run_in_progress_event.clear(),
             logger_name=self.LOGGER_NAME,
         )
 

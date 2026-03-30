@@ -122,7 +122,7 @@ class ProtocolStepExecutor:
             return
         if not p._scan_in_progress.is_set():
             return
-        if not p._run_in_progress:
+        if not p._run_in_progress_event.is_set():
             return
         if p._autofocus_executor.in_progress():
             return
