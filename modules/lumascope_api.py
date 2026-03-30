@@ -162,7 +162,13 @@ class Lumascope():
         # --- Thread synchronization (CR-2 / CR-6) ---
         # _state_lock protects individual shared-state reads/writes
         self._state_lock = threading.Lock()
-        # _hw_lock is an RLock for multi-step hardware operations
+        # Per-device locks — each device communicates over a different port
+        # and can operate independently. Split from the old global _hw_lock
+        # to allow LED stim pulses during camera grabs and motor moves.
+        self._led_lock = threading.RLock()    # LED serial commands
+        self._cam_lock = threading.RLock()    # Camera grab/gain/exposure
+        # Global lock for multi-device atomic operations (e.g., LED on + capture + LED off).
+        # Only used by acquire_exclusive() — individual methods use per-device locks.
         self._hw_lock = threading.RLock()
 
         # Boolean operation flags use threading.Event for wait/signal
@@ -1053,7 +1059,7 @@ class Lumascope():
         if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
             raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
 
-        with self._hw_lock:
+        with self._led_lock:
             self.led.led_on(channel, mA, block=block)
         self.frame_validity.invalidate('led')
         _api_log.info(f'led_on ch={channel} mA={mA}')
@@ -1075,7 +1081,7 @@ class Lumascope():
         if channel not in self.LED_VALID_CHANNELS:
             raise ValueError(f"LED channel must be 0-5, got {channel}")
 
-        with self._hw_lock:
+        with self._led_lock:
             self.led.led_off(channel)
         self.frame_validity.invalidate('led')
         _api_log.info(f'led_off ch={channel}')
@@ -1097,7 +1103,7 @@ class Lumascope():
             raise ValueError(f"LED channel must be 0-5, got {channel}")
         if not isinstance(mA, (int, float)) or mA < 0 or mA > self.LED_MAX_MA:
             raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
-        with self._hw_lock:
+        with self._led_lock:
             self.led.led_on_fast(channel, mA)
         self.frame_validity.invalidate('led')
 
@@ -1115,21 +1121,21 @@ class Lumascope():
             channel = self.color2ch(color=channel)
         if channel not in self.LED_VALID_CHANNELS:
             raise ValueError(f"LED channel must be 0-5, got {channel}")
-        with self._hw_lock:
+        with self._led_lock:
             self.led.led_off_fast(channel)
         self.frame_validity.invalidate('led')
 
     def leds_off_fast(self):
         """Turn off all LEDs with write-only (no read-back) for time-critical pulses."""
         if not self.led: return
-        with self._hw_lock:
+        with self._led_lock:
             self.led.leds_off_fast()
         self.frame_validity.invalidate('led')
 
     def leds_off(self):
         """Turn off all LEDs."""
         if not self.led: return
-        with self._hw_lock:
+        with self._led_lock:
             self.led.leds_off()
         self.frame_validity.invalidate('led')
         _api_log.info('leds_off')
@@ -1214,9 +1220,9 @@ class Lumascope():
             stop_time = start_time + timeout
 
             while True:
-                # Acquire hw_lock for camera grab — prevents concurrent
+                # Acquire cam_lock for camera grab — prevents concurrent
                 # set_gain/set_exposure from another thread mid-frame.
-                with self._hw_lock:
+                with self._cam_lock:
                     if force_new_capture:
                         grab_status, grab_image_ts = self.camera.grab_new_capture(new_capture_timeout)
                     else:
@@ -1239,7 +1245,7 @@ class Lumascope():
                     # Saturated frame — retry once to confirm, then accept.
                     # Saturated images are valid data (exposure/illumination
                     # too high), not a camera error. Don't loop until timeout.
-                    with self._hw_lock:
+                    with self._cam_lock:
                         retry_status, _ = self.camera.grab_new_capture(new_capture_timeout) if force_new_capture else self.camera.grab()
                         if retry_status:
                             self.frame_validity.count_frame()
@@ -1797,7 +1803,7 @@ class Lumascope():
         """
 
         if not self.camera or not self.camera.active: return
-        with self._hw_lock:
+        with self._cam_lock:
             self.camera.gain(gain)
         self.frame_validity.invalidate('gain')
         with self._camera_cache_lock:
@@ -1832,7 +1838,7 @@ class Lumascope():
         if t < 0.1:
             logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is very low — '
                            f'image will be nearly black. Value should be in milliseconds.')
-        with self._hw_lock:
+        with self._cam_lock:
             self.camera.exposure_t(t)
         self.frame_validity.invalidate('exposure')
         with self._camera_cache_lock:
