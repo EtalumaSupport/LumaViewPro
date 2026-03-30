@@ -238,6 +238,12 @@ class SequentialIOExecutor:
             fut = None
         self.protocol_queue.put(task)
         task.set_name(self.executor_name)
+
+        # Warn if file write queue is building up (H23: back-pressure detection)
+        depth = self.protocol_queue.qsize()
+        if depth > 20 and depth % 10 == 0:
+            logger.warning(f"[{self.executor_name}] Protocol queue depth: {depth} — "
+                           f"file writes may be falling behind")
         return fut
 
     def protocol_start(self):

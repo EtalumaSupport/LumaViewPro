@@ -1237,7 +1237,14 @@ class Lumascope():
                         tmp = self.camera.get_array()  # thread-safe copy
 
                 if not grab_status:
-                    # Timeout — no valid grab within the window
+                    # Check if camera disconnected — don't retry for 5 seconds
+                    # if the camera is gone (H20).
+                    if not self.camera.active:
+                        logger.error("[SCOPE API ] get_image: camera disconnected")
+                        from modules.notification_center import notifications
+                        notifications.error("Camera", "Camera Disconnected",
+                            "Camera is no longer available. Check USB connection.")
+                        return False
                     if datetime.datetime.now() > stop_time:
                         logger.error(f"[SCOPE API ] get_image timeout ({stop_time}) exceeded")
                         return False

@@ -94,7 +94,7 @@ class VerticalControl(BoxLayout):
 
 
     def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
-
+        """IOTask callback — runs on worker thread. Must schedule widget access."""
         if exception is not None:
             raise exception
 
@@ -103,13 +103,26 @@ class VerticalControl(BoxLayout):
 
         set_pos = result
 
+        # Widget access must happen on the main Kivy thread (H24).
+        # This callback runs on the IO worker thread.
+        from kivy.clock import Clock
         if not vertical_control:
-            self.ids['obj_position'].value = max(0, set_pos)
-            self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
-
+            Clock.schedule_once(lambda dt, p=set_pos: self._update_z_position(p), 0)
         else:
-            self.ids['z_position_id'].text = format(max(0, set_pos), '.2f')
+            Clock.schedule_once(lambda dt, p=set_pos: self._update_z_text(p), 0)
 
+    def _update_z_position(self, pos):
+        """Update Z slider and text — must be called on main thread."""
+        self.ids['obj_position'].value = max(0, pos)
+        new_text = format(max(0, pos), '.2f')
+        if self.ids['z_position_id'].text != new_text:
+            self.ids['z_position_id'].text = new_text
+
+    def _update_z_text(self, pos):
+        """Update Z text only — must be called on main thread."""
+        new_text = format(max(0, pos), '.2f')
+        if self.ids['z_position_id'].text != new_text:
+            self.ids['z_position_id'].text = new_text
 
     @debounce(0.2)
     def coarse_up(self, overshoot_enabled: bool = False):
