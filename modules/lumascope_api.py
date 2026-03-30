@@ -2245,12 +2245,18 @@ class Lumascope():
         if abs(pos) > self.MOTOR_POSITION_LIMIT:
             raise ValueError(f"Position {pos} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
 
-        #if not self.motion: return
         self._set_axis_state(axis, AxisState.MOVING)
-        self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
+        try:
+            self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
+        except Exception as e:
+            # Move command failed (serial timeout, disconnect) — reset to IDLE
+            # so the axis doesn't stay stuck in MOVING forever (H18/H19).
+            self._set_axis_state(axis, AxisState.IDLE)
+            _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED: {e}')
+            raise
         with self._pos_cache_lock:
             self._pos_cache[axis] = float(pos)
-        self._fire_position_listeners(axis)  # Notify UI with new target position
+        self._fire_position_listeners(axis)
         self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
         _api_log.info(f'move_abs {axis}={pos:.1f}um'
                       f'{" wait" if wait_until_complete else ""}')
@@ -2279,12 +2285,16 @@ class Lumascope():
         if abs(um) > self.MOTOR_POSITION_LIMIT:
             raise ValueError(f"Distance {um} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
 
-        #if not self.motion: return
         self._set_axis_state(axis, AxisState.MOVING)
-        self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+        try:
+            self.motion.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+        except Exception as e:
+            self._set_axis_state(axis, AxisState.IDLE)
+            _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED: {e}')
+            raise
         with self._pos_cache_lock:
             self._pos_cache[axis] = self._pos_cache.get(axis, 0.0) + float(um)
-        self._fire_position_listeners(axis)  # Notify UI with new target position
+        self._fire_position_listeners(axis)
         self.frame_validity.invalidate('z_move' if axis == 'Z' else 'xy_move')
         _api_log.info(f'move_rel {axis}={um:+.1f}um'
                       f'{" wait" if wait_until_complete else ""}')

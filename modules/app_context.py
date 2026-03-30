@@ -10,20 +10,22 @@ ctx = None
 
 # Early registrations — widgets that register during KV tree construction
 # before ctx exists. Copied to ctx fields when ctx is created.
+_early_lock = threading.Lock()
 _early_registrations = {}
 
 
 def register_early(name, value):
-    """Register a widget before ctx is created.
+    """Register a widget before ctx is created.  Thread-safe.
 
     During Kivy's KV tree construction, widgets are created before
     AppContext. This stores the registration and applies it to ctx
     once ctx exists.
     """
-    if ctx is not None:
-        setattr(ctx, name, value)
-    else:
-        _early_registrations[name] = value
+    with _early_lock:
+        if ctx is not None:
+            setattr(ctx, name, value)
+        else:
+            _early_registrations[name] = value
 
 
 def apply_early_registrations():

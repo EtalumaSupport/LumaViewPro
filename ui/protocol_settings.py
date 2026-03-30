@@ -1809,23 +1809,28 @@ class ProtocolSettings(FloatLayout):
     def _cleanup_at_end_of_protocol(self, autofocus_scan: bool):
         ctx = _app_ctx.ctx
 
-        sequenced_capture_executor = ctx.sequenced_capture_executor
-        sequenced_capture_executor.reset()
-        sequenced_capture_executor._autofocus_executor.reset()
-        live_histo_reverse()
-        self._reset_run_protocol_button()
-        self._reset_run_scan_button()
-        self._reset_run_autofocus_scan_button()
-        self.reset_autofocus_ui()
-        self._autofocus_complete_callback()
-        ctx.stage.set_motion_capability(True)
+        try:
+            sequenced_capture_executor = ctx.sequenced_capture_executor
+            sequenced_capture_executor.reset()
+            sequenced_capture_executor._autofocus_executor.reset()
+            live_histo_reverse()
+            self.reset_autofocus_ui()
+            self._autofocus_complete_callback()
 
-
-        if not autofocus_scan:
-            try:
-                create_hyperstacks_if_needed()
-            except Exception as e:
-                logger.error(f"Error occurred while creating hyperstacks: {e}", exc_info=True)
+            if not autofocus_scan:
+                try:
+                    create_hyperstacks_if_needed()
+                except Exception as e:
+                    logger.error(f"Error occurred while creating hyperstacks: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"[Protocol] Cleanup error: {e}", exc_info=True)
+        finally:
+            # ALWAYS restore UI state, even if cleanup above threw.
+            # Without this, buttons stay disabled and motion stays locked.
+            self._reset_run_protocol_button()
+            self._reset_run_scan_button()
+            self._reset_run_autofocus_scan_button()
+            ctx.stage.set_motion_capability(True)
 
     def cancel_all_protocols(self):
         logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')
