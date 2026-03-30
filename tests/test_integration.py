@@ -783,8 +783,9 @@ class TestRestAPIPrep:
 
     def test_system_info_no_hardware(self):
         """get_system_info() should handle missing hardware gracefully."""
+        from drivers.null_motorboard import NullMotionBoard
         session = ScopeSession.create_headless()
-        session.scope.motion = None
+        session.scope.motion = NullMotionBoard()
         session.scope.led = None
         session.scope.camera = None
         info = session.scope.get_system_info()

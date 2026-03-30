@@ -23,6 +23,7 @@ from drivers.camera import Camera
 from drivers.simulated_camera import SimulatedCamera
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_ledboard import SimulatedLEDBoard
+from drivers.null_motorboard import NullMotionBoard
 
 # Import additional libraries
 from lvp_logger import logger, version
@@ -130,7 +131,7 @@ class Lumascope():
             else:
                 self.motion = MotorBoard()
         except Exception:
-            self.motion = None
+            self.motion = NullMotionBoard()
             logger.exception('[SCOPE API ] Motion Board Not Initialized')
 
         # Camera
@@ -139,7 +140,7 @@ class Lumascope():
         try:
             if simulate:
                 self.camera: Camera = SimulatedCamera(
-                    z_position_func=lambda: self.motion.current_pos('Z') if self.motion else 5000.0,
+                    z_position_func=lambda: self.motion.current_pos('Z'),
                 )
                 self.camera.load_cycle_images()
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
@@ -153,7 +154,7 @@ class Lumascope():
         # Notify if some (but not all) hardware is missing
         missing = []
         if self.led is None: missing.append("LED Board")
-        if self.motion is None: missing.append("Motor Controller")
+        if isinstance(self.motion, NullMotionBoard): missing.append("Motor Controller")
         if not hasattr(self, 'camera') or not getattr(self.camera, 'active', None): missing.append("Camera")
         if missing and not simulate:
             notifications.warning("Hardware", "Partial Hardware Detected",
@@ -163,7 +164,7 @@ class Lumascope():
         self._no_hardware = (
             not simulate
             and self.led is None
-            and self.motion is None
+            and isinstance(self.motion, NullMotionBoard)
             and not hasattr(self, 'camera')
         )
         if self._no_hardware:
@@ -251,8 +252,7 @@ class Lumascope():
         self.set_frame_size(config.frame_width, config.frame_height)
         self.set_stage_offset(config.stage_offset)
         self.set_scale_bar(enabled=config.scale_bar_enabled)
-        if self.motion:
-            self.set_acceleration_limit(val_pct=config.acceleration_pct)
+        self.set_acceleration_limit(val_pct=config.acceleration_pct)
         logger.info('[SCOPE API ] Scope initialized')
 
 
@@ -287,7 +287,7 @@ class Lumascope():
                 if not moving_axes:
                     # Also check overshoot — if overshoot is active,
                     # the monitor should keep running
-                    if self.motion and hasattr(self.motion, 'overshoot') and self.motion.overshoot:
+                    if hasattr(self.motion, 'overshoot') and self.motion.overshoot:
                         time.sleep(self._MOTION_POLL_INTERVAL)
                         continue
                     # All axes arrived — go back to sleep
@@ -299,7 +299,7 @@ class Lumascope():
                     if self._motion_monitor_stop.is_set():
                         break
                     try:
-                        if self.motion and self.motion.driver and self.get_target_status(ax):
+                        if self.motion.driver and self.get_target_status(ax):
                             # Axis has arrived — transition to IDLE
                             self._set_axis_state(ax, AxisState.IDLE)
                     except Exception as e:
@@ -621,8 +621,6 @@ class Lumascope():
         Returns:
             float: Travel limit in um, or MOTOR_POSITION_LIMIT if unknown.
         """
-        if not self.motion or not self.motion.driver:
-            return float(self.MOTOR_POSITION_LIMIT)
         try:
             return float(self.motion.motorconfig.travel_limit_um(axis))
         except Exception:
@@ -631,7 +629,7 @@ class Lumascope():
     @property
     def motor_connected(self) -> bool:
         """Whether the motor controller is connected (replaces scope.motion.driver checks)."""
-        return bool(self.motion and self.motion.driver)
+        return not isinstance(self.motion, NullMotionBoard) and bool(self.motion.driver)
 
     @property
     def led_connected(self) -> bool:
@@ -644,8 +642,6 @@ class Lumascope():
         Returns:
             float: Focal length in mm (default 47.8).
         """
-        if not self.motion or not self.motion.driver:
-            return 47.8
         return self.motion.motorconfig.lens_focal_length()
 
     def pixel_size(self) -> float:
@@ -654,8 +650,6 @@ class Lumascope():
         Returns:
             float: Pixel size in um/pixel (default 2.0).
         """
-        if not self.motion or not self.motion.driver:
-            return 2.0
         return self.motion.motorconfig.pixel_size()
 
     # --- CR-6: Exclusive lock for multi-step hardware operations ---
@@ -698,9 +692,9 @@ class Lumascope():
             self.led.disconnect()
             self.led = None
 
-        if self.motion is not None:
+        if not isinstance(self.motion, NullMotionBoard):
             self.motion.disconnect()
-            self.motion = None
+        self.motion = NullMotionBoard()
 
         if self.camera is not None:
             self.camera.disconnect()
@@ -2122,9 +2116,6 @@ class Lumascope():
         positions.  During normal operation the cache is updated directly
         by move commands — no polling needed.
         """
-        if not self.motion or not self.motion.driver:
-            return
-
         positions = {}
         for ax in ('X', 'Y', 'Z', 'T'):
             try:
@@ -2150,9 +2141,6 @@ class Lumascope():
                 axis positions. Returns 0 if motion board inactive, None if
                 axis T requested but no turret present.
         """
-        if not self.motion or not self.motion.driver:
-            return 0
-
         if (not self.motion.has_turret()) and (axis == 'T'):
             return None
 
@@ -2176,9 +2164,6 @@ class Lumascope():
             float | dict: Position in um for a single axis, or dict of all
                 axis positions. Returns 0 if motion board inactive.
         """
-        if not self.motion or not self.motion.driver:
-            return 0
-
         with self._pos_cache_lock:
             if axis is None:
                 return dict(self._pos_cache)
@@ -2425,8 +2410,6 @@ class Lumascope():
         Returns:
             bool: True if any axis is MOVING/HOMING or overshoot is active.
         """
-        if not self.motion or not self.motion.driver:
-            return False
         if self.is_any_axis_moving():
             return True
         if self.get_overshoot():
@@ -2446,9 +2429,6 @@ class Lumascope():
         Returns:
             bool: True if all axes arrived, False if timed out.
         """
-        if not self.motion or not self.motion.driver:
-            return True
-
         deadline = time.monotonic() + timeout
         for ax in self.VALID_AXES:
             remaining = deadline - time.monotonic()
@@ -2463,8 +2443,6 @@ class Lumascope():
 
 
     def set_acceleration_limit(self, val_pct: int):
-        if self.motion is None:
-            return
         try:
             self.motion.set_acceleration_limits(val_pct=val_pct)
         except Exception:
@@ -2477,9 +2455,6 @@ class Lumascope():
         Returns:
             str | None: Model string, or None if motion board inactive.
         """
-        if not self.motion.driver:
-            return None
-
         return self.motion.get_microscope_model()
 
     def get_motor_info(self) -> dict:
@@ -2489,9 +2464,6 @@ class Lumascope():
             dict: Keys 'model', 'serial_number', 'firmware_version'.
                   Values are None/unknown if board inactive.
         """
-        if not self.motion or not self.motion.driver:
-            return {'model': None, 'serial_number': None, 'firmware_version': None}
-
         info = self.motion.fullinfo()
         return {
             'model': info.get('model', 'unknown'),
@@ -2756,12 +2728,9 @@ class Lumascope():
         """INTEGRATED SCOPE FUNCTIONS
         begin autofocus functionality"""
 
-        # Check all hardware required
+        # Check all hardware required and actively responding
         if not self.led: return
-        if not self.motion: return
         if not self.camera: return
-
-        # Check if hardware is actively responding
         if self.led.driver is False: return
         if self.motion.driver is False: return
         if not self.camera.active: return
