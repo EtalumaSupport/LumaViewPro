@@ -121,8 +121,8 @@ class ProtocolRunLoop:
                             notifications.error("Protocol", "Protocol Aborted", msg)
                             p._protocol_ended.set()
                             break
-                except Exception:
-                    pass  # If we can't check, proceed anyway
+                except Exception as e:
+                    logger.debug(f"[PROTOCOL] Disk space check failed (proceeding anyway): {e}")
 
                 p._step_executor.go_to_step(step_idx=p._curr_step)
                 # Guard: if cleanup already ran (e.g. button spam), don't proceed

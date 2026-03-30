@@ -124,7 +124,8 @@ class ProtocolTimeEstimator:
         if objectives_loader is None:
             try:
                 objectives_loader = ObjectiveLoader()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"[TimeEstimator] Could not load objectives (estimates may be less accurate): {e}")
                 objectives_loader = None
         self._objectives = objectives_loader
 
@@ -285,5 +286,6 @@ class ProtocolTimeEstimator:
             return None
         try:
             return self._objectives.get_objective_info(objective_id=objective_id)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[TimeEstimator] Could not get objective info for '{objective_id}': {e}")
             return None

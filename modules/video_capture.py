@@ -132,8 +132,8 @@ class VideoCaptureSession:
         if sys.platform.startswith('win'):
             try:
                 ctypes.windll.winmm.timeBeginPeriod(1)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[PROTOCOL-VIDEO] timeBeginPeriod failed: {e}")
 
         self._stim_stop_event.clear()
         self._stim_start_event.set()
@@ -203,8 +203,8 @@ class VideoCaptureSession:
         if sys.platform.startswith('win'):
             try:
                 ctypes.windll.winmm.timeEndPeriod(1)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"[PROTOCOL-VIDEO] timeEndPeriod failed: {e}")
 
         self._stim_stop_event.set()
         self._stim_start_event.clear()
@@ -376,8 +376,8 @@ def _drain_queue(q):
         while not q.empty():
             q.get_nowait()
             q.task_done()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"[PROTOCOL-VIDEO] Queue drain interrupted: {e}")
 
 
 class StimEdge(NamedTuple):

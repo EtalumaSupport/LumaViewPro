@@ -84,23 +84,6 @@ class VideoWriter:
             isColor=is_color,
         )
 
-        # Ref: https://stackoverflow.com/questions/71945367/how-to-properly-use-opencv-videowriter-to-write-monochrome-video-with-float32-so
-        # Example for recording 16-bit grayscale video
-        # Playback of FFV1 not supported in Windows Media Player with default codecs, but works in VLC
-        # self._video = cv2.VideoWriter(
-        #     filename=str(self._output_file_loc),
-        #     apiPreference=cv2.CAP_FFMPEG,
-        #     fourcc=self._fourcc,
-        #     fps=self._fps,
-        #     frameSize=(width, height),
-        #     params=[
-        #         cv2.VIDEOWRITER_PROP_DEPTH,
-        #         cv2.CV_16U,
-        #         cv2.VIDEOWRITER_PROP_IS_COLOR,
-        #         0,
-        #     ],
-        # )
-
     def _is_correct_image_shape(self, image):
         (height, width), is_color = self._get_image_info(image=image)
         return (height, width) == self._shape

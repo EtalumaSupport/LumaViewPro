@@ -65,8 +65,8 @@ class ProtocolStepExecutor:
                     try:
                         protocol_queue_size = self._p.protocol_executor.protocol_queue_size()
                         logger.debug(f"[Scan Watchdog] Protocol queue: {protocol_queue_size}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"[Scan Watchdog] Could not read protocol queue size: {e}")
 
                 # Run one step iteration
                 self.scan_iterate()
@@ -166,8 +166,8 @@ class ProtocolStepExecutor:
         try:
             import modules.app_context as _app_ctx
             bf_af_for_fluor = _app_ctx.ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence', False)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[Capture   ] Could not read bf_af_for_fluorescence setting: {e}")
         if bf_af_for_fluor and step['Color'] != 'BF':
             if p._autofocus_executor.best_focus_position() is not None:
                 if p._update_z_pos_from_autofocus:

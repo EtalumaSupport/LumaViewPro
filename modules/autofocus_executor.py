@@ -69,8 +69,8 @@ class AutofocusExecutor:
         # M20: Ensure precision mode is off on reset (e.g. after cancel)
         try:
             self._scope.set_motor_precision_mode('Z', False)
-        except Exception:
-            pass  # Scope may be unavailable during shutdown
+        except Exception as e:
+            logger.debug(f"[AF] Could not disable precision mode during reset (scope may be unavailable): {e}")
         self._reset_state()
 
     def set_scope(self, scope: lumascope_api.Lumascope):

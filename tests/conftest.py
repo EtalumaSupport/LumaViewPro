@@ -30,8 +30,15 @@ def pytest_addoption(parser):
 def install_mock_deps():
     """Install mock modules for heavy dependencies (lvp_logger, kivy, etc.).
 
-    Safe to call multiple times — uses setdefault so existing entries
+    Safe to call multiple times -- uses setdefault so existing entries
     (from test files that mock at module level) are not overwritten.
+
+    NOTE: 8 test files currently duplicate this logic at module level
+    instead of using this function. New tests should use this function
+    via the _mock_heavy_deps fixture instead of duplicating.
+    See: test_integration.py, test_protocol_execution.py, test_scope_api.py,
+    test_simulators.py, test_regression_p2.py, test_serial_safety.py,
+    test_null_motorboard.py, test_notification_center.py
     """
     mock_logger = MagicMock()
     mock_lvp_logger = MagicMock()
