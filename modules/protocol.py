@@ -1335,9 +1335,13 @@ class Protocol:
         table_str = ''.join(table_lines)
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
 
-        # M19: Validate required columns before processing
-        required_columns = {'Name', 'X', 'Y', 'Z', 'Color', 'Illumination', 'Gain', 'Exposure'}
-        missing = required_columns - set(protocol_df.columns)
+        # M19: Validate required columns before processing.
+        # Old versions use 'Channel' instead of 'Color' — accept either.
+        actual_cols = set(protocol_df.columns)
+        required_columns = {'Name', 'X', 'Y', 'Z', 'Illumination', 'Gain', 'Exposure'}
+        if 'Color' not in actual_cols and 'Channel' not in actual_cols:
+            required_columns.add('Color')  # will trigger error
+        missing = required_columns - actual_cols
         if missing:
             raise ProtocolFormatError(f"Protocol missing required columns: {missing}")
 

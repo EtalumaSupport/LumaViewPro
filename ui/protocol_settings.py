@@ -158,10 +158,11 @@ class ProtocolSettings(FloatLayout):
 
         try:
             filepath = settings['protocol']['filepath']
-            protocol_success = ctx.motion_settings.ids['protocol_settings_id'].load_protocol(filepath=filepath)
+            protocol_success = ctx.motion_settings.ids['protocol_settings_id'].load_protocol(
+                filepath=filepath, suppress_popup=True)
 
             if not protocol_success:
-                logger.warning('[LVP Main  ] Unable to load protocol at startup')
+                logger.info('[LVP Main  ] No saved protocol loaded at startup — using empty protocol')
                 # If protocol file is missing or incomplete, file name and path are cleared from memory.
                 filepath=''
                 settings['protocol']['filepath']=''
@@ -516,7 +517,7 @@ class ProtocolSettings(FloatLayout):
         return protocol_objective_ids.issubset(turret_objective_ids)
 
     # Load Protocol from File
-    def load_protocol(self, filepath="./data/new_default_protocol.tsv"):
+    def load_protocol(self, filepath="./data/new_default_protocol.tsv", suppress_popup=False):
         gui_logger.protocol_action('LOAD', filepath)
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
@@ -525,6 +526,8 @@ class ProtocolSettings(FloatLayout):
         logger.info('[LVP Main  ] ProtocolSettings.load_protocol()')
 
         if not pathlib.Path(filepath).exists():
+            if suppress_popup:
+                return False
             raise FileNotFoundError(f"Protocol not found at {filepath}")
 
         try:
@@ -533,14 +536,15 @@ class ProtocolSettings(FloatLayout):
                 tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
             )
         except IOError:
-            # Guard to prevent LVP startup notification popup
             return False
 
         except Exception as e:
-            error_title = "Protocol Loading Error"
-            error_msg = f"Cannot load protocol from file: {e}"
-            from ui.notification_popup import show_notification_popup
-            show_notification_popup(title=error_title, message=error_msg)
+            logger.warning(f'[LVP Main  ] Protocol load failed: {e}')
+            if not suppress_popup:
+                error_title = "Protocol Loading Error"
+                error_msg = f"Cannot load protocol from file: {e}"
+                from ui.notification_popup import show_notification_popup
+                show_notification_popup(title=error_title, message=error_msg)
             return False
 
         if protocol is False:

@@ -70,9 +70,13 @@ class ProtocolCallbacks:
     def to_dict(self) -> dict[str, Any]:
         """Convert back to a dict (only non-None entries), for passing
         to sub-modules that still expect a plain dict (e.g. video_capture).
+
+        Uses field iteration instead of dataclasses.asdict() because asdict()
+        calls copy.deepcopy() on values, which fails on Kivy bound methods
+        (EventDispatcher can't be pickled/deepcopied).
         """
         return {
-            k: v
-            for k, v in dataclasses.asdict(self).items()
-            if v is not None
+            f.name: getattr(self, f.name)
+            for f in dataclasses.fields(self)
+            if getattr(self, f.name) is not None
         }
