@@ -84,14 +84,34 @@ class SerialBoard:
         """Open serial port and create driver."""
         if self.port is None:
             raise ValueError(f"No port found for {self._label}")
-        self.driver = serial.Serial(
-            port=self.port,
-            baudrate=self.baudrate,
-            bytesize=self.bytesize,
-            parity=self.parity,
-            stopbits=self.stopbits,
-            timeout=self.timeout,
-            write_timeout=self.write_timeout)
+        try:
+            self.driver = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                bytesize=self.bytesize,
+                parity=self.parity,
+                stopbits=self.stopbits,
+                timeout=self.timeout,
+                write_timeout=self.write_timeout)
+        except serial.SerialException:
+            # M29: Port may have changed (different USB port) — re-scan.
+            logger.info(f'{self._label} Port {self.port} failed, re-scanning...')
+            old_port = self.port
+            self.port = None
+            self.found = False
+            self._find_port()
+            if self.port and self.port != old_port:
+                logger.info(f'{self._label} Found at new port {self.port}')
+                self.driver = serial.Serial(
+                    port=self.port,
+                    baudrate=self.baudrate,
+                    bytesize=self.bytesize,
+                    parity=self.parity,
+                    stopbits=self.stopbits,
+                    timeout=self.timeout,
+                    write_timeout=self.write_timeout)
+            else:
+                raise
 
     def _drain_serial(self):
         """Drain all pending data from the serial buffer."""

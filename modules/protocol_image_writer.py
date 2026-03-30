@@ -283,6 +283,18 @@ class ProtocolImageWriter:
         captured_frames = 0
         duration_sec = 0.0
 
+        # M8: Check disk space before writing — long protocols can fill disk.
+        if save_folder is not None:
+            try:
+                import shutil
+                free_mb = shutil.disk_usage(str(save_folder)).free / (1024 * 1024)
+                if free_mb < 500:  # 500 MB floor
+                    from modules.notification_center import notifications
+                    notifications.critical("FileIO", "Disk Space Critical",
+                        f"Only {free_mb:.0f} MB free. Images may not save correctly.")
+            except Exception:
+                pass  # If we can't check, proceed anyway
+
         if enable_image_saving:
             if is_video:
                 try:

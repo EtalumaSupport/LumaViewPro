@@ -254,6 +254,9 @@ class SequentialIOExecutor:
     def protocol_end(self):
         was_running = self.protocol_running.is_set()
         self.protocol_running.clear()
+        # Brief wait for any in-flight task to complete before callers
+        # tear down state that the task may reference (M3).
+        time.sleep(0.05)
         # Clear completion callback when protocol ends prematurely
         self.protocol_complete_callback = None
         self.protocol_complete_cb_args = ()

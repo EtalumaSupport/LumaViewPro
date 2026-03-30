@@ -268,9 +268,11 @@ class ImageSettings(BoxLayout):
             layer_obj = self.layer_lookup(layer=layer)
 
             if layer == 'BF':
-                layer_obj.ids['exp_slider'].max = 50
+                # M25: Cap at 50ms but don't exceed camera capability.
+                layer_obj.ids['exp_slider'].max = min(50, ctx.max_exposure)
             else:
-                layer_obj.ids['exp_slider'].max = 200
+                # M25: Cap at 200ms but don't exceed camera capability.
+                layer_obj.ids['exp_slider'].max = min(200, ctx.max_exposure)
 
         for layer in common_utils.get_luminescence_layers():
             layer_obj = self.layer_lookup(layer=layer)
