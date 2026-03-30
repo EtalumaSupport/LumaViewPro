@@ -232,6 +232,16 @@ class Lumascope():
         }
         self._populate_camera_cache()
 
+        # Populate position cache from firmware so get_current_position()
+        # returns correct values immediately (not 0.0 from empty cache).
+        # Critical for standalone scripts that read position right after
+        # creating Lumascope (e.g., backlash characterization).
+        if self.motor_connected:
+            try:
+                self.refresh_position_cache()
+            except Exception:
+                pass  # OK — cache stays at 0.0 if firmware unresponsive
+
 
     def initialize(self, config) -> None:
         """Configure scope from connected to ready-to-use.
@@ -2160,10 +2170,9 @@ class Lumascope():
     def get_current_position(self, axis=None):
         """Get the current position for an axis.
 
-        Reads from the push-based position cache — zero serial I/O.
-        For UI display purposes, this returns the last commanded position.
-        For precise position (e.g. during autofocus), callers that need
-        the actual hardware position should use motion.current_pos() directly.
+        Reads from the position cache — zero serial I/O for repeated calls.
+        The cache is populated at init time (refresh_position_cache) and
+        updated after every move command.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
