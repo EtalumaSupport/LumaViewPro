@@ -33,8 +33,10 @@ class MotorBoard(SerialBoard):
         self.motorconfig = MotorConfig(defaults_file=motorconfig_defaults_file)
         self.backlash = self.motorconfig.antibacklash_um('Z')
 
+        # Default timeout 5s for regular commands. Long-running commands
+        # (HOME, CALIBRATE) pass explicit timeout overrides (H15).
         super().__init__(vid=0x2E8A, pid=0x0005, label='[XYZ Class ]',
-                         timeout=30, write_timeout=5)
+                         timeout=5, write_timeout=5)
 
         # Backward-compatible alias for lock name
         self.thread_lock = self._lock
@@ -398,7 +400,7 @@ class MotorBoard(SerialBoard):
 
     def zhome(self):
         """Home the objective. Returns True on success, False on failure."""
-        resp = self.exchange_command('ZHOME')
+        resp = self.exchange_command('ZHOME', timeout=15)
         logger.info(f'[XYZ Class ] MotorBoard.zhome() -> {resp}')
         if resp is None:
             logger.error('[XYZ Class ] zhome(): no response (timeout or disconnect)')
@@ -425,7 +427,7 @@ class MotorBoard(SerialBoard):
 
     def xyhome(self):
         """Home the stage (also homes objective first). Returns True on success."""
-        resp = self.exchange_command('HOME')
+        resp = self.exchange_command('HOME', timeout=30)
         logger.info(f'[XYZ Class ] MotorBoard.xyhome() -> {resp}', extra={'force_error': True})
         if resp is None:
             logger.error('[XYZ Class ] xyhome(): no response (timeout or disconnect)')
@@ -474,7 +476,7 @@ class MotorBoard(SerialBoard):
 
     def thome(self):
         """Home the turret. Returns True on success."""
-        resp = self.exchange_command('THOME')
+        resp = self.exchange_command('THOME', timeout=15)
         logger.info(f'[XYZ Class ] MotorBoard.thome() -> {resp}', extra={'force_error': True})
         if resp is None:
             logger.error('[XYZ Class ] thome(): no response (timeout or disconnect)')
