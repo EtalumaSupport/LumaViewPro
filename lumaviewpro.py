@@ -832,9 +832,9 @@ class LumaViewProApp(TooltipMixin, App):
             REQUIRED_PLUGIN_VERSION = "0.1.0"
             plugin_version = getattr(etaluma_engineering, '__version__', '0.0.0')
             if plugin_version < REQUIRED_PLUGIN_VERSION:
-                logger.warning(f'[LVP Main  ] Engineering plugin {plugin_version} outdated, '
-                               f'need {REQUIRED_PLUGIN_VERSION}. '
-                               f'Please update: pip install -e path/to/etaluma-engineering')
+                logger.debug(f'[LVP Main  ] Engineering plugin {plugin_version} outdated, '
+                             f'need {REQUIRED_PLUGIN_VERSION}. '
+                             f'Please update: pip install -e path/to/etaluma-engineering')
             etaluma_engineering.register(ctx)
             # Auto-enable engineering mode when plugin is present
             # (unless --no-engineering was passed on command line)
