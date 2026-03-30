@@ -126,6 +126,8 @@ class SequencedCaptureExecutor:
         self._cpu_pool = cpu_pool
         self._video_write_finished = threading.Event()
         self._video_write_finished.set()
+        self._grease_redistribution_event = threading.Event()
+        self._grease_redistribution_event.set()
 
         if autofocus_executor is None:
             self._autofocus_executor = AutofocusExecutor(
@@ -143,7 +145,6 @@ class SequencedCaptureExecutor:
         self._run_trigger_source = None
         self._state = ProtocolState.IDLE
         self._reset_vars()
-        self._grease_redistribution_done = True
         self._step_executor = ProtocolStepExecutor(self)
         self._run_loop_executor = ProtocolRunLoop(self)
 
@@ -179,7 +180,7 @@ class SequencedCaptureExecutor:
         self._scan_in_progress.clear()
         self._autofocus_count = 0
         self._auto_gain_deadline = 0.0
-        self._grease_redistribution_done = True
+        self._grease_redistribution_event.set()
         self._captures_taken = 0
         self._protocol_execution_record = None
         self._step_start_time = time.monotonic()
@@ -428,6 +429,7 @@ class SequencedCaptureExecutor:
         self._image_capture_config = image_capture_config
         self._enable_image_saving = enable_image_saving
         self._separate_folder_per_channel = separate_folder_per_channel
+        # Immutable after assignment — do not mutate from protocol thread (M4 GIL-free safety)
         self._autogain_settings = autogain_settings
         self._callbacks = ProtocolCallbacks.from_dict(callbacks) if isinstance(callbacks, dict) else (callbacks or ProtocolCallbacks())
         self._return_to_position = return_to_position

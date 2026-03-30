@@ -152,7 +152,7 @@ class ProtocolStepExecutor:
                     pass
             return
 
-        if not p._grease_redistribution_done:
+        if not p._grease_redistribution_event.is_set():
             return
 
         if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
@@ -385,7 +385,7 @@ class ProtocolStepExecutor:
 
     def perform_grease_redistribution(self):
         p = self._p
-        p._grease_redistribution_done = False
+        p._grease_redistribution_event.clear()
         p._io_executor.protocol_put(IOTask(action=self._grease_redist_w_pos))
 
     def _grease_redist_w_pos(self):
@@ -415,7 +415,7 @@ class ProtocolStepExecutor:
         else:
             logger.debug(f"[PROTOCOL] Grease redistribution completed in {elapsed:.1f}s")
 
-        p._grease_redistribution_done = True
+        p._grease_redistribution_event.set()
 
     # ------------------------------------------------------------------
     # LED control

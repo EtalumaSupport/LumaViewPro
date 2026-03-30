@@ -95,7 +95,9 @@ class LEDBoard(SerialBoard):
 
     def leds_enable(self):
         command = 'LEDS_ENT'
-        self.exchange_command(command)
+        response = self.exchange_command(command)
+        if response is None:
+            logger.warning('[LED Class ] leds_enable() got no response')
 
     def leds_disable(self):
         command = 'LEDS_ENF'

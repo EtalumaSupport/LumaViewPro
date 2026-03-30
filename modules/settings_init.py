@@ -24,9 +24,9 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
     """
     missing = _REQUIRED_SETTINGS_KEYS - settings.keys()
     if missing:
-        logger.warning(
+        raise ValueError(
             f'[Settings ] {filepath} missing required keys: {sorted(missing)}. '
-            'App may not function correctly.'
+            'App cannot start without these keys.'
         )
 
     # Type checks for critical nested structures

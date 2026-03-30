@@ -1317,6 +1317,13 @@ class Protocol:
         
         table_str = ''.join(table_lines)
         protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
+
+        # M19: Validate required columns before processing
+        required_columns = {'Name', 'X', 'Y', 'Z', 'Color', 'Illumination', 'Gain', 'Exposure'}
+        missing = required_columns - set(protocol_df.columns)
+        if missing:
+            raise ProtocolFormatError(f"Protocol missing required columns: {missing}")
+
         protocol_df['Name'] = protocol_df['Name'].astype(str)
 
         if len(protocol_df) == 0:

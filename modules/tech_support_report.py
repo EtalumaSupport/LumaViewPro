@@ -2175,67 +2175,68 @@ def main():
         format='%(asctime)s %(levelname)s %(name)s: %(message)s',
     )
 
-    print()
-    print("=" * 56)
-    print("  Etaluma Diagnostics — Tech Support Report Generator")
-    print("=" * 56)
-    print()
+    logger.info("")
+    logger.info("=" * 56)
+    logger.info("  Etaluma Diagnostics — Tech Support Report Generator")
+    logger.info("=" * 56)
+    logger.info("")
 
     report = TechSupportReport()
 
     if not args.no_firmware:
-        print("Connecting to hardware...")
+        logger.info("Connecting to hardware...")
         report.diag.connect_standalone()
         led_ok = report.diag._led_ok()
         mot_ok = report.diag._motor_ok()
-        print(f"  LED board:   {'Connected' if led_ok else 'Not found'}")
-        print(f"  Motor board: {'Connected' if mot_ok else 'Not found'}")
+        logger.info(f"  LED board:   {'Connected' if led_ok else 'Not found'}")
+        logger.info(f"  Motor board: {'Connected' if mot_ok else 'Not found'}")
 
         # If neither board found, prompt for power cycle before giving up
         if not led_ok and not mot_ok:
-            print()
-            print("  ** No boards detected. **")
-            print("  Please try the following:")
-            print("    1. Check that the USB cable is connected")
-            print("    2. Power-cycle the system (turn off, wait 10 seconds, turn on)")
-            print("    3. Wait 30 seconds for the boards to boot")
+            logger.info("")
+            logger.info("  ** No boards detected. **")
+            logger.info("  Please try the following:")
+            logger.info("    1. Check that the USB cable is connected")
+            logger.info("    2. Power-cycle the system (turn off, wait 10 seconds, turn on)")
+            logger.info("    3. Wait 30 seconds for the boards to boot")
             try:
                 input("  Press Enter to retry (Ctrl-C to skip hardware)...")
             except KeyboardInterrupt:
-                print("\n  Skipping hardware.")
+                logger.info("  Skipping hardware.")
                 led_ok = False
                 mot_ok = False
             else:
-                print("  Retrying...")
+                logger.info("  Retrying...")
                 report.diag.connect_standalone()
                 led_ok = report.diag._led_ok()
                 mot_ok = report.diag._motor_ok()
-                print(f"  LED board:   {'Connected' if led_ok else 'Not found'}")
-                print(f"  Motor board: {'Connected' if mot_ok else 'Not found'}")
+                logger.info(f"  LED board:   {'Connected' if led_ok else 'Not found'}")
+                logger.info(f"  Motor board: {'Connected' if mot_ok else 'Not found'}")
                 if not led_ok and not mot_ok:
-                    print()
-                    print("  Still no boards found. Generating report without hardware.")
-                    print("  Please include this report and contact techsupport@etaluma.com")
-                    print()
+                    logger.info("")
+                    logger.info("  Still no boards found. Generating report without hardware.")
+                    logger.info("  Please include this report and contact techsupport@etaluma.com")
+                    logger.info("")
 
         # Boards are owned by report.diag — no need to copy them to report
         if mot_ok:
-            print()
-            print("  ** The stage will be homed and moved during testing.  **")
-            print("  ** This process may take 5-10 minutes to complete.    **")
+            logger.info("")
+            logger.info("  ** The stage will be homed and moved during testing.  **")
+            logger.info("  ** This process may take 5-10 minutes to complete.    **")
             try:
                 input("  Press Enter to continue (Ctrl-C to cancel)...")
             except KeyboardInterrupt:
-                print("\n  Cancelled.")
+                logger.info("  Cancelled.")
                 return 1
     else:
-        print("Skipping firmware (--no-firmware)")
+        logger.info("Skipping firmware (--no-firmware)")
 
-    print()
+    logger.info("")
 
     def cli_progress(pct, msg):
         filled = int(30 * pct / 100)
         bar = '█' * filled + '░' * (30 - filled)
+        # Progress bar uses carriage return — keep as print for CLI display
         print(f"\r  [{bar}] {pct:3d}%  {msg:<50s}", end='', flush=True)
 
     zip_path = report.generate(
@@ -2244,14 +2245,14 @@ def main():
         output_dir=args.output,
     )
 
-    print('\n')
+    print('\n')  # Newline after progress bar
     if zip_path:
-        print(f"  Report saved: {zip_path}")
-        print(f"  Please email to: techsupport@etaluma.com")
+        logger.info(f"  Report saved: {zip_path}")
+        logger.info(f"  Please email to: techsupport@etaluma.com")
     else:
-        print("  Report generation failed.")
-        print("  Contact techsupport@etaluma.com directly.")
-    print()
+        logger.info("  Report generation failed.")
+        logger.info("  Contact techsupport@etaluma.com directly.")
+    logger.info("")
 
     return 0 if zip_path else 1
 

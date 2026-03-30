@@ -212,7 +212,7 @@ class ProtocolImageWriter:
                 )
 
                 if captured_image is False:
-                    logger.error(f"[PROTOCOL] Capture failed for {name} — camera inactive or frame drain failed")
+                    logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} — camera inactive or frame drain failed")
                     # Still record the step with "capture_failed" so the record isn't silently missing
                     self._file_io_executor.protocol_put(IOTask(
                         action=self.write_capture,
@@ -302,7 +302,7 @@ class ProtocolImageWriter:
 
             else:
                 if captured_image is False:
-                    logger.warning(f"[PROTOCOL] _write_capture: captured_image is False, recording as capture_failed")
+                    logger.warning(f"[PROTOCOL] _write_capture: captured_image is False for step {step_index} ({step.get('Name', '?') if step else '?'}), scan {scan_count}, recording as capture_failed")
                     if self._execution_record is not None:
                         self._execution_record.add_step(
                             capture_result_file_name="capture_failed",

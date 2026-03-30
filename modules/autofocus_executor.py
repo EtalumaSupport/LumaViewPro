@@ -83,6 +83,11 @@ class AutofocusExecutor:
         if self._use_kivy_clock and self._kivy_clock_module and hasattr(self, '_iterator_scheduled') and self._iterator_scheduled is not None:
             self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
             self._iterator_scheduled = None
+        # M20: Ensure precision mode is off on reset (e.g. after cancel)
+        try:
+            self._scope.set_motor_precision_mode('Z', False)
+        except Exception:
+            pass  # Scope may be unavailable during shutdown
         self._reset_state()
 
     def set_scope(self, scope: lumascope_api.Lumascope):
