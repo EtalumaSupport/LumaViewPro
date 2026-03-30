@@ -19,6 +19,8 @@ import threading
 
 _serial_log = logging.getLogger('LVP.serial')
 
+from modules.notification_center import notifications
+
 from drivers.raw_repl import (
     enter_raw_repl as _enter_raw_repl,
     exit_raw_repl as _exit_raw_repl,
@@ -434,6 +436,7 @@ class SerialBoard:
                 if now - last >= interval:
                     _serial_log.warning(f'{self._label} {command} -> TIMEOUT ({elapsed_ms:.1f}ms)')
                     self._last_error_log_time = now
+                notifications.error("Serial", "Communication Timeout", f"Command '{command}' timed out on {self._label}")
 
             except Exception as e:
                 elapsed_ms = (time.monotonic() - t_start) * 1000
@@ -443,6 +446,7 @@ class SerialBoard:
                 if now - last >= interval:
                     _serial_log.error(f'{self._label} {command} -> EXCEPTION: {e} ({elapsed_ms:.1f}ms)')
                     self._last_error_log_time = now
+                notifications.error("Serial", "Communication Error", f"Command '{command}' failed on {self._label}: {e}")
                 self._close_driver()
 
             finally:

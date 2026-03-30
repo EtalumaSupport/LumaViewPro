@@ -37,6 +37,7 @@ import modules.objectives_loader as objectives_loader
 import modules.image_utils as image_utils
 from modules.sequential_io_executor import SequentialIOExecutor, IOTask
 from modules.frame_validity import FrameValidity
+from modules.notification_center import notifications
 
 
 class AxisState:
@@ -148,6 +149,15 @@ class Lumascope():
                 self.camera: Camera = PylonCamera()
         except Exception:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
+
+        # Notify if some (but not all) hardware is missing
+        missing = []
+        if self.led is None: missing.append("LED Board")
+        if self.motion is None: missing.append("Motor Controller")
+        if not hasattr(self, 'camera') or not getattr(self.camera, 'active', None): missing.append("Camera")
+        if missing and not simulate:
+            notifications.warning("Hardware", "Partial Hardware Detected",
+                f"Not connected: {', '.join(missing)}. Some features will be unavailable.")
 
         # Track whether any real hardware was found
         self._no_hardware = (

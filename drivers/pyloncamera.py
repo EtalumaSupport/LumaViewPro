@@ -11,6 +11,7 @@ from lvp_logger import logger
 import queue
 
 from drivers.camera import Camera, ImageHandlerBase
+from modules.notification_center import notifications
 
 
 class PylonCamera(Camera):
@@ -104,6 +105,7 @@ class PylonCamera(Camera):
             )
         except Exception as e:
             logger.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
+            notifications.error("Camera", "Camera Start Failed", f"Failed to start image capture: {e}")
 
     def is_grabbing(self):
         try:

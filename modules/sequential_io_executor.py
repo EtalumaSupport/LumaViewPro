@@ -26,6 +26,7 @@ import queue
 from collections.abc import Sequence
 from functools import partial
 from lvp_logger import logger, debug
+from modules.notification_center import notifications
 import threading
 import time
 
@@ -368,6 +369,9 @@ class SequentialIOExecutor:
 
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
+        if exception is not None:
+            notifications.error("Task", f"{self.name} Task Failed",
+                f"{getattr(task.action, '__name__', str(task.action))} failed: {exception}")
         self.last_task_done_monotonic = time.monotonic()
         caller_fut = self.caller_futures.pop(task, None)
         if caller_fut:

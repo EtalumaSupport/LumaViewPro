@@ -245,7 +245,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 title="Recording Failed",
                 message=f"Could not create recording file. The file may be locked from a previous crash.\n\nTry manually deleting:\n{self.memmap_location.name}"
             ), 0)
-            raise
+            return
 
         self.current_captured_frames = 0
         self.timestamps = []

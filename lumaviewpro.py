@@ -853,6 +853,17 @@ class LumaViewProApp(TooltipMixin, App):
         from lvp_logger import enable_engineering_logs
         enable_engineering_logs(ENGINEERING_MODE)
 
+        # Wire NotificationCenter to UI popups
+        from modules.notification_center import notifications, Severity
+
+        def _ui_notification_bridge(n):
+            from kivy.clock import Clock
+            from ui.notification_popup import show_notification_popup
+            Clock.schedule_once(lambda dt: show_notification_popup(title=n.title, message=n.message), 0)
+
+        notifications.add_listener(_ui_notification_bridge,
+            min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.WARNING)
+
         # CPU profiling — enabled via debug_mode in settings.json
         # On exit, dumps a .profile file to logs/profile/ that can be
         # viewed with: pip install snakeviz && snakeviz <file>.profile
