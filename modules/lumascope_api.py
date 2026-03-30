@@ -722,7 +722,7 @@ class Lumascope():
         """
         logger.info('[SCOPE API ] Performing connection check...')
         led = self.led is not None and self.led.is_connected()
-        motion = self.motion is not None and self.motion.is_connected()
+        motion = self.motor_connected
         camera = self.camera is not None and self.camera.is_connected()
 
         if not led:
@@ -2591,9 +2591,11 @@ class Lumascope():
         try:
             instance.motion = MotorBoard()
             if not instance.motion.found:
-                instance.motion = None
+                from drivers.null_motorboard import NullMotionBoard
+                instance.motion = NullMotionBoard()
         except Exception:
-            instance.motion = None
+            from drivers.null_motorboard import NullMotionBoard
+            instance.motion = NullMotionBoard()
 
         instance.camera = None
         instance._image_buffer = None

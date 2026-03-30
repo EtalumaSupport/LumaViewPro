@@ -107,8 +107,8 @@ class NotificationCenter:
             if severity >= min_sev:
                 try:
                     cb(n)
-                except Exception:
-                    pass  # listener failure must not break producer
+                except Exception as ex:
+                    logger.debug(f'notification listener error: {ex}')
 
     # Convenience methods
     def debug(self, category: str, title: str, message: str, **kw) -> None:

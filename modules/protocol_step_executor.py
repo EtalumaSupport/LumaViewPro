@@ -26,28 +26,7 @@ from modules.sequential_io_executor import IOTask
 if TYPE_CHECKING:
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
 
-try:
-    from kivy.clock import Clock
-except ImportError:
-    class Clock:
-        @staticmethod
-        def schedule_once(func, timeout): func(0)
-        @staticmethod
-        def schedule_interval(func, interval): pass
-
-
-def _schedule_ui(func, timeout=0):
-    """Schedule a function on the Kivy main thread, or call directly if
-    no Kivy event loop is running (e.g., in tests).
-    """
-    try:
-        from kivy.base import EventLoop
-        if EventLoop.status == 'started':
-            Clock.schedule_once(func, timeout)
-            return
-    except Exception:
-        pass
-    func(0)
+from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
 
 
 class ProtocolStepExecutor:
@@ -97,14 +76,8 @@ class ProtocolStepExecutor:
 
             except Exception as ex:
                 logger.error(f"[Scan] Error during scan loop: {ex}", exc_info=True)
-                scan_err = str(ex)
-                def _show_scan_error(dt, m=scan_err):
-                    try:
-                        from ui.notification_popup import show_notification_popup
-                        show_notification_popup(title="Protocol Scan Error", message=m)
-                    except Exception:
-                        pass
-                _schedule_ui(_show_scan_error)
+                from modules.notification_center import notifications
+                notifications.error("Protocol", "Protocol Scan Error", str(ex))
                 self._p._scan_in_progress.clear()
                 break
 
@@ -138,13 +111,8 @@ class ProtocolStepExecutor:
             if time.monotonic() - p._step_start_time > p.STEP_TIMEOUT_SECONDS:
                 timeout_msg = f"Step {p._curr_step} timed out waiting for motion ({p.STEP_TIMEOUT_SECONDS}s)."
                 logger.error(f"[PROTOCOL] {timeout_msg} — transitioning to ERROR state")
-                def _show_timeout_error(dt, m=timeout_msg):
-                    try:
-                        from ui.notification_popup import show_notification_popup
-                        show_notification_popup(title="Protocol Error — Motion Timeout", message=m)
-                    except Exception:
-                        pass
-                _schedule_ui(_show_timeout_error)
+                from modules.notification_center import notifications
+                notifications.error("Protocol", "Protocol Error — Motion Timeout", timeout_msg)
                 p._scan_in_progress.clear()
                 try:
                     p._set_state(ProtocolState.ERROR)

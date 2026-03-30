@@ -17,31 +17,7 @@ from modules.protocol_cleanup import run_cleanup
 from modules.protocol_step_executor import ProtocolStepExecutor
 from modules.protocol_run_loop import ProtocolRunLoop
 
-try:
-    from kivy.clock import Clock
-except ImportError:
-    # Dummy Clock for non-Kivy environments (subprocess without kivy installed).
-    class Clock:
-        @staticmethod
-        def schedule_once(func, timeout): func(0)
-        @staticmethod
-        def schedule_interval(func, interval): pass
-
-
-def _schedule_ui(func, timeout=0):
-    """Schedule a function on the Kivy main thread, or call directly if
-    no Kivy event loop is running (e.g., in tests).
-    Same signature as Clock.schedule_once — func receives dt argument.
-    """
-    try:
-        from kivy.base import EventLoop
-        if EventLoop.status == 'started':
-            Clock.schedule_once(func, timeout)
-            return
-    except Exception:
-        pass
-    # No Kivy event loop — call directly (test/headless mode)
-    func(0)
+from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
 
 
 from modules.lumascope_api import Lumascope

@@ -271,17 +271,10 @@ def create_hyperstacks_if_needed():
     image_capture_config = get_image_capture_config_from_ui()
     if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
         import threading
-        from kivy.clock import Clock
-
-        popup = None
-        try:
-            from ui.notification_popup import show_notification_popup
-            popup = show_notification_popup(
-                title='Saving Hyperstacks',
-                message='Building ImageJ Hyperstacks from captured data.\nThis may take several minutes for large datasets.'
-            )
-        except ImportError:
-            pass
+        from modules.notification_center import notifications
+        notifications.info("FileIO", "Saving Hyperstacks",
+            "Building ImageJ Hyperstacks from captured data.\n"
+            "This may take several minutes for large datasets.")
 
         logger.info("Building ImageJ Hyperstacks from captured data")
         _, objective = get_current_objective_info()
@@ -304,7 +297,6 @@ def create_hyperstacks_if_needed():
             except Exception:
                 logger.exception("Error building hyperstacks")
             finally:
-                if popup:
-                    Clock.schedule_once(lambda dt: popup.dismiss(), 0)
+                pass
 
         threading.Thread(target=_build, daemon=True).start()

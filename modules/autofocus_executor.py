@@ -9,24 +9,7 @@ import typing
 
 from lvp_logger import logger
 
-try:
-    from kivy.clock import Clock
-except ImportError:
-    class Clock:
-        @staticmethod
-        def schedule_once(func, timeout): func(0)
-
-
-def _schedule_ui(func, timeout=0):
-    """Schedule on Kivy main thread, or call directly in tests."""
-    try:
-        from kivy.base import EventLoop
-        if EventLoop.status == 'started':
-            Clock.schedule_once(func, timeout)
-            return
-    except Exception:
-        pass
-    func(0)
+from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
 
 import threading
 

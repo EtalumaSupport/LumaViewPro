@@ -5,7 +5,7 @@
         "Turret": false,
         "Layers": {
             "Lumi": true,
-            "Flourescence": false,
+            "Fluorescence": false,
             "Darkfield": false,
             "Brightfield": true,
             "PhaseContrast": true
@@ -17,7 +17,7 @@
         "Turret": false,
         "Layers": {
             "Lumi": false,
-            "Flourescence": true,
+            "Fluorescence": true,
             "Darkfield": true,
             "Brightfield": true,
             "PhaseContrast": true
@@ -29,7 +29,7 @@
         "Turret": false,
         "Layers": {
             "Lumi": false,
-            "Flourescence": true,
+            "Fluorescence": true,
             "Darkfield": true,
             "Brightfield": true,
             "PhaseContrast": true
@@ -41,7 +41,7 @@
         "Turret": false,
         "Layers": {
             "Lumi": false,
-            "Flourescence": false,
+            "Fluorescence": false,
             "Darkfield": false,
             "Brightfield": true,
             "PhaseContrast": false
@@ -53,7 +53,7 @@
         "Turret": true,
         "Layers": {
             "Lumi": false,
-            "Flourescence": true,
+            "Fluorescence": true,
             "Darkfield": true,
             "Brightfield": true,
             "PhaseContrast": true
@@ -65,7 +65,7 @@
         "Turret": true,
         "Layers": {
             "Lumi": false,
-            "Flourescence": false,
+            "Fluorescence": false,
             "Darkfield": false,
             "Brightfield": true,
             "PhaseContrast": true
