@@ -29,7 +29,7 @@ import numpy as np
 import skimage.draw
 
 from kivy.clock import Clock
-from kivy.graphics import InstructionGroup, Color, Line
+from kivy.graphics import InstructionGroup, Color, Line, Ellipse
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
 from kivy.properties import BooleanProperty
@@ -115,6 +115,13 @@ class ScopeDisplay(Image):
         self._crosshair_group = InstructionGroup()
         self.canvas.after.add(self._crosshair_group)
         self._crosshair_visible = False
+
+        # Frame validity indicator (engineering mode only)
+        # Green dot = frame is valid, red dot = settling after hardware change
+        self._validity_group = InstructionGroup()
+        self.canvas.after.add(self._validity_group)
+        self._validity_dot_visible = False
+
         self.bind(size=self._on_size_changed, pos=self._on_size_changed, texture=self._on_size_changed)
 
         # Create a black texture to avoid white flash on startup
@@ -190,6 +197,36 @@ class ScopeDisplay(Image):
             self._build_crosshair_overlay()
         else:
             self._crosshair_group.clear()
+
+    def _update_validity_dot(self, is_valid: bool):
+        """Draw a small green (valid) or red (settling) dot in the top-right corner.
+
+        Only visible in engineering mode. Called from the main thread via
+        Clock.schedule_once after each frame grab.
+        """
+        self._validity_group.clear()
+        ctx = _app_ctx.ctx
+        if not ctx.engineering_mode:
+            return
+
+        bounds = self._get_displayed_image_bounds()
+        if bounds is None:
+            return
+        img_x, img_y, img_w, img_h = bounds
+
+        dot_radius = 6
+        margin = 12
+        cx = img_x + img_w - margin
+        cy = img_y + img_h - margin
+
+        if is_valid:
+            self._validity_group.add(Color(0, 1, 0, 0.8))  # green
+        else:
+            self._validity_group.add(Color(1, 0, 0, 0.8))  # red
+        self._validity_group.add(Ellipse(
+            pos=(cx - dot_radius, cy - dot_radius),
+            size=(dot_radius * 2, dot_radius * 2),
+        ))
 
     def start(self, fps = None):
         logger.info('[LVP Main  ] ScopeDisplay.start()')
@@ -505,6 +542,10 @@ class ScopeDisplay(Image):
 
         t_eng_stats = 0
         if ctx.engineering_mode:
+            # Frame validity indicator: update every frame (lightweight canvas op)
+            fv_valid = ctx.scope.frame_validity.is_valid
+            Clock.schedule_once(lambda dt, v=fv_valid: self._update_validity_dot(v), 0)
+
             # Engineering stats: 2x per second (time-based, not frame-based)
             now_eng = time.monotonic()
             if now_eng - self._eng_stats_last_time >= 0.5 and not self.use_bullseye:
