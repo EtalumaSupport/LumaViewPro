@@ -43,6 +43,11 @@ import modules.app_context as _app_ctx
 
 logger = logging.getLogger('LVP.ui.scope_display')
 
+# --- Display constants ---
+BULLSEYE_FPS_CAP = 15          # Max FPS for CPU-intensive bullseye LUT rendering
+VALIDITY_DOT_RADIUS = 6        # Engineering-mode validity indicator dot radius (px)
+VALIDITY_DOT_MARGIN = 12       # Margin from image edge to dot center (px)
+
 
 class ScopeDisplay(Image):
     play = BooleanProperty(True)
@@ -89,7 +94,7 @@ class ScopeDisplay(Image):
 
 
         # Bullseye frame rate cap (15 FPS — CPU-intensive LUT rendering)
-        self._bullseye_min_interval = 1.0 / 15
+        self._bullseye_min_interval = 1.0 / BULLSEYE_FPS_CAP
         self._bullseye_last_time = 0.0
 
         self._contrast_stretcher = ContrastStretcher(
@@ -214,8 +219,8 @@ class ScopeDisplay(Image):
             return
         img_x, img_y, img_w, img_h = bounds
 
-        dot_radius = 6
-        margin = 12
+        dot_radius = VALIDITY_DOT_RADIUS
+        margin = VALIDITY_DOT_MARGIN
         cx = img_x + img_w - margin
         cy = img_y + img_h - margin
 

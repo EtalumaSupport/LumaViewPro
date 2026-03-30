@@ -22,6 +22,14 @@ if TYPE_CHECKING:
 
 from modules.kivy_utils import Clock, schedule_ui as _schedule_ui
 
+# --- Disk-space estimation constants ---
+ESTIMATED_VIDEO_STEP_MB = 50   # MP4 compressed, ~10-50 MB typical
+ESTIMATED_IMAGE_STEP_MB = 8    # 1900x1900 16-bit TIFF ~7.2 MB + metadata
+MIN_REQUIRED_DISK_MB = 2048    # Minimum free disk space to start a scan (2 GB)
+
+# --- Hardware health check ---
+HW_CHECK_INTERVAL_S = 30       # Seconds between hardware connection checks
+
 
 class ProtocolRunLoop:
     """Manages scan timing and the outer run loop for protocol execution."""
@@ -52,7 +60,7 @@ class ProtocolRunLoop:
             try:
                 # Periodic hardware connection check (every 30 seconds)
                 now = time.monotonic()
-                if now - last_connection_check > 30:
+                if now - last_connection_check > HW_CHECK_INTERVAL_S:
                     last_connection_check = now
                     try:
                         if not p._scope.are_all_connected():
@@ -109,10 +117,10 @@ class ProtocolRunLoop:
                         for i in range(num_steps):
                             step = p._protocol.step(idx=i)
                             if step.get('Acquire') == 'video':
-                                estimated_mb += 50  # MP4 compressed, ~10-50 MB typical
+                                estimated_mb += ESTIMATED_VIDEO_STEP_MB
                             else:
-                                estimated_mb += 8   # 1900x1900 16-bit TIFF ~7.2 MB + metadata
-                        required_mb = max(2048, estimated_mb)
+                                estimated_mb += ESTIMATED_IMAGE_STEP_MB
+                        required_mb = max(MIN_REQUIRED_DISK_MB, estimated_mb)
                         if free_mb < required_mb:
                             msg = (f"Insufficient disk space: {free_mb:.0f} MB free, "
                                    f"need ~{required_mb:.0f} MB for {num_steps} steps.")

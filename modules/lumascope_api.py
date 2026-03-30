@@ -24,6 +24,7 @@ from drivers.simulated_camera import SimulatedCamera
 from drivers.simulated_motorboard import SimulatedMotorBoard
 from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.null_motorboard import NullMotionBoard
+from drivers.null_ledboard import NullLEDBoard
 
 # Import additional libraries
 from lvp_logger import logger, version
@@ -118,7 +119,7 @@ class Lumascope():
             else:
                 self.led = LEDBoard()
         except Exception:
-            self.led = None
+            self.led = NullLEDBoard()
             logger.exception('[SCOPE API ] LED Board Not Initialized')
 
         # Motion Control Board
@@ -153,7 +154,7 @@ class Lumascope():
 
         # Notify if some (but not all) hardware is missing
         missing = []
-        if self.led is None: missing.append("LED Board")
+        if isinstance(self.led, NullLEDBoard): missing.append("LED Board")
         if isinstance(self.motion, NullMotionBoard): missing.append("Motor Controller")
         if not hasattr(self, 'camera') or not getattr(self.camera, 'active', None): missing.append("Camera")
         if missing and not simulate:
@@ -163,7 +164,7 @@ class Lumascope():
         # Track whether any real hardware was found
         self._no_hardware = (
             not simulate
-            and self.led is None
+            and isinstance(self.led, NullLEDBoard)
             and isinstance(self.motion, NullMotionBoard)
             and not hasattr(self, 'camera')
         )
@@ -634,7 +635,7 @@ class Lumascope():
     @property
     def led_connected(self) -> bool:
         """Whether the LED controller is connected (replaces scope.led checks)."""
-        return bool(self.led and self.led.driver)
+        return not isinstance(self.led, NullLEDBoard) and bool(self.led.driver)
 
     def lens_focal_length(self) -> float:
         """Get tube lens focal length from motorconfig.
@@ -688,9 +689,9 @@ class Lumascope():
         for ev in self._arrival_events.values():
             ev.set()
 
-        if self.led is not None:
+        if not isinstance(self.led, NullLEDBoard):
             self.led.disconnect()
-            self.led = None
+        self.led = NullLEDBoard()
 
         if not isinstance(self.motion, NullMotionBoard):
             self.motion.disconnect()
@@ -721,7 +722,7 @@ class Lumascope():
             bool: True if all three components are connected.
         """
         logger.info('[SCOPE API ] Performing connection check...')
-        led = self.led is not None and self.led.is_connected()
+        led = not isinstance(self.led, NullLEDBoard) and self.led.is_connected()
         motion = self.motor_connected
         camera = self.camera is not None and self.camera.is_connected()
 

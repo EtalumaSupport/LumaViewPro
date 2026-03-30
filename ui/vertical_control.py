@@ -41,6 +41,8 @@ from modules.ui_helpers import (
 
 logger = logging.getLogger('LVP.ui.vertical_control')
 
+AF_SAFETY_TIMEOUT_S = 15  # Seconds before AF is considered stuck and force-reset
+
 
 # ============================================================================
 # VerticalControl — Z-Axis, Objectives, Turret, and Autofocus
@@ -430,7 +432,7 @@ class VerticalControl(BoxLayout):
                     logger.warning('[AF Safety] Autofocus appeared stuck. Forced reset.')
             except Exception:
                 pass
-        self._af_safety_event = Clock.schedule_once(_af_safety, 15)
+        self._af_safety_event = Clock.schedule_once(_af_safety, AF_SAFETY_TIMEOUT_S)
 
         objective_id, _ = get_current_objective_info()
         labware_id, _ = get_selected_labware()
