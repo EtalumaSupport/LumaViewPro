@@ -205,8 +205,11 @@ class Stage(Widget):
         if not hasattr(ctx, 'settings') or ctx.settings is None:
             return
 
-        # Get all IO out of the way immediately as well as calculating drawing parameters
-        ctx.io_executor.put(IOTask(action=self.draw_labware_io_calculations, args=(full_redraw,)))
+        # Position reads are all from the push-based cache (zero serial I/O),
+        # so we can run calculations directly on the main thread instead of
+        # queuing onto the IO executor (which can be busy with protocol moves).
+        # This ensures the crosshair updates immediately when positions change.
+        self.draw_labware_io_calculations(full_redraw)
 
     def create_labware_fbo(self):
         """

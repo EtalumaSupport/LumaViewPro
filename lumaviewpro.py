@@ -471,6 +471,19 @@ class LumaViewProApp(TooltipMixin, App):
             if ctx is not None:
                 ctx.ready = True
 
+                # Log initial per-channel settings for debugging
+                try:
+                    settings = ctx.settings
+                    for layer in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'):
+                        ls = settings.get(layer, {})
+                        logger.info(
+                            f'[INIT      ] {layer:6s}: gain={ls.get("gain", "?"):>6}, '
+                            f'exp={ls.get("exp", "?"):>8}ms, ill={ls.get("ill", "?"):>6}mA, '
+                            f'af={ls.get("autofocus", "?")}, acquire={ls.get("acquire", "?")}'
+                        )
+                except Exception:
+                    pass
+
             # Check if a protocol is loaded and has steps
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             if hasattr(protocol_settings, '_protocol') and protocol_settings._protocol is not None:
@@ -514,8 +527,8 @@ class LumaViewProApp(TooltipMixin, App):
 
         Clock.schedule_interval(_executor_watchdog, 60)
 
-        load_log_level()
-        load_autofocus_log_enable()
+        load_log_level(source_path)
+        load_autofocus_log_enable(source_path)
         # load_mode() and engineering_mode assignment moved to build() for correct _init_ui timing
         logger.info('[LVP Main  ] LumaViewProApp.on_start()')
 
@@ -628,7 +641,7 @@ class LumaViewProApp(TooltipMixin, App):
         logger.info('[LVP Main  ] Run Time: ' + time.strftime("%Y %m %d %H:%M:%S"))
         logger.info('[LVP Main  ] -----------------------------------------')
 
-        self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port())
+        self._lvp_lock = lvp_lock.LvpLock(lock_port=get_lvp_lock_port(source_path))
         if not self._lvp_lock.lock():
             error_msg = "Another instance of LVP may already be running. Exiting."
             logger.error(f'[LVP Lock ] {error_msg}')
@@ -654,19 +667,20 @@ class LumaViewProApp(TooltipMixin, App):
 
         self.icon = './data/icons/icon.png'
 
-        # Window title: always show version + build date.
-        # Show git commit hash only in beta versions (for bug reports).
-        _version = version
-        _is_beta = 'beta' in _version.lower()
-        if not _is_beta and '(' in _version:
-            # Strip git hash from non-beta: "4.0.1 (abc1234)" → "4.0.1"
-            _version = _version.split(' (')[0]
-        self.title = f'LumaViewPro {_version}'
+        # Window title: version + build timestamp
+        _title_version = version
+        try:
+            _build_ts = _env.build_timestamp
+            if _build_ts:
+                _title_version = f"{version} ({_build_ts})"
+        except AttributeError:
+            pass
+        self.title = f'LumaViewPro {_title_version}'
         logger.info(f'[LVP Main  ] Window title: {self.title}')
 
         # Load engineering mode early so _init_ui() methods see the correct value
         global ENGINEERING_MODE
-        ENGINEERING_MODE = _load_mode()
+        ENGINEERING_MODE = _load_mode(source_path)
 
         stage = Stage()
 
@@ -687,10 +701,10 @@ class LumaViewProApp(TooltipMixin, App):
             raise
 
         # load labware file
-        wellplate_loader = labware_loader.WellPlateLoader()
+        wellplate_loader = labware_loader.WellPlateLoader(source_path=source_path)
         coordinate_transformer = coord_transformations.CoordinateTransformer()
 
-        objective_helper = objectives_loader.ObjectiveLoader()
+        objective_helper = objectives_loader.ObjectiveLoader(source_path=source_path)
 
         # Create executors (previously at module level, moved here for init consolidation)
         global io_executor, camera_executor, temp_ij_executor, protocol_executor
@@ -902,7 +916,13 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:
             logger.warning(f'[LVP Main  ] leds_off failed during shutdown: {e}')
 
-        ctx.motion_settings.ids['microscope_settings_id'].save_settings("./data/current.json")
+        # Only save settings if hardware was connected this session.
+        # Without hardware, slider defaults (0.01ms) get written to current.json,
+        # corrupting the user's settings for the next real session.
+        if lumaview.scope.camera_is_connected() or lumaview.scope.motor_connected or lumaview.scope.led_connected:
+            ctx.motion_settings.ids['microscope_settings_id'].save_settings("./data/current.json")
+        else:
+            logger.info('[LVP Main  ] Skipping settings save - no hardware was connected')
 
         logger.info("[LVP Main  ] lumaview.scope.disconnect()")
         lumaview.scope.disconnect()

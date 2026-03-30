@@ -8,17 +8,24 @@ and configure logging, engineering mode, and other app-level settings.
 
 import json
 import logging
-import os
+import pathlib
 
 import modules.autofocus_functions as autofocus_functions
+from modules.path_utils import get_source_root
 
 logger = logging.getLogger('LVP.modules.app_config')
 
 
-def load_log_level():
+def _iter_settings_files(source_path: str | pathlib.Path | None = None):
+    data_dir = get_source_root(source_path) / "data"
+    yield data_dir / "current.json"
+    yield data_dir / "settings.json"
+
+
+def load_log_level(source_path: str | pathlib.Path | None = None):
     """Read log level from settings and apply to the root LVP logger."""
-    for settings_file in ("./data/current.json", "./data/settings.json"):
-        if not os.path.exists(settings_file):
+    for settings_file in _iter_settings_files(source_path):
+        if not settings_file.exists():
             continue
 
         with open(settings_file, 'r') as fp:
@@ -36,11 +43,11 @@ def load_log_level():
                 logger.warning("Failed to read log level from %s", settings_file, exc_info=True)
 
 
-def get_lvp_lock_port() -> int:
+def get_lvp_lock_port(source_path: str | pathlib.Path | None = None) -> int:
     """Read the LVP instance-lock port from settings, or return default."""
     DEFAULT_LVP_LOCK_PORT = 43101
-    for settings_file in ("./data/current.json", "./data/settings.json"):
-        if not os.path.exists(settings_file):
+    for settings_file in _iter_settings_files(source_path):
+        if not settings_file.exists():
             continue
 
         with open(settings_file, 'r') as fp:
@@ -58,10 +65,10 @@ def get_lvp_lock_port() -> int:
     return DEFAULT_LVP_LOCK_PORT
 
 
-def load_autofocus_log_enable():
+def load_autofocus_log_enable(source_path: str | pathlib.Path | None = None):
     """Enable autofocus score logging if configured in settings."""
-    for settings_file in ("./data/current.json", "./data/settings.json"):
-        if not os.path.exists(settings_file):
+    for settings_file in _iter_settings_files(source_path):
+        if not settings_file.exists():
             continue
 
         with open(settings_file, 'r') as fp:
@@ -79,10 +86,10 @@ def load_autofocus_log_enable():
                 logger.warning("Failed to read autofocus log setting from %s", settings_file, exc_info=True)
 
 
-def load_mode() -> bool:
+def load_mode(source_path: str | pathlib.Path | None = None) -> bool:
     """Read engineering mode flag from settings. Returns True if engineering mode."""
-    for settings_file in ("./data/current.json", "./data/settings.json"):
-        if not os.path.exists(settings_file):
+    for settings_file in _iter_settings_files(source_path):
+        if not settings_file.exists():
             continue
 
         with open(settings_file, 'r') as fp:

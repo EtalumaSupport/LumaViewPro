@@ -2,17 +2,20 @@
 
 import json
 import logging
+import pathlib
 
 import pandas as pd
+
+from modules.path_utils import resolve_data_file
 
 logger = logging.getLogger('LVP.modules.objectives_loader')
 
 
 class ObjectiveLoader:
 
-    def __init__(self, *arg):
+    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
 
-        with open('./data/objectives.json', "r") as read_file:
+        with open(resolve_data_file("objectives.json", source_path=source_path), "r") as read_file:
             self._objectives = json.load(read_file)
 
         self._generate_short_names()

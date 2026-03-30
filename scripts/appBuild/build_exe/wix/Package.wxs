@@ -13,8 +13,13 @@
 	<?ifndef InstallFolderDir ?>
 		<?define InstallFolderDir = "path" ?>
 	<?endif ?>
+	<?ifndef InstallerAssetsDir ?>
+		<?define InstallerAssetsDir = "$(var.InstallFolderDir)" ?>
+	<?endif ?>
 	
-  <Package Name="$(var.ProductName)" Manufacturer="$(var.Manufacturer)" Version="$(var.Version)" Compressed="yes" UpgradeCode="90907569-ca5a-4e20-b393-2e042e9f8b93">
+  <Package Name="$(var.ProductName)" Manufacturer="$(var.Manufacturer)" Version="$(var.Version)" Compressed="yes" UpgradeCode="90907569-ca5a-4e20-b393-2e042e9f8b93" InstallerVersion="500">
+    <!-- Embed cabinet files inside the MSI so it's a single file for distribution -->
+    <MediaTemplate EmbedCab="yes" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed. Please uninstall the newer version before installing this version." />
 	  <DirectoryRef Id="INSTALLFOLDER">
 		  <!-- 
@@ -36,7 +41,7 @@
 	  </DirectoryRef>
 	  
 	  <!-- Make sure to update icon directory -->
-	  <Icon Id="icon.ico" SourceFile="$(var.InstallFolderDir)\data\icons\icon.ico"/>
+	  <Icon Id="icon.ico" SourceFile="$(var.InstallerAssetsDir)\data\icons\icon.ico"/>
 	  <Property Id="ARPPRODUCTICON" Value="icon.ico" />
 	  <DirectoryRef Id="ApplicationProgramsFolder">
 		  <Component Id="ApplicationShortcut" Guid="90907569-ca5a-4e20-b393-2e042e9f8b93">

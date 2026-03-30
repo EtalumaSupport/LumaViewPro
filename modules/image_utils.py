@@ -57,6 +57,8 @@ def add_false_color(array, color, output=None):
             img[:] = 0
         else:
             img = np.zeros((array.shape[0], array.shape[1], 3), dtype=src_dtype)
+        # BGR ordering (OpenCV convention): index 0=Blue, 1=Green, 2=Red.
+        # Callers using tifffile (RGB) must convert with cv2.COLOR_BGR2RGB.
         if color in ('Blue', 'Lumi'):
             img[:,:,0] = array
         elif color == 'Green':
@@ -286,6 +288,11 @@ def write_tiff(
             from modules import app_context as _app_ctx
             if _app_ctx.ctx.settings.get('false_color_16bit', False):
                 data = add_false_color(data, color)
+                # IMPORTANT: add_false_color() returns BGR (OpenCV convention
+                # used throughout the app), but tifffile.imwrite() expects RGB.
+                # This is the ONLY place we convert — all other code paths use
+                # BGR internally. The [::-1] creates a view (no memory copy).
+                data = data[:, :, ::-1]  # BGR → RGB at tifffile save boundary
         except Exception:
             pass
 

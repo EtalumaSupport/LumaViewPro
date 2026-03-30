@@ -1,35 +1,37 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import json
+import pathlib
 
 import modules.labware as labware
+from modules.path_utils import resolve_data_file
 
 class LabwareLoader(object):
     """A class that stores and computes actions for objective labware"""
 
-    def __init__(self, *arg):
+    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
         self.x = 75
         self.y = 25
         self.z = 1
 
         # Load all Possible Labware from JSON
-        with open('./data/labware.json', "r") as read_file:
+        with open(resolve_data_file("labware.json", source_path=source_path), "r") as read_file:
             self.labware = json.load(read_file)
         
 
 class SlideLoader(LabwareLoader):
     """A class that stores and computes actions for slides labware"""
 
-    def __init__(self, *arg):
-        super(SlideLoader, self).__init__()
+    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
+        super(SlideLoader, self).__init__(*arg, source_path=source_path)
         self.covered = True
 
 
 class WellPlateLoader(LabwareLoader):
     """A class that stores and computes actions for wellplate labware"""
 
-    def __init__(self, *arg):
-        super(WellPlateLoader, self).__init__()
+    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
+        super(WellPlateLoader, self).__init__(*arg, source_path=source_path)
   
 
     def get_plate_list(self):
@@ -43,7 +45,7 @@ class WellPlateLoader(LabwareLoader):
 class PitriDishLoader(LabwareLoader):
     """A class that stores and computes actions for petri dish labware"""
 
-    def __init__(self, *arg):
-        super(PitriDishLoader, self).__init__()
+    def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
+        super(PitriDishLoader, self).__init__(*arg, source_path=source_path)
         self.diameter = 100
         self.z = 20

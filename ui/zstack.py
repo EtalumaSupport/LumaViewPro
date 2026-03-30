@@ -8,6 +8,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
+from modules import gui_logger
 from modules.config_ui_getters import (
     create_hyperstacks_if_needed,
     get_active_layer_config,
@@ -111,6 +112,7 @@ class ZStack(FloatLayout):
 
     def run_zstack_acquire_from_ui(self):
         try:
+            gui_logger.button('ZSTACK')
             logger.info('[LVP Main  ] ZStack.run_zstack_acquire_from_ui()')
             ctx = _app_ctx.ctx
 

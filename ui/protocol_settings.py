@@ -37,6 +37,7 @@ from modules.config_ui_getters import (
     get_zstack_params,
     is_image_saving_enabled,
 )
+from modules.path_utils import get_source_root
 from modules.protocol import Protocol
 from modules.sequenced_capture_executor import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask
@@ -79,19 +80,16 @@ class ProtocolSettings(FloatLayout):
         # Thread-safe flag to prevent duplicate file completion handlers
         self._scan_files_completed_event = threading.Event()
 
-        # source_path: use ctx if available, otherwise derive from package location
+        # source_path: use ctx if available, otherwise derive from install-aware defaults
         ctx = _app_ctx.ctx
-        if ctx is not None:
-            source_path = ctx.source_path
-        else:
-            source_path = str(pathlib.Path(__file__).resolve().parent.parent)
+        source_root = get_source_root(ctx.source_path if ctx is not None else None)
 
         try:
-            with open(os.path.join(source_path, 'data', 'labware.json'), "r") as read_file:
+            with open(source_root / 'data' / 'labware.json', "r") as read_file:
                 self.labware = json.load(read_file)
         except Exception:
             logger.exception("[LVP Main  ] Error reading labware definition file 'data/labware.json'")
-            if not os.path.isdir(os.path.join(source_path, 'data')):
+            if not (source_root / 'data').is_dir():
                 raise FileNotFoundError("Couldn't find 'data' directory.")
             else:
                 raise
@@ -99,7 +97,7 @@ class ProtocolSettings(FloatLayout):
         self.curr_step = -1
 
         self.tiling_config = TilingConfig(
-            tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
+            tiling_configs_file_loc=source_root / "data" / "tiling.json"
         )
 
         self.tiling_min = {
@@ -188,11 +186,11 @@ class ProtocolSettings(FloatLayout):
         self.select_labware()
         self.update_step_ui()
 
-        # Restore BF AF for fluorescence toggle
-        if settings.get('protocol', {}).get('bf_af_for_fluorescence', False):
-            self.ids['bf_af_for_fluorescence_btn'].state = 'down'
-        else:
-            self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
+        # DISABLED: BF AF for fluorescence — not yet tested, hidden for 4.0.0.
+        # Force off regardless of saved settings to prevent untested code path.
+        if 'protocol' in settings:
+            settings['protocol']['bf_af_for_fluorescence'] = False
+        self.ids['bf_af_for_fluorescence_btn'].state = 'normal'
 
 
     # Update Protocol Period
@@ -258,6 +256,7 @@ class ProtocolSettings(FloatLayout):
         if labware is None:
             spinner = self.ids['labware_spinner']
             spinner.values = wellplate_loader.get_plate_list()
+            gui_logger.select('LABWARE', spinner.text)
             settings['protocol']['labware'] = spinner.text
         else:
             center_plate_str = 'Center Plate'
@@ -1411,6 +1410,7 @@ class ProtocolSettings(FloatLayout):
     def _run_scan_from_ui_inner(self):
         from ui.notification_popup import show_notification_popup
 
+        gui_logger.protocol_action('SCAN')
         logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
         trigger_source = 'scan'
         run_complete_func = self._scan_run_complete
@@ -1447,6 +1447,7 @@ class ProtocolSettings(FloatLayout):
             return
 
         if self.ids['run_scan_btn'].state == 'normal':
+            gui_logger.protocol_action('ABORT_SCAN')
             logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui() - User ending scan early')
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
@@ -1635,6 +1636,7 @@ class ProtocolSettings(FloatLayout):
                 return
 
             if self.ids['run_protocol_btn'].state == 'normal':
+                gui_logger.protocol_action('ABORT_PROTOCOL')
                 self._cleanup_at_end_of_protocol(autofocus_scan=False)
                 return
 

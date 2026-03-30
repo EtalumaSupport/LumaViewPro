@@ -17,6 +17,7 @@ class AppEnvironment:
     script_path: str
     source_path: str
     version: str
+    build_timestamp: str
     windows_machine: bool
     num_cores: int
     lvp_installed: bool
@@ -39,36 +40,41 @@ def init_environment(main_file: str) -> AppEnvironment:
 
     windows_machine = os.name == "nt"
 
-    # Read version
+    # Read version (line 1) and build timestamp (line 2) from version.txt
+    # Line 1 = version string (path-safe, e.g., "4.0.0-beta2")
+    # Line 2 = build timestamp (display only, e.g., "2026-03-27 18:52")
     version = ""
+    build_timestamp = ""
     try:
         with open(os.path.join(script_path, "version.txt")) as f:
-            version = f.readlines()[0].strip()
+            lines = f.readlines()
+            version = lines[0].strip() if len(lines) > 0 else ""
+            build_timestamp = lines[1].strip() if len(lines) > 1 else ""
+    except FileNotFoundError:
+        pass  # Expected when running from source without version.txt
     except Exception as e:
         _logger.debug(f'Failed to read version.txt: {e}')
 
-    # Get git commit hash for build identification
-    build_hash = ""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True, timeout=5,
-            cwd=script_path,
-        )
-        if result.returncode == 0:
-            build_hash = result.stdout.strip()
-    except Exception as e:
-        _logger.debug(f'Failed to get git hash: {e}')
-
-    if build_hash:
-        version = f"{version} ({build_hash})"
+    # Get git commit hash for build identification (dev mode only)
+    if not build_timestamp:
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, timeout=5,
+                cwd=script_path,
+            )
+            if result.returncode == 0:
+                build_timestamp = result.stdout.strip()
+        except Exception as e:
+            _logger.debug(f'Failed to get git hash: {e}')
 
     # Check if running as installed application
+    lvp_installed = False
     try:
         with open(os.path.join(script_path, "marker.lvpinstalled")) as f:
             lvp_installed = True
     except Exception:
-        lvp_installed = False
+        pass
 
     # Determine source_path (data directory)
     if windows_machine and lvp_installed:
@@ -76,8 +82,8 @@ def init_environment(main_file: str) -> AppEnvironment:
         import userpaths
         documents_folder = userpaths.get_my_documents()
         # Use base version (without hash) for folder name
-        base_version = version.split(" (")[0] if " (" in version else version
-        lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {base_version}")
+        # version is already path-safe (no timestamp, no parens)
+        lvp_appdata = os.path.join(documents_folder, f"LumaViewPro {version}")
 
         if not os.path.exists(lvp_appdata):
             os.mkdir(lvp_appdata)
@@ -88,8 +94,10 @@ def init_environment(main_file: str) -> AppEnvironment:
         if not os.path.exists(os.path.join(lvp_appdata, "data")):
             shutil.copytree(os.path.join(script_path, "data"), os.path.join(lvp_appdata, "data"))
 
-        if not os.path.exists(os.path.join(lvp_appdata, "logs")):
-            shutil.copytree(os.path.join(script_path, "logs"), os.path.join(lvp_appdata, "logs"))
+        # Create logs directory if it doesn't exist. The source logs/ folder may not
+        # exist in PyInstaller builds, so just create an empty directory structure.
+        logs_dir = os.path.join(lvp_appdata, "logs", "LVP_Log")
+        os.makedirs(logs_dir, exist_ok=True)
 
     elif windows_machine and not lvp_installed:
         _logger.info("Machine-Type - WINDOWS (not installed)")
@@ -105,6 +113,7 @@ def init_environment(main_file: str) -> AppEnvironment:
         script_path=script_path,
         source_path=source_path,
         version=version,
+        build_timestamp=build_timestamp,
         windows_machine=windows_machine,
         num_cores=num_cores,
         lvp_installed=lvp_installed,

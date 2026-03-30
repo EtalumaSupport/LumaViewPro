@@ -20,6 +20,7 @@ import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.config_ui_getters import get_binning_from_ui, get_current_frame_dimensions, get_selected_labware
 from modules.common_utils import CustomJSONizer
+from modules.path_utils import resolve_data_file
 from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
@@ -36,8 +37,7 @@ class MicroscopeSettings(BoxLayout):
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
 
         try:
-            _source = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            with open(os.path.join(_source, 'data', 'scopes.json'), "r") as read_file:
+            with open(resolve_data_file("scopes.json"), "r") as read_file:
                 self.scopes = json.load(read_file)
         except Exception:
             logger.exception('[LVP Main  ] Unable to read scopes.json.')
@@ -127,6 +127,7 @@ class MicroscopeSettings(BoxLayout):
 
         logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_slider()')
         acc_val = self.ids['acceleration_pct_slider'].value
+        gui_logger.slider('ACCELERATION', acc_val)
         self.set_acceleration_limit(val_pct=acc_val)
 
 
@@ -202,12 +203,23 @@ class MicroscopeSettings(BoxLayout):
                 }
 
             try:
-                live_folder = pathlib.Path(settings['live_folder']).resolve()
+                live_folder = pathlib.Path(settings['live_folder'])
+                # Resolve relative paths against Documents app folder when installed,
+                # not CWD (which is Program Files and not writable).
+                if not live_folder.is_absolute():
+                    from lvp_logger import lvp_appdata
+                    live_folder = pathlib.Path(lvp_appdata) / live_folder
+                live_folder = live_folder.resolve()
                 live_folder.mkdir(exist_ok=True, parents=True)
 
             except Exception as e:
                 logger.warning(f"[LVP Main  ] Unable to find/create live image folder at {settings['live_folder']}: {e}")
-                live_folder = pathlib.Path('./capture').resolve()
+                try:
+                    from lvp_logger import lvp_appdata
+                    live_folder = pathlib.Path(lvp_appdata) / 'capture'
+                except Exception:
+                    live_folder = pathlib.Path.home() / 'Documents' / 'LumaViewPro' / 'capture'
+                live_folder = live_folder.resolve()
                 live_folder.mkdir(exist_ok=True, parents=True)
                 logger.info(f"[LVP Main  ] Defaulting live image folder to {str(live_folder)}")
 
@@ -488,11 +500,13 @@ class MicroscopeSettings(BoxLayout):
             self._seperate_folder_per_channel = True
         else:
             self._seperate_folder_per_channel = False
+        gui_logger.toggle('SEPARATE_FOLDERS', self._seperate_folder_per_channel)
 
         settings['separate_folder_per_channel'] = self._seperate_folder_per_channel
 
 
     def update_bullseye_state(self):
+        gui_logger.toggle('BULLSEYE', self.ids['enable_bullseye_btn_id'].state == 'down')
         if self.ids['enable_bullseye_btn_id'].state == 'down':
             _app_ctx.ctx.viewer.update_shader(false_color='BF')
             _app_ctx.ctx.scope_display.use_bullseye = True
@@ -516,6 +530,7 @@ class MicroscopeSettings(BoxLayout):
             use_full_pixel_depth = True
         else:
             use_full_pixel_depth = False
+        gui_logger.toggle('FULL_PIXEL_DEPTH', use_full_pixel_depth)
 
         ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
 
@@ -556,11 +571,14 @@ class MicroscopeSettings(BoxLayout):
             enabled = True
         else:
             enabled = False
+        gui_logger.toggle('SCALE_BAR', enabled)
 
         ctx.lumaview.scope.set_scale_bar(enabled=enabled)
         settings['scale_bar']['enabled'] = enabled
 
     def update_crosshairs_state(self):
+        enabled = self.ids['enable_crosshairs_btn'].state == 'down'
+        gui_logger.toggle('CROSSHAIRS', enabled)
         scope_display = _app_ctx.ctx.scope_display
         if self.ids['enable_crosshairs_btn'].state == 'down':
             scope_display.use_crosshairs = True

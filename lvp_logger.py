@@ -27,10 +27,16 @@ abspath = os.path.abspath(__file__)
 basename = os.path.basename(__file__)
 script_path = abspath[:-len(basename)]
 
+# version.txt format:
+#   Line 1: version string (e.g., "4.0.0-beta2") - used in folder names, must be path-safe
+#   Line 2: build timestamp (e.g., "2026-03-27 18:52") - displayed in title bar only
 version = ""
+build_timestamp = ""
 try:
     with open(os.path.join(script_path, "version.txt")) as f:
-        version = f.readlines()[0].strip()
+        lines = f.readlines()
+        version = lines[0].strip() if len(lines) > 0 else ""
+        build_timestamp = lines[1].strip() if len(lines) > 1 else ""
 except FileNotFoundError:
     pass  # Expected when running from source without version.txt
 except Exception as e:

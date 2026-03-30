@@ -49,6 +49,8 @@ import tempfile
 import time
 import zipfile
 
+from modules.path_utils import get_script_root, get_source_root
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -113,13 +115,7 @@ TMC5072_DIAG_REGISTERS = {
 
 def _get_app_root():
     """Return the LumaViewPro application root directory."""
-    if getattr(sys, 'frozen', False):
-        return pathlib.Path(sys._MEIPASS)
-    here = pathlib.Path(__file__).resolve().parent
-    for candidate in [here, here.parent, here.parent.parent]:
-        if (candidate / 'lumaviewpro.py').exists():
-            return candidate
-    return here
+    return get_script_root()
 
 
 def _get_user_documents():
@@ -129,13 +125,13 @@ def _get_user_documents():
 
 def _get_lvp_data_dir():
     """Return the LVP data/ directory (settings.json, scopes.json, etc.)."""
-    data_dir = _get_app_root() / 'data'
+    data_dir = get_source_root() / 'data'
     return data_dir if data_dir.is_dir() else _get_app_root()
 
 
 def _get_lvp_logs_dir():
     """Return the LVP logs/ directory, or None."""
-    logs_dir = _get_app_root() / 'logs'
+    logs_dir = get_source_root() / 'logs'
     return logs_dir if logs_dir.is_dir() else None
 
 

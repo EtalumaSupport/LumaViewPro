@@ -17,6 +17,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+from modules import gui_logger
 from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
 import modules.scope_commands as scope_commands
@@ -61,6 +62,7 @@ class CompositeCapture(FloatLayout):
 
 
     def live_capture(self):
+        gui_logger.button('LIVE_CAPTURE')
         if CompositeCapture._capturing.is_set():
             logger.warning('[LVP Main  ] Capture already in progress, ignoring')
             return
@@ -192,6 +194,7 @@ class CompositeCapture(FloatLayout):
 
     # capture and save a composite image using the current settings
     def composite_capture(self):
+        gui_logger.button('COMPOSITE_CAPTURE')
         ctx = _app_ctx.ctx
 
         if CompositeCapture._capturing.is_set():
@@ -202,6 +205,24 @@ class CompositeCapture(FloatLayout):
         z_stage_present = not ctx.disable_homing
 
         logger.info('[LVP Main  ] CompositeCapture.composite_capture()')
+
+        # Suspend video false coloring during composite capture.
+        # The video recorder applies a single false color (set at recording start)
+        # to ALL frames, but composite capture cycles through multiple channels.
+        # Without this, every frame records as the initial channel's color.
+        saved_video_false_color = getattr(self, 'video_false_color', None)
+        self.video_false_color = None
+
+        # Log per-channel settings for composite debugging
+        settings = ctx.settings
+        for layer in (*common_utils.get_transmitted_layers(), *common_utils.get_fluorescence_layers()):
+            ls = settings.get(layer, {})
+            if ls.get('acquire') == 'image':
+                logger.info(
+                    f'[COMPOSITE ] {layer}: gain={ls.get("gain")}, exp={ls.get("exp")}ms, '
+                    f'ill={ls.get("ill")}mA, sum={ls.get("sum", 1)}, '
+                    f'threshold={ls.get("composite_brightness_threshold", "?")}%'
+                )
 
         initial_layer = common_utils.get_opened_layer(ctx.image_settings)
 
@@ -409,6 +430,9 @@ class CompositeCapture(FloatLayout):
             else:
                 opened_layer_obj.ids['enable_led_btn'].state = 'normal'
             opened_layer_obj.apply_settings(update_led=True)
+
+        # Restore video false color that was suspended during composite capture
+        self.video_false_color = saved_video_false_color
 
         CompositeCapture._capturing.clear()
         Clock.schedule_once(_restore_ui, 0)

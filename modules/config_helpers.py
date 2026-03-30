@@ -175,6 +175,17 @@ def get_current_plate_position(
 def log_system_metrics(settings: dict):
     """Log CPU, RAM, and disk metrics."""
     path = settings.get('live_folder', '.')
+    # Resolve relative paths and handle missing directories gracefully.
+    # On installed apps, live_folder may still be './capture' before
+    # microscope_settings resolves it to Documents.
+    import pathlib
+    resolved = pathlib.Path(path).resolve()
+    if not resolved.exists():
+        try:
+            resolved.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            resolved = pathlib.Path.home()  # Fallback to home dir for metrics
+    path = str(resolved)
     metrics = common_utils.system_metrics(path=path)
     free_space = common_utils.check_disk_space(path=path)
 
