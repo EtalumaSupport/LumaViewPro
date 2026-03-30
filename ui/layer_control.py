@@ -133,6 +133,8 @@ class LayerControl(BoxLayout):
             ill_val = float(self.ids['ill_text'].text)
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid illumination input: {self.ids["ill_text"].text!r}')
+            # Show current valid value so user knows input was rejected (M21)
+            self.ids['ill_text'].text = str(settings[self.layer]['ill'])
             return
 
         illumination = float(np.clip(ill_val, ill_min, ill_max))
@@ -317,6 +319,8 @@ class LayerControl(BoxLayout):
             gain_val = float(self.ids['gain_text'].text)
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid gain input: {self.ids["gain_text"].text!r}')
+            # Show current valid value so user knows input was rejected (M21)
+            self.ids['gain_text'].text = str(settings[self.layer]['gain'])
             return
 
         gain = float(np.clip(gain_val, gain_min, gain_max))
@@ -384,6 +388,8 @@ class LayerControl(BoxLayout):
             exp_val = float(self.ids['exp_text'].text)
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid exposure input: {self.ids["exp_text"].text!r}')
+            # Show current valid value so user knows input was rejected (M21)
+            self.ids['exp_text'].text = str(settings[self.layer]['exp'])
             return
 
         exposure = float(np.clip(exp_val, exp_min, exp_max))

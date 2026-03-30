@@ -114,6 +114,9 @@ class MicroscopeSettings(BoxLayout):
 
         scope_leds_off()
 
+        # Refresh position display after reconnect (M22)
+        ctx.motion_settings.update_xy_stage_control_gui(full_redraw=True)
+
         logger.info("[LVP Main  ] Reconnection complete.")
 
 

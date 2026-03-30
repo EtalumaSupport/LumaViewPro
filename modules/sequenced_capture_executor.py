@@ -5,8 +5,6 @@ import pathlib
 import time
 import typing
 
-import copy
-
 from modules.protocol_state_machine import (
     ProtocolState,
     SequencedCaptureRunMode,
@@ -422,7 +420,10 @@ class SequencedCaptureExecutor:
         else:
             self._original_autofocus_states = self.get_initial_autofocus_states()
 
-        self._protocol = copy.deepcopy(protocol)
+        # Lightweight copy — shares read-only loaders, copies only the mutable
+        # steps DataFrame (which AF modifies via modify_step_z_height). Much
+        # cheaper than deepcopy for large protocols (M14).
+        self._protocol = protocol.copy_for_execution()
         self._run_mode = run_mode
         self._sequence_name = sequence_name
         self._parent_dir = parent_dir

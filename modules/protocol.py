@@ -93,6 +93,23 @@ class Protocol:
         return self._config.get('capture_root', '')
 
 
+    def copy_for_execution(self):
+        """Lightweight copy for protocol execution.
+
+        Copies the config dict and steps DataFrame (which get mutated by
+        autofocus Z updates) but shares the read-only ObjectiveLoader and
+        TilingConfig. Much cheaper than copy.deepcopy() for large protocols
+        with many steps (M14).
+        """
+        new_config = dict(self._config)  # shallow copy of config dict
+        if 'steps' in new_config:
+            new_config['steps'] = new_config['steps'].copy()  # DataFrame copy
+        new = Protocol.__new__(Protocol)
+        new._config = new_config
+        new._objective_loader = self._objective_loader  # shared, read-only
+        new._tiling_config = self._tiling_config        # shared, read-only
+        return new
+
     def to_file(self, file_path: pathlib.Path):   
         
         if self.period() is None:

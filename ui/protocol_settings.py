@@ -1819,7 +1819,12 @@ class ProtocolSettings(FloatLayout):
 
             if not autofocus_scan:
                 try:
+                    from modules.notification_center import notifications
+                    notifications.info("Post-Processing", "Creating Hyperstacks",
+                        "Processing captured images into hyperstacks. This may take several minutes.")
                     create_hyperstacks_if_needed()
+                    notifications.info("Post-Processing", "Hyperstacks Complete",
+                        "Hyperstack generation finished.")
                 except Exception as e:
                     logger.error(f"Error occurred while creating hyperstacks: {e}", exc_info=True)
         except Exception as e:
@@ -1831,6 +1836,14 @@ class ProtocolSettings(FloatLayout):
             self._reset_run_scan_button()
             self._reset_run_autofocus_scan_button()
             ctx.stage.set_motion_capability(True)
+
+            # Refresh LED button states from hardware after protocol (M23)
+            try:
+                for layer in common_utils.get_layers_with_led():
+                    layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+                    layer_obj.update_led_toggle_ui()
+            except Exception:
+                pass
 
     def cancel_all_protocols(self):
         logger.info('[LVP Main  ] ProtocolSettings.cancel_all_protocols()')
