@@ -205,9 +205,12 @@ class IDSCamera(Camera):
 
     def start_grabbing(self):
         try:
-            #Allocate buffers
+            # Allocate buffers — minimum + 3 extra to prevent starvation during
+            # frame conversion. With only min (2-3), the camera runs out of
+            # buffers while ConvertTo holds one, capping throughput at ~10 fps.
             payload_size = self.remote_nodemap.FindNode("PayloadSize").Value()
-            for _ in range(self.data_stream.NumBuffersAnnouncedMinRequired()):
+            num_buffers = self.data_stream.NumBuffersAnnouncedMinRequired() + 3
+            for _ in range(num_buffers):
                 buffer = self.data_stream.AllocAndAnnounceBuffer(payload_size)
                 self.data_stream.QueueBuffer(buffer)
 
@@ -324,10 +327,10 @@ class IDSCamera(Camera):
             logger.warning(f'[CAM Class ] Exposure {t}ms exceeds max ({self.max_exposure}ms)')
             return
 
-        # IDS takes time in microseconds, so pass t*1000 to convert to us
+        # IDS allows changing exposure while acquisition is running —
+        # no need for update_camera_config() stop/start cycle.
         try:
-            with self.update_camera_config():
-                self.remote_nodemap.FindNode("ExposureTime").SetValue(float(t)*1000)
+            self.remote_nodemap.FindNode("ExposureTime").SetValue(float(t)*1000)
             self._last_exposure_ms = float(t)
             # Update grab timeout so long exposures don't cause perpetual timeouts
             if self.cam_image_handler:
@@ -558,26 +561,31 @@ class ImageHandler(ImageHandlerBase):
             converter = None  # Fall back to per-frame ConvertTo
 
         while not self._stop_event.is_set():
-            buffer = None
             try:
                 buffer = self.data_stream.WaitForFinishedBuffer(self.timeout_ms)
-                result = not buffer.IsIncomplete()
-                if result:
-                    img = ids_peak_ipl_extension.BufferToImage(buffer)
-                    if img.PixelFormat() != ids_peak_ipl.PixelFormatName_Mono8:
-                        if converter:
-                            img = converter.Convert(img, ids_peak_ipl.PixelFormatName_Mono8)
-                        else:
-                            img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
-                    frame = img.get_numpy().copy()
-                    ts = datetime.datetime.now()
-                    self._store_frame(frame, ts)
-                else:
+                if buffer.IsIncomplete():
+                    self.data_stream.QueueBuffer(buffer)
                     should_stop = self._record_failure()
                     if should_stop:
                         logger.error('[CAM Class ] Too many grab failures; marking device as removed')
                         self._parent._mark_disconnected()
                         break
+                    continue
+
+                # BufferToImage copies pixel data out of the SDK buffer.
+                # Return the buffer IMMEDIATELY so the camera can reuse it
+                # while we do the (slower) format conversion + numpy copy.
+                img = ids_peak_ipl_extension.BufferToImage(buffer)
+                self.data_stream.QueueBuffer(buffer)
+
+                if img.PixelFormat() != ids_peak_ipl.PixelFormatName_Mono8:
+                    if converter:
+                        img = converter.Convert(img, ids_peak_ipl.PixelFormatName_Mono8)
+                    else:
+                        img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
+                frame = img.get_numpy().copy()
+                ts = datetime.datetime.now()
+                self._store_frame(frame, ts)
             except Exception as e:
                 # WaitForFinishedBuffer timeout is normal — not a failure
                 err_str = str(e).lower()
@@ -592,6 +600,3 @@ class ImageHandler(ImageHandlerBase):
                     break
                 if self._failed_grabs % 5 == 1:
                     logger.warning(f'[CAM Class ] ImageHandler grab loop exception: {e}')
-            finally:
-                if buffer is not None:
-                    self.data_stream.QueueBuffer(buffer)
