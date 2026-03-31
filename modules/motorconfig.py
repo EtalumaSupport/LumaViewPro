@@ -75,6 +75,55 @@ class MotorConfig:
     def antibacklash_um(self, axis: str) -> int:
         return int(self._axis_lookup("Axis antibacklash", axis, default=0))
 
+    # --- Motion ramp parameters (TMC5072 6-point ramp) ---
+
+    # Default ramp parameters from INI files (usteps/sec and usteps/sec²).
+    # Keyed by axis. These are hardware constants set at firmware load time.
+    # Future: query dynamically from board via SPI or v3.1 firmware command.
+    _DEFAULT_RAMP = {
+        'X': {'vstart': 0, 'a1': 0, 'v1': 0, 'amax': 50000, 'vmax': 800000, 'dmax': 50000, 'd1': 0, 'vstop': 10},
+        'Y': {'vstart': 0, 'a1': 0, 'v1': 0, 'amax': 50000, 'vmax': 800000, 'dmax': 50000, 'd1': 0, 'vstop': 10},
+        'Z': {'vstart': 0, 'a1': 0, 'v1': 0, 'amax': 25000, 'vmax': 400000, 'dmax': 25000, 'd1': 0, 'vstop': 100},
+        'T': {'vstart': 0, 'a1': 0, 'v1': 0, 'amax': 5000, 'vmax': 128000, 'dmax': 5000, 'd1': 0, 'vstop': 10},
+    }
+
+    def ramp_params_usteps(self, axis: str) -> dict:
+        """Return all TMC5072 ramp parameters in ustep units for an axis."""
+        axis = axis.upper()
+        return dict(self._DEFAULT_RAMP.get(axis, self._DEFAULT_RAMP['X']))
+
+    # TMC5072 uses internal clock for velocity/acceleration registers.
+    # Conversion: v_real = register * f_clk / 2^24 (in usteps/sec)
+    #             a_real = register * f_clk^2 / (512 * 2^24) (in usteps/sec²)
+    # f_clk = 16 MHz (internal oscillator, typical for TMC5072)
+    _TMC_FCLK = 16_000_000
+    _TMC_VEL_FACTOR = _TMC_FCLK / (2**24)        # register → usteps/sec
+    _TMC_ACC_FACTOR = _TMC_FCLK**2 / (512 * 2**24)  # register → usteps/sec²
+
+    def ramp_params(self, axis: str) -> dict:
+        """Return ramp parameters converted to physical units (um/sec, um/sec²).
+
+        Converts TMC5072 register values to real usteps/sec, then to um/sec
+        using the axis microstep-to-mm conversion.
+        Supports simple trapezoidal (a1/v1/d1 = 0) and future 6-point ramps.
+        """
+        raw = self.ramp_params_usteps(axis)
+        usteps_mm = self.usteps_per_mm(axis)
+        um_per_ustep = 1000.0 / usteps_mm
+
+        vel_keys = ('vstart', 'v1', 'vmax', 'vstop')
+        acc_keys = ('a1', 'amax', 'dmax', 'd1')
+
+        result = {}
+        for k, v in raw.items():
+            if k in vel_keys:
+                result[k] = v * self._TMC_VEL_FACTOR * um_per_ustep
+            elif k in acc_keys:
+                result[k] = v * self._TMC_ACC_FACTOR * um_per_ustep
+            else:
+                result[k] = v
+        return result
+
     # --- Board identity ---
 
     def model(self) -> str:

@@ -605,7 +605,7 @@ class MotorBoard(SerialBoard):
                 #self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
                 self.move(axis, overshoot)
                 while not self.target_status('Z'):
-                    time.sleep(0.001)
+                    time.sleep(0.02)  # 50Hz — matches motion monitor rate
                 # complete overshoot
                 with self._state_lock:
                     self.overshoot = False

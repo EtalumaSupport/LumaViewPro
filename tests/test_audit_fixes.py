@@ -699,8 +699,8 @@ class TestPositionCache:
         assert result['Z'] == 300.0
 
     def test_get_current_position_matches_target(self, sim_scope):
-        """get_current_position reads from the same cache as get_target_position."""
-        sim_scope.move_absolute_position('Z', 7777.0)
+        """After a blocking move, get_current_position returns the target."""
+        sim_scope.move_absolute_position('Z', 7777.0, wait_until_complete=True)
         assert sim_scope.get_current_position('Z') == 7777.0
 
     def test_refresh_after_homing(self, sim_scope):
@@ -745,13 +745,13 @@ class TestAxisState:
         assert sim_scope.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_moving_during_fire_and_forget(self, sim_scope):
-        """After move without wait, axis should be MOVING (or IDLE if simulated completes instantly)."""
+        """After fire-and-forget move, axis is initially MOVING then transitions to IDLE."""
         from modules.lumascope_api import AxisState
         sim_scope.move_absolute_position('Z', 500, wait_until_complete=False)
         state = sim_scope.get_axis_state('Z')
-        # In simulation, the move completes instantly, but the state should be MOVING
-        # since we haven't polled. The is_moving() call will reconcile.
-        assert state == AxisState.MOVING
+        # Simulated move completes instantly; motion monitor may or may not have
+        # polled yet. Both MOVING and IDLE are valid states at this point.
+        assert state in (AxisState.MOVING, AxisState.IDLE)
 
     def test_axis_state_homing_zhome(self, sim_scope):
         """After zhome, Z axis should be IDLE (homing is blocking)."""
@@ -781,10 +781,12 @@ class TestAxisState:
         assert not sim_scope.is_any_axis_moving()
 
     def test_is_any_axis_moving_true_when_moving(self, sim_scope):
-        """is_any_axis_moving() returns True when an axis is MOVING."""
+        """is_any_axis_moving() returns True when an axis is in MOVING state."""
         from modules.lumascope_api import AxisState
-        sim_scope.move_absolute_position('Z', 1000, wait_until_complete=False)
+        # Directly set state to avoid race with motion monitor on instant simulator
+        sim_scope._set_axis_state('Z', AxisState.MOVING)
         assert sim_scope.is_any_axis_moving()
+        sim_scope._set_axis_state('Z', AxisState.IDLE)
 
     def test_monitor_reconciles_state(self, sim_scope):
         """Motion monitor thread should detect arrival and set state to IDLE."""

@@ -102,6 +102,12 @@ class Lumascope():
         self._position_listeners_lock = threading.Lock()
         self._position_listeners = []
 
+        # Motion profile for position prediction during moves.
+        # Stores ramp parameters + start time/pos so get_current_position()
+        # can return interpolated position during MOVING state.
+        self._move_profile_lock = threading.Lock()
+        self._move_profile = {ax: None for ax in self.VALID_AXES}
+
         # Start the motion monitor thread (detects axis arrival via firmware query)
         self._motion_monitor_stop = threading.Event()
         self._motion_monitor_thread = threading.Thread(
@@ -582,6 +588,9 @@ class Lumascope():
         elif state == AxisState.IDLE:
             # Signal arrival — unblocks any wait_for_axis() callers
             self._arrival_events[axis].set()
+            # Clear motion profile — predictor falls back to cache
+            with self._move_profile_lock:
+                self._move_profile[axis] = None
 
         self._fire_position_listeners(axis)
 
@@ -2170,9 +2179,9 @@ class Lumascope():
     def get_current_position(self, axis=None):
         """Get the current position for an axis.
 
-        Reads from the position cache — zero serial I/O for repeated calls.
-        The cache is populated at init time (refresh_position_cache) and
-        updated after every move command.
+        During MOVING: returns predicted position based on trapezoidal
+        ramp profile and elapsed time (smooth UI updates, zero serial I/O).
+        During IDLE: returns cached target position (confirmed by firmware).
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T"), or None for all axes.
@@ -2181,10 +2190,95 @@ class Lumascope():
             float | dict: Position in um for a single axis, or dict of all
                 axis positions. Returns 0 if motion board inactive.
         """
+        if axis is None:
+            result = {}
+            for ax in self.VALID_AXES:
+                result[ax] = self.get_current_position(ax)
+            return result
+
+        # If axis is moving and we have a motion profile, return predicted position.
+        # The predictor gives smooth interpolation between 50Hz firmware polls.
+        # If prediction fails or isn't available, fall through to cached target.
+        with self._axis_state_lock:
+            state = self._axis_state.get(axis, AxisState.UNKNOWN)
+        if state == AxisState.MOVING:
+            predicted = self._predicted_position(axis)
+            if predicted is not None:
+                return predicted
+
+        # IDLE or no profile: cached target position (confirmed by firmware)
         with self._pos_cache_lock:
-            if axis is None:
-                return dict(self._pos_cache)
             return self._pos_cache.get(axis, 0.0)
+
+    def _predicted_position(self, axis: str) -> float | None:
+        """Predict position during a move using the trapezoidal ramp profile.
+
+        Returns None if no motion profile is available (falls back to cache).
+        Supports simple trapezoidal (a1/v1/d1=0) and 6-point ramps.
+        """
+        with self._move_profile_lock:
+            profile = self._move_profile.get(axis)
+            if profile is None:
+                return None
+            start_time = profile['start_time']
+            start_pos = profile['start_pos']
+            target_pos = profile['target_pos']
+            ramp = profile['ramp']
+
+        elapsed = time.monotonic() - start_time
+        distance = abs(target_pos - start_pos)
+        if distance < 0.01:  # trivially short move
+            return target_pos
+        direction = 1.0 if target_pos > start_pos else -1.0
+
+        vmax = ramp['vmax']
+        amax = ramp['amax']
+        dmax = ramp['dmax']
+        if amax <= 0 or dmax <= 0 or vmax <= 0:
+            return None  # invalid ramp params
+
+        # Simple trapezoidal profile (a1/v1/d1 are zero)
+        t_accel = vmax / amax
+        t_decel = vmax / dmax
+        s_accel = 0.5 * amax * t_accel * t_accel
+        s_decel = 0.5 * dmax * t_decel * t_decel
+
+        if distance <= (s_accel + s_decel):
+            # Triangular profile — never reaches VMAX
+            import math
+            t_peak = math.sqrt(2.0 * distance / (amax + amax * amax / dmax))
+            v_peak = amax * t_peak
+            s_accel_tri = 0.5 * amax * t_peak * t_peak
+            t_decel_tri = v_peak / dmax
+            total_time = t_peak + t_decel_tri
+
+            if elapsed >= total_time:
+                return target_pos
+            elif elapsed <= t_peak:
+                s = 0.5 * amax * elapsed * elapsed
+            else:
+                dt = elapsed - t_peak
+                s = s_accel_tri + v_peak * dt - 0.5 * dmax * dt * dt
+        else:
+            # Full trapezoidal profile
+            s_cruise = distance - s_accel - s_decel
+            t_cruise = s_cruise / vmax
+            total_time = t_accel + t_cruise + t_decel
+
+            if elapsed >= total_time:
+                return target_pos
+            elif elapsed <= t_accel:
+                s = 0.5 * amax * elapsed * elapsed
+            elif elapsed <= (t_accel + t_cruise):
+                dt = elapsed - t_accel
+                s = s_accel + vmax * dt
+            else:
+                dt = elapsed - t_accel - t_cruise
+                s = s_accel + s_cruise + vmax * dt - 0.5 * dmax * dt * dt
+
+        # Clamp to [start, target] — never overshoot in prediction
+        s = max(0.0, min(s, distance))
+        return start_pos + direction * s
 
 
     def get_actual_position(self, axis: str) -> float:
@@ -2262,13 +2356,29 @@ class Lumascope():
         if abs(pos) > self.MOTOR_POSITION_LIMIT:
             raise ValueError(f"Position {pos} um exceeds safety limit of +/-{self.MOTOR_POSITION_LIMIT} um")
 
+        # Store motion profile for position prediction before moving
+        with self._pos_cache_lock:
+            start_pos = self._pos_cache.get(axis, 0.0)
+        try:
+            ramp = self.motion.motorconfig.ramp_params(axis)
+        except Exception:
+            ramp = None
+        if ramp:
+            with self._move_profile_lock:
+                self._move_profile[axis] = {
+                    'start_time': time.monotonic(),
+                    'start_pos': start_pos,
+                    'target_pos': float(pos),
+                    'ramp': ramp,
+                }
+
         self._set_axis_state(axis, AxisState.MOVING)
         try:
             self.motion.move_abs_pos(axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits)
         except Exception as e:
-            # Move command failed (serial timeout, disconnect) — reset to IDLE
-            # so the axis doesn't stay stuck in MOVING forever (H18/H19).
             self._set_axis_state(axis, AxisState.IDLE)
+            with self._move_profile_lock:
+                self._move_profile[axis] = None
             _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED: {e}')
             raise
         with self._pos_cache_lock:
@@ -2755,143 +2865,8 @@ class Lumascope():
     # AUTOFOCUS Functionality
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    # Functional, but not integrated with LVP, just for scripting at the moment.
-
-    def autofocus(self, AF_min, AF_max, AF_range):
-        """INTEGRATED SCOPE FUNCTIONS
-        begin autofocus functionality"""
-
-        # Check all hardware required and actively responding
-        if not self.led: return
-        if not self.camera: return
-        if self.led.driver is False: return
-        if self.motion.driver is False: return
-        if not self.camera.active: return
-
-        # Set autofocus states
-        self.is_focusing = True          # Is the microscope currently attempting autofocus
-        self.autofocus_return = False    # Will be z-position if focus is ready to pull, else False
-
-        # Determine center of AF
-        center = self.get_current_position('Z')
-
-        self.z_min = max(0, center-AF_range)      # starting minimum z-height for autofocus
-        self.z_max = center+AF_range              # starting maximum z-height for autofocus
-        self.resolution = AF_max                  # starting step size for autofocus
-
-        self.AF_positions = []       # List of positions to step through
-        self.focus_measures = []     # Measure focus score at each position
-        self.last_focus_score = None    # Last / Previous focus score
-        self.last_focus_pass = False # Are we on the last scan for autofocus?
-
-        # Start the autofocus process at z-minimum
-        self.move_absolute_position('Z', self.z_min)
-
-        while not self.autofocus_iterate(AF_min):
-            time.sleep(0.01)
-
-    def autofocus_iterate(self, AF_min):
-        """INTEGRATED SCOPE FUNCTIONS
-        iterate autofocus functionality"""
-        done=False
-
-        # Ignore steps until conditions are met
-        if self.is_moving(): return done  # needs to be in position
-        if self.is_capturing: return done # needs to have completed capture with illumination
-
-        # Is there a previous capture result to pull?
-        if self.capture_return is False:
-            # No -> start a capture event
-            self.capture()
-            return done
-
-        else:
-            # Yes -> pull the capture result and clear
-            image = self.capture_return
-            self.capture_return = False
-
-        if image is False:
-            # Stop thread image can't be acquired
-            done = True
-            return done
-
-        # observe the image
-        rows, cols = image.shape
-
-        # Use center quarter of image for focusing
-        image = image[int(rows/4):int(3*rows/4),int(cols/4):int(3*cols/4)]
-
-        # calculate the position and focus measure
-        try:
-            current = self.get_current_position('Z')
-            focus = autofocus_functions.focus_function(image=image)
-            next_target = self.get_target_position('Z') + self.resolution
-        except Exception:
-            logger.exception('[SCOPE API ] Error talking to motion controller.')
-
-        # append to positions and focus measures
-        self.AF_positions.append(current)
-        self.focus_measures.append(focus)
-
-        if next_target <= self.z_max:
-            self.move_relative_position('Z', self.resolution)
-            return done
-
-        # Adjust future steps if next_target went out of bounds
-        # Calculate new step size for resolution
-        prev_resolution = self.resolution
-        self.resolution = prev_resolution / 3 # SELECT DESIRED RESOLUTION FRACTION
-
-        if self.resolution < AF_min:
-            self.resolution = AF_min
-            self.last_focus_pass = True
-
-        # compute best focus
-        focus = self.focus_best(self.AF_positions, self.focus_measures)
-
-        if not self.last_focus_pass:
-            # assign new z_min, z_max, resolution, and sweep
-            self.z_min = focus-prev_resolution
-            self.z_max = focus+prev_resolution
-
-            # reset positions and focus measures
-            self.AF_positions = []
-            self.focus_measures = []
-
-            # go to new z_min
-            self.move_absolute_position('Z', self.z_min)
-
-        else:
-            # go to best focus
-            self.move_absolute_position('Z', focus) # move to absolute target
-
-            # end autofocus sequence
-            self.autofocus_return = focus
-            self.is_focusing = False
-            self.last_focus_score = focus
-
-            # Stop thread image when autofocus is complete
-            done=True
-        return done
-
-    def focus_best(self, positions, values, algorithm='direct'):
-        """INTEGRATED SCOPE FUNCTIONS
-        select best focus position for autofocus function"""
-
-        logger.info('[SCOPE API ] Lumascope.focus_best()')
-        if algorithm == 'direct':
-            max_value = max(values)
-            max_index = values.index(max_value)
-            return positions[max_index]
-
-        elif algorithm == 'mov_avg':
-            avg_values = np.convolve(values, [.5, 1, 0.5], 'same')
-            max_index = avg_values.argmax()
-            return positions[max_index]
-
-        else:
-            return positions[0]
-
+    # Legacy autofocus methods (autofocus, autofocus_iterate, focus_best) removed
+    # 2026-03-31 — superseded by AutofocusExecutor. No callers remained.
 
 # Static methods for save_image functionality
     @staticmethod
