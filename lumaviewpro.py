@@ -25,32 +25,27 @@ if sys.version_info < (3, 11):
     print(f"ERROR: {_msg}", file=sys.stderr)
     sys.exit(1)
 
-# General
-
 import atexit
 import copy
-import logging
 import datetime
 from datetime import datetime as date_time
 import functools
+import json
+import logging
 import math
 import os
 import pathlib
+import sys
+import threading
+import time
+import typing
+
 import matplotlib
 matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conflict
 import numpy as np
 import pandas as pd
-import time
-import json
-import sys
-import typing
-import threading
-# import faulthandler
 
 if __name__ == "__main__":
-    # Enable faulthandler to catch segfaults and native crashes
-    # faulthandler.enable()
-
     disable_homing = False
     simulate_mode = '--simulate' in sys.argv
     if simulate_mode:
@@ -84,10 +79,7 @@ if __name__ == "__main__":
     #---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    global DEBUG_MODE
-
     from lvp_logger import logger, debug
-
     DEBUG_MODE = debug
 
     print(f"LumaViewPro {version}")
@@ -223,44 +215,21 @@ if __name__ == "__main__":
 
     import modules.image_utils_kivy as image_utils_kivy
 
-
-
-
+    # Module-level state — assigned in build(), accessed throughout app lifetime.
+    # All are registered on AppContext after creation.
     wellplate_loader = None
-
-
     objective_helper = None
-
-
     coordinate_transformer = None
-
-
-
-
     sequenced_capture_executor = None
-
-
     show_tooltips = False
-
-
-    protocol_running_global = threading.Event()  # thread-safe protocol state
-
-    # global autofocus_executor
-    # autofocus_executor = None
-
+    protocol_running_global = threading.Event()
     live_histo_setting = False
-
-
     last_save_folder = None
     stage = None
-
     ENGINEERING_MODE = False
-
     focus_round = 0
 
-
-
-    # Executors and scope_session are created in LumaViewProApp.build()
+    # Executors — created in build(), registered on AppContext
     io_executor = None
     camera_executor = None
     temp_ij_executor = None
@@ -272,7 +241,7 @@ if __name__ == "__main__":
     turret_executor = None
     reset_executor = None
     scope_session = None
-    ctx = None  # AppContext — created in build() after all services initialized
+    ctx = None
 
     if use_multiprocessing:
         import multiprocessing
@@ -281,22 +250,6 @@ if __name__ == "__main__":
 
         # Import existing writer for process pool
         from modules.sequenced_capture_writer import write_capture, worker_initializer, _noop
-
-        # def worker_initializer():
-        #     """Initialize worker process to prevent Kivy initialization."""
-        #     import os
-        #     import sys
-
-        #     # Set environment variables to prevent Kivy initialization
-        #     os.environ['KIVY_NO_CONSOLELOG'] = '1'
-        #     os.environ['KIVY_NO_ARGS'] = '1'
-        #     os.environ['KIVY_NO_CONFIG'] = '1'
-        #     os.environ['KIVY_LOGGER_LEVEL'] = 'critical'
-
-        #     # Prevent pygame sound initialization
-        #     os.environ['SDL_AUDIODRIVER'] = 'dummy'
-
-        #     print(f"Worker process {os.getpid()} initialized with Kivy isolation")
 
         from lvp_logger import lvp_appdata as lvp_appdata_logger
 
@@ -315,8 +268,6 @@ if __name__ == "__main__":
 
         logger.info("LVP Main] All processes warmup complete")
 
-
-
 else:
     # Subprocess/worker compatibility — Kivy not available
     from modules.subprocess_stubs import (  # noqa: F401
@@ -330,13 +281,11 @@ else:
         show_popup, show_notification_popup, image_utils_kivy,
     )
 
-
-
 # ============================================================================
-# Utility / Helper Functions
+# Imports — extracted modules (must be after Kivy init)
 # ============================================================================
 
-from modules.ui_helpers import (  # noqa: E402 — extracted functions
+from modules.ui_helpers import (  # noqa: E402
     move_absolute_position, move_relative_position, move_home, move_home_cb,
     scope_leds_off, set_recording_title, set_writing_title, reset_title,
     live_histo_off, live_histo_reverse, set_last_save_folder,
@@ -347,14 +296,9 @@ from modules.ui_helpers import (  # noqa: E402 — extracted functions
     focus_log, find_nearest_step,
 )
 
-
-# Protocol step navigation → modules/step_navigation.py
 from modules.step_navigation import go_to_step, go_to_step_update_ui  # noqa: E402
 
-
-
-
-from modules.config_ui_getters import (  # noqa: E402 — extracted functions
+from modules.config_ui_getters import (  # noqa: E402
     get_binning_from_ui, get_zstack_params, get_zstack_positions,
     get_layer_configs, get_active_layer_config, get_stim_configs,
     get_enabled_stim_configs, get_current_plate_position,
@@ -365,86 +309,46 @@ from modules.config_ui_getters import (  # noqa: E402 — extracted functions
     create_hyperstacks_if_needed,
 )
 
-
-# ScrollView cleanup → modules/ui_helpers.py
 from modules.ui_helpers import cleanup_scrollview_viewport  # noqa: E402
-
-from ui.scope_display import ScopeDisplay  # noqa: E402 — extracted widget
-
-# CompositeCapture — shared capture capabilities → ui/composite_capture.py
+from ui.scope_display import ScopeDisplay  # noqa: E402
 from ui.composite_capture import CompositeCapture  # noqa: E402
-
-
-# MainDisplay — primary application display → ui/main_display.py
 from ui.main_display import MainDisplay  # noqa: E402
+from ui.shader import ShaderViewer, ShaderEditor  # noqa: E402
 
-
-from ui.shader import ShaderViewer, ShaderEditor  # noqa: E402 — extracted widgets
-
-
-from ui.image_settings import (  # noqa: E402 — extracted widgets
+from ui.image_settings import (  # noqa: E402
     AccordionItemXyStageControl, AccordionItemImageSettingsBase,
     AccordionItemImageSettingsLumiControl, AccordionItemImageSettingsDfControl,
     AccordionItemImageSettingsRedControl, AccordionItemImageSettingsGreenControl,
     AccordionItemImageSettingsBlueControl, ImageSettings, set_histogram_layer,
 )
 
-from ui.motion_settings import MotionSettings, XYStageControl  # noqa: E402 — extracted widgets
-
-from ui.post_processing import (  # noqa: E402 — extracted widgets
+from ui.motion_settings import MotionSettings, XYStageControl  # noqa: E402
+from ui.post_processing import (  # noqa: E402
     StitchControls, ZProjectionControls, CompositeGenControls,
     VideoCreationControls, GraphingControls, CellCountControls,
     PostProcessingAccordion, CellCountDisplay,
     open_last_save_folder,
 )
 
-from ui.histogram import Histogram  # noqa: E402 — extracted widget
-
-from ui.vertical_control import VerticalControl  # noqa: E402 — extracted widget
-
-
-from ui.protocol_settings import ProtocolSettings  # noqa: E402 — extracted widget
-
-from ui.stage import Stage  # noqa: E402 — extracted widget
-
-
-from ui.microscope_settings import MicroscopeSettings  # noqa: E402 — extracted widget
-
-# ============================================================================
-# ModSlider — Custom Slider with on_release Event
-# ============================================================================
-
-from ui.mod_slider import ModSlider  # noqa: E402 — extracted widget
-
-from ui.layer_control import LayerControl  # noqa: E402 — extracted widget
-
-# ============================================================================
-# ZStack — Z-Stack Acquisition Controls
-# ============================================================================
-
-from ui.zstack import ZStack  # noqa: E402 — extracted widget
-
-
-# ============================================================================
-# File / Folder Chooser Buttons
-# ============================================================================
-
-from ui.file_dialogs import FileChooseBTN, FolderChooseBTN, FileSaveBTN  # noqa: E402 — extracted widgets
-
-
-# Application config loaders → modules/app_config.py
+from ui.histogram import Histogram  # noqa: E402
+from ui.vertical_control import VerticalControl  # noqa: E402
+from ui.protocol_settings import ProtocolSettings  # noqa: E402
+from ui.stage import Stage  # noqa: E402
+from ui.microscope_settings import MicroscopeSettings  # noqa: E402
+from ui.mod_slider import ModSlider  # noqa: E402
+from ui.layer_control import LayerControl  # noqa: E402
+from ui.zstack import ZStack  # noqa: E402
+from ui.file_dialogs import FileChooseBTN, FolderChooseBTN, FileSaveBTN  # noqa: E402
 from modules.app_config import (  # noqa: E402
     load_log_level, get_lvp_lock_port, load_autofocus_log_enable,
     load_mode as _load_mode,
 )
 
-# ============================================================================
-# LumaViewProApp — Main Application Class (Build, Start, Stop, Tooltips)
-# ============================================================================
-
 from ui.tooltip import Tooltip, TooltipMixin  # noqa: E402
 
+
 class LumaViewProApp(TooltipMixin, App):
+    """Main application class — build, start, stop, tooltips."""
     kv_file = 'ui/lumaviewpro.kv'
 
     def on_start(self):
