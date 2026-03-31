@@ -31,10 +31,14 @@ except Exception as e:
     print(f'Throughput: {e}')
 
 nm.FindNode('ExposureTime').SetValue(10000)  # 10ms
-print(f'Exposure: 10ms')
+nm.FindNode('Width').SetValue(1920)
+nm.FindNode('Height').SetValue(1528)
+w = nm.FindNode('Width').Value()
+h = nm.FindNode('Height').Value()
+print(f'Exposure: 10ms, Resolution: {w}x{h}')
 
 ps = nm.FindNode('PayloadSize').Value()
-print(f'Payload size: {ps} bytes')
+print(f'Payload size: {ps} bytes ({ps/1024/1024:.1f} MB)')
 
 for i in range(6):
     buf = ds.AllocAndAnnounceBuffer(ps)
