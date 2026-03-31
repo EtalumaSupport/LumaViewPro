@@ -68,12 +68,12 @@ try:
 except Exception as e:
     print(f'DeviceLinkThroughputLimit: {e}')
 
-# Step 3: Check if throughput component matters
+# Step 3: Switch throughput component from Sensor to Link
 try:
     node = nm.FindNode('DeviceLinkThroughputLimitComponent')
-    print(f'DeviceLinkThroughputLimitComponent = {node.CurrentEntry().SymbolicValue()}')
-    for entry in node.AvailableEntries():
-        print(f'  available: {entry.SymbolicValue()}')
+    print(f'DeviceLinkThroughputLimitComponent was: {node.CurrentEntry().SymbolicValue()}')
+    node.SetCurrentEntry('Link')
+    print(f'DeviceLinkThroughputLimitComponent now: {node.CurrentEntry().SymbolicValue()}')
 except Exception as e:
     print(f'DeviceLinkThroughputLimitComponent: {e}')
 

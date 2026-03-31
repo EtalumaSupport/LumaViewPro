@@ -171,7 +171,17 @@ class IDSCamera(Camera):
                     logger.info('[CAM Class ] Disabled AcquisitionFrameRateTargetEnable')
                 except Exception as e:
                     logger.debug(f'[CAM Class ] AcquisitionFrameRateTargetEnable not available: {e}')
-                # Maximize USB throughput — default may be conservative.
+                # Switch throughput limit from Sensor to Link mode.
+                # In Sensor mode, the limit applies to raw sensor readout (full res)
+                # even when using a smaller ROI, capping fps artificially.
+                # In Link mode, the limit applies to actual USB transfer rate.
+                try:
+                    comp = self.remote_nodemap.FindNode("DeviceLinkThroughputLimitComponent")
+                    comp.SetCurrentEntry("Link")
+                    logger.info('[CAM Class ] DeviceLinkThroughputLimitComponent set to Link')
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] DeviceLinkThroughputLimitComponent not available: {e}')
+                # Maximize USB throughput limit
                 try:
                     node = self.remote_nodemap.FindNode("DeviceLinkThroughputLimit")
                     node.SetValue(node.Maximum())
