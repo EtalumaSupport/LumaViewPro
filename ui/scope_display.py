@@ -214,15 +214,15 @@ class ScopeDisplay(Image):
         if not ctx.engineering_mode:
             return
 
-        bounds = self._get_displayed_image_bounds()
-        if bounds is None:
+        center_x, center_y, img_w, img_h = self._get_displayed_image_bounds()
+        if img_w < 1 or img_h < 1:
             return
-        img_x, img_y, img_w, img_h = bounds
 
         dot_radius = VALIDITY_DOT_RADIUS
         margin = VALIDITY_DOT_MARGIN
-        cx = img_x + img_w - margin
-        cy = img_y + img_h - margin
+        # Top-right corner of the displayed image
+        cx = center_x + img_w / 2 - margin
+        cy = center_y + img_h / 2 - margin
 
         if is_valid:
             self._validity_group.add(Color(0, 1, 0, 0.8))  # green
