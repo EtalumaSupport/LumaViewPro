@@ -1,0 +1,89 @@
+{
+  "camera_model": "a2A3536-31umBAS",
+  "measured_date": "2026-03-31",
+  "skip_frames": {
+    "led": 2,
+    "gain": 2,
+    "exposure": 3
+  },
+  "frame_intervals_ms": {
+    "1": 12.38,
+    "5": 12.93,
+    "10": 12.93,
+    "20": 21.03,
+    "50": 50.62,
+    "100": 100.76,
+    "200": 200.41
+  },
+  "af_z_move_drain_needed": false,
+  "af_min_drain_frames": 0,
+  "af_focus_score_noise_pct": 0.11,
+  "af_min_useful_exposure_ms": 100,
+  "af_max_useful_exposure_ms": 100,
+  "af_optimal_exposure_ms": 100,
+  "af_saturation_exposure_ms": 5,
+  "af_z_hysteresis_detected": true,
+  "af_min_roi_fraction": 0.25,
+  "af_binning_viable": false,
+  "led_warmup_drift_pct": {
+    "BF": 0.06
+  },
+  "dark_noise_stddev": {
+    "0dB": 0.0,
+    "5dB": 0.01,
+    "10dB": 0.13,
+    "15dB": 0.32,
+    "20dB": 0.6
+  },
+  "channel_crosstalk_detected": false,
+  "max_unsaturated_gain_dB": 10,
+  "max_unsaturated_exposure_ms": 100,
+  "z_settle_summary": {
+    "1": {
+      "focus_95_ms": 94.0,
+      "motor_arrived_ms": 94.0,
+      "savings_ms": 0
+    },
+    "5": {
+      "focus_95_ms": 62.0,
+      "motor_arrived_ms": 62.0,
+      "savings_ms": 0
+    },
+    "20": {
+      "focus_95_ms": 156.0,
+      "motor_arrived_ms": 156.0,
+      "savings_ms": 0
+    },
+    "100": {
+      "focus_95_ms": 140.0,
+      "motor_arrived_ms": 203.0,
+      "savings_ms": 63.0
+    },
+    "500": {
+      "focus_95_ms": 188.0,
+      "motor_arrived_ms": 485.0,
+      "savings_ms": 297.0
+    }
+  },
+  "af_focus_curve_fwhm_um": 101.774,
+  "af_focus_curve_dynamic_range": 0.306,
+  "af_focus_curve_symmetry": 1.0,
+  "z_backlash_um": 0.0,
+  "z_backlash_with_overshoot_um": 0.0,
+  "af_repeatability_std_um": 12.247,
+  "af_repeatability_max_spread_um": 31.373,
+  "af_repeatability_success_rate": 0.3,
+  "af_repeatability_mean_time_s": 4.55,
+  "af_measured_dof_um": 21.67,
+  "af_recommended_fine_step_um": 3.4,
+  "af_recommended_coarse_step_um": 0.42,
+  "af_recommended_range_um": 43.3,
+  "af_sensitivity_per_um": 65129.01,
+  "af_min_detectable_step_um": 3.4,
+  "af_gaussian_fit_shift_um": 0.775,
+  "af_current_params": {
+    "AF_min": 8.0,
+    "AF_max": 36.0,
+    "AF_range": 75.0
+  }
+}

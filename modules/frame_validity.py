@@ -43,10 +43,12 @@ class FrameValidity:
     DEFAULT_SKIP_FRAMES = 2
 
     # Per-source skip frame counts (camera pipeline flush).
+    # Default skip counts — overridden by per-camera measured values
+    # from data/camera_timing/<model>.json via load_camera_timing().
     SKIP_FRAMES = {
-        'led':      2,   # LED on/off or current change
-        'gain':     2,   # Camera gain change
-        'exposure': 2,   # Camera exposure time change
+        'led':      2,   # LED on/off or current change (measured: 2 on a2A3536)
+        'gain':     2,   # Camera gain change (measured: 2 on a2A3536)
+        'exposure': 3,   # Camera exposure time change (measured: 3 on a2A3536)
         'xy_move':  2,   # X or Y axis movement
         'z_move':   2,   # Z axis movement (autofocus may exclude this)
         'turret':   2,   # Turret rotation
