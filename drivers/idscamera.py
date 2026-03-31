@@ -164,16 +164,19 @@ class IDSCamera(Camera):
                 self.set_pixel_format(preferred)
                 #TODO: auto gain
                 self.remote_nodemap.FindNode("ReverseX").SetValue(True)
-                # Disable frame rate limiter — UserSetDefault may enable it at ~5 fps.
-                # Node names vary by camera: try both known variants.
-                for node_name in ('AcquisitionFrameRateTargetEnable',
-                                  'AcquisitionFrameRateEnable'):
-                    try:
-                        self.remote_nodemap.FindNode(node_name).SetValue(False)
-                        logger.info(f'[CAM Class ] Disabled {node_name}')
-                        break
-                    except Exception:
-                        pass
+                # Disable frame rate limiter — UserSetDefault may cap at ~5 fps.
+                try:
+                    self.remote_nodemap.FindNode("AcquisitionFrameRateTargetEnable").SetValue(False)
+                    logger.info('[CAM Class ] Disabled AcquisitionFrameRateTargetEnable')
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] AcquisitionFrameRateTargetEnable not available: {e}')
+                # Maximize USB throughput — default may be conservative.
+                try:
+                    node = self.remote_nodemap.FindNode("DeviceLinkThroughputLimit")
+                    node.SetValue(node.Maximum())
+                    logger.info(f'[CAM Class ] DeviceLinkThroughputLimit set to {node.Maximum()} B/s')
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] DeviceLinkThroughputLimit not available: {e}')
                 self.exposure_t(10)
                 self.set_frame_size(1920,1528)
         except Exception as e:
