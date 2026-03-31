@@ -118,9 +118,9 @@ class FrameValidity:
                 return True
             for s, t in self._pending.items():
                 if not self._is_source_settled_unlocked(s, t):
-                    # DEBUG: log why we're invalid (remove after debugging)
+                    # TEMP DEBUG: log why we're invalid (remove after debugging)
                     import logging
-                    logging.getLogger('LVP').debug(
+                    logging.getLogger('LVP').warning(
                         f'[FrameValidity] INVALID: source={s}, target={t}, '
                         f'counter={self._frame_counter}, '
                         f'frames_short={max(0, t - self._frame_counter)}, '
