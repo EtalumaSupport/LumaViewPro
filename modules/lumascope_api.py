@@ -213,13 +213,17 @@ class Lumascope():
         # Register motion settle check — frame validity won't clear motion
         # sources until the axis has physically stopped moving.
         def _motion_settle_check(source: str) -> bool:
+            # For absent axes (e.g., LS820 has no X/Y), treat UNKNOWN as settled.
+            # Axes that were never homed or moved stay UNKNOWN — they shouldn't
+            # block frame validity for sources that don't apply.
+            idle_or_absent = (AxisState.IDLE, AxisState.UNKNOWN)
             if source == 'z_move':
-                return self.get_axis_state('Z') == AxisState.IDLE
+                return self.get_axis_state('Z') in idle_or_absent
             elif source == 'xy_move':
-                return (self.get_axis_state('X') == AxisState.IDLE and
-                        self.get_axis_state('Y') == AxisState.IDLE)
+                return (self.get_axis_state('X') in idle_or_absent and
+                        self.get_axis_state('Y') in idle_or_absent)
             elif source == 'turret':
-                return self.get_axis_state('T') == AxisState.IDLE
+                return self.get_axis_state('T') in idle_or_absent
             return True
         self.frame_validity.set_settle_check(_motion_settle_check)
         self._load_camera_timing()

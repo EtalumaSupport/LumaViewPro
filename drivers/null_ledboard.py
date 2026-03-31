@@ -36,7 +36,7 @@ class NullLEDBoard:
         self._state_lock = threading.Lock()
         self.led_ma = {color: -1 for color in ('BF', 'PC', 'DF', 'Red', 'Blue', 'Green')}
 
-        logger.info('[NULL LED  ] NullLEDBoard initialized (no LED hardware)')
+        logger.debug('[NULL LED  ] NullLEDBoard initialized (no LED hardware)')
 
     # ------------------------------------------------------------------
     # Core LED methods (no-ops)

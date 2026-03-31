@@ -67,7 +67,7 @@ class NullMotionBoard:
             'T': {'move_func': self.t_pos2ustep},
         }
 
-        logger.info('[NULL Motor] NullMotionBoard initialized (no motor hardware)')
+        logger.debug('[NULL Motor] NullMotionBoard initialized (no motor hardware)')
 
     # ------------------------------------------------------------------
     # Connection (no-ops)
