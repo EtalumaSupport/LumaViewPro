@@ -210,6 +210,18 @@ class Lumascope():
         self._last_turret_position = None # Stores the last known turret position
         self.engineering_mode = False      # Set by UI to enable engineering features
         self.frame_validity = FrameValidity()
+        # Register motion settle check — frame validity won't clear motion
+        # sources until the axis has physically stopped moving.
+        def _motion_settle_check(source: str) -> bool:
+            if source == 'z_move':
+                return self.get_axis_state('Z') == AxisState.IDLE
+            elif source == 'xy_move':
+                return (self.get_axis_state('X') == AxisState.IDLE and
+                        self.get_axis_state('Y') == AxisState.IDLE)
+            elif source == 'turret':
+                return self.get_axis_state('T') == AxisState.IDLE
+            return True
+        self.frame_validity.set_settle_check(_motion_settle_check)
         self._load_camera_timing()
         if self.camera:
             self._binning_size = self.camera.get_binning_size()

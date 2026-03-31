@@ -154,12 +154,10 @@ class ProtocolStepExecutor:
         if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
             return
 
-        _t_led_start = time.monotonic()
-        logger.debug(f"[TIMING] Step {p._curr_step} camera settings: {(_t_led_start - _t_cam_start)*1000:.1f}ms")
-        self.led_on(color=step['Color'], illumination=step['Illumination'], block=True)
-
         _t_led_done = time.monotonic()
-        logger.debug(f"[TIMING] Step {p._curr_step} LED on: {(_t_led_done - _t_led_start)*1000:.1f}ms")
+        logger.debug(f"[TIMING] Step {p._curr_step} camera settings: {(_t_led_done - _t_cam_start)*1000:.1f}ms")
+        # LED_ON is handled by protocol_image_writer.capture() right before
+        # the actual frame grab — not here. Sending it here caused duplicates.
 
         # BF AF for fluorescence
         bf_af_for_fluor = False
