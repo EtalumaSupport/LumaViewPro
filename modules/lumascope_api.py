@@ -1096,10 +1096,12 @@ class Lumascope():
             raise ValueError(f"LED current must be 0-{self.LED_MAX_MA} mA, got {mA}")
 
         # Skip redundant command if channel is already on at the same current
-        current_ma = self.get_led_ma(channel)
-        if current_ma is not None and abs(float(mA) - float(current_ma)) < 0.01:
-            if self.led_enabled(channel):
-                return
+        color_name = self.ch2color(channel)
+        if color_name:
+            current_ma = self.get_led_ma(color_name)
+            if current_ma is not None and abs(float(mA) - float(current_ma)) < 0.01:
+                if self.led_enabled(color_name):
+                    return
 
         with self._led_lock:
             self.led.led_on(channel, mA, block=block)
@@ -1124,7 +1126,8 @@ class Lumascope():
             raise ValueError(f"LED channel must be 0-5, got {channel}")
 
         # Skip if channel is already off
-        if not self.led_enabled(channel):
+        color_name = self.ch2color(channel)
+        if color_name and not self.led_enabled(color_name):
             return
 
         with self._led_lock:
