@@ -208,7 +208,7 @@
     "stimulation_enabled": false,
     "disable_protocol_accordions": true,
     "lvp_lock_port": 43101,
-    "camera_type": "pylon",
+    "camera_type": "auto",
     "autofocus": {
         "one_af_per_well": false,
         "reduce_af_range": false,

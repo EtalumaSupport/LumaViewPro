@@ -153,8 +153,11 @@ class Lumascope():
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
             elif camera_type == "ids":
                 self.camera: Camera = IDSCamera()
-            else:
+            elif camera_type == "pylon":
                 self.camera: Camera = PylonCamera()
+            else:
+                # Auto-detect: try IDS first, then Pylon
+                self.camera = self._autodetect_camera()
         except Exception:
             logger.exception('[SCOPE API ] Camera Board Not Initialized')
 
@@ -346,6 +349,19 @@ class Lumascope():
         self._motion_wake.set()  # unblock if sleeping
         if self._motion_monitor_thread.is_alive():
             self._motion_monitor_thread.join(timeout=1.0)
+
+    def _autodetect_camera(self) -> 'Camera':
+        """Try IDS first, then Pylon. Returns whichever connects."""
+        try:
+            cam = IDSCamera()
+            if cam.active:
+                logger.info('[SCOPE API ] Auto-detected IDS camera')
+                return cam
+        except Exception:
+            logger.debug('[SCOPE API ] IDS camera not found, trying Pylon')
+        cam = PylonCamera()
+        logger.info('[SCOPE API ] Auto-detected Pylon camera')
+        return cam
 
     def _load_camera_timing(self):
         """Load per-camera timing config if available.
@@ -744,12 +760,6 @@ class Lumascope():
         """True if no real hardware was detected (LED, motor, and camera all missing)."""
         return self._no_hardware
 
-    # def reconnect(self):
-    #     logger.info('[SCOPE API ] Attempting to reconnect to microscope...')
-    #     self.disconnect()
-    #     self.__init__()
-    #     logger.info('[SCOPE API ] Microscope reconnected')
-
     def are_all_connected(self) -> bool:
         """Check if LED, motion, and camera boards are all connected.
 
@@ -772,17 +782,6 @@ class Lumascope():
             logger.info('[SCOPE API ] Connection Check: All components connected')
 
         return led and motion and camera
-
-    # def reconnect_if_disconnected(self):
-    #     if not self.are_all_connected():
-    #         if not self.led.is_connected():
-    #             self.led.connect()
-    #         if not self.motion.is_connected():
-    #             self.motion.connect()
-    #         if not self.camera.is_connected():
-    #             self.camera.connect()
-    #         self.reconnect()
-
 
     ########################################################################
     # SCOPE CONFIGURATION FUNCTIONS
@@ -2080,10 +2079,6 @@ class Lumascope():
         _api_log.info('xyhome DONE')
 
         return
-
-        #while self.is_moving():
-        #    time.sleep(0.01)
-        #self.is_homing = False
 
     def has_xyhomed(self):
         """Check if the XY axes have been homed since startup.
