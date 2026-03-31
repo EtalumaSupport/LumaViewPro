@@ -351,16 +351,16 @@ class Lumascope():
             self._motion_monitor_thread.join(timeout=1.0)
 
     def _autodetect_camera(self) -> 'Camera':
-        """Try IDS first, then Pylon. Returns whichever connects."""
+        """Try Pylon first, then IDS. Returns whichever connects."""
         try:
-            cam = IDSCamera()
+            cam = PylonCamera()
             if cam.active:
-                logger.info('[SCOPE API ] Auto-detected IDS camera')
+                logger.info('[SCOPE API ] Auto-detected Pylon camera')
                 return cam
         except Exception:
-            logger.debug('[SCOPE API ] IDS camera not found, trying Pylon')
-        cam = PylonCamera()
-        logger.info('[SCOPE API ] Auto-detected Pylon camera')
+            logger.debug('[SCOPE API ] Pylon camera not found, trying IDS')
+        cam = IDSCamera()
+        logger.info('[SCOPE API ] Auto-detected IDS camera')
         return cam
 
     def _load_camera_timing(self):
