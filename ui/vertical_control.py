@@ -330,6 +330,21 @@ class VerticalControl(BoxLayout):
         ctx = _app_ctx.ctx
         live_histo_reverse()
         Clock.schedule_once(lambda dt: self._reset_run_autofocus_button(), 0)
+
+        # Update per-layer focus in settings so new protocol steps use the
+        # AF result, not the stale pre-AF Z value.
+        try:
+            focus_z = ctx.scope.get_current_position('Z')
+            for layer in common_utils.get_layers():
+                accordion_item = ctx.image_settings.accordion_item_lookup(layer=layer)
+                if not accordion_item.collapse:
+                    with ctx.settings_lock:
+                        ctx.settings[layer]['focus'] = focus_z
+                    logger.info(f'[AF] Updated {layer} focus to {focus_z:.2f}um')
+                    break
+        except Exception as e:
+            logger.warning(f'[AF] Failed to update layer focus after AF: {e}')
+
         # Clear any stuck AF protocol queue entries after completion
         try:
             ctx.autofocus_thread_executor.protocol_end()

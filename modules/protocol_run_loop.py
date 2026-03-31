@@ -147,7 +147,8 @@ class ProtocolRunLoop:
 
                 logger.info(f"Protocol scan {p._scan_count} completed in {scan_duration.total_seconds():.2f} seconds")
 
-                p._scan_count += 1
+                with p._protocol_state_lock:
+                    p._scan_count += 1
                 logger.debug(f"[{p.LOGGER_NAME}] Scan {p._scan_count}/{p._n_scans} completed")
 
                 if p._callbacks.scan_iterate_post:

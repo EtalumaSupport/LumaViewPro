@@ -91,8 +91,8 @@ class ProtocolStepExecutor:
 
         if p._protocol_ended.is_set():
             return
-        if not p._video_write_finished.is_set():
-            return
+        # Video encoding runs on FILE_WORKER in background — do NOT block
+        # the next step waiting for it. Frames are already captured and queued.
         if not p._scan_in_progress.is_set():
             return
         if not p._run_in_progress_event.is_set():
@@ -238,8 +238,7 @@ class ProtocolStepExecutor:
                 if output_format == 'ImageJ Hyperstack':
                     output_format = 'TIFF'
 
-                if step['Acquire'] == 'video':
-                    p._video_write_finished.clear()
+                # Video encoding runs on FILE_WORKER after capture — no gate needed
 
                 _t_capture_start = time.monotonic()
                 p._image_writer.capture(
@@ -282,7 +281,8 @@ class ProtocolStepExecutor:
 
         num_steps = p._protocol.num_steps()
         if p._curr_step < num_steps - 1:
-            p._curr_step = min(p._curr_step + 1, num_steps - 1)
+            with p._protocol_state_lock:
+                p._curr_step = min(p._curr_step + 1, num_steps - 1)
 
             if p._callbacks.update_step_number:
                 _schedule_ui(lambda dt: p._callbacks.update_step_number(p._curr_step + 1), 0)

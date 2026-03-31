@@ -164,6 +164,7 @@ class SequentialIOExecutor:
         self._running_task = None
         self.global_callback = None
         self.pending_shutdown = False
+        self._caller_futures_lock = threading.Lock()
         self.caller_futures = {}
 
         self.cleared_queue = False
@@ -175,6 +176,7 @@ class SequentialIOExecutor:
         self.last_task_done_monotonic = time.monotonic()
 
         # Protocol completion callback support
+        self._callback_lock = threading.Lock()
         self.protocol_complete_callback = None
         self.protocol_complete_cb_args = ()
         self.protocol_complete_cb_kwargs = {}
@@ -212,7 +214,8 @@ class SequentialIOExecutor:
         # Only create Future if caller explicitly requests it to reduce memory overhead
         if return_future:
             fut = Future()
-            self.caller_futures[task] = fut
+            with self._caller_futures_lock:
+                self.caller_futures[task] = fut
         else:
             fut = None
         self.queue.put(task)
@@ -227,14 +230,15 @@ class SequentialIOExecutor:
         """
         if self._disable:
             return None
-        
+
         if not self.protocol_running.is_set():
             return None
-        
+
         # Only create Future if caller explicitly requests it to reduce memory overhead
         if return_future:
             fut = Future()
-            self.caller_futures[task] = fut
+            with self._caller_futures_lock:
+                self.caller_futures[task] = fut
         else:
             fut = None
         self.protocol_queue.put(task)
@@ -274,9 +278,10 @@ class SequentialIOExecutor:
 
     def set_protocol_complete_callback(self, callback, cb_args=None, cb_kwargs=None):
         """Register callback to be invoked when protocol queue is fully drained."""
-        self.protocol_complete_callback = callback
-        self.protocol_complete_cb_args = cb_args if cb_args is not None else ()
-        self.protocol_complete_cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
+        with self._callback_lock:
+            self.protocol_complete_callback = callback
+            self.protocol_complete_cb_args = cb_args if cb_args is not None else ()
+            self.protocol_complete_cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
 
     def is_protocol_queue_active(self) -> bool:
         """Returns True if protocol queue has pending tasks or is draining."""
@@ -285,11 +290,12 @@ class SequentialIOExecutor:
                 (self.running_task is not None and getattr(self.running_task, 'protocol', False)))
 
     def wait_for_task(self, task: IOTask, timeout: float):
-        if task not in self.caller_futures:
-            return
-        
-        try:
+        with self._caller_futures_lock:
+            if task not in self.caller_futures:
+                return
             fut: Future = self.caller_futures[task]
+
+        try:
             result = fut.result(timeout=timeout)
         except Exception as e:
             logger.error(f"{self.name} Worker Error: {e}")
@@ -321,18 +327,17 @@ class SequentialIOExecutor:
                         self.protocol_end()
                         self.protocol_finish.clear()
                         # Trigger completion callback if registered
-                        if self.protocol_complete_callback is not None:
-                            Clock.schedule_once(
-                                lambda dt: self.protocol_complete_callback(
-                                    *self.protocol_complete_cb_args,
-                                    **self.protocol_complete_cb_kwargs
-                                ),
-                                0
-                            )
-                            # Clear callback after invoking
+                        with self._callback_lock:
+                            _cb = self.protocol_complete_callback
+                            _cb_args = self.protocol_complete_cb_args
+                            _cb_kwargs = self.protocol_complete_cb_kwargs
                             self.protocol_complete_callback = None
                             self.protocol_complete_cb_args = ()
                             self.protocol_complete_cb_kwargs = {}
+                        if _cb is not None:
+                            Clock.schedule_once(
+                                lambda dt: _cb(*_cb_args, **_cb_kwargs), 0
+                            )
                     continue
                 if self.protocol_running.is_set() or self.protocol_finish.is_set():
                     if self.pending_shutdown:
@@ -383,7 +388,8 @@ class SequentialIOExecutor:
             notifications.error("Task", f"{self.name} Task Failed",
                 f"{getattr(task.action, '__name__', str(task.action))} failed: {exception}")
         self.last_task_done_monotonic = time.monotonic()
-        caller_fut = self.caller_futures.pop(task, None)
+        with self._caller_futures_lock:
+            caller_fut = self.caller_futures.pop(task, None)
         if caller_fut:
             # This future was returned to a caller - they still hold a reference
             # DON'T null internal state or it will break their .result() call
@@ -437,7 +443,8 @@ class SequentialIOExecutor:
         
         # Clear futures dict - don't corrupt internals as callers may hold references
         # Just remove our tracking references
-        self.caller_futures.clear()
+        with self._caller_futures_lock:
+            self.caller_futures.clear()
         self.running_task = None
 
     def join(self, timeout=None):
@@ -451,7 +458,8 @@ class SequentialIOExecutor:
             try:
                 task = self.queue.get_nowait()
                 # Cancel future and aggressively cleanup
-                fut = self.caller_futures.pop(task, None)
+                with self._caller_futures_lock:
+                    fut = self.caller_futures.pop(task, None)
                 if fut:
                     try:
                         fut.cancel()
@@ -462,7 +470,7 @@ class SequentialIOExecutor:
                 self.queue.task_done()
             except queue.Empty:
                 break
-        
+
         self.cleared_queue = True
         if cleared_count > 0:
             logger.info(f"{self.name} Pending Queue Cleared ({cleared_count} tasks)")
@@ -473,7 +481,8 @@ class SequentialIOExecutor:
             try:
                 task = self.protocol_queue.get_nowait()
                 # Cancel future and aggressively cleanup
-                fut = self.caller_futures.pop(task, None)
+                with self._caller_futures_lock:
+                    fut = self.caller_futures.pop(task, None)
                 if fut:
                     try:
                         fut.cancel()

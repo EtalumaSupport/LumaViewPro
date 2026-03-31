@@ -117,6 +117,7 @@ class SequencedCaptureExecutor:
 
         self._scope = scope
         self._run_trigger_source = None
+        self._protocol_state_lock = threading.Lock()
         self._state = ProtocolState.IDLE
         self._reset_vars()
         self._step_executor = ProtocolStepExecutor(self)
@@ -127,20 +128,22 @@ class SequencedCaptureExecutor:
         self._scope = scope
 
     def _set_state(self, new_state: ProtocolState) -> None:
-        """Transition to *new_state* with validation.
+        """Transition to *new_state* with validation. Thread-safe.
 
         Raises ``ValueError`` if the transition is not allowed by
         ``PROTOCOL_STATE_TRANSITIONS``.
         """
-        if self._state == new_state:
-            return  # no-op
-        validate_transition(self._state, new_state, self.LOGGER_NAME)
-        self._state = new_state
+        with self._protocol_state_lock:
+            if self._state == new_state:
+                return  # no-op
+            validate_transition(self._state, new_state, self.LOGGER_NAME)
+            self._state = new_state
 
     @property
     def protocol_state(self) -> ProtocolState:
-        """Current protocol state (read-only)."""
-        return self._state
+        """Current protocol state (read-only). Thread-safe."""
+        with self._protocol_state_lock:
+            return self._state
 
     def _reset_vars(
         self
@@ -315,11 +318,13 @@ class SequencedCaptureExecutor:
     
     def get_initial_autofocus_states(self, layer_configs: dict | None = None):
         states = {}
+        ctx = _app_ctx.ctx
         for layer in common_utils.get_layers():
             if layer_configs and layer in layer_configs:
                 states[layer] = layer_configs[layer].get('autofocus', False)
             else:
-                states[layer] = settings[layer]["autofocus"]
+                with ctx.settings_lock:
+                    states[layer] = settings[layer]["autofocus"]
         return states
 
 
