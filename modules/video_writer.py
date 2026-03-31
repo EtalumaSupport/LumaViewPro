@@ -2,6 +2,7 @@
 
 import datetime
 import pathlib
+import threading
 
 import cv2
 import numpy as np
@@ -31,6 +32,7 @@ class VideoWriter:
         self._include_timestamp_overlay = include_timestamp_overlay
         self._shape = None
         self._frame_count = 0
+        self._frame_lock = threading.Lock()  # Protects _frame_count + encoder state for REST queries
 
         if not output_file_loc.parent.exists():
             output_file_loc.parent.mkdir(parents=True)
@@ -40,6 +42,7 @@ class VideoWriter:
         self._container = None  # PyAV container
         self._stream = None     # PyAV video stream
         self._cv2_video = None  # cv2.VideoWriter fallback
+        self._finished = False
 
     @staticmethod
     def _get_image_info(image: np.ndarray) -> tuple:
@@ -112,41 +115,47 @@ class VideoWriter:
         return (height, width) == self._shape
 
     def add_frame(self, image: np.ndarray, timestamp=None):
-        # First frame initialization
-        if self._container is None and self._cv2_video is None:
-            self._init_video(image=image)
+        with self._frame_lock:
+            if self._finished:
+                return
 
-        if not self._is_correct_image_shape(image):
-            logger.error("VideoWriter: Inconsistent Image Shape. Video will likely corrupt")
+            # First frame initialization
+            if self._container is None and self._cv2_video is None:
+                self._init_video(image=image)
 
-        if self._include_timestamp_overlay:
-            ts = self._get_timestamp_str(timestamp)
-            image = image_utils.add_timestamp(image=image, timestamp_str=ts)
+            if not self._is_correct_image_shape(image):
+                logger.error("VideoWriter: Inconsistent Image Shape. Video will likely corrupt")
 
-        # Ensure 8-bit
-        if image.dtype != np.uint8:
-            image = image_utils.convert_16bit_to_8bit(image) if image.dtype == np.uint16 else image.astype(np.uint8)
+            if self._include_timestamp_overlay:
+                ts = self._get_timestamp_str(timestamp)
+                image = image_utils.add_timestamp(image=image, timestamp_str=ts)
 
-        if self._use_pyav and self._stream is not None:
-            try:
-                # PyAV expects RGB for color, gray for mono
-                if image.ndim == 3:
-                    # OpenCV uses BGR — convert to RGB for PyAV
-                    frame = av.VideoFrame.from_ndarray(image[:, :, ::-1], format='rgb24')
-                else:
-                    frame = av.VideoFrame.from_ndarray(image, format='gray')
-                for packet in self._stream.encode(frame):
-                    self._container.mux(packet)
+            # Ensure 8-bit
+            if image.dtype != np.uint8:
+                image = image_utils.convert_16bit_to_8bit(image) if image.dtype == np.uint16 else image.astype(np.uint8)
+
+            if self._use_pyav and self._stream is not None:
+                try:
+                    # PyAV expects RGB for color, gray for mono
+                    if image.ndim == 3:
+                        # OpenCV uses BGR — convert to RGB for PyAV
+                        frame = av.VideoFrame.from_ndarray(image[:, :, ::-1], format='rgb24')
+                    else:
+                        frame = av.VideoFrame.from_ndarray(image, format='gray')
+                    for packet in self._stream.encode(frame):
+                        self._container.mux(packet)
+                    self._frame_count += 1
+                except Exception as e:
+                    logger.error(f"VideoWriter: PyAV encode error: {e}")
+            elif self._cv2_video is not None:
+                success = self._cv2_video.write(image)
+                if success is False:
+                    logger.error("VideoWriter: cv2.VideoWriter.write() returned failure — frame may be lost")
                 self._frame_count += 1
-            except Exception as e:
-                logger.error(f"VideoWriter: PyAV encode error: {e}")
-        elif self._cv2_video is not None:
-            success = self._cv2_video.write(image)
-            if success is False:
-                logger.error("VideoWriter: cv2.VideoWriter.write() returned failure — frame may be lost")
-            self._frame_count += 1
 
     def finish(self):
+        with self._frame_lock:
+            self._finished = True
         if self._use_pyav and self._container is not None:
             try:
                 # Flush encoder
@@ -163,6 +172,15 @@ class VideoWriter:
                 logger.error(f"VideoWriter: cv2 release() failed: {e}")
         else:
             logger.warning("VideoWriter.finish() called without adding any frames.")
+
+    def get_progress(self) -> dict:
+        """Thread-safe progress query for REST API consumers."""
+        with self._frame_lock:
+            return {
+                'frame_count': self._frame_count,
+                'finished': self._finished,
+                'output_file': str(self._output_file_loc),
+            }
 
     def test_video(self, filename):
         logger.info(f"VideoWriter: Testing video {filename}")
