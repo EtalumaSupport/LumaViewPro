@@ -80,8 +80,15 @@
 	  </Component>
 
 	  <!-- Standard install UI: welcome, progress, completion dialog.
-	       Provided by WixToolset.UI.wixext (WiX 5). -->
+	       Provided by WixToolset.UI.wixext (WiX 5).
+	       Custom banner (493x58) and dialog (493x312) images for Etaluma branding.
+	       If images don't exist, WiX uses defaults. -->
 	  <ui:WixUI Id="WixUI_Minimal" />
+	  <!-- To customize installer branding, create these files:
+	       - data/icons/installer_banner.bmp (493x58) — top banner on wizard pages
+	       - data/icons/installer_dialog.bmp (493x312) — welcome/finish background
+	       - scripts/appBuild/build_exe/wix/license.rtf — license agreement text
+	       WixUI_Minimal uses defaults if these are absent. -->
 
   </Package>
 </Wix>
