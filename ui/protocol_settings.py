@@ -1698,7 +1698,11 @@ class ProtocolSettings(FloatLayout):
 
         for layer in common_utils.get_layers():
             layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-            layer_obj.ids["autofocus"].state = "down" if settings[layer]["autofocus"] else "normal"
+            layer_obj._initializing = True
+            try:
+                layer_obj.ids["autofocus"].state = "down" if settings[layer]["autofocus"] else "normal"
+            finally:
+                layer_obj._initializing = False
 
     def _update_protocol_run_button_status(
         self,

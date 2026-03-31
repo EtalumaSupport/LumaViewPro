@@ -239,12 +239,16 @@ def reset_acquire_ui():
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        if ctx.settings[layer]['acquire'] == "image":
-            layer_obj.ids['acquire_image'].active = True
-        elif ctx.settings[layer]['acquire'] == "video":
-            layer_obj.ids['acquire_video'].active = True
-        else:
-            layer_obj.ids['acquire_none'].active = True
+        layer_obj._initializing = True
+        try:
+            if ctx.settings[layer]['acquire'] == "image":
+                layer_obj.ids['acquire_image'].active = True
+            elif ctx.settings[layer]['acquire'] == "video":
+                layer_obj.ids['acquire_video'].active = True
+            else:
+                layer_obj.ids['acquire_none'].active = True
+        finally:
+            layer_obj._initializing = False
 
 def reset_stim_ui():
     ctx = _app_ctx.ctx
@@ -253,7 +257,11 @@ def reset_stim_ui():
         if "stim_config" in ctx.settings[layer]:
             if ctx.settings[layer]['stim_config'] is not None:
                 ctx.settings[layer]['stim_config']['enabled'] = False
-                layer_obj.ids['stim_disable_btn'].active = True
+                layer_obj._initializing = True
+                try:
+                    layer_obj.ids['stim_disable_btn'].active = True
+                finally:
+                    layer_obj._initializing = False
                 layer_obj.update_stim_controls_visibility()
 
 

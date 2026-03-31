@@ -425,10 +425,14 @@ class CompositeCapture(FloatLayout):
             ctx.lumaview.ids['composite_btn'].state = 'normal'
             live_histo_reverse()
             opened_layer_obj = common_utils.get_opened_layer_obj(ctx.image_settings)
-            if led_restore_state:
-                opened_layer_obj.ids['enable_led_btn'].state = 'down'
-            else:
-                opened_layer_obj.ids['enable_led_btn'].state = 'normal'
+            opened_layer_obj._initializing = True
+            try:
+                if led_restore_state:
+                    opened_layer_obj.ids['enable_led_btn'].state = 'down'
+                else:
+                    opened_layer_obj.ids['enable_led_btn'].state = 'normal'
+            finally:
+                opened_layer_obj._initializing = False
             opened_layer_obj.apply_settings(update_led=True)
 
         # Restore video false color that was suspended during composite capture
