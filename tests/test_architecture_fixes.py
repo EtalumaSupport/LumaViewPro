@@ -263,3 +263,22 @@ class TestTinyFileConsolidation:
                         if re.search(r'modules\.protocol_step(?!_)', line):
                             violations.append(f"{os.path.relpath(py_file, root)}:{i} ({old_protocol_step})")
         assert not violations, f"Files still importing deleted modules: {violations}"
+
+    def test_all_python_files_compile(self):
+        """Every .py file must be valid Python syntax — catches refactor leftovers."""
+        import os
+        import py_compile
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        errors = []
+        for dirpath, _, filenames in os.walk(root):
+            if '__pycache__' in dirpath or '.git' in dirpath:
+                continue
+            for fn in filenames:
+                if not fn.endswith('.py'):
+                    continue
+                filepath = os.path.join(dirpath, fn)
+                try:
+                    py_compile.compile(filepath, doraise=True)
+                except py_compile.PyCompileError as e:
+                    errors.append(str(e))
+        assert not errors, f"Syntax errors found:\n" + "\n".join(errors)
