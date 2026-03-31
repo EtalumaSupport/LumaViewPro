@@ -325,7 +325,7 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
             capture_result = frame_folder
 
         else:
-            output_file_loc = save_folder / f"{name}.mp4v"
+            output_file_loc = save_folder / f"{name}.mp4"
             video_writer = VideoWriter(
                 output_file_loc=output_file_loc,
                 fps=result.calculated_fps,
@@ -365,7 +365,18 @@ def write_video(result: VideoCaptureResult, save_folder: pathlib.Path,
         Clock.schedule_once(lambda dt: callbacks['reset_title'](), 0)
 
     logger.info("[PROTOCOL-VIDEO] Video writing finished.")
-    logger.info(f"[PROTOCOL-VIDEO] Video saved at {capture_result}")
+
+    # Verify the file actually exists and has content
+    if capture_result is not None and isinstance(capture_result, pathlib.Path):
+        if capture_result.exists() and capture_result.stat().st_size > 0:
+            logger.info(f"[PROTOCOL-VIDEO] Video saved at {capture_result} ({capture_result.stat().st_size} bytes)")
+        else:
+            logger.error(f"[PROTOCOL-VIDEO] Video file MISSING or EMPTY at {capture_result}. "
+                         f"The codec may not be available on this system. "
+                         f"Exists={capture_result.exists()}, "
+                         f"Size={capture_result.stat().st_size if capture_result.exists() else 'N/A'}")
+    else:
+        logger.info(f"[PROTOCOL-VIDEO] Video saved at {capture_result}")
 
     return capture_result
 

@@ -543,7 +543,7 @@ class MainDisplay(CompositeCapture): # i.e. global lumaview
                 if not video_save_folder.exists():
                     video_save_folder.mkdir(exist_ok=True, parents=True)
 
-                output_file_loc = video_save_folder / f"Video_{start_time_str}.mp4v"
+                output_file_loc = video_save_folder / f"Video_{start_time_str}.mp4"
 
                 video_writer = VideoWriter(
                     output_file_loc=output_file_loc,

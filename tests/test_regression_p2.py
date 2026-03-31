@@ -254,15 +254,15 @@ class TestVideoBitDepth:
             output_file_loc=out_path,
             fps=10.0,
             include_timestamp_overlay=False,
-            codec='mp4v',
         )
 
         # Create a 16-bit grayscale frame
         frame_16bit = np.ones((100, 100), dtype=np.uint16) * 1000
 
-        # Mock the cv2.VideoWriter so we can inspect what gets written
+        # Force cv2 backend and mock it so we can inspect what gets written
+        writer._use_pyav = False
         mock_cv2_writer = MagicMock()
-        writer._video = mock_cv2_writer
+        writer._cv2_video = mock_cv2_writer
         writer._shape = (100, 100)
 
         writer.add_frame(image=frame_16bit)
@@ -284,13 +284,13 @@ class TestVideoBitDepth:
             output_file_loc=out_path,
             fps=10.0,
             include_timestamp_overlay=False,
-            codec='mp4v',
         )
 
         frame_8bit = np.ones((100, 100), dtype=np.uint8) * 128
 
+        writer._use_pyav = False
         mock_cv2_writer = MagicMock()
-        writer._video = mock_cv2_writer
+        writer._cv2_video = mock_cv2_writer
         writer._shape = (100, 100)
 
         writer.add_frame(image=frame_8bit)
@@ -308,13 +308,13 @@ class TestVideoBitDepth:
             output_file_loc=out_path,
             fps=10.0,
             include_timestamp_overlay=False,
-            codec='mp4v',
         )
 
         frame_16bit_color = np.ones((100, 100, 3), dtype=np.uint16) * 500
 
+        writer._use_pyav = False
         mock_cv2_writer = MagicMock()
-        writer._video = mock_cv2_writer
+        writer._cv2_video = mock_cv2_writer
         writer._shape = (100, 100)
 
         writer.add_frame(image=frame_16bit_color)

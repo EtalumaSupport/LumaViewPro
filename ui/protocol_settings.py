@@ -1824,12 +1824,7 @@ class ProtocolSettings(FloatLayout):
 
             if not autofocus_scan:
                 try:
-                    from modules.notification_center import notifications
-                    notifications.info("Post-Processing", "Creating Hyperstacks",
-                        "Processing captured images into hyperstacks. This may take several minutes.")
                     create_hyperstacks_if_needed()
-                    notifications.info("Post-Processing", "Hyperstacks Complete",
-                        "Hyperstack generation finished.")
                 except Exception as e:
                     logger.error(f"Error occurred while creating hyperstacks: {e}", exc_info=True)
         except Exception as e:

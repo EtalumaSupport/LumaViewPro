@@ -5,7 +5,9 @@
 ### 1. Install prerequisites
 - **Python 3.12+**
 - **Git** (in PATH)
-- **WiX Toolset v6**: `dotnet tool install --global wix`
+- **WiX Toolset v5**: `dotnet tool install --global wix --version 5.0.2`
+  - Then add UI extension: `wix extension add -g WixToolset.UI.wixext`
+  - Note: WiX 6.0.2 broke the UI extension (no Install Complete dialog). Use v5.
 - **.NET SDK** (required for WiX)
 
 `build.ps1` manages the build virtual environment itself and installs `requirements-dev.txt`, so there is no separate `setup.ps1` step and no global `pip install` step required for the build machine.
@@ -25,7 +27,7 @@ mkdir D:\Builds\LumaViewPro\dependencies
 Download and place these in your build folder's `dependencies\`:
 
 **Required:**
-- `apache-maven-3.9.8\` - Extract from the Apache Maven binary zip. It is bundled into the installed app for ImageJ support.
+- `apache-maven-*\` - Extract from the Apache Maven binary zip (any version). It is bundled into the installed app for ImageJ support. The build script detects the folder name automatically.
 
 **Optional (for Bundle installer):**
 - `pylon_USB_Camera_Driver.msi` - Basler Pylon USB Camera Driver MSI

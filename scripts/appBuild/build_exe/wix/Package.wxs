@@ -1,10 +1,10 @@
 ﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 	<!-- These variables can be overridden via -d command line arguments -->
 	<?ifndef ProductName ?>
-		<?define ProductName = "LumaViewPro 3.0.0-beta" ?>
+		<?define ProductName = "LumaViewPro" ?>
 	<?endif ?>
 	<?ifndef Version ?>
-		<?define Version = "3.0.0" ?>
+		<?define Version = "4.0.0" ?>
 	<?endif ?>
 	<!-- Version must be in format x.x.x -->
 	<?ifndef Manufacturer ?>
@@ -15,6 +15,9 @@
 	<?endif ?>
 	<?ifndef InstallerAssetsDir ?>
 		<?define InstallerAssetsDir = "$(var.InstallFolderDir)" ?>
+	<?endif ?>
+	<?ifndef MavenFolderName ?>
+		<?define MavenFolderName = "" ?>
 	<?endif ?>
 	
   <Package Name="$(var.ProductName)" Manufacturer="$(var.Manufacturer)" Version="$(var.Version)" Compressed="yes" UpgradeCode="90907569-ca5a-4e20-b393-2e042e9f8b93" InstallerVersion="500">
@@ -57,7 +60,7 @@
 	  
 	  <Component Id="pathComponentMaven" Guid="a096f34d-64fb-48af-ac95-1f24648ce759" KeyPath="yes">
 		  <CreateFolder />
-		  <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]apache-maven-3.9.8\bin" Permanent="no" Part="last" Action="set" System="yes" />
+		  <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]$(var.MavenFolderName)\bin" Permanent="no" Part="last" Action="set" System="yes" />
 
 	  </Component>
 	  <Component Id="pathComponentLVPInstall" Guid="e2ae148c-3520-454f-9cf7-4f5aca7ca6bd" KeyPath="yes">
@@ -75,6 +78,20 @@
 			Value="GpuPreference=2;"
 			Action="write" />
 	  </Component>
-	  
+
+	  <!-- Show completion message when running standalone MSI (no UI extension needed).
+	       The Bundle (setup.exe) has its own completion dialog via WixStdBA theme. -->
+	  <CustomAction Id="InstallCompleteMessage"
+		  Script="vbscript"
+		  Execute="immediate"
+		  Return="check">
+		  <![CDATA[
+		  MsgBox "$(var.ProductName) has been installed successfully." & vbCrLf & vbCrLf & "You can launch it from the Start Menu.", vbOKOnly + vbInformation, "Installation Complete"
+		  ]]>
+	  </CustomAction>
+	  <InstallExecuteSequence>
+		  <Custom Action="InstallCompleteMessage" After="InstallFinalize">NOT Installed AND NOT REMOVE</Custom>
+	  </InstallExecuteSequence>
+
   </Package>
 </Wix>

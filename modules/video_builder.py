@@ -18,12 +18,6 @@ from lvp_logger import logger
 
 class VideoBuilder(ProtocolPostProcessingExecutor):
 
-    CODECS = [
-        0,
-        'mp4v',
-        'mjpg'
-    ]
-
     def __init__(self, *args, **kwargs):
         super().__init__(
             post_function=PostFunction.VIDEO,
@@ -71,7 +65,7 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
             video=True,
         )
 
-        outfile = f"{name}.avi"
+        outfile = f"{name}.mp4"
         return outfile
     
 
@@ -133,14 +127,6 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         )
 
 
-    @staticmethod
-    def _get_fourcc_code(codec: str | int):
-        if isinstance(codec, str):
-            fourcc = cv2.VideoWriter_fourcc(*codec)
-        else:
-            fourcc = codec
-
-        return fourcc
     
     
     def _create_video(
@@ -182,9 +168,7 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         else:
             df = df.sort_values(by=['Scan Count'], ascending=True)
 
-        # codec = self.CODECS[0] # Set to AVI
-        codec = self.CODECS[1] # Set to mp4v
-        fourcc = self._get_fourcc_code(codec=codec)
+        from modules.video_writer import VideoWriter
 
         def _get_image_info() -> tuple:
             source_image_sample_filename = df['Filepath'].values[0]
@@ -209,12 +193,10 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         (frame_height, frame_width), is_color = _get_image_info()
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
-        video = cv2.VideoWriter(
-            filename=str(output_file_loc_abs),
-            fourcc=fourcc,
+        video = VideoWriter(
+            output_file_loc=output_file_loc_abs,
             fps=frames_per_sec,
-            frameSize=(frame_width, frame_height),
-            isColor=is_color
+            include_timestamp_overlay=enable_timestamp_overlay,
         )
 
         logger.info(f"[{self._name}] Writing video to {output_file_loc}")
@@ -234,21 +216,16 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
                 logger.error(f"[{self._name}] Failed to read image: {image_path}")
                 continue
 
-            if enable_timestamp_overlay:
-                frame_ts = _get_timestamp_str(row['Timestamp'])
-                image = image_utils.add_timestamp(image=image, timestamp_str=frame_ts)
-                
-            # mp4v codec only supports 8-bit — convert if needed (#424)
-            if image.dtype != np.uint8:
-                image = image_utils.convert_16bit_to_8bit(image) if image.dtype == np.uint16 else image.astype(np.uint8)
-            video.write(image)
+            # Timestamp overlay and 8-bit conversion handled by VideoWriter.add_frame()
+            frame_ts = row['Timestamp'].to_pydatetime() if enable_timestamp_overlay else None
+            video.add_frame(image=image, timestamp=frame_ts)
 
             if popup is not None:
                 popup.progress = start_percentage + (i / total_frames) * percent_diff
-            
+
             i += 1
 
-        video.release()
+        video.finish()
 
         logger.debug(f"[{self._name}] - Complete")
 
