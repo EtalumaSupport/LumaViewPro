@@ -26,19 +26,14 @@ if sys.version_info < (3, 11):
     sys.exit(1)
 
 import atexit
-import copy
 import datetime
-from datetime import datetime as date_time
 import functools
 import json
 import logging
-import math
 import os
-import pathlib
 import sys
 import threading
 import time
-import typing
 
 import matplotlib
 matplotlib.use('Agg')  # Must be set before pyplot import to avoid Tk/macOS conflict
@@ -103,51 +98,25 @@ if __name__ == "__main__":
 
     import modules.profiling_utils as profiling_utils
 
-    from modules.memory_profiler import MemoryLeakProfiler
+    from concurrent.futures import ProcessPoolExecutor
 
-    from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-
-    #post processing
-    from modules.video_builder import VideoBuilder
-
-    from modules.tiling_config import TilingConfig
     import modules.common_utils as common_utils
-
     import modules.labware as labware
     from modules.autofocus_executor import AutofocusExecutor
     import modules.autofocus_functions as autofocus_functions
-    from modules.stitcher import Stitcher
     import modules.binning as binning
-    from modules.composite_generation import CompositeGeneration
     import modules.coord_transformations as coord_transformations
     import modules.labware_loader as labware_loader
     import modules.lvp_lock as lvp_lock
     import modules.objectives_loader as objectives_loader
-    from modules.protocol import Protocol, ProtocolFormatError
+    from modules.protocol import Protocol
     from modules.sequenced_capture_executor import SequencedCaptureExecutor
-    from modules.sequenced_capture_executor import SequencedCaptureRunMode
-    from modules.stack_builder import StackBuilder
-    from modules.zstack_config import ZStackConfig
-    from modules.common_utils import CustomJSONizer
-    from modules.timedelta_formatter import strfdelta
-    import modules.imagej_helper as imagej_helper
-    import modules.zprojector as zprojector
-    from modules.video_writer import VideoWriter
-    from modules.debounce import debounce
     from modules.sequential_io_executor import IOTask, SequentialIOExecutor
     import modules.config_helpers as config_helpers
-    import modules.scope_commands as scope_commands
     from modules.scope_session import ScopeSession
     import modules.app_context as app_context
     from modules.app_context import AppContext
-
-
-    # Hardware
-    import modules.lumascope_api as lumascope_api
     import modules.post_processing as post_processing
-
-    import modules.image_utils as image_utils
-
 
     global profiling_helper
     profiling_helper = None
@@ -309,7 +278,6 @@ from modules.config_ui_getters import (  # noqa: E402
     create_hyperstacks_if_needed,
 )
 
-from modules.ui_helpers import cleanup_scrollview_viewport  # noqa: E402
 from ui.scope_display import ScopeDisplay  # noqa: E402
 from ui.composite_capture import CompositeCapture  # noqa: E402
 from ui.main_display import MainDisplay  # noqa: E402
@@ -327,7 +295,6 @@ from ui.post_processing import (  # noqa: E402
     StitchControls, ZProjectionControls, CompositeGenControls,
     VideoCreationControls, GraphingControls, CellCountControls,
     PostProcessingAccordion, CellCountDisplay,
-    open_last_save_folder,
 )
 
 from ui.histogram import Histogram  # noqa: E402
