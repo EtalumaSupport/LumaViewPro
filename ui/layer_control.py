@@ -574,11 +574,14 @@ class LayerControl(BoxLayout):
     _suppressing_led_log = False  # Class-level flag to prevent duplicate logging
 
     def update_led_state(self, apply_settings=True):
+        # Skip hardware commands during programmatic state changes
+        # (e.g., disable_leds_for_other_layers toggling buttons)
+        if LayerControl._suppressing_led_log or self._initializing:
+            return
         settings = _app_ctx.ctx.settings
         camera_executor = _app_ctx.ctx.camera_executor
         enabled = True if self.ids['enable_led_btn'].state == 'down' else False
-        if not LayerControl._suppressing_led_log:
-            gui_logger.toggle(f'LED_{self.layer}', enabled)
+        gui_logger.toggle(f'LED_{self.layer}', enabled)
         illumination = settings[self.layer]['ill']
 
         if apply_settings:

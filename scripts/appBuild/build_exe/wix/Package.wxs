@@ -1,4 +1,4 @@
-﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
 	<!-- These variables can be overridden via -d command line arguments -->
 	<?ifndef ProductName ?>
 		<?define ProductName = "LumaViewPro" ?>
@@ -81,9 +81,7 @@
 
 	  <!-- Standard install UI: welcome, progress, completion dialog.
 	       Provided by WixToolset.UI.wixext (WiX 5). -->
-	  <UI>
-		  <UIRef Id="WixUI_Minimal" />
-	  </UI>
+	  <ui:WixUI Id="WixUI_Minimal" />
 
   </Package>
 </Wix>

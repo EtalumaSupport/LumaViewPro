@@ -162,6 +162,11 @@ def go_to_step_update_ui(step):
     color = step['Color']
     layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
+    # Suppress Kivy event handlers during programmatic widget updates.
+    # Without this, every slider.value/checkbox.active/button.state change
+    # triggers event handlers that send redundant hardware commands.
+    layer_obj._initializing = True
+
     # open ImageSettings
     ctx.image_settings.ids['toggle_imagesettings'].state = 'down'
     ctx.image_settings.toggle_settings()
@@ -266,3 +271,6 @@ def go_to_step_update_ui(step):
     # Outside protocol: only if protocol_led_on is enabled (preview mode).
     if protocol_running_global.is_set() or settings.get('protocol_led_on', False):
         layer_obj.ids['enable_led_btn'].state = 'down'
+
+    # Re-enable event handlers now that UI is updated
+    layer_obj._initializing = False
