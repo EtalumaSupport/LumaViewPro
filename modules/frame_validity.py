@@ -114,20 +114,8 @@ class FrameValidity:
     def is_valid(self) -> bool:
         """True if all pending state changes have settled."""
         with self._lock:
-            if not self._pending:
-                return True
-            for s, t in self._pending.items():
-                if not self._is_source_settled_unlocked(s, t):
-                    # TEMP DEBUG: log why we're invalid (remove after debugging)
-                    import logging
-                    logging.getLogger('LVP').warning(
-                        f'[FrameValidity] INVALID: source={s}, target={t}, '
-                        f'counter={self._frame_counter}, '
-                        f'frames_short={max(0, t - self._frame_counter)}, '
-                        f'is_motion={s in self.MOTION_SOURCES}'
-                    )
-                    return False
-            return True
+            return all(self._is_source_settled_unlocked(s, t)
+                       for s, t in self._pending.items())
 
     def is_valid_for(self, exclude_sources: tuple = ()) -> bool:
         """True if valid, ignoring specified sources.

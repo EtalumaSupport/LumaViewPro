@@ -644,13 +644,17 @@ class LayerControl(BoxLayout):
                     self.update_shader(dt=0)
 
         def disable_leds_for_other_layers(dt=None):
-            if self.ids['enable_led_btn'].state == 'down': # if the button is down
+            if self.ids['enable_led_btn'].state == 'down':
                 LayerControl._suppressing_led_log = True
                 try:
                     for layer in common_utils.get_layers():
                         if layer != self.layer:
                             layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-                            layer_obj.ids['enable_led_btn'].state = 'normal'
+                            btn = layer_obj.ids['enable_led_btn']
+                            # Only set if changed — Kivy skips event dispatch
+                            # if value is the same, avoiding cascade overhead
+                            if btn.state != 'normal':
+                                btn.state = 'normal'
                 finally:
                     LayerControl._suppressing_led_log = False
 
