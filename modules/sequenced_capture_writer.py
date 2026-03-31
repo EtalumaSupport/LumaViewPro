@@ -11,7 +11,7 @@ import logging
 os.environ['KIVY_NO_CONSOLELOG'] = '1'
 
 def _noop(i: int):
-    print(f"noop task received: {i!r}")
+    print(f"noop task received: {i!r}")  # OK: subprocess worker, no logger available
     return None
 
 
@@ -46,7 +46,12 @@ def setup_worker_logger(log_dir: str = ".") -> logging.Logger:
     return logger
 
 def worker_initializer(lvp_appdata):
-    """Initialize worker process - called once when process starts."""
+    """Initialize worker process - called once when process starts.
+
+    NOTE: All print() calls in this module are intentional — subprocess workers
+    cannot use the standard Python logger (it's not inherited across process
+    boundaries). Output is redirected to subprocess_workers.log via prefixed_print().
+    """
     import os
     import sys
     import atexit
@@ -231,26 +236,7 @@ def write_capture(
                     raise RuntimeError(f"Unable to save image: {e}") from e
 
                 del captured_image
-            
-                
-                
-                # result = self._scope.save_live_image(
-                #     save_folder=save_folder,
-                #     file_root=None,
-                #     append=name,
-                #     color=use_color,
-                #     tail_id_mode=None,
-                #     force_to_8bit=not use_full_pixel_depth,
-                #     output_format=output_format,
-                #     true_color=step['Color'],
-                #     earliest_image_ts=earliest_image_ts,
-                #     timeout=datetime.timedelta(seconds=1.0),
-                #     all_ones_check=True,
-                #     sum_count=sum_count,
-                #     sum_delay_s=step["Exposure"]/1000,
-                #     sum_iteration_callback=sum_iteration_callback,
-                #     turn_off_all_leds_after=True,
-                # )
+
             if capture_result is None:
                 capture_result_filepath_name = "unsaved"
 

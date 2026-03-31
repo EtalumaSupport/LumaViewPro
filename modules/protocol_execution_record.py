@@ -156,10 +156,3 @@ class ProtocolExecutionRecord:
             )
 
             
-
-            
-
-        
-
-    
-    

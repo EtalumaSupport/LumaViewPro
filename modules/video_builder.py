@@ -127,8 +127,6 @@ class VideoBuilder(ProtocolPostProcessingExecutor):
         )
 
 
-    
-    
     def _create_video(
         self,
         path: pathlib.Path,

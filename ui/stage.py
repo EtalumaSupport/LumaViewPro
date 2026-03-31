@@ -430,8 +430,6 @@ class Stage(Widget):
         return fbo
 
 
-
-
     def draw_labware_io_calculations(self, full_redraw: bool = False):
         ctx = _app_ctx.ctx
         settings = ctx.settings
@@ -494,7 +492,6 @@ class Stage(Widget):
         # mm to pixels scale
         scale_x = w/dim_max['x']
         scale_y = h/dim_max['y']
-
 
 
         stage_x = settings['stage_offset']['x']/1000
@@ -735,7 +732,6 @@ class Stage(Widget):
                     ),
                     pass_result=True
                 ))
-
 
 
     def motion_enabled_io(self):

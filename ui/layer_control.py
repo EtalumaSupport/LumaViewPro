@@ -659,7 +659,6 @@ class LayerControl(BoxLayout):
                     LayerControl._suppressing_led_log = False
 
 
-
         if protocol or protocol_running_global.is_set():
             Clock.schedule_once(disable_leds_for_other_layers, 0)
             Clock.schedule_once(update_shader, 0)
@@ -677,9 +676,6 @@ class LayerControl(BoxLayout):
         if update_led:
             if not protocol_running_global.is_set():
                 self.update_led_state(apply_settings=False)
-
-
-
 
 
         disable_leds_for_other_layers()
@@ -710,8 +706,6 @@ class LayerControl(BoxLayout):
         # update false color to currently selected settings and shader
         # -----------------------------------------------------
         update_shader()
-
-
 
 
     def update_shader(self, dt):

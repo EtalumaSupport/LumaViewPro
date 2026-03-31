@@ -140,7 +140,6 @@ def go_to_step(
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
 
-
         # Force stage crosshair + position text update after step navigation.
         # The move_position callback in _default_move normally handles this,
         # but when go_to_step is used (all UI-triggered protocols), _default_move
@@ -151,7 +150,6 @@ def go_to_step(
         Clock.schedule_once(lambda dt: ctx.stage.draw_labware(), 0)
 
         Clock.schedule_once(lambda dt: go_to_step_update_ui(step), 0)
-
 
 
 def go_to_step_update_ui(step):
@@ -175,7 +173,6 @@ def go_to_step_update_ui(step):
     if not protocol_running_global.is_set():
         accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=color)
         accordion_item_obj.collapse = False
-
 
 
     # set autofocus checkbox

@@ -71,7 +71,6 @@ except Exception as e:
     debug = False
 
 
-
 log_dir = os.path.join(lvp_appdata, "logs", "LVP_Log")
 os.makedirs(log_dir, exist_ok=True)
 

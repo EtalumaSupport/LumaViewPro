@@ -168,7 +168,6 @@ class SequencedCaptureExecutor:
         self._video_write_finished.set()
         
 
-
     @staticmethod
     def _calculate_num_scans(
         protocol: Protocol,
@@ -530,8 +529,5 @@ class SequencedCaptureExecutor:
             set_run_in_progress_fn=lambda v: self._run_in_progress_event.set() if v else self._run_in_progress_event.clear(),
             logger_name=self.LOGGER_NAME,
         )
-
-
-
 
 
