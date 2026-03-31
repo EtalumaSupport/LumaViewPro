@@ -11,90 +11,72 @@ d = dm.Devices()[0].OpenDevice(ids_peak.DeviceAccessType_Control)
 ds = d.DataStreams()[0].OpenDataStream()
 nm = d.RemoteDevice().NodeMaps()[0]
 
+# Try setting throughput component BEFORE UserSetLoad
+print("=== Before UserSetLoad ===")
+try:
+    comp = nm.FindNode('DeviceLinkThroughputLimitComponent')
+    print(f'  Component = {comp.CurrentEntry().SymbolicValue()}')
+    comp.SetCurrentEntry('Link')
+    print(f'  Component -> Link (success!)')
+except Exception as e:
+    print(f'  Component set failed: {e}')
+
 nm.FindNode('UserSetSelector').SetCurrentEntry('Default')
 nm.FindNode('UserSetLoad').Execute()
 nm.FindNode('UserSetLoad').WaitUntilDone()
+print("\n=== After UserSetLoad ===")
 
-# Disable frame rate limiter
+# Check if UserSetLoad reset it
+try:
+    comp = nm.FindNode('DeviceLinkThroughputLimitComponent')
+    print(f'  Component = {comp.CurrentEntry().SymbolicValue()}')
+except: pass
+
+# Try setting it again after UserSetLoad
+try:
+    comp = nm.FindNode('DeviceLinkThroughputLimitComponent')
+    comp.SetCurrentEntry('Link')
+    print(f'  Component -> Link (success!)')
+except Exception as e:
+    print(f'  Component set failed: {e}')
+
+# Disable frame rate target
 try:
     nm.FindNode('AcquisitionFrameRateTargetEnable').SetValue(False)
-    print('Frame rate limiter disabled')
+    print('  AcquisitionFrameRateTargetEnable -> False')
 except Exception as e:
-    print(f'Frame rate limiter: {e}')
+    print(f'  AcquisitionFrameRateTargetEnable: {e}')
 
 # Max throughput
 try:
     n = nm.FindNode('DeviceLinkThroughputLimit')
     n.SetValue(n.Maximum())
-    print(f'Throughput limit: {n.Value()} B/s')
+    print(f'  DeviceLinkThroughputLimit -> {n.Value()} B/s')
 except Exception as e:
-    print(f'Throughput: {e}')
+    print(f'  DeviceLinkThroughputLimit: {e}')
 
-# Dump all frame rate and throughput nodes
-for node_name in ['AcquisitionFrameRateTargetEnable',
-                  'AcquisitionFrameRateTarget',
-                  'AcquisitionFrameRate',
-                  'DeviceLinkAcquisitionFrameRateLimit',
-                  'DeviceLinkThroughputLimit',
-                  'DeviceLinkThroughputLimitComponent',
-                  'DeviceLinkCurrentThroughput']:
-    try:
-        node = nm.FindNode(node_name)
-        if hasattr(node, 'CurrentEntry'):
-            val = node.CurrentEntry().SymbolicValue()
-        elif hasattr(node, 'Value'):
-            val = node.Value()
-        else:
-            val = '?'
-        extra = ''
-        if hasattr(node, 'Maximum'):
-            extra = f'  (min={node.Minimum()}, max={node.Maximum()})'
-        print(f'  {node_name} = {val}{extra}')
-    except Exception as e:
-        print(f'  {node_name}: {e}')
-
-# Step 1: Disable frame rate target
-try:
-    nm.FindNode('AcquisitionFrameRateTargetEnable').SetValue(False)
-    print('\nDisabled AcquisitionFrameRateTargetEnable')
-except Exception as e:
-    print(f'\nAcquisitionFrameRateTargetEnable: {e}')
-
-# Step 2: Max throughput limit
-try:
-    n = nm.FindNode('DeviceLinkThroughputLimit')
-    n.SetValue(n.Maximum())
-    print(f'DeviceLinkThroughputLimit -> {n.Value()} B/s (max)')
-except Exception as e:
-    print(f'DeviceLinkThroughputLimit: {e}')
-
-# Step 3: Switch throughput component from Sensor to Link
-try:
-    node = nm.FindNode('DeviceLinkThroughputLimitComponent')
-    print(f'DeviceLinkThroughputLimitComponent was: {node.CurrentEntry().SymbolicValue()}')
-    node.SetCurrentEntry('Link')
-    print(f'DeviceLinkThroughputLimitComponent now: {node.CurrentEntry().SymbolicValue()}')
-except Exception as e:
-    print(f'DeviceLinkThroughputLimitComponent: {e}')
-
-# Step 4: Re-check frame rate after throughput change
-try:
-    fr = nm.FindNode('AcquisitionFrameRate')
-    limit = nm.FindNode('DeviceLinkAcquisitionFrameRateLimit')
-    print(f'\nAfter throughput max:')
-    print(f'  AcquisitionFrameRate = {fr.Value():.1f} (max={fr.Maximum():.1f})')
-    print(f'  DeviceLinkAcquisitionFrameRateLimit = {limit.Value():.1f}')
-except Exception as e:
-    print(f'Re-check: {e}')
-
-nm.FindNode('ExposureTime').SetValue(10000)  # 10ms
+# Set resolution
 nm.FindNode('Width').SetValue(1920)
 nm.FindNode('Height').SetValue(1528)
-w = nm.FindNode('Width').Value()
-h = nm.FindNode('Height').Value()
-print(f'Exposure: 10ms, Resolution: {w}x{h}')
+
+# Now check frame rate limits
+try:
+    fr = nm.FindNode('AcquisitionFrameRate')
+    print(f'\n  AcquisitionFrameRate = {fr.Value():.1f} (max={fr.Maximum():.1f})')
+    fr.SetValue(fr.Maximum())
+    print(f'  AcquisitionFrameRate -> {fr.Value():.1f}')
+except Exception as e:
+    print(f'  AcquisitionFrameRate: {e}')
+
+try:
+    limit = nm.FindNode('DeviceLinkAcquisitionFrameRateLimit')
+    print(f'  DeviceLinkAcquisitionFrameRateLimit = {limit.Value():.1f}')
+except: pass
+
+nm.FindNode('ExposureTime').SetValue(10000)  # 10ms
 
 ps = nm.FindNode('PayloadSize').Value()
+print(f'\nResolution: {nm.FindNode("Width").Value()}x{nm.FindNode("Height").Value()}')
 print(f'Payload size: {ps} bytes ({ps/1024/1024:.1f} MB)')
 
 for i in range(6):
@@ -104,7 +86,7 @@ for i in range(6):
 ds.StartAcquisition()
 nm.FindNode('AcquisitionStart').Execute()
 
-# Test 1: Raw grab loop - no conversion
+# Test 1: Raw grab
 count = 0
 start = time.monotonic()
 for _ in range(100):
@@ -114,18 +96,7 @@ for _ in range(100):
 elapsed = time.monotonic() - start
 print(f'\nRaw grab (no conversion): {count/elapsed:.1f} fps')
 
-# Test 2: With BufferToImage + early return
-count = 0
-start = time.monotonic()
-for _ in range(100):
-    buf = ds.WaitForFinishedBuffer(2000)
-    img = ids_peak_ipl_extension.BufferToImage(buf)
-    ds.QueueBuffer(buf)
-    count += 1
-elapsed = time.monotonic() - start
-print(f'BufferToImage + early return: {count/elapsed:.1f} fps')
-
-# Test 3: Full pipeline (BufferToImage + ConvertTo + numpy copy)
+# Test 2: Full pipeline
 count = 0
 start = time.monotonic()
 for _ in range(100):
