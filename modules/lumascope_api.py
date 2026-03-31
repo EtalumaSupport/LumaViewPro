@@ -1401,6 +1401,7 @@ class Lumascope():
         grab_status, tmp, grab_image_ts = self.camera.grab_latest()
         if not grab_status or tmp is None:
             return False, None
+        self.frame_validity.count_frame()
 
         with self._state_lock:
             self._frame_buffer = tmp
