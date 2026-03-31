@@ -30,24 +30,62 @@ try:
 except Exception as e:
     print(f'Throughput: {e}')
 
-# Try ALL known frame rate related nodes
+# Dump all frame rate and throughput nodes
 for node_name in ['AcquisitionFrameRateTargetEnable',
                   'AcquisitionFrameRateTarget',
                   'AcquisitionFrameRate',
-                  'DeviceLinkAcquisitionFrameRateLimit']:
+                  'DeviceLinkAcquisitionFrameRateLimit',
+                  'DeviceLinkThroughputLimit',
+                  'DeviceLinkThroughputLimitComponent',
+                  'DeviceLinkCurrentThroughput']:
     try:
         node = nm.FindNode(node_name)
-        val = node.Value() if hasattr(node, 'Value') else '?'
-        print(f'  {node_name} = {val}')
-        # Try to maximize or disable
-        if 'Enable' in node_name:
-            node.SetValue(False)
-            print(f'    -> set to False')
-        elif hasattr(node, 'Maximum'):
-            node.SetValue(node.Maximum())
-            print(f'    -> set to max: {node.Maximum()}')
+        if hasattr(node, 'CurrentEntry'):
+            val = node.CurrentEntry().SymbolicValue()
+        elif hasattr(node, 'Value'):
+            val = node.Value()
+        else:
+            val = '?'
+        extra = ''
+        if hasattr(node, 'Maximum'):
+            extra = f'  (min={node.Minimum()}, max={node.Maximum()})'
+        print(f'  {node_name} = {val}{extra}')
     except Exception as e:
         print(f'  {node_name}: {e}')
+
+# Step 1: Disable frame rate target
+try:
+    nm.FindNode('AcquisitionFrameRateTargetEnable').SetValue(False)
+    print('\nDisabled AcquisitionFrameRateTargetEnable')
+except Exception as e:
+    print(f'\nAcquisitionFrameRateTargetEnable: {e}')
+
+# Step 2: Max throughput limit
+try:
+    n = nm.FindNode('DeviceLinkThroughputLimit')
+    n.SetValue(n.Maximum())
+    print(f'DeviceLinkThroughputLimit -> {n.Value()} B/s (max)')
+except Exception as e:
+    print(f'DeviceLinkThroughputLimit: {e}')
+
+# Step 3: Check if throughput component matters
+try:
+    node = nm.FindNode('DeviceLinkThroughputLimitComponent')
+    print(f'DeviceLinkThroughputLimitComponent = {node.CurrentEntry().SymbolicValue()}')
+    for entry in node.AvailableEntries():
+        print(f'  available: {entry.SymbolicValue()}')
+except Exception as e:
+    print(f'DeviceLinkThroughputLimitComponent: {e}')
+
+# Step 4: Re-check frame rate after throughput change
+try:
+    fr = nm.FindNode('AcquisitionFrameRate')
+    limit = nm.FindNode('DeviceLinkAcquisitionFrameRateLimit')
+    print(f'\nAfter throughput max:')
+    print(f'  AcquisitionFrameRate = {fr.Value():.1f} (max={fr.Maximum():.1f})')
+    print(f'  DeviceLinkAcquisitionFrameRateLimit = {limit.Value():.1f}')
+except Exception as e:
+    print(f'Re-check: {e}')
 
 nm.FindNode('ExposureTime').SetValue(10000)  # 10ms
 nm.FindNode('Width').SetValue(1920)
