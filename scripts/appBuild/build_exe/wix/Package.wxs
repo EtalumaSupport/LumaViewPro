@@ -79,19 +79,11 @@
 			Action="write" />
 	  </Component>
 
-	  <!-- Show completion message when running standalone MSI (no UI extension needed).
-	       The Bundle (setup.exe) has its own completion dialog via WixStdBA theme. -->
-	  <CustomAction Id="InstallCompleteMessage"
-		  Script="vbscript"
-		  Execute="immediate"
-		  Return="check">
-		  <![CDATA[
-		  MsgBox "$(var.ProductName) has been installed successfully." & vbCrLf & vbCrLf & "You can launch it from the Start Menu.", vbOKOnly + vbInformation, "Installation Complete"
-		  ]]>
-	  </CustomAction>
-	  <InstallExecuteSequence>
-		  <Custom Action="InstallCompleteMessage" After="InstallFinalize">NOT Installed AND NOT REMOVE</Custom>
-	  </InstallExecuteSequence>
+	  <!-- Standard install UI: welcome, progress, completion dialog.
+	       Provided by WixToolset.UI.wixext (WiX 5). -->
+	  <UI>
+		  <UIRef Id="WixUI_Minimal" />
+	  </UI>
 
   </Package>
 </Wix>

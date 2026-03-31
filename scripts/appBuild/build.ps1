@@ -330,6 +330,7 @@ $msi = Join-Path $output_dir "$product.msi"
 
 Write-Host "Building MSI..."
 & $wix_exe build -arch x64 `
+    -ext WixToolset.UI.wixext `
     -d "InstallFolderDir=$install" `
     -d "InstallerAssetsDir=$installer_assets_dir" `
     -d "ProjectDir=$wix_dir\" `
