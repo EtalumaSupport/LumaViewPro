@@ -45,8 +45,8 @@ logger = logging.getLogger('LVP.ui.scope_display')
 
 # --- Display constants ---
 BULLSEYE_FPS_CAP = 15          # Max FPS for CPU-intensive bullseye LUT rendering
-VALIDITY_DOT_RADIUS = 6        # Engineering-mode validity indicator dot radius (px)
-VALIDITY_DOT_MARGIN = 12       # Margin from image edge to dot center (px)
+VALIDITY_DOT_RADIUS = 25       # Engineering-mode validity indicator dot radius (px)
+VALIDITY_DOT_MARGIN = 35       # Margin from image edge to dot center (px)
 
 
 class ScopeDisplay(Image):
