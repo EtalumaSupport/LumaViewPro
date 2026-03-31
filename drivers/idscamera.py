@@ -328,6 +328,10 @@ class IDSCamera(Camera):
         try:
             with self.update_camera_config():
                 self.remote_nodemap.FindNode("ExposureTime").SetValue(float(t)*1000)
+            self._last_exposure_ms = float(t)
+            # Update grab timeout so long exposures don't cause perpetual timeouts
+            if self.cam_image_handler:
+                self.cam_image_handler.timeout_ms = max(2000, int(t * 2 + 500))
             logger.info(f'[CAM Class ] Exposure set to {t}ms')
         except Exception as e:
             logger.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
@@ -527,6 +531,7 @@ class ImageHandler(ImageHandlerBase):
     def __init__(self, data_stream: ids_peak.DataStream, parent_cam: 'IDSCamera'):
         super().__init__()
         self.data_stream = data_stream
+        self.timeout_ms = 2000  # Updated by exposure_t() for long exposures
         self._parent = parent_cam
         self._grab_thread = None
         self._stop_event = threading.Event()
@@ -544,19 +549,26 @@ class ImageHandler(ImageHandlerBase):
             self._grab_thread = None
 
     def _grab_loop(self):
+        # Pre-create converter for Mono10→Mono8 (reuse avoids per-frame alloc)
+        try:
+            converter = ids_peak_ipl.ImageConverter()
+            converter.PreAllocateConversion(
+                ids_peak_ipl.PixelFormatName_Mono8, 1920, 1528)
+        except Exception:
+            converter = None  # Fall back to per-frame ConvertTo
+
         while not self._stop_event.is_set():
             buffer = None
             try:
-                # Timeout must exceed exposure time — at 2000ms exposure,
-                # a 1000ms timeout causes perpetual timeouts.
-                exposure_ms = self._parent.get_exposure_t()
-                timeout_ms = max(2000, int(exposure_ms * 2 + 500)) if exposure_ms > 0 else 2000
-                buffer = self.data_stream.WaitForFinishedBuffer(timeout_ms)
+                buffer = self.data_stream.WaitForFinishedBuffer(self.timeout_ms)
                 result = not buffer.IsIncomplete()
                 if result:
                     img = ids_peak_ipl_extension.BufferToImage(buffer)
                     if img.PixelFormat() != ids_peak_ipl.PixelFormatName_Mono8:
-                        img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
+                        if converter:
+                            img = converter.Convert(img, ids_peak_ipl.PixelFormatName_Mono8)
+                        else:
+                            img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
                     frame = img.get_numpy().copy()
                     ts = datetime.datetime.now()
                     self._store_frame(frame, ts)

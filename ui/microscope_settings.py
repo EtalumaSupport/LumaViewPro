@@ -538,9 +538,17 @@ class MicroscopeSettings(BoxLayout):
         ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
 
         if use_full_pixel_depth:
-            ctx.lumaview.scope.set_pixel_format('Mono12')
+            # Try Mono12, fall back to first supported format
+            if not ctx.lumaview.scope.set_pixel_format('Mono12'):
+                formats = ctx.lumaview.scope.get_supported_pixel_formats()
+                if formats:
+                    ctx.lumaview.scope.set_pixel_format(formats[0])
         else:
-            ctx.lumaview.scope.set_pixel_format('Mono8')
+            # Try Mono8, fall back to first supported format
+            if not ctx.lumaview.scope.set_pixel_format('Mono8'):
+                formats = ctx.lumaview.scope.get_supported_pixel_formats()
+                if formats:
+                    ctx.lumaview.scope.set_pixel_format(formats[0])
 
         settings['use_full_pixel_depth'] = use_full_pixel_depth
 
