@@ -164,6 +164,8 @@ class IDSCamera(Camera):
                 self.set_pixel_format(preferred)
                 #TODO: auto gain
                 self.remote_nodemap.FindNode("ReverseX").SetValue(True)
+                # Disable frame rate limiter — UserSetDefault may enable it at 5 fps
+                self.set_max_acquisition_frame_rate(False)
                 self.exposure_t(10)
                 self.set_frame_size(1920,1528)
         except Exception as e:
