@@ -67,7 +67,9 @@ class VideoWriter:
             self._stream.height = height
             self._stream.pix_fmt = 'yuv420p'
             # Quality: CRF 23 is visually lossless for microscopy at reasonable file size
-            self._stream.options = {'crf': '23', 'preset': 'fast'}
+            # ultrafast: minimal CPU cost, slightly larger files. Microscopy
+            # frames have low noise so quality difference is negligible.
+            self._stream.options = {'crf': '23', 'preset': 'ultrafast'}
             self._is_color = is_color
             logger.info(f"VideoWriter: Opened H.264 encoder ({width}x{height} @ {int(self._fps)}fps)")
         except Exception as e:
