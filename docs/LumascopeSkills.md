@@ -70,6 +70,12 @@ LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret m
 | `drivers/simulated_camera.py` | Simulated camera for testing |
 | `drivers/simulated_ledboard.py` | Simulated LED board for testing |
 | `drivers/simulated_motorboard.py` | Simulated motor board for testing |
+| `drivers/null_motorboard.py` | No-op motor board (no hardware connected) |
+| `drivers/null_ledboard.py` | No-op LED board (no hardware connected) |
+| `modules/frame_validity.py` | Single source of truth for capture readiness |
+| `modules/notification_center.py` | Thread-safe notification bus (error/warning/info) |
+| `modules/video_writer.py` | H.264/MP4 video writer (PyAV primary, cv2 fallback) |
+| `modules/video_capture.py` | Protocol video capture session management |
 
 ---
 
@@ -176,9 +182,12 @@ scope.has_xyhomed()              # True if XY homed
 scope.has_thomed()               # True if turret homed
 
 # Position queries (µm for XYZ, position 1-4 for T)
+# Returns predicted position during motion (trapezoidal ramp model),
+# confirmed position when idle. Zero serial I/O — reads from cache.
 scope.get_current_position('Z')          # Current Z in µm
 scope.get_current_position(axis=None)    # Dict: {'X': ..., 'Y': ..., 'Z': ..., 'T': ...}
 scope.get_target_position('Z')           # Target Z in µm
+scope.get_actual_position('Z')           # Hardware position via serial (use sparingly)
 
 # Absolute moves (µm)
 scope.move_absolute_position('Z', 5000)  # Move Z to 5000 µm
@@ -210,6 +219,46 @@ scope.get_axes_config()          # All axes with limits and conversion functions
 
 **Z overshoot**: When moving Z downward, the firmware first moves below the target then approaches from below. This eliminates backlash for consistent focus. Controlled by `overshoot_enabled` parameter.
 
+**Position listeners** (push-based UI updates):
+```python
+# Register for position/state changes on any axis.
+# Called from the thread that caused the change — schedule UI work via Clock.
+def on_position(axis, target_pos, state):
+    print(f"{axis} → {target_pos:.1f}µm ({state})")
+
+scope.add_position_listener(on_position)
+scope.remove_position_listener(on_position)
+```
+
+**Axis state model**:
+```python
+from modules.lumascope_api import AxisState
+
+scope.get_axis_state('Z')       # AxisState.IDLE, MOVING, HOMING, or UNKNOWN
+scope.is_any_axis_moving()      # True if any axis is MOVING
+```
+
+### Frame Validity
+
+Frame validity is the **single source of truth** for capture readiness. Every hardware state change (LED, gain, exposure, motion) invalidates the frame. `capture_and_wait()` drains stale frames until all sources have settled, then returns a valid frame.
+
+```python
+# Check validity (for debugging / engineering mode)
+scope.frame_validity.is_valid               # True if next frame is valid
+scope.frame_validity.pending_sources        # {'z_move': 5, 'led': 3} — pending thresholds
+scope.frame_validity.frames_until_valid()   # 0 = ready, >0 = keep draining
+
+# Invalidation happens automatically inside:
+#   scope.led_on()                → invalidate('led')
+#   scope.set_gain()              → invalidate('gain')
+#   scope.set_exposure_time()     → invalidate('exposure')
+#   scope.move_absolute_position('Z', ...) → invalidate('z_move')
+#   scope.move_absolute_position('X', ...) → invalidate('xy_move')
+
+# For motion sources, frames_until_valid() also checks that the axis has
+# physically stopped (AxisState == IDLE), not just the frame count.
+```
+
 ### Camera Control
 
 ```python
@@ -218,8 +267,13 @@ image = scope.get_image()                    # Grab frame (numpy array, uint8)
 image = scope.get_image(force_to_8bit=False) # Keep native bit depth (12/16-bit)
 image = scope.get_image(sum_count=4)         # Average 4 frames
 
-# Frame-validity capture (waits for fresh frame after state changes)
+# Frame-validity capture — PREFERRED for all protocol/script captures.
+# Waits until ALL pending state changes have settled:
+#   - Camera pipeline flushed (2+ frames after LED/gain/exposure change)
+#   - Motion physically complete (axis state == IDLE for X/Y/Z/T)
+# Only then grabs a valid frame. This is the single gate for capture readiness.
 image = scope.capture_and_wait()
+image = scope.capture_and_wait(exclude_sources=('z_move',))  # AF: OK during Z motion
 
 # Exposure (milliseconds)
 scope.set_exposure_time(50)      # 50 ms exposure
