@@ -1970,27 +1970,10 @@ class TechSupportReport:
                 pass
 
     def _get_lvp_version(self):
-        app_root = _get_app_root()
-        for vf in ['VERSION', 'version.txt']:
-            p = app_root / vf
-            if p.exists():
-                try:
-                    return p.read_text().strip()
-                except OSError:
-                    pass
-        main_py = app_root / 'lumaviewpro.py'
-        if main_py.exists():
-            try:
-                with open(main_py, 'r') as f:
-                    for line in f:
-                        if '__version__' in line or 'VERSION' in line:
-                            for part in line.split("'") + line.split('"'):
-                                if '.' in part and any(c.isdigit() for c in part):
-                                    return part.strip()
-                        if line.startswith('class '):
-                            break
-            except OSError:
-                pass
+        from modules.path_utils import read_version
+        version, build_timestamp = read_version()
+        if version:
+            return f"{version} ({build_timestamp})" if build_timestamp else version
         return 'Unknown'
 
     def _create_zip(self, tmp, sn, output_dir=None):

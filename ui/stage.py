@@ -89,7 +89,8 @@ class Stage(Widget):
         ctx = _app_ctx.ctx
         if ctx is not None and hasattr(ctx, 'scope') and ctx.scope is not None:
             return (ctx.scope.travel_limit_um('X'), ctx.scope.travel_limit_um('Y'))
-        return (120000.0, 80000.0)
+        from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
+        return (DEFAULT_STAGE_TRAVEL_UM["x"], DEFAULT_STAGE_TRAVEL_UM["y"])
 
 
     def _create_persistent_canvas_objects(self):

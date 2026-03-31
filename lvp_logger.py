@@ -322,14 +322,8 @@ def enable_engineering_logs(enabled: bool):
     beta stabilization and gate behind engineering mode again.
     """
     # WORKAROUND: Force-enable during beta for field debugging
-    import re
-    try:
-        with open(os.path.join(os.path.dirname(__file__), 'version.txt')) as _vf:
-            _ver = _vf.read().strip()
-        if 'beta' in _ver.lower():
-            enabled = True
-    except Exception:
-        pass
+    if 'beta' in version.lower():
+        enabled = True
 
     if enabled:
         if _af_file_handler not in af_logger.handlers:

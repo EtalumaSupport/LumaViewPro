@@ -242,125 +242,60 @@ class XYStageControl(BoxLayout):
                 if self.ids['y_pos_id'].text != new_y_text:
                     self.ids['y_pos_id'].text = new_y_text # Update y position text box
 
-    @debounce(0.2)
-    def fine_left(self):
+    def _xy_jog(self, axis: str, direction: int, coarse: bool):
+        """Shared XY-axis jog handler.
+
+        Args:
+            axis: 'X' or 'Y'.
+            direction: +1 or -1.
+            coarse: True for coarse step, False for fine step.
+        """
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
-        gui_logger.button('XY_FINE_LEFT')
-        logger.info('[LVP Main  ] XYStageControl.fine_left()')
+        dir_names = {('X', 1): 'RIGHT', ('X', -1): 'LEFT', ('Y', 1): 'FWD', ('Y', -1): 'BACK'}
+        label = f'XY_{"COARSE" if coarse else "FINE"}_{dir_names[(axis, direction)]}'
+        gui_logger.button(label)
+        logger.info(f'[LVP Main  ] XYStageControl._xy_jog({label})')
         try:
             _, objective = get_current_objective_info()
         except Exception as e:
-            logger.warning(f'[Motion] fine_left: no objective info: {e}')
+            logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
-        fine = objective['xy_fine']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', -fine)))
+        step = objective['xy_coarse' if coarse else 'xy_fine']
+        ctx.io_executor.put(IOTask(action=move_relative_position, args=(axis, direction * step)))
+
+    @debounce(0.2)
+    def fine_left(self):
+        self._xy_jog('X', -1, coarse=False)
 
     @debounce(0.2)
     def fine_right(self):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('XY_FINE_RIGHT')
-        logger.info('[LVP Main  ] XYStageControl.fine_right()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] fine_right: no objective info: {e}')
-            return
-        fine = objective['xy_fine']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', fine)))
+        self._xy_jog('X', +1, coarse=False)
 
     @debounce(0.2)
     def coarse_left(self):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('XY_COARSE_LEFT')
-        logger.info('[LVP Main  ] XYStageControl.coarse_left()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] coarse_left: no objective info: {e}')
-            return
-        coarse = objective['xy_coarse']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', -coarse)))
+        self._xy_jog('X', -1, coarse=True)
 
     @debounce(0.2)
     def coarse_right(self):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('XY_COARSE_RIGHT')
-        logger.info('[LVP Main  ] XYStageControl.coarse_right()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] coarse_right: no objective info: {e}')
-            return
-        coarse = objective['xy_coarse']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=('X', coarse)))
+        self._xy_jog('X', +1, coarse=True)
 
     @debounce(0.2)
     def fine_back(self):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('XY_FINE_BACK')
-        logger.info('[LVP Main  ] XYStageControl.fine_back()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] fine_back: no objective info: {e}')
-            return
-        fine = objective['xy_fine']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', -fine)))
+        self._xy_jog('Y', -1, coarse=False)
 
     @debounce(0.2)
     def fine_fwd(self):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('XY_FINE_FWD')
-        logger.info('[LVP Main  ] XYStageControl.fine_fwd()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] fine_fwd: no objective info: {e}')
-            return
-        fine = objective['xy_fine']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', fine)))
+        self._xy_jog('Y', +1, coarse=False)
 
     @debounce(0.2)
     def coarse_back(self):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('XY_COARSE_BACK')
-        logger.info('[LVP Main  ] XYStageControl.coarse_back()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] coarse_back: no objective info: {e}')
-            return
-        coarse = objective['xy_coarse']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', -coarse)))
+        self._xy_jog('Y', -1, coarse=True)
 
     @debounce(0.2)
     def coarse_fwd(self):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('XY_COARSE_FWD')
-        logger.info('[LVP Main  ] XYStageControl.coarse_fwd()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] coarse_fwd: no objective info: {e}')
-            return
-        coarse = objective['xy_coarse']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=('Y', coarse)))
+        self._xy_jog('Y', +1, coarse=True)
 
     def set_xposition(self, x_pos):
         ctx = _app_ctx.ctx

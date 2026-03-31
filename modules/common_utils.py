@@ -10,6 +10,12 @@ import numpy as np
 
 
 # ---------------------------------------------------------------------------
+# Hardware defaults (fallbacks when motorconfig/scope not available)
+# ---------------------------------------------------------------------------
+# LS850 full travel range — used as default stage limits when scope is not connected.
+DEFAULT_STAGE_TRAVEL_UM = {"x": 120000.0, "y": 80000.0}
+
+# ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
 

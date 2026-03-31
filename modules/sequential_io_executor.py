@@ -10,8 +10,9 @@ except ImportError:
             if callable(func):
                 try:
                     func(0)  # Call with dummy dt=0
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging as _log
+                    _log.getLogger('LVP').debug(f'Clock fallback schedule_once error: {e}')
         
         @staticmethod
         def schedule_interval(func, interval): 

@@ -63,19 +63,6 @@ if __name__ == "__main__":
     #---------------------Directory Initialization-----------------------------#
     ############################################################################
 
-    global version, windows_machine, num_cores
-    global lumaview, settings, cell_count_content, graphing_controls
-    global max_exposure, wellplate_loader, objective_helper
-    global coordinate_transformer, sequenced_capture_executor
-    global show_tooltips, protocol_running_global, live_histo_setting
-    global last_save_folder, stage, ENGINEERING_MODE
-    global focus_round
-    global io_executor, camera_executor, temp_ij_executor, protocol_executor, file_io_executor, autofocus_thread_executor, stage_executor, turret_executor, reset_executor
-    global cpu_pool
-    global ij_helper
-    global live_view_fps
-    global use_multiprocessing
-
     cpu_pool = None
     use_multiprocessing = False
     live_view_fps = 30

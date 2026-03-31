@@ -16,6 +16,14 @@ from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.ui.layer_control')
 
+# Brightfield allows higher illumination/exposure than fluorescence channels
+# because BF LED power is lower and longer exposures don't risk photobleaching.
+BF_MAX_ILLUMINATION = 500
+BF_MAX_EXPOSURE_MS = 1000
+FLUORESCENCE_MIN_EXPOSURE_MS = 1.0
+SLIDER_DEBOUNCE_S = 0.1
+INIT_MAX_RETRIES = 50
+
 
 class LayerControl(BoxLayout):
     layer = StringProperty(None)
@@ -38,18 +46,75 @@ class LayerControl(BoxLayout):
         # Flag to prevent apply_settings during initialization
         self._initializing = True
 
-        self.apply_gain_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
-        self.apply_exp_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
-        self.apply_ill_slider = Clock.create_trigger(lambda dt: self.apply_settings(), 0.1)
+        self.apply_gain_slider = Clock.create_trigger(lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S)
+        self.apply_exp_slider = Clock.create_trigger(lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S)
+        self.apply_ill_slider = Clock.create_trigger(lambda dt: self.apply_settings(), SLIDER_DEBOUNCE_S)
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
 
+
+    def _validate_and_apply_text_input(
+        self, text_id: str, slider_id: str, settings_key: str,
+        cast=float, settings_path: str | None = None,
+        gui_log_name: str | None = None,
+    ) -> bool:
+        """Shared validation for text input → slider → settings update.
+
+        Parses text, clips to slider range, updates slider + text + settings,
+        and applies. Returns True on success, False on invalid input.
+
+        Args:
+            text_id: Kivy widget id for the text input (e.g., 'gain_text')
+            slider_id: Kivy widget id for the slider (e.g., 'gain_slider')
+            settings_key: Key in settings[self.layer] (e.g., 'gain')
+            cast: Type to cast the text value (float or int)
+            settings_path: Dot-separated sub-path for nested settings
+                          (e.g., 'video_config.duration' or 'stim_config.frequency')
+            gui_log_name: Name for gui_logger.slider() call (e.g., 'GAIN')
+        """
+        settings = _app_ctx.ctx.settings
+        slider = self.ids[slider_id]
+        try:
+            raw = cast(self.ids[text_id].text)
+        except (ValueError, TypeError):
+            logger.debug(f'[LVP Main  ] Invalid {settings_key} input: {self.ids[text_id].text!r}')
+            # Reset to current valid value (M21)
+            if settings_path:
+                parts = settings_path.split('.')
+                val = settings[self.layer]
+                for p in parts:
+                    val = val[p]
+            else:
+                val = settings[self.layer][settings_key]
+            self.ids[text_id].text = str(val)
+            return False
+
+        clipped = cast(np.clip(raw, slider.min, slider.max))
+
+        # Update settings
+        if settings_path:
+            parts = settings_path.split('.')
+            target = settings[self.layer]
+            for p in parts[:-1]:
+                target = target[p]
+            target[parts[-1]] = clipped
+        else:
+            settings[self.layer][settings_key] = clipped
+
+        # Update widgets
+        slider.value = float(clipped) if cast == float else int(clipped)
+        self.ids[text_id].text = str(clipped)
+
+        if gui_log_name:
+            gui_logger.slider(f'{gui_log_name}_{self.layer}', clipped)
+
+        return True
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
         if ctx is None:
             self._init_ui_retries += 1
-            if self._init_ui_retries > 50:
+            if self._init_ui_retries > INIT_MAX_RETRIES:
                 logger.error('[LVP Main  ] LayerControl._init_ui: ctx still None after 50 retries, giving up')
                 return
             Clock.schedule_once(self._init_ui, 0.1)
@@ -126,7 +191,7 @@ class LayerControl(BoxLayout):
         logger.info('[LVP Main  ] LayerControl.ill_text()')
         ill_min = self.ids['ill_slider'].min
         if self.layer == "BF":
-            ill_max = 500
+            ill_max = BF_MAX_ILLUMINATION
         else:
             ill_max = self.ids['ill_slider'].max
         try:
@@ -159,23 +224,9 @@ class LayerControl(BoxLayout):
 
 
     def sum_text(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.sum_text()')
-        sum_min = self.ids['sum_slider'].min
-        sum_max = self.ids['sum_slider'].max
-        try:
-            sum_val = int(self.ids['sum_text'].text)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid sum input: {self.ids["sum_text"].text!r}')
-            return
-
-        total = int(np.clip(sum_val, sum_min, sum_max))
-
-        settings[self.layer]['sum'] = total
-        self.ids['sum_slider'].value = total
-        self.ids['sum_text'].text = str(total)
-
-        self.apply_settings()
+        if self._validate_and_apply_text_input('sum_text', 'sum_slider', 'sum', cast=int):
+            self.apply_settings()
 
 
     def video_duration_slider(self):
@@ -187,23 +238,12 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def video_duration_text(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.video_duration_text()')
-        duration_min = self.ids['video_duration_slider'].min
-        duration_max = self.ids['video_duration_slider'].max
-        try:
-            duration_val = int(self.ids['video_duration_text'].text)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid video duration input: {self.ids["video_duration_text"].text!r}')
-            return
-
-        duration = int(np.clip(duration_val, duration_min, duration_max))
-
-        settings[self.layer]['video_config']['duration'] = duration
-        self.ids['video_duration_slider'].value = duration
-        self.ids['video_duration_text'].text = str(duration)
-
-        self.apply_settings()
+        if self._validate_and_apply_text_input(
+            'video_duration_text', 'video_duration_slider', 'duration',
+            cast=int, settings_path='video_config.duration',
+        ):
+            self.apply_settings()
 
     def update_auto_gain(self, init: bool = False):
         settings = _app_ctx.ctx.settings
@@ -273,7 +313,7 @@ class LayerControl(BoxLayout):
                 exp_min = self.ids['exp_slider'].min
                 exp_max = self.ids['exp_slider'].max
                 if self.layer in ('Red', 'Green', 'Blue', 'Lumi'):
-                    exp_min = max(exp_min, 1.0)  # 1ms floor for fluorescence
+                    exp_min = max(exp_min, FLUORESCENCE_MIN_EXPOSURE_MS)
                 exp = float(np.clip(exp, exp_min, exp_max))
 
                 settings[self.layer]['gain'] = gain
@@ -311,25 +351,9 @@ class LayerControl(BoxLayout):
         ####
 
     def gain_text(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.gain_text()')
-        gain_min = self.ids['gain_slider'].min
-        gain_max = self.ids['gain_slider'].max
-        try:
-            gain_val = float(self.ids['gain_text'].text)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid gain input: {self.ids["gain_text"].text!r}')
-            # Show current valid value so user knows input was rejected (M21)
-            self.ids['gain_text'].text = str(settings[self.layer]['gain'])
-            return
-
-        gain = float(np.clip(gain_val, gain_min, gain_max))
-
-        settings[self.layer]['gain'] = gain
-        self.ids['gain_slider'].value = gain
-        self.ids['gain_text'].text = str(gain)
-
-        self.apply_gain_slider()
+        if self._validate_and_apply_text_input('gain_text', 'gain_slider', 'gain'):
+            self.apply_gain_slider()
 
     def composite_threshold_slider(self):
         settings = _app_ctx.ctx.settings
@@ -339,21 +363,11 @@ class LayerControl(BoxLayout):
         settings[self.layer]['composite_brightness_threshold'] = composite_threshold
 
     def composite_threshold_text(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.composite_threshold_text()')
-        composite_threshold_min = self.ids['composite_threshold_slider'].min
-        composite_threshold_max = self.ids['composite_threshold_slider'].max
-        try:
-            composite_threshold_val = float(self.ids['composite_threshold_text'].text)
-        except Exception:
-            logger.debug(f'[LVP Main  ] Invalid composite threshold input: {self.ids["composite_threshold_text"].text!r}')
-            return
-
-        composite_threshold = float(np.clip(composite_threshold_val, composite_threshold_min, composite_threshold_max))
-
-        settings[self.layer]['composite_brightness_threshold'] = composite_threshold
-        self.ids['composite_threshold_slider'].value = composite_threshold
-        self.ids['composite_threshold_text'].text = str(composite_threshold)
+        self._validate_and_apply_text_input(
+            'composite_threshold_text', 'composite_threshold_slider',
+            'composite_brightness_threshold',
+        )
 
     def exp_slider(self):
         settings = _app_ctx.ctx.settings
@@ -380,7 +394,7 @@ class LayerControl(BoxLayout):
         exp_min = self.ids['exp_slider'].min
         #exp_max = self.ids['exp_slider'].max
         if self.layer == "BF":
-            exp_max = 1000
+            exp_max = BF_MAX_EXPOSURE_MS
         else:
             exp_max = self.ids['exp_slider'].max
 
@@ -435,74 +449,28 @@ class LayerControl(BoxLayout):
         self.apply_settings()
 
     def stim_freq_text(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_freq_text()')
-
-        freq_min = self.ids['stim_freq_slider'].min
-        freq_max = self.ids['stim_freq_slider'].max
-
-        try:
-            frequency = float(self.ids['stim_freq_text'].text)
-        except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_freq_text() -> {e}")
-            return
-
-        frequency = round(float(np.clip(frequency, freq_min, freq_max)), 2)
-
-        self.ids['stim_freq_slider'].value = frequency
-        self.ids['stim_freq_text'].text = str(frequency)
-        try:
-            settings[self.layer]['stim_config']['frequency'] = frequency
-        except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_freq_text() -> {e}")
-        self.apply_settings()
+        if self._validate_and_apply_text_input(
+            'stim_freq_text', 'stim_freq_slider', 'frequency',
+            settings_path='stim_config.frequency',
+        ):
+            self.apply_settings()
 
     def stim_pulse_count_text(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_count_text()')
-
-        pulse_count_min = self.ids['stim_pulse_count_slider'].min
-        pulse_count_max = self.ids['stim_pulse_count_slider'].max
-
-        try:
-            pulse_count = float(self.ids['stim_pulse_count_text'].text)
-        except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_text() -> {e}")
-            return
-
-        pulse_count = int(np.clip(pulse_count, pulse_count_min, pulse_count_max))
-
-        self.ids['stim_pulse_count_slider'].value = pulse_count
-        self.ids['stim_pulse_count_text'].text = str(pulse_count)
-        try:
-            settings[self.layer]['stim_config']['pulse_count'] = pulse_count
-        except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_count_text() -> {e}")
-        self.apply_settings()
+        if self._validate_and_apply_text_input(
+            'stim_pulse_count_text', 'stim_pulse_count_slider', 'pulse_count',
+            cast=int, settings_path='stim_config.pulse_count',
+        ):
+            self.apply_settings()
 
     def stim_pulse_width_text(self):
-        settings = _app_ctx.ctx.settings
         logger.info('[LVP Main  ] LayerControl.stim_pulse_width_text()')
-
-        pulse_width_min = self.ids['stim_pulse_width_slider'].min
-        pulse_width_max = self.ids['stim_pulse_width_slider'].max
-
-        try:
-            pulse_width = float(self.ids['stim_pulse_width_text'].text)
-        except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_width_text() -> {e}")
-            return
-
-        pulse_width = int(np.clip(pulse_width, pulse_width_min, pulse_width_max))
-
-        self.ids['stim_pulse_width_slider'].value = pulse_width
-        self.ids['stim_pulse_width_text'].text = str(pulse_width)
-
-        try:
-            settings[self.layer]['stim_config']['pulse_width'] = pulse_width
-        except Exception as e:
-            logger.error(f"[LVP Main  ] LayerControl.stim_pulse_width_text() -> {e}")
-        self.apply_settings()
+        if self._validate_and_apply_text_input(
+            'stim_pulse_width_text', 'stim_pulse_width_slider', 'pulse_width',
+            cast=int, settings_path='stim_config.pulse_width',
+        ):
+            self.apply_settings()
 
     def false_color(self):
         settings = _app_ctx.ctx.settings

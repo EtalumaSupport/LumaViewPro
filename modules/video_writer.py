@@ -97,7 +97,6 @@ class VideoWriter:
         if not self._is_correct_image_shape(image):
             logger.error("VideoWriter: Inconsistent Image Shape. Video will likely corrupt")
             logger.warning("VideoWriter: Currently continuing with writing (may want to change)")
-            # return
 
         if self._include_timestamp_overlay:
             if timestamp is not None:
@@ -129,11 +128,9 @@ class VideoWriter:
         if not cap.isOpened():
             logger.error("Video Writer: Output file is corrupt or unreadable")
             return False
-            #raise RuntimeError("Output file is corrupt or unreadable")
         ok, test_frame = cap.read()
         if not ok:
             logger.error("Video Writer: No frames could be read back; file is probably corrupt")
             return False
-            #raise RuntimeError("No frames could be read back; file is probably corrupt")
         cap.release()
         return True

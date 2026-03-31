@@ -1087,9 +1087,10 @@ class PostProcessingAccordion(BoxLayout):
 
 
         # self.tiling_target = []
+        from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
         self.tiling_min = {
-            "x": 120000,
-            "y": 80000
+            "x": int(DEFAULT_STAGE_TRAVEL_UM["x"]),
+            "y": int(DEFAULT_STAGE_TRAVEL_UM["y"]),
         }
 
         self.tiling_max = {

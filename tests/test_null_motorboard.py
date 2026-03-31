@@ -110,13 +110,13 @@ class TestNullMotionBoardHoming:
         return NullMotionBoard()
 
     def test_zhome(self, board):
-        assert board.zhome() == 'OK'
+        assert board.zhome() is True
 
     def test_xyhome(self, board):
-        assert board.xyhome() == 'OK'
+        assert board.xyhome() is True
 
     def test_thome(self, board):
-        assert board.thome() == 'OK'
+        assert board.thome() is True
 
 
 class TestNullMotionBoardInfo:

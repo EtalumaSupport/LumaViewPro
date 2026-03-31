@@ -2538,7 +2538,8 @@ class Lumascope():
             return {}
         try:
             return self.camera.get_all_temperatures()
-        except Exception:
+        except Exception as e:
+            logger.debug(f'[SCOPE API ] get_camera_temperatures failed: {e}')
             return {}
 
     @classmethod
@@ -2594,9 +2595,11 @@ class Lumascope():
         try:
             instance.led = LEDBoard()
             if not instance.led.found:
-                instance.led = None
+                from drivers.null_ledboard import NullLEDBoard
+                instance.led = NullLEDBoard()
         except Exception:
-            instance.led = None
+            from drivers.null_ledboard import NullLEDBoard
+            instance.led = NullLEDBoard()
 
         try:
             instance.motion = MotorBoard()
@@ -2640,7 +2643,8 @@ class Lumascope():
                 'max_exposure_ms': self.camera_max_exposure,
                 'binning_sizes': profile.binning_sizes,
             }
-        except Exception:
+        except Exception as e:
+            logger.debug(f'[SCOPE API ] get_camera_info failed: {e}')
             return None
 
     def get_system_info(self) -> dict:

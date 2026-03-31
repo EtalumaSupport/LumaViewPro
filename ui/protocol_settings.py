@@ -100,9 +100,10 @@ class ProtocolSettings(FloatLayout):
             tiling_configs_file_loc=source_root / "data" / "tiling.json"
         )
 
+        from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
         self.tiling_min = {
-            "x": 120000,
-            "y": 80000
+            "x": int(DEFAULT_STAGE_TRAVEL_UM["x"]),
+            "y": int(DEFAULT_STAGE_TRAVEL_UM["y"]),
         }
         self.tiling_max = {
             "x": 0,

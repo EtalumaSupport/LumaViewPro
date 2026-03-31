@@ -13,13 +13,31 @@ def get_script_root() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parent.parent
 
 
-def _read_version(script_root: pathlib.Path) -> str:
+def read_version(script_root: pathlib.Path | None = None) -> tuple[str, str]:
+    """Read version and build timestamp from version.txt.
+
+    Returns (version, build_timestamp). Either may be empty string on error.
+    Line 1 = version string (path-safe, e.g., "4.0.0-beta2")
+    Line 2 = build timestamp (display only, e.g., "2026-03-27 18:52")
+    """
+    if script_root is None:
+        script_root = get_script_root()
     version_file = script_root / "version.txt"
     try:
-        with open(version_file, "r") as f:
-            return f.readline().strip()
+        lines = version_file.read_text().splitlines()
+        version = lines[0].strip() if len(lines) > 0 else ""
+        build_timestamp = lines[1].strip() if len(lines) > 1 else ""
+        return version, build_timestamp
+    except FileNotFoundError:
+        return "", ""
     except OSError:
-        return ""
+        return "", ""
+
+
+def _read_version(script_root: pathlib.Path) -> str:
+    """Legacy wrapper — returns version string only."""
+    version, _ = read_version(script_root)
+    return version
 
 
 def get_source_root(

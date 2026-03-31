@@ -126,87 +126,47 @@ class VerticalControl(BoxLayout):
         if self.ids['z_position_id'].text != new_text:
             self.ids['z_position_id'].text = new_text
 
-    @debounce(0.2)
-    def coarse_up(self, overshoot_enabled: bool = False):
+    def _z_jog(self, direction: int, coarse: bool, overshoot_enabled: bool = False):
+        """Shared Z-axis jog handler.
+
+        Args:
+            direction: +1 for up, -1 for down.
+            coarse: True for coarse step, False for fine step.
+            overshoot_enabled: Enable backlash compensation overshoot.
+        """
         ctx = _app_ctx.ctx
         if ctx.protocol_running.is_set():
             return
-        gui_logger.button('Z_COARSE_UP')
-        logger.info('[LVP Main  ] VerticalControl.coarse_up()')
+        label = f'Z_{"COARSE" if coarse else "FINE"}_{"UP" if direction > 0 else "DOWN"}'
+        gui_logger.button(label)
+        logger.info(f'[LVP Main  ] VerticalControl._z_jog({label})')
         try:
             _, objective = get_current_objective_info()
         except Exception as e:
-            logger.warning(f'[Motion] coarse_up: no objective info: {e}')
+            logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
-        coarse = objective['z_coarse']
+        step = objective['z_coarse' if coarse else 'z_fine']
         ctx.io_executor.put(IOTask(
             action=move_relative_position,
-            args=('Z', coarse),
-            kwargs={
-                "overshoot_enabled": overshoot_enabled
-            }
+            args=('Z', direction * step),
+            kwargs={"overshoot_enabled": overshoot_enabled},
         ))
+
+    @debounce(0.2)
+    def coarse_up(self, overshoot_enabled: bool = False):
+        self._z_jog(+1, coarse=True, overshoot_enabled=overshoot_enabled)
 
     @debounce(0.2)
     def fine_up(self, overshoot_enabled: bool = False):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('Z_FINE_UP')
-        logger.info('[LVP Main  ] VerticalControl.fine_up()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] fine_up: no objective info: {e}')
-            return
-        fine = objective['z_fine']
-        ctx.io_executor.put(IOTask(
-            action=move_relative_position,
-            args=('Z', fine),
-            kwargs={
-                "overshoot_enabled": overshoot_enabled
-            }
-        ))
+        self._z_jog(+1, coarse=False, overshoot_enabled=overshoot_enabled)
 
     @debounce(0.2)
     def fine_down(self, overshoot_enabled: bool = False):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('Z_FINE_DOWN')
-        logger.info('[LVP Main  ] VerticalControl.fine_down()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] fine_down: no objective info: {e}')
-            return
-        fine = objective['z_fine']
-        ctx.io_executor.put(IOTask(
-            action=move_relative_position,
-            args=('Z', -fine),
-            kwargs={
-                "overshoot_enabled": overshoot_enabled
-            }
-        ))
+        self._z_jog(-1, coarse=False, overshoot_enabled=overshoot_enabled)
 
     @debounce(0.2)
     def coarse_down(self, overshoot_enabled: bool = False):
-        ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
-            return
-        gui_logger.button('Z_COARSE_DOWN')
-        logger.info('[LVP Main  ] VerticalControl.coarse_down()')
-        try:
-            _, objective = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[Motion] coarse_down: no objective info: {e}')
-            return
-        coarse = objective['z_coarse']
-        ctx.io_executor.put(IOTask(
-            action=move_relative_position,
-            args=('Z', -coarse),
-            kwargs={
-                "overshoot_enabled": overshoot_enabled
+        self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled
             }
         ))
 

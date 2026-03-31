@@ -3,6 +3,7 @@
 
 import logging
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -40,20 +41,9 @@ def init_environment(main_file: str) -> AppEnvironment:
 
     windows_machine = os.name == "nt"
 
-    # Read version (line 1) and build timestamp (line 2) from version.txt
-    # Line 1 = version string (path-safe, e.g., "4.0.0-beta2")
-    # Line 2 = build timestamp (display only, e.g., "2026-03-27 18:52")
-    version = ""
-    build_timestamp = ""
-    try:
-        with open(os.path.join(script_path, "version.txt")) as f:
-            lines = f.readlines()
-            version = lines[0].strip() if len(lines) > 0 else ""
-            build_timestamp = lines[1].strip() if len(lines) > 1 else ""
-    except FileNotFoundError:
-        pass  # Expected when running from source without version.txt
-    except Exception as e:
-        _logger.debug(f'Failed to read version.txt: {e}')
+    # Read version and build timestamp via shared reader
+    from modules.path_utils import read_version
+    version, build_timestamp = read_version(pathlib.Path(script_path))
 
     # Get git commit hash for build identification (dev mode only)
     if not build_timestamp:
