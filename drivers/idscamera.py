@@ -164,8 +164,16 @@ class IDSCamera(Camera):
                 self.set_pixel_format(preferred)
                 #TODO: auto gain
                 self.remote_nodemap.FindNode("ReverseX").SetValue(True)
-                # Disable frame rate limiter — UserSetDefault may enable it at 5 fps
-                self.set_max_acquisition_frame_rate(False)
+                # Disable frame rate limiter — UserSetDefault may enable it at ~5 fps.
+                # Node names vary by camera: try both known variants.
+                for node_name in ('AcquisitionFrameRateTargetEnable',
+                                  'AcquisitionFrameRateEnable'):
+                    try:
+                        self.remote_nodemap.FindNode(node_name).SetValue(False)
+                        logger.info(f'[CAM Class ] Disabled {node_name}')
+                        break
+                    except Exception:
+                        pass
                 self.exposure_t(10)
                 self.set_frame_size(1920,1528)
         except Exception as e:
@@ -536,7 +544,11 @@ class ImageHandler(ImageHandlerBase):
         while not self._stop_event.is_set():
             buffer = None
             try:
-                buffer = self.data_stream.WaitForFinishedBuffer(1000)
+                # Timeout must exceed exposure time — at 2000ms exposure,
+                # a 1000ms timeout causes perpetual timeouts.
+                exposure_ms = self._parent.get_exposure_t()
+                timeout_ms = max(2000, int(exposure_ms * 2 + 500)) if exposure_ms > 0 else 2000
+                buffer = self.data_stream.WaitForFinishedBuffer(timeout_ms)
                 result = not buffer.IsIncomplete()
                 if result:
                     img = ids_peak_ipl_extension.BufferToImage(buffer)

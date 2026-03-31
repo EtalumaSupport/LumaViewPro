@@ -228,7 +228,8 @@ _simulated = CameraProfile(
 _PROFILES: list[tuple[str, CameraProfile]] = [
     ('daA3840-45um',            _daA3840_45um),
     ('a2A3536-31umBAS',         _a2A3536_31umBAS),
-    ('U3-34L0XCP-M',            _U3_34L0XCP_M),
+    ('U3-34L0XCP-M',            _U3_34L0XCP_M),   # spec sheet model
+    ('U3-34LxXCP-M',            _U3_34L0XCP_M),   # as reported by SDK
     ('SimulatedCamera',         _simulated),
 ]
 
