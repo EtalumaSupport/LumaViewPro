@@ -134,30 +134,11 @@ class ProtocolStepExecutor:
         _settle_wait_ms = (_t_settle - p._step_start_time) * 1000
         logger.debug(f"[TIMING] Step {p._curr_step} motion settle: {_settle_wait_ms:.1f}ms")
 
-        # Set camera settings
+        # Camera settings (gain, exposure) and LED_ON are handled by
+        # protocol_image_writer.capture() right before the actual frame grab.
+        # Setting them here caused duplicate commands (issue #587, #588).
         if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
             return
-
-        _t_cam_start = time.monotonic()
-        fut = p._io_executor.protocol_put(IOTask(
-            action=p._scope.apply_layer_camera_settings,
-            kwargs={
-                'gain': step['Gain'],
-                'exposure_ms': step['Exposure'],
-                'auto_gain': step['Auto_Gain'],
-                'auto_gain_settings': p._autogain_settings if step['Auto_Gain'] else None,
-            }
-        ), return_future=True)
-        if fut:
-            fut.result(timeout=5)
-
-        if p._protocol_ended.is_set() or not p._scan_in_progress.is_set():
-            return
-
-        _t_led_done = time.monotonic()
-        logger.debug(f"[TIMING] Step {p._curr_step} camera settings: {(_t_led_done - _t_cam_start)*1000:.1f}ms")
-        # LED_ON is handled by protocol_image_writer.capture() right before
-        # the actual frame grab — not here. Sending it here caused duplicates.
 
         # BF AF for fluorescence
         bf_af_for_fluor = False

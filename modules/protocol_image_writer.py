@@ -199,6 +199,7 @@ class ProtocolImageWriter:
                         "separate_folder_per_channel": separate_folder_per_channel,
                     }
                 ))
+                return  # Video: leds_off already called at line 181
 
             else:
                 # Frame validity drains stale frames, then grabs a valid one

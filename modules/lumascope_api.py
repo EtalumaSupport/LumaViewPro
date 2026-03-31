@@ -1844,8 +1844,10 @@ class Lumascope():
         Args:
             gain (float): Gain value in dB.
         """
-
         if not self.camera or not self.camera.active: return
+        # Skip redundant SDK call if gain hasn't changed
+        if abs(float(gain) - self.camera_gain) < 0.001:
+            return
         with self._cam_lock:
             self.camera.gain(gain)
         self.frame_validity.invalidate('gain')
@@ -1876,8 +1878,10 @@ class Lumascope():
         Args:
             t (float): Exposure time in milliseconds.
         """
-
         if not self.camera or not self.camera.active: return
+        # Skip redundant SDK call if exposure hasn't changed
+        if abs(float(t) - self.camera_exposure_ms) < 0.001:
+            return
         if t < 0.1:
             logger.warning(f'[SCOPE API ] set_exposure_time({t}ms) is very low — '
                            f'image will be nearly black. Value should be in milliseconds.')
