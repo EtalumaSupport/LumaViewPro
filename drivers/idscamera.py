@@ -164,23 +164,12 @@ class IDSCamera(Camera):
                 self.set_pixel_format(preferred)
                 #TODO: auto gain
                 self.remote_nodemap.FindNode("ReverseX").SetValue(True)
-                # UserSetDefault caps AcquisitionFrameRate at 10 fps.
-                # Must disable the target limiter AND maximize the actual frame rate.
+                # Disable frame rate target limiter (UserSetDefault caps at 10 fps)
                 try:
                     self.remote_nodemap.FindNode("AcquisitionFrameRateTargetEnable").SetValue(False)
                     logger.info('[CAM Class ] Disabled AcquisitionFrameRateTargetEnable')
                 except Exception as e:
                     logger.debug(f'[CAM Class ] AcquisitionFrameRateTargetEnable not available: {e}')
-                # Switch throughput limit from Sensor to Link mode.
-                # In Sensor mode, the limit applies to raw sensor readout (full res)
-                # even when using a smaller ROI, capping fps artificially.
-                # In Link mode, the limit applies to actual USB transfer rate.
-                try:
-                    comp = self.remote_nodemap.FindNode("DeviceLinkThroughputLimitComponent")
-                    comp.SetCurrentEntry("Link")
-                    logger.info('[CAM Class ] DeviceLinkThroughputLimitComponent set to Link')
-                except Exception as e:
-                    logger.debug(f'[CAM Class ] DeviceLinkThroughputLimitComponent not available: {e}')
                 # Maximize USB throughput limit
                 try:
                     node = self.remote_nodemap.FindNode("DeviceLinkThroughputLimit")
@@ -188,15 +177,18 @@ class IDSCamera(Camera):
                     logger.info(f'[CAM Class ] DeviceLinkThroughputLimit set to {node.Maximum()} B/s')
                 except Exception as e:
                     logger.debug(f'[CAM Class ] DeviceLinkThroughputLimit not available: {e}')
-                # Maximize AcquisitionFrameRate (capped by throughput limit)
+                # Set resolution and exposure BEFORE maximizing frame rate —
+                # AcquisitionFrameRate.Maximum() depends on current resolution,
+                # pixel format, and exposure time.
+                self.exposure_t(10)
+                self.set_frame_size(1920, 1528)
+                # NOW maximize frame rate (after resolution is set)
                 try:
                     fr = self.remote_nodemap.FindNode("AcquisitionFrameRate")
                     fr.SetValue(fr.Maximum())
                     logger.info(f'[CAM Class ] AcquisitionFrameRate set to max: {fr.Maximum():.1f} fps')
                 except Exception as e:
                     logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
-                self.exposure_t(10)
-                self.set_frame_size(1920,1528)
         except Exception as e:
             logger.error(f'[CAM Class ] init_camera_config failed: {e}')
 
