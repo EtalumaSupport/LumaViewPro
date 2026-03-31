@@ -166,9 +166,7 @@ class VerticalControl(BoxLayout):
 
     @debounce(0.2)
     def coarse_down(self, overshoot_enabled: bool = False):
-        self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled
-            }
-        ))
+        self._z_jog(-1, coarse=True, overshoot_enabled=overshoot_enabled)
 
 
     def set_position(self, pos):
