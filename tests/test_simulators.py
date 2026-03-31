@@ -246,7 +246,11 @@ class TestSimulatedMotorBoard:
     def test_target_status(self):
         board = SimulatedMotorBoard()
         board.move_abs_pos('X', 50000)
-        assert board.target_status('X') is True  # instant move
+        # Fast mode: position updates instantly but target_status is False
+        # for ~3ms (simulates motion monitor detection window)
+        import time
+        time.sleep(0.005)
+        assert board.target_status('X') is True
 
     def test_conversion_z(self):
         board = SimulatedMotorBoard()
@@ -1170,7 +1174,8 @@ class TestTimingModes:
     def test_motor_fast_mode(self):
         m = SimulatedMotorBoard(timing='fast')
         assert m._cmd_delay == 0.0
-        assert m._simulate_move_duration is False
+        assert m._simulate_move_duration is True  # Even fast mode simulates brief delay
+        assert m._fast_move_duration > 0  # Brief ~3ms per move
 
     def test_motor_realistic_mode(self):
         m = SimulatedMotorBoard(timing='realistic')
@@ -1182,7 +1187,8 @@ class TestTimingModes:
         m.set_timing_mode('realistic')
         assert m._simulate_move_duration is True
         m.set_timing_mode('fast')
-        assert m._simulate_move_duration is False
+        assert m._simulate_move_duration is True  # Both modes simulate duration now
+        assert m._fast_move_duration > 0  # Fast mode uses brief fixed delay
 
     def test_motor_realistic_move_not_instant(self):
         """In realistic mode, target_status returns False during move."""
@@ -1200,12 +1206,16 @@ class TestTimingModes:
                 raise TimeoutError("Motor never reached target")
         assert m.current_pos('Z') == pytest.approx(10000.0, abs=1.0)
 
-    def test_motor_fast_move_instant(self):
-        """In fast mode, move is instant."""
+    def test_motor_fast_move_brief_delay(self):
+        """In fast mode, position updates instantly but target_status has ~3ms delay."""
+        import time
         m = SimulatedMotorBoard(timing='fast')
         m.move_abs_pos('Z', 10000.0)
-        assert m.target_status('Z') is True
+        # Position is instant
         assert m.current_pos('Z') == pytest.approx(10000.0, abs=1.0)
+        # target_status needs brief delay
+        time.sleep(0.005)
+        assert m.target_status('Z') is True
 
     def test_led_fast_mode(self):
         led = SimulatedLEDBoard(timing='fast')

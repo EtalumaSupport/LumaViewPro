@@ -42,12 +42,14 @@ class SimulatedMotorBoard:
     TIMING_FAST = {
         'cmd_delay': 0.0,
         'move_delay': 0.0,
-        'simulate_move_duration': False,
+        'simulate_move_duration': True,   # Even fast mode simulates brief move duration
+        'fast_move_duration': 0.003,      # 3ms per move in fast mode (not instant)
     }
     TIMING_REALISTIC = {
         'cmd_delay': 0.003,       # ~3ms serial round-trip
         'move_delay': 0.0,        # homing uses HOMING_DURATIONS instead
         'simulate_move_duration': True,
+        'fast_move_duration': 0.0,        # Use ramp-calculated duration
     }
 
     def __init__(self, model: str = 'LS850', serial_number: str = 'SIM-001',
@@ -95,8 +97,13 @@ class SimulatedMotorBoard:
         self._target = {'X': 0, 'Y': 0, 'Z': 0, 'T': 0}
         self._homed = {'X': False, 'Y': False, 'Z': False, 'T': False}
 
-        # Move completion times (for realistic timing)
+        # Move timing state
+        self._move_start_pos = {'X': 0, 'Y': 0, 'Z': 0, 'T': 0}
+        self._move_start_time = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
         self._move_end_time = {'X': 0.0, 'Y': 0.0, 'Z': 0.0, 'T': 0.0}
+
+        # Re-apply timing mode after all state is initialized
+        self.set_timing_mode(timing)
 
         self.axes_config = {
             'Z': {
@@ -117,7 +124,13 @@ class SimulatedMotorBoard:
         }
 
     def set_timing_mode(self, mode: str):
-        """Switch timing mode: 'fast' or 'realistic'."""
+        """Switch timing mode: 'fast' or 'realistic'.
+
+        fast: moves complete in ~3ms (not instant — gives motion monitor time
+              to detect MOVING state). No serial delay.
+        realistic: moves use actual TMC5072 trapezoidal ramp timing from
+                   motorconfig. Serial commands have ~3ms simulated delay.
+        """
         if mode == 'realistic':
             preset = self.TIMING_REALISTIC
         elif mode == 'fast':
@@ -127,6 +140,7 @@ class SimulatedMotorBoard:
         self._cmd_delay = preset['cmd_delay']
         self._move_delay = preset['move_delay']
         self._simulate_move_duration = preset['simulate_move_duration']
+        self._fast_move_duration = preset.get('fast_move_duration', 0.0)
         self._timing_mode = mode
 
     @property
@@ -244,16 +258,23 @@ class SimulatedMotorBoard:
             value = int(cmd[9:])
             if value >= 0x80000000:
                 value -= 0x100000000
-            old_target = self._actual[axis]
+            self._move_start_pos[axis] = self._actual[axis]
+            self._move_start_time[axis] = time.monotonic()
             self._target[axis] = value
 
             if self._simulate_move_duration:
-                distance = abs(value - old_target)
-                speed = self.AXIS_SPEEDS.get(axis, self.AXIS_SPEEDS['X'])
-                duration = distance / speed if speed > 0 else 0
-                self._move_end_time[axis] = time.monotonic() + duration
+                if self._fast_move_duration > 0:
+                    # Fast mode: position updates instantly but target_status
+                    # returns False for a brief period so the motion monitor
+                    # can detect the MOVING→IDLE transition.
+                    self._actual[axis] = value
+                    self._move_end_time[axis] = time.monotonic() + self._fast_move_duration
+                else:
+                    # Realistic mode: trapezoidal ramp calculation with interpolation
+                    duration = self._calc_move_duration(axis, self._move_start_pos[axis], value)
+                    self._move_end_time[axis] = time.monotonic() + duration
             else:
-                self._actual[axis] = value  # instant move
+                self._actual[axis] = value
                 self._move_end_time[axis] = 0.0
             return str(value)
 
@@ -285,13 +306,75 @@ class SimulatedMotorBoard:
         return f'ERROR: unknown command {cmd}'
 
     def _update_actual(self, axis):
-        """Update actual position based on elapsed time (realistic mode only)."""
+        """Update actual position based on elapsed time.
+
+        In realistic mode, interpolates position along the move trajectory.
+        In fast mode, snaps to target after the brief delay.
+        """
         if not self._simulate_move_duration:
             return
         now = time.monotonic()
         end = self._move_end_time.get(axis, 0.0)
         if now >= end:
             self._actual[axis] = self._target[axis]
+        elif self._fast_move_duration > 0:
+            # Fast mode: don't interpolate, just wait for end time
+            pass
+        else:
+            # Realistic mode: linear interpolation (close enough for simulation)
+            start = self._move_start_pos.get(axis, self._actual[axis])
+            target = self._target[axis]
+            start_t = self._move_start_time.get(axis, now)
+            duration = end - start_t
+            if duration > 0:
+                frac = min(1.0, (now - start_t) / duration)
+                self._actual[axis] = int(start + frac * (target - start))
+
+    def _calc_move_duration(self, axis, start_usteps, target_usteps) -> float:
+        """Calculate move duration using TMC5072 trapezoidal ramp parameters.
+
+        Uses the same ramp_params as the position predictor in lumascope_api.
+        Returns duration in seconds.
+        """
+        distance_usteps = abs(target_usteps - start_usteps)
+        if distance_usteps == 0:
+            return 0.0
+
+        try:
+            ramp = self.motorconfig.ramp_params_usteps(axis)
+        except Exception:
+            # Fallback to simple speed-based calculation
+            speed = self.AXIS_SPEEDS.get(axis, self.AXIS_SPEEDS['X'])
+            return distance_usteps / speed if speed > 0 else 0.0
+
+        # TMC5072 register → real units conversion
+        fclk = 16_000_000
+        vel_factor = fclk / (2**24)
+        acc_factor = fclk**2 / (512 * 2**24)
+
+        vmax = ramp['vmax'] * vel_factor  # usteps/sec
+        amax = ramp['amax'] * acc_factor  # usteps/sec²
+        dmax = ramp['dmax'] * acc_factor  # usteps/sec²
+
+        if vmax <= 0 or amax <= 0 or dmax <= 0:
+            speed = self.AXIS_SPEEDS.get(axis, self.AXIS_SPEEDS['X'])
+            return distance_usteps / speed if speed > 0 else 0.0
+
+        t_accel = vmax / amax
+        t_decel = vmax / dmax
+        s_accel = 0.5 * amax * t_accel * t_accel
+        s_decel = 0.5 * dmax * t_decel * t_decel
+
+        if distance_usteps <= (s_accel + s_decel):
+            # Triangular profile
+            import math
+            t_peak = math.sqrt(2.0 * distance_usteps / (amax + amax * amax / dmax))
+            v_peak = amax * t_peak
+            return t_peak + v_peak / dmax
+        else:
+            # Full trapezoidal
+            t_cruise = (distance_usteps - s_accel - s_decel) / vmax
+            return t_accel + t_cruise + t_decel
 
     def _do_home(self, *axes):
         if self._simulate_move_duration:
@@ -311,8 +394,13 @@ class SimulatedMotorBoard:
         # Bit 0: home reference (status_stop_left)
         if self._homed.get(axis, False) and self._actual.get(axis, 0) == 0:
             status |= (1 << 0)
-        # Bit 9: position_reached (target == actual)
-        if self._actual.get(axis, 0) == self._target.get(axis, 0):
+        # Bit 9: position_reached — only True when move duration has elapsed
+        # AND actual == target. In fast mode, actual is set instantly but
+        # target_status waits for the brief delay before reporting reached.
+        end_time = self._move_end_time.get(axis, 0.0)
+        at_target = self._actual.get(axis, 0) == self._target.get(axis, 0)
+        time_elapsed = time.monotonic() >= end_time
+        if at_target and time_elapsed:
             status |= (1 << 9)
         return status
 
