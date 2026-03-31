@@ -448,9 +448,22 @@ class LumaViewProApp(TooltipMixin, App):
     kv_file = 'ui/lumaviewpro.kv'
 
     def on_start(self):
-        # Continuously update image of stage and protocol
-        Clock.schedule_interval(stage.draw_labware, 0.1)
-        Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 0.1) # Includes text boxes, not just stage
+        # Position listener: push-based UI updates on every move (immediate response).
+        # Replaces 10Hz polling for crosshair/stage/position text during motion.
+        def _on_position_change(axis, target, state):
+            if axis in ('X', 'Y'):
+                Clock.schedule_once(lambda dt: ctx.motion_settings.update_xy_stage_control_gui(), 0)
+                Clock.schedule_once(lambda dt: stage.draw_labware(), 0)
+            elif axis == 'Z':
+                z_ctrl = ctx.motion_settings.ids.get('verticalcontrol_id')
+                if z_ctrl:
+                    Clock.schedule_once(lambda dt: z_ctrl._update_z_text(target), 0)
+        lumaview.scope.add_position_listener(_on_position_change)
+
+        # Slow idle refresh (1Hz) for display elements that may change without motion
+        # (e.g., labware selection, stage offset changes)
+        Clock.schedule_interval(stage.draw_labware, 1.0)
+        Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
         Clock.schedule_once(functools.partial(ctx.image_settings.set_expanded_layer, 'BF'), 0.2)
 
         # Clear app initialization flag and apply settings for the default opened layer
