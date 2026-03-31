@@ -30,6 +30,25 @@ try:
 except Exception as e:
     print(f'Throughput: {e}')
 
+# Try ALL known frame rate related nodes
+for node_name in ['AcquisitionFrameRateTargetEnable',
+                  'AcquisitionFrameRateTarget',
+                  'AcquisitionFrameRate',
+                  'DeviceLinkAcquisitionFrameRateLimit']:
+    try:
+        node = nm.FindNode(node_name)
+        val = node.Value() if hasattr(node, 'Value') else '?'
+        print(f'  {node_name} = {val}')
+        # Try to maximize or disable
+        if 'Enable' in node_name:
+            node.SetValue(False)
+            print(f'    -> set to False')
+        elif hasattr(node, 'Maximum'):
+            node.SetValue(node.Maximum())
+            print(f'    -> set to max: {node.Maximum()}')
+    except Exception as e:
+        print(f'  {node_name}: {e}')
+
 nm.FindNode('ExposureTime').SetValue(10000)  # 10ms
 nm.FindNode('Width').SetValue(1920)
 nm.FindNode('Height').SetValue(1528)
