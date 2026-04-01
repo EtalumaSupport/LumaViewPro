@@ -224,6 +224,14 @@ class IDSCamera(Camera):
                 buffer = self.data_stream.AllocAndAnnounceBuffer(payload_size)
                 self.data_stream.QueueBuffer(buffer)
 
+            # Re-maximize frame rate — stop/start cycles reset it.
+            # Must be done AFTER resolution is set (max depends on frame size).
+            try:
+                fr = self.remote_nodemap.FindNode("AcquisitionFrameRate")
+                fr.SetValue(fr.Maximum())
+            except Exception:
+                pass
+
             self.data_stream.StartAcquisition()
             self.remote_nodemap.FindNode("AcquisitionStart").Execute()
             self.remote_nodemap.FindNode("AcquisitionStart").WaitUntilDone()
