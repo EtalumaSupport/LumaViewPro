@@ -98,19 +98,18 @@ class ProtocolImageWriter:
                 self._scope.set_gain(step['Gain'])
                 self._scope.set_exposure_time(step['Exposure'])
 
-        # Objective short name for filename
-        if self._scope.has_turret():
+        # Objective short name for filename — always include when turret
+        # is present, or in engineering mode (for test stand traceability)
+        objective_short_name = None
+        if self._scope.has_turret() or self._scope.engineering_mode:
             obj_info = self._scope.get_objective_info(objective_id=step["Objective"])
             if obj_info is not None:
                 objective_short_name = obj_info.get('short_name')
-            else:
+            elif self._scope.has_turret():
                 logger.warning(
                     f"[PROTOCOL] Turret available but no objective info for ID "
                     f"'{step['Objective']}' — using None for filename"
                 )
-                objective_short_name = None
-        else:
-            objective_short_name = None
 
         # Build base name from protocol's custom root + step name
         try:
