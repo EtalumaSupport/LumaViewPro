@@ -446,7 +446,9 @@ class MotorBoard(SerialBoard):
     def xycenter(self):
         """ Home the stage which also homes the objective first """
         logger.info('[XYZ Class ] MotorBoard.xycenter()')
-        self.exchange_command('CENTER')
+        response = self.exchange_command('CENTER')
+        if response is None:
+            logger.warning('[XYZ Class ] xycenter() got no response')
 
     #----------------------------------------------------------
     # T (Turret) Functions
@@ -517,10 +519,9 @@ class MotorBoard(SerialBoard):
             steps += 0x100000000  # two's complement for firmware's unsigned integer format
         if steps > 0xFFFFFFFF:
             raise ValueError(f"Steps {steps} exceeds 32-bit range for axis {axis}")
-        self.exchange_command('TARGET_W' + axis + str(steps))
-
-        # target_pos = int(self.exchange_command('TARGET_R' + axis))
-        # desired_target = steps
+        response = self.exchange_command('TARGET_W' + axis + str(steps))
+        if response is None:
+            logger.warning(f'[XYZ Class ] move({axis}, {steps}) got no response')
 
         # while int(target_pos) != desired_target:
         #     self.exchange_command('TARGET_W' + axis + str(steps))

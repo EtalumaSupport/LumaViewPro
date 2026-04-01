@@ -247,4 +247,6 @@ pip install -r requirements.txt
 
 ## License
 
-Copyright 2022-2026, Etaluma, Inc. See [docs/LICENSE](docs/LICENSE) for details.
+Copyright 2022-2026, Etaluma, Inc. MIT License. See [docs/LICENSE](docs/LICENSE) for details.
+
+**Third-party dependencies:** LumaViewPro uses camera SDKs (Basler Pylon, IDS Peak) that have their own proprietary licenses and must be installed separately. The LGPL-licensed JPype1/pyimagej packages are optional (ImageJ integration only). All other dependencies are MIT/BSD/Apache-2.0 compatible.
