@@ -233,9 +233,11 @@ class IDSCamera(Camera):
             # Must be done AFTER resolution is set (max depends on frame size).
             try:
                 fr = self.remote_nodemap.FindNode("AcquisitionFrameRate")
+                old_val = fr.Value()
                 fr.SetValue(fr.Maximum())
-            except Exception:
-                pass
+                logger.info(f'[CAM Class ] AcquisitionFrameRate {old_val:.1f} -> {fr.Value():.1f} (max={fr.Maximum():.1f})')
+            except Exception as e:
+                logger.warning(f'[CAM Class ] Failed to re-maximize AcquisitionFrameRate: {e}')
 
             self.data_stream.StartAcquisition()
             self.remote_nodemap.FindNode("AcquisitionStart").Execute()
