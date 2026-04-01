@@ -1246,8 +1246,6 @@ class ProtocolSettings(FloatLayout):
                 live_histo_reverse()
                 return
 
-
-
             self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
 
             settings = _app_ctx.ctx.settings

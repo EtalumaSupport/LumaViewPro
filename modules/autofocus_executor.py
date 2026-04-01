@@ -135,7 +135,6 @@ class AutofocusExecutor:
         if self._af_in_progress.is_set():
             return
 
-        #logger.error(f"AF RUN")
         self._reset_state()
         self._callbacks = callbacks
         self._run_trigger_source = run_trigger_source
@@ -242,21 +241,6 @@ class AutofocusExecutor:
         return self._af_in_progress.is_set()
 
     def _iterate(self, dt=None):
-        # # Progress timeout: if AF does not advance for a while, cancel gracefully
-        # if hasattr(self, '_last_progress_ts') and (time.monotonic() - self._last_progress_ts > 15):
-        #     try:
-        #         self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
-        #     except Exception:
-        #         pass
-        #     self._autofocus_executor.protocol_end()
-        #     self._autofocus_executor.clear_protocol_pending()
-        #     self._is_focusing = False
-        #     self._is_complete = False
-        #     if 'complete' in self._callbacks:
-        #         # Use UI thread to reset button if caller wired it
-        #         self._kivy_clock_module._schedule_ui(lambda dt: self._callbacks['complete']())
-        #     return
-
             if not self._is_focusing:
                 return
 
@@ -450,9 +434,6 @@ class AutofocusExecutor:
             self._params['z_min'] = best_focus_position - prev_resolution
             self._params['z_max'] = best_focus_position + prev_resolution
 
-
-
-            #logger.error(f"[AF] Moving to z_min: {self._params['z_min']} um")
             self._move_absolute_position(pos=self._params['z_min'])
             self._last_progress_ts = time.monotonic()
 
@@ -633,8 +614,6 @@ class AutofocusExecutor:
                 self._kivy_clock_module.Clock.unschedule(self._iterator_scheduled)
         except Exception:
             logger.warning("[AF] Failed to unschedule Kivy Clock iterator during stop", exc_info=True)
-
-
 
     def _init_results_dir_and_ts(self, results_dir: pathlib.Path) -> str:
         results_dir.mkdir(exist_ok=True, parents=True)

@@ -148,7 +148,6 @@ def get_layer_from_name(name: str) -> str | None:
     return name[1]
 
 
-
 def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | None:
 
     # Extract basename in case we are handling protocol with separate folders per channel
@@ -340,7 +339,6 @@ def max_decimal_precision(parameter: str) -> int:
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
 
 
-
 import os
 import psutil
 
@@ -366,7 +364,6 @@ def system_metrics(path="/"):
         "disk_free_gb": disk.free / 1024**3,
         "disk_used_percent": disk.percent,
     }
-
 
 
 def check_disk_space(path="/") -> float:

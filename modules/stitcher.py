@@ -219,7 +219,6 @@ class Stitcher(ProtocolPostProcessingExecutor):
         }
 
 
-
 if __name__ == "__main__":
     stitcher = Stitcher(has_turret=False)
     stitcher.load_folder(pathlib.Path(os.getenv("SAMPLE_IMAGE_FOLDER")))

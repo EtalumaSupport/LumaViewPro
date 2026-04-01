@@ -494,8 +494,6 @@ class MicroscopeSettings(BoxLayout):
 
         self.set_ui_features_for_scope()
 
-
-
     def update_separate_folders_per_channel(self):
         settings = _app_ctx.ctx.settings
 

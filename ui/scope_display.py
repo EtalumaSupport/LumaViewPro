@@ -665,8 +665,6 @@ class ScopeDisplay(Image):
         self._count_display_fps()
         self._schedule_next()
 
-
-
     def _count_display_fps(self):
         """Track actual rendered frame rate (called on main thread after blit).
 

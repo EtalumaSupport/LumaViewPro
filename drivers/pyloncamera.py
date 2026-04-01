@@ -126,11 +126,6 @@ class PylonCamera(Camera):
                 pylon.RegistrationMode_ReplaceAll,
                 pylon.Cleanup_Delete
             )
-            # camera.RegisterConfiguration(
-            #     ConfigurationEventPrinter(),
-            #     pylon.RegistrationMode_Append,
-            #     pylon.Cleanup_Delete
-            # )
             # Register a minimal removal handler that only sets an internal flag
             try:
                 camera.RegisterConfiguration(
@@ -589,17 +584,6 @@ class PylonCamera(Camera):
         if self.active is None:
             self._mark_disconnected()
             return False
-        # if getattr(self, "_use_camera_emulation", False):
-        #     return True
-        # try:
-        #     if self.active:
-        #         if hasattr(self.active, "IsCameraDeviceRemoved"):
-        #             if self.active.IsCameraDeviceRemoved():
-        #                 self._device_removed = True
-        #                 logger.warning('[CAM Class ] Camera device removed')
-        #                 return False
-        # except Exception:
-        #     return False
         return True
 
 
@@ -849,58 +833,7 @@ class ImageHandler(pylon.ImageEventHandler):
             return False, None, None
 
         return self._base.get_last_image()
-    
-    
 
-# class ConfigurationEventPrinter(pylon.ConfigurationEventHandler):
-#     def OnAttach(self, camera):
-#         print("OnAttach event")
-
-#     def OnAttached(self, camera):
-#         print("OnAttached event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnOpen(self, camera):
-#         print("OnOpen event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnOpened(self, camera):
-#         print("OnOpened event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnGrabStart(self, camera):
-#         print("OnGrabStart event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnGrabStarted(self, camera):
-#         print("OnGrabStarted event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnGrabStop(self, camera):
-#         print("OnGrabStop event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnGrabStopped(self, camera):
-#         print("OnGrabStopped event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnClose(self, camera):
-#         print("OnClose event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnClosed(self, camera):
-#         print("OnClosed event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnDestroy(self, camera):
-#         print("OnDestroy event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnDestroyed(self, camera):
-#         print("OnDestroyed event")
-
-#     def OnDetach(self, camera):
-#         print("OnDetach event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnDetached(self, camera):
-#         print("OnDetached event for device ", camera.GetDeviceInfo().GetModelName())
-
-#     def OnGrabError(self, camera, errorMessage):
-#         print("OnGrabError event for device ", camera.GetDeviceInfo().GetModelName())
-#         print("Error Message: ", errorMessage)
-
-#     def OnCameraDeviceRemoved(self, camera):
-#         print("OnCameraDeviceRemoved event for device ", camera.GetDeviceInfo().GetModelName())
 
 # Handle camera removal events to flag device disconnect
 class _CameraRemovalHandler(pylon.ConfigurationEventHandler):

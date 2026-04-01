@@ -62,10 +62,6 @@ class StitchControls(BoxLayout):
         stitcher = Stitcher(
             has_turret=ctx.lumaview.scope.has_turret(),
         )
-        # result = stitcher.load_folder(
-        #     path=pathlib.Path(path),
-        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
-        # )
         ctx.file_io_executor.put(IOTask(action=stitcher.load_folder,
                              args=(pathlib.Path(path),
                                     pathlib.Path(ctx.source_path) / "data" / "tiling.json",
@@ -183,12 +179,6 @@ class ZProjectionControls(BoxLayout):
             has_turret=ctx.lumaview.scope.has_turret(),
             ij_helper=ctx.ij_helper
         )
-        # result = zproj.load_folder(
-        #     path=pathlib.Path(path),
-        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-        #     method=self.ids['zprojection_method_spinner'].text
-        # )
-
         ctx.file_io_executor.put(IOTask(action=zproj.load_folder,
                              args=(pathlib.Path(path),
                                     pathlib.Path(ctx.source_path) / "data" / "tiling.json",
@@ -255,22 +245,6 @@ class CompositeGenControls(BoxLayout):
                              cb_args=(popup, status_map),
                              pass_result=True))
 
-        # result = composite_gen.load_folder(
-        #     path=pathlib.Path(path),
-        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json"
-        # )
-        # final_text = f"Generating composite images - {status_map[result['status']]}"
-        # if result['status'] is False:
-        #     final_text += f"\n{result['message']}"
-        #     popup.text = final_text
-        #     time.sleep(5)
-        #     self.done = True
-        #     return
-
-        # popup.text = final_text
-        # time.sleep(2)
-        # self.done = True
-
     def composite_gen_callback(self, popup, status_map, result=None, exception=None):
         if result is None:
             popup.text = "Generating composite images - FAILED"
@@ -328,7 +302,6 @@ class VideoCreationControls(BoxLayout):
             logger.error(f"{msg}")
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
-            #self.done = True
 
         video_builder = VideoBuilder(
             has_turret=ctx.lumaview.scope.has_turret(),
@@ -347,14 +320,6 @@ class VideoCreationControls(BoxLayout):
                              cb_args=(popup, status_map),
                              pass_result=True))
 
-        # result = video_builder.load_folder(
-        #     path=pathlib.Path(path),
-        #     tiling_configs_file_loc=pathlib.Path(source_path) / "data" / "tiling.json",
-        #     frames_per_sec=fps,
-        #     enable_timestamp_overlay=enable_timestamp_overlay,
-        #     popup=popup
-        # )
-
     def video_builder_callback(self, popup, status_map, result=None, exception=None):
         if result is None:
             popup.text = "Generating video(s) - FAILED"
@@ -372,14 +337,6 @@ class VideoCreationControls(BoxLayout):
         popup.text = final_text
         Clock.schedule_once(lambda dt: popup.dismiss(), 2)
         return
-        # self._launch_video()
-
-
-    # def _launch_video(self) -> None:
-    #     try:
-    #         os.startfile(self._output_file_loc)
-    #     except Exception as e:
-    #         logger.error(f"Unable to launch video {self._output_file_loc}:\n{e}")
 
 # ============================================================================
 # GraphingControls — Data Plotting and Trendlines
@@ -498,8 +455,6 @@ class GraphingControls(BoxLayout):
             self.set_y_axis()
 
         self.trendline_enabled = True
-
-        #self.y_axis_data = self.graph_df[self.selected_y_axis]
 
         x_data = self.x_axis_data
         y_data = self.y_axis_data
@@ -670,8 +625,6 @@ class GraphingControls(BoxLayout):
 
         except Exception as e:
             logger.exception(f"Graph Generation | Set graphing source | {e}")
-
-
 
     def set_post_processing_module(self, postprocessingmodule):
         self._post = postprocessingmodule
@@ -1069,24 +1022,18 @@ class CellCountControls(BoxLayout):
 class PostProcessingAccordion(BoxLayout):
 
     def __init__(self, **kwargs):
-        #super(PostProcessingAccordion,self).__init__(**kwargs)
         super().__init__(**kwargs)
         self.name = self.__class__.__name__
         self.post = post_processing.PostProcessing()
-        #stitching params (see stitch_algorithms.py for feature-based stitching):
-        #self.raw_images_folder = settings['save_folder'] # I'm guessing not ./capture/ because that would have frames over time already (to make video)
-        self.raw_images_folder = './capture/' # I'm guessing not ./capture/ because that would have frames over time already (to make video)
+        self.raw_images_folder = './capture/'
         self.combine_colors = False #True if raw images are in separate red/green/blue channels and need to be first combined
-        self.ext = "tiff" #or read it from settings?
-        #self.stitching_method = "features" # "features" - Low method, "position" - based on position information
-        self.stitching_method = "position" # "features" - Low method, "position" - based on position information
+        self.ext = "tiff"
+        self.stitching_method = "position"
         self.stitched_save_name = "last_composite_img.tiff"
-        #self.positions_file = None #relevant if stitching method is position, will read positions from that file
-        self.positions_file = "./capture/2x2.tsv" #relevant if stitching method is position, will read positions from that file
+        self.positions_file = "./capture/2x2.tsv"
         self.pos2pix = 2630 # relevant if stitching method is position. The scale conversion for pos info into pixels
 
 
-        # self.tiling_target = []
         from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
         self.tiling_min = {
             "x": int(DEFAULT_STAGE_TRAVEL_UM["x"]),
@@ -1110,12 +1057,6 @@ class PostProcessingAccordion(BoxLayout):
             'zprojection_accordion_id': None,
             'create_avi_accordion_id': None
         }
-        """print("===============================================================")
-        print(self.ids)
-        print("===============================================================")
-        for id in self.accordion_item_states.keys():
-            self.ids[id].background_color = [0.753, 0.816, 0.910, 1]"""
-
         self.init_cell_count()
         self._graphing_popup = None
 
@@ -1127,13 +1068,6 @@ class PostProcessingAccordion(BoxLayout):
         return 'open'
 
     def hide_stitch(self):
-        #self.ids['stitch_accordion_id'].visible = False
-        # sc = self.ids['stitch_controls_id']
-        # sa = self.ids['stitch_accordion_id']
-        # self.ids['stitch_controls_id'].visible = False
-        # self.remove_widget(self.ids['stitch_accordion_id'])
-        # self.remove_widget(self.ids['stitch_controls_id'])
-        #self.ids['post_processing_accordion_id'].remove_widget(stitch_controls)
         stitch_accordion = None
 
         post_accordion = self.children[0]
@@ -1169,8 +1103,6 @@ class PostProcessingAccordion(BoxLayout):
             # Update state and add state change to list
             self.accordion_item_states[accordion_item_id] = self.accordion_item_state(self.ids[accordion_item_id])
             changed_items.append(accordion_item_id)
-
-
 
     def init_cell_count(self):
         self._cell_count_popup = None

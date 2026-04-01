@@ -83,8 +83,6 @@ class ProtocolPostProcessingHelper:
 
         return pathlib.Path('-'.join(used_functions))
 
-
-
     def _find_protocol_tsvs(self, path: pathlib.Path) -> dict[str, pathlib.Path] | None:
 
         # If provided a file, change to the parent folder

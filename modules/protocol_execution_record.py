@@ -60,10 +60,6 @@ class ProtocolExecutionRecord:
     def _close_outfile(self):
         # Execution record is written in append mode; nothing to close
         pass
-        # if self._outfile_fp is None:
-        #     return
-        
-        # self._outfile_fp.close()
 
 
     def add_step(

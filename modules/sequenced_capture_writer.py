@@ -3,7 +3,6 @@ import queue
 import modules.image_utils as image_utils
 from modules.video_writer import VideoWriter
 import pathlib
-# from lvp_logger import logger
 import os
 import logging
 
@@ -190,8 +189,6 @@ def write_capture(
                     # Queue is not empty, delete it and force garbage collection
                     del video_images
 
-                        
-
                 else:
                     output_file_loc = save_folder / f"{name}.mp4v"
                     video_writer = VideoWriter(
@@ -210,7 +207,6 @@ def write_capture(
                     del video_images
 
                     video_writer.finish()
-                    #video_writer.test_video(str(output_file_loc))
                     del video_writer
                     
                     capture_result = output_file_loc

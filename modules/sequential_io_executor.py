@@ -515,6 +515,3 @@ class SequentialIOExecutor:
 
     def seconds_since_last_task(self) -> float:
         return time.monotonic() - self.last_task_done_monotonic
-
-
-

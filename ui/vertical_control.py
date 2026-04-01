@@ -180,7 +180,6 @@ class VerticalControl(BoxLayout):
         except Exception:
             return
         self.queue_slider_position_trigger()
-        #move_absolute_position('Z', pos)
 
     def queue_slider_position(self):
         ctx = _app_ctx.ctx
@@ -228,7 +227,6 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         pos = settings['bookmark']['z']
         ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Z', pos)))
-        #move_absolute_position('Z', pos)
 
     @debounce(1.0)
     def home(self):
@@ -241,7 +239,6 @@ class VerticalControl(BoxLayout):
             logger.error(f'[UI] home failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
             show_notification_popup(title="Error", message=str(e))
-        #move_home(axis='Z')
 
     def load_objective_from_settings(self):
         settings = _app_ctx.ctx.settings
@@ -321,9 +318,9 @@ class VerticalControl(BoxLayout):
             action=ctx.autofocus_executor.reset
         ))
 
-        # Resetting autofocus_executor before sequenced_capture_executor leads to possiblity of sequenced_capture accidentally re-starting AF. (sees it is finished, sequenced iterate is running, restarts AF)
-        # sequenced_capture_executor.reset()
-        # self._reset_run_autofocus_button()
+        # Resetting autofocus_executor before sequenced_capture_executor leads to possibility
+        # of sequenced_capture accidentally re-starting AF (sees it is finished, sequenced
+        # iterate is running, restarts AF). Reset order matters.
 
 
     def _autofocus_run_complete(self, **kwargs):
@@ -412,7 +409,6 @@ class VerticalControl(BoxLayout):
         active_layer, active_layer_config = get_active_layer_config()
         active_layer_config['autofocus'] = True
         active_layer_config['acquire'] = "image"
-        #curr_position = get_current_plate_position()
         ctx.io_executor.put(IOTask(
             action=get_current_plate_position,
             callback=self.intermediary_autofocus,
@@ -547,24 +543,6 @@ class VerticalControl(BoxLayout):
                 "video_as_frames":settings['video_as_frames']
             }
         ))
-        # sequenced_capture_executor.run(
-        #     protocol=autofocus_sequence,
-        #     run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS,
-        #     run_trigger_source=trigger_source,
-        #     max_scans=1,
-        #     sequence_name='af',
-        #     parent_dir=parent_dir,
-        #     image_capture_config=get_image_capture_config_from_ui(),
-        #     enable_image_saving=False,
-        #     disable_saving_artifacts=True,
-        #     separate_folder_per_channel=False,
-        #     autogain_settings=autogain_settings,
-        #     callbacks=callbacks,
-        #     return_to_position=None,
-        #     save_autofocus_data=save_autofocus_data,
-        #     leds_state_at_end="return_to_original",
-        #     video_as_frames=settings['video_as_frames']
-        # )
 
 
     @debounce(1.0)

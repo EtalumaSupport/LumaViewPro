@@ -28,7 +28,6 @@ class ProtocolFormatError(Exception):
     pass
 
 
-
 class Protocol:
 
     PROTOCOL_FILE_HEADER = "LumaViewPro Protocol"
@@ -156,8 +155,6 @@ class Protocol:
             return f"Error saving protocol to file {file_path}.\n File may be open in another window.\n"
         
         return None
-
-
 
     def optimize_step_ordering(self):
         steps = self.steps()
@@ -1468,8 +1465,6 @@ class Protocol:
             return True
         else:
             return False
-    
-        
 
     @classmethod
     def extract_data_from_step_name(cls, s):
