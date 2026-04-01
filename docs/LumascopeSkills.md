@@ -93,7 +93,11 @@ scope = Lumascope()
 # Simulated (no hardware needed)
 scope = Lumascope(simulate=True)
 
-# IDS camera instead of Basler Pylon
+# Auto-detect camera (default — tries Pylon first, then IDS)
+scope = Lumascope(camera_type="auto")
+
+# Force specific camera SDK
+scope = Lumascope(camera_type="pylon")
 scope = Lumascope(camera_type="ids")
 ```
 
@@ -609,7 +613,7 @@ A1_BF	60000	40000	5000	False	BF	False	100	10	False	50	1	10x Oly	A1		-1	False	-1	
 
 ## Testing
 
-**980 tests total** (958 passed, 20 skipped, 2 xfail) across 14 test files.
+**~1100+ tests** across 14+ test files.
 
 ```bash
 # Run all tests (no hardware needed)
