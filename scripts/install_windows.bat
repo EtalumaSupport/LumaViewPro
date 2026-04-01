@@ -1,9 +1,10 @@
 @echo off
 REM LumaViewPro Windows install script
-REM Scans for Python 3.11-3.13, creates a venv, installs dependencies.
+REM Scans for Python 3.11-3.13, installs dependencies.
 REM
-REM Usage: Double-click or run from command prompt.
-REM After install, use run.bat to launch LumaViewPro.
+REM Usage:
+REM   install_windows.bat          Install into system Python (default)
+REM   install_windows.bat --venv   Install into a virtual environment
 
 setlocal
 
@@ -11,6 +12,10 @@ echo =========================================
 echo  LumaViewPro Installer
 echo =========================================
 echo.
+
+REM --- Parse arguments ---
+set "USE_VENV=0"
+if "%~1"=="--venv" set "USE_VENV=1"
 
 REM --- Find project root (parent of scripts/) ---
 pushd "%~dp0.."
@@ -34,7 +39,6 @@ exit /b 1
 :have_boot
 REM --- Run Python discovery helper ---
 REM _find_python.py prints the best Python command to stdout
-REM and informational messages to stderr
 %BOOT_PY% "%FIND_SCRIPT%" > "%TEMP%\lvp_python_cmd.txt" 2>nul
 set /p BEST_PY=<"%TEMP%\lvp_python_cmd.txt"
 del "%TEMP%\lvp_python_cmd.txt" >nul 2>nul
@@ -55,11 +59,59 @@ REM Show what we found
 echo Using: %BEST_PY%
 echo.
 
+if "%USE_VENV%"=="1" goto :venv_install
+
+REM =========================================
+REM  System Python install (default)
+REM =========================================
+echo Installing into system Python...
+echo.
+
+%BEST_PY% -m pip install --upgrade pip --quiet
+%BEST_PY% -m pip install -r "%PROJECT_DIR%\requirements.txt"
+if errorlevel 1 (
+    echo.
+    echo Error: pip install failed.
+    pause
+    exit /b 1
+)
+
+REM --- Verify installation ---
+echo.
+echo Verifying core packages...
+%BEST_PY% -c "import kivy; import numpy; import cv2; import serial; print('All core packages verified.')"
+if errorlevel 1 (
+    echo.
+    echo Warning: Some core packages failed to import. Check output above.
+)
+
+REM --- Create run.bat using system Python ---
+>"%PROJECT_DIR%\run.bat" (
+    echo @echo off
+    echo cd /d "%%~dp0"
+    echo %BEST_PY% lumaviewpro.py %%*
+)
+
+>"%PROJECT_DIR%\run_simulate.bat" (
+    echo @echo off
+    echo cd /d "%%~dp0"
+    echo %BEST_PY% lumaviewpro.py --simulate %%*
+)
+
+goto :done
+
+REM =========================================
+REM  Virtual environment install (--venv)
+REM =========================================
+:venv_install
+echo Installing into virtual environment...
+echo.
+
 REM --- Check for existing venv ---
 if exist "%VENV_DIR%\Scripts\python.exe" (
     echo Virtual environment already exists.
     echo Updating dependencies...
-    goto :install_deps
+    goto :venv_install_deps
 )
 
 REM --- Create virtual environment ---
@@ -71,7 +123,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:install_deps
+:venv_install_deps
 echo.
 echo Installing dependencies...
 call "%VENV_DIR%\Scripts\python" -m pip install --upgrade pip --quiet
@@ -92,7 +144,7 @@ if errorlevel 1 (
     echo Warning: Some core packages failed to import. Check output above.
 )
 
-REM --- Create run.bat in project root ---
+REM --- Create run.bat using venv Python ---
 >"%PROJECT_DIR%\run.bat" (
     echo @echo off
     echo cd /d "%%~dp0"
@@ -105,6 +157,7 @@ REM --- Create run.bat in project root ---
     echo call "%%~dp0venv\Scripts\python.exe" lumaviewpro.py --simulate %%*
 )
 
+:done
 echo.
 echo =========================================
 echo  LumaViewPro installation complete!
