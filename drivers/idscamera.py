@@ -164,6 +164,11 @@ class IDSCamera(Camera):
                 self.set_pixel_format(preferred)
                 #TODO: auto gain
                 self.remote_nodemap.FindNode("ReverseX").SetValue(True)
+                # Ensure freerun mode (no external trigger)
+                try:
+                    self.remote_nodemap.FindNode("TriggerMode").SetCurrentEntry("Off")
+                except Exception:
+                    pass
                 # Disable frame rate target limiter (UserSetDefault caps at 10 fps)
                 try:
                     self.remote_nodemap.FindNode("AcquisitionFrameRateTargetEnable").SetValue(False)
