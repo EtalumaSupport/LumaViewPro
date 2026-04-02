@@ -111,19 +111,18 @@ class LEDBoard(SerialBoard):
             logger.warning('[LED Class ] leds_disable() got no response')
 
     def get_status(self):
-        command = 'STATUS'
-        return self.exchange_command(command)
+        # NOTE: LED firmware does not implement a STATUS command.
+        # This always returns "Command not recognized". Do not use.
+        # TODO: Add STATUS handler to LED firmware in 4.1, or remove this method.
+        logger.warning('[LED Class ] get_status() called but LED firmware has no STATUS command')
+        return None
 
     def wait_until_on(self, timeout: float = 5.0):
-        # Waits in loop until ledboard confirms that an LED is on (not turned off)
-
-        deadline = time.monotonic() + timeout
-        status = self.get_status()
-        while status is None or "STATUS" not in status:
-            if time.monotonic() > deadline:
-                logger.warning(f"[LED] wait_until_on() timed out after {timeout}s")
-                return
-            status = self.get_status()
+        # NOTE: Relies on get_status() which is not implemented in LED firmware.
+        # This always times out. Do not use.
+        # TODO: Implement in 4.1 with v3.1 protocol, or remove.
+        logger.warning('[LED Class ] wait_until_on() called but STATUS command not implemented in firmware')
+        return
 
     def get_led_ma(self, color):
         with self._state_lock:

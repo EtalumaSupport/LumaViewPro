@@ -1,10 +1,13 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import json
+import logging
 import pathlib
 
 import modules.labware as labware
 from modules.path_utils import resolve_data_file
+
+logger = logging.getLogger('LVP.modules.labware_loader')
 
 class LabwareLoader(object):
     """A class that stores and computes actions for objective labware"""
@@ -15,8 +18,22 @@ class LabwareLoader(object):
         self.z = 1
 
         # Load all Possible Labware from JSON
-        with open(resolve_data_file("labware.json", source_path=source_path), "r") as read_file:
-            self.labware = json.load(read_file)
+        filepath = resolve_data_file("labware.json", source_path=source_path)
+        try:
+            with open(filepath, "r") as read_file:
+                self.labware = json.load(read_file)
+        except FileNotFoundError:
+            logger.error(f'[Labware   ] labware.json not found at {filepath}')
+            raise RuntimeError(
+                f"Required file labware.json not found at {filepath}. "
+                "Please reinstall or restore from backup."
+            )
+        except json.JSONDecodeError as e:
+            logger.error(f'[Labware   ] labware.json is corrupt: {e}')
+            raise RuntimeError(
+                f"labware.json is corrupt ({e}). "
+                "Please restore from backup or reinstall."
+            )
         
 
 class SlideLoader(LabwareLoader):

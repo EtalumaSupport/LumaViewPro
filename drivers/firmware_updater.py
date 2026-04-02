@@ -154,6 +154,7 @@ BOARD_CONFIGS = {
             'xymotorconfig.ini',
             'ztmotorconfig.ini',
             'ztmotorconfig2.ini',
+            'ztmotorconfig3.ini',
         ],
         uf2_prefix='motor_firmware',
         bootsel_timeout=30.0,

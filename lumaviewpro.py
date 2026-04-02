@@ -495,7 +495,12 @@ class LumaViewProApp(TooltipMixin, App):
         # stage_executor and turret_executor are aliases for io_executor (already shut down above)
 
         if cpu_pool is not None:
-            cpu_pool.shutdown(wait=True)
+            # Use a thread with timeout to prevent blocking forever on shutdown
+            t = threading.Thread(target=lambda: cpu_pool.shutdown(wait=True), daemon=True)
+            t.start()
+            t.join(timeout=5.0)
+            if t.is_alive():
+                logger.warning('[LVP Main  ] cpu_pool.shutdown timed out after 5s')
 
         if reset_executor is not None:
             reset_executor.shutdown(wait=False)
@@ -786,6 +791,14 @@ class LumaViewProApp(TooltipMixin, App):
         self.shutdown_threads()
 
 
+        # Stop motors if any are moving
+        try:
+            if lumaview.scope.motor_connected:
+                lumaview.scope.motion.exchange_command('STOP')
+                logger.info('[LVP Main  ] Motors stopped')
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Motor stop failed during shutdown: {e}')
+
         logger.info("[LVP Main  ] lumaview.scope.leds_off()")
         try:
             # Use a thread with timeout to avoid blocking MainThread
@@ -798,9 +811,12 @@ class LumaViewProApp(TooltipMixin, App):
         except Exception as e:
             logger.warning(f'[LVP Main  ] leds_off failed during shutdown: {e}')
 
-        # Only save settings if hardware was connected this session.
-        # Without hardware, slider defaults (0.01ms) get written to current.json,
-        # corrupting the user's settings for the next real session.
+        # Save settings if hardware was connected this session.
+        # Without hardware, slider defaults (0.01ms exposure, etc.) get written
+        # to current.json, corrupting the user's real hardware settings.
+        # TODO 4.1: Split settings save so non-hardware values (folder paths,
+        # protocol config) are always saved, while hardware values (gain,
+        # exposure) are only saved when hardware was connected.
         if lumaview.scope.camera_is_connected() or lumaview.scope.motor_connected or lumaview.scope.led_connected:
             ctx.motion_settings.ids['microscope_settings_id'].save_settings("./data/current.json")
         else:

@@ -439,11 +439,13 @@ class TestLEDBoardCommands:
         board.leds_off_fast()
         board.driver.write.assert_called_with(b'LEDS_OFF\n')
 
-    def test_get_status_sends_status(self):
-        """get_status() should send 'STATUS\\n'."""
+    def test_get_status_returns_none(self):
+        """get_status() returns None — LED firmware has no STATUS command."""
         board = self._make_board()
-        board.get_status()
-        board.driver.write.assert_called_with(b'STATUS\n')
+        result = board.get_status()
+        assert result is None
+        # Should NOT send any serial command (STATUS not implemented in firmware)
+        board.driver.write.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1288,18 +1290,12 @@ class TestLEDNoneHandling:
         board.led_on(channel=3, mA=100, block=True)
         assert call_count[0] == 2
 
-    def test_wait_until_on_none_response_no_crash(self):
-        """wait_until_on must not crash when get_status returns None."""
+    def test_wait_until_on_returns_immediately(self):
+        """wait_until_on returns immediately — STATUS not implemented in firmware."""
         board = self._make_board()
-        call_count = [0]
-        def mock_exchange(cmd):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return None
-            return "RE: STATUS LED3:100mA"
-        board.exchange_command = mock_exchange
+        # Should return without sending any commands
         board.wait_until_on()
-        assert call_count[0] == 2
+        board.driver.write.assert_not_called()
 
 
 # ==========================================================================

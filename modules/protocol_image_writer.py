@@ -63,6 +63,8 @@ class ProtocolImageWriter:
         self._leds_off = leds_off_fn
         self._led_on = led_on_fn
         self._is_run_in_progress = is_run_in_progress_fn
+        self._consecutive_capture_failures = 0
+        self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
     def capture(
         self,
@@ -211,7 +213,8 @@ class ProtocolImageWriter:
                 )
 
                 if captured_image is False:
-                    logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} — camera inactive or frame drain failed")
+                    self._consecutive_capture_failures += 1
+                    logger.error(f"[PROTOCOL] Capture failed for step {curr_step} ({step.get('Name', '?')}), scan {scan_count} — camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})")
                     # Still record the step with "capture_failed" so the record isn't silently missing
                     self._file_io_executor.protocol_put(IOTask(
                         action=self.write_capture,
@@ -225,8 +228,14 @@ class ProtocolImageWriter:
                         }
                     ))
                     self._leds_off()
+                    if self._consecutive_capture_failures >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES:
+                        from modules.notification_center import notifications
+                        notifications.critical("Protocol", "Camera Failure",
+                            f"Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.")
+                        self._protocol_ended.set()
                     return
 
+                self._consecutive_capture_failures = 0  # Reset on success
                 logger.info(f"Protocol Image Captured: {name}")
 
                 self._file_io_executor.protocol_put(IOTask(
@@ -290,7 +299,9 @@ class ProtocolImageWriter:
                 if free_mb < 500:  # 500 MB floor
                     from modules.notification_center import notifications
                     notifications.critical("FileIO", "Disk Space Critical",
-                        f"Only {free_mb:.0f} MB free. Images may not save correctly.")
+                        f"Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.")
+                    self._protocol_ended.set()
+                    return
             except Exception:
                 pass  # If we can't check, proceed anyway
 

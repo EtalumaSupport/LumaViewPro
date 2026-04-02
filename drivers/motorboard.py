@@ -537,7 +537,7 @@ class MotorBoard(SerialBoard):
             position = int(response)
         except Exception as e:
             logger.warning(f'[XYZ Class ] target_pos({axis}) failed: {e}')
-            position = 0
+            return None
 
         if axis == 'Z':
             um = self.z_ustep2um(position)
@@ -548,7 +548,7 @@ class MotorBoard(SerialBoard):
         elif axis == 'T':
             return self.t_ustep2pos(position)
         else:
-            return 0
+            return None
 
     # Get current position (in um or position for Turret)
     def current_pos(self, axis):
@@ -559,7 +559,7 @@ class MotorBoard(SerialBoard):
             position = int(response)
         except Exception as e:
             logger.warning(f'[XYZ Class ] current_pos({axis}) failed: {e}')
-            position = 0
+            return None
 
         if axis == 'Z':
             um = self.z_ustep2um(position)
@@ -570,7 +570,7 @@ class MotorBoard(SerialBoard):
         elif axis == 'T':
             return self.t_ustep2pos(position)
         else:
-            return 0
+            return None
 
     # Move to absolute position (in um or degrees for Turret)
     def move_abs_pos(self, axis, pos, overshoot_enabled: bool=True, ignore_limits: bool=False):
@@ -596,20 +596,21 @@ class MotorBoard(SerialBoard):
 
             # if the current position is above the new target position
             # and 50um above the height of the backlash
-            if (current > pos) and (pos > (self.backlash+50)):
+            if current is not None and (current > pos) and (pos > (self.backlash+50)):
                 # In process of overshoot
                 with self._state_lock:
                     self.overshoot = True
-                # First overshoot downwards
-                overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
-                overshoot = max(1, overshoot)
-                #self.SPI_write (self.chip_pin[axis], self.write_target[axis], overshoot)
-                self.move(axis, overshoot)
-                while not self.target_status('Z'):
-                    time.sleep(0.02)  # 50Hz — matches motion monitor rate
-                # complete overshoot
-                with self._state_lock:
-                    self.overshoot = False
+                try:
+                    # First overshoot downwards
+                    overshoot = self.z_um2ustep(pos-self.backlash) # target minus backlash
+                    overshoot = max(1, overshoot)
+                    self.move(axis, overshoot)
+                    while not self.target_status('Z'):
+                        time.sleep(0.02)  # 50Hz — matches motion monitor rate
+                finally:
+                    # Always clear overshoot flag, even on disconnect/exception
+                    with self._state_lock:
+                        self.overshoot = False
 
         self.move(axis, steps)
 
@@ -619,6 +620,9 @@ class MotorBoard(SerialBoard):
 
         # Read target position in um
         pos = self.target_pos(axis)
+        if pos is None:
+            logger.warning(f'[XYZ Class ] move_rel_pos({axis}): cannot read position, skipping move')
+            return
         self.move_abs_pos(axis, pos+um, overshoot_enabled=overshoot_enabled)
 
     #----------------------------------------------------------

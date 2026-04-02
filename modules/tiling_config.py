@@ -15,9 +15,21 @@ class TilingConfig:
     }
 
     def __init__(self, tiling_configs_file_loc: pathlib.Path):
-
-        with open(tiling_configs_file_loc, "r") as fp:
-            self._available_configs = json.load(fp)
+        try:
+            with open(tiling_configs_file_loc, "r") as fp:
+                self._available_configs = json.load(fp)
+        except FileNotFoundError:
+            logger.error(f'[Tiling    ] tiling.json not found at {tiling_configs_file_loc}')
+            raise RuntimeError(
+                f"Required file tiling.json not found at {tiling_configs_file_loc}. "
+                "Please reinstall or restore from backup."
+            )
+        except json.JSONDecodeError as e:
+            logger.error(f'[Tiling    ] tiling.json is corrupt: {e}')
+            raise RuntimeError(
+                f"tiling.json is corrupt ({e}). "
+                "Please restore from backup or reinstall."
+            )
 
 
     def available_configs(self) -> list[str]:

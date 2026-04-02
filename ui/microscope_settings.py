@@ -36,12 +36,22 @@ class MicroscopeSettings(BoxLayout):
         super(MicroscopeSettings, self).__init__(**kwargs)
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
 
+        scopes_path = resolve_data_file("scopes.json")
         try:
-            with open(resolve_data_file("scopes.json"), "r") as read_file:
+            with open(scopes_path, "r") as read_file:
                 self.scopes = json.load(read_file)
-        except Exception:
-            logger.exception('[LVP Main  ] Unable to read scopes.json.')
-            raise
+        except FileNotFoundError:
+            logger.error(f'[LVP Main  ] scopes.json not found at {scopes_path}')
+            raise RuntimeError(
+                f"Required file scopes.json not found at {scopes_path}. "
+                "Please reinstall or restore from backup."
+            )
+        except json.JSONDecodeError as e:
+            logger.error(f'[LVP Main  ] scopes.json is corrupt: {e}')
+            raise RuntimeError(
+                f"scopes.json is corrupt ({e}). "
+                "Please restore from backup or reinstall."
+            )
 
         # try:
         #     os.chdir(source_path)

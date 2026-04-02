@@ -124,9 +124,19 @@ class Camera(ABC):
         Sets both flags together to avoid inconsistent state.
         Safe to call from any thread (including SDK callbacks).
         """
+        was_connected = False
         with self._state_lock:
+            was_connected = self._active is not None and not self._device_removed
             self._device_removed = True
             self._active = None
+        if was_connected:
+            logger.error('[CAM Class ] Camera disconnected')
+            try:
+                from modules.notification_center import notifications
+                notifications.error("Camera", "Camera Disconnected",
+                    "USB camera was removed. Reconnect and restart the app.")
+            except Exception:
+                pass  # Notification system may not be available during shutdown
 
     @abstractmethod
     def connect(self) -> bool:

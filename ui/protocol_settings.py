@@ -1191,8 +1191,7 @@ class ProtocolSettings(FloatLayout):
 
 
     def debug_func(self):
-        ctx = _app_ctx.ctx
-        logger.error(f"DEBUG VAL: {ctx.lumaview.scope.get_led_status()}")
+        pass
 
     def update_bf_af_for_fluorescence(self):
         """Toggle: use BF autofocus result for all fluorescence channels."""

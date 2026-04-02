@@ -34,6 +34,7 @@ INI_FILES = [
     "xymotorconfig.ini",
     "ztmotorconfig.ini",
     "ztmotorconfig2.ini",
+    "ztmotorconfig3.ini",
 ]
 
 

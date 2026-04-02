@@ -144,6 +144,7 @@ class Lumascope():
         # Camera
         self._image_buffer = None  # backing field for image_buffer property
         self._frame_buffer = None  # Pre-allocated buffer for get_image_from_buffer
+        self.camera = None  # Set before try block so attribute always exists
         try:
             if simulate:
                 self.camera: Camera = SimulatedCamera(
@@ -1712,6 +1713,9 @@ class Lumascope():
             logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
         except Exception:
             logger.exception("[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?")
+            notifications.error("FileIO", "Image Save Failed",
+                f"Failed to save image to {file_loc}. Check disk space and permissions.")
+            raise
 
         return file_loc
 
@@ -2058,10 +2062,22 @@ class Lumascope():
         #if not self.motion: return
         _api_log.info('zhome START')
         self._set_axis_state('Z', AxisState.HOMING)
-        with self.reference_position_logger():
-            self.motion.zhome()
-        self._set_axis_state('Z', AxisState.IDLE)
-        self.refresh_position_cache()
+        try:
+            with self.reference_position_logger():
+                result = self.motion.zhome()
+            if result is False:
+                logger.error('[SCOPE API ] Z homing failed')
+                notifications.error("Motion", "Homing Failed",
+                    "Z axis homing failed. Position is unknown.")
+                self._set_axis_state('Z', AxisState.UNKNOWN)
+                return
+            self._set_axis_state('Z', AxisState.IDLE)
+            self.refresh_position_cache()
+        except Exception:
+            logger.exception('[SCOPE API ] Z homing exception')
+            self._set_axis_state('Z', AxisState.UNKNOWN)
+            notifications.error("Motion", "Homing Error",
+                "Z axis homing encountered an error. Position is unknown.")
         _api_log.info('zhome DONE')
 
     def xyhome(self):
@@ -2070,15 +2086,29 @@ class Lumascope():
         _api_log.info('xyhome START')
         for ax in ('X', 'Y', 'Z'):
             self._set_axis_state(ax, AxisState.HOMING)
-        with self.reference_position_logger():
-            self.is_homing = True
-            self.motion.xyhome()
-        for ax in ('X', 'Y', 'Z'):
-            self._set_axis_state(ax, AxisState.IDLE)
-        self.refresh_position_cache()
+        self.is_homing = True
+        try:
+            with self.reference_position_logger():
+                result = self.motion.xyhome()
+            if result is False:
+                logger.error('[SCOPE API ] XY homing failed')
+                notifications.error("Motion", "Homing Failed",
+                    "XY homing failed. Position is unknown.")
+                for ax in ('X', 'Y', 'Z'):
+                    self._set_axis_state(ax, AxisState.UNKNOWN)
+                return
+            for ax in ('X', 'Y', 'Z'):
+                self._set_axis_state(ax, AxisState.IDLE)
+            self.refresh_position_cache()
+        except Exception:
+            logger.exception('[SCOPE API ] XY homing exception')
+            for ax in ('X', 'Y', 'Z'):
+                self._set_axis_state(ax, AxisState.UNKNOWN)
+            notifications.error("Motion", "Homing Error",
+                "XY homing encountered an error. Position is unknown.")
+        finally:
+            self.is_homing = False
         _api_log.info('xyhome DONE')
-
-        return
 
     def has_xyhomed(self):
         """Check if the XY axes have been homed since startup.
@@ -2175,7 +2205,8 @@ class Lumascope():
         positions = {}
         for ax in ('X', 'Y', 'Z', 'T'):
             try:
-                positions[ax] = self.motion.target_pos(axis=ax)
+                pos = self.motion.target_pos(axis=ax)
+                positions[ax] = pos if pos is not None else 0.0
             except Exception:
                 positions[ax] = 0.0
 
@@ -2328,7 +2359,8 @@ class Lumascope():
         """
         if not self.motor_connected:
             return 0.0
-        return self.motion.current_pos(axis)
+        pos = self.motion.current_pos(axis)
+        return pos if pos is not None else 0.0
 
     def set_motor_precision_mode(self, axis: str, enabled: bool):
         """Set motor precision mode for an axis.
@@ -2520,7 +2552,8 @@ class Lumascope():
             return -1
 
         try:
-            return self.motion.target_pos(axis)
+            pos = self.motion.target_pos(axis)
+            return pos if pos is not None else -1
         except Exception as e:
             logger.exception(f"[SCOPE API ] get_target_pos({axis}) failed; returning -1: {e}")
             return -1

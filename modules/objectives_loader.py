@@ -14,9 +14,22 @@ logger = logging.getLogger('LVP.modules.objectives_loader')
 class ObjectiveLoader:
 
     def __init__(self, *arg, source_path: str | pathlib.Path | None = None):
-
-        with open(resolve_data_file("objectives.json", source_path=source_path), "r") as read_file:
-            self._objectives = json.load(read_file)
+        filepath = resolve_data_file("objectives.json", source_path=source_path)
+        try:
+            with open(filepath, "r") as read_file:
+                self._objectives = json.load(read_file)
+        except FileNotFoundError:
+            logger.error(f'[Objectives] objectives.json not found at {filepath}')
+            raise RuntimeError(
+                f"Required file objectives.json not found at {filepath}. "
+                "Please reinstall or restore from backup."
+            )
+        except json.JSONDecodeError as e:
+            logger.error(f'[Objectives] objectives.json is corrupt: {e}')
+            raise RuntimeError(
+                f"objectives.json is corrupt ({e}). "
+                "Please restore from backup or reinstall."
+            )
 
         self._generate_short_names()
         self._objectives_df = pd.DataFrame.from_dict(self._objectives, orient='index')

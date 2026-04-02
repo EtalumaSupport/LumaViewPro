@@ -46,6 +46,8 @@ def load_settings(logger, filename, lvp_appdata):
             _validate_settings(settings, filepath, logger)
         except json.JSONDecodeError:
             logger.exception(f'[LVP Main  ] Incompatible JSON file for Microscope Settings: {filepath}')
+            settings = None
+            raise
         except Exception:
             logger.exception(f'[LVP Main  ] Unable to open file {filepath}')
             raise
@@ -58,7 +60,17 @@ def load_lvp_settings(logger, lvp_appdata):
     data_dir = os.path.join(lvp_appdata, "data")
 
     if os.path.exists(current_path):
-        load_settings(logger, current_path, lvp_appdata)
+        try:
+            load_settings(logger, current_path, lvp_appdata)
+        except (json.JSONDecodeError, ValueError):
+            # current.json is corrupt — fall back to settings.json
+            logger.warning(f'[Settings ] {current_path} is corrupt, falling back to settings.json')
+            settings = None
+            if os.path.exists(settings_path):
+                load_settings(logger, settings_path, lvp_appdata)
+            else:
+                raise FileNotFoundError(f'current.json corrupt and no settings.json fallback in {data_dir}')
+
     elif os.path.exists(settings_path):
         load_settings(logger, settings_path, lvp_appdata)
     else:
