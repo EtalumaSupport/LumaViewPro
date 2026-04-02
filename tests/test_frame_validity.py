@@ -97,9 +97,10 @@ class TestMultipleSources:
         fv = FrameValidity()
         for source in FrameValidity.SKIP_FRAMES:
             fv.invalidate(source)
-        assert fv.frames_until_valid() == 2
-        fv.count_frame()
-        fv.count_frame()
+        max_skip = max(FrameValidity.SKIP_FRAMES.values())
+        assert fv.frames_until_valid() == max_skip
+        for _ in range(max_skip):
+            fv.count_frame()
         assert fv.is_valid
         assert fv.pending_sources == {}
 
@@ -111,10 +112,11 @@ class TestMultipleSources:
         fv.invalidate('exposure')
         fv.invalidate('xy_move')
         fv.invalidate('z_move')
-        # All invalidated at frame 0, all need 2 frames
-        assert fv.frames_until_valid() == 2
-        fv.count_frame()
-        fv.count_frame()
+        # All invalidated at frame 0, max skip is exposure=3
+        max_skip = max(FrameValidity.SKIP_FRAMES.values())
+        assert fv.frames_until_valid() == max_skip
+        for _ in range(max_skip):
+            fv.count_frame()
         assert fv.is_valid
 
 
@@ -461,7 +463,7 @@ class TestLoadCameraTiming:
         }})
         assert fv.SKIP_FRAMES['led'] == 5
         assert fv.SKIP_FRAMES['gain'] == 2      # unchanged default
-        assert fv.SKIP_FRAMES['exposure'] == 2   # unchanged default
+        assert fv.SKIP_FRAMES['exposure'] == 3   # unchanged default (measured: 3 on a2A3536)
         assert fv.SKIP_FRAMES['z_move'] == 0
 
     def test_extra_config_keys_ignored(self):
