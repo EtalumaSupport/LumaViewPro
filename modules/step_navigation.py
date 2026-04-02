@@ -131,13 +131,13 @@ def go_to_step(
 
         def temp():
             layer_obj.ids['enable_led_btn'].state = 'down'
-            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=called_from_protocol)
 
         if not called_from_protocol and settings['protocol_led_on']:
             scope_commands.led_on(ctx.scope, io_executor, color, step['Illumination'])
             Clock.schedule_once(lambda dt: temp(), 0)
         else:
-            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
+            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=called_from_protocol)
 
 
         # Force stage crosshair + position text update after step navigation.
