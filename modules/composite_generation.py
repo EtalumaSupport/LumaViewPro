@@ -185,7 +185,7 @@ class CompositeGeneration(ProtocolPostProcessingExecutor):
                     continue
 
                 # Skip non-fluorescence layers
-                if layer not in ('Red', 'Green', 'Blue', 'Lumi'):
+                if layer not in common_utils.get_image_layers():
                     continue
 
                 f_image = images[row['Filepath']]

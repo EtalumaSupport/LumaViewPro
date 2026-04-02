@@ -121,7 +121,7 @@ class LayerControl(BoxLayout):
             return
         settings = ctx.settings
 
-        if self.layer in ['Red', 'Green', 'Blue'] and settings['stimulation_enabled']:
+        if self.layer in common_utils.get_fluorescence_layers() and settings['stimulation_enabled']:
             self.stimulation_support = True
             self.show_stim_controls = True
         else:
@@ -312,7 +312,7 @@ class LayerControl(BoxLayout):
                 # fluorescence channels where sub-ms is never realistic.
                 exp_min = self.ids['exp_slider'].min
                 exp_max = self.ids['exp_slider'].max
-                if self.layer in ('Red', 'Green', 'Blue', 'Lumi'):
+                if self.layer in common_utils.get_image_layers():
                     exp_min = max(exp_min, FLUORESCENCE_MIN_EXPOSURE_MS)
                 exp = float(np.clip(exp, exp_min, exp_max))
 

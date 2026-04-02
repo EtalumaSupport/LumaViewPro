@@ -344,7 +344,7 @@ class LumaViewProApp(TooltipMixin, App):
                 # Log initial per-channel settings for debugging
                 try:
                     settings = ctx.settings
-                    for layer in ('BF', 'PC', 'DF', 'Red', 'Green', 'Blue', 'Lumi'):
+                    for layer in common_utils.get_layers():
                         ls = settings.get(layer, {})
                         logger.info(
                             f'[INIT      ] {layer:6s}: gain={ls.get("gain", "?"):>6}, '

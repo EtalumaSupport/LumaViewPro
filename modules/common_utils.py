@@ -245,6 +245,11 @@ def get_luminescence_layers() -> list[str]:
     return ['Lumi']
 
 
+def get_image_layers() -> list[str]:
+    """Fluorescence + luminescence layers (false-color, displayed as colored images)."""
+    return get_fluorescence_layers() + get_luminescence_layers()
+
+
 def get_layers_with_led() -> list[str]:
     return get_transmitted_layers() + get_fluorescence_layers()
 

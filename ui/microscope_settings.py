@@ -648,7 +648,7 @@ class MicroscopeSettings(BoxLayout):
 
         # Update all layer controls
         for layer in common_utils.get_layers():
-            if layer in ['Red', 'Green', 'Blue']:
+            if layer in common_utils.get_fluorescence_layers():
                 layer_obj = _app_ctx.ctx.image_settings.layer_lookup(layer=layer)
                 if layer_obj:
                     if stimulation_enabled:
