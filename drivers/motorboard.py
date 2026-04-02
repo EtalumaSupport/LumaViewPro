@@ -89,6 +89,7 @@ class MotorBoard(SerialBoard):
             self._fullinfo = None
             self.initial_homing_complete = False
             self.initial_t_homing_complete = False
+        self._accel_cache = None
         logger.info('[XYZ Class ] Motor state cache cleared on disconnect')
 
     def connect(self):
@@ -175,7 +176,8 @@ class MotorBoard(SerialBoard):
             return {"model": "unknown", "serial_number": "unknown"}
         return {
             "model": model,
-            "serial_number": serial_number
+            "serial_number": serial_number,
+            "_raw": info,  # Cached raw response for detect_present_axes()
         }
 
 
@@ -187,12 +189,17 @@ class MotorBoard(SerialBoard):
     def detect_present_axes(self):
         """Detect which axes are present on this board.
 
-        Parses FULLINFO response for 'X present: True' etc.
+        Uses cached FULLINFO from connect() if available, avoiding
+        an unnecessary serial round-trip.
         Returns list of axis letters, e.g. ['X', 'Y', 'Z', 'T'] or ['Z', 'T'].
         """
-        resp = self.exchange_command('FULLINFO')
-        if resp is None:
-            return []
+        # Use cached fullinfo if available (set during connect)
+        with self._state_lock:
+            info = self._fullinfo
+        if info is not None:
+            resp = info.get('_raw', '')
+        else:
+            resp = self.exchange_command('FULLINFO') or ''
         axes = []
         for axis in ('X', 'Y', 'Z', 'T'):
             if f'{axis} present: True' in resp or f'{axis} present:True' in resp:
@@ -231,10 +238,19 @@ class MotorBoard(SerialBoard):
     # Acceleration control functions
     #----------------------------------------------------------
 
+    # Cache for acceleration limits — read once from firmware, reuse thereafter.
+    # Invalidated on reconnect via _on_disconnect().
+    _accel_cache: dict = None
+
     # Get single acceleration limit for a specific axis and parameter
     def acceleration_limit(self, axis: str, parameter: str) -> int:
         if not self._acceleration_validate_inputs(axis=axis, parameter=parameter):
             return 0
+
+        # Return cached value if available
+        cache_key = f"{axis}_{parameter}"
+        if self._accel_cache is not None and cache_key in self._accel_cache:
+            return self._accel_cache[cache_key]
 
         parameter_map = {
             'acceleration': 'A',
@@ -265,7 +281,14 @@ class MotorBoard(SerialBoard):
         else:
             logger.info(f'[XYZ Class ] MotorBoard.acceleration_limit({command}): {resp}')
 
-        return int(resp)
+        value = int(resp)
+
+        # Cache the result
+        if self._accel_cache is None:
+            self._accel_cache = {}
+        self._accel_cache[cache_key] = value
+
+        return value
 
 
     def _acceleration_validate_inputs(self, axis: str, parameter: str):
